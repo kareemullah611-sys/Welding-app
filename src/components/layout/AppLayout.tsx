@@ -1,17 +1,27 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import Sidebar from "@/components/layout/Sidebar";
+import Sidebar, { SidebarContext, useSidebar } from "@/components/layout/Sidebar";
 import { LangProvider, useLang } from "@/lib/lang";
+import { cn } from "@/lib/utils";
 
 function AppInner({ children }: { children: React.ReactNode }) {
   const { dir } = useLang();
+  const { collapsed } = useSidebar();
   const isRTL = dir === "rtl";
+
   return (
     <div className="min-h-screen bg-gray-50" dir={dir}>
       <Sidebar />
-      <main className={`${isRTL ? "lg:pr-60" : "lg:pl-60"} min-h-screen`}>
+      <main
+        className={cn(
+          "min-h-screen transition-all duration-200",
+          isRTL
+            ? collapsed ? "lg:pr-16" : "lg:pr-60"
+            : collapsed ? "lg:pl-16" : "lg:pl-60"
+        )}
+      >
         <div className="p-4 lg:p-6 pt-14 lg:pt-6 max-w-7xl mx-auto">
           {children}
         </div>
@@ -22,6 +32,7 @@ function AppInner({ children }: { children: React.ReactNode }) {
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
+  const [collapsed, setCollapsed] = useState(false);
 
   if (loading) {
     return (
@@ -41,7 +52,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <LangProvider>
-      <AppInner>{children}</AppInner>
+      <SidebarContext.Provider value={{ collapsed, setCollapsed }}>
+        <AppInner>{children}</AppInner>
+      </SidebarContext.Provider>
     </LangProvider>
   );
 }
