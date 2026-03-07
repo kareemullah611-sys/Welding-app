@@ -1,6 +1,5 @@
 // prisma/seed.ts
-// Run: npx ts-node prisma/seed.ts
-// This seeds the database with initial countries, currencies, a super admin user, and sample cities
+// Run: npx tsx prisma/seed.ts
 
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
@@ -46,7 +45,7 @@ async function main() {
 
   console.log("✅ Currencies: PKR, AFN, USD");
 
-  // 3. Cities
+  // 3. Cities (all 6)
   const karachi = await prisma.city.upsert({
     where: { countryId_name: { countryId: pakistan.id, name: "Karachi" } },
     update: {},
@@ -71,16 +70,32 @@ async function main() {
     create: { countryId: afghanistan.id, name: "Herat" },
   });
 
-  console.log("✅ Cities: Karachi, Lahore, Kabul, Herat");
+  const kandahar = await prisma.city.upsert({
+    where: { countryId_name: { countryId: afghanistan.id, name: "Kandahar" } },
+    update: {},
+    create: { countryId: afghanistan.id, name: "Kandahar" },
+  });
+
+  const weshBorder = await prisma.city.upsert({
+    where: { countryId_name: { countryId: afghanistan.id, name: "Wesh Border" } },
+    update: {},
+    create: { countryId: afghanistan.id, name: "Wesh Border" },
+  });
+
+  console.log("✅ Cities: Karachi, Lahore, Kabul, Herat, Kandahar, Wesh Border");
 
   // 4. City Currencies
   const cityCurrencyPairs = [
-    { cityId: karachi.id, currencyId: pkr.id },
-    { cityId: lahore.id, currencyId: pkr.id },
-    { cityId: kabul.id, currencyId: afn.id },
-    { cityId: kabul.id, currencyId: usd.id },
-    { cityId: herat.id, currencyId: afn.id },
-    { cityId: herat.id, currencyId: usd.id },
+    { cityId: karachi.id,   currencyId: pkr.id },
+    { cityId: lahore.id,    currencyId: pkr.id },
+    { cityId: kabul.id,     currencyId: afn.id },
+    { cityId: kabul.id,     currencyId: usd.id },
+    { cityId: herat.id,     currencyId: afn.id },
+    { cityId: herat.id,     currencyId: usd.id },
+    { cityId: kandahar.id,  currencyId: afn.id },
+    { cityId: kandahar.id,  currencyId: usd.id },
+    { cityId: weshBorder.id, currencyId: afn.id },
+    { cityId: weshBorder.id, currencyId: usd.id },
   ];
 
   for (const pair of cityCurrencyPairs) {
@@ -94,7 +109,7 @@ async function main() {
   console.log("✅ City-Currency mappings");
 
   // 5. Voucher sequences
-  for (const city of [karachi, lahore, kabul, herat]) {
+  for (const city of [karachi, lahore, kabul, herat, kandahar, weshBorder]) {
     await prisma.voucherSequence.upsert({
       where: { cityId: city.id },
       update: {},
@@ -123,58 +138,33 @@ async function main() {
   // 7. City Admin users
   const cityAdminPassword = await bcrypt.hash("city123", 12);
 
-  await prisma.user.upsert({
-    where: { username: "karachi_admin" },
-    update: {},
-    create: {
-      username: "karachi_admin",
-      passwordHash: cityAdminPassword,
-      fullName: "Karachi Admin",
-      role: "city_admin",
-      cityId: karachi.id,
-    },
-  });
+  const cityAdmins = [
+    { username: "karachi_admin",  fullName: "Karachi Admin",    cityId: karachi.id },
+    { username: "lahore_admin",   fullName: "Lahore Admin",     cityId: lahore.id },
+    { username: "kabul_admin",    fullName: "Kabul Admin",      cityId: kabul.id },
+    { username: "herat_admin",    fullName: "Herat Admin",      cityId: herat.id },
+    { username: "kandahar_admin", fullName: "Kandahar Admin",   cityId: kandahar.id },
+    { username: "wesh_admin",     fullName: "Wesh Border Admin", cityId: weshBorder.id },
+  ];
 
-  await prisma.user.upsert({
-    where: { username: "lahore_admin" },
-    update: {},
-    create: {
-      username: "lahore_admin",
-      passwordHash: cityAdminPassword,
-      fullName: "Lahore Admin",
-      role: "city_admin",
-      cityId: lahore.id,
-    },
-  });
+  for (const admin of cityAdmins) {
+    await prisma.user.upsert({
+      where: { username: admin.username },
+      update: {},
+      create: {
+        username: admin.username,
+        passwordHash: cityAdminPassword,
+        fullName: admin.fullName,
+        role: "city_admin",
+        cityId: admin.cityId,
+      },
+    });
+  }
 
-  await prisma.user.upsert({
-    where: { username: "kabul_admin" },
-    update: {},
-    create: {
-      username: "kabul_admin",
-      passwordHash: cityAdminPassword,
-      fullName: "Kabul Admin",
-      role: "city_admin",
-      cityId: kabul.id,
-    },
-  });
+  console.log("✅ City Admins: karachi_admin, lahore_admin, kabul_admin, herat_admin, kandahar_admin, wesh_admin / city123");
 
-  await prisma.user.upsert({
-    where: { username: "herat_admin" },
-    update: {},
-    create: {
-      username: "herat_admin",
-      passwordHash: cityAdminPassword,
-      fullName: "Herat Admin",
-      role: "city_admin",
-      cityId: herat.id,
-    },
-  });
-
-  console.log("✅ City Admins: karachi_admin, lahore_admin, kabul_admin, herat_admin / city123");
-
-  // 8. Sample Products
-  const products = ["Welding Rod 6013", "Welding Rod 7018", "Welding Wire MIG", "Welding Electrode 309L", "Welding Rod 6011"];
+  // 8. Products (your real product names)
+  const products = ["3.2mm", "7018-12", "5.0mm", "2.5mm", "7018-10", "4.0mm"];
   for (const name of products) {
     await prisma.product.upsert({
       where: { name },
@@ -183,15 +173,17 @@ async function main() {
     });
   }
 
-  console.log("✅ Products: 5 welding products");
+  console.log("✅ Products: 3.2mm, 7018-12, 5.0mm, 2.5mm, 7018-10, 4.0mm");
 
-  // 9. Sample Godowns
+  // 9. Godowns (all 7)
   const godownData = [
-    { cityId: karachi.id, name: "Karachi Main Warehouse" },
-    { cityId: karachi.id, name: "Karachi Port Godown" },
-    { cityId: lahore.id, name: "Lahore Central Godown" },
-    { cityId: kabul.id, name: "Kabul Main Godown" },
-    { cityId: herat.id, name: "Herat Warehouse" },
+    { cityId: karachi.id,    name: "Karachi Main Warehouse" },
+    { cityId: karachi.id,    name: "Karachi Port Godown" },
+    { cityId: lahore.id,     name: "Lahore Central Godown" },
+    { cityId: kabul.id,      name: "Kabul Main Godown" },
+    { cityId: herat.id,      name: "Herat Warehouse" },
+    { cityId: kandahar.id,   name: "Kandahar Main Godown" },
+    { cityId: weshBorder.id, name: "Wesh Border Godown" },
   ];
 
   for (const gd of godownData) {
@@ -202,22 +194,25 @@ async function main() {
     });
   }
 
-  console.log("✅ Godowns: 5 godowns across 4 cities");
+  console.log("✅ Godowns: 7 godowns across 6 cities");
 
-  // Seed default supplier
+  // 10. Default supplier
   await prisma.supplier.upsert({
     where: { id: 1 },
     update: {},
     create: { name: "Main Welding Company", country: "China", contact: "supplier@example.com", notes: "Primary welding materials supplier" },
   });
+
   console.log("✅ Default supplier created");
 
-  console.log("\n🎉 Seed complete! You can now login with:");
-  console.log("   Super Admin: superadmin / admin123");
-  console.log("   City Admin:  karachi_admin / city123");
-  console.log("                lahore_admin / city123");
-  console.log("                kabul_admin / city123");
-  console.log("                herat_admin / city123");
+  console.log("\n🎉 Seed complete! Login credentials:");
+  console.log("   superadmin     / admin123  (Super Admin)");
+  console.log("   karachi_admin  / city123");
+  console.log("   lahore_admin   / city123");
+  console.log("   kabul_admin    / city123");
+  console.log("   herat_admin    / city123");
+  console.log("   kandahar_admin / city123");
+  console.log("   wesh_admin     / city123");
 }
 
 main()
