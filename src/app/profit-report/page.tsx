@@ -1,0 +1,150 @@
+"use client";
+import React, { useState } from "react";
+import { apiCall } from "@/hooks/useApi";
+import { PageHeader, DataTable, StatsCard, formatNumber } from "@/components/ui";
+import { useLang } from "@/lib/lang";
+
+export default function ProfitReportPage() {
+  const { t } = useLang();
+  const [mode, setMode] = useState<"lot" | "period">("period");
+  const [lots, setLots] = useState<any[]>([]);
+  const [selectedLotId, setSelectedLotId] = useState(0);
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+
+  const loadLots = async () => { if (lots.length) return; const r = await apiCall("/api/v1/lots", { params: { limit: 100 } }); if (r.success) setLots(r.data as any[]); };
+
+  const generate = async () => {
+    setLoading(true); setData(null);
+    const params: any = {};
+    if (mode === "lot") { if (!selectedLotId) { alert("Select a lot"); setLoading(false); return; } params.lot_id = selectedLotId; }
+    else { params.year = year; }
+    const r = await apiCall("/api/v1/profit-report", { params });
+    if (r.success) setData(r.data);
+    setLoading(false);
+  };
+
+  return (
+    <div>
+      <PageHeader title={t("profit_report")} subtitle={t("profit_report_subtitle")} />
+      <div className="card mb-6">
+        <div className="flex flex-wrap gap-3 items-end">
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("report_type")}</label>
+            <select value={mode} onChange={e => { setMode(e.target.value as any); setData(null); }} className="select-field w-auto">
+              <option value="period">{t("year_end_pl")}</option><option value="lot">{t("per_lot")}</option>
+            </select></div>
+          {mode === "lot" && <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("lot")}</label>
+            <select value={selectedLotId} onChange={e => setSelectedLotId(parseInt(e.target.value))} className="select-field w-auto" onClick={loadLots}>
+              <option value={0}>Select</option>{lots.map(l => <option key={l.id} value={l.id}>{l.lotNumber} ({l.countryName})</option>)}
+            </select></div>}
+          {mode === "period" && <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("year")}</label>
+            <input type="number" value={year} onChange={e => setYear(parseInt(e.target.value))} className="input-field w-24" /></div>}
+          <button onClick={generate} disabled={loading} className="btn-primary text-sm">{loading ? t("loading") : t("generate")}</button>
+        </div>
+      </div>
+
+      {data && mode === "period" && <PeriodReport data={data} />}
+      {data && mode === "lot" && <LotReport data={data} />}
+    </div>
+  );
+}
+
+function PeriodReport({ data }: { data: any }) {
+  const { t } = useLang();
+  const pl = data.profitAndLoss;
+  return (
+    <>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        <StatsCard title={t("revenue_label")} value={formatNumber(pl.totalRevenue)} icon="🧾" color="blue" />
+        <StatsCard title={t("cost_of_goods")} value={formatNumber(pl.totalCOGS)} icon="📦" color="red" />
+        <StatsCard title={t("gross_profit_label")} value={formatNumber(pl.grossProfit)} icon="📈" color={pl.grossProfit >= 0 ? "green" : "red"} />
+        <StatsCard title={t("net_profit_label")} value={formatNumber(pl.netProfit)} icon="💰" color={pl.netProfit >= 0 ? "green" : "red"} />
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        <StatsCard title={t("gross_margin_label")} value={`${pl.grossMarginPercent}%`} icon="📊" color="blue" />
+        <StatsCard title={t("net_margin_label")} value={`${pl.netMarginPercent}%`} icon="📊" color="blue" />
+        <StatsCard title={t("cartons_sold_label")} value={formatNumber(data.cartonsSold)} icon="📦" color="blue" />
+        <StatsCard title={t("expenses")} value={formatNumber(pl.totalExpenses)} icon="💸" color="red" />
+      </div>
+
+      {data.supplierAccount && (
+        <div className="card mb-6">
+          <h3 className="text-sm font-semibold text-gray-500 mb-3">{t("supplier_account_label")}</h3>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-blue-50 rounded-lg p-3"><div className="text-xs text-gray-500">{t("purchased_label")}</div><div className="text-lg font-bold text-blue-700">${data.supplierAccount.totalPurchasedUsd.toLocaleString()}</div></div>
+            <div className="bg-green-50 rounded-lg p-3"><div className="text-xs text-gray-500">{t("paid_label")}</div><div className="text-lg font-bold text-green-700">${data.supplierAccount.totalPaidUsd.toLocaleString()}</div></div>
+            <div className={`rounded-lg p-3 ${data.supplierAccount.balanceOwedUsd > 0 ? "bg-red-50" : "bg-green-50"}`}><div className="text-xs text-gray-500">{t("balance_owed")}</div><div className={`text-lg font-bold ${data.supplierAccount.balanceOwedUsd > 0 ? "text-red-700" : "text-green-700"}`}>${data.supplierAccount.balanceOwedUsd.toLocaleString()}</div></div>
+          </div>
+        </div>
+      )}
+
+      <div className="card">
+        <h3 className="text-sm font-semibold text-gray-500 mb-3">{t("lot_breakdown")}</h3>
+        <DataTable columns={[
+          { key: "lotNumber", label: t("lot") },
+          { key: "country", label: t("country") },
+          { key: "landedCostPerCarton", label: t("cost_per_carton"), render: (l: any) => `$${l.landedCostPerCarton}` },
+          { key: "cartonsSold", label: t("sold"), render: (l: any) => formatNumber(l.cartonsSold) },
+          { key: "revenue", label: t("revenue"), render: (l: any) => formatNumber(l.revenue) },
+          { key: "cogs", label: t("cogs"), render: (l: any) => <span className="text-red-600">{formatNumber(l.cogs)}</span> },
+          { key: "grossProfit", label: t("gross_profit_label"), render: (l: any) => <span className={l.grossProfit >= 0 ? "text-green-600 font-medium" : "text-red-600 font-medium"}>{formatNumber(l.grossProfit)}</span> },
+          { key: "netProfit", label: t("net_profit_label"), render: (l: any) => <span className={l.netProfit >= 0 ? "text-green-700 font-bold" : "text-red-700 font-bold"}>{formatNumber(l.netProfit)}</span> },
+        ]} data={data.lotBreakdown || []} loading={false} />
+      </div>
+    </>
+  );
+}
+
+function LotReport({ data }: { data: any }) {
+  const { t } = useLang();
+  const cs = data.costSummary;
+  const ps = data.profitSummary;
+  return (
+    <>
+      <div className="mb-4 p-3 bg-gray-50 border rounded-lg text-sm">
+        <strong>{data.lot.lotNumber}</strong> — {data.lot.country} — {data.lot.lotDate} — {t("status")}: <span className={data.lot.status === "ongoing" ? "text-green-600" : "text-gray-500"}>{data.lot.status}</span>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
+        <StatsCard title={t("purchase_cost")} value={`$${formatNumber(cs.totalPurchaseUsd)}`} icon="📦" color="blue" />
+        <StatsCard title={t("additional_costs")} value={`$${formatNumber(cs.totalAdditionalCosts)}`} icon="💸" color="red" />
+        <StatsCard title={t("total_landed")} value={`$${formatNumber(cs.totalLandedCostUsd)}`} icon="🏷️" color="yellow" />
+        <StatsCard title={t("cartons")} value={formatNumber(cs.totalCartons)} icon="📦" color="blue" />
+        <StatsCard title={t("cost_per_carton")} value={`$${cs.landedCostPerCarton}`} icon="💰" color="green" />
+      </div>
+
+      {Object.keys(cs.costBreakdown).length > 0 && (
+        <div className="card mb-4">
+          <h3 className="text-sm font-semibold text-gray-500 mb-2">{t("cost_breakdown")}</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">{Object.entries(cs.costBreakdown).map(([type, amount]) => (
+            <div key={type} className="bg-gray-50 rounded p-2 text-sm"><div className="text-xs text-gray-500 capitalize">{type.replace(/_/g, " ")}</div><div className="font-medium">${(amount as number).toLocaleString()}</div></div>
+          ))}</div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+        <StatsCard title={t("revenue_label")} value={formatNumber(ps.totalRevenue)} icon="🧾" color="blue" />
+        <StatsCard title={t("cogs")} value={formatNumber(ps.totalCOGS)} icon="📦" color="red" />
+        <StatsCard title={t("gross_profit_label")} value={formatNumber(ps.totalGrossProfit)} icon="📈" color={ps.totalGrossProfit >= 0 ? "green" : "red"} />
+        <StatsCard title={t("expenses")} value={formatNumber(ps.totalExpenses)} icon="💸" color="red" />
+        <StatsCard title={t("net_profit_label")} value={formatNumber(ps.netProfit)} icon="💰" color={ps.netProfit >= 0 ? "green" : "red"} />
+        <StatsCard title={t("unsold_value")} value={`$${formatNumber(ps.unsoldInventoryValue)}`} icon="📋" color="yellow" />
+      </div>
+
+      <div className="card">
+        <h3 className="text-sm font-semibold text-gray-500 mb-3">{t("product_profitability")}</h3>
+        <DataTable columns={[
+          { key: "productName", label: t("product") },
+          { key: "qty", label: t("bought") },
+          { key: "landedCostPerCartonUsd", label: t("cost_per_carton"), render: (p: any) => `$${p.landedCostPerCartonUsd}` },
+          { key: "cartonsSold", label: t("sold") },
+          { key: "cartonsRemaining", label: t("remaining"), render: (p: any) => p.cartonsRemaining > 0 ? <span className="text-yellow-600">{p.cartonsRemaining}</span> : "0" },
+          { key: "revenue", label: t("revenue"), render: (p: any) => formatNumber(p.revenue) },
+          { key: "costOfGoodsSold", label: t("cogs"), render: (p: any) => <span className="text-red-600">{formatNumber(p.costOfGoodsSold)}</span> },
+          { key: "grossProfit", label: t("profit"), render: (p: any) => <span className={p.grossProfit >= 0 ? "text-green-600 font-bold" : "text-red-600 font-bold"}>{formatNumber(p.grossProfit)}</span> },
+        ]} data={data.productCosts || []} loading={false} />
+      </div>
+    </>
+  );
+}

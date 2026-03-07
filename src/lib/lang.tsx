@@ -1,0 +1,733 @@
+"use client";
+import React, { createContext, useContext, useState, useEffect } from "react";
+
+const translations: Record<string, Record<string, string>> = {
+  en: {
+    // Navigation
+    dashboard: "Dashboard", lots: "Lots", lot_costing: "Lot Costing", suppliers: "Suppliers",
+    company_payments: "Company Payments", agents: "Agents", country_ledger: "Country Ledger",
+    sales: "Sales", payments: "Payments", customers: "Customers", godowns: "Godowns",
+    inventory: "Inventory", city_transfers: "City Transfers", profit_report: "Profit Report",
+    financial_reports: "Financial Reports", reports: "Reports", search: "Search", settings: "Settings",
+    activity_feed: "Activity Feed",
+    // Common actions
+    create: "Create", edit: "Edit", delete: "Delete", save: "Save", cancel: "Cancel",
+    loading: "Loading...", submit: "Submit", close: "Close", confirm: "Confirm",
+    back: "Back", next: "Next", previous: "Previous", refresh: "Refresh",
+    deactivate: "Deactivate", reactivate: "Reactivate", view: "View", export: "Export",
+    filter: "Filter", clear: "Clear", apply: "Apply", yes: "Yes", no: "No",
+    // Common fields
+    name: "Name", phone: "Phone", address: "Address", amount: "Amount", date: "Date",
+    detail: "Detail", notes: "Notes", status: "Status", type: "Type", method: "Method",
+    description: "Description", currency: "Currency", city: "City", godown: "Godown",
+    customer: "Customer", product: "Product", lot: "Lot", actions: "Actions",
+    active: "Active", inactive: "Inactive", total: "Total",
+    ongoing: "Ongoing", completed: "Completed",
+    hard_delete_payments_only: "Permanent delete is only available for payments",
+    // Status & misc
+    outstanding: "Outstanding", paid: "Paid", balance: "Balance", profit: "Profit",
+    revenue: "Revenue", expenses: "Expenses", cost: "Cost", cartons: "Cartons",
+    distribute: "Distribute", view_sales: "View Sales", add_cost: "Add Cost",
+    payment: "Payment", expense: "Expense", haji_transfer: "Haji Transfer", withdrawal: "Withdrawal",
+    // Auth
+    login: "Login", logout: "Logout", username: "Username", password: "Password",
+    sign_in: "Sign In", signing_in: "Signing in...", sign_in_to_account: "Sign in to your account",
+    enter_username: "Enter your username", enter_password: "Enter your password",
+    login_failed: "Login failed",
+    // New record buttons
+    new_lot: "New Lot", new_sale: "New Sale", new_payment: "New Payment", new_customer: "New Customer",
+    // Messages
+    confirm_delete: "Are you sure you want to delete?", no_data: "No data found",
+    are_you_sure: "Are you sure?", success: "Success", error: "Error", warning: "Warning",
+    // Dashboard
+    cash_in_hand: "Cash In Hand", cartons_sold: "Cartons Sold", owed_to_haji: "Owed to Haji",
+    cash_position_breakdown: "Cash Position Breakdown", hide: "▲ Hide", show: "▼ Show",
+    cash_received: "Cash Received", cheques: "Cheques", bank_online: "Bank/Online",
+    direct_to_haji: "Direct to Haji", expenses_paid: "Expenses Paid", withdrawals: "Withdrawals",
+    haji_transfers: "Haji Transfers", ongoing_lots: "Ongoing Lots", recent_sales: "Recent Sales",
+    net_cash: "Net Cash", cash_position: "Cash Position", welcome: "Welcome",
+    // Sales
+    sale_date: "Sale Date", qty: "Qty", rate_per_carton: "Rate / Carton",
+    add_item: "Add Item", remove: "Remove", available: "Available",
+    cross_city_godown: "Cross-City Godown", stock: "Stock", items: "Items",
+    cancel_sale: "Cancel Sale", cancel_reason: "Cancel Reason", confirm_cancel: "Confirm Cancel",
+    discount: "Discount", discount_amount: "Discount Amount", apply_discount: "Apply Discount",
+    correct_sale: "Correct Sale", hard_delete: "Permanent Delete",
+    enter_admin_password: "Enter Admin 2FA Password", sale_items: "Sale Items",
+    subtotal: "Subtotal", from_date: "From", to_date: "To", all_statuses: "All Statuses",
+    cancelled: "Cancelled", marked_short: "Marked Short", lot_number: "Lot #",
+    sale_number: "Sale #", rate: "Rate", total_amount: "Total Amount",
+    // Customers
+    customer_ledger: "Customer Ledger", customer_info: "Customer Info",
+    transaction_history: "Transaction History", opening_balance: "Opening Balance",
+    closing_balance: "Closing Balance", debit: "Debit", credit: "Credit",
+    running_balance: "Running Balance",
+    // Payments
+    payment_date: "Payment Date", payment_method: "Payment Method",
+    cash: "Cash", cheque: "Cheque", bank_transfer: "Bank Transfer", online: "Online",
+    reference_no: "Reference #", new_payment_title: "New Payment",
+    // Reports
+    report_type: "Report Type", date_range: "Date Range", generate: "Generate",
+    city_ledger: "City Ledger", sales_report: "Sales Report", discount_history: "Discount History",
+    // Settings
+    general: "General", godown_access: "Godown Access", users: "Users",
+    currencies_tab: "Currencies", cities_tab: "Cities", products_tab: "Products",
+    // Inventory & Godowns
+    received: "Received", sold: "Sold", transferred_out: "Transferred Out",
+    transferred_in: "Transferred In", net_stock: "Net Stock",
+    // Lots
+    lot_num: "Lot Number", supplier: "Supplier", arrival_date: "Arrival Date",
+    total_cartons: "Total Cartons", distribute_to_city: "Distribute to City",
+    // Misc
+    page: "Page", of: "of", country: "Country", agent: "Agent",
+    search_customer: "Search customer...", no_customers_found: "No customers found",
+    select_godown: "Select godown", select_product: "Select product",
+    select_lot: "Select lot", select_currency: "Select currency",
+    godown_stock: "Godown Stock", loading_stock: "Loading stock...",
+    no_stock: "No stock available", select_godown_first: "Select a godown first",
+    password_required: "Password is required", reason_required: "Reason required",
+    permanent_delete_warning: "This will permanently delete all records. This cannot be undone.",
+    management_system: "Management System",
+    // Inventory
+    complete_stock_overview: "Complete Stock Overview", grand_total: "Grand Total Quantity",
+    cartons_across_godowns: "cartons across all godowns", stock_by_product: "Stock by Product",
+    stock_by_godown: "Stock by Godown", detailed_product_godown: "Detailed: Product × Godown",
+    no_stock_data: "No stock data",
+    // Financial reports
+    profit_loss: "Profit & Loss", receivables: "Receivables", payables: "Payables",
+    balance_sheet: "Balance Sheet", gross_profit: "Gross Profit", net_profit: "Net Profit",
+    cogs: "COGS", gross_margin: "Gross Margin", net_margin: "Net Margin",
+    expenses_breakdown: "Expenses Breakdown", total_expenses: "Total Expenses",
+    no_data_start: "No data yet. Start recording transactions.",
+    no_cash_transactions: "No cash transactions yet", no_receivables: "No outstanding receivables",
+    no_supplier_payables: "No supplier payables", no_agent_payables: "No agent payables",
+    customer_balances: "Customer Balances", supplier_payables: "Supplier Payables",
+    agent_payables: "Agent Payables (Customs, Transport)",
+    assets: "ASSETS (What you own)", liabilities: "LIABILITIES (What you owe)", equity: "EQUITY",
+    double_entry: "Double-entry accounting",
+    // Country ledger
+    total_sales: "Total Sales", payments_received: "Payments Received", sent_to_haji: "Sent to Haji",
+    city_breakdown: "City Breakdown", in_hand_breakdown: "In-Hand Breakdown:",
+    financial_overview: "Financial overview by country",
+    // Activity feed
+    auto_refresh: "Auto-refresh", no_activity: "No activity yet.",
+    today: "Today", yesterday: "Yesterday", just_now: "just now",
+    // New record buttons
+    new_supplier: "New Supplier", new_agent: "New Agent", new_godown: "New Godown",
+    // Common new keys
+    approve: "Approve", reject: "Reject", approve_receive: "Approve & Receive",
+    send_goods: "Send Goods", pending: "Pending", approved: "Approved", rejected: "Rejected",
+    save_distribution: "Save Distribution", pay_agent: "Pay Agent", record_payment: "Record Payment",
+    balance_owed: "Balance Owed", total_purchased: "Total Purchased", total_paid: "Total Paid",
+    purchase_prices: "Purchase Prices (USD)", additional_costs: "Additional Costs",
+    exchange_rate: "Exchange Rate", unit_price: "Unit Price", reference: "Reference",
+    voucher: "Voucher", godown_name: "Godown Name", sent_by: "Sent By",
+    super_admin_only: "Super Admin only.", charged: "Charged",
+    all_cities: "All Cities", all_customers: "All Customers",
+    from: "From", to: "To", records: "Records", print: "Print", csv: "CSV",
+    to_haji: "To Haji", in_hand: "In-Hand", haji_settlement: "Haji Settlement",
+    discounts_given: "Discounts Given", sale_voucher: "Sale Voucher",
+    bought: "Bought", remaining: "Remaining", cost_per_carton: "Cost/Carton",
+    purchase_cost: "Purchase Cost", total_landed: "Total Landed", unsold_value: "Unsold Value",
+    cost_breakdown: "Cost Breakdown", product_profitability: "Product-Level Profitability",
+    lot_by_lot: "Lot-by-Lot Breakdown", supplier_account: "Supplier Account (USD)",
+    year: "Year", per_lot: "Per Lot", year_end_pl: "Year-End P&L",
+    report_generate_subtitle: "Generate and export reports",
+    profit_report_subtitle: "Track profitability per lot and year-end P&L",
+    lot_costing_subtitle: "Track purchase prices and landing costs per shipment",
+    no_purchases: "No purchases recorded", no_costs: "No costs recorded",
+    no_godowns: "No godowns available for this city",
+    select_city: "Select city", from_godown: "From Godown", to_city_label: "Send To City",
+    store_in_godown: "Store in Godown", incoming_transfers: "incoming transfer(s) awaiting your approval",
+    send_goods_note: "Goods will be deducted from your godown after the receiving city approves.",
+    gross_profit_label: "Gross Profit", net_profit_label: "Net Profit",
+    revenue_label: "Revenue", cost_of_goods: "Cost of Goods",
+    gross_margin_label: "Gross Margin", net_margin_label: "Net Margin",
+    cartons_sold_label: "Cartons Sold", supplier_account_label: "Supplier Account (USD)",
+    purchased_label: "Purchased", paid_label: "Paid",
+    lot_breakdown: "Lot-by-Lot Breakdown", product_label: "Product",
+    debit_usd: "Debit (USD)", credit_usd: "Credit (USD)",
+    // Suppliers / Payments / Agents
+    company_accounts_subtitle: "Company accounts", purchases: "Purchases", ledger: "Ledger",
+    contact: "Contact", payments_to_supplier_subtitle: "Payments to supplier (USD)",
+    amount_usd: "Amount (USD)", fx_rate: "FX Rate", local_amount: "Local Amount",
+    lot_optional: "Lot (optional)", record_payment_to_company: "Record Payment to Company",
+    record: "Record", edit_payment: "Edit Payment",
+    agents_subtitle: "Customs agents, transport companies", city_port: "City/Port",
+    // City transfers
+    send: "Send", send_goods_to_city: "Send Goods to Another City", approve_transfer: "Approve Transfer",
+    // Search
+    search_subtitle: "Search across all records", category: "Category",
+    searching: "Searching...", all: "All", products: "Products",
+    no_results_found: "No results found",
+    // Settings
+    settings_subtitle: "Manage users, products, cities & sessions",
+    new_user: "New User", role: "Role", super_admin: "Super Admin", city_admin: "City Admin",
+    reset_pw: "Reset PW", activate: "Activate", full_name: "Full Name",
+    reset_password: "Reset Password", new_product: "New Product",
+    cannot_delete_product: "Cannot delete product", currencies: "Currencies",
+    cross_city_access: "Cross-City Godown Access",
+    active_sessions: "active session(s)", revoke_all: "Revoke all other sessions",
+    no_sessions: "No active sessions found", current: "Current",
+    revoking: "Revoking...", revoke: "Revoke", cities: "Cities", sessions: "Sessions", by: "By",
+    // Haji transfers / Expenses / Withdrawals pages
+    record_haji_transfer: "Record Haji Transfer", edit_transfer: "Edit Transfer",
+    from_in_hand: "From In-Hand", direct_transfer: "Direct", auto_fifo: "Auto (FIFO)",
+    record_expense: "Record Expense", edit_expense: "Edit Expense",
+    personal_withdrawals: "Personal Withdrawals",
+    record_withdrawal: "Record Withdrawal", edit_withdrawal: "Edit Withdrawal",
+    deducted_from: "Deducted From",
+    expenses_cash_note: "Expenses are deducted from your in-hand cash balance.",
+    withdrawals_cash_note: "Withdrawals are deducted from in-hand cash.",
+    deducted_from_cash_note: "This will be deducted from your Cash In Hand.",
+    total_withdrawn: "Total withdrawn",
+    // Payments page specific
+    destination: "Destination", our_account: "Our Account",
+    exchange_rate_afn: "Exchange Rate (AFN per $1)",
+    usd_equivalent_label: "USD equivalent",
+    permanently_delete: "Permanently Delete", deleting: "Deleting...",
+    enter_password_confirm: "Enter your password to confirm",
+    cannot_undo: "This action cannot be undone.",
+    admin_password_placeholder: "Your admin password",
+    haji_label: "Haji",
+    // Payments page tabs / btn labels
+    tab_payments: "💰 Payments", tab_expenses: "💸 Expenses",
+    tab_haji: "↗️ Haji Transfers", tab_withdrawals: "🏦 Withdrawals",
+    add_payment: "+ Payment", add_expense: "+ Expense",
+    add_haji_transfer: "+ Haji Transfer", add_withdrawal: "+ Withdrawal",
+    new_expense_title: "New Expense", new_haji_title: "New Haji Transfer",
+    new_withdrawal_title: "New Withdrawal",
+    // Lot costing cost types
+    cost_type_freight: "🚢 Freight/Shipping", cost_type_customs: "🏛️ Customs Duty",
+    cost_type_port: "⚓ Port Charges", cost_type_transport: "🚚 Transport",
+    cost_type_loading: "📦 Loading/Unloading", cost_type_insurance: "🛡️ Insurance",
+    cost_type_other: "📋 Other",
+    // select placeholder
+    select: "Select",
+    and: "and",
+    // Balance display
+    owes: "Owes", we_owe: "We owe", settled: "Settled",
+    // Lots page
+    assign_to_godowns: "Assign to Godowns",
+    confirm_complete: "Mark as completed?", confirm_reopen: "Reopen this lot?",
+    confirm_deactivate_customer: "Deactivate this customer? They won't appear in new sales or payment dropdowns.",
+    confirm_reactivate_customer: "Reactivate this customer? They will appear in sales and payment dropdowns again.",
+    voucher_hash: "Voucher #",
+    // Godown confirmation dialogs
+    confirm_deactivate_godown: "Deactivate this godown?",
+    confirm_delete_godown: "Permanently delete this godown? This cannot be undone.",
+    // City transfers
+    transfers: "Transfers",
+    reason_for_rejection: "Reason for rejection?",
+    fill_required_fields: "Fill all required fields",
+    // Supplier payments
+    general_not_linked: "General (not linked)",
+    tt_payment: "TT (Telegraphic)",
+    lc_payment: "LC (Letter of Credit)",
+    other: "Other",
+    confirm_delete_payment: "Delete this payment?",
+    // Lot costing
+    confirm_delete_cost: "Delete this cost?",
+    fill_all_fields: "Fill all fields",
+    fill_description_amount: "Fill description and amount",
+  },
+  ur: {
+    // Navigation
+    dashboard: "ڈیش بورڈ", lots: "لاٹ", lot_costing: "لاٹ لاگت", suppliers: "سپلائرز",
+    company_payments: "کمپنی ادائیگیاں", agents: "ایجنٹس", country_ledger: "ملکی کھاتہ",
+    sales: "فروخت", payments: "ادائیگیاں", customers: "گاہک", godowns: "گودام",
+    inventory: "انوینٹری", city_transfers: "شہر ٹرانسفر", profit_report: "منافع رپورٹ",
+    financial_reports: "مالی رپورٹیں", reports: "رپورٹیں", search: "تلاش", settings: "ترتیبات",
+    activity_feed: "سرگرمی فیڈ",
+    // Common actions
+    create: "بنائیں", edit: "ترمیم", delete: "حذف", save: "محفوظ", cancel: "منسوخ",
+    loading: "لوڈ ہو رہا ہے...", submit: "جمع کرائیں", close: "بند کریں", confirm: "تصدیق",
+    back: "واپس", next: "اگلا", previous: "پچھلا", refresh: "تازہ کریں",
+    deactivate: "غیر فعال کریں", reactivate: "فعال کریں", view: "دیکھیں", export: "برآمد",
+    filter: "فلٹر", clear: "صاف", apply: "لگائیں", yes: "ہاں", no: "نہیں",
+    // Common fields
+    name: "نام", phone: "فون", address: "پتہ", amount: "رقم", date: "تاریخ",
+    detail: "تفصیل", notes: "نوٹس", status: "حالت", type: "قسم", method: "طریقہ",
+    description: "تفصیل", currency: "کرنسی", city: "شہر", godown: "گودام",
+    customer: "گاہک", product: "پروڈکٹ", lot: "لاٹ", actions: "عمل",
+    active: "فعال", inactive: "غیر فعال", total: "کل",
+    ongoing: "جاری", completed: "مکمل",
+    hard_delete_payments_only: "مستقل حذف صرف ادائیگیوں کے لیے دستیاب ہے",
+    // Status & misc
+    outstanding: "واجب الادا", paid: "ادا شدہ", balance: "بیلنس", profit: "منافع",
+    revenue: "آمدنی", expenses: "اخراجات", cost: "لاگت", cartons: "کارٹن",
+    distribute: "تقسیم", view_sales: "فروخت دیکھیں", add_cost: "لاگت شامل کریں",
+    payment: "ادائیگی", expense: "خرچ", haji_transfer: "حاجی ٹرانسفر", withdrawal: "واپسی",
+    // Auth
+    login: "لاگ ان", logout: "لاگ آؤٹ", username: "صارف نام", password: "پاس ورڈ",
+    sign_in: "سائن ان", signing_in: "سائن ان ہو رہا ہے...", sign_in_to_account: "اپنے اکاؤنٹ میں سائن ان کریں",
+    enter_username: "اپنا صارف نام درج کریں", enter_password: "اپنا پاس ورڈ درج کریں",
+    login_failed: "لاگ ان ناکام ہوا",
+    // New record buttons
+    new_lot: "نیا لاٹ", new_sale: "نئی فروخت", new_payment: "نئی ادائیگی", new_customer: "نیا گاہک",
+    // Messages
+    confirm_delete: "کیا آپ واقعی حذف کرنا چاہتے ہیں؟", no_data: "کوئی ڈیٹا نہیں ملا",
+    are_you_sure: "کیا آپ یقین رکھتے ہیں؟", success: "کامیاب", error: "خرابی", warning: "انتباہ",
+    // Dashboard
+    cash_in_hand: "نقد رقم", cartons_sold: "فروخت شدہ کارٹن", owed_to_haji: "حاجی کا واجب الادا",
+    cash_position_breakdown: "نقد تفصیل", hide: "▲ چھپائیں", show: "▼ دکھائیں",
+    cash_received: "وصول شدہ نقد", cheques: "چیک", bank_online: "بینک/آنلائن",
+    direct_to_haji: "براہ راست حاجی کو", expenses_paid: "ادا شدہ اخراجات", withdrawals: "نکالی گئی رقم",
+    haji_transfers: "حاجی ٹرانسفر", ongoing_lots: "جاری لاٹ", recent_sales: "حالیہ فروخت",
+    net_cash: "خالص نقد", cash_position: "نقد پوزیشن", welcome: "خوش آمدید",
+    // Sales
+    sale_date: "فروخت کی تاریخ", qty: "تعداد", rate_per_carton: "فی کارٹن ریٹ",
+    add_item: "آئٹم شامل کریں", remove: "ہٹائیں", available: "دستیاب",
+    cross_city_godown: "دوسرے شہر کا گودام", stock: "اسٹاک", items: "آئٹمز",
+    cancel_sale: "فروخت منسوخ کریں", cancel_reason: "منسوخی کی وجہ", confirm_cancel: "منسوخی کی تصدیق",
+    discount: "چھوٹ", discount_amount: "چھوٹ کی رقم", apply_discount: "چھوٹ لگائیں",
+    correct_sale: "فروخت درست کریں", hard_delete: "مستقل حذف",
+    enter_admin_password: "ایڈمن 2FA پاس ورڈ درج کریں", sale_items: "فروخت کے آئٹمز",
+    subtotal: "ذیلی کل", from_date: "سے", to_date: "تک", all_statuses: "تمام حالتیں",
+    cancelled: "منسوخ شدہ", marked_short: "کمی نشان زد", lot_number: "لاٹ نمبر",
+    sale_number: "فروخت نمبر", rate: "ریٹ", total_amount: "کل رقم",
+    // Customers
+    customer_ledger: "گاہک کھاتہ", customer_info: "گاہک کی معلومات",
+    transaction_history: "لین دین کی تاریخ", opening_balance: "ابتدائی بیلنس",
+    closing_balance: "اختتامی بیلنس", debit: "ڈیبٹ", credit: "کریڈٹ",
+    running_balance: "چلتا بیلنس",
+    // Payments
+    payment_date: "ادائیگی کی تاریخ", payment_method: "ادائیگی کا طریقہ",
+    cash: "نقد", cheque: "چیک", bank_transfer: "بینک ٹرانسفر", online: "آنلائن",
+    reference_no: "حوالہ نمبر", new_payment_title: "نئی ادائیگی",
+    // Reports
+    report_type: "رپورٹ کی قسم", date_range: "تاریخ کی حد", generate: "بنائیں",
+    city_ledger: "شہر کھاتہ", sales_report: "فروخت رپورٹ", discount_history: "چھوٹ کی تاریخ",
+    // Settings
+    general: "عمومی", godown_access: "گودام رسائی", users: "صارفین",
+    currencies_tab: "کرنسیاں", cities_tab: "شہر", products_tab: "پروڈکٹس",
+    // Inventory & Godowns
+    received: "وصول", sold: "فروخت", transferred_out: "باہر ٹرانسفر",
+    transferred_in: "اندر ٹرانسفر", net_stock: "خالص اسٹاک",
+    // Lots
+    lot_num: "لاٹ نمبر", supplier: "سپلائر", arrival_date: "آمد کی تاریخ",
+    total_cartons: "کل کارٹن", distribute_to_city: "شہر میں تقسیم کریں",
+    // Misc
+    page: "صفحہ", of: "کا", country: "ملک", agent: "ایجنٹ",
+    search_customer: "گاہک تلاش کریں...", no_customers_found: "کوئی گاہک نہیں ملا",
+    select_godown: "گودام منتخب کریں", select_product: "پروڈکٹ منتخب کریں",
+    select_lot: "لاٹ منتخب کریں", select_currency: "کرنسی منتخب کریں",
+    godown_stock: "گودام اسٹاک", loading_stock: "اسٹاک لوڈ ہو رہا ہے...",
+    no_stock: "کوئی اسٹاک دستیاب نہیں", select_godown_first: "پہلے گودام منتخب کریں",
+    password_required: "پاس ورڈ ضروری ہے", reason_required: "وجہ ضروری ہے",
+    permanent_delete_warning: "یہ تمام ریکارڈ مستقل طور پر حذف کر دے گا۔ اسے واپس نہیں کیا جا سکتا۔",
+    management_system: "مینجمنٹ سسٹم",
+    // Inventory
+    complete_stock_overview: "مکمل اسٹاک جائزہ", grand_total: "کل مجموعی مقدار",
+    cartons_across_godowns: "تمام گوداموں میں کارٹن", stock_by_product: "پروڈکٹ کے مطابق اسٹاک",
+    stock_by_godown: "گودام کے مطابق اسٹاک", detailed_product_godown: "تفصیل: پروڈکٹ × گودام",
+    no_stock_data: "کوئی اسٹاک ڈیٹا نہیں",
+    // Financial reports
+    profit_loss: "منافع و نقصان", receivables: "قابل وصول", payables: "قابل ادائیگی",
+    balance_sheet: "بیلانس شیٹ", gross_profit: "مجموعی منافع", net_profit: "خالص منافع",
+    cogs: "فروخت کی لاگت", gross_margin: "مجموعی مارجن", net_margin: "خالص مارجن",
+    expenses_breakdown: "اخراجات کی تفصیل", total_expenses: "کل اخراجات",
+    no_data_start: "ابھی کوئی ڈیٹا نہیں۔ لین دین ریکارڈ کرنا شروع کریں۔",
+    no_cash_transactions: "ابھی کوئی نقد لین دین نہیں", no_receivables: "کوئی قابل وصول رقم نہیں",
+    no_supplier_payables: "کوئی سپلائر ادائیگی نہیں", no_agent_payables: "کوئی ایجنٹ ادائیگی نہیں",
+    customer_balances: "گاہک بیلانس", supplier_payables: "سپلائر ادائیگیاں",
+    agent_payables: "ایجنٹ ادائیگیاں (کسٹمز، ٹرانسپورٹ)",
+    assets: "اثاثے (جو آپ کے پاس ہے)", liabilities: "ذمہ داریاں (جو آپ نے دینا ہے)", equity: "ایکویٹی",
+    double_entry: "دوہری اندراج محاسبہ",
+    // Country ledger
+    total_sales: "کل فروخت", payments_received: "وصول شدہ ادائیگیاں", sent_to_haji: "حاجی کو بھیجا",
+    city_breakdown: "شہر کی تفصیل", in_hand_breakdown: "لاسی تفصیل:",
+    financial_overview: "ملک کے مطابق مالی جائزہ",
+    // Activity feed
+    auto_refresh: "خودکار تازہ کاری", no_activity: "ابھی کوئی سرگرمی نہیں۔",
+    today: "آج", yesterday: "کل", just_now: "ابھی",
+    // New record buttons
+    new_supplier: "نیا سپلائر", new_agent: "نیا ایجنٹ", new_godown: "نیا گودام",
+    // Common new keys
+    approve: "منظور", reject: "رد", approve_receive: "منظور کریں اور وصول کریں",
+    send_goods: "مال بھیجیں", pending: "زیر التواء", approved: "منظور شدہ", rejected: "رد شدہ",
+    save_distribution: "تقسیم محفوظ کریں", pay_agent: "ایجنٹ کو ادا کریں", record_payment: "ادائیگی ریکارڈ کریں",
+    balance_owed: "واجب الادا بیلانس", total_purchased: "کل خریداری", total_paid: "کل ادائیگی",
+    purchase_prices: "خریداری کی قیمتیں (USD)", additional_costs: "اضافی اخراجات",
+    exchange_rate: "تبادلہ نرخ", unit_price: "فی اکائی قیمت", reference: "حوالہ",
+    voucher: "واؤچر", godown_name: "گودام کا نام", sent_by: "بھیجنے والا",
+    super_admin_only: "صرف سپر ایڈمن۔", charged: "وصول شدہ",
+    all_cities: "تمام شہر", all_customers: "تمام گاہک",
+    from: "سے", to: "تک", records: "ریکارڈز", print: "پرنٹ", csv: "CSV",
+    to_haji: "حاجی کو", in_hand: "لاسی", haji_settlement: "حاجی تصفیہ",
+    discounts_given: "دی گئی چھوٹ", sale_voucher: "فروخت واؤچر",
+    bought: "خریدا", remaining: "باقی", cost_per_carton: "فی کارٹن لاگت",
+    purchase_cost: "خریداری کی لاگت", total_landed: "کل لینڈڈ", unsold_value: "غیر فروخت قدر",
+    cost_breakdown: "لاگت کی تفصیل", product_profitability: "پروڈکٹ کی منافع بخشی",
+    lot_by_lot: "لاٹ بہ لاٹ تفصیل", supplier_account: "سپلائر اکاؤنٹ (USD)",
+    year: "سال", per_lot: "فی لاٹ", year_end_pl: "سال اختتام منافع و نقصان",
+    report_generate_subtitle: "رپورٹیں بنائیں اور برآمد کریں",
+    profit_report_subtitle: "فی لاٹ منافع اور سالانہ ٹریک کریں",
+    lot_costing_subtitle: "خریداری قیمتیں اور لینڈنگ اخراجات ٹریک کریں",
+    no_purchases: "کوئی خریداری ریکارڈ نہیں", no_costs: "کوئی اخراجات ریکارڈ نہیں",
+    no_godowns: "اس شہر کے لیے کوئی گودام نہیں",
+    select_city: "شہر منتخب کریں", from_godown: "گودام سے", to_city_label: "شہر کو بھیجیں",
+    store_in_godown: "گودام میں رکھیں", incoming_transfers: "آنے والی ترسیل آپ کی منظوری کا انتظار کر رہی ہے",
+    send_goods_note: "منظوری کے بعد مال آپ کے گودام سے کاٹا جائے گا۔",
+    gross_profit_label: "مجموعی منافع", net_profit_label: "خالص منافع",
+    revenue_label: "آمدنی", cost_of_goods: "مال کی لاگت",
+    gross_margin_label: "مجموعی مارجن", net_margin_label: "خالص مارجن",
+    cartons_sold_label: "فروخت شدہ کارٹن", supplier_account_label: "سپلائر اکاؤنٹ (USD)",
+    purchased_label: "خریدا گیا", paid_label: "ادا شدہ",
+    lot_breakdown: "لاٹ بہ لاٹ تفصیل", product_label: "پروڈکٹ",
+    debit_usd: "ڈیبٹ (USD)", credit_usd: "کریڈٹ (USD)",
+    // Suppliers / Payments / Agents
+    company_accounts_subtitle: "کمپنی کے اکاؤنٹ", purchases: "خریداریاں", ledger: "کھاتہ",
+    contact: "رابطہ", payments_to_supplier_subtitle: "سپلائر کو ادائیگیاں (USD)",
+    amount_usd: "رقم (USD)", fx_rate: "FX نرخ", local_amount: "مقامی رقم",
+    lot_optional: "لاٹ (اختیاری)", record_payment_to_company: "کمپنی کو ادائیگی ریکارڈ کریں",
+    record: "ریکارڈ", edit_payment: "ادائیگی ترمیم کریں",
+    agents_subtitle: "کسٹمز ایجنٹس، ٹرانسپورٹ کمپنیاں", city_port: "شہر/بندرگاہ",
+    // City transfers
+    send: "بھیجیں", send_goods_to_city: "دوسرے شہر کو مال بھیجیں", approve_transfer: "ٹرانسفر منظور کریں",
+    // Search
+    search_subtitle: "تمام ریکارڈز میں تلاش کریں", category: "زمرہ",
+    searching: "تلاش ہو رہا ہے...", all: "تمام", products: "پروڈکٹس",
+    no_results_found: "کوئی نتیجہ نہیں ملا",
+    // Settings
+    settings_subtitle: "صارفین، پروڈکٹس، شہر اور سیشنز کا انتظام",
+    new_user: "نیا صارف", role: "کردار", super_admin: "سپر ایڈمن", city_admin: "شہر ایڈمن",
+    reset_pw: "پاس ورڈ ری سیٹ", activate: "فعال کریں", full_name: "پورا نام",
+    reset_password: "پاس ورڈ ری سیٹ کریں", new_product: "نئی پروڈکٹ",
+    cannot_delete_product: "پروڈکٹ حذف نہیں کر سکتے", currencies: "کرنسیاں",
+    cross_city_access: "کراس سٹی گودام رسائی",
+    active_sessions: "فعال سیشنز", revoke_all: "تمام دوسرے سیشنز منسوخ کریں",
+    no_sessions: "کوئی فعال سیشنز نہیں", current: "موجودہ",
+    revoking: "منسوخ ہو رہا ہے...", revoke: "منسوخ کریں", cities: "شہر", sessions: "سیشنز", by: "بذریعہ",
+    // Haji transfers / Expenses / Withdrawals pages
+    record_haji_transfer: "حاجی ٹرانسفر ریکارڈ کریں", edit_transfer: "ٹرانسفر ترمیم کریں",
+    from_in_hand: "لاسی سے", direct_transfer: "براہ راست", auto_fifo: "خودکار (FIFO)",
+    record_expense: "خرچ ریکارڈ کریں", edit_expense: "خرچ ترمیم کریں",
+    personal_withdrawals: "ذاتی نکالی",
+    record_withdrawal: "نکالی ریکارڈ کریں", edit_withdrawal: "نکالی ترمیم کریں",
+    deducted_from: "سے کاٹا گیا",
+    expenses_cash_note: "اخراجات آپ کی نقد رقم سے کاٹے جاتے ہیں۔",
+    withdrawals_cash_note: "نکالی نقد رقم سے کاٹی جاتی ہے۔",
+    deducted_from_cash_note: "یہ آپ کی نقد رقم سے کاٹا جائے گا۔",
+    total_withdrawn: "کل نکالی",
+    // Payments page specific
+    destination: "مقام", our_account: "ہمارا اکاؤنٹ",
+    exchange_rate_afn: "تبادلہ نرخ (افغانی فی $1)",
+    usd_equivalent_label: "USD برابر",
+    permanently_delete: "مستقل حذف کریں", deleting: "حذف ہو رہا ہے...",
+    enter_password_confirm: "تصدیق کے لیے پاس ورڈ درج کریں",
+    cannot_undo: "یہ عمل واپس نہیں ہو سکتا۔",
+    admin_password_placeholder: "آپ کا ایڈمن پاس ورڈ",
+    haji_label: "حاجی",
+    // Payments page tabs / btn labels
+    tab_payments: "💰 ادائیگیاں", tab_expenses: "💸 اخراجات",
+    tab_haji: "↗️ حاجی ٹرانسفر", tab_withdrawals: "🏦 نکالی",
+    add_payment: "+ ادائیگی", add_expense: "+ خرچ",
+    add_haji_transfer: "+ حاجی ٹرانسفر", add_withdrawal: "+ نکالی",
+    new_expense_title: "نیا خرچ", new_haji_title: "نئی حاجی ٹرانسفر",
+    new_withdrawal_title: "نئی نکالی",
+    // Lot costing cost types
+    cost_type_freight: "🚢 مال بردار/جہاز", cost_type_customs: "🏛️ کسٹمز ڈیوٹی",
+    cost_type_port: "⚓ بندرگاہ چارجز", cost_type_transport: "🚚 ٹرانسپورٹ",
+    cost_type_loading: "📦 لوڈنگ/انلوڈنگ", cost_type_insurance: "🛡️ انشورنس",
+    cost_type_other: "📋 دیگر",
+    // select placeholder
+    select: "منتخب کریں",
+    and: "اور",
+    // Balance display
+    owes: "مقروض", we_owe: "ہم مقروض ہیں", settled: "صاف",
+    // Lots page
+    assign_to_godowns: "گوداموں میں تفویض",
+    confirm_complete: "مکمل کے طور پر نشان زد کریں؟", confirm_reopen: "یہ لاٹ دوبارہ کھولیں؟",
+    confirm_deactivate_customer: "اس گاہک کو غیر فعال کریں؟ وہ نئی فروخت یا ادائیگی میں نظر نہیں آئیں گے۔",
+    confirm_reactivate_customer: "اس گاہک کو دوبارہ فعال کریں؟ وہ فروخت اور ادائیگی میں دوبارہ نظر آئیں گے۔",
+    voucher_hash: "واؤچر نمبر",
+    // Godown confirmation dialogs
+    confirm_deactivate_godown: "کیا اس گودام کو غیر فعال کریں؟",
+    confirm_delete_godown: "اس گودام کو مستقل حذف کریں؟ اسے واپس نہیں کیا جا سکتا۔",
+    // City transfers
+    transfers: "ٹرانسفر",
+    reason_for_rejection: "رد کرنے کی وجہ؟",
+    fill_required_fields: "تمام ضروری خانے پُر کریں",
+    // Supplier payments
+    general_not_linked: "عمومی (لنک نہیں)",
+    tt_payment: "TT (ٹیلیگرافک)",
+    lc_payment: "LC (خط اعتماد)",
+    other: "دیگر",
+    confirm_delete_payment: "کیا یہ ادائیگی حذف کریں؟",
+    // Lot costing
+    confirm_delete_cost: "کیا یہ لاگت حذف کریں؟",
+    fill_all_fields: "تمام خانے پُر کریں",
+    fill_description_amount: "تفصیل اور رقم پُر کریں",
+  },
+  ps: {
+    // Navigation
+    dashboard: "ډشبورډ", lots: "لاټ", lot_costing: "لاټ لګښت", suppliers: "عرضه کوونکي",
+    company_payments: "شرکت تادیات", agents: "ایجنټان", country_ledger: "هیواد کتاب",
+    sales: "خرڅلاو", payments: "تادیات", customers: "پیرودونکي", godowns: "ګودام",
+    inventory: "زیرمه", city_transfers: "ښار لیږد", profit_report: "ګټه راپور",
+    financial_reports: "مالي راپورونه", reports: "راپورونه", search: "لټون", settings: "تنظیمات",
+    activity_feed: "فعالیت فیډ",
+    // Common actions
+    create: "جوړول", edit: "سمول", delete: "ړنګول", save: "خوندي", cancel: "لغوه",
+    loading: "لوډیږي...", submit: "وسپارئ", close: "وتړئ", confirm: "تایید",
+    back: "شاته", next: "بله", previous: "وړاندینۍ", refresh: "تازه کول",
+    deactivate: "غیرفعاله کول", reactivate: "فعاله کول", view: "وګورئ", export: "صادرول",
+    filter: "فلټر", clear: "پاکول", apply: "پلي کول", yes: "هو", no: "نه",
+    // Common fields
+    name: "نوم", phone: "تلیفون", address: "پته", amount: "اندازه", date: "نیټه",
+    detail: "تفصیل", notes: "یادښتونه", status: "حالت", type: "ډول", method: "طریقه",
+    description: "تفصیل", currency: "اسعار", city: "ښار", godown: "ګودام",
+    customer: "پیرودونکی", product: "محصول", lot: "لاټ", actions: "عملونه",
+    active: "فعال", inactive: "غیرفعال", total: "ټول",
+    ongoing: "روان", completed: "بشپړ",
+    hard_delete_payments_only: "دایمي ړنګول یوازې د تادیاتو لپاره شته",
+    // Status & misc
+    outstanding: "پور", paid: "ورکړل شوی", balance: "بیلانس", profit: "ګټه",
+    revenue: "عاید", expenses: "لګښتونه", cost: "لګښت", cartons: "کارټن",
+    distribute: "ویشل", view_sales: "خرڅلاو وګوره", add_cost: "لګښت اضافه",
+    payment: "تادیه", expense: "مصرف", haji_transfer: "حاجي لیږد", withdrawal: "ایستل",
+    // Auth
+    login: "ننوتل", logout: "وتل", username: "کارن نوم", password: "پاسورډ",
+    sign_in: "ننوتل", signing_in: "ننوتل...", sign_in_to_account: "خپل حساب ته ننوتل",
+    enter_username: "خپل کارن نوم ولیکئ", enter_password: "خپل پاسورډ ولیکئ",
+    login_failed: "ننوتل ناکام شو",
+    // New record buttons
+    new_lot: "نوی لاټ", new_sale: "نوی خرڅلاو", new_payment: "نوی تادیه", new_customer: "نوی پیرودونکی",
+    // Messages
+    confirm_delete: "ایا تاسو ډاډه یاست چې ړنګول غواړئ؟", no_data: "هیڅ معلومات و نه موندل شول",
+    are_you_sure: "ایا تاسو ډاډه یاست؟", success: "بریالی", error: "تېروتنه", warning: "خبرداری",
+    // Dashboard
+    cash_in_hand: "لاسي نقدي", cartons_sold: "خرڅ شوي کارټن", owed_to_haji: "حاجي ته پور",
+    cash_position_breakdown: "نقدي تفصیل", hide: "▲ پټول", show: "▼ ښودل",
+    cash_received: "ترلاسه شوې نقدي", cheques: "چیکونه", bank_online: "بانک/آنلاین",
+    direct_to_haji: "مستقیم حاجي ته", expenses_paid: "ورکړل شوي لګښتونه", withdrawals: "ایستل شوي",
+    haji_transfers: "حاجي لیږدونه", ongoing_lots: "روان لاټونه", recent_sales: "وروستي خرڅلاو",
+    net_cash: "خالص نقدي", cash_position: "د نقدي حالت", welcome: "ښه راغلاست",
+    // Sales
+    sale_date: "د خرڅلاو نیټه", qty: "مقدار", rate_per_carton: "د کارټن نرخ",
+    add_item: "توکی اضافه کول", remove: "لرې کول", available: "شته",
+    cross_city_godown: "بل ښار ګودام", stock: "زیرمه", items: "توکي",
+    cancel_sale: "خرڅلاو لغوه کول", cancel_reason: "د لغوه کولو دلیل", confirm_cancel: "د لغوه تایید",
+    discount: "تخفیف", discount_amount: "د تخفیف مقدار", apply_discount: "تخفیف پلي کول",
+    correct_sale: "خرڅلاو سم کول", hard_delete: "دایمي ړنګول",
+    enter_admin_password: "ادمین 2FA پاسورډ ولیکئ", sale_items: "د خرڅلاو توکي",
+    subtotal: "فرعي ټول", from_date: "له", to_date: "تر", all_statuses: "ټول حالتونه",
+    cancelled: "لغوه شوی", marked_short: "کمي نښه شوی", lot_number: "لاټ شمیره",
+    sale_number: "د خرڅلاو شمیره", rate: "نرخ", total_amount: "ټول مبلغ",
+    // Customers
+    customer_ledger: "د پیرودونکي کتاب", customer_info: "د پیرودونکي معلومات",
+    transaction_history: "د معاملاتو تاریخ", opening_balance: "پیل بیلانس",
+    closing_balance: "پای بیلانس", debit: "ډیبټ", credit: "کریډیټ",
+    running_balance: "روان بیلانس",
+    // Payments
+    payment_date: "د تادیې نیټه", payment_method: "د تادیې طریقه",
+    cash: "نقدي", cheque: "چیک", bank_transfer: "بانکي لیږد", online: "آنلاین",
+    reference_no: "د حوالې شمیره", new_payment_title: "نوې تادیه",
+    // Reports
+    report_type: "د راپور ډول", date_range: "د نیټې سلسله", generate: "جوړول",
+    city_ledger: "د ښار کتاب", sales_report: "د خرڅلاو راپور", discount_history: "د تخفیف تاریخ",
+    // Settings
+    general: "عمومي", godown_access: "د ګودام لاسرسی", users: "کاروونکي",
+    currencies_tab: "اسعار", cities_tab: "ښارونه", products_tab: "محصولات",
+    // Inventory & Godowns
+    received: "ترلاسه", sold: "خرڅ شوی", transferred_out: "بهر لیږل شوی",
+    transferred_in: "دننه لیږل شوی", net_stock: "خالص زیرمه",
+    // Lots
+    lot_num: "لاټ شمیره", supplier: "عرضه کوونکی", arrival_date: "د رارسیدو نیټه",
+    total_cartons: "ټول کارټن", distribute_to_city: "ښار ته ویشل",
+    // Misc
+    page: "مخ", of: "ن", country: "هیواد", agent: "ایجنټ",
+    search_customer: "پیرودونکی وپلټئ...", no_customers_found: "هیڅ پیرودونکی و نه موندل شو",
+    select_godown: "ګودام غوره کړئ", select_product: "محصول غوره کړئ",
+    select_lot: "لاټ غوره کړئ", select_currency: "اسعار غوره کړئ",
+    godown_stock: "د ګودام زیرمه", loading_stock: "زیرمه لوډیږي...",
+    no_stock: "هیڅ زیرمه شته نه ده", select_godown_first: "لومړی ګودام غوره کړئ",
+    password_required: "پاسورډ اړین دی", reason_required: "دلیل اړین دی",
+    permanent_delete_warning: "دا به ټول ریکارډونه دایمي ړنګ کړي. دا بیرته نه شي کیدی.",
+    management_system: "مدیریت سیستم",
+    // Inventory
+    complete_stock_overview: "د زیرمې بشپړ لنډیز", grand_total: "ټول مقدار",
+    cartons_across_godowns: "ټولو ګودامونو کې کارټن", stock_by_product: "د محصول مطابق زیرمه",
+    stock_by_godown: "د ګودام مطابق زیرمه", detailed_product_godown: "تفصیل: محصول × ګودام",
+    no_stock_data: "هیڅ زیرمه معلومات نشته",
+    // Financial reports
+    profit_loss: "ګټه او زیان", receivables: "ترلاسه کیدونکي", payables: "ورکولو وړ",
+    balance_sheet: "بیلانس شیټ", gross_profit: "ناخالص ګټه", net_profit: "خالص ګټه",
+    cogs: "د فروخت لګښت", gross_margin: "ناخالص مارجن", net_margin: "خالص مارجن",
+    expenses_breakdown: "د لګښتونو تفصیل", total_expenses: "ټول لګښتونه",
+    no_data_start: "لا معلومات نشته. د معاملاتو ثبتول پیل کړئ.",
+    no_cash_transactions: "لا هیڅ نقدي معاملات نشته", no_receivables: "هیڅ پور نشته",
+    no_supplier_payables: "هیڅ د عرضه کوونکو تادیات نشته", no_agent_payables: "هیڅ د ایجنټانو تادیات نشته",
+    customer_balances: "د پیرودونکو بیلانسونه", supplier_payables: "د عرضه کوونکو تادیات",
+    agent_payables: "د ایجنټانو تادیات (ګمرک، ترانسپورټ)",
+    assets: "شتمنۍ (چې تاسو لرئ)", liabilities: "مکلفیتونه (چې تاسو ورکوئ)", equity: "حق",
+    double_entry: "دوه طرفه محاسبه",
+    // Country ledger
+    total_sales: "ټول خرڅلاو", payments_received: "ترلاسه شوي تادیات", sent_to_haji: "حاجي ته لیږل شوی",
+    city_breakdown: "د ښار تفصیل", in_hand_breakdown: "لاسي تفصیل:",
+    financial_overview: "د هیواد د مالي لنډیز",
+    // Activity feed
+    auto_refresh: "خودکاره تازه کول", no_activity: "لا هیڅ فعالیت نشته.",
+    today: "نن ورځ", yesterday: "پرون", just_now: "اوس",
+    // New record buttons
+    new_supplier: "نوی عرضه کوونکی", new_agent: "نوی ایجنټ", new_godown: "نوی ګودام",
+    // Common new keys
+    approve: "منل", reject: "رد کول", approve_receive: "منل او ترلاسه کول",
+    send_goods: "توکي لیږل", pending: "تمه", approved: "تایید شوی", rejected: "رد شوی",
+    save_distribution: "د ویش خوندي کول", pay_agent: "ایجنټ ته ورکول", record_payment: "تادیه ثبتول",
+    balance_owed: "پاتې پور", total_purchased: "ټول اخیستل", total_paid: "ټول ورکول",
+    purchase_prices: "د خریدلو نرخونه (USD)", additional_costs: "اضافي لګښتونه",
+    exchange_rate: "د بدلون نرخ", unit_price: "د واحد نرخ", reference: "حواله",
+    voucher: "واچر", godown_name: "د ګودام نوم", sent_by: "لیږونکی",
+    super_admin_only: "یوازې سوپر ادمین.", charged: "وضع شوی",
+    all_cities: "ټول ښارونه", all_customers: "ټول پیرودونکي",
+    from: "له", to: "ته", records: "ریکارډونه", print: "چاپ", csv: "CSV",
+    to_haji: "حاجي ته", in_hand: "لاسي", haji_settlement: "د حاجي حل",
+    discounts_given: "ورکول شوي تخفیفونه", sale_voucher: "د خرڅلاو واچر",
+    bought: "اخیستل", remaining: "پاتې", cost_per_carton: "د کارټن لګښت",
+    purchase_cost: "د خریدلو لګښت", total_landed: "ټول لیږل شوی", unsold_value: "نه خرڅ شوي ارزښت",
+    cost_breakdown: "د لګښت تفصیل", product_profitability: "د محصول ګټه",
+    lot_by_lot: "د لاټ لاټ تفصیل", supplier_account: "د عرضه کوونکي حساب (USD)",
+    year: "کال", per_lot: "د لاټ مطابق", year_end_pl: "د کال ختمیدو ګټه او زیان",
+    report_generate_subtitle: "راپورونه جوړول او صادرول",
+    profit_report_subtitle: "د لاټ مطابق او کلني ګټه تعقیبول",
+    lot_costing_subtitle: "د خریدلو نرخونه او لیږلو لګښتونه تعقیبول",
+    no_purchases: "هیڅ خریدلو ریکارډ نشته", no_costs: "هیڅ لګښتونه ریکارډ نشته",
+    no_godowns: "د دې ښار لپاره هیڅ ګودام نشته",
+    select_city: "ښار غوره کړئ", from_godown: "له ګودام", to_city_label: "ښار ته لیږل",
+    store_in_godown: "ګودام کې ذخیره کول", incoming_transfers: "راروان لیږد ستاسو تایید ته اړتیا لري",
+    send_goods_note: "د تایید وروسته به توکي ستاسو له ګودام کم شي.",
+    gross_profit_label: "ناخالص ګټه", net_profit_label: "خالص ګټه",
+    revenue_label: "عاید", cost_of_goods: "د توکو لګښت",
+    gross_margin_label: "ناخالص مارجن", net_margin_label: "خالص مارجن",
+    cartons_sold_label: "خرڅ شوي کارټن", supplier_account_label: "د عرضه کوونکي حساب (USD)",
+    purchased_label: "اخیستل شوی", paid_label: "ورکړل شوی",
+    lot_breakdown: "د لاټ لاټ تفصیل", product_label: "محصول",
+    debit_usd: "ډیبټ (USD)", credit_usd: "کریډیټ (USD)",
+    // Suppliers / Payments / Agents
+    company_accounts_subtitle: "د شرکت حسابونه", purchases: "خریدلي", ledger: "کتاب",
+    contact: "اړیکه", payments_to_supplier_subtitle: "د عرضه کوونکي ته تادیات (USD)",
+    amount_usd: "مقدار (USD)", fx_rate: "د بدلون نرخ", local_amount: "ځایي مقدار",
+    lot_optional: "لاټ (اختیاري)", record_payment_to_company: "د شرکت تادیه ثبتول",
+    record: "ثبتول", edit_payment: "تادیه سمول",
+    agents_subtitle: "د ګمرک ایجنټان، ترانسپورټ شرکتونه", city_port: "ښار/بندر",
+    // City transfers
+    send: "لیږل", send_goods_to_city: "بل ښار ته توکي لیږل", approve_transfer: "د لیږد تایید",
+    // Search
+    search_subtitle: "ټولو ریکارډونو کې لټون", category: "کټګوري",
+    searching: "لټیږي...", all: "ټول", products: "محصولات",
+    no_results_found: "هیڅ پایله و نه موندل شوه",
+    // Settings
+    settings_subtitle: "کاروونکي، محصولات، ښارونه او سیشنونه مدیریت کول",
+    new_user: "نوی کاروونکی", role: "رول", super_admin: "سوپر ادمین", city_admin: "د ښار ادمین",
+    reset_pw: "پاسورډ بیاځای کول", activate: "فعاله کول", full_name: "بشپړ نوم",
+    reset_password: "پاسورډ بدلول", new_product: "نوی محصول",
+    cannot_delete_product: "محصول نه شي ړنګیدلی", currencies: "اسعار",
+    cross_city_access: "د ښارونو ترمنځ ګودام لاسرسی",
+    active_sessions: "فعال سیشنونه", revoke_all: "ټول نور سیشنونه لغوه کول",
+    no_sessions: "هیڅ فعال سیشنونه نشته", current: "اوسني",
+    revoking: "لغوه کیږي...", revoke: "لغوه کول", cities: "ښارونه", sessions: "سیشنونه", by: "لخوا",
+    // Haji transfers / Expenses / Withdrawals pages
+    record_haji_transfer: "د حاجي لیږد ثبتول", edit_transfer: "لیږد سمول",
+    from_in_hand: "له لاسي", direct_transfer: "مستقیم", auto_fifo: "خودکاره (FIFO)",
+    record_expense: "مصرف ثبتول", edit_expense: "مصرف سمول",
+    personal_withdrawals: "شخصي ایستل",
+    record_withdrawal: "ایستل ثبتول", edit_withdrawal: "ایستل سمول",
+    deducted_from: "له کم شوی",
+    expenses_cash_note: "لګښتونه ستاسو د لاسي نقدیو له ورکول کیږي.",
+    withdrawals_cash_note: "ایستل د لاسي نقدیو له کم کیږي.",
+    deducted_from_cash_note: "دا به ستاسو د لاسي نقدیو له کم شي.",
+    total_withdrawn: "ټول ایستل",
+    // Payments page specific
+    destination: "مقصد", our_account: "زموږ حساب",
+    exchange_rate_afn: "د بدلون نرخ (افغانۍ د $1 لپاره)",
+    usd_equivalent_label: "د USD برابر",
+    permanently_delete: "دایمي ړنګول", deleting: "ړنګیږي...",
+    enter_password_confirm: "د تایید لپاره پاسورډ ولیکئ",
+    cannot_undo: "دا عمل بیرته نه شي کیدی.",
+    admin_password_placeholder: "ستاسو د ادمین پاسورډ",
+    haji_label: "حاجي",
+    // Payments page tabs / btn labels
+    tab_payments: "💰 تادیات", tab_expenses: "💸 لګښتونه",
+    tab_haji: "↗️ د حاجي لیږدونه", tab_withdrawals: "🏦 ایستل",
+    add_payment: "+ تادیه", add_expense: "+ مصرف",
+    add_haji_transfer: "+ د حاجي لیږد", add_withdrawal: "+ ایستل",
+    new_expense_title: "نوی مصرف", new_haji_title: "نوی د حاجي لیږد",
+    new_withdrawal_title: "نوی ایستل",
+    // Lot costing cost types
+    cost_type_freight: "🚢 بار وړلو/کښتي", cost_type_customs: "🏛️ د ګمرک محصول",
+    cost_type_port: "⚓ د بندر لګښتونه", cost_type_transport: "🚚 ترانسپورټ",
+    cost_type_loading: "📦 بارولو/وروستولو", cost_type_insurance: "🛡️ بیمه",
+    cost_type_other: "📋 نور",
+    // select placeholder
+    select: "غوره کړئ",
+    and: "او",
+    // Balance display
+    owes: "پور دی", we_owe: "موږ پور یو", settled: "پای",
+    // Lots page
+    assign_to_godowns: "ګودامونو ته ټاکل",
+    confirm_complete: "بشپړ شوی نښه کول؟", confirm_reopen: "دا لاټ بیا خلاصول؟",
+    confirm_deactivate_customer: "دا پیرودونکی غیرفعاله کول؟ دوی به نوي خرڅلاو یا تادیاتو کې نه ښکاري.",
+    confirm_reactivate_customer: "دا پیرودونکی بیا فعاله کول؟ دوی به بیا خرڅلاو او تادیاتو کې ښکاري.",
+    voucher_hash: "د واچر شمیره",
+    // Godown confirmation dialogs
+    confirm_deactivate_godown: "ایا دا ګودام غیرفعاله کول؟",
+    confirm_delete_godown: "دا ګودام دایمي ړنګول؟ دا بیرته نه شي کیدی.",
+    // City transfers
+    transfers: "لیږدونه",
+    reason_for_rejection: "د رد کولو دلیل؟",
+    fill_required_fields: "ټول اړین خانې ډک کړئ",
+    // Supplier payments
+    general_not_linked: "عمومي (نه تړل شوی)",
+    tt_payment: "TT (ټیلیګرافیک)",
+    lc_payment: "LC (د اعتبار لیک)",
+    other: "نور",
+    confirm_delete_payment: "ایا دا تادیه ړنګول؟",
+    // Lot costing
+    confirm_delete_cost: "ایا دا لګښت ړنګول؟",
+    fill_all_fields: "ټول خانې ډک کړئ",
+    fill_description_amount: "تفصیل او مقدار ډک کړئ",
+  },
+};
+
+interface LangContextType {
+  lang: string;
+  setLang: (l: string) => void;
+  t: (key: string) => string;
+  dir: "ltr" | "rtl";
+}
+
+const LangContext = createContext<LangContextType>({ lang: "en", setLang: () => {}, t: (k) => k, dir: "ltr" });
+
+export function LangProvider({ children }: { children: React.ReactNode }) {
+  const [lang, setLangState] = useState("en");
+
+  useEffect(() => {
+    const saved = localStorage.getItem("app_lang");
+    if (saved && translations[saved]) setLangState(saved);
+  }, []);
+
+  const setLang = (l: string) => {
+    setLangState(l);
+    localStorage.setItem("app_lang", l);
+  };
+
+  const t = (key: string) => translations[lang]?.[key] || translations.en[key] || key;
+  const dir = lang === "ur" || lang === "ps" ? "rtl" : "ltr";
+
+  return <LangContext.Provider value={{ lang, setLang, t, dir }}>{children}</LangContext.Provider>;
+}
+
+export function useLang() { return useContext(LangContext); }
+
+export function LangSwitcher() {
+  const { lang, setLang } = useLang();
+  return (
+    <select value={lang} onChange={(e) => setLang(e.target.value)} className="text-xs bg-gray-100 border rounded px-2 py-1">
+      <option value="en">English</option>
+      <option value="ur">اردو</option>
+      <option value="ps">پښتو</option>
+    </select>
+  );
+}
