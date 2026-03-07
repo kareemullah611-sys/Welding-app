@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
-    "start": "prisma db push && npx ts-node --skip-project prisma/seed.ts && next start -p ${PORT:-3000}",
+    "start": "prisma db push && npx tsx prisma/seed.ts && next start -p ${PORT:-3000}",
     "lint": "next lint",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
@@ -21,7 +21,6 @@
     "bcryptjs": "^2.4.3",
     "class-variance-authority": "^0.7.1",
     "cloudinary": "^2.9.0",
-    "ts-node": "^10.9.2",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
     "jsonwebtoken": "^9.0.2",
@@ -33,6 +32,8 @@
     "recharts": "^2.12.0",
     "tailwind-merge": "^3.5.0",
     "tailwindcss-animate": "^1.0.7",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
     "xlsx": "^0.18.5",
     "zod": "^3.23.0"
   },
