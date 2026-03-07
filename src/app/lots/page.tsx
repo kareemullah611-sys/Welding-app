@@ -287,16 +287,52 @@ export default function LotsPage() {
         {formError && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{formError}</div>}
         {detailLoading ? <div className="py-8 text-center"><div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto mb-2" /><p className="text-sm text-gray-400">{t("loading")}</p></div> : <>
         <p className="text-sm text-gray-500 mb-4">{t("distribute_to_city")}</p>
-        <div className="space-y-1 max-h-96 overflow-y-auto">
-          <div className="flex items-center gap-3 text-xs font-semibold text-gray-400 pb-2 border-b"><span className="w-28">{t("city")}</span><span className="w-40">{t("product")}</span><span className="w-24">{t("qty")}</span><span>Max</span></div>
-          {distributions.map((d: any, i) => (
-            <div key={i} className="flex items-center gap-3 text-sm">
-              <span className="w-28 font-medium truncate">{d.cityName}</span>
-              <span className="w-40 text-gray-500 truncate">{d.productName}</span>
-              <input type="number" value={d.allocatedQty || ""} onChange={e => { const u = [...distributions]; u[i] = { ...u[i], allocatedQty: parseFloat(e.target.value) || 0 }; setDistributions(u); }} className="input-field w-24" min={0} />
-              <span className="text-xs text-gray-400">/ {d.maxQty}</span>
-            </div>
-          ))}
+        <div className="space-y-4 max-h-[32rem] overflow-y-auto pr-1">
+          {(() => {
+            // Group distributions by product
+            const groups: Record<number, { productName: string; maxQty: number; items: any[] }> = {};
+            distributions.forEach((d: any, i: number) => {
+              if (!groups[d.productId]) groups[d.productId] = { productName: d.productName, maxQty: d.maxQty, items: [] };
+              groups[d.productId].items.push({ ...d, index: i });
+            });
+            return Object.values(groups).map((group) => {
+              const totalAllocated = group.items.reduce((s: number, d: any) => s + (Number(d.allocatedQty) || 0), 0);
+              const remaining = group.maxQty - totalAllocated;
+              const isOver = remaining < 0;
+              return (
+                <div key={group.productName} className="border border-gray-200 rounded-xl overflow-hidden">
+                  {/* Product header with live remaining */}
+                  <div className="flex items-center justify-between bg-gray-50 px-4 py-2.5 border-b border-gray-200">
+                    <span className="font-semibold text-sm text-gray-800">{group.productName}</span>
+                    <div className="flex items-center gap-4 text-xs">
+                      <span className="text-gray-400">Total: <strong className="text-gray-600">{formatNumber(group.maxQty)}</strong> cartons</span>
+                      <span className="text-gray-400">Distributed: <strong className="text-gray-600">{formatNumber(totalAllocated)}</strong></span>
+                      <span className={`font-bold px-2 py-0.5 rounded-full text-xs ${isOver ? "bg-red-100 text-red-700" : remaining === 0 ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"}`}>
+                        {isOver ? `⚠ ${formatNumber(Math.abs(remaining))} over!` : `${formatNumber(remaining)} remaining`}
+                      </span>
+                    </div>
+                  </div>
+                  {/* City rows */}
+                  <div className="divide-y divide-gray-100">
+                    {group.items.map((d: any) => (
+                      <div key={d.index} className="flex items-center gap-4 px-4 py-2.5 text-sm hover:bg-gray-50">
+                        <span className="w-36 font-medium text-gray-700 truncate">{d.cityName}</span>
+                        <input
+                          type="number"
+                          value={d.allocatedQty || ""}
+                          onChange={e => { const u = [...distributions]; u[d.index] = { ...u[d.index], allocatedQty: parseFloat(e.target.value) || 0 }; setDistributions(u); }}
+                          className="input-field w-28"
+                          min={0}
+                          placeholder="0"
+                        />
+                        <span className="text-xs text-gray-400">cartons</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            });
+          })()}
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={() => setShowDistribute(false)} className="btn-secondary text-sm"> {t("cancel")}</button><button onClick={handleDistribute} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save_distribution")}</button></div>
         </>}
