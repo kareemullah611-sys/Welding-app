@@ -6,17 +6,6 @@ import { PageHeader, DataTable, Modal, StatusBadge, formatCurrency, formatNumber
 import CustomerSearch from "@/components/CustomerSearch";
 import { useLang } from "@/lib/lang";
 
-async function openAttachment(filePath: string) {
-  try {
-    const res = await fetch(filePath);
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    window.open(url, "_blank");
-  } catch {
-    window.open(filePath, "_blank");
-  }
-}
-
 async function uploadFile(file: File, entityType: string, entityId: number) {
   const fd = new FormData();
   fd.append("file", file);
@@ -25,11 +14,11 @@ async function uploadFile(file: File, entityType: string, entityId: number) {
   await fetch("/api/v1/upload", { method: "POST", body: fd });
 }
 
-function AttachCell({ item, entityType, uploadingFor, setUploadingFor, reload }: { item: any; entityType: string; uploadingFor: number | null; setUploadingFor: (v: number | null) => void; reload: () => void }) {
+function AttachCell({ item, entityType, uploadingFor, setUploadingFor, reload, onView }: { item: any; entityType: string; uploadingFor: number | null; setUploadingFor: (v: number | null) => void; reload: () => void; onView: (a: any) => void }) {
   return (
     <div className="flex flex-col gap-1">
       {(item.attachments || []).map((a: any) => (
-        <button key={a.id} onClick={() => openAttachment(a.filePath)} className="text-xs text-primary-600 hover:underline truncate max-w-[90px] text-left">
+        <button key={a.id} onClick={() => onView(a)} className="text-xs text-primary-600 hover:underline truncate max-w-[90px] text-left">
           {a.fileType === "pdf" ? "📄" : "🖼️"} {a.fileName}
         </button>
       ))}
@@ -84,6 +73,8 @@ export default function PaymentsPage() {
   const [hardDeleteSubmitting, setHardDeleteSubmitting] = useState(false);
   // Voucher duplicate warning
   const [voucherWarning, setVoucherWarning] = useState<{ matches: any[] } | null>(null);
+  // Attachment viewer
+  const [viewingAttachment, setViewingAttachment] = useState<any | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -232,7 +223,7 @@ export default function PaymentsPage() {
             )}
           </div>
         )},
-      { key: "attachment", label: "📎", render: (p: any) => <AttachCell item={p} entityType="payment" uploadingFor={uploadingFor} setUploadingFor={setUploadingFor} reload={load} /> },
+      { key: "attachment", label: "📎", render: (p: any) => <AttachCell item={p} entityType="payment" uploadingFor={uploadingFor} setUploadingFor={setUploadingFor} reload={load} onView={setViewingAttachment} /> },
       { key: "actions", label: "", render: (p: any) => <div className="flex gap-2">{p.status === "active" && <><button onClick={() => openEdit(p)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button><button onClick={() => handleDelete(p)} className="text-xs text-red-600 hover:underline">{t("cancel")}</button></>}{user?.role === "super_admin" && <button onClick={() => openHardDelete(p)} className="text-xs text-red-800 font-semibold hover:underline">{t("hard_delete")}</button>}</div> },
     ];
     if (tab === "expenses") return [
@@ -240,7 +231,7 @@ export default function PaymentsPage() {
       { key: "detail", label: t("detail") },
       { key: "amount", label: t("amount"), render: (e: any) => <span className="font-medium text-red-600">{e.currency?.symbol} {e.amount?.toLocaleString()}</span> },
       { key: "lotNumber", label: t("lot"), render: (e: any) => e.lot?.lotNumber || e.lotNumber || "-" },
-      { key: "attachment", label: "📎", render: (e: any) => <AttachCell item={e} entityType="expense" uploadingFor={uploadingFor} setUploadingFor={setUploadingFor} reload={load} /> },
+      { key: "attachment", label: "📎", render: (e: any) => <AttachCell item={e} entityType="expense" uploadingFor={uploadingFor} setUploadingFor={setUploadingFor} reload={load} onView={setViewingAttachment} /> },
       { key: "actions", label: "", render: (e: any) => <div className="flex gap-2"><button onClick={() => openEdit(e)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button><button onClick={() => handleDelete(e)} className="text-xs text-red-600 hover:underline">{t("delete")}</button></div> },
     ];
     if (tab === "haji") return [
@@ -249,7 +240,7 @@ export default function PaymentsPage() {
       { key: "amount", label: t("amount"), render: (h: any) => <span className="font-medium text-orange-600">{h.currency?.symbol} {h.amount?.toLocaleString()}</span> },
       { key: "transferType", label: t("type"), render: (h: any) => <span className="text-xs">{h.transferType === "direct" ? t("direct_transfer") : t("from_in_hand")}</span> },
       { key: "lotNumber", label: t("lot"), render: (h: any) => h.lot?.lotNumber || h.lotNumber || "-" },
-      { key: "attachment", label: "📎", render: (h: any) => <AttachCell item={h} entityType="haji_transfer" uploadingFor={uploadingFor} setUploadingFor={setUploadingFor} reload={load} /> },
+      { key: "attachment", label: "📎", render: (h: any) => <AttachCell item={h} entityType="haji_transfer" uploadingFor={uploadingFor} setUploadingFor={setUploadingFor} reload={load} onView={setViewingAttachment} /> },
       { key: "actions", label: "", render: (h: any) => <div className="flex gap-2"><button onClick={() => openEdit(h)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button><button onClick={() => handleDelete(h)} className="text-xs text-red-600 hover:underline">{t("delete")}</button></div> },
     ];
     return [ // withdrawals
@@ -425,6 +416,21 @@ export default function PaymentsPage() {
           </div>
         </div>
       </Modal>
+
+      {/* Attachment Viewer */}
+      {viewingAttachment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => setViewingAttachment(null)}>
+          <div className="relative max-w-3xl w-full max-h-[90vh] mx-4" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setViewingAttachment(null)} className="absolute -top-8 right-0 text-white text-2xl font-bold">✕</button>
+            {viewingAttachment.fileType === "pdf" ? (
+              <iframe src={viewingAttachment.filePath} className="w-full h-[80vh] rounded-lg" />
+            ) : (
+              <img src={viewingAttachment.filePath} alt={viewingAttachment.fileName} className="w-full max-h-[80vh] object-contain rounded-lg bg-white" />
+            )}
+            <p className="text-white text-sm text-center mt-2">{viewingAttachment.fileName}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

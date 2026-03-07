@@ -34,9 +34,9 @@ export function PageHeader({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6 pb-4 border-b border-gray-100">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">{title}</h1>
+        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{title}</h1>
         {subtitle && <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>}
       </div>
       {action && <div className="flex-shrink-0 flex gap-2">{action}</div>}
@@ -48,11 +48,11 @@ export function PageHeader({
 // STATS CARD
 // ============================================================
 const colorMap = {
-  blue:   { bg: "bg-blue-50",   text: "text-blue-600",   border: "border-blue-100" },
-  green:  { bg: "bg-green-50",  text: "text-green-600",  border: "border-green-100" },
-  red:    { bg: "bg-red-50",    text: "text-red-600",    border: "border-red-100" },
-  yellow: { bg: "bg-yellow-50", text: "text-yellow-600", border: "border-yellow-100" },
-  purple: { bg: "bg-purple-50", text: "text-purple-600", border: "border-purple-100" },
+  blue:   { iconBg: "bg-blue-100",   iconText: "text-blue-600",   accent: "border-l-blue-500",   valueTxt: "text-blue-700" },
+  green:  { iconBg: "bg-green-100",  iconText: "text-green-600",  accent: "border-l-green-500",  valueTxt: "text-green-700" },
+  red:    { iconBg: "bg-red-100",    iconText: "text-red-600",    accent: "border-l-red-500",    valueTxt: "text-red-700" },
+  yellow: { iconBg: "bg-yellow-100", iconText: "text-yellow-600", accent: "border-l-yellow-500", valueTxt: "text-yellow-700" },
+  purple: { iconBg: "bg-purple-100", iconText: "text-purple-600", accent: "border-l-purple-500", valueTxt: "text-purple-700" },
 };
 
 export function StatsCard({
@@ -70,16 +70,16 @@ export function StatsCard({
 }) {
   const c = colorMap[color];
   return (
-    <Card className="shadow-sm hover:shadow-md transition-shadow duration-150">
+    <Card className={cn("shadow-sm hover:shadow-md transition-all duration-200 border-l-4", c.accent)}>
       <CardContent className="p-5">
-        <div className="flex items-start justify-between">
-          <div className="min-w-0">
-            <p className="text-xs text-muted-foreground font-medium leading-snug">{title}</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1 leading-tight">{value}</p>
-            {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide leading-snug truncate">{title}</p>
+            <p className={cn("text-xl font-bold mt-1.5 leading-tight break-words", c.valueTxt)}>{value}</p>
+            {subtitle && <p className="text-xs text-muted-foreground mt-1.5 leading-snug">{subtitle}</p>}
           </div>
           {icon && (
-            <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0 ml-3 border", c.bg, c.border)}>
+            <div className={cn("w-11 h-11 rounded-xl flex items-center justify-center text-xl flex-shrink-0", c.iconBg, c.iconText)}>
               {icon}
             </div>
           )}
@@ -155,9 +155,9 @@ export function DataTable<T extends Record<string, any>>({
       <div className="overflow-x-auto">
         <Table>
           <TableHeader>
-            <TableRow className="bg-gray-50 hover:bg-gray-50">
+            <TableRow className="bg-gray-50/80 hover:bg-gray-50/80 border-b border-gray-100">
               {columns.map((col) => (
-                <TableHead key={col.key} className={cn("text-xs font-semibold text-gray-500 uppercase tracking-wider", col.className)}>
+                <TableHead key={col.key} className={cn("text-xs font-semibold text-gray-500 uppercase tracking-wider py-3", col.className)}>
                   {col.label}
                 </TableHead>
               ))}
@@ -166,8 +166,11 @@ export function DataTable<T extends Record<string, any>>({
           <TableBody>
             {data.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={columns.length} className="py-14 text-center text-muted-foreground text-sm">
-                  {emptyMessage}
+                <TableCell colSpan={columns.length} className="py-16 text-center">
+                  <div className="flex flex-col items-center gap-2">
+                    <span className="text-3xl opacity-30">📋</span>
+                    <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+                  </div>
                 </TableCell>
               </TableRow>
             ) : (
@@ -175,10 +178,13 @@ export function DataTable<T extends Record<string, any>>({
                 <TableRow
                   key={idx}
                   onClick={() => onRowClick?.(item)}
-                  className={cn("transition-colors", onRowClick && "cursor-pointer hover:bg-blue-50/40")}
+                  className={cn(
+                    "border-b border-gray-50 transition-colors",
+                    onRowClick ? "cursor-pointer hover:bg-primary-50/50" : "hover:bg-gray-50/50"
+                  )}
                 >
                   {columns.map((col) => (
-                    <TableCell key={col.key} className={cn("text-sm text-gray-700", col.className)}>
+                    <TableCell key={col.key} className={cn("text-sm text-gray-700 py-3", col.className)}>
                       {col.render
                         ? col.render(item)
                         : col.key.toLowerCase().includes("date") &&
@@ -196,26 +202,31 @@ export function DataTable<T extends Record<string, any>>({
       </div>
       {pagination && pagination.totalPages > 1 && (
         <div className="px-4 py-3 border-t border-border flex items-center justify-between text-sm bg-gray-50/50">
-          <p className="text-muted-foreground">
-            Page {pagination.page} of {pagination.totalPages}{" "}
-            <span className="text-gray-400">({pagination.total} total)</span>
+          <p className="text-muted-foreground text-xs">
+            Showing page <span className="font-medium text-gray-700">{pagination.page}</span> of <span className="font-medium text-gray-700">{pagination.totalPages}</span>
+            <span className="text-gray-400 ml-1">· {pagination.total} total</span>
           </p>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-1">
             <Button
               variant="outline"
               size="sm"
               onClick={() => pagination.onPageChange(pagination.page - 1)}
               disabled={pagination.page <= 1}
+              className="h-8 px-3 text-xs"
             >
-              Previous
+              ← Prev
             </Button>
+            <span className="px-2 py-1 text-xs text-gray-500 font-medium">
+              {pagination.page} / {pagination.totalPages}
+            </span>
             <Button
               variant="outline"
               size="sm"
               onClick={() => pagination.onPageChange(pagination.page + 1)}
               disabled={pagination.page >= pagination.totalPages}
+              className="h-8 px-3 text-xs"
             >
-              Next
+              Next →
             </Button>
           </div>
         </div>
@@ -256,7 +267,7 @@ export function Modal({
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className={cn("w-full gap-0 p-0 overflow-hidden", sizes[size])}>
         <DialogHeader className="px-6 py-4 border-b border-border flex-shrink-0">
-          <DialogTitle className="text-base font-semibold text-gray-900">{title}</DialogTitle>
+          <DialogTitle asChild><div className="text-base font-semibold text-gray-900">{title}</div></DialogTitle>
         </DialogHeader>
         <div className="overflow-y-auto px-6 py-5 max-h-[75vh]">{children}</div>
       </DialogContent>
@@ -267,20 +278,24 @@ export function Modal({
 // ============================================================
 // STATUS BADGE
 // ============================================================
-const badgeStyles: Record<string, string> = {
-  active:       "bg-green-100 text-green-800 border-green-200 hover:bg-green-100",
-  cancelled:    "bg-red-100 text-red-800 border-red-200 hover:bg-red-100",
-  marked_short: "bg-yellow-100 text-yellow-800 border-yellow-200 hover:bg-yellow-100",
-  ongoing:      "bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-100",
-  completed:    "bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-100",
+const badgeConfig: Record<string, { cls: string; dot: string }> = {
+  active:       { cls: "bg-green-50 text-green-800 border-green-200 hover:bg-green-50",   dot: "bg-green-500" },
+  cancelled:    { cls: "bg-red-50 text-red-800 border-red-200 hover:bg-red-50",           dot: "bg-red-500" },
+  marked_short: { cls: "bg-yellow-50 text-yellow-800 border-yellow-200 hover:bg-yellow-50", dot: "bg-yellow-500" },
+  ongoing:      { cls: "bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-50",       dot: "bg-blue-500" },
+  completed:    { cls: "bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-100",     dot: "bg-gray-400" },
+  paid:         { cls: "bg-green-50 text-green-800 border-green-200 hover:bg-green-50",   dot: "bg-green-500" },
+  pending:      { cls: "bg-yellow-50 text-yellow-800 border-yellow-200 hover:bg-yellow-50", dot: "bg-yellow-500" },
+  partial:      { cls: "bg-orange-50 text-orange-800 border-orange-200 hover:bg-orange-50", dot: "bg-orange-500" },
 };
 
 export function StatusBadge({ status }: { status: string }) {
-  if (!status) return <span className="text-xs text-muted-foreground">-</span>;
-  const cls = badgeStyles[status] ?? "bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-100";
+  if (!status) return <span className="text-xs text-muted-foreground">—</span>;
+  const config = badgeConfig[status] ?? { cls: "bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-50", dot: "bg-blue-500" };
   const label = status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   return (
-    <Badge variant="outline" className={cn("text-xs font-medium", cls)}>
+    <Badge variant="outline" className={cn("text-xs font-medium gap-1.5 pl-2", config.cls)}>
+      <span className={cn("w-1.5 h-1.5 rounded-full flex-shrink-0", config.dot)} />
       {label}
     </Badge>
   );

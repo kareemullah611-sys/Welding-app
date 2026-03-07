@@ -5,17 +5,6 @@ import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 
-async function openAttachment(filePath: string) {
-  try {
-    const res = await fetch(filePath);
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    window.open(url, "_blank");
-  } catch {
-    window.open(filePath, "_blank");
-  }
-}
-
 async function uploadFile(file: File, entityType: string, entityId: number) {
   const fd = new FormData();
   fd.append("file", file);
@@ -44,6 +33,7 @@ export default function HajiTransfersPage() {
   const [error, setError] = useState("");
   const [uploadingFor, setUploadingFor] = useState<number | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
+  const [viewingAttachment, setViewingAttachment] = useState<any | null>(null);
 
   // Filters for person summary
   const [filterFrom, setFilterFrom] = useState("");
@@ -180,7 +170,7 @@ export default function HajiTransfersPage() {
           render: (tr: any) => (
             <div className="flex flex-col gap-1">
               {(tr.attachments || []).map((a: any) => (
-                <button key={a.id} onClick={() => openAttachment(a.filePath)} className="text-xs text-primary-600 hover:underline truncate max-w-[100px] text-left">
+                <button key={a.id} onClick={() => setViewingAttachment(a)} className="text-xs text-primary-600 hover:underline truncate max-w-[100px] text-left">
                   {a.fileType === "pdf" ? "📄" : "🖼️"} {a.fileName}
                 </button>
               ))}
@@ -258,6 +248,21 @@ export default function HajiTransfersPage() {
           <button onClick={handleEdit} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button>
         </div>
       </Modal>
+
+      {/* Attachment Viewer */}
+      {viewingAttachment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => setViewingAttachment(null)}>
+          <div className="relative max-w-3xl w-full max-h-[90vh] mx-4" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setViewingAttachment(null)} className="absolute -top-8 right-0 text-white text-2xl font-bold">✕</button>
+            {viewingAttachment.fileType === "pdf" ? (
+              <iframe src={viewingAttachment.filePath} className="w-full h-[80vh] rounded-lg" />
+            ) : (
+              <img src={viewingAttachment.filePath} alt={viewingAttachment.fileName} className="w-full max-h-[80vh] object-contain rounded-lg bg-white" />
+            )}
+            <p className="text-white text-sm text-center mt-2">{viewingAttachment.fileName}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
