@@ -75,10 +75,9 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
       await journalHajiTransfer({
         id: hajiTransfer.id,
         cityId: hajiTransfer.cityId,
-        lotId: hajiTransfer.lotId,
         amount: Number(hajiTransfer.amount),
         currencyCode: withdrawal.currency.code,
-        transferDate: hajiTransfer.transferDate,
+        date: hajiTransfer.transferDate,
         createdBy: user.userId,
       });
     } catch (je) { console.error("Journal (haji from withdrawal approval):", je); }

@@ -48,7 +48,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         amount: Number(e.amount), detail: e.detail, notes: e.notes,
         currency: { id: e.currency.id, code: e.currency.code, symbol: e.currency.symbol },
         createdBy: e.creator,
-        attachments: (e as any).attachments || [],
+        attachments: ((e as any).attachments || []).map((a: any) => ({
+          ...a,
+          filePath: a.filePath.split("|||")[0],
+        })),
       })),
       total, page, limit
     );

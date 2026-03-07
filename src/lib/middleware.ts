@@ -107,7 +107,7 @@ export async function createAuditLog(
   cityId: number | null,
   entityType: string,
   entityId: number,
-  action: "create" | "update" | "delete" | "cancel" | "restore",
+  action: "create" | "update" | "delete" | "cancel" | "restore" | "hard_delete",
   oldValues?: Record<string, unknown>,
   newValues?: Record<string, unknown>,
   ipAddress?: string

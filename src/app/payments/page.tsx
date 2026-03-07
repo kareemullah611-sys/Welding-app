@@ -147,7 +147,7 @@ export default function PaymentsPage() {
     const r = await apiCall(endpoint, { method: "POST", body });
     if (r.success) {
       const entityType = tab === "payments" ? "payment" : tab === "expenses" ? "expense" : "haji_transfer";
-      if (pendingFile && r.data?.id && tab !== "withdrawals") await uploadFile(pendingFile, entityType, r.data.id);
+      if (pendingFile && (r.data as any)?.id && tab !== "withdrawals") await uploadFile(pendingFile, entityType, (r.data as any).id);
       setShowCreate(false); load();
     } else { setError(r.error || "Failed"); }
     setSubmitting(false);
@@ -345,7 +345,7 @@ export default function PaymentsPage() {
             </div>
           )}
         </div>
-        <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={() => setShowCreate(false)} className="btn-secondary text-sm">{t("cancel")}</button><button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button></div>
+        <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={() => setShowCreate(false)} className="btn-secondary text-sm">{t("cancel")}</button><button onClick={() => handleCreate()} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button></div>
       </Modal>
 
       {/* EDIT */}

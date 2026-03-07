@@ -1,10 +1,9 @@
 import { NextRequest } from "next/server";
-import { writeFile, mkdir } from "fs/promises";
-import path from "path";
 import prisma from "@/lib/prisma";
 import { withAuth } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { uploadToCloudinary, deleteFromCloudinary } from "@/lib/cloudinary";
 
 const ALLOWED_TYPES: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -34,14 +33,13 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
     if (!ext) return errorResponse("VALIDATION_ERROR", "Only JPEG, PNG, WebP and PDF allowed");
     if (file.size > MAX_SIZE) return errorResponse("VALIDATION_ERROR", "File must be under 8MB");
 
-    const filename = `${entityType}-${entityId}-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-    const uploadDir = path.join(process.cwd(), "public", "uploads");
-    await mkdir(uploadDir, { recursive: true });
+    const publicId = `${entityType}-${entityId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
     const bytes = await file.arrayBuffer();
-    await writeFile(path.join(uploadDir, filename), Buffer.from(bytes));
+    const buffer = Buffer.from(bytes);
 
-    // Determine the entity FK column based on type
+    const { url, publicId: cloudinaryId } = await uploadToCloudinary(buffer, publicId);
+
     const entityFk =
       entityType === "payment" ? { paymentEntityId: entityId } :
       entityType === "expense" ? { expenseEntityId: entityId } :
@@ -52,7 +50,8 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
         entityType: entityType as any,
         entityId,
         fileName: file.name,
-        filePath: `/uploads/${filename}`,
+        // Store "cloudinaryUrl|||cloudinaryPublicId" so we can delete later
+        filePath: `${url}|||${cloudinaryId}`,
         fileType: ext,
         fileSize: file.size,
         uploadedBy: user.userId,
@@ -63,7 +62,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
     return successResponse({
       id: attachment.id,
       fileName: attachment.fileName,
-      filePath: attachment.filePath,
+      filePath: url,    // return clean URL to the client
       fileType: attachment.fileType,
       fileSize: attachment.fileSize,
     }, "File uploaded", 201);
@@ -84,11 +83,16 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
     if (attachment.uploadedBy !== user.userId && user.role !== "super_admin")
       return errorResponse("FORBIDDEN", "Not allowed", 403);
 
-    // Delete file from disk
-    try {
-      const { unlink } = await import("fs/promises");
-      await unlink(path.join(process.cwd(), "public", attachment.filePath));
-    } catch {}
+    // filePath is stored as "cloudinaryUrl|||cloudinaryPublicId"
+    const parts = attachment.filePath.split("|||");
+    const cloudinaryId = parts[1];
+    if (cloudinaryId) {
+      try {
+        await deleteFromCloudinary(cloudinaryId);
+      } catch (e) {
+        console.error("Cloudinary delete error:", e);
+      }
+    }
 
     await prisma.attachment.delete({ where: { id } });
     return successResponse(null, "Deleted");

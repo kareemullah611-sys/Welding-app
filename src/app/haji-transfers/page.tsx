@@ -78,7 +78,7 @@ export default function HajiTransfersPage() {
     if (!body.transferredTo) delete body.transferredTo;
     const r = await apiCall("/api/v1/haji-transfers", { method: "POST", body });
     if (r.success) {
-      if (pendingFile && r.data?.id) await uploadFile(pendingFile, "haji_transfer", r.data.id);
+      if (pendingFile && (r.data as any)?.id) await uploadFile(pendingFile, "haji_transfer", (r.data as any).id);
       setShowCreate(false); load();
     } else { setError(r.error || "Failed"); }
     setSubmitting(false);

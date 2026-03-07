@@ -89,7 +89,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     // True "Owed to Haji" = sales - expenses - direct-to-haji payments - haji transfers
     const hajiByCurrency: Record<string, number> = {};
-    for (const cc of new Set([...Object.keys(salesByCurrency), ...Object.keys(expenseByCurrency), ...Object.keys(directHajiPayments), ...Object.keys(hajiTransferByCurrency)])) {
+    const allCurrencies = Array.from(new Set([...Object.keys(salesByCurrency), ...Object.keys(expenseByCurrency), ...Object.keys(directHajiPayments), ...Object.keys(hajiTransferByCurrency)]));
+    for (const cc of allCurrencies) {
       const owed = (salesByCurrency[cc] || 0) - (expenseByCurrency[cc] || 0) - (directHajiPayments[cc] || 0) - (hajiTransferByCurrency[cc] || 0);
       hajiByCurrency[cc] = Math.round(owed * 100) / 100;
     }

@@ -82,6 +82,7 @@ enum AuditAction {
   delete
   cancel
   restore
+  hard_delete
 }
 
 // ============================================================

@@ -85,7 +85,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       lot: { id: p.lot.id, lotNumber: p.lot.lotNumber, status: p.lot.status },
       currency: { id: p.currency.id, code: p.currency.code, symbol: p.currency.symbol },
       createdBy: p.creator,
-      attachments: (p as any).attachments || [],
+      attachments: ((p as any).attachments || []).map((a: any) => ({
+        ...a,
+        filePath: a.filePath.split("|||")[0],
+      })),
     }));
 
     return paginatedResponse(formatted, total, page, limit);
