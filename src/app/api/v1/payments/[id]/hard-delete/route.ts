@@ -21,7 +21,10 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
     const valid = await comparePassword(body.password, admin.passwordHash);
     if (!valid) return errorResponse("AUTH_FAILED", "Incorrect password", 401);
 
-    const payment = await prisma.payment.findUnique({ where: { id } });
+    const payment = await prisma.payment.findUnique({
+      where: { id },
+      include: { customer: { select: { name: true } }, currency: { select: { code: true, symbol: true } } },
+    });
     if (!payment) return errorResponse("NOT_FOUND", "Payment not found", 404);
 
     await prisma.$transaction(async (tx) => {
@@ -29,7 +32,14 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
       await tx.payment.delete({ where: { id } });
     });
 
-    await createAuditLog(user.userId, payment.cityId, "payments", id, "hard_delete", { amount: payment.amount }, undefined, getClientIP(request));
+    await createAuditLog(user.userId, payment.cityId, "payments", id, "hard_delete", {
+      date: payment.paymentDate.toISOString().split("T")[0],
+      customer: payment.customer.name,
+      detail: payment.detail,
+      amount: `${payment.currency.symbol || payment.currency.code} ${Number(payment.amount).toLocaleString()}`,
+      ...(payment.destination ? { destination: payment.destination } : {}),
+      ...(payment.notes ? { notes: payment.notes } : {}),
+    }, undefined, getClientIP(request));
     return successResponse({ id }, "Payment permanently deleted");
   } catch (error) {
     console.error("Hard delete payment error:", error);

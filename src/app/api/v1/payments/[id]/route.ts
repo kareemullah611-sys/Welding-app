@@ -32,12 +32,22 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
   try {
     const id = parseInt(context.params.id);
     const body = await request.json();
-    const payment = await prisma.payment.findUnique({ where: { id } });
+    const payment = await prisma.payment.findUnique({
+      where: { id },
+      include: { customer: { select: { name: true } }, currency: { select: { code: true, symbol: true } } },
+    });
     if (!payment) return errorResponse("NOT_FOUND", "Payment not found", 404);
     if (payment.status !== "active") return errorResponse("VALIDATION_ERROR", "Cannot edit cancelled payment");
     if (user.role === "city_admin" && payment.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
 
-    const old = { amount: Number(payment.amount), detail: payment.detail };
+    const sym = payment.currency.symbol || payment.currency.code;
+    const old = {
+      date: payment.paymentDate.toISOString().split("T")[0],
+      customer: payment.customer.name,
+      detail: payment.detail,
+      amount: `${sym} ${Number(payment.amount).toLocaleString()}`,
+      ...(payment.notes ? { notes: payment.notes } : {}),
+    };
     const updated = await prisma.payment.update({
       where: { id },
       data: {
@@ -48,7 +58,11 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       },
     });
 
-    await createAuditLog(user.userId, payment.cityId, "payments", id, "update", old, { amount: Number(updated.amount), detail: updated.detail }, getClientIP(request));
+    await createAuditLog(user.userId, payment.cityId, "payments", id, "update", old, {
+      detail: updated.detail,
+      amount: `${sym} ${Number(updated.amount).toLocaleString()}`,
+      ...(updated.notes ? { notes: updated.notes } : {}),
+    }, getClientIP(request));
     return successResponse({ id }, "Payment updated");
   } catch (error) {
     return serverError();

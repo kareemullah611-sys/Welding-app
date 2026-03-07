@@ -280,7 +280,11 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     }) as any;
 
     await createAuditLog(user.userId, cityId, "sales", sale.id, "create", undefined, {
-      voucherNo, customerId, lotId, godownId, totalAmount, items,
+      voucher: `#${voucherNo}`,
+      date: saleDate,
+      customer: sale.customer.name,
+      total: `${Number(totalAmount).toLocaleString()}`,
+      items: sale.items.map((i: any) => `${i.product.name} ×${Number(i.qty)}`).join(", ") || undefined,
     }, getClientIP(request));
 
     const responseData = {

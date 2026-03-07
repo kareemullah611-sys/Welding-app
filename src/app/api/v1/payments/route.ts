@@ -175,7 +175,13 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     }
 
     await createAuditLog(user.userId, cityId, "payments", payment.id, "create", undefined, {
-      customerId, lotId, amount, paymentMethod, destination,
+      date: paymentDate,
+      customer: payment.customer.name,
+      detail: payment.detail,
+      amount: `${payment.currency.symbol || payment.currency.code} ${Number(payment.amount).toLocaleString()}`,
+      method: paymentMethod,
+      ...(destination ? { destination } : {}),
+      ...(notes ? { notes } : {}),
     }, getClientIP(request));
 
     const responsePayData = {

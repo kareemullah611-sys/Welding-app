@@ -80,7 +80,13 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       include: { lot: { select: { id: true, lotNumber: true } }, currency: true, creator: { select: { id: true, fullName: true } } },
     }) as any;
 
-    await createAuditLog(user.userId, cityId, "expenses", expense.id, "create", undefined, { lotId, amount, detail }, getClientIP(request));
+    await createAuditLog(user.userId, cityId, "expenses", expense.id, "create", undefined, {
+      date: expenseDate,
+      lot: `Lot ${expense.lot.lotNumber}`,
+      detail,
+      amount: `${expense.currency.symbol || expense.currency.code} ${Number(amount).toLocaleString()}`,
+      ...(notes ? { notes } : {}),
+    }, getClientIP(request));
 
     try {
       await journalExpenseCreated({ id: expense.id, cityId, lotId: lotId!, amount, currencyCode: expense.currency.code, detail, expenseDate: expense.expenseDate, createdBy: user.userId });

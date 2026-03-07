@@ -11,7 +11,10 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     const body = await request.json();
     if (!body.reason) return validationError("Cancellation reason is required");
 
-    const payment = await prisma.payment.findUnique({ where: { id } });
+    const payment = await prisma.payment.findUnique({
+      where: { id },
+      include: { customer: { select: { name: true } }, currency: { select: { code: true, symbol: true } } },
+    });
     if (!payment) return errorResponse("NOT_FOUND", "Payment not found", 404);
     if (payment.status === "cancelled") return errorResponse("VALIDATION_ERROR", "Already cancelled");
     if (user.role === "city_admin" && payment.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
@@ -21,7 +24,14 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       data: { status: "cancelled", cancellationReason: body.reason, cancelledAt: new Date(), cancelledBy: user.userId, updatedAt: new Date() },
     });
 
-    await createAuditLog(user.userId, payment.cityId, "payments", id, "cancel", { status: "active" }, { status: "cancelled", reason: body.reason }, getClientIP(request));
+    await createAuditLog(user.userId, payment.cityId, "payments", id, "cancel", {
+      date: payment.paymentDate.toISOString().split("T")[0],
+      customer: payment.customer.name,
+      detail: payment.detail,
+      amount: `${payment.currency.symbol || payment.currency.code} ${Number(payment.amount).toLocaleString()}`,
+      ...(payment.destination ? { destination: payment.destination } : {}),
+      ...(payment.notes ? { notes: payment.notes } : {}),
+    }, { reason: body.reason }, getClientIP(request));
 
     // Reverse journal entries so accounting books stay balanced
     try { await reverseJournalEntries(`PAY-${id}`, user.userId); } catch (je) { console.error("Journal reversal error (payment cancel):", je); }

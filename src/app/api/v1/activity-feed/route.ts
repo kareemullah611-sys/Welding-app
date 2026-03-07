@@ -194,6 +194,14 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           entityDetail = `#${log.entityId}`;
         }
 
+        // If entity was deleted and live lookup found nothing, try to reconstruct from stored snapshot
+        const ov = log.oldValues as Record<string, any> | null;
+        const nv = log.newValues as Record<string, any> | null;
+        if (!entityLabel && ov) {
+          entityLabel = ov.customer || ov.voucher || ov.name || log.entityType.replace(/_/g, " ");
+          entityDetail = [ov.amount || ov.total, ov.detail, ov.destination].filter(Boolean).join(" · ");
+        }
+
         return {
           id: log.id,
           user: log.user,
@@ -203,6 +211,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           entityId: log.entityId,
           entityLabel: entityLabel || log.entityType.replace(/_/g, " "),
           entityDetail,
+          oldValues: ov,
+          newValues: nv,
           createdAt: log.createdAt.toISOString(),
         };
       })

@@ -15,16 +15,93 @@ interface ActivityItem {
   entityId: number;
   entityLabel: string;
   entityDetail: string;
+  oldValues: Record<string, any> | null;
+  newValues: Record<string, any> | null;
   createdAt: string;
+}
+
+// ─── Detail Panel ─────────────────────────────────────────────────────────────
+const FIELD_LABELS: Record<string, string> = {
+  date: "Date", customer: "Customer", detail: "Detail", amount: "Amount",
+  destination: "To", notes: "Notes", method: "Method", voucher: "Voucher",
+  total: "Total", items: "Items", lot: "Lot", reason: "Reason",
+};
+
+function DetailPanel({ oldValues, newValues, action }: {
+  oldValues: Record<string, any> | null;
+  newValues: Record<string, any> | null;
+  action: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const isUpdate = action === "update";
+  const snapshot = isUpdate ? oldValues : (oldValues ?? newValues);
+  const after = isUpdate ? newValues : null;
+  const entries = Object.entries(snapshot ?? {}).filter(([, v]) => v != null && v !== "");
+  if (!entries.length) return null;
+
+  const btnLabel = action === "hard_delete" || action === "delete" ? "View deleted record"
+    : action === "cancel" ? "View cancelled record"
+    : action === "create" ? "View details"
+    : "View changes";
+
+  return (
+    <div className="mt-2">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 text-xs text-primary-500 hover:text-primary-700 transition-colors"
+      >
+        <span className={cn("inline-block transition-transform duration-150", open ? "rotate-90" : "")}>›</span>
+        {btnLabel}
+      </button>
+      {open && (
+        <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 overflow-hidden text-xs">
+          {isUpdate && (
+            <div className="flex text-[10px] font-semibold uppercase tracking-widest text-gray-400 bg-gray-100 border-b border-gray-200">
+              <div className="w-20 flex-shrink-0 px-3 py-1.5 border-r border-gray-200" />
+              <div className="flex-1 px-3 py-1.5">Before</div>
+              <div className="flex-1 px-3 py-1.5 border-l border-gray-200">After</div>
+            </div>
+          )}
+          <div className="divide-y divide-gray-100">
+            {entries.map(([key, val]) => {
+              const label = FIELD_LABELS[key] ?? key.replace(/_/g, " ");
+              const afterVal = after?.[key];
+              const changed = isUpdate && afterVal !== undefined && String(afterVal) !== String(val);
+              return (
+                <div key={key} className={cn("flex", changed && "bg-amber-50/60")}>
+                  <div className="w-20 flex-shrink-0 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 bg-white border-r border-gray-100">
+                    {label}
+                  </div>
+                  {isUpdate ? (
+                    <>
+                      <div className={cn("flex-1 px-3 py-1.5", changed ? "line-through text-gray-400" : "text-gray-700")}>
+                        {String(val)}
+                      </div>
+                      <div className={cn("flex-1 px-3 py-1.5 border-l border-gray-100", changed ? "text-gray-900 font-medium" : "text-gray-400 italic")}>
+                        {afterVal !== undefined ? String(afterVal) : "—"}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex-1 px-3 py-1.5 text-gray-700 break-words">{String(val)}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const ACTION_CONFIG: Record<string, { label: string; cls: string; dot: string }> = {
-  create:  { label: "Created",   cls: "bg-green-100 text-green-700 border-green-200",   dot: "bg-green-500" },
-  update:  { label: "Updated",   cls: "bg-blue-100 text-blue-700 border-blue-200",     dot: "bg-blue-500" },
-  delete:  { label: "Deleted",   cls: "bg-red-100 text-red-700 border-red-200",        dot: "bg-red-500" },
-  cancel:  { label: "Cancelled", cls: "bg-orange-100 text-orange-700 border-orange-200", dot: "bg-orange-500" },
-  restore: { label: "Restored",  cls: "bg-purple-100 text-purple-700 border-purple-200", dot: "bg-purple-500" },
+  create:      { label: "Created",   cls: "bg-green-100 text-green-700 border-green-200",     dot: "bg-green-500" },
+  update:      { label: "Updated",   cls: "bg-blue-100 text-blue-700 border-blue-200",       dot: "bg-blue-500" },
+  delete:      { label: "Deleted",   cls: "bg-red-100 text-red-700 border-red-200",          dot: "bg-red-500" },
+  hard_delete: { label: "Deleted",   cls: "bg-red-100 text-red-800 border-red-300",          dot: "bg-red-600" },
+  cancel:      { label: "Cancelled", cls: "bg-orange-100 text-orange-700 border-orange-200", dot: "bg-orange-500" },
+  restore:     { label: "Restored",  cls: "bg-purple-100 text-purple-700 border-purple-200", dot: "bg-purple-500" },
 };
 
 const ENTITY_CONFIG: Record<string, { icon: string; label: string }> = {
@@ -211,15 +288,22 @@ export default function ActivityFeedPage() {
                             )}
                           </div>
 
-                          {/* Line 2: Details */}
+                          {/* Line 2: Summary detail */}
                           {item.entityDetail && (
                             <p className="mt-1 text-sm text-gray-500 leading-snug break-words">
                               {item.entityDetail}
                             </p>
                           )}
 
-                          {/* Line 3: Natural language summary */}
-                          <p className="mt-1 text-xs text-gray-400 italic">
+                          {/* Line 3: Collapsible full record panel */}
+                          <DetailPanel
+                            oldValues={item.oldValues}
+                            newValues={item.newValues}
+                            action={item.action}
+                          />
+
+                          {/* Line 4: Natural language summary */}
+                          <p className="mt-1.5 text-xs text-gray-400 italic">
                             {item.user.fullName.split(" ")[0]} {verb}
                           </p>
                         </div>

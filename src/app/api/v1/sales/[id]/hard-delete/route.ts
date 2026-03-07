@@ -21,7 +21,13 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
     const valid = await comparePassword(body.password, admin.passwordHash);
     if (!valid) return errorResponse("AUTH_FAILED", "Incorrect password", 401);
 
-    const sale = await prisma.sale.findUnique({ where: { id } });
+    const sale = await prisma.sale.findUnique({
+      where: { id },
+      include: {
+        customer: { select: { name: true } },
+        items: { include: { product: { select: { name: true } } }, take: 5 },
+      },
+    });
     if (!sale) return errorResponse("NOT_FOUND", "Sale not found", 404);
 
     await prisma.$transaction(async (tx) => {
@@ -31,7 +37,14 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
       await tx.sale.delete({ where: { id } });
     });
 
-    await createAuditLog(user.userId, sale.cityId, "sales", id, "hard_delete", { voucherNo: sale.voucherNo }, undefined, getClientIP(request));
+    await createAuditLog(user.userId, sale.cityId, "sales", id, "hard_delete", {
+      voucher: `#${sale.voucherNo}`,
+      date: sale.saleDate.toISOString().split("T")[0],
+      customer: sale.customer.name,
+      total: `${Number(sale.totalAmount).toLocaleString()}`,
+      items: sale.items.map((i: any) => `${i.product.name} ×${Number(i.qty)}`).join(", ") || undefined,
+      ...(sale.notes ? { notes: sale.notes } : {}),
+    }, undefined, getClientIP(request));
     return successResponse({ id }, "Sale permanently deleted");
   } catch (error) {
     console.error("Hard delete sale error:", error);
