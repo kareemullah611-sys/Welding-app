@@ -45,7 +45,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       date: payment.paymentDate.toISOString().split("T")[0],
       customer: payment.customer.name,
       detail: payment.detail,
-      amount: `${sym} ${Number(payment.amount).toLocaleString()}`,
+      amount: `${sym} ${Number(payment.amount).toLocaleString("en-US")}`,
       ...(payment.notes ? { notes: payment.notes } : {}),
     };
     const updated = await prisma.payment.update({
@@ -60,7 +60,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 
     await createAuditLog(user.userId, payment.cityId, "payments", id, "update", old, {
       detail: updated.detail,
-      amount: `${sym} ${Number(updated.amount).toLocaleString()}`,
+      amount: `${sym} ${Number(updated.amount).toLocaleString("en-US")}`,
       ...(updated.notes ? { notes: updated.notes } : {}),
     }, getClientIP(request));
     return successResponse({ id }, "Payment updated");

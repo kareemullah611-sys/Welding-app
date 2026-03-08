@@ -162,7 +162,7 @@ export default function HajiTransfersPage() {
             </div>
           ),
         },
-        { key: "amount", label: t("amount"), render: (tr: any) => <span className="font-medium text-orange-600">{tr.currency?.symbol || ""} {tr.amount?.toLocaleString()}</span> },
+        { key: "amount", label: t("amount"), render: (tr: any) => <span className="font-medium text-orange-600">{tr.currency?.symbol || ""} {tr.amount?.toLocaleString("en-US")}</span> },
         { key: "transferType", label: t("type"), render: (tr: any) => <span className={`text-xs px-1.5 py-0.5 rounded ${tr.transferType === "direct" ? "bg-blue-50 text-blue-700" : "bg-green-50 text-green-700"}`}>{tr.transferType === "direct" ? t("direct_transfer") : t("from_in_hand")}</span> },
         { key: "lotNumber", label: t("lot"), render: (tr: any) => tr.lot?.lotNumber || tr.lotNumber || "-" },
         {

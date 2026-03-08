@@ -36,7 +36,7 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
       date: payment.paymentDate.toISOString().split("T")[0],
       customer: payment.customer.name,
       detail: payment.detail,
-      amount: `${payment.currency.symbol || payment.currency.code} ${Number(payment.amount).toLocaleString()}`,
+      amount: `${payment.currency.symbol || payment.currency.code} ${Number(payment.amount).toLocaleString("en-US")}`,
       ...(payment.destination ? { destination: payment.destination } : {}),
       ...(payment.notes ? { notes: payment.notes } : {}),
     }, undefined, getClientIP(request));

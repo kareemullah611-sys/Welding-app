@@ -173,7 +173,7 @@ const saleItemSchema = z.object({
 });
 
 export const createSaleSchema = z.object({
-  customerId: z.number().int().positive(),
+  customerId: z.number().int().refine((v) => v === -1 || v > 0, "Invalid customer"),
   godownId: z.number().int().positive(),
   lotId: z.number().int().optional().nullable(),
   saleDate: z.string(),

@@ -39,7 +39,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
               });
               if (sale) {
                 entityLabel = `Sale #${sale.voucherNo}`;
-                entityDetail = `${sale.customer.name} — ${Number(sale.totalAmount).toLocaleString()}`;
+                entityDetail = `${sale.customer.name} — ${Number(sale.totalAmount).toLocaleString("en-US")}`;
               }
               break;
             }
@@ -50,7 +50,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
               });
               if (payment) {
                 entityLabel = `Payment`;
-                entityDetail = `${payment.customer.name} — ${Number(payment.amount).toLocaleString()} — ${payment.detail}`;
+                entityDetail = `${payment.customer.name} — ${Number(payment.amount).toLocaleString("en-US")} — ${payment.detail}`;
               }
               break;
             }
@@ -61,7 +61,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
               });
               if (expense) {
                 entityLabel = `Expense`;
-                entityDetail = `${Number(expense.amount).toLocaleString()} — ${expense.detail}`;
+                entityDetail = `${Number(expense.amount).toLocaleString("en-US")} — ${expense.detail}`;
               }
               break;
             }
@@ -110,7 +110,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
               });
               if (ht) {
                 entityLabel = `Haji Transfer`;
-                entityDetail = `${Number(ht.amount).toLocaleString()} — ${ht.detail}`;
+                entityDetail = `${Number(ht.amount).toLocaleString("en-US")} — ${ht.detail}`;
               }
               break;
             }
@@ -121,7 +121,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
               });
               if (pw) {
                 entityLabel = `Personal Withdrawal`;
-                entityDetail = `${Number(pw.amount).toLocaleString()} — ${pw.detail}`;
+                entityDetail = `${Number(pw.amount).toLocaleString("en-US")} — ${pw.detail}`;
               }
               break;
             }
@@ -170,7 +170,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
               });
               if (sp) {
                 entityLabel = `Supplier Payment`;
-                entityDetail = `${sp.supplier.name} — $${Number(sp.amountUsd).toLocaleString()}`;
+                entityDetail = `${sp.supplier.name} — $${Number(sp.amountUsd).toLocaleString("en-US")}`;
               }
               break;
             }
@@ -181,7 +181,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
               });
               if (lc) {
                 entityLabel = `Lot Cost (${lc.costType.replace("_", " ")})`;
-                entityDetail = `${Number(lc.amount).toLocaleString()} — ${lc.description}`;
+                entityDetail = `${Number(lc.amount).toLocaleString("en-US")} — ${lc.description}`;
               }
               break;
             }

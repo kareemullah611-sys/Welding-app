@@ -73,7 +73,7 @@ export default function ExpensesPage() {
       <DataTable columns={[
         { key: "expenseDate", label: t("date") },
         { key: "detail", label: t("detail"), className: "max-w-xs" },
-        { key: "amount", label: t("amount"), render: (e: any) => <span className="font-medium text-red-600">{e.currency?.symbol} {e.amount.toLocaleString()}</span> },
+        { key: "amount", label: t("amount"), render: (e: any) => <span className="font-medium text-red-600">{e.currency?.symbol} {e.amount.toLocaleString("en-US")}</span> },
         { key: "lot", label: t("lot"), render: (e: any) => e.lot?.lotNumber || e.lotNumber },
         { key: "notes", label: t("notes"), render: (e: any) => e.notes || "-", className: "max-w-xs truncate" },
         { key: "source", label: t("deducted_from"), render: () => <span className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded">{t("cash_in_hand")}</span> },

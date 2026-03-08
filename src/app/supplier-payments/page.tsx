@@ -101,9 +101,9 @@ export default function SupplierPaymentsPage() {
         { key: "paymentDate", label: t("date") },
         { key: "supplierName", label: t("suppliers") },
         { key: "lotNumber", label: t("lot"), render: (p: any) => p.lotNumber || <span className="text-gray-400">{t("general_not_linked")}</span> },
-        { key: "amountUsd", label: t("amount_usd"), render: (p: any) => <span className="font-bold text-green-700">${p.amountUsd.toLocaleString()}</span> },
+        { key: "amountUsd", label: t("amount_usd"), render: (p: any) => <span className="font-bold text-green-700">${p.amountUsd.toLocaleString("en-US")}</span> },
         { key: "exchangeRate", label: t("fx_rate"), render: (p: any) => p.exchangeRate || "-" },
-        { key: "amountLocal", label: t("local_amount"), render: (p: any) => p.amountLocal ? p.amountLocal.toLocaleString() : "-" },
+        { key: "amountLocal", label: t("local_amount"), render: (p: any) => p.amountLocal ? p.amountLocal.toLocaleString("en-US") : "-" },
         { key: "paymentMethod", label: t("method"), render: (p: any) => METHODS.find(m => m.value === p.paymentMethod)?.label || p.paymentMethod },
         { key: "reference", label: t("reference"), render: (p: any) => p.reference || "-" },
         { key: "actions", label: "", render: (p: any) => (

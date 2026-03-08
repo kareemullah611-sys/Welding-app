@@ -305,12 +305,12 @@ export function StatusBadge({ status }: { status: string }) {
 // FORMAT HELPERS
 // ============================================================
 export function formatCurrency(amount: number, symbol = "Rs"): string {
-  return `${symbol} ${amount.toLocaleString("en-PK", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  return `${symbol} ${amount.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
 export function formatNumber(num: number | null | undefined): string {
   if (num === null || num === undefined || isNaN(num as number)) return "0";
-  return (num as number).toLocaleString("en-PK");
+  return (num as number).toLocaleString("en-US");
 }
 
 export function formatDate(date: string | Date | null | undefined): string {

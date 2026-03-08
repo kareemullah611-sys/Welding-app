@@ -28,7 +28,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       date: payment.paymentDate.toISOString().split("T")[0],
       customer: payment.customer.name,
       detail: payment.detail,
-      amount: `${payment.currency.symbol || payment.currency.code} ${Number(payment.amount).toLocaleString()}`,
+      amount: `${payment.currency.symbol || payment.currency.code} ${Number(payment.amount).toLocaleString("en-US")}`,
       ...(payment.destination ? { destination: payment.destination } : {}),
       ...(payment.notes ? { notes: payment.notes } : {}),
     }, { reason: body.reason }, getClientIP(request));

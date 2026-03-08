@@ -36,20 +36,20 @@ export default function CountryLedgerPage() {
           const cl = cityData[city.id]; if (!cl) return <div key={city.id} className="card animate-pulse h-48" />;
           return (<div key={city.id} className="card"><h3 className="text-base font-semibold text-gray-800 mb-3 pb-2 border-b">{cl.name}</h3>
             <div className="grid grid-cols-2 gap-2 text-sm">
-              <div className="flex justify-between"><span className="text-gray-500">{t("sales")}</span><span className="font-medium">{(cl.ledger?.totalSales||0).toLocaleString()}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">{t("payments")}</span><span className="font-medium text-green-600">{(cl.ledger?.totalPayments||0).toLocaleString()}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">{t("outstanding")}</span><span className="font-medium text-yellow-600">{(cl.ledger?.totalReceivables||0).toLocaleString()}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">{t("cash_in_hand")}</span><span className="font-bold text-green-700">{(cl.cash?.netCashInHand||0).toLocaleString()}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">{t("expenses")}</span><span className="font-medium text-red-600">{(cl.ledger?.totalExpenses||0).toLocaleString()}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">{t("haji_transfers")}</span><span className="font-medium text-orange-600">{(cl.ledger?.totalHajiTransfers||0).toLocaleString()}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">{t("owed_to_haji")}</span><span className="font-bold text-red-700">{(cl.ledger?.totalHajiOwed||0).toLocaleString()}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">{t("withdrawals")}</span><span className="font-medium text-purple-600">{(cl.ledger?.totalWithdrawals||0).toLocaleString()}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{t("sales")}</span><span className="font-medium">{(cl.ledger?.totalSales||0).toLocaleString("en-US")}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{t("payments")}</span><span className="font-medium text-green-600">{(cl.ledger?.totalPayments||0).toLocaleString("en-US")}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{t("outstanding")}</span><span className="font-medium text-yellow-600">{(cl.ledger?.totalReceivables||0).toLocaleString("en-US")}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{t("cash_in_hand")}</span><span className="font-bold text-green-700">{(cl.cash?.netCashInHand||0).toLocaleString("en-US")}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{t("expenses")}</span><span className="font-medium text-red-600">{(cl.ledger?.totalExpenses||0).toLocaleString("en-US")}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{t("haji_transfers")}</span><span className="font-medium text-orange-600">{(cl.ledger?.totalHajiTransfers||0).toLocaleString("en-US")}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{t("owed_to_haji")}</span><span className="font-bold text-red-700">{(cl.ledger?.totalHajiOwed||0).toLocaleString("en-US")}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">{t("withdrawals")}</span><span className="font-medium text-purple-600">{(cl.ledger?.totalWithdrawals||0).toLocaleString("en-US")}</span></div>
             </div>
             {cl.cash && <div className="mt-3 pt-2 border-t"><p className="text-xs font-semibold text-gray-400 mb-1">{t("in_hand_breakdown")}</p><div className="flex flex-wrap gap-2 text-xs">
-              <span className="bg-green-50 text-green-700 px-2 py-0.5 rounded">💵 {t("cash")}: {(cl.cash.incomingToHand?.cash||0).toLocaleString()}</span>
-              <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded">🏦 {t("cheque")}: {(cl.cash.incomingToHand?.cheque||0).toLocaleString()}</span>
-              <span className="bg-purple-50 text-purple-700 px-2 py-0.5 rounded">🏧 {t("bank_transfer")}: {(cl.cash.incomingToHand?.bankTransfer||0).toLocaleString()}</span>
-              <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded">📱 {t("online")}: {(cl.cash.incomingToHand?.online||0).toLocaleString()}</span>
+              <span className="bg-green-50 text-green-700 px-2 py-0.5 rounded">💵 {t("cash")}: {(cl.cash.incomingToHand?.cash||0).toLocaleString("en-US")}</span>
+              <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded">🏦 {t("cheque")}: {(cl.cash.incomingToHand?.cheque||0).toLocaleString("en-US")}</span>
+              <span className="bg-purple-50 text-purple-700 px-2 py-0.5 rounded">🏧 {t("bank_transfer")}: {(cl.cash.incomingToHand?.bankTransfer||0).toLocaleString("en-US")}</span>
+              <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded">📱 {t("online")}: {(cl.cash.incomingToHand?.online||0).toLocaleString("en-US")}</span>
             </div></div>}
           </div>);
         })}

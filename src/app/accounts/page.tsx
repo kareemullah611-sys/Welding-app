@@ -168,4 +168,4 @@ function BalanceSheetReport({ data }: { data: any }) {
   </div>);
 }
 
-function n(v: number) { return v?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) || "0"; }
+function n(v: number) { return v?.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 }) || "0"; }

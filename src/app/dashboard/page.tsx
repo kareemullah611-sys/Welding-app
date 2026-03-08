@@ -159,7 +159,7 @@ export default function DashboardPage() {
                 render: (c: any) => (
                   <div className="space-y-0.5">
                     {Object.entries(c.outstandingByCurrency || {}).map(([cc, amt]: [string, any]) => (
-                      <div key={cc} className="text-red-600 font-medium text-sm">{cc} {(amt as number).toLocaleString()}</div>
+                      <div key={cc} className="text-red-600 font-medium text-sm">{cc} {(amt as number).toLocaleString("en-US")}</div>
                     ))}
                     {!Object.keys(c.outstandingByCurrency || {}).length && <span className="text-gray-400">—</span>}
                   </div>
@@ -170,7 +170,7 @@ export default function DashboardPage() {
                 render: (c: any) => (
                   <div className="space-y-0.5">
                     {Object.entries(c.hajiByCurrency || {}).map(([cc, amt]: [string, any]) => (
-                      <div key={cc} className="text-orange-600 font-medium text-sm">{cc} {(amt as number).toLocaleString()}</div>
+                      <div key={cc} className="text-orange-600 font-medium text-sm">{cc} {(amt as number).toLocaleString("en-US")}</div>
                     ))}
                     {!Object.keys(c.hajiByCurrency || {}).length && <span className="text-gray-400">—</span>}
                   </div>
@@ -182,7 +182,7 @@ export default function DashboardPage() {
                 render: (c: any) => (
                   <div className="space-y-0.5">
                     {Object.entries(c.withdrawalByCurrency || {}).map(([cc, amt]: [string, any]) => (
-                      <div key={cc} className="text-red-500 text-sm">{cc} {(amt as number).toLocaleString()}</div>
+                      <div key={cc} className="text-red-500 text-sm">{cc} {(amt as number).toLocaleString("en-US")}</div>
                     ))}
                     {!Object.keys(c.withdrawalByCurrency || {}).length && <span className="text-gray-400">—</span>}
                   </div>

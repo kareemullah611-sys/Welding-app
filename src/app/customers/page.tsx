@@ -92,7 +92,7 @@ export default function CustomersPage() {
         )},
         { key: "phone", label: t("phone"), render: (c: any) => c.phone || "-" },
         { key: "address", label: t("address"), render: (c: any) => c.address || "-", className: "max-w-xs truncate" },
-        { key: "balance", label: t("balance"), render: (c: any) => c.balance !== undefined ? <span className={`font-medium ${c.balance > 0 ? "text-red-600" : c.balance < 0 ? "text-green-600" : ""}`}>{c.balance > 0 ? `${t("owes")} ${c.balance.toLocaleString()}` : c.balance < 0 ? `${t("we_owe")} ${Math.abs(c.balance).toLocaleString()}` : t("settled")}</span> : "-" },
+        { key: "balance", label: t("balance"), render: (c: any) => c.balance !== undefined ? <span className={`font-medium ${c.balance > 0 ? "text-red-600" : c.balance < 0 ? "text-green-600" : ""}`}>{c.balance > 0 ? `${t("owes")} ${c.balance.toLocaleString("en-US")}` : c.balance < 0 ? `${t("we_owe")} ${Math.abs(c.balance).toLocaleString("en-US")}` : t("settled")}</span> : "-" },
         { key: "actions", label: "", render: (c: any) => (
           <div className="flex gap-2">
             {c.isActive && <button onClick={() => openEdit(c)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button>}
@@ -136,9 +136,9 @@ export default function CustomersPage() {
             <div className="flex flex-wrap gap-4 mb-4 text-sm">
               {ledgerData.balanceByCurrency && Object.keys(ledgerData.balanceByCurrency).length > 0
                 ? Object.entries(ledgerData.balanceByCurrency).map(([cc, amt]: [string, any]) => (
-                    <span key={cc}>{t("balance")} ({cc}): <strong className={`${amt > 0 ? "text-red-600" : amt < 0 ? "text-green-600" : ""}`}>{amt > 0 ? `${t("owes")} ${cc} ${Number(amt).toLocaleString()}` : amt < 0 ? `${t("we_owe")} ${cc} ${Math.abs(Number(amt)).toLocaleString()}` : t("settled")}</strong></span>
+                    <span key={cc}>{t("balance")} ({cc}): <strong className={`${amt > 0 ? "text-red-600" : amt < 0 ? "text-green-600" : ""}`}>{amt > 0 ? `${t("owes")} ${cc} ${Number(amt).toLocaleString("en-US")}` : amt < 0 ? `${t("we_owe")} ${cc} ${Math.abs(Number(amt)).toLocaleString("en-US")}` : t("settled")}</strong></span>
                   ))
-                : <span>{t("balance")}: <strong className={`${ledgerData.balance > 0 ? "text-red-600" : "text-green-600"}`}>{ledgerData.balance > 0 ? `${t("owes")} ${ledgerData.balance.toLocaleString()}` : ledgerData.balance < 0 ? `${t("we_owe")} ${Math.abs(ledgerData.balance).toLocaleString()}` : t("settled")}</strong></span>
+                : <span>{t("balance")}: <strong className={`${ledgerData.balance > 0 ? "text-red-600" : "text-green-600"}`}>{ledgerData.balance > 0 ? `${t("owes")} ${ledgerData.balance.toLocaleString("en-US")}` : ledgerData.balance < 0 ? `${t("we_owe")} ${Math.abs(ledgerData.balance).toLocaleString("en-US")}` : t("settled")}</strong></span>
               }
             </div>
             <div className="overflow-x-auto max-h-96">
@@ -151,9 +151,9 @@ export default function CustomersPage() {
                       <td className="px-3 py-1.5"><span className={`text-xs px-1.5 py-0.5 rounded ${e.type === "sale" ? "bg-blue-50 text-blue-700" : "bg-green-50 text-green-700"}`}>{e.type}</span></td>
                       <td className="px-3 py-1.5 text-xs font-semibold text-gray-500">{e.currency}</td>
                       <td className="px-3 py-1.5 max-w-xs truncate">{e.detail}</td>
-                      <td className="px-3 py-1.5 text-right text-red-600">{e.debit ? e.debit.toLocaleString() : ""}</td>
-                      <td className="px-3 py-1.5 text-right text-green-600">{e.credit ? e.credit.toLocaleString() : ""}</td>
-                      <td className="px-3 py-1.5 text-right font-medium">{(typeof e.balance === "number" && !isNaN(e.balance)) ? e.balance.toLocaleString() : "-"}</td>
+                      <td className="px-3 py-1.5 text-right text-red-600">{e.debit ? e.debit.toLocaleString("en-US") : ""}</td>
+                      <td className="px-3 py-1.5 text-right text-green-600">{e.credit ? e.credit.toLocaleString("en-US") : ""}</td>
+                      <td className="px-3 py-1.5 text-right font-medium">{(typeof e.balance === "number" && !isNaN(e.balance)) ? e.balance.toLocaleString("en-US") : "-"}</td>
                     </tr>
                   ))}
                 </tbody>

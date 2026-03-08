@@ -137,7 +137,7 @@ export default function LotCostingPage() {
             { key: "productName", label: t("product") },
             { key: "qty", label: t("cartons"), render: (p: any) => formatNumber(p.qty) },
             { key: "unitPriceUsd", label: t("unit_price"), render: (p: any) => `$${p.unitPriceUsd}` },
-            { key: "totalPriceUsd", label: t("total"), render: (p: any) => <span className="font-medium">${p.totalPriceUsd.toLocaleString()}</span> },
+            { key: "totalPriceUsd", label: t("total"), render: (p: any) => <span className="font-medium">${p.totalPriceUsd.toLocaleString("en-US")}</span> },
             { key: "exchangeRate", label: t("exchange_rate"), render: (p: any) => p.exchangeRate || "-" },
           ]} data={purchases} loading={false} emptyMessage={t("no_purchases")} />
         </div>
@@ -154,7 +154,7 @@ export default function LotCostingPage() {
           <DataTable columns={[
             { key: "costType", label: t("type"), render: (c: any) => <span className="text-xs">{COST_TYPES.find(ct => ct.value === c.costType)?.label || c.costType}</span> },
             { key: "description", label: t("description") },
-            { key: "amount", label: t("amount"), render: (c: any) => <span className="font-medium">{c.currencyCode === "USD" ? "$" : ""}{c.amount.toLocaleString()}</span> },
+            { key: "amount", label: t("amount"), render: (c: any) => <span className="font-medium">{c.currencyCode === "USD" ? "$" : ""}{c.amount.toLocaleString("en-US")}</span> },
             { key: "costDate", label: t("date") },
             { key: "actions", label: "", render: (c: any) => <button onClick={() => deleteCost(c.id)} className="text-xs text-red-600 hover:underline"> {t("delete")}</button> },
           ]} data={costs} loading={false} emptyMessage={t("no_costs")} />
@@ -175,7 +175,7 @@ export default function LotCostingPage() {
               <div><label className="block text-xs text-gray-500 mb-1">{t("product")}</label><select value={p.productId} onChange={e => updateProductRow(i, "productId", parseInt(e.target.value))} className="select-field text-sm"><option value={0}>{t("select")}</option>{products.map((pr: any) => <option key={pr.id} value={pr.id}>{pr.name}</option>)}</select></div>
               <div><label className="block text-xs text-gray-500 mb-1">{t("cartons")}</label><input type="number" value={p.qty || ""} onChange={e => updateProductRow(i, "qty", parseFloat(e.target.value) || 0)} className="input-field text-sm" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">$/{t("cartons")}</label><input type="number" step="0.01" value={p.unitPriceUsd || ""} onChange={e => updateProductRow(i, "unitPriceUsd", parseFloat(e.target.value) || 0)} className="input-field text-sm" /></div>
-              <div className="flex gap-1"><span className="text-sm font-medium text-gray-600 self-center">${((p.qty || 0) * (p.unitPriceUsd || 0)).toLocaleString()}</span>{i > 0 && <button onClick={() => removeProductRow(i)} className="text-red-500 text-lg">×</button>}</div>
+              <div className="flex gap-1"><span className="text-sm font-medium text-gray-600 self-center">${((p.qty || 0) * (p.unitPriceUsd || 0)).toLocaleString("en-US")}</span>{i > 0 && <button onClick={() => removeProductRow(i)} className="text-red-500 text-lg">×</button>}</div>
             </div>
           ))}
           <button onClick={addProductRow} className="text-xs text-primary-600 hover:underline">+ {t("add_item")}</button>

@@ -99,7 +99,7 @@ export default function SearchPage() {
           <DataTable columns={[
             { key: "voucherNo", label: t("voucher"), render: (s: any) => <span className="font-medium">{s.voucherNo}</span> },
             { key: "customer", label: t("customer") },
-            { key: "amount", label: t("amount"), render: (s: any) => `${s.currency} ${s.amount.toLocaleString()}` },
+            { key: "amount", label: t("amount"), render: (s: any) => `${s.currency} ${s.amount.toLocaleString("en-US")}` },
             { key: "date", label: t("date") },
             { key: "status", label: t("status"), render: (s: any) => <StatusBadge status={s.status} /> },
           ]} data={results.sales} loading={false} />
@@ -111,7 +111,7 @@ export default function SearchPage() {
           <DataTable columns={[
             { key: "customer", label: t("customer") },
             { key: "detail", label: t("detail") },
-            { key: "amount", label: t("amount"), render: (p: any) => `${p.currency} ${p.amount.toLocaleString()}` },
+            { key: "amount", label: t("amount"), render: (p: any) => `${p.currency} ${p.amount.toLocaleString("en-US")}` },
             { key: "date", label: t("date") },
             { key: "status", label: t("status"), render: (p: any) => <StatusBadge status={p.status} /> },
           ]} data={results.payments} loading={false} />
@@ -122,7 +122,7 @@ export default function SearchPage() {
         <ResultSection title={`↗️ ${t("haji_transfers")}`} count={results.haji_transfers.length}>
           <DataTable columns={[
             { key: "detail", label: t("detail") },
-            { key: "amount", label: t("amount"), render: (h: any) => `${h.currency} ${h.amount.toLocaleString()}` },
+            { key: "amount", label: t("amount"), render: (h: any) => `${h.currency} ${h.amount.toLocaleString("en-US")}` },
             { key: "date", label: t("date") },
             { key: "city", label: t("city") },
             { key: "lotNumber", label: t("lot") },
@@ -135,7 +135,7 @@ export default function SearchPage() {
         <ResultSection title={`💸 ${t("expenses")}`} count={results.expenses.length}>
           <DataTable columns={[
             { key: "detail", label: t("detail") },
-            { key: "amount", label: t("amount"), render: (e: any) => `${e.currency} ${e.amount.toLocaleString()}` },
+            { key: "amount", label: t("amount"), render: (e: any) => `${e.currency} ${e.amount.toLocaleString("en-US")}` },
             { key: "date", label: t("date") },
             { key: "city", label: t("city") },
             { key: "lotNumber", label: t("lot") },

@@ -9,8 +9,13 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
   try {
     const { page, limit, skip } = getPaginationParams(request.nextUrl.searchParams);
     const status = request.nextUrl.searchParams.get("status");
+    const direction = request.nextUrl.searchParams.get("direction");
     const where: any = {};
-    if (user.role === "city_admin") { where.OR = [{ fromCityId: user.cityId }, { toCityId: user.cityId }]; }
+    if (user.role === "city_admin") {
+      if (direction === "incoming") where.toCityId = user.cityId;
+      else if (direction === "outgoing") where.fromCityId = user.cityId;
+      else where.OR = [{ fromCityId: user.cityId }, { toCityId: user.cityId }];
+    }
     if (status) where.status = status;
 
     const [transfers, total] = await Promise.all([

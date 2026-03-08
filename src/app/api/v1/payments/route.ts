@@ -181,7 +181,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       date: paymentDate,
       customer: payment.customer.name,
       detail: payment.detail,
-      amount: `${payment.currency.symbol || payment.currency.code} ${Number(payment.amount).toLocaleString()}`,
+      amount: `${payment.currency.symbol || payment.currency.code} ${Number(payment.amount).toLocaleString("en-US")}`,
       method: paymentMethod,
       ...(destination ? { destination } : {}),
       ...(notes ? { notes } : {}),

@@ -381,7 +381,7 @@ export default function SalesPage() {
                   </div>
                   <div className="w-28 text-right">
                     {idx === 0 && <label className="block text-xs text-gray-500 mb-1">{t("amount")}</label>}
-                    <p className="py-2 text-sm font-medium">{(item.qty * item.ratePerCarton).toLocaleString()}</p>
+                    <p className="py-2 text-sm font-medium">{(item.qty * item.ratePerCarton).toLocaleString("en-US")}</p>
                   </div>
                   {form.items.length > 1 && <button onClick={() => removeItem(idx)} className="text-red-500 hover:text-red-700 pb-2 text-lg">×</button>}
                 </div>
@@ -390,7 +390,7 @@ export default function SalesPage() {
           </div>
           <div className="mt-3 text-right">
             <span className="text-sm text-gray-500">{t("total")}: </span>
-            <span className="text-lg font-bold text-gray-900">{totalAmount.toLocaleString()}</span>
+            <span className="text-lg font-bold text-gray-900">{totalAmount.toLocaleString("en-US")}</span>
           </div>
         </div>
 
@@ -445,7 +445,7 @@ export default function SalesPage() {
               <div><label className="block text-xs text-gray-500 mb-1">{t("product")}</label><select value={item.productId} onChange={e => { const v = parseInt(e.target.value); setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, productId: v } : c)); }} className="select-field text-sm"><option value={0}>{t("select_product")}</option>{products.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
               <div><label className="block text-xs text-gray-500 mb-1">{t("cartons")}</label><input type="number" value={item.qty || ""} onChange={e => { const v = parseFloat(e.target.value) || 0; setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, qty: v } : c)); }} className="input-field text-sm" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">{t("rate_per_carton")}</label><input type="number" value={item.ratePerCarton || ""} onChange={e => { const v = parseFloat(e.target.value) || 0; setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, ratePerCarton: v } : c)); }} className="input-field text-sm" /></div>
-              <div className="flex gap-1 items-center"><span className="text-sm text-gray-600">{((item.qty || 0) * (item.ratePerCarton || 0)).toLocaleString()}</span>{correctItems.length > 1 && <button onClick={() => setCorrectItems(ci => ci.filter((_, idx) => idx !== i))} className="text-red-500 text-lg">×</button>}</div>
+              <div className="flex gap-1 items-center"><span className="text-sm text-gray-600">{((item.qty || 0) * (item.ratePerCarton || 0)).toLocaleString("en-US")}</span>{correctItems.length > 1 && <button onClick={() => setCorrectItems(ci => ci.filter((_, idx) => idx !== i))} className="text-red-500 text-lg">×</button>}</div>
             </div>
           ))}
           <button onClick={() => setCorrectItems(ci => [...ci, { productId: 0, qty: 0, ratePerCarton: 0 }])} className="text-xs text-primary-600 hover:underline">+ {t("add_item")}</button>

@@ -87,7 +87,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       date: expenseDate,
       lot: `Lot ${expense.lot.lotNumber}`,
       detail,
-      amount: `${expense.currency.symbol || expense.currency.code} ${Number(amount).toLocaleString()}`,
+      amount: `${expense.currency.symbol || expense.currency.code} ${Number(amount).toLocaleString("en-US")}`,
       ...(notes ? { notes } : {}),
     }, getClientIP(request));
 

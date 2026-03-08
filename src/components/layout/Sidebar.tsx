@@ -1,10 +1,11 @@
 "use client";
 
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { LangSwitcher, useLang } from "@/lib/lang";
+import { apiCall } from "@/hooks/useApi";
 import {
   LayoutDashboard, Package, Tag, Factory, Banknote, Handshake,
   BookOpen, Receipt, Wallet, Users, Warehouse, ClipboardList,
@@ -118,6 +119,17 @@ export default function Sidebar() {
   const { collapsed, setCollapsed } = useSidebar();
   const isRTL = dir === "rtl";
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [pendingTransfers, setPendingTransfers] = useState(0);
+
+  useEffect(() => {
+    if (user?.role !== "city_admin") return;
+    const fetchPending = () =>
+      apiCall<any>("/api/v1/city-transfers", { params: { status: "pending", direction: "incoming", limit: 1 } })
+        .then((r) => { if (r.success) setPendingTransfers((r.pagination as any)?.total ?? 0); });
+    fetchPending();
+    const interval = setInterval(fetchPending, 60000);
+    return () => clearInterval(interval);
+  }, [user]);
 
   if (!user) return null;
 
@@ -186,16 +198,28 @@ export default function Sidebar() {
                       )}
                     />
                   )}
-                  <Icon
-                    className={cn(
-                      "flex-shrink-0 w-[17px] h-[17px] transition-colors",
-                      isActive
-                        ? "text-primary-400"
-                        : "text-slate-500 group-hover:text-slate-300"
+                  <div className="relative flex-shrink-0">
+                    <Icon
+                      className={cn(
+                        "w-[17px] h-[17px] transition-colors",
+                        isActive
+                          ? "text-primary-400"
+                          : "text-slate-500 group-hover:text-slate-300"
+                      )}
+                    />
+                    {item.href === "/city-transfers" && pendingTransfers > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-[14px] bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
+                        {pendingTransfers > 9 ? "9+" : pendingTransfers}
+                      </span>
                     )}
-                  />
+                  </div>
                   {!collapsed && (
-                    <span className="truncate">{t(item.key)}</span>
+                    <span className="truncate flex-1">{t(item.key)}</span>
+                  )}
+                  {!collapsed && item.href === "/city-transfers" && pendingTransfers > 0 && (
+                    <span className="ml-auto bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none flex-shrink-0">
+                      {pendingTransfers > 99 ? "99+" : pendingTransfers}
+                    </span>
                   )}
                 </Link>
               );

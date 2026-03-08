@@ -72,9 +72,9 @@ function PeriodReport({ data }: { data: any }) {
         <div className="card mb-6">
           <h3 className="text-sm font-semibold text-gray-500 mb-3">{t("supplier_account_label")}</h3>
           <div className="grid grid-cols-3 gap-3">
-            <div className="bg-blue-50 rounded-lg p-3"><div className="text-xs text-gray-500">{t("purchased_label")}</div><div className="text-lg font-bold text-blue-700">${data.supplierAccount.totalPurchasedUsd.toLocaleString()}</div></div>
-            <div className="bg-green-50 rounded-lg p-3"><div className="text-xs text-gray-500">{t("paid_label")}</div><div className="text-lg font-bold text-green-700">${data.supplierAccount.totalPaidUsd.toLocaleString()}</div></div>
-            <div className={`rounded-lg p-3 ${data.supplierAccount.balanceOwedUsd > 0 ? "bg-red-50" : "bg-green-50"}`}><div className="text-xs text-gray-500">{t("balance_owed")}</div><div className={`text-lg font-bold ${data.supplierAccount.balanceOwedUsd > 0 ? "text-red-700" : "text-green-700"}`}>${data.supplierAccount.balanceOwedUsd.toLocaleString()}</div></div>
+            <div className="bg-blue-50 rounded-lg p-3"><div className="text-xs text-gray-500">{t("purchased_label")}</div><div className="text-lg font-bold text-blue-700">${data.supplierAccount.totalPurchasedUsd.toLocaleString("en-US")}</div></div>
+            <div className="bg-green-50 rounded-lg p-3"><div className="text-xs text-gray-500">{t("paid_label")}</div><div className="text-lg font-bold text-green-700">${data.supplierAccount.totalPaidUsd.toLocaleString("en-US")}</div></div>
+            <div className={`rounded-lg p-3 ${data.supplierAccount.balanceOwedUsd > 0 ? "bg-red-50" : "bg-green-50"}`}><div className="text-xs text-gray-500">{t("balance_owed")}</div><div className={`text-lg font-bold ${data.supplierAccount.balanceOwedUsd > 0 ? "text-red-700" : "text-green-700"}`}>${data.supplierAccount.balanceOwedUsd.toLocaleString("en-US")}</div></div>
           </div>
         </div>
       )}
@@ -118,7 +118,7 @@ function LotReport({ data }: { data: any }) {
         <div className="card mb-4">
           <h3 className="text-sm font-semibold text-gray-500 mb-2">{t("cost_breakdown")}</h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">{Object.entries(cs.costBreakdown).map(([type, amount]) => (
-            <div key={type} className="bg-gray-50 rounded p-2 text-sm"><div className="text-xs text-gray-500 capitalize">{type.replace(/_/g, " ")}</div><div className="font-medium">${(amount as number).toLocaleString()}</div></div>
+            <div key={type} className="bg-gray-50 rounded p-2 text-sm"><div className="text-xs text-gray-500 capitalize">{type.replace(/_/g, " ")}</div><div className="font-medium">${(amount as number).toLocaleString("en-US")}</div></div>
           ))}</div>
         </div>
       )}

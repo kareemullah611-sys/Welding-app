@@ -205,9 +205,9 @@ export default function PaymentsPage() {
       )},
       { key: "amount", label: t("amount"), render: (p: any) => (
         <div>
-          <span className="font-medium text-green-700">{p.currency?.symbol} {p.amount?.toLocaleString()}</span>
+          <span className="font-medium text-green-700">{p.currency?.symbol} {p.amount?.toLocaleString("en-US")}</span>
           {p.currency?.code === "AFN" && p.usdEquivalent && (
-            <p className="text-xs text-gray-500 mt-0.5">≈ ${Number(p.usdEquivalent).toLocaleString()} @ {p.exchangeRate}</p>
+            <p className="text-xs text-gray-500 mt-0.5">≈ ${Number(p.usdEquivalent).toLocaleString("en-US")} @ {p.exchangeRate}</p>
           )}
         </div>
       )},
@@ -229,7 +229,7 @@ export default function PaymentsPage() {
     if (tab === "expenses") return [
       { key: "expenseDate", label: t("date") },
       { key: "detail", label: t("detail") },
-      { key: "amount", label: t("amount"), render: (e: any) => <span className="font-medium text-red-600">{e.currency?.symbol} {e.amount?.toLocaleString()}</span> },
+      { key: "amount", label: t("amount"), render: (e: any) => <span className="font-medium text-red-600">{e.currency?.symbol} {e.amount?.toLocaleString("en-US")}</span> },
       { key: "lotNumber", label: t("lot"), render: (e: any) => e.lot?.lotNumber || e.lotNumber || "-" },
       { key: "attachment", label: "📎", render: (e: any) => <AttachCell item={e} entityType="expense" uploadingFor={uploadingFor} setUploadingFor={setUploadingFor} reload={load} onView={setViewingAttachment} /> },
       { key: "actions", label: "", render: (e: any) => <div className="flex gap-2"><button onClick={() => openEdit(e)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button><button onClick={() => handleDelete(e)} className="text-xs text-red-600 hover:underline">{t("delete")}</button></div> },
@@ -237,7 +237,7 @@ export default function PaymentsPage() {
     if (tab === "haji") return [
       { key: "transferDate", label: t("date") },
       { key: "detail", label: t("detail"), render: (h: any) => <div><span>{h.detail}</span>{h.transferredTo && <p className="text-xs text-blue-600 mt-0.5">→ {h.transferredTo}</p>}</div> },
-      { key: "amount", label: t("amount"), render: (h: any) => <span className="font-medium text-orange-600">{h.currency?.symbol} {h.amount?.toLocaleString()}</span> },
+      { key: "amount", label: t("amount"), render: (h: any) => <span className="font-medium text-orange-600">{h.currency?.symbol} {h.amount?.toLocaleString("en-US")}</span> },
       { key: "transferType", label: t("type"), render: (h: any) => <span className="text-xs">{h.transferType === "direct" ? t("direct_transfer") : t("from_in_hand")}</span> },
       { key: "lotNumber", label: t("lot"), render: (h: any) => h.lot?.lotNumber || h.lotNumber || "-" },
       { key: "attachment", label: "📎", render: (h: any) => <AttachCell item={h} entityType="haji_transfer" uploadingFor={uploadingFor} setUploadingFor={setUploadingFor} reload={load} onView={setViewingAttachment} /> },
@@ -246,7 +246,7 @@ export default function PaymentsPage() {
     return [ // withdrawals
       { key: "withdrawalDate", label: t("date") },
       { key: "detail", label: t("detail") },
-      { key: "amount", label: t("amount"), render: (w: any) => <span className="font-medium text-purple-600">{w.currency?.symbol} {w.amount?.toLocaleString()}</span> },
+      { key: "amount", label: t("amount"), render: (w: any) => <span className="font-medium text-purple-600">{w.currency?.symbol} {w.amount?.toLocaleString("en-US")}</span> },
       { key: "actions", label: "", render: (w: any) => <div className="flex gap-2"><button onClick={() => openEdit(w)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button>{user?.role === "super_admin" && <button onClick={() => handleDelete(w)} className="text-xs text-red-600 hover:underline">{t("delete")}</button>}</div> },
     ];
   };
@@ -325,7 +325,7 @@ export default function PaymentsPage() {
                 {isAfn && usdEq && (
                   <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm text-blue-800">
                     {t("usd_equivalent_label")}: <span className="font-bold">${usdEq}</span> &nbsp;
-                    <span className="text-blue-500">(AFN {form.amount?.toLocaleString()} ÷ {form.exchangeRate})</span>
+                    <span className="text-blue-500">(AFN {form.amount?.toLocaleString("en-US")} ÷ {form.exchangeRate})</span>
                   </div>
                 )}
               </div>
@@ -376,7 +376,7 @@ export default function PaymentsPage() {
                     <p className="text-gray-500">{m.detail}</p>
                     <p className="text-gray-400 text-xs mt-0.5">{m.paymentDate} · {m.paymentMethod}</p>
                   </div>
-                  <span className="font-bold text-green-700">{m.currencySymbol} {m.amount.toLocaleString()}</span>
+                  <span className="font-bold text-green-700">{m.currencySymbol} {m.amount.toLocaleString("en-US")}</span>
                 </div>
               </div>
             ))}

@@ -173,9 +173,17 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const parsed = createSaleSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid sale data", parsed.error.errors);
 
-    const { customerId, godownId, saleDate, currencyId, notes, items } = parsed.data;
+    const { godownId, saleDate, currencyId, notes, items } = parsed.data;
+    let { customerId } = parsed.data;
     let lotId = parsed.data.lotId;
     const cityId = user.cityId!;
+
+    // Handle walk-in customer (id = -1): find or create per city
+    if (customerId === -1) {
+      let walkin = await prisma.customer.findFirst({ where: { cityId, name: "Walk-in Customer", isActive: true } });
+      if (!walkin) walkin = await prisma.customer.create({ data: { cityId, name: "Walk-in Customer", isActive: true } });
+      customerId = walkin.id;
+    }
 
     // Validate customer belongs to this city
     const customer = await prisma.customer.findFirst({
@@ -283,7 +291,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       voucher: `#${voucherNo}`,
       date: saleDate,
       customer: sale.customer.name,
-      total: `${Number(totalAmount).toLocaleString()}`,
+      total: `${Number(totalAmount).toLocaleString("en-US")}`,
       items: sale.items.map((i: any) => `${i.product.name} ×${Number(i.qty)}`).join(", ") || undefined,
     }, getClientIP(request));
 

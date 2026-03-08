@@ -34,6 +34,9 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  const WALKIN_ID = -1;
+  const WALKIN_NAME = "Walk-in Customer";
+
   const search = useCallback(async (q: string) => {
     if (!q.trim()) { setResults([]); setOpen(false); return; }
     setLoading(true);
@@ -45,7 +48,6 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
   const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const q = e.target.value;
     setQuery(q);
-    // If user clears the input, also clear the selection
     if (!q) { onChange(0, ""); setSelectedName(""); setResults([]); setOpen(false); return; }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => search(q), 250);
@@ -59,12 +61,22 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
     setOpen(false);
   };
 
+  const selectWalkin = () => {
+    onChange(WALKIN_ID, WALKIN_NAME);
+    setSelectedName(WALKIN_NAME);
+    setQuery("");
+    setResults([]);
+    setOpen(false);
+  };
+
   return (
     <div ref={wrapperRef} className={`relative ${className}`}>
       {selectedName ? (
-        // Show selected customer as a chip with an × to clear
-        <div className="input-field flex items-center justify-between gap-2 cursor-default">
-          <span className="truncate text-gray-800">{selectedName}</span>
+        <div className={`input-field flex items-center justify-between gap-2 cursor-default ${value === WALKIN_ID ? "bg-orange-50 border-orange-200" : ""}`}>
+          <span className="truncate text-gray-800">
+            {value === WALKIN_ID && <span className="text-orange-600 mr-1.5">🚶</span>}
+            {selectedName}
+          </span>
           <button
             type="button"
             onClick={() => { onChange(0, ""); setSelectedName(""); setQuery(""); }}
@@ -76,7 +88,7 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
           type="text"
           value={query}
           onChange={handleInput}
-          onFocus={() => { if (results.length) setOpen(true); }}
+          onFocus={() => { setOpen(true); }}
           placeholder={placeholder}
           className="input-field w-full"
           autoComplete="off"
@@ -84,11 +96,26 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
       )}
 
       {/* Dropdown */}
-      {open && (
+      {open && !selectedName && (
         <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-52 overflow-y-auto">
+          {/* Walk-in option always at top */}
+          <button
+            type="button"
+            onMouseDown={(e) => { e.preventDefault(); selectWalkin(); }}
+            className="w-full text-left px-3 py-2 text-sm hover:bg-orange-50 flex items-center gap-2 border-b border-gray-100"
+          >
+            <span className="text-orange-500">🚶</span>
+            <div>
+              <span className="font-medium text-orange-700">{WALKIN_NAME}</span>
+              <p className="text-xs text-gray-400">Pays on the spot — no account needed</p>
+            </div>
+          </button>
           {loading && <div className="px-3 py-2 text-sm text-gray-400">Searching…</div>}
-          {!loading && results.length === 0 && (
+          {!loading && query && results.length === 0 && (
             <div className="px-3 py-2 text-sm text-gray-400">No customers found</div>
+          )}
+          {!query && !loading && (
+            <div className="px-3 py-2 text-xs text-gray-400">Type to search customers…</div>
           )}
           {results.map((c) => (
             <button

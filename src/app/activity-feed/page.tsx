@@ -186,10 +186,21 @@ export default function ActivityFeedPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [cities, setCities] = useState<{ id: number; name: string }[]>([]);
+  const [filterCityId, setFilterCityId] = useState<number | "">("");
 
-  const load = useCallback(async (p = 1) => {
+  useEffect(() => {
+    if (user?.role === "super_admin") {
+      apiCall<any[]>("/api/v1/cities").then((r) => { if (r.success) setCities(r.data as any[]); });
+    }
+  }, [user]);
+
+  const load = useCallback(async (p = 1, cityId?: number | "") => {
     if (p === 1) setLoading(true);
-    const res = await apiCall<any>("/api/v1/activity-feed", { params: { page: p, limit: 30 } });
+    const params: any = { page: p, limit: 30 };
+    const cid = cityId !== undefined ? cityId : filterCityId;
+    if (cid) params.city_id = cid;
+    const res = await apiCall<any>("/api/v1/activity-feed", { params });
     if (res.success) {
       setItems(res.data.items);
       setTotalPages(res.data.pagination.totalPages);
@@ -197,7 +208,7 @@ export default function ActivityFeedPage() {
       setPage(p);
     }
     setLoading(false);
-  }, []);
+  }, [filterCityId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -220,9 +231,23 @@ export default function ActivityFeedPage() {
     <div>
       <PageHeader
         title={t("activity_feed")}
-        subtitle={`${total} ${t("records")}`}
+        subtitle={`${total} ${t("records")}${filterCityId ? ` · ${cities.find(c => c.id === filterCityId)?.name}` : ""}`}
         action={
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            {user?.role === "super_admin" && (
+              <select
+                value={filterCityId}
+                onChange={(e) => {
+                  const v = e.target.value === "" ? "" : parseInt(e.target.value);
+                  setFilterCityId(v);
+                  load(1, v);
+                }}
+                className="input-field text-sm py-1.5 pr-8"
+              >
+                <option value="">All Cities</option>
+                {cities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            )}
             <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer select-none">
               <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} className="rounded border-gray-300" />
               {t("auto_refresh")}

@@ -65,7 +65,7 @@ export default function AgentsPage() {
         { key: "name", label: t("name"), render: (a: any) => <button onClick={() => openLedger(a)} className="font-medium text-primary-600 hover:underline">{a.name}</button> },
         { key: "agentType", label: t("type"), render: (a: any) => <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100">{TYPES.find(ty => ty.value === a.agentType)?.label || a.agentType}</span> },
         { key: "city", label: t("city"), render: (a: any) => a.city?.name || "-" },
-        { key: "balance", label: t("balance_owed"), render: (a: any) => <div>{Object.entries(a.balance || {}).map(([cc, bal]: [string, any]) => <div key={cc} className={`text-sm font-medium ${bal > 0 ? "text-red-600" : "text-green-600"}`}>{cc} {bal.toLocaleString()}</div>)}</div> },
+        { key: "balance", label: t("balance_owed"), render: (a: any) => <div>{Object.entries(a.balance || {}).map(([cc, bal]: [string, any]) => <div key={cc} className={`text-sm font-medium ${bal > 0 ? "text-red-600" : "text-green-600"}`}>{cc} {bal.toLocaleString("en-US")}</div>)}</div> },
         { key: "actions", label: "", render: (a: any) => <button onClick={() => openPayment(a)} className="text-xs text-green-600 hover:underline">{t("pay_agent")}</button> },
       ]} data={agents} loading={loading} />
 
@@ -88,9 +88,9 @@ export default function AgentsPage() {
             { key: "date", label: t("date") },
             { key: "type", label: t("type"), render: (e: any) => <span className={`text-xs px-1.5 py-0.5 rounded ${e.type === "charge" ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>{e.type}</span> },
             { key: "description", label: t("description") },
-            { key: "debit", label: t("charged"), render: (e: any) => e.debit ? <span className="text-red-600">{e.currency} {e.debit.toLocaleString()}</span> : "" },
-            { key: "credit", label: t("paid"), render: (e: any) => e.credit ? <span className="text-green-600">{e.currency} {e.credit.toLocaleString()}</span> : "" },
-            { key: "balance", label: t("balance"), render: (e: any) => <span className="font-medium">{e.balance.toLocaleString()}</span> },
+            { key: "debit", label: t("charged"), render: (e: any) => e.debit ? <span className="text-red-600">{e.currency} {e.debit.toLocaleString("en-US")}</span> : "" },
+            { key: "credit", label: t("paid"), render: (e: any) => e.credit ? <span className="text-green-600">{e.currency} {e.credit.toLocaleString("en-US")}</span> : "" },
+            { key: "balance", label: t("balance"), render: (e: any) => <span className="font-medium">{e.balance.toLocaleString("en-US")}</span> },
           ]} data={ledgerData.ledger || []} loading={false} />
         </>}
       </Modal>

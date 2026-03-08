@@ -32,7 +32,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       voucher: `#${sale.voucherNo}`,
       date: sale.saleDate.toISOString().split("T")[0],
       customer: sale.customer.name,
-      total: `${Number(sale.totalAmount).toLocaleString()}`,
+      total: `${Number(sale.totalAmount).toLocaleString("en-US")}`,
       items: sale.items.map((i: any) => `${i.product.name} ×${Number(i.qty)}`).join(", ") || undefined,
       ...(sale.notes ? { notes: sale.notes } : {}),
     }, { reason: body.reason }, getClientIP(request));

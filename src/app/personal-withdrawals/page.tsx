@@ -82,7 +82,7 @@ export default function PersonalWithdrawalsPage() {
 
   const handleApprove = async (w: any) => {
     const label = w.withdrawnBy ? `"${w.withdrawnBy}"` : `"${w.detail}"`;
-    if (!confirm(`Approve withdrawal of ${w.currency?.symbol} ${w.amount?.toLocaleString()} by ${label}?\n\nThis will create a Haji Transfer automatically.`)) return;
+    if (!confirm(`Approve withdrawal of ${w.currency?.symbol} ${w.amount?.toLocaleString("en-US")} by ${label}?\n\nThis will create a Haji Transfer automatically.`)) return;
     setApprovingId(w.id);
     const result = await apiCall(`/api/v1/personal-withdrawals/${w.id}/approve`, { method: "POST" });
     setApprovingId(null);
@@ -144,7 +144,7 @@ export default function PersonalWithdrawalsPage() {
           {
             key: "amount",
             label: t("amount"),
-            render: (w: any) => <span className="font-medium text-red-600">{w.currency?.symbol} {w.amount?.toLocaleString()}</span>,
+            render: (w: any) => <span className="font-medium text-red-600">{w.currency?.symbol} {w.amount?.toLocaleString("en-US")}</span>,
           },
           {
             key: "status",

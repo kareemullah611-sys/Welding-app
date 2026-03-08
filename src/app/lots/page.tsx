@@ -245,7 +245,7 @@ export default function LotsPage() {
                 </div>
                 {(selectedLot.costSummary.costBreakdown || []).length > 0 && (
                   <div className="mt-2 pt-2 border-t">{selectedLot.costSummary.costBreakdown.map((c: any, i: number) => (
-                    <div key={i} className="flex justify-between text-xs py-0.5"><span className="text-gray-500">{c.description} ({c.costType})</span><span>{c.currencyCode} {Number(c.amount).toLocaleString()}</span></div>
+                    <div key={i} className="flex justify-between text-xs py-0.5"><span className="text-gray-500">{c.description} ({c.costType})</span><span>{c.currencyCode} {Number(c.amount).toLocaleString("en-US")}</span></div>
                   ))}</div>
                 )}
               </div>
@@ -261,7 +261,7 @@ export default function LotsPage() {
                       <td className="py-1 font-mono text-xs">{s.voucherNo}</td>
                       <td className="py-1">{s.customer?.name}</td>
                       <td className="py-1 text-xs">{s.items?.map((it: any, j: number) => <div key={j}>{it.product?.name}: {Number(it.qty)} × {Number(it.amount)}</div>) || "-"}</td>
-                      <td className="py-1 text-right font-medium text-green-700">{Number(s.totalAmount).toLocaleString()}</td>
+                      <td className="py-1 text-right font-medium text-green-700">{Number(s.totalAmount).toLocaleString("en-US")}</td>
                     </tr>
                   ))}</tbody>
                 </table>
@@ -275,7 +275,7 @@ export default function LotsPage() {
                   <tbody>{(selectedLot.recentPayments || []).map((p: any) => (
                     <tr key={p.id} className="border-b border-gray-50">
                       <td className="py-1">{p.paymentDate}</td><td className="py-1">{p.customer?.name}</td><td className="py-1 text-xs">{p.detail || "-"}</td>
-                      <td className="py-1 text-right font-medium text-blue-700">{Number(p.amount).toLocaleString()}</td>
+                      <td className="py-1 text-right font-medium text-blue-700">{Number(p.amount).toLocaleString("en-US")}</td>
                     </tr>
                   ))}</tbody>
                 </table>
