@@ -79,7 +79,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported in your city");
 
     const expense = await prisma.expense.create({
-      data: { cityId, lotId: lotId as number, expenseDate: new Date(expenseDate), amount, currencyId: currencyId as number, detail, notes, createdBy: user.userId },
+      data: { cityId, lotId: lot.id, expenseDate: new Date(expenseDate), amount, currencyId: currencyId as number, detail, notes, createdBy: user.userId },
       include: { lot: { select: { id: true, lotNumber: true } }, currency: true, creator: { select: { id: true, fullName: true } } },
     }) as any;
 
@@ -92,7 +92,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     }, getClientIP(request));
 
     try {
-      await journalExpenseCreated({ id: expense.id, cityId, lotId: lotId!, amount, currencyCode: expense.currency.code, detail, expenseDate: expense.expenseDate, createdBy: user.userId });
+      await journalExpenseCreated({ id: expense.id, cityId, lotId: lot.id, amount, currencyCode: expense.currency.code, detail, expenseDate: expense.expenseDate, createdBy: user.userId });
     } catch (je) { console.error("Journal (expense):", je); }
 
     return successResponse({
