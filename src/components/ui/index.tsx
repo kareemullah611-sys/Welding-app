@@ -71,15 +71,15 @@ export function StatsCard({
   const c = colorMap[color];
   return (
     <Card className={cn("shadow-sm hover:shadow-md transition-all duration-200 border-l-4", c.accent)}>
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between gap-3">
+      <CardContent className="p-4 sm:p-5">
+        <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide leading-snug truncate">{title}</p>
-            <p className={cn("text-xl font-bold mt-1.5 leading-tight break-words", c.valueTxt)}>{value}</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide leading-snug line-clamp-2">{title}</p>
+            <p className={cn("text-base sm:text-xl font-bold mt-1.5 leading-tight tabular-nums break-all", c.valueTxt)}>{value}</p>
             {subtitle && <p className="text-xs text-muted-foreground mt-1.5 leading-snug">{subtitle}</p>}
           </div>
           {icon && (
-            <div className={cn("w-11 h-11 rounded-xl flex items-center justify-center text-xl flex-shrink-0", c.iconBg, c.iconText)}>
+            <div className={cn("w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center text-xl flex-shrink-0", c.iconBg, c.iconText)}>
               {icon}
             </div>
           )}
@@ -151,8 +151,7 @@ export function DataTable<T extends Record<string, any>>({
   }
 
   return (
-    <div className="rounded-xl border border-border bg-white shadow-sm overflow-hidden">
-      <div className="overflow-x-auto">
+    <div className="rounded-xl border border-border bg-white shadow-sm overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow className="bg-gray-50/80 hover:bg-gray-50/80 border-b border-gray-100">
@@ -183,23 +182,23 @@ export function DataTable<T extends Record<string, any>>({
                     onRowClick ? "cursor-pointer hover:bg-primary-50/50" : "hover:bg-gray-50/50"
                   )}
                 >
-                  {columns.map((col) => (
-                    <TableCell key={col.key} className={cn("text-sm text-gray-700 py-3", col.className)}>
-                      {col.render
-                        ? col.render(item)
-                        : col.key.toLowerCase().includes("date") &&
-                          typeof item[col.key] === "string" &&
-                          item[col.key]?.match(/^\d{4}-\d{2}-\d{2}/)
-                        ? formatDate(item[col.key])
-                        : item[col.key]}
-                    </TableCell>
-                  ))}
+                  {columns.map((col) => {
+                    const isDate = !col.render && col.key.toLowerCase().includes("date") && typeof item[col.key] === "string" && item[col.key]?.match(/^\d{4}-\d{2}-\d{2}/);
+                    return (
+                      <TableCell key={col.key} className={cn("text-sm text-gray-700 py-3", isDate && "whitespace-nowrap", col.className)}>
+                        {col.render
+                          ? col.render(item)
+                          : isDate
+                          ? formatDate(item[col.key])
+                          : item[col.key]}
+                      </TableCell>
+                    );
+                  })}
                 </TableRow>
               ))
             )}
           </TableBody>
         </Table>
-      </div>
       {pagination && pagination.totalPages > 1 && (
         <div className="px-4 py-3 border-t border-border flex items-center justify-between text-sm bg-gray-50/50">
           <p className="text-muted-foreground text-xs">
@@ -237,6 +236,7 @@ export function DataTable<T extends Record<string, any>>({
 
 // ============================================================
 // MODAL
+
 // ============================================================
 export function Modal({
   open,
