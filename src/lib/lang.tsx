@@ -9,7 +9,7 @@ const translations: Record<string, Record<string, string>> = {
     sales: "Sales", payments: "Payments", customers: "Customers", godowns: "Godowns",
     inventory: "Inventory", city_transfers: "City Transfers", profit_report: "Profit Report",
     financial_reports: "Financial Reports", reports: "Reports", search: "Search", settings: "Settings",
-    activity_feed: "Activity Feed",
+    activity_feed: "Activity Feed", chat: "Chat",
     // Common actions
     create: "Create", edit: "Edit", delete: "Delete", save: "Save", cancel: "Cancel",
     loading: "Loading...", submit: "Submit", close: "Close", confirm: "Confirm",
@@ -238,7 +238,7 @@ const translations: Record<string, Record<string, string>> = {
     sales: "فروخت", payments: "ادائیگیاں", customers: "گاہک", godowns: "گودام",
     inventory: "انوینٹری", city_transfers: "شہر ٹرانسفر", profit_report: "منافع رپورٹ",
     financial_reports: "مالی رپورٹیں", reports: "رپورٹیں", search: "تلاش", settings: "ترتیبات",
-    activity_feed: "سرگرمی فیڈ",
+    activity_feed: "سرگرمی فیڈ", chat: "چیٹ",
     // Common actions
     create: "بنائیں", edit: "ترمیم", delete: "حذف", save: "محفوظ", cancel: "منسوخ",
     loading: "لوڈ ہو رہا ہے...", submit: "جمع کرائیں", close: "بند کریں", confirm: "تصدیق",
@@ -467,7 +467,7 @@ const translations: Record<string, Record<string, string>> = {
     sales: "خرڅلاو", payments: "تادیات", customers: "پیرودونکي", godowns: "ګودام",
     inventory: "زیرمه", city_transfers: "ښار لیږد", profit_report: "ګټه راپور",
     financial_reports: "مالي راپورونه", reports: "راپورونه", search: "لټون", settings: "تنظیمات",
-    activity_feed: "فعالیت فیډ",
+    activity_feed: "فعالیت فیډ", chat: "چیټ",
     // Common actions
     create: "جوړول", edit: "سمول", delete: "ړنګول", save: "خوندي", cancel: "لغوه",
     loading: "لوډیږي...", submit: "وسپارئ", close: "وتړئ", confirm: "تایید",

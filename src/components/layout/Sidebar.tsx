@@ -11,7 +11,7 @@ import {
   BookOpen, Receipt, Wallet, Users, Warehouse, ClipboardList,
   ArrowLeftRight, TrendingUp, BarChart2, FileText, Search,
   Activity, Settings, LogOut, ChevronLeft, ChevronRight,
-  Menu, type LucideIcon,
+  Menu, MessageCircle, type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -80,8 +80,9 @@ const navGroups: { label: string; items: NavItemDef[] }[] = [
   {
     label: "Tools",
     items: [
-      { label: "Search",        key: "search",        href: "/search",        icon: Search,   roles: ["super_admin", "city_admin"] },
-      { label: "Activity Feed", key: "activity_feed", href: "/activity-feed", icon: Activity, roles: ["super_admin", "city_admin"] },
+      { label: "Search",        key: "search",        href: "/search",        icon: Search,         roles: ["super_admin", "city_admin"] },
+      { label: "Activity Feed", key: "activity_feed", href: "/activity-feed", icon: Activity,       roles: ["super_admin", "city_admin"] },
+      { label: "Chat",          key: "chat",          href: "/chat",          icon: MessageCircle,  roles: ["super_admin", "city_admin"] },
     ],
   },
   {
@@ -120,6 +121,7 @@ export default function Sidebar() {
   const isRTL = dir === "rtl";
   const [mobileOpen, setMobileOpen] = useState(false);
   const [pendingTransfers, setPendingTransfers] = useState(0);
+  const [unreadMessages, setUnreadMessages] = useState(0);
 
   useEffect(() => {
     if (user?.role !== "city_admin") return;
@@ -128,6 +130,16 @@ export default function Sidebar() {
         .then((r) => { if (r.success) setPendingTransfers((r.pagination as any)?.total ?? 0); });
     fetchPending();
     const interval = setInterval(fetchPending, 60000);
+    return () => clearInterval(interval);
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const fetchUnread = () =>
+      apiCall<{ count: number }>("/api/v1/chat/unread")
+        .then((r) => { if (r.success && r.data) setUnreadMessages(r.data.count); });
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 30000);
     return () => clearInterval(interval);
   }, [user]);
 
@@ -212,6 +224,11 @@ export default function Sidebar() {
                         {pendingTransfers > 9 ? "9+" : pendingTransfers}
                       </span>
                     )}
+                    {item.href === "/chat" && unreadMessages > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-[14px] bg-blue-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
+                        {unreadMessages > 9 ? "9+" : unreadMessages}
+                      </span>
+                    )}
                   </div>
                   {!collapsed && (
                     <span className="truncate flex-1">{t(item.key)}</span>
@@ -219,6 +236,11 @@ export default function Sidebar() {
                   {!collapsed && item.href === "/city-transfers" && pendingTransfers > 0 && (
                     <span className="ml-auto bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none flex-shrink-0">
                       {pendingTransfers > 99 ? "99+" : pendingTransfers}
+                    </span>
+                  )}
+                  {!collapsed && item.href === "/chat" && unreadMessages > 0 && (
+                    <span className="ml-auto bg-blue-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none flex-shrink-0">
+                      {unreadMessages > 99 ? "99+" : unreadMessages}
                     </span>
                   )}
                 </Link>

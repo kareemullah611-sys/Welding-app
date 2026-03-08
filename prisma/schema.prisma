@@ -149,6 +149,7 @@ model City {
   agents             Agent[]
   godownAccessFrom   CityGodownPermission[] @relation("GodownAccessFrom")
   godownAccessTo     CityGodownPermission[] @relation("GodownAccessTo")
+  chatThreads        ChatThread[]
 
   @@unique([countryId, name])
   @@index([countryId])
@@ -218,6 +219,7 @@ model User {
   cityTransfersApproved  CityTransfer[] @relation("TransferApprovedBy")
   agentPaymentsCreated   AgentPayment[] @relation("AgentPaymentCreatedBy")
   sessions               UserSession[]
+  messagesSent           ChatMessage[]  @relation("MessagesSent")
 
   @@index([cityId])
   @@index([role])
@@ -1082,4 +1084,41 @@ model Notification {
   @@index([userId])
   @@index([isRead])
   @@map("notifications")
+}
+
+// ============================================================
+// CHAT
+// ============================================================
+
+model ChatThread {
+  id        Int      @id @default(autoincrement())
+  type      String   @db.VarChar(20) // "direct" | "group"
+  name      String?  @db.VarChar(200) // for group threads (e.g. "General")
+  cityId    Int?     @map("city_id")  // for direct threads: the city admin's city
+  createdAt DateTime @default(now()) @map("created_at")
+
+  city     City?         @relation(fields: [cityId], references: [id])
+  messages ChatMessage[]
+
+  @@index([type])
+  @@index([cityId])
+  @@map("chat_threads")
+}
+
+model ChatMessage {
+  id        Int      @id @default(autoincrement())
+  threadId  Int      @map("thread_id")
+  senderId  Int      @map("sender_id")
+  content   String   @db.Text
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  thread ChatThread @relation(fields: [threadId], references: [id])
+  sender User       @relation("MessagesSent", fields: [senderId], references: [id])
+
+  @@index([threadId])
+  @@index([senderId])
+  @@index([createdAt])
+  @@index([isRead])
+  @@map("chat_messages")
 }
