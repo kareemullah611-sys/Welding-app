@@ -71,18 +71,30 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     if (!parsed.success) return validationError("Invalid data", parsed.error.errors);
 
     const cityId = user.cityId!;
-    const { lotId, transferDate, amount, currencyId, detail, transferType, transferredTo, notes } = parsed.data;
+    let { lotId, transferDate, amount, currencyId, detail, transferType, transferredTo, notes } = parsed.data;
+
+    // FIFO lot assignment if not specified
+    if (!lotId) {
+      const fifoLot = await prisma.lot.findFirst({
+        where: { status: "ongoing", lotCityDistributions: { some: { cityId } } },
+        orderBy: [{ lotDate: "asc" }, { id: "asc" }],
+        select: { id: true },
+      });
+      if (!fifoLot) return errorResponse("VALIDATION_ERROR", "No ongoing lot available for your city");
+      lotId = fifoLot.id;
+    }
 
     const lot = await prisma.lot.findFirst({
-      where: { id: lotId ?? undefined, lotCityDistributions: { some: { cityId } } },
+      where: { id: lotId, lotCityDistributions: { some: { cityId } } },
     });
     if (!lot) return errorResponse("VALIDATION_ERROR", "Lot not found or not distributed to your city");
 
     const cityCurrency = await prisma.cityCurrency.findFirst({ where: { cityId, currencyId: currencyId ?? undefined } });
     if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported");
+    const resolvedCurrencyId = currencyId ?? cityCurrency.currencyId;
 
     const transfer = await prisma.hajiTransfer.create({
-      data: { cityId, lotId: lotId as number, transferDate: new Date(transferDate), amount, currencyId: currencyId as number, detail, transferType, transferredTo, notes, createdBy: user.userId },
+      data: { cityId, lotId, transferDate: new Date(transferDate), amount, currencyId: resolvedCurrencyId, detail, transferType, transferredTo, notes, createdBy: user.userId },
       include: { lot: { select: { id: true, lotNumber: true } }, currency: true, creator: { select: { id: true, fullName: true } } },
     }) as any;
 

@@ -109,9 +109,15 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const parsed = createPaymentSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid payment data", parsed.error.errors);
 
-    const { customerId, paymentDate, detail, amount, currencyId, exchangeRate, usdEquivalent, manualVoucherNo, paymentMethod, destination, notes } = parsed.data;
-    let lotId = parsed.data.lotId;
+    let { customerId, lotId, paymentDate, detail, amount, currencyId, exchangeRate, usdEquivalent, manualVoucherNo, paymentMethod, destination, notes } = parsed.data;
     const cityId = user.cityId!;
+
+    // Handle walk-in customer (id = -1): find or create per city
+    if (customerId === -1) {
+      let walkin = await prisma.customer.findFirst({ where: { cityId, name: "Walk-in Customer", isActive: true } });
+      if (!walkin) walkin = await prisma.customer.create({ data: { cityId, name: "Walk-in Customer", isActive: true } });
+      customerId = walkin.id;
+    }
 
     // Validate customer belongs to this city
     const customer = await prisma.customer.findFirst({
@@ -119,11 +125,12 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     });
     if (!customer) return errorResponse("NOT_FOUND", "Customer not found in your city");
 
-    // Validate currency
+    // Validate currency (fall back to city's first currency if none specified)
     const cityCurrency = await prisma.cityCurrency.findFirst({
       where: { cityId, currencyId: currencyId ?? undefined },
     });
     if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported in your city");
+    const resolvedCurrencyId = currencyId ?? cityCurrency.currencyId;
 
     // FIFO lot assignment if not specified
     if (!lotId) {
@@ -150,7 +157,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         paymentDate: new Date(paymentDate),
         detail,
         amount,
-        currencyId: currencyId as number,
+        currencyId: resolvedCurrencyId,
         manualVoucherNo,
         paymentMethod,
         destination,

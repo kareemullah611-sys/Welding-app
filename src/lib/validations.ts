@@ -202,7 +202,7 @@ export const saleDiscountSchema = z.object({
 // PAYMENTS
 // ============================================================
 export const createPaymentSchema = z.object({
-  customerId: z.number().int().positive(),
+  customerId: z.number().int().refine((v) => v === -1 || v > 0, "Invalid customer"),
   lotId: z.number().int().optional().nullable(),
   paymentDate: z.string(),
   detail: z.string().min(1).max(500),
