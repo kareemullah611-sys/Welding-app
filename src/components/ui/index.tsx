@@ -75,11 +75,11 @@ export function StatsCard({
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide leading-snug line-clamp-2">{title}</p>
-            <p className={cn("text-base sm:text-xl font-bold mt-1.5 leading-tight tabular-nums break-all", c.valueTxt)}>{value}</p>
+            <p className={cn("text-sm sm:text-lg font-bold mt-1.5 leading-tight tabular-nums", c.valueTxt)}>{value}</p>
             {subtitle && <p className="text-xs text-muted-foreground mt-1.5 leading-snug">{subtitle}</p>}
           </div>
           {icon && (
-            <div className={cn("w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center text-xl flex-shrink-0", c.iconBg, c.iconText)}>
+            <div className={cn("hidden sm:flex w-11 h-11 rounded-xl items-center justify-center text-xl flex-shrink-0", c.iconBg, c.iconText)}>
               {icon}
             </div>
           )}
