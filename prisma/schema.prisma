@@ -1106,12 +1106,16 @@ model ChatThread {
 }
 
 model ChatMessage {
-  id        Int      @id @default(autoincrement())
-  threadId  Int      @map("thread_id")
-  senderId  Int      @map("sender_id")
-  content   String   @db.Text
-  isRead    Boolean  @default(false) @map("is_read")
-  createdAt DateTime @default(now()) @map("created_at")
+  id          Int      @id @default(autoincrement())
+  threadId    Int      @map("thread_id")
+  senderId    Int      @map("sender_id")
+  content     String   @db.Text
+  messageType String   @default("text") @map("message_type") @db.VarChar(20)
+  fileUrl     String?  @map("file_url") @db.VarChar(1000)
+  fileName    String?  @map("file_name") @db.VarChar(500)
+  fileSize    Int?     @map("file_size")
+  isRead      Boolean  @default(false) @map("is_read")
+  createdAt   DateTime @default(now()) @map("created_at")
 
   thread ChatThread @relation(fields: [threadId], references: [id])
   sender User       @relation("MessagesSent", fields: [senderId], references: [id])

@@ -41,6 +41,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       messages: messages.map((m) => ({
         id: m.id,
         content: m.content,
+        messageType: m.messageType,
+        fileUrl: m.fileUrl,
+        fileName: m.fileName,
+        fileSize: m.fileSize,
         isRead: m.isRead,
         createdAt: m.createdAt.toISOString(),
         sender: { id: m.sender.id, fullName: m.sender.fullName, role: m.sender.role },
@@ -73,6 +77,10 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const msgPayload = {
       id: message.id,
       content: message.content,
+      messageType: message.messageType,
+      fileUrl: message.fileUrl,
+      fileName: message.fileName,
+      fileSize: message.fileSize,
       isRead: message.isRead,
       createdAt: message.createdAt.toISOString(),
       sender: { id: message.sender.id, fullName: message.sender.fullName, role: message.sender.role },

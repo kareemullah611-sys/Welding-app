@@ -158,7 +158,7 @@ export default function PaymentsPage() {
     setSubmitting(true); setError("");
     let endpoint = "", body: any = {};
     if (createType === "payment") {
-      if (!form.customerId || !form.amount || !form.detail) { setError(t("customer") + ", " + t("amount") + ", " + t("detail") + " required"); setSubmitting(false); return; }
+      if (!form.customerId || !(form.amount > 0) || !form.detail) { setError(t("customer") + ", " + t("amount") + " (must be > 0), " + t("detail") + " required"); setSubmitting(false); return; }
       if (!forceVoucher && form.manualVoucherNo?.trim()) {
         const check = await apiCall(`/api/v1/payments/check-voucher?voucher_no=${encodeURIComponent(form.manualVoucherNo.trim())}`);
         if (check.success && (check.data as any).isDuplicate) {
@@ -169,15 +169,15 @@ export default function PaymentsPage() {
       endpoint = "/api/v1/payments";
       body = { ...form, currencyId: form.currencyId || currencies[0]?.id };
     } else if (createType === "expense") {
-      if (!form.amount || !form.detail) { setError(t("amount") + " and " + t("detail") + " required"); setSubmitting(false); return; }
+      if (!(form.amount > 0) || !form.detail) { setError(t("amount") + " (must be > 0) and " + t("detail") + " required"); setSubmitting(false); return; }
       endpoint = "/api/v1/expenses";
       body = { ...form, currencyId: currencies[0]?.id };
     } else if (createType === "haji_transfer") {
-      if (!form.amount || !form.detail) { setError(t("amount") + " and " + t("detail") + " required"); setSubmitting(false); return; }
+      if (!(form.amount > 0) || !form.detail) { setError(t("amount") + " (must be > 0) and " + t("detail") + " required"); setSubmitting(false); return; }
       endpoint = "/api/v1/haji-transfers";
       body = { ...form, currencyId: currencies[0]?.id };
     } else {
-      if (!form.amount || !form.detail) { setError(t("amount") + " and " + t("detail") + " required"); setSubmitting(false); return; }
+      if (!(form.amount > 0) || !form.detail) { setError(t("amount") + " (must be > 0) and " + t("detail") + " required"); setSubmitting(false); return; }
       endpoint = "/api/v1/personal-withdrawals";
       body = { ...form, currencyId: currencies[0]?.id };
     }
@@ -453,7 +453,7 @@ export default function PaymentsPage() {
             ) : (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
-                <input type="number" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" />
+                <input type="number" min="0.01" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" />
               </div>
             )}
           </div>
@@ -467,7 +467,7 @@ export default function PaymentsPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} ({selectedCur?.code || "—"}) *</label>
-                    <input type="number" value={form.amount || ""} onChange={e => {
+                    <input type="number" min="0.01" value={form.amount || ""} onChange={e => {
                       const amt = parseFloat(e.target.value) || 0;
                       const eq = isAfn && form.exchangeRate > 0 ? amt / form.exchangeRate : null;
                       setForm((f: any) => ({ ...f, amount: amt, usdEquivalent: eq }));
