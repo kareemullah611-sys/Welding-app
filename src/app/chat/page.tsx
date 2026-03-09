@@ -1,9 +1,10 @@
 "use client";
 import React, { useEffect, useState, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader } from "@/components/ui";
-import { MessageCircle, Send, Users, User } from "lucide-react";
+import { MessageCircle, Send, Users, User, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Thread {
@@ -33,6 +34,7 @@ function formatTime(iso: string) {
 }
 
 export default function ChatPage() {
+  const router = useRouter();
   const { user } = useAuth();
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<number | null>(null);
@@ -41,6 +43,7 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [loadingThreads, setLoadingThreads] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [showConversation, setShowConversation] = useState(false); // mobile: toggle thread list vs conversation
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -61,11 +64,18 @@ export default function ChatPage() {
 
   // Load messages for active thread
   const loadMessages = useCallback(async (threadId: number, markRead = true) => {
-    setLoadingMessages(true);
+    if (markRead) setLoadingMessages(true);
     const res = await apiCall<{ messages: Message[] }>(`/api/v1/chat/threads/${threadId}/messages`);
     if (res.success && res.data) {
       // API returns newest first; reverse to show oldest at top
-      setMessages(res.data.messages.slice().reverse());
+      const incoming = res.data.messages.slice().reverse();
+      // Only update state if messages actually changed (prevents unnecessary re-renders & scroll)
+      setMessages((prev) => {
+        if (prev.length === incoming.length && prev.length > 0 && prev[prev.length - 1].id === incoming[incoming.length - 1].id) {
+          return prev; // same messages, keep old reference
+        }
+        return incoming;
+      });
       if (markRead) {
         apiCall(`/api/v1/chat/threads/${threadId}/read`, { method: "PUT" }).then(() => {
           // Refresh thread list to clear badge
@@ -73,7 +83,7 @@ export default function ChatPage() {
         });
       }
     }
-    setLoadingMessages(false);
+    if (markRead) setLoadingMessages(false);
   }, [loadThreads]);
 
   useEffect(() => {
@@ -115,15 +125,36 @@ export default function ChatPage() {
 
   const activeThread = threads.find((t) => t.id === activeThreadId);
 
+  const selectThread = (threadId: number) => {
+    setActiveThreadId(threadId);
+    setShowConversation(true); // on mobile, switch to conversation view
+  };
+
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
       <div className="px-4 sm:px-6 pt-4 pb-2">
-        <PageHeader title="Chat" subtitle="Communicate with your team" />
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6 pb-4 border-b border-gray-100">
+          <div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => router.back()}
+                className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-gray-100 transition-colors text-gray-500 flex-shrink-0"
+              >
+                <ArrowLeft size={18} />
+              </button>
+              <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Chat</h1>
+            </div>
+            <p className="text-sm text-muted-foreground mt-0.5 ml-11">Communicate with your team</p>
+          </div>
+        </div>
       </div>
 
       <div className="flex flex-1 overflow-hidden mx-4 sm:mx-6 mb-4 gap-4">
         {/* Left Panel: Thread List */}
-        <div className="w-64 sm:w-72 flex-shrink-0 bg-white rounded-xl border border-gray-200 flex flex-col overflow-hidden">
+        <div className={cn(
+          "w-full sm:w-72 flex-shrink-0 bg-white rounded-xl border border-gray-200 flex flex-col overflow-hidden",
+          showConversation ? "hidden sm:flex" : "flex"
+        )}>
           <div className="px-4 py-3 border-b border-gray-100">
             <h3 className="text-sm font-semibold text-gray-700">Conversations</h3>
           </div>
@@ -136,7 +167,7 @@ export default function ChatPage() {
               threads.map((thread) => (
                 <button
                   key={thread.id}
-                  onClick={() => setActiveThreadId(thread.id)}
+                  onClick={() => selectThread(thread.id)}
                   className={cn(
                     "w-full text-left px-4 py-3 flex items-start gap-3 border-b border-gray-50 hover:bg-gray-50 transition-colors",
                     activeThreadId === thread.id && "bg-blue-50 border-l-2 border-l-blue-500"
@@ -172,11 +203,20 @@ export default function ChatPage() {
         </div>
 
         {/* Right Panel: Conversation */}
-        <div className="flex-1 bg-white rounded-xl border border-gray-200 flex flex-col overflow-hidden">
+        <div className={cn(
+          "flex-1 bg-white rounded-xl border border-gray-200 flex flex-col overflow-hidden",
+          showConversation ? "flex" : "hidden sm:flex"
+        )}>
           {activeThread ? (
             <>
               {/* Thread Header */}
               <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3">
+                <button
+                  onClick={() => setShowConversation(false)}
+                  className="sm:hidden w-8 h-8 rounded-lg flex items-center justify-center hover:bg-gray-100 transition-colors text-gray-500"
+                >
+                  <ArrowLeft size={18} />
+                </button>
                 <div className={cn(
                   "w-8 h-8 rounded-full flex items-center justify-center",
                   activeThread.type === "group" ? "bg-blue-100 text-blue-600" : "bg-gray-100 text-gray-600"
