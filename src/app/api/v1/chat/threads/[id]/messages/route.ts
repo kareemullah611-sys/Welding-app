@@ -62,7 +62,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
     const body = await request.json();
     const content = (body?.content || "").trim();
-    if (!content) return validationError([{ field: "content", message: "Message cannot be empty" }]);
+    if (!content) return validationError("Message cannot be empty");
 
     const message = await prisma.chatMessage.create({
       data: { threadId, senderId: user.userId, content },
