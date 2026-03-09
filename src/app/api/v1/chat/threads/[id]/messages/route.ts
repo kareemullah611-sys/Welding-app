@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth } from "@/lib/middleware";
 import { successResponse, serverError, forbiddenResponse, notFoundResponse, validationError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { chatEvents } from "@/lib/chat-events";
 
 // Helper: verify user can access the given thread
 async function canAccess(user: JWTPayload, threadId: number) {
@@ -69,14 +70,33 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       include: { sender: { select: { id: true, fullName: true, role: true } } },
     });
 
-    return successResponse({
+    const msgPayload = {
       id: message.id,
       content: message.content,
       isRead: message.isRead,
       createdAt: message.createdAt.toISOString(),
       sender: { id: message.sender.id, fullName: message.sender.fullName, role: message.sender.role },
-      isMine: true,
-    });
+    };
+
+    // Notify all users who can see this thread via SSE
+    // For group threads: all users; for direct threads: super_admin + city_admin of that city
+    try {
+      const thread = await canAccess(user, threadId);
+      if (thread) {
+        const users = await prisma.user.findMany({
+          where: thread.type === "group"
+            ? { isActive: true }
+            : { isActive: true, OR: [{ role: "super_admin" }, { cityId: thread.cityId }] },
+          select: { id: true },
+        });
+        const userIds = users.map((u) => u.id).filter((id) => id !== user.userId);
+        chatEvents.notify(userIds, threadId, { ...msgPayload, isMine: false });
+      }
+    } catch (e) {
+      console.error("SSE notify error:", e);
+    }
+
+    return successResponse({ ...msgPayload, isMine: true });
   } catch (error) {
     console.error("Chat messages POST error:", error);
     return serverError();

@@ -45,7 +45,8 @@ export default function ChatPage() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [showConversation, setShowConversation] = useState(false); // mobile: toggle thread list vs conversation
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sseRef = useRef<EventSource | null>(null);
+  const activeThreadRef = useRef<number | null>(null);
 
   // Load threads
   const loadThreads = useCallback(async () => {
@@ -86,14 +87,47 @@ export default function ChatPage() {
     if (markRead) setLoadingMessages(false);
   }, [loadThreads]);
 
+  // Keep ref in sync so SSE callback reads latest activeThreadId
+  useEffect(() => { activeThreadRef.current = activeThreadId; }, [activeThreadId]);
+
+  // Load messages when switching threads
   useEffect(() => {
     if (!activeThreadId) return;
     loadMessages(activeThreadId);
-    // Poll for new messages every 10s
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(() => loadMessages(activeThreadId, false), 10000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [activeThreadId, loadMessages]);
+
+  // SSE connection for real-time messages
+  useEffect(() => {
+    const es = new EventSource("/api/v1/chat/stream");
+    sseRef.current = es;
+
+    es.onmessage = (event) => {
+      try {
+        const { threadId, message } = JSON.parse(event.data);
+        // If the message is for the currently active thread, append it
+        if (activeThreadRef.current === threadId) {
+          setMessages((prev) => {
+            // Avoid duplicates
+            if (prev.some((m) => m.id === message.id)) return prev;
+            return [...prev, message];
+          });
+          // Mark as read since user is viewing this thread
+          apiCall(`/api/v1/chat/threads/${threadId}/read`, { method: "PUT" });
+        }
+        // Always refresh thread list to update last message preview & unread badges
+        loadThreads();
+      } catch {}
+    };
+
+    es.onerror = () => {
+      // EventSource auto-reconnects, no manual handling needed
+    };
+
+    return () => {
+      es.close();
+      sseRef.current = null;
+    };
+  }, [loadThreads]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
