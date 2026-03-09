@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, DataTable, Modal, formatNumber } from "@/components/ui";
+import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 
 export default function PersonalWithdrawalsPage() {
@@ -130,7 +130,7 @@ export default function PersonalWithdrawalsPage() {
 
       <DataTable
         columns={[
-          { key: "withdrawalDate", label: t("date") },
+          { key: "withdrawalDate", label: t("date"), render: (w: any) => formatDate(w.withdrawalDate) },
           {
             key: "withdrawnBy",
             label: "Withdrawn By",

@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, DataTable, Modal, StatusBadge, formatCurrency } from "@/components/ui";
+import { PageHeader, DataTable, Modal, StatusBadge, formatCurrency, formatDate } from "@/components/ui";
 import CustomerSearch from "@/components/CustomerSearch";
 import { useLang } from "@/lib/lang";
 
@@ -227,7 +227,7 @@ export default function SalesPage() {
 
       <DataTable columns={[
         { key: "voucherNo", label: t("voucher_hash"), render: (s: any) => <span className="font-mono font-medium">{s.voucherNo}</span> },
-        { key: "saleDate", label: t("date") },
+        { key: "saleDate", label: t("date"), render: (s: any) => formatDate(s.saleDate) },
         { key: "customer", label: t("customer"), render: (s: any) => s.customer?.name },
         { key: "items", label: t("product"), render: (s: any) => <div className="text-xs">{s.items?.map((i: any, idx: number) => <div key={idx}>{i.productName}</div>)}</div> },
         { key: "cartons", label: t("cartons"), render: (s: any) => <div className="text-xs">{s.items?.map((i: any, idx: number) => <div key={idx} className="font-medium">{i.qty}</div>)}</div> },

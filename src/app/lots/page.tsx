@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, DataTable, Modal, StatsCard, StatusBadge, formatNumber } from "@/components/ui";
+import { PageHeader, DataTable, Modal, StatsCard, StatusBadge, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { Pencil, Package, CheckCircle, RotateCcw, Trash2, Warehouse } from "lucide-react";
 
@@ -177,7 +177,7 @@ export default function LotsPage() {
       <span className="text-sm text-gray-700">{l.countryName || l.country?.name}</span>
     )},
     { key: "lotDate", label: t("date"), render: (l: any) => (
-      <span className="text-sm text-gray-500">{l.lotDate}</span>
+      <span className="text-sm text-gray-500">{formatDate(l.lotDate)}</span>
     )},
     { key: "products", label: t("product"), render: (l: any) => (
       <div className="flex flex-wrap gap-1">
@@ -203,9 +203,6 @@ export default function LotsPage() {
           {l.status === "ongoing" && <button onClick={() => handleComplete(l)} title={t("confirm")} className="p-1.5 rounded-md hover:bg-green-50 text-green-500 hover:text-green-700 transition-colors"><CheckCircle size={13} /></button>}
           {l.status === "completed" && <button onClick={() => handleReopen(l)} title={t("reactivate")} className="p-1.5 rounded-md hover:bg-orange-50 text-orange-400 hover:text-orange-600 transition-colors"><RotateCcw size={13} /></button>}
           <button onClick={() => handleDeleteLot(l)} title={t("delete")} className="p-1.5 rounded-md hover:bg-red-50 text-red-400 hover:text-red-600 transition-colors"><Trash2 size={13} /></button>
-          {l.distributions?.length > 0 && (
-            <button onClick={() => openGodownAlloc(l, l.distributions[0])} title={t("godown")} className="p-1.5 rounded-md hover:bg-teal-50 text-teal-500 hover:text-teal-700 transition-colors"><Warehouse size={13} /></button>
-          )}
         </>}
         {user?.role === "city_admin" && l.distributions?.filter((d: any) => d.cityId === user.cityId).map((d: any, i: number) => (
           <button key={i} onClick={() => openGodownAlloc(l, d)} title={`${d.productName} → ${t("godown")}`} className="p-1.5 rounded-md hover:bg-teal-50 text-teal-500 hover:text-teal-700 transition-colors"><Warehouse size={13} /></button>
@@ -274,7 +271,7 @@ export default function LotsPage() {
                   <thead><tr className="text-left text-xs text-gray-400 border-b"><th className="pb-1">{t("date")}</th><th className="pb-1">{t("voucher")}</th><th className="pb-1">{t("customer")}</th><th className="pb-1">{t("items")}</th><th className="pb-1 text-right">{t("amount")}</th></tr></thead>
                   <tbody>{(selectedLot.recentSales || []).map((s: any) => (
                     <tr key={s.id} className="border-b border-gray-50">
-                      <td className="py-1">{s.saleDate}</td>
+                      <td className="py-1">{formatDate(s.saleDate)}</td>
                       <td className="py-1 font-mono text-xs">{s.voucherNo}</td>
                       <td className="py-1">{s.customer?.name}</td>
                       <td className="py-1 text-xs">{s.items?.map((it: any, j: number) => <div key={j}>{it.product?.name}: {Number(it.qty)} × {Number(it.amount)}</div>) || "-"}</td>
@@ -291,7 +288,7 @@ export default function LotsPage() {
                   <thead><tr className="text-left text-xs text-gray-400 border-b"><th className="pb-1">{t("date")}</th><th className="pb-1">{t("customer")}</th><th className="pb-1">{t("detail")}</th><th className="pb-1 text-right">{t("amount")}</th></tr></thead>
                   <tbody>{(selectedLot.recentPayments || []).map((p: any) => (
                     <tr key={p.id} className="border-b border-gray-50">
-                      <td className="py-1">{p.paymentDate}</td><td className="py-1">{p.customer?.name}</td><td className="py-1 text-xs">{p.detail || "-"}</td>
+                      <td className="py-1">{formatDate(p.paymentDate)}</td><td className="py-1">{p.customer?.name}</td><td className="py-1 text-xs">{p.detail || "-"}</td>
                       <td className="py-1 text-right font-medium text-blue-700">{Number(p.amount).toLocaleString("en-US")}</td>
                     </tr>
                   ))}</tbody>

@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, StatsCard, formatNumber, DataTable } from "@/components/ui";
+import { PageHeader, StatsCard, formatNumber, DataTable, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 
 export default function DashboardPage() {
@@ -82,7 +82,7 @@ export default function DashboardPage() {
           <div className="card">
             <h3 className="text-sm font-semibold text-gray-500 mb-3">{t("ongoing_lots")}</h3>
             {data.ongoingLots.map((l: any) => (
-              <div key={l.id} className="flex justify-between items-center py-2 border-b last:border-0"><span className="font-mono font-medium">{l.lotNumber}</span><span className="text-sm text-gray-500">{l.lotDate}</span></div>
+              <div key={l.id} className="flex justify-between items-center py-2 border-b last:border-0"><span className="font-mono font-medium">{l.lotNumber}</span><span className="text-sm text-gray-500">{formatDate(l.lotDate)}</span></div>
             ))}
           </div>
         )}

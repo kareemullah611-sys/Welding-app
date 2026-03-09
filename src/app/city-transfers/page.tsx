@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, DataTable, Modal, formatNumber } from "@/components/ui";
+import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 
 export default function CityTransfersPage() {
@@ -99,7 +99,7 @@ export default function CityTransfersPage() {
       )}
 
       <DataTable columns={[
-        { key: "transferDate", label: t("date") },
+        { key: "transferDate", label: t("date"), render: (tr: any) => formatDate(tr.transferDate) },
         { key: "fromCity", label: t("from"), render: (tr: any) => <span>{tr.fromCity?.name} <span className="text-xs text-gray-400">({tr.fromGodown?.name})</span></span> },
         { key: "toCity", label: t("to"), render: (tr: any) => <span>{tr.toCity?.name} {tr.toGodown ? <span className="text-xs text-gray-400">({tr.toGodown.name})</span> : ""}</span> },
         { key: "product", label: t("product"), render: (tr: any) => tr.product?.name },

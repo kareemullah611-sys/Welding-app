@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, DataTable, Modal, StatusBadge } from "@/components/ui";
+import { PageHeader, DataTable, Modal, StatusBadge, formatDate } from "@/components/ui";
 import CustomerSearch from "@/components/CustomerSearch";
 import { useLang } from "@/lib/lang";
 import { ChevronDown } from "lucide-react";
@@ -575,7 +575,7 @@ export default function PaymentsPage() {
                   <div>
                     <p className="font-medium text-gray-900">{m.customerName}</p>
                     <p className="text-gray-500">{m.detail}</p>
-                    <p className="text-gray-400 text-xs mt-0.5">{m.paymentDate} · {m.paymentMethod}</p>
+                    <p className="text-gray-400 text-xs mt-0.5">{formatDate(m.paymentDate)} · {m.paymentMethod}</p>
                   </div>
                   <span className="font-bold text-green-700">{m.currencySymbol} {m.amount?.toLocaleString("en-US")}</span>
                 </div>

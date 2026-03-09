@@ -1,7 +1,7 @@
 "use client";
 import React, { useState } from "react";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, DataTable, StatsCard, formatNumber } from "@/components/ui";
+import { PageHeader, DataTable, StatsCard, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 
 export default function ProfitReportPage() {
@@ -103,7 +103,7 @@ function LotReport({ data }: { data: any }) {
   return (
     <>
       <div className="mb-4 p-3 bg-gray-50 border rounded-lg text-sm">
-        <strong>{data.lot.lotNumber}</strong> — {data.lot.country} — {data.lot.lotDate} — {t("status")}: <span className={data.lot.status === "ongoing" ? "text-green-600" : "text-gray-500"}>{data.lot.status}</span>
+        <strong>{data.lot.lotNumber}</strong> — {data.lot.country} — {formatDate(data.lot.lotDate)} — {t("status")}: <span className={data.lot.status === "ongoing" ? "text-green-600" : "text-gray-500"}>{data.lot.status}</span>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
