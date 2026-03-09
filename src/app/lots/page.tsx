@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, StatsCard, StatusBadge, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { Pencil, Package, CheckCircle, RotateCcw, Trash2, Warehouse } from "lucide-react";
 
 export default function LotsPage() {
   const { user } = useAuth();
@@ -169,29 +170,45 @@ export default function LotsPage() {
   };
 
   const columns = [
-    { key: "lotNumber", label: t("lot_num"), render: (l: any) => <button onClick={() => openDetail(l)} className="font-mono font-semibold text-primary-600 hover:underline">{l.lotNumber}</button> },
-    { key: "country", label: t("country"), render: (l: any) => l.countryName || l.country?.name },
-    { key: "lotDate", label: t("date") },
-    { key: "products", label: t("product"), render: (l: any) => <div className="text-xs">{l.products?.map((p: any) => <div key={p.productId}>{p.productName}: <strong>{formatNumber(p.totalQty)}</strong></div>)}</div> },
+    { key: "lotNumber", label: t("lot_num"), render: (l: any) => (
+      <button onClick={() => openDetail(l)} className="font-mono font-semibold text-primary-600 hover:underline text-sm">{l.lotNumber}</button>
+    )},
+    { key: "country", label: t("country"), render: (l: any) => (
+      <span className="text-sm text-gray-700">{l.countryName || l.country?.name}</span>
+    )},
+    { key: "lotDate", label: t("date"), render: (l: any) => (
+      <span className="text-sm text-gray-500">{l.lotDate}</span>
+    )},
+    { key: "products", label: t("product"), render: (l: any) => (
+      <div className="flex flex-wrap gap-1">
+        {l.products?.map((p: any) => (
+          <span key={p.productId} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs font-medium border border-blue-100 whitespace-nowrap">
+            {p.productName} <span className="font-bold text-blue-900">{formatNumber(p.totalQty)}</span>
+          </span>
+        ))}
+      </div>
+    )},
     { key: "distribution", label: t("distribute"), render: (l: any) => {
-      if (!l.distributions?.length) return <span className="text-xs text-yellow-600">{t("no_data")}</span>;
-      return <div className="text-xs">{l.distributions.map((d: any, i: number) => <div key={i}>{d.cityName}: {d.productName} = {formatNumber(d.allocatedQty)}</div>)}</div>;
+      const count = l.distributions?.length || 0;
+      if (!count) return <span className="inline-flex items-center px-2 py-0.5 bg-yellow-50 text-yellow-700 rounded-full text-xs font-medium border border-yellow-100">{t("no_data")}</span>;
+      const cities = Array.from(new Set(l.distributions.map((d: any) => d.cityName))).length;
+      return <span className="inline-flex items-center px-2 py-0.5 bg-green-50 text-green-700 rounded-full text-xs font-medium border border-green-100">{cities} {t("cities") || "cities"}</span>;
     }},
     { key: "status", label: t("status"), render: (l: any) => <StatusBadge status={l.status} /> },
     { key: "actions", label: t("actions"), render: (l: any) => (
-      <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-1 flex-wrap">
         {user?.role === "super_admin" && <>
-          <button onClick={() => openEditLot(l)} className="text-xs text-gray-600 hover:underline">✏️ {t("edit")}</button>
-          <button onClick={() => openDistribute(l)} className="text-xs text-primary-600 hover:underline">📦 {t("distribute")}</button>
-          {l.status === "ongoing" && <button onClick={() => handleComplete(l)} className="text-xs text-green-600 hover:underline">✅ {t("confirm")}</button>}
-          {l.status === "completed" && <button onClick={() => handleReopen(l)} className="text-xs text-orange-600 hover:underline">↩ {t("reactivate")}</button>}
-          <button onClick={() => handleDeleteLot(l)} className="text-xs text-red-600 hover:underline">🗑️ {t("delete")}</button>
+          <button onClick={() => openEditLot(l)} title={t("edit")} className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"><Pencil size={13} /></button>
+          <button onClick={() => openDistribute(l)} title={t("distribute")} className="p-1.5 rounded-md hover:bg-blue-50 text-blue-500 hover:text-blue-700 transition-colors"><Package size={13} /></button>
+          {l.status === "ongoing" && <button onClick={() => handleComplete(l)} title={t("confirm")} className="p-1.5 rounded-md hover:bg-green-50 text-green-500 hover:text-green-700 transition-colors"><CheckCircle size={13} /></button>}
+          {l.status === "completed" && <button onClick={() => handleReopen(l)} title={t("reactivate")} className="p-1.5 rounded-md hover:bg-orange-50 text-orange-400 hover:text-orange-600 transition-colors"><RotateCcw size={13} /></button>}
+          <button onClick={() => handleDeleteLot(l)} title={t("delete")} className="p-1.5 rounded-md hover:bg-red-50 text-red-400 hover:text-red-600 transition-colors"><Trash2 size={13} /></button>
+          {l.distributions?.length > 0 && (
+            <button onClick={() => openGodownAlloc(l, l.distributions[0])} title={t("godown")} className="p-1.5 rounded-md hover:bg-teal-50 text-teal-500 hover:text-teal-700 transition-colors"><Warehouse size={13} /></button>
+          )}
         </>}
-        {user?.role === "super_admin" && l.distributions?.map((d: any, i: number) => (
-          <button key={`gd-${i}`} onClick={() => openGodownAlloc(l, d)} className="text-xs text-teal-600 hover:underline">📦 {d.cityName}: {d.productName} → {t("godown")}</button>
-        ))}
         {user?.role === "city_admin" && l.distributions?.filter((d: any) => d.cityId === user.cityId).map((d: any, i: number) => (
-          <button key={i} onClick={() => openGodownAlloc(l, d)} className="text-xs text-primary-600 hover:underline">📦 {d.productName} → {t("godown")}</button>
+          <button key={i} onClick={() => openGodownAlloc(l, d)} title={`${d.productName} → ${t("godown")}`} className="p-1.5 rounded-md hover:bg-teal-50 text-teal-500 hover:text-teal-700 transition-colors"><Warehouse size={13} /></button>
         ))}
       </div>
     )},
