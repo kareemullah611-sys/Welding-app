@@ -50,7 +50,6 @@ const navGroups: { label: string; items: NavItemDef[] }[] = [
       { label: "Suppliers",        key: "suppliers",        href: "/suppliers",        icon: Factory,     roles: ["super_admin"] },
       { label: "Company Payments", key: "company_payments", href: "/supplier-payments",icon: Banknote,    roles: ["super_admin"] },
       { label: "Agents",           key: "agents",           href: "/agents",           icon: Handshake,   roles: ["super_admin"] },
-      { label: "Country Ledger",   key: "country_ledger",   href: "/country-ledger",   icon: BookOpen,    roles: ["super_admin"] },
     ],
   },
   {
@@ -72,8 +71,9 @@ const navGroups: { label: string; items: NavItemDef[] }[] = [
   {
     label: "Reports",
     items: [
+      { label: "Analytics",        key: "analytics",        href: "/analytics",     icon: BarChart2,  roles: ["super_admin", "city_admin"] },
       { label: "Profit Report",    key: "profit_report",    href: "/profit-report", icon: TrendingUp, roles: ["super_admin"] },
-      { label: "Financial Reports",key: "financial_reports",href: "/accounts",      icon: BarChart2,  roles: ["super_admin"] },
+      { label: "Financial Reports",key: "financial_reports",href: "/accounts",      icon: BookOpen,   roles: ["super_admin"] },
       { label: "Reports",          key: "reports",          href: "/reports",       icon: FileText,   roles: ["super_admin", "city_admin"] },
     ],
   },
