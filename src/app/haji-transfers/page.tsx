@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, DataTable, Modal, formatNumber } from "@/components/ui";
+import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 
 async function uploadFile(file: File, entityType: string, entityId: number) {
@@ -152,7 +152,7 @@ export default function HajiTransfersPage() {
       )}
 
       <DataTable columns={[
-        { key: "transferDate", label: t("date") },
+        { key: "transferDate", label: t("date"), render: (tr: any) => formatDate(tr.transferDate) },
         {
           key: "detail", label: t("detail"),
           render: (tr: any) => (

@@ -1,5 +1,5 @@
 // ============================================================
-// Shared Types for Welding Materials Management System
+// Shared Types for MRF Hardware Management System
 // ============================================================
 
 // User & Auth

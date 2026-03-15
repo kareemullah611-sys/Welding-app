@@ -40,11 +40,6 @@ export const createUserSchema = z.object({
   { message: "City admin requires cityId; Super admin must not have cityId" }
 );
 
-export const updateUserSchema = z.object({
-  fullName: z.string().min(1).max(200).optional(),
-  isActive: z.boolean().optional(),
-  password: strongPassword.optional(),
-});
 
 // ============================================================
 // CITIES
@@ -55,11 +50,6 @@ export const createCitySchema = z.object({
   currencyIds: z.array(z.number().int().positive()).min(1),
 });
 
-export const updateCitySchema = z.object({
-  name: z.string().min(1).max(200).optional(),
-  isActive: z.boolean().optional(),
-  currencyIds: z.array(z.number().int().positive()).optional(),
-});
 
 // ============================================================
 // PRODUCTS
@@ -68,10 +58,6 @@ export const createProductSchema = z.object({
   name: z.string().min(1).max(200),
 });
 
-export const updateProductSchema = z.object({
-  name: z.string().min(1).max(200).optional(),
-  isActive: z.boolean().optional(),
-});
 
 // ============================================================
 // GODOWNS
@@ -81,23 +67,6 @@ export const createGodownSchema = z.object({
   name: z.string().min(1).max(200),
 });
 
-export const updateGodownSchema = z.object({
-  name: z.string().min(1).max(200).optional(),
-  isActive: z.boolean().optional(),
-});
-
-export const godownTransferSchema = z.object({
-  fromGodownId: z.number().int().positive(),
-  toGodownId: z.number().int().positive(),
-  productId: z.number().int().positive(),
-  lotId: z.number().int().positive(),
-  qty: z.number().positive(),
-  transferDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  notes: z.string().optional(),
-}).refine(
-  (data) => data.fromGodownId !== data.toGodownId,
-  { message: "Source and destination godowns must be different" }
-);
 
 // ============================================================
 // CUSTOMERS
@@ -139,29 +108,6 @@ export const createLotSchema = z.object({
   distributions: z.array(lotDistributionSchema).optional(),
 });
 
-export const updateLotSchema = z.object({
-  lotNumber: z.string().min(1).max(50).optional(),
-  lotDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  notes: z.string().optional().nullable(),
-});
-
-export const distributeLotSchema = z.object({
-  distributions: z.array(lotDistributionSchema).min(1),
-});
-
-export const godownAllocationSchema = z.object({
-  allocations: z.array(z.object({
-    lotCityDistributionId: z.number().int().positive(),
-    godownId: z.number().int().positive(),
-    qty: z.number().min(0),
-  })).min(1),
-});
-
-export const assignOverflowSchema = z.object({
-  cityId: z.number().int().positive(),
-  toLotId: z.number().int().positive(),
-  currencyId: z.number().int().positive(),
-});
 
 // ============================================================
 // SALES
@@ -182,21 +128,6 @@ export const createSaleSchema = z.object({
   items: z.array(saleItemSchema).min(1),
 });
 
-export const updateSaleSchema = z.object({
-  notes: z.string().optional().nullable(),
-  items: z.array(saleItemSchema).min(1).optional(),
-});
-
-export const cancelSaleSchema = z.object({
-  cancellationReason: z.string().min(1, "Cancellation reason is required"),
-});
-
-export const saleDiscountSchema = z.object({
-  discountAmount: z.number().positive(),
-  currencyId: z.number().int().positive(),
-  discountDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  notes: z.string().optional(),
-});
 
 // ============================================================
 // PAYMENTS
@@ -216,28 +147,6 @@ export const createPaymentSchema = z.object({
   notes: z.string().optional(),
 });
 
-export const updatePaymentSchema = z.object({
-  detail: z.string().min(1).max(500).optional(),
-  amount: z.number().positive().optional(),
-  manualVoucherNo: z.string().max(50).optional().nullable(),
-  paymentMethod: z.enum(["cash", "cheque", "bank_transfer", "online"]).optional(),
-  destination: z.enum(["haji", "our_account"]).optional(),
-  notes: z.string().optional().nullable(),
-});
-
-export const cancelPaymentSchema = z.object({
-  cancellationReason: z.string().min(1, "Cancellation reason is required"),
-});
-
-export const transferPaymentsLotSchema = z.object({
-  paymentIds: z.array(z.number().int().positive()).min(1),
-  fromLotId: z.number().int().positive(),
-  toLotId: z.number().int().positive(),
-  notes: z.string().optional(),
-}).refine(
-  (data) => data.fromLotId !== data.toLotId,
-  { message: "Source and destination lots must be different" }
-);
 
 // ============================================================
 // EXPENSES
@@ -251,13 +160,6 @@ export const createExpenseSchema = z.object({
   notes: z.string().optional(),
 });
 
-export const updateExpenseSchema = z.object({
-  lotId: z.number().int().positive().optional(),
-  expenseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  amount: z.number().positive().optional(),
-  detail: z.string().min(1).max(500).optional(),
-  notes: z.string().optional().nullable(),
-});
 
 // ============================================================
 // PERSONAL WITHDRAWALS
@@ -271,13 +173,6 @@ export const createWithdrawalSchema = z.object({
   notes: z.string().optional(),
 });
 
-export const updateWithdrawalSchema = z.object({
-  withdrawalDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  amount: z.number().positive().optional(),
-  detail: z.string().min(1).max(500).optional(),
-  withdrawnBy: z.string().max(100).optional().nullable(),
-  notes: z.string().optional().nullable(),
-});
 
 // ============================================================
 // HAJI TRANSFERS
@@ -293,26 +188,10 @@ export const createHajiTransferSchema = z.object({
   notes: z.string().optional(),
 });
 
-export const updateHajiTransferSchema = z.object({
-  transferDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  amount: z.number().positive().optional(),
-  detail: z.string().min(1).max(500).optional(),
-  transferType: z.enum(["direct", "from_in_hand"]).optional(),
-  notes: z.string().optional().nullable(),
-});
 
 // ============================================================
 // INVENTORY THRESHOLDS
 // ============================================================
-export const createThresholdSchema = z.object({
-  cityId: z.number().int().positive(),
-  productId: z.number().int().positive(),
-  minQty: z.number().min(0),
-});
-
-export const updateThresholdSchema = z.object({
-  minQty: z.number().min(0),
-});
 
 // ============================================================
 // SUPPLIER

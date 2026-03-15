@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, DataTable, Modal, formatNumber, StatsCard } from "@/components/ui";
+import { PageHeader, DataTable, Modal, formatNumber, StatsCard, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 
 export default function ExpensesPage() {
@@ -71,7 +71,7 @@ export default function ExpensesPage() {
         </div>
       )}
       <DataTable columns={[
-        { key: "expenseDate", label: t("date") },
+        { key: "expenseDate", label: t("date"), render: (e: any) => formatDate(e.expenseDate) },
         { key: "detail", label: t("detail"), className: "max-w-xs" },
         { key: "amount", label: t("amount"), render: (e: any) => <span className="font-medium text-red-600">{e.currency?.symbol} {e.amount.toLocaleString("en-US")}</span> },
         { key: "lot", label: t("lot"), render: (e: any) => e.lot?.lotNumber || e.lotNumber },

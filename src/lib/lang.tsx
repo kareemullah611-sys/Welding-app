@@ -5,11 +5,11 @@ const translations: Record<string, Record<string, string>> = {
   en: {
     // Navigation
     dashboard: "Dashboard", lots: "Lots", lot_costing: "Lot Costing", suppliers: "Suppliers",
-    company_payments: "Company Payments", agents: "Agents", country_ledger: "Country Ledger",
+    company_payments: "Company Payments", agents: "Agents", analytics: "Analytics",
     sales: "Sales", payments: "Payments", customers: "Customers", godowns: "Godowns",
     inventory: "Inventory", city_transfers: "City Transfers", profit_report: "Profit Report",
     financial_reports: "Financial Reports", reports: "Reports", search: "Search", settings: "Settings",
-    activity_feed: "Activity Feed", chat: "Chat",
+    activity_feed: "Activity Feed",
     // Common actions
     create: "Create", edit: "Edit", delete: "Delete", save: "Save", cancel: "Cancel",
     loading: "Loading...", submit: "Submit", close: "Close", confirm: "Confirm",
@@ -234,11 +234,11 @@ const translations: Record<string, Record<string, string>> = {
   ur: {
     // Navigation
     dashboard: "ڈیش بورڈ", lots: "لاٹ", lot_costing: "لاٹ لاگت", suppliers: "سپلائرز",
-    company_payments: "کمپنی ادائیگیاں", agents: "ایجنٹس", country_ledger: "ملکی کھاتہ",
+    company_payments: "کمپنی ادائیگیاں", agents: "ایجنٹس", analytics: "تجزیات",
     sales: "فروخت", payments: "ادائیگیاں", customers: "گاہک", godowns: "گودام",
     inventory: "انوینٹری", city_transfers: "شہر ٹرانسفر", profit_report: "منافع رپورٹ",
     financial_reports: "مالی رپورٹیں", reports: "رپورٹیں", search: "تلاش", settings: "ترتیبات",
-    activity_feed: "سرگرمی فیڈ", chat: "چیٹ",
+    activity_feed: "سرگرمی فیڈ",
     // Common actions
     create: "بنائیں", edit: "ترمیم", delete: "حذف", save: "محفوظ", cancel: "منسوخ",
     loading: "لوڈ ہو رہا ہے...", submit: "جمع کرائیں", close: "بند کریں", confirm: "تصدیق",
@@ -463,11 +463,11 @@ const translations: Record<string, Record<string, string>> = {
   ps: {
     // Navigation
     dashboard: "ډشبورډ", lots: "لاټ", lot_costing: "لاټ لګښت", suppliers: "عرضه کوونکي",
-    company_payments: "شرکت تادیات", agents: "ایجنټان", country_ledger: "هیواد کتاب",
+    company_payments: "شرکت تادیات", agents: "ایجنټان", analytics: "تحلیل",
     sales: "خرڅلاو", payments: "تادیات", customers: "پیرودونکي", godowns: "ګودام",
     inventory: "زیرمه", city_transfers: "ښار لیږد", profit_report: "ګټه راپور",
     financial_reports: "مالي راپورونه", reports: "راپورونه", search: "لټون", settings: "تنظیمات",
-    activity_feed: "فعالیت فیډ", chat: "چیټ",
+    activity_feed: "فعالیت فیډ",
     // Common actions
     create: "جوړول", edit: "سمول", delete: "ړنګول", save: "خوندي", cancel: "لغوه",
     loading: "لوډیږي...", submit: "وسپارئ", close: "وتړئ", confirm: "تایید",

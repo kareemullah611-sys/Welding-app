@@ -2,13 +2,13 @@ import { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Welding Materials Management",
-    short_name: "Welding App",
+    name: "MRF Hardware Management",
+    short_name: "MRF Hardware",
     description: "Multi-city sales, inventory & financial management",
     start_url: "/dashboard",
     display: "standalone",
     background_color: "#0F172A",
-    theme_color: "#3B82F6",
+    theme_color: "#6B0F1A",
     orientation: "portrait",
     icons: [
       {

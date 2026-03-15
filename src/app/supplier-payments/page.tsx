@@ -1,7 +1,7 @@
 "use client";
 import React, { useEffect, useState, useCallback } from "react";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, DataTable, Modal, StatsCard, formatNumber } from "@/components/ui";
+import { PageHeader, DataTable, Modal, StatsCard, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 
 export default function SupplierPaymentsPage() {
@@ -98,7 +98,7 @@ export default function SupplierPaymentsPage() {
       )}
 
       <DataTable columns={[
-        { key: "paymentDate", label: t("date") },
+        { key: "paymentDate", label: t("date"), render: (p: any) => formatDate(p.paymentDate) },
         { key: "supplierName", label: t("suppliers") },
         { key: "lotNumber", label: t("lot"), render: (p: any) => p.lotNumber || <span className="text-gray-400">{t("general_not_linked")}</span> },
         { key: "amountUsd", label: t("amount_usd"), render: (p: any) => <span className="font-bold text-green-700">${p.amountUsd.toLocaleString("en-US")}</span> },

@@ -1,8 +1,8 @@
-// Service Worker for Welding Materials Management System
+// Service Worker for MRF Hardware Management System
 // Provides offline caching and background sync
 
-const CACHE_NAME = "welding-app-v2";
-const API_CACHE_NAME = "welding-api-v2";
+const CACHE_NAME = "mrf-hardware-v1";
+const API_CACHE_NAME = "mrf-hardware-api-v1";
 const OFFLINE_QUEUE_KEY = "offline-queue";
 
 // Static assets to precache
