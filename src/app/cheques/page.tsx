@@ -1,9 +1,11 @@
 "use client";
 import React, { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { ArrowLeft } from "lucide-react";
 
 const CHEQUE_STATUS_CONFIG: Record<string, { label: string; color: string; icon: string }> = {
   in_hand:           { label: "In Hand",           icon: "🤲", color: "bg-yellow-50 text-yellow-700 border-yellow-200" },
@@ -16,6 +18,7 @@ const TABS = ["all", "in_hand", "deposited_to_bank", "sent_to_haji", "bounced"] 
 type Tab = typeof TABS[number];
 
 export default function ChequesPage() {
+  const router = useRouter();
   const { user } = useAuth();
   const { t } = useLang();
   const [allCheques, setAllCheques] = useState<any[]>([]);
@@ -143,6 +146,12 @@ export default function ChequesPage() {
 
   return (
     <div>
+      <button
+        onClick={() => router.back()}
+        className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 mb-3 transition-colors"
+      >
+        <ArrowLeft className="w-4 h-4" /> Back
+      </button>
       <PageHeader
         title={t("cheque_register")}
         subtitle="All cheques received from customers"
