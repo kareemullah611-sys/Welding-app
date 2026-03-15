@@ -48,6 +48,9 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         transferDate: t.transferDate.toISOString().split("T")[0],
         amount: Number(t.amount), detail: t.detail,
         transferType: t.transferType, transferredTo: t.transferredTo,
+        sourceType: (t as any).sourceType ?? null,
+        bankAccountId: (t as any).bankAccountId ?? null,
+        chequePaymentId: (t as any).chequePaymentId ?? null,
         notes: t.notes,
         currency: { id: t.currency.id, code: t.currency.code, symbol: t.currency.symbol },
         createdBy: t.creator,
@@ -73,6 +76,40 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const cityId = user.cityId!;
     let { lotId, transferDate, amount, currencyId, detail, transferType, transferredTo, notes } = parsed.data;
 
+    // New source fields
+    let sourceType: string = body.sourceType ?? undefined;
+    const bankAccountId: number | undefined = body.bankAccountId ? parseInt(body.bankAccountId) : undefined;
+    const chequePaymentId: number | undefined = body.chequePaymentId ? parseInt(body.chequePaymentId) : undefined;
+
+    // Backward compatibility: map old transferType to sourceType if sourceType not provided
+    if (!sourceType && transferType) {
+      if (transferType === "from_in_hand") sourceType = "cash_office";
+      else if (transferType === "direct") sourceType = "bank_transfer";
+    }
+
+    // Map sourceType back to transferType for storage backward compat
+    if (sourceType && !transferType) {
+      if (sourceType === "cash_office") transferType = "from_in_hand";
+      else if (sourceType === "bank_transfer") transferType = "direct";
+      else if (sourceType === "cheque") transferType = "direct";
+    }
+
+    // Validate cheque source
+    if (sourceType === "cheque" && chequePaymentId) {
+      const chequePayment = await prisma.payment.findUnique({ where: { id: chequePaymentId } });
+      if (!chequePayment) return errorResponse("NOT_FOUND", "Cheque payment not found", 404);
+      if (chequePayment.cityId !== cityId) return errorResponse("FORBIDDEN", "Cheque payment does not belong to your city", 403);
+      if ((chequePayment as any).paymentMethod !== "cheque") return errorResponse("VALIDATION_ERROR", "Referenced payment is not a cheque payment");
+      if ((chequePayment as any).chequeStatus !== "in_hand") return errorResponse("VALIDATION_ERROR", "Cheque is not in-hand status");
+    }
+
+    // Validate bank account source
+    if (sourceType === "bank_transfer" && bankAccountId) {
+      const bankAccount = await prisma.bankAccount.findUnique({ where: { id: bankAccountId } });
+      if (!bankAccount) return errorResponse("NOT_FOUND", "Bank account not found", 404);
+      if ((bankAccount as any).cityId !== cityId) return errorResponse("FORBIDDEN", "Bank account does not belong to your city", 403);
+    }
+
     // FIFO lot assignment if not specified
     if (!lotId) {
       const fifoLot = await prisma.lot.findFirst({
@@ -94,11 +131,27 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const resolvedCurrencyId = currencyId ?? cityCurrency.currencyId;
 
     const transfer = await prisma.hajiTransfer.create({
-      data: { cityId, lotId, transferDate: new Date(transferDate), amount, currencyId: resolvedCurrencyId, detail, transferType, transferredTo, notes, createdBy: user.userId },
+      data: {
+        cityId, lotId, transferDate: new Date(transferDate), amount, currencyId: resolvedCurrencyId,
+        detail, transferType, transferredTo, notes, createdBy: user.userId,
+        ...(sourceType !== undefined ? { sourceType } : {}),
+        ...(bankAccountId !== undefined ? { bankAccountId } : {}),
+        ...(chequePaymentId !== undefined ? { chequePaymentId } : {}),
+      } as any,
       include: { lot: { select: { id: true, lotNumber: true } }, currency: true, creator: { select: { id: true, fullName: true } } },
     }) as any;
 
-    await createAuditLog(user.userId, cityId, "haji_transfers", transfer.id, "create", undefined, { lotId, amount, transferType }, getClientIP(request));
+    // If sourced from a cheque, update the cheque payment status to 'sent_to_haji'
+    if (sourceType === "cheque" && chequePaymentId) {
+      try {
+        await prisma.payment.update({
+          where: { id: chequePaymentId },
+          data: { chequeStatus: "sent_to_haji" } as any,
+        });
+      } catch (_) { /* chequeStatus column not yet migrated — ignore */ }
+    }
+
+    await createAuditLog(user.userId, cityId, "haji_transfers", transfer.id, "create", undefined, { lotId, amount, transferType, sourceType }, getClientIP(request));
 
     try {
       await journalHajiTransfer({ id: transfer.id, cityId, amount, currencyCode: transfer.currency.code, date: transfer.transferDate, createdBy: user.userId });
@@ -108,6 +161,9 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       id: transfer.id, lotNumber: transfer.lot.lotNumber,
       transferDate: transfer.transferDate.toISOString().split("T")[0],
       amount: Number(transfer.amount), detail: transfer.detail, transferType: transfer.transferType,
+      sourceType: transfer.sourceType ?? null,
+      bankAccountId: transfer.bankAccountId ?? null,
+      chequePaymentId: transfer.chequePaymentId ?? null,
       currency: { id: transfer.currency.id, code: transfer.currency.code, symbol: transfer.currency.symbol },
       createdBy: transfer.creator,
     }, "Haji transfer recorded", 201);

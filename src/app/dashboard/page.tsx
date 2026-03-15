@@ -10,6 +10,7 @@ export default function DashboardPage() {
   const { t } = useLang();
   const [data, setData] = useState<any>(null);
   const [cashPosition, setCashPosition] = useState<any>(null);
+  const [treasury, setTreasury] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [selectedCountry, setSelectedCountry] = useState<string>("");
   const [showCashBreakdown, setShowCashBreakdown] = useState(false);
@@ -17,12 +18,14 @@ export default function DashboardPage() {
   useEffect(() => {
     const load = async () => {
       setLoading(true);
-      const [dashRes, cashRes] = await Promise.all([
+      const [dashRes, cashRes, treasuryRes] = await Promise.all([
         apiCall("/api/v1/dashboard"),
         apiCall("/api/v1/cash-position"),
+        apiCall("/api/v1/treasury"),
       ]);
       if (dashRes.success) setData(dashRes.data);
       if (cashRes.success) setCashPosition(cashRes.data);
+      if (treasuryRes.success) setTreasury(treasuryRes.data);
       setLoading(false);
     };
     load();
@@ -30,20 +33,67 @@ export default function DashboardPage() {
 
   if (loading) return <div className="flex items-center justify-center py-20"><div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" /></div>;
 
-  // CITY ADMIN DASHBOARD
+  // ─── CITY ADMIN DASHBOARD ─────────────────────────────────────────────────
   if (user?.role === "city_admin") {
+    // Build treasury cards
+    const hasTreasury = treasury && (treasury.hasBankAccounts || treasury.cashInOffice || treasury.chequesInHand);
+
+    // Format multi-currency value for a pot
+    const formatPot = (pot: Record<string, number> | undefined) => {
+      if (!pot) return "0";
+      const entries = Object.entries(pot).filter(([, v]) => Number(v) !== 0);
+      if (entries.length === 0) return "0";
+      if (entries.length === 1) return formatNumber(entries[0][1]);
+      return entries.map(([cc, amt]) => `${cc} ${formatNumber(amt)}`).join(" · ");
+    };
+
     return (
       <div>
         <PageHeader title={t("dashboard")} subtitle={`${t("welcome")}, ${user?.fullName}`} />
+
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-          <StatsCard title={`💰 ${t("cash_in_hand")}`} value={formatNumber(cashPosition?.netCashInHand || 0)} color="green" icon="💰" />
+          {/* Treasury 3-pot cards (if treasury data available) */}
+          {hasTreasury ? (
+            <>
+              <StatsCard
+                title={`💵 ${t("cash_in_office")}`}
+                value={formatPot(treasury.cashInOffice)}
+                color="green"
+                icon="💵"
+              />
+              {(treasury.hasBankAccounts || Object.values(treasury.chequesInHand || {}).some(v => Number(v) > 0)) && (
+                <StatsCard
+                  title={`🧾 ${t("cheques_in_hand")}`}
+                  value={formatPot(treasury.chequesInHand)}
+                  color="yellow"
+                  icon="🧾"
+                />
+              )}
+              {treasury.hasBankAccounts && (
+                <StatsCard
+                  title={`🏦 ${t("bank_balance")}`}
+                  value={formatPot(treasury.bankBalance)}
+                  color="blue"
+                  icon="🏦"
+                />
+              )}
+            </>
+          ) : (
+            /* Fallback to old single cash card */
+            <StatsCard title={`💰 ${t("cash_in_hand")}`} value={formatNumber(cashPosition?.netCashInHand || 0)} color="green" icon="💰" />
+          )}
+
+          {/* Outstanding */}
           {Object.entries(data?.outstandingByCurrency || {}).length > 0
             ? Object.entries(data.outstandingByCurrency).map(([cc, amt]: [string, any]) => (
                 <StatsCard key={`out-${cc}`} title={`📋 ${t("outstanding")} (${cc})`} value={`${cc} ${formatNumber(amt || 0)}`} color="red" icon="📋" />
               ))
             : <StatsCard title={`📋 ${t("outstanding")}`} value="0" color="red" icon="📋" />
           }
+
           <StatsCard title={`📦 ${t("cartons_sold")}`} value={formatNumber(data?.totalCartonsSold || 0)} color="blue" icon="📦" />
+
+          {/* Owed to Haji */}
           {Object.entries(data?.hajiByCurrency || {}).length > 0
             ? Object.entries(data.hajiByCurrency).map(([cc, amt]: [string, any]) => (
                 <StatsCard key={`haji-${cc}`} title={`↗️ ${t("owed_to_haji")} (${cc})`} value={`${cc} ${formatNumber(amt || 0)}`} color="yellow" icon="↗️" />
@@ -51,6 +101,26 @@ export default function DashboardPage() {
             : <StatsCard title={`↗️ ${t("owed_to_haji")}`} value="0" color="yellow" icon="↗️" />
           }
         </div>
+
+        {/* Bank account breakdown (if available) */}
+        {treasury?.hasBankAccounts && treasury.bankAccounts?.length > 1 && (
+          <div className="card mb-6">
+            <h3 className="text-sm font-semibold text-gray-500 mb-3">🏦 Bank Accounts</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {treasury.bankAccounts.map((ba: any) => (
+                <div key={ba.id} className="bg-blue-50 border border-blue-100 rounded-lg p-3">
+                  <p className="text-sm font-semibold text-blue-800">{ba.bankName}</p>
+                  <p className="text-lg font-bold text-blue-700 mt-1">
+                    {Object.entries(ba.balance || {}).filter(([, v]) => Number(v) !== 0).map(([cc, amt]: [string, any]) => (
+                      <span key={cc}>{cc} {formatNumber(amt)}</span>
+                    ))}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Cash breakdown — collapsed by default */}
         {cashPosition && (
           <div className="card mb-6">
@@ -78,11 +148,15 @@ export default function DashboardPage() {
             )}
           </div>
         )}
+
         {data?.ongoingLots?.length > 0 && (
           <div className="card">
             <h3 className="text-sm font-semibold text-gray-500 mb-3">{t("ongoing_lots")}</h3>
             {data.ongoingLots.map((l: any) => (
-              <div key={l.id} className="flex justify-between items-center py-2 border-b last:border-0"><span className="font-mono font-medium">{l.lotNumber}</span><span className="text-sm text-gray-500">{formatDate(l.lotDate)}</span></div>
+              <div key={l.id} className="flex justify-between items-center py-2 border-b last:border-0">
+                <span className="font-mono font-medium">{l.lotNumber}</span>
+                <span className="text-sm text-gray-500">{formatDate(l.lotDate)}</span>
+              </div>
             ))}
           </div>
         )}
@@ -90,7 +164,7 @@ export default function DashboardPage() {
     );
   }
 
-  // SUPER ADMIN DASHBOARD
+  // ─── SUPER ADMIN DASHBOARD ───────────────────────────────────────────────
   const citiesOverview = data?.citiesOverview || [];
   const countries = Array.from(new Set(citiesOverview.map((c: any) => c.country)));
   const activeCountry: string = selectedCountry || (countries[0] as string) || "";

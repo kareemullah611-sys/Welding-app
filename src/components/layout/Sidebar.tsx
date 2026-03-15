@@ -11,7 +11,7 @@ import {
   BookOpen, Receipt, Wallet, Users, Warehouse, ClipboardList,
   ArrowLeftRight, TrendingUp, BarChart2, FileText, Search,
   Activity, Settings, LogOut, ChevronLeft, ChevronRight,
-  Menu, type LucideIcon,
+  Menu, FileCheck, Landmark, type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -55,9 +55,11 @@ const navGroups: { label: string; items: NavItemDef[] }[] = [
   {
     label: "Sales & Finance",
     items: [
-      { label: "Sales",     key: "sales",     href: "/sales",     icon: Receipt, roles: ["super_admin", "city_admin"] },
-      { label: "Payments",  key: "payments",  href: "/payments",  icon: Wallet,  roles: ["super_admin", "city_admin"] },
-      { label: "Customers", key: "customers", href: "/customers", icon: Users,   roles: ["super_admin", "city_admin"] },
+      { label: "Sales",            key: "sales",            href: "/sales",            icon: Receipt,   roles: ["super_admin", "city_admin"] },
+      { label: "Payments",         key: "payments",         href: "/payments",         icon: Wallet,    roles: ["super_admin", "city_admin"] },
+      { label: "Customers",        key: "customers",        href: "/customers",        icon: Users,     roles: ["super_admin", "city_admin"] },
+      { label: "Cheque Register",  key: "cheque_register",  href: "/cheques",          icon: FileCheck, roles: ["city_admin"] },
+      { label: "Bank Deposits",    key: "bank_deposits",    href: "/bank-deposits",    icon: Landmark,  roles: ["city_admin"] },
     ],
   },
   {
@@ -87,7 +89,8 @@ const navGroups: { label: string; items: NavItemDef[] }[] = [
   {
     label: "System",
     items: [
-      { label: "Settings", key: "settings", href: "/settings", icon: Settings, roles: ["super_admin"] },
+      { label: "Settings",      key: "settings",      href: "/settings",              icon: Settings, roles: ["super_admin"] },
+      { label: "Bank Accounts", key: "bank_accounts",  href: "/settings/bank-accounts", icon: Landmark, roles: ["city_admin"] },
     ],
   },
 ];

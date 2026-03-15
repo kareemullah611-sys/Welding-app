@@ -28,6 +28,45 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
   }
 });
 
+export const PATCH = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
+  try {
+    const id = parseInt(context.params.id);
+    const body = await request.json();
+
+    if (body.action === "bounce_cheque") {
+      const payment = await prisma.payment.findUnique({ where: { id } });
+      if (!payment) return errorResponse("NOT_FOUND", "Payment not found", 404);
+      if (user.role === "city_admin" && payment.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
+      if ((payment as any).paymentMethod !== "cheque") return errorResponse("VALIDATION_ERROR", "Payment method is not cheque");
+      if (payment.status !== "active") return errorResponse("VALIDATION_ERROR", "Payment is not active");
+      if ((payment as any).chequeStatus === "bounced") return errorResponse("VALIDATION_ERROR", "Cheque is already marked as bounced");
+
+      await prisma.payment.update({
+        where: { id },
+        data: {
+          chequeStatus: "bounced",
+          status: "cancelled",
+          cancellationReason: "Cheque bounced",
+          cancelledAt: new Date(),
+          cancelledBy: user.userId,
+        } as any,
+      });
+
+      await createAuditLog(user.userId, payment.cityId, "payments", id, "update",
+        { chequeStatus: (payment as any).chequeStatus, status: payment.status },
+        { chequeStatus: "bounced", status: "cancelled", cancellationReason: "Cheque bounced" },
+        getClientIP(request)
+      );
+
+      return successResponse({ success: true }, "Cheque marked as bounced. Please create a new payment for this customer.");
+    }
+
+    return errorResponse("VALIDATION_ERROR", "Unknown action");
+  } catch (error) {
+    return serverError();
+  }
+});
+
 export const PUT = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
     const id = parseInt(context.params.id);

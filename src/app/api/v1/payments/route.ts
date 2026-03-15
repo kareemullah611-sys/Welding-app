@@ -81,6 +81,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       status: p.status,
       notes: p.notes,
       cancellationReason: p.cancellationReason,
+      chequeNumber: (p as any).chequeNumber ?? null,
+      chequeBank: (p as any).chequeBank ?? null,
+      chequeDueDate: (p as any).chequeDueDate ? new Date((p as any).chequeDueDate).toISOString().split("T")[0] : null,
+      chequeStatus: (p as any).chequeStatus ?? null,
+      bankDepositId: (p as any).bankDepositId ?? null,
       customer: p.customer,
       lot: { id: p.lot.id, lotNumber: p.lot.lotNumber, status: p.lot.status },
       currency: { id: p.currency.id, code: p.currency.code, symbol: p.currency.symbol },
@@ -110,6 +115,9 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     if (!parsed.success) return validationError("Invalid payment data", parsed.error.errors);
 
     let { customerId, lotId, paymentDate, detail, amount, currencyId, exchangeRate, usdEquivalent, manualVoucherNo, paymentMethod, destination, notes } = parsed.data;
+    const chequeNumber: string | undefined = body.chequeNumber;
+    const chequeBank: string | undefined = body.chequeBank;
+    const chequeDueDate: string | undefined = body.chequeDueDate;
     const cityId = user.cityId!;
 
     // Handle walk-in customer (id = -1): find or create per city
@@ -148,6 +156,9 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     });
     if (!lot) return errorResponse("VALIDATION_ERROR", "Lot not found, completed, or not distributed to your city");
 
+    // Determine chequeStatus for cheque payments destined to our_account
+    const chequeStatus = (paymentMethod === "cheque" && destination === "our_account") ? "in_hand" : undefined;
+
     // Create payment (without new columns so it works before migration is run)
     const payment = await prisma.payment.create({
       data: {
@@ -163,6 +174,10 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         destination,
         notes,
         createdBy: user.userId,
+        ...(chequeNumber !== undefined ? { chequeNumber } : {}),
+        ...(chequeBank !== undefined ? { chequeBank } : {}),
+        ...(chequeDueDate !== undefined ? { chequeDueDate: new Date(chequeDueDate) } : {}),
+        ...(chequeStatus !== undefined ? { chequeStatus } : {}),
       },
       include: {
         customer: { select: { id: true, name: true } },

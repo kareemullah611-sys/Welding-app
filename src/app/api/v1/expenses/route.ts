@@ -33,7 +33,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           currency: true,
           creator: { select: { id: true, fullName: true } },
           attachments: { select: { id: true, fileName: true, filePath: true, fileType: true } },
-        },
+          bankAccount: { select: { id: true, bankName: true } },
+        } as any,
         orderBy: { expenseDate: "desc" },
         skip, take: limit,
       }),
@@ -41,14 +42,17 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     ]);
 
     return paginatedResponse(
-      expenses.map((e) => ({
+      expenses.map((e: any) => ({
         id: e.id, cityId: e.cityId, lotId: e.lotId,
         lotNumber: e.lot.lotNumber,
         expenseDate: e.expenseDate.toISOString().split("T")[0],
         amount: Number(e.amount), detail: e.detail, notes: e.notes,
+        paidFrom: e.paidFrom ?? "cash_office",
+        bankAccountId: e.bankAccountId ?? null,
+        bankAccount: e.bankAccount ? { id: e.bankAccount.id, bankName: e.bankAccount.bankName } : null,
         currency: { id: e.currency.id, code: e.currency.code, symbol: e.currency.symbol },
         createdBy: e.creator,
-        attachments: ((e as any).attachments || []).map((a: any) => ({
+        attachments: (e.attachments || []).map((a: any) => ({
           ...a,
           filePath: a.filePath.split("|||")[0],
         })),
@@ -70,6 +74,17 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const cityId = user.cityId!;
     const { lotId, expenseDate, amount, currencyId, detail, notes } = parsed.data;
 
+    // New payment source fields
+    const paidFrom: "cash_office" | "bank_account" = body.paidFrom ?? "cash_office";
+    const bankAccountId: number | undefined = body.bankAccountId ? parseInt(body.bankAccountId) : undefined;
+
+    // Validate bank account if paidFrom is bank_account
+    if (paidFrom === "bank_account" && bankAccountId) {
+      const bankAccount = await prisma.bankAccount.findUnique({ where: { id: bankAccountId } });
+      if (!bankAccount) return errorResponse("NOT_FOUND", "Bank account not found", 404);
+      if ((bankAccount as any).cityId !== cityId) return errorResponse("FORBIDDEN", "Bank account does not belong to your city", 403);
+    }
+
     const lot = await prisma.lot.findFirst({
       where: { id: lotId ?? undefined, status: "ongoing", lotCityDistributions: { some: { cityId } } },
     });
@@ -79,7 +94,12 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported in your city");
 
     const expense = await prisma.expense.create({
-      data: { cityId, lotId: lot.id, expenseDate: new Date(expenseDate), amount, currencyId: currencyId as number, detail, notes, createdBy: user.userId },
+      data: {
+        cityId, lotId: lot.id, expenseDate: new Date(expenseDate), amount,
+        currencyId: currencyId as number, detail, notes, createdBy: user.userId,
+        ...(paidFrom !== "cash_office" ? { paidFrom } : {}),
+        ...(bankAccountId !== undefined ? { bankAccountId } : {}),
+      } as any,
       include: { lot: { select: { id: true, lotNumber: true } }, currency: true, creator: { select: { id: true, fullName: true } } },
     }) as any;
 
@@ -99,6 +119,8 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       id: expense.id, lotNumber: expense.lot.lotNumber,
       expenseDate: expense.expenseDate.toISOString().split("T")[0],
       amount: Number(expense.amount), detail: expense.detail,
+      paidFrom: expense.paidFrom ?? "cash_office",
+      bankAccountId: expense.bankAccountId ?? null,
       currency: { id: expense.currency.id, code: expense.currency.code, symbol: expense.currency.symbol },
       createdBy: expense.creator,
     }, "Expense recorded", 201);

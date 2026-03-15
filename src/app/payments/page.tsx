@@ -88,6 +88,11 @@ export default function PaymentsPage() {
   const [hardDeleteError, setHardDeleteError] = useState("");
   const [hardDeleteSubmitting, setHardDeleteSubmitting] = useState(false);
 
+  // Bounce cheque
+  const [showBounce, setShowBounce] = useState(false);
+  const [bounceTarget, setBounceTarget] = useState<any>(null);
+  const [bounceSubmitting, setBounceSubmitting] = useState(false);
+
   // Voucher duplicate warning
   const [voucherWarning, setVoucherWarning] = useState<{ matches: any[] } | null>(null);
 
@@ -142,7 +147,7 @@ export default function PaymentsPage() {
     const today = new Date().toISOString().split("T")[0];
     if (type === "payment") {
       const usdCurrency = loadedCurrencies.find((c: any) => c.code === "USD") || loadedCurrencies[0];
-      setForm({ customerId: 0, customerName: "", paymentDate: today, amount: 0, detail: "", currencyId: usdCurrency?.id || 0, paymentMethod: "cash", destination: "haji", notes: "", exchangeRate: 280, usdEquivalent: null });
+      setForm({ customerId: 0, customerName: "", paymentDate: today, amount: 0, detail: "", currencyId: usdCurrency?.id || 0, paymentMethod: "cash", destination: "haji", notes: "", exchangeRate: 280, usdEquivalent: null, chequeNumber: "", chequeBank: "", chequeDueDate: "" });
     } else if (type === "expense") {
       setForm({ expenseDate: today, amount: 0, detail: "", notes: "" });
     } else if (type === "haji_transfer") {
@@ -244,6 +249,15 @@ export default function PaymentsPage() {
     load();
   };
 
+  const handleBounce = async () => {
+    if (!bounceTarget) return;
+    setBounceSubmitting(true);
+    const r = await apiCall(`/api/v1/payments/${bounceTarget.id}`, { method: "PATCH", body: { action: "bounce_cheque" } });
+    setBounceSubmitting(false);
+    if (r.success) { setShowBounce(false); setBounceTarget(null); load(); }
+    else { setError(r.error || "Failed to mark cheque as bounced"); }
+  };
+
   const columns = [
     {
       key: "type", label: "Type",
@@ -290,14 +304,33 @@ export default function PaymentsPage() {
     {
       key: "status", label: t("status"),
       render: (item: any) => {
-        if (item.type === "payment") return (
-          <div>
-            <StatusBadge status={item.status} />
-            {item.status === "cancelled" && item.raw?.cancellationReason && (
-              <p className="text-xs text-gray-400 mt-0.5 max-w-[120px] truncate" title={item.raw.cancellationReason}>{item.raw.cancellationReason}</p>
-            )}
-          </div>
-        );
+        if (item.type === "payment") {
+          const chequeStatusColors: Record<string, string> = {
+            in_hand: "bg-yellow-50 text-yellow-700",
+            deposited_to_bank: "bg-blue-50 text-blue-700",
+            sent_to_haji: "bg-green-50 text-green-700",
+            bounced: "bg-red-50 text-red-700",
+          };
+          const chequeStatusLabels: Record<string, string> = {
+            in_hand: t("in_hand_status"),
+            deposited_to_bank: t("deposited_to_bank"),
+            sent_to_haji: t("sent_to_haji_status"),
+            bounced: t("bounced"),
+          };
+          return (
+            <div>
+              <StatusBadge status={item.status} />
+              {item.status === "cancelled" && item.raw?.cancellationReason && (
+                <p className="text-xs text-gray-400 mt-0.5 max-w-[120px] truncate" title={item.raw.cancellationReason}>{item.raw.cancellationReason}</p>
+              )}
+              {item.raw?.chequeStatus && (
+                <span className={`text-xs px-1.5 py-0.5 rounded font-medium mt-1 inline-block ${chequeStatusColors[item.raw.chequeStatus] || "bg-gray-50 text-gray-700"}`}>
+                  🧾 {chequeStatusLabels[item.raw.chequeStatus] || item.raw.chequeStatus}
+                </span>
+              )}
+            </div>
+          );
+        }
         if (item.type === "withdrawal") return (
           <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${item.status === "approved" ? "bg-green-50 text-green-700" : "bg-yellow-50 text-yellow-700"}`}>
             {item.status}
@@ -328,6 +361,9 @@ export default function PaymentsPage() {
           )}
           {item.type === "withdrawal" && item.status === "pending" && user?.role === "super_admin" && (
             <button onClick={() => handleApproveWithdrawal(item)} className="text-xs text-green-700 font-semibold hover:underline">Approve</button>
+          )}
+          {item.type === "payment" && item.status === "active" && item.raw?.paymentMethod === "cheque" && item.raw?.chequeStatus === "in_hand" && (
+            <button onClick={() => { setBounceTarget(item); setShowBounce(true); setError(""); }} className="text-xs text-amber-600 font-semibold hover:underline">{t("mark_bounced")}</button>
           )}
         </div>
       ),
@@ -515,6 +551,28 @@ export default function PaymentsPage() {
             </div>
           )}
 
+          {createType === "payment" && form.paymentMethod === "cheque" && (
+            <div className="space-y-3">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm font-semibold text-blue-800">
+                🧾 {t("cheque_number")} — {t("drawn_on_bank")}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("cheque_number")}</label>
+                  <input value={form.chequeNumber || ""} onChange={e => setForm((f: any) => ({ ...f, chequeNumber: e.target.value }))} className="input-field" placeholder="e.g. 001234" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("drawn_on_bank")}</label>
+                  <input value={form.chequeBank || ""} onChange={e => setForm((f: any) => ({ ...f, chequeBank: e.target.value }))} className="input-field" placeholder="e.g. HBL" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t("due_date")}</label>
+                <input type="date" value={form.chequeDueDate || ""} onChange={e => setForm((f: any) => ({ ...f, chequeDueDate: e.target.value }))} className="input-field" />
+              </div>
+            </div>
+          )}
+
           {createType === "haji_transfer" && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("type")}</label>
@@ -605,6 +663,31 @@ export default function PaymentsPage() {
             <button onClick={() => setShowHardDelete(false)} className="btn-secondary text-sm">{t("cancel")}</button>
             <button onClick={handleHardDelete} disabled={hardDeleteSubmitting} className="bg-red-700 hover:bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-semibold">
               {hardDeleteSubmitting ? t("deleting") : t("permanently_delete")}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── BOUNCE CHEQUE MODAL ──────────────────────────────────────────────── */}
+      <Modal open={showBounce} onClose={() => { setShowBounce(false); setBounceTarget(null); }} title="⚠️ Mark Cheque as Bounced" size="sm">
+        <div className="space-y-4">
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+            <p className="font-semibold mb-1">This will mark the cheque as bounced.</p>
+            <p>This action cannot be undone. The cheque status will be updated to "Bounced".</p>
+          </div>
+          {bounceTarget && (
+            <div className="border border-gray-200 rounded-lg p-3 text-sm bg-gray-50">
+              <p className="font-medium text-gray-900">{bounceTarget.person || "—"}</p>
+              <p className="text-gray-500 mt-0.5">{bounceTarget.detail}</p>
+              <p className="font-bold text-red-600 mt-1">{bounceTarget.currencySymbol} {bounceTarget.amount?.toLocaleString("en-US")}</p>
+              {bounceTarget.raw?.chequeNumber && <p className="text-gray-400 text-xs mt-0.5">Cheque #{bounceTarget.raw.chequeNumber}</p>}
+            </div>
+          )}
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <div className="flex justify-end gap-3 pt-2 border-t">
+            <button onClick={() => { setShowBounce(false); setBounceTarget(null); }} className="btn-secondary text-sm">{t("cancel")}</button>
+            <button onClick={handleBounce} disabled={bounceSubmitting} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-semibold">
+              {bounceSubmitting ? "..." : t("mark_bounced")}
             </button>
           </div>
         </div>

@@ -49,6 +49,24 @@ enum HajiTransferType {
   from_in_hand
 }
 
+enum ChequeStatus {
+  in_hand
+  deposited_to_bank
+  sent_to_haji
+  bounced
+}
+
+enum HajiSourceType {
+  cash_office
+  cheque
+  bank_transfer
+}
+
+enum ExpensePaidFrom {
+  cash_office
+  bank_account
+}
+
 enum SupplierPaymentMethod {
   bank_transfer
   tt
@@ -115,6 +133,7 @@ model Currency {
   hajiTransfers       HajiTransfer[]
   saleDiscounts       SaleDiscount[]
   lotSettlementOverflows LotSettlementOverflow[]
+  bankDeposits        BankDeposit[]
 
   @@map("currencies")
 }
@@ -149,6 +168,8 @@ model City {
   agents             Agent[]
   godownAccessFrom   CityGodownPermission[] @relation("GodownAccessFrom")
   godownAccessTo     CityGodownPermission[] @relation("GodownAccessTo")
+  bankAccounts       BankAccount[]
+  bankDeposits       BankDeposit[]
 
   @@unique([countryId, name])
   @@index([countryId])
@@ -560,19 +581,27 @@ model Payment {
   cancellationReason String?            @map("cancellation_reason") @db.Text
   cancelledAt        DateTime?          @map("cancelled_at")
   cancelledBy        Int?               @map("cancelled_by")
+  // Cheque-specific fields (populated when paymentMethod = cheque)
+  chequeNumber       String?            @map("cheque_number") @db.VarChar(50)
+  chequeBank         String?            @map("cheque_bank") @db.VarChar(100)
+  chequeDueDate      DateTime?          @map("cheque_due_date") @db.Date
+  chequeStatus       ChequeStatus?      @map("cheque_status")
+  bankDepositId      Int?               @map("bank_deposit_id")
   createdBy          Int                @map("created_by")
   createdAt          DateTime           @default(now()) @map("created_at")
   updatedAt          DateTime           @updatedAt @map("updated_at")
 
-  city       City     @relation(fields: [cityId], references: [id])
-  customer   Customer @relation(fields: [customerId], references: [id])
-  lot        Lot      @relation(fields: [lotId], references: [id])
-  currency   Currency @relation(fields: [currencyId], references: [id])
-  creator    User     @relation("PaymentCreatedBy", fields: [createdBy], references: [id])
-  canceller  User?    @relation("PaymentCancelledBy", fields: [cancelledBy], references: [id])
+  city        City        @relation(fields: [cityId], references: [id])
+  customer    Customer    @relation(fields: [customerId], references: [id])
+  lot         Lot         @relation(fields: [lotId], references: [id])
+  currency    Currency    @relation(fields: [currencyId], references: [id])
+  creator     User        @relation("PaymentCreatedBy", fields: [createdBy], references: [id])
+  canceller   User?       @relation("PaymentCancelledBy", fields: [cancelledBy], references: [id])
+  bankDeposit BankDeposit? @relation("DepositCheques", fields: [bankDepositId], references: [id])
 
-  attachments        Attachment[]
+  attachments         Attachment[]
   paymentLotTransfers PaymentLotTransfer[]
+  hajiTransferCheque  HajiTransfer?       @relation("HajiCheque")
 
   @@index([cityId])
   @@index([customerId])
@@ -616,6 +645,9 @@ model Expense {
   currencyId  Int       @map("currency_id")
   detail      String    @db.VarChar(500)
   notes       String?   @db.Text
+  // Treasury: which pot paid for this expense
+  paidFrom      ExpensePaidFrom @default(cash_office) @map("paid_from")
+  bankAccountId Int?            @map("bank_account_id")
   createdBy   Int       @map("created_by")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
@@ -625,6 +657,7 @@ model Expense {
   lot         Lot          @relation(fields: [lotId], references: [id])
   currency    Currency     @relation(fields: [currencyId], references: [id])
   creator     User         @relation(fields: [createdBy], references: [id])
+  bankAccount BankAccount? @relation(fields: [bankAccountId], references: [id])
   attachments Attachment[]
 
   @@index([cityId])
@@ -681,14 +714,20 @@ model HajiTransfer {
   transferType  HajiTransferType @map("transfer_type")
   transferredTo String?          @map("transferred_to") @db.VarChar(100)
   notes         String?          @db.Text
+  // Treasury: where the money came from
+  sourceType       HajiSourceType @default(cash_office) @map("source_type")
+  bankAccountId    Int?           @map("bank_account_id")
+  chequePaymentId  Int?           @unique @map("cheque_payment_id")
   createdBy     Int              @map("created_by")
   createdAt    DateTime         @default(now()) @map("created_at")
   updatedAt    DateTime         @updatedAt @map("updated_at")
 
-  city     City     @relation(fields: [cityId], references: [id])
-  lot      Lot      @relation(fields: [lotId], references: [id])
-  currency Currency @relation(fields: [currencyId], references: [id])
-  creator  User     @relation(fields: [createdBy], references: [id])
+  city          City         @relation(fields: [cityId], references: [id])
+  lot           Lot          @relation(fields: [lotId], references: [id])
+  currency      Currency     @relation(fields: [currencyId], references: [id])
+  creator       User         @relation(fields: [createdBy], references: [id])
+  bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id])
+  chequePayment Payment?     @relation("HajiCheque", fields: [chequePaymentId], references: [id])
 
   withdrawalSource PersonalWithdrawal?
   attachments      Attachment[]
@@ -721,6 +760,50 @@ model LotSettlementOverflow {
   @@index([fromLotId])
   @@index([toLotId])
   @@map("lot_settlement_overflows")
+}
+
+// ============================================================
+// TREASURY - Bank Accounts & Deposit Slips
+// ============================================================
+
+model BankAccount {
+  id            Int      @id @default(autoincrement())
+  cityId        Int      @map("city_id")
+  bankName      String   @map("bank_name") @db.VarChar(100)
+  accountNumber String?  @map("account_number") @db.VarChar(50)
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  city          City          @relation(fields: [cityId], references: [id])
+  deposits      BankDeposit[]
+  hajiTransfers HajiTransfer[]
+  expenses      Expense[]
+
+  @@index([cityId])
+  @@map("bank_accounts")
+}
+
+model BankDeposit {
+  id            Int      @id @default(autoincrement())
+  cityId        Int      @map("city_id")
+  bankAccountId Int      @map("bank_account_id")
+  depositDate   DateTime @map("deposit_date") @db.Date
+  slipNumber    String?  @map("slip_number") @db.VarChar(50)
+  cashAmount    Decimal  @default(0) @map("cash_amount") @db.Decimal(15, 2)
+  currencyId    Int      @map("currency_id")
+  notes         String?  @db.Text
+  createdBy     Int      @map("created_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  city        City        @relation(fields: [cityId], references: [id])
+  bankAccount BankAccount @relation(fields: [bankAccountId], references: [id])
+  currency    Currency    @relation(fields: [currencyId], references: [id])
+  cheques     Payment[]   @relation("DepositCheques")
+
+  @@index([cityId])
+  @@index([bankAccountId])
+  @@index([depositDate])
+  @@map("bank_deposits")
 }
 
 // ============================================================
