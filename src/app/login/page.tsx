@@ -82,7 +82,7 @@ export default function LoginPage() {
             </div>
           ))}
           {/* Dark overlay for readability */}
-          <div className="absolute inset-0 bg-black/55" />
+          <div className="absolute inset-0 bg-black/35" />
         </div>
       ) : (
         <div className="absolute inset-0 z-0 bg-gradient-to-br from-slate-900 via-[#3D0808] to-slate-900" />

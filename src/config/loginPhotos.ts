@@ -10,7 +10,7 @@
  * If this array is empty, the login page falls back to a gradient background.
  */
 export const LOGIN_PHOTOS: string[] = [
-  // "/login-photos/photo1.jpg",
-  // "/login-photos/photo2.jpg",
-  // "/login-photos/photo3.jpg",
+  "/login-photos/photo1.jpg",
+  "/login-photos/photo2.jpg",
+  "/login-photos/photo3.jpg",
 ];
