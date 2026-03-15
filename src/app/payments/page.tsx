@@ -500,9 +500,14 @@ export default function PaymentsPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">{t("method")}</label>
                 <select value={form.paymentMethod} onChange={e => setForm((f: any) => ({ ...f, paymentMethod: e.target.value }))} className="select-field">
                   <option value="cash">{t("cash")}</option>
-                  <option value="bank_transfer">{t("bank_transfer")}</option>
-                  <option value="cheque">{t("cheque")}</option>
-                  <option value="online">{t("online")}</option>
+                  {/* Afghanistan is cash-only — no bank/cheque/online */}
+                  {user?.countryName !== "Afghanistan" && (
+                    <>
+                      <option value="bank_transfer">{t("bank_transfer")}</option>
+                      <option value="cheque">{t("cheque")}</option>
+                      <option value="online">{t("online")}</option>
+                    </>
+                  )}
                 </select>
               </div>
               <div>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 interface MRFLoaderProps {
   /** "login" = always plays full animation, ignores visible prop until minDuration passes.
@@ -10,7 +10,7 @@ interface MRFLoaderProps {
   onAnimationComplete?: () => void;
 }
 
-const MIN_LOGIN_DURATION = 1800; // ms — full animation runs even if API is fast
+const MIN_LOGIN_DURATION = 5000; // ms — overlay shows for at least 5 seconds on login
 
 export default function MRFLoader({
   variant = "global",
@@ -19,24 +19,28 @@ export default function MRFLoader({
 }: MRFLoaderProps) {
   const [show, setShow] = useState(variant === "login");
   const [animating, setAnimating] = useState(false);
+  const startTimeRef = useRef<number>(0);
 
-  // Login variant: show immediately, hide after MIN_LOGIN_DURATION once visible goes false
+  // Login variant: show immediately, record start time
   useEffect(() => {
     if (variant !== "login") return;
+    startTimeRef.current = Date.now();
     setShow(true);
     setAnimating(true);
   }, [variant]);
 
   useEffect(() => {
     if (variant !== "login") return;
-    // visible goes false = API done. Keep showing until animation finishes.
+    // visible goes false = API done. Keep showing until MIN_LOGIN_DURATION has elapsed.
     if (!visible) {
-      const elapsed = Date.now();
-      const remaining = MIN_LOGIN_DURATION - (elapsed % MIN_LOGIN_DURATION);
+      const elapsed = Date.now() - startTimeRef.current;
+      const remaining = Math.max(0, MIN_LOGIN_DURATION - elapsed);
       const timer = setTimeout(() => {
-        setShow(false);
+        // Trigger navigation first — overlay stays up while page transitions
         onAnimationComplete?.();
-      }, remaining > 400 ? remaining : MIN_LOGIN_DURATION);
+        // Keep overlay a tiny bit longer to fully cover the navigation flash
+        setTimeout(() => setShow(false), 300);
+      }, remaining);
       return () => clearTimeout(timer);
     }
   }, [visible, variant, onAnimationComplete]);

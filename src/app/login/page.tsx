@@ -82,7 +82,8 @@ export default function LoginPage() {
       )}
 
       {/* ── Login card ── */}
-      <div className="relative z-10 w-full max-w-md">
+      {/* Hide login content while MRF overlay is showing */}
+      <div className="relative z-10 w-full max-w-md" style={{ visibility: loginStarted ? "hidden" : "visible" }}>
 
         {/* Brand mark */}
         <div className="text-center mb-8">
@@ -160,9 +161,6 @@ export default function LoginPage() {
           </form>
         </div>
 
-        <p className="text-center text-slate-400 text-xs mt-6 tracking-widest" style={{ letterSpacing: "2px" }}>
-          MRF HARDWARE · MULTI-CITY MANAGEMENT
-        </p>
       </div>
 
       {/* ── MRF Loading overlay — plays full animation on login ── */}
