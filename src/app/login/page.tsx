@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import Image from "next/image";
 import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
 import { useLang, LangSwitcher } from "@/lib/lang";
@@ -66,20 +65,14 @@ export default function LoginPage() {
       {hasPhotos ? (
         <div className="absolute inset-0 z-0">
           {LOGIN_PHOTOS.map((src, i) => (
-            <div
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
               key={src}
-              className="absolute inset-0 transition-opacity duration-1000"
+              src={src}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover transition-opacity duration-1000"
               style={{ opacity: i === currentIdx ? 1 : 0 }}
-            >
-              <Image
-                src={src}
-                alt=""
-                fill
-                style={{ objectFit: "cover" }}
-                priority={i === 0}
-                sizes="100vw"
-              />
-            </div>
+            />
           ))}
           {/* Dark overlay for readability */}
           <div className="absolute inset-0 bg-black/35" />
