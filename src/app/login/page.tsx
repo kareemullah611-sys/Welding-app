@@ -7,7 +7,7 @@ import { useLang, LangSwitcher } from "@/lib/lang";
 import MRFLoader from "@/components/ui/MRFLoader";
 import { LOGIN_PHOTOS } from "@/config/loginPhotos";
 
-const SLIDE_INTERVAL = 3000; // 3 seconds
+const SLIDE_INTERVAL = 5000; // 5 seconds
 
 export default function LoginPage() {
   const { login } = useAuth();
