@@ -11,7 +11,7 @@ import {
   BookOpen, Receipt, Wallet, Users, Warehouse, ClipboardList,
   ArrowLeftRight, TrendingUp, BarChart2, FileText, Search,
   Activity, Settings, LogOut, ChevronLeft, ChevronRight,
-  Menu, MessageCircle, type LucideIcon,
+  Menu, type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -50,7 +50,6 @@ const navGroups: { label: string; items: NavItemDef[] }[] = [
       { label: "Suppliers",        key: "suppliers",        href: "/suppliers",        icon: Factory,     roles: ["super_admin"] },
       { label: "Company Payments", key: "company_payments", href: "/supplier-payments",icon: Banknote,    roles: ["super_admin"] },
       { label: "Agents",           key: "agents",           href: "/agents",           icon: Handshake,   roles: ["super_admin"] },
-      { label: "Country Ledger",   key: "country_ledger",   href: "/country-ledger",   icon: BookOpen,    roles: ["super_admin"] },
     ],
   },
   {
@@ -72,17 +71,17 @@ const navGroups: { label: string; items: NavItemDef[] }[] = [
   {
     label: "Reports",
     items: [
+      { label: "Analytics",        key: "analytics",        href: "/analytics",     icon: BarChart2,  roles: ["super_admin", "city_admin"] },
       { label: "Profit Report",    key: "profit_report",    href: "/profit-report", icon: TrendingUp, roles: ["super_admin"] },
-      { label: "Financial Reports",key: "financial_reports",href: "/accounts",      icon: BarChart2,  roles: ["super_admin"] },
+      { label: "Financial Reports",key: "financial_reports",href: "/accounts",      icon: BookOpen,   roles: ["super_admin"] },
       { label: "Reports",          key: "reports",          href: "/reports",       icon: FileText,   roles: ["super_admin", "city_admin"] },
     ],
   },
   {
     label: "Tools",
     items: [
-      { label: "Search",        key: "search",        href: "/search",        icon: Search,         roles: ["super_admin", "city_admin"] },
-      { label: "Activity Feed", key: "activity_feed", href: "/activity-feed", icon: Activity,       roles: ["super_admin", "city_admin"] },
-      { label: "Chat",          key: "chat",          href: "/chat",          icon: MessageCircle,  roles: ["super_admin", "city_admin"] },
+      { label: "Search",        key: "search",        href: "/search",        icon: Search,   roles: ["super_admin", "city_admin"] },
+      { label: "Activity Feed", key: "activity_feed", href: "/activity-feed", icon: Activity, roles: ["super_admin", "city_admin"] },
     ],
   },
   {
@@ -121,7 +120,6 @@ export default function Sidebar() {
   const isRTL = dir === "rtl";
   const [mobileOpen, setMobileOpen] = useState(false);
   const [pendingTransfers, setPendingTransfers] = useState(0);
-  const [unreadMessages, setUnreadMessages] = useState(0);
 
   useEffect(() => {
     if (user?.role !== "city_admin") return;
@@ -130,16 +128,6 @@ export default function Sidebar() {
         .then((r) => { if (r.success) setPendingTransfers((r.pagination as any)?.total ?? 0); });
     fetchPending();
     const interval = setInterval(fetchPending, 60000);
-    return () => clearInterval(interval);
-  }, [user]);
-
-  useEffect(() => {
-    if (!user) return;
-    const fetchUnread = () =>
-      apiCall<{ count: number }>("/api/v1/chat/unread")
-        .then((r) => { if (r.success && r.data) setUnreadMessages(r.data.count); });
-    fetchUnread();
-    const interval = setInterval(fetchUnread, 30000);
     return () => clearInterval(interval);
   }, [user]);
 
@@ -158,12 +146,17 @@ export default function Sidebar() {
           collapsed ? "px-3 py-4 justify-center" : "px-4 py-4 gap-3"
         )}
       >
-        <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center text-white font-bold text-sm flex-shrink-0 shadow-md">
-          W
+        {/* MRF shield badge mark */}
+        <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center">
+          <svg viewBox="0 0 120 130" fill="none" className="w-8 h-8">
+            <path d="M60 6 L110 22 L110 76 Q110 108 60 124 Q10 108 10 76 L10 22 Z" fill="#6B0F1A" />
+            <path d="M60 6 L110 22 L110 76 Q110 108 60 124 Q10 108 10 76 L10 22 Z" stroke="#D4AF37" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+            <text x="60" y="76" textAnchor="middle" dominantBaseline="central" fontFamily="Georgia, serif" fontWeight="bold" fontSize="40" fill="#F5E6D3">MRF</text>
+          </svg>
         </div>
         {!collapsed && (
           <div className="min-w-0">
-            <p className="text-white font-semibold text-sm leading-tight">Welding Materials</p>
+            <p className="text-white font-semibold text-sm leading-tight">MRF Hardware</p>
             <p className="text-slate-500 text-[10px] uppercase tracking-[0.12em] mt-0.5">Management System</p>
           </div>
         )}
@@ -224,11 +217,6 @@ export default function Sidebar() {
                         {pendingTransfers > 9 ? "9+" : pendingTransfers}
                       </span>
                     )}
-                    {item.href === "/chat" && unreadMessages > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-[14px] bg-blue-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
-                        {unreadMessages > 9 ? "9+" : unreadMessages}
-                      </span>
-                    )}
                   </div>
                   {!collapsed && (
                     <span className="truncate flex-1">{t(item.key)}</span>
@@ -236,11 +224,6 @@ export default function Sidebar() {
                   {!collapsed && item.href === "/city-transfers" && pendingTransfers > 0 && (
                     <span className="ml-auto bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none flex-shrink-0">
                       {pendingTransfers > 99 ? "99+" : pendingTransfers}
-                    </span>
-                  )}
-                  {!collapsed && item.href === "/chat" && unreadMessages > 0 && (
-                    <span className="ml-auto bg-blue-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none flex-shrink-0">
-                      {unreadMessages > 99 ? "99+" : unreadMessages}
                     </span>
                   )}
                 </Link>
