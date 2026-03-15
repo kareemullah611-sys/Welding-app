@@ -149,12 +149,17 @@ export default function Sidebar() {
           collapsed ? "px-3 py-4 justify-center" : "px-4 py-4 gap-3"
         )}
       >
-        <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center text-white font-bold text-sm flex-shrink-0 shadow-md">
-          W
+        {/* MRF shield badge mark */}
+        <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center">
+          <svg viewBox="0 0 120 130" fill="none" className="w-8 h-8">
+            <path d="M60 6 L110 22 L110 76 Q110 108 60 124 Q10 108 10 76 L10 22 Z" fill="#6B0F1A" />
+            <path d="M60 6 L110 22 L110 76 Q110 108 60 124 Q10 108 10 76 L10 22 Z" stroke="#D4AF37" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+            <text x="60" y="76" textAnchor="middle" dominantBaseline="central" fontFamily="Georgia, serif" fontWeight="bold" fontSize="40" fill="#F5E6D3">MRF</text>
+          </svg>
         </div>
         {!collapsed && (
           <div className="min-w-0">
-            <p className="text-white font-semibold text-sm leading-tight">Welding Materials</p>
+            <p className="text-white font-semibold text-sm leading-tight">MRF Hardware</p>
             <p className="text-slate-500 text-[10px] uppercase tracking-[0.12em] mt-0.5">Management System</p>
           </div>
         )}

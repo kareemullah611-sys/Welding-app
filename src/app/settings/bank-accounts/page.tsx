@@ -4,7 +4,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal } from "@/components/ui";
 import { useLang } from "@/lib/lang";
-import Link from "next/link";
 
 export default function BankAccountsPage() {
   const { user } = useAuth();
@@ -62,9 +61,6 @@ export default function BankAccountsPage() {
 
   return (
     <div>
-      <div className="mb-4">
-        <Link href="/settings" className="text-sm text-primary-600 hover:underline">← Back to Settings</Link>
-      </div>
       <PageHeader
         title={t("bank_accounts")}
         subtitle="Manage bank accounts for your city"

@@ -1,10 +1,8 @@
 "use client";
 import React, { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, formatNumber } from "@/components/ui";
-import { ArrowLeft } from "lucide-react";
 import {
   ResponsiveContainer,
   ComposedChart, Area, Line,
@@ -60,7 +58,6 @@ const Spinner = ({ size = "lg" }: { size?: "sm" | "lg" }) => (
 );
 
 export default function AnalyticsClient() {
-  const router = useRouter();
   const { user } = useAuth();
 
   const [period,       setPeriod]       = useState<Period>("monthly");
@@ -122,14 +119,6 @@ export default function AnalyticsClient() {
 
   return (
     <div>
-      {/* Back button */}
-      <button
-        onClick={() => router.back()}
-        className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 mb-3 transition-colors"
-      >
-        <ArrowLeft className="w-4 h-4" /> Back
-      </button>
-
       <PageHeader title="Analytics" subtitle="Sales, payments & operational insights" />
 
       {/* ── Period Tabs ────────────────────────────────────────────── */}
