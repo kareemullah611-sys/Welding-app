@@ -326,14 +326,15 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
             customerId: sale.customerId,
             lotId: sale.lotId,
             paymentDate: sale.saleDate,
-            detail: `Auto-payment for sale #${sale.voucherNo}`,
+            detail: `Walk-in cash payment — Sale Voucher #${sale.voucherNo}`,
             amount: sale.totalAmount,
             currencyId: sale.currencyId,
             exchangeRate: null,
             usdEquivalent: null,
-            paymentMethod: "cash",
+            manualVoucherNo: String(sale.voucherNo),  // link to sale voucher
+            paymentMethod: "cash",                     // walk-in always pays cash
             destination: "our_account",
-            notes: "Auto-recorded — walk-in customer paid on the spot",
+            notes: `Auto-recorded. Mode: Cash. Sale Voucher: #${sale.voucherNo}.`,
             createdBy: user.userId,
           },
         });
