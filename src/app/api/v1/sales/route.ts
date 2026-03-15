@@ -317,6 +317,29 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       ...(stockWarnings.length > 0 ? { stockWarnings } : {}),
     };
 
+    // Auto-record cash payment for walk-in customers (they pay on the spot)
+    if (sale.customer.name === "Walk-in Customer") {
+      try {
+        await prisma.payment.create({
+          data: {
+            cityId,
+            customerId: sale.customerId,
+            lotId: sale.lotId,
+            paymentDate: sale.saleDate,
+            detail: `Auto-payment for sale #${sale.voucherNo}`,
+            amount: sale.totalAmount,
+            currencyId: sale.currencyId,
+            exchangeRate: null,
+            usdEquivalent: null,
+            paymentMethod: "cash",
+            destination: "our_account",
+            notes: "Auto-recorded — walk-in customer paid on the spot",
+            createdBy: user.userId,
+          },
+        });
+      } catch (pe) { console.error("Walk-in auto-payment error:", pe); }
+    }
+
     // Create journal entries (double-entry accounting)
     try {
       const curr = await prisma.currency.findUnique({ where: { id: sale.currencyId } });

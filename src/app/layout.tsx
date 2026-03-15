@@ -5,7 +5,6 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { LangProvider } from "@/lib/lang";
 import { OfflineProvider } from "@/hooks/useOffline";
 import OfflineBanner from "@/components/layout/OfflineBanner";
-import { GlobalLoadingProvider } from "@/contexts/GlobalLoadingContext";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -35,10 +34,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <LangProvider>
           <AuthProvider>
             <OfflineProvider>
-              <GlobalLoadingProvider>
-                {children}
-                <OfflineBanner />
-              </GlobalLoadingProvider>
+              {children}
+              <OfflineBanner />
             </OfflineProvider>
           </AuthProvider>
         </LangProvider>
