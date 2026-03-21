@@ -2,12 +2,14 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
+import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, formatNumber, StatsCard, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 
 export default function ExpensesPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const { isOnline, enqueue, lastSyncResult } = useOffline();
   const [expenses, setExpenses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -32,6 +34,11 @@ export default function ExpensesPage() {
   }, [page]);
   useEffect(() => { load(); }, [load]);
 
+  // Reload after queued entries sync
+  useEffect(() => {
+    if (lastSyncResult && lastSyncResult.synced > 0) load();
+  }, [lastSyncResult, load]);
+
   const openCreate = async () => {
     const [lotRes, cityRes] = await Promise.all([apiCall("/api/v1/lots", { params: { limit: 100, status: "ongoing" } }), apiCall("/api/v1/cities")]);
     if (lotRes.success) setLots(lotRes.data as any[]);
@@ -42,6 +49,30 @@ export default function ExpensesPage() {
 
   const handleCreate = async () => {
     if (!form.amount || !form.detail) { setFormError(t("amount") + " " + t("and") + " " + t("detail") + " required"); return; }
+
+    // ── Offline: queue and show optimistically ──
+    if (!isOnline) {
+      await enqueue({
+        url: "/api/v1/expenses",
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, lotId: form.lotId || null }),
+        pathname: "/expenses",
+      });
+      setExpenses((prev) => [{
+        id: `pending-${Date.now()}`,
+        expenseDate: form.expenseDate,
+        detail: form.detail,
+        amount: form.amount,
+        notes: form.notes,
+        currency: currencies[0] ?? null,
+        _pending: true,
+      }, ...prev]);
+      setShowCreate(false);
+      return;
+    }
+
+    // ── Online: normal submit ──
     setSubmitting(true);
     const result = await apiCall("/api/v1/expenses", { method: "POST", body: { ...form, lotId: form.lotId || null } });
     setSubmitting(false);
@@ -76,7 +107,10 @@ export default function ExpensesPage() {
         { key: "amount", label: t("amount"), render: (e: any) => <span className="font-medium text-red-600">{e.currency?.symbol} {e.amount.toLocaleString("en-US")}</span> },
         { key: "lot", label: t("lot"), render: (e: any) => e.lot?.lotNumber || e.lotNumber },
         { key: "notes", label: t("notes"), render: (e: any) => e.notes || "-", className: "max-w-xs truncate" },
-        { key: "source", label: t("deducted_from"), render: () => <span className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded">{t("cash_in_hand")}</span> },
+        { key: "source", label: t("deducted_from"), render: (e: any) => e._pending
+          ? <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700">⏳ Pending Sync</span>
+          : <span className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded">{t("cash_in_hand")}</span>
+        },
         { key: "actions", label: "", render: (e: any) => (
           <div className="flex gap-2">
             <button onClick={() => openEdit(e)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button>
