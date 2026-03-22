@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
+import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, StatusBadge, formatCurrency, formatDate } from "@/components/ui";
 import CustomerSearch from "@/components/CustomerSearch";
 import { useLang } from "@/lib/lang";
@@ -10,6 +11,7 @@ import { useLang } from "@/lib/lang";
 export default function SalesPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const { isOnline, enqueue, cacheGodownStock, getCachedGodownStock, lastSyncResult } = useOffline();
   const [sales, setSales] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -71,6 +73,11 @@ export default function SalesPage() {
 
   useEffect(() => { loadSales(); }, [loadSales]);
 
+  // Reload from server after pending entries sync successfully
+  useEffect(() => {
+    if (lastSyncResult && lastSyncResult.synced > 0) loadSales();
+  }, [lastSyncResult, loadSales]);
+
   const loadDropdowns = async () => {
     const [custRes, gdRes, prodRes, lotRes, cityRes] = await Promise.all([
       Promise.resolve({ success: true, data: [] }), // customers loaded on-demand via CustomerSearch
@@ -92,13 +99,21 @@ export default function SalesPage() {
     }
   };
 
-  // Load godown stock when godown is selected
+  // Load godown stock — serves from local cache when offline
   const loadGodownStock = async (godownId: number) => {
     if (!godownId) { setGodownStock([]); return; }
     setStockLoading(true);
+    if (!isOnline) {
+      const cached = await getCachedGodownStock(godownId);
+      setGodownStock(cached ?? []);
+      setStockLoading(false);
+      return;
+    }
     const result = await apiCall("/api/v1/inventory/godown-stock", { params: { godown_id: godownId } });
-    if (result.success) setGodownStock(result.data as any[]);
-    else setGodownStock([]);
+    if (result.success) {
+      setGodownStock(result.data as any[]);
+      await cacheGodownStock(godownId, result.data as any[]); // save for offline use
+    } else setGodownStock([]);
     setStockLoading(false);
   };
 
@@ -151,11 +166,47 @@ export default function SalesPage() {
       }
     }
 
+    const payload = { customerId: form.customerId, godownId: form.godownId, lotId: form.lotId || null, saleDate: form.saleDate, currencyId: form.currencyId, notes: form.notes, items: validItems };
+
+    // ── Offline: queue the sale and update stock locally ──
+    if (!isOnline) {
+      await enqueue({
+        url: "/api/v1/sales",
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        pathname: "/sales",
+      });
+
+      // Deduct sold qty from local stock so the next sale uses the correct number
+      const updatedStock = godownStock.map((s) => {
+        const sold = validItems.find((i) => i.productId === s.productId);
+        return sold ? { ...s, available: Math.max(0, s.available - sold.qty) } : s;
+      });
+      setGodownStock(updatedStock);
+      await cacheGodownStock(form.godownId, updatedStock);
+
+      // Add an optimistic row to the sales list
+      const currency = currencies.find((c) => c.id === form.currencyId);
+      setSales((prev) => [{
+        id: `pending-${Date.now()}`,
+        voucherNo: "—",
+        saleDate: form.saleDate,
+        customer: { name: "..." },
+        totalAmount: totalAmount,
+        status: "pending_sync",
+        currency: { code: currency?.code ?? "" },
+        _pending: true,
+      }, ...prev]);
+
+      setShowCreate(false);
+      setForm({ customerId: 0, godownId: 0, lotId: 0, saleDate: new Date().toISOString().split("T")[0], currencyId: currencies[0]?.id || 0, notes: "", items: [{ productId: 0, qty: 0, ratePerCarton: 0 }] });
+      return;
+    }
+
+    // ── Online: normal submit ──
     setSubmitting(true);
-    const result = await apiCall("/api/v1/sales", {
-      method: "POST",
-      body: { customerId: form.customerId, godownId: form.godownId, lotId: form.lotId || null, saleDate: form.saleDate, currencyId: form.currencyId, notes: form.notes, items: validItems },
-    });
+    const result = await apiCall("/api/v1/sales", { method: "POST", body: payload });
     setSubmitting(false);
     if (result.success) {
       setShowCreate(false);
@@ -241,7 +292,10 @@ export default function SalesPage() {
         { key: "lot", label: t("lot"), render: (s: any) => s.lot?.lotNumber },
         { key: "status", label: t("status"), render: (s: any) => (
           <div>
-            <StatusBadge status={s.status} />
+            {s._pending
+              ? <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700">⏳ Pending Sync</span>
+              : <StatusBadge status={s.status} />
+            }
             {s.status === "cancelled" && s.cancellationReason && (
               <p className="text-xs text-gray-500 mt-0.5 max-w-[160px] truncate" title={s.cancellationReason}>
                 {s.cancellationReason}

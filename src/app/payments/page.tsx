@@ -2,6 +2,7 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
+import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, StatusBadge, formatDate } from "@/components/ui";
 import CustomerSearch from "@/components/CustomerSearch";
 import { useLang } from "@/lib/lang";
@@ -54,6 +55,7 @@ function TypeBadge({ type }: { type: string }) {
 export default function PaymentsPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const { isOnline, enqueue, lastSyncResult } = useOffline();
   const recordMenuRef = useRef<HTMLDivElement>(null);
 
   const [items, setItems] = useState<any[]>([]);
@@ -126,6 +128,11 @@ export default function PaymentsPage() {
   useEffect(() => { setPage(1); }, [typeFilter]);
   useEffect(() => { load(); }, [load]);
 
+  // Reload from server after queued entries sync
+  useEffect(() => {
+    if (lastSyncResult && lastSyncResult.synced > 0) load();
+  }, [lastSyncResult, load]);
+
   const loadHelpers = async () => {
     const [lR, ciR] = await Promise.all([
       apiCall("/api/v1/lots", { params: { limit: 100 } }),
@@ -186,6 +193,30 @@ export default function PaymentsPage() {
       endpoint = "/api/v1/personal-withdrawals";
       body = { ...form, currencyId: currencies[0]?.id };
     }
+    // ── Offline: queue and optimistically add to list ──
+    if (!isOnline) {
+      await enqueue({
+        url: endpoint,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        pathname: "/payments",
+      });
+      setItems((prev) => [{
+        id: `pending-${Date.now()}`,
+        type: createType,
+        paymentDate: (body as any).paymentDate || new Date().toISOString().split("T")[0],
+        amount: (body as any).amount || 0,
+        detail: (body as any).detail || "",
+        status: "active",
+        _pending: true,
+      }, ...prev]);
+      setShowCreate(false);
+      setSubmitting(false);
+      return;
+    }
+
+    // ── Online: normal submit ──
     const r = await apiCall(endpoint, { method: "POST", body });
     if (r.success) {
       const entityType = createType === "payment" ? "payment" : createType === "expense" ? "expense" : "haji_transfer";
@@ -304,6 +335,9 @@ export default function PaymentsPage() {
     {
       key: "status", label: t("status"),
       render: (item: any) => {
+        if (item._pending) return (
+          <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700">⏳ Pending Sync</span>
+        );
         if (item.type === "payment") {
           const chequeStatusColors: Record<string, string> = {
             in_hand: "bg-yellow-50 text-yellow-700",
