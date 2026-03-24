@@ -381,7 +381,10 @@ export default function PaymentsPage() {
     },
     {
       key: "actions", label: "",
-      render: (item: any) => (
+      render: (item: any) => {
+        // Pending (offline) rows have no server ID — disable all mutating actions
+        if (item._pending) return <span className="text-xs text-gray-400 italic">syncing…</span>;
+        return (
         <div className="flex flex-wrap gap-2">
           <button onClick={() => openEdit(item)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button>
           {item.type === "payment" && item.status === "active" && (
@@ -400,7 +403,8 @@ export default function PaymentsPage() {
             <button onClick={() => { setBounceTarget(item); setShowBounce(true); setError(""); }} className="text-xs text-amber-600 font-semibold hover:underline">{t("mark_bounced")}</button>
           )}
         </div>
-      ),
+        );
+      },
     },
   ];
 

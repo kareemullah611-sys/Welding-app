@@ -168,7 +168,9 @@ export default function ExpensesPage() {
         },
         {
           key: "actions", label: "",
-          render: (e: any) => (
+          render: (e: any) => e._pending
+            ? <span className="text-xs text-gray-400 italic">syncing…</span>
+            : (
             <div className="flex gap-2">
               <button onClick={() => openEdit(e)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button>
               <button onClick={() => handleDelete(e)} className="text-xs text-red-600 hover:underline">{t("delete")}</button>
