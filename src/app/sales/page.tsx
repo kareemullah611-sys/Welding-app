@@ -42,6 +42,7 @@ export default function SalesPage() {
   const [godownStock, setGodownStock] = useState<any[]>([]);
   const [stockLoading, setStockLoading] = useState(false);
 
+
   // Form state
   const [form, setForm] = useState({
     customerId: 0, godownId: 0, lotId: 0, saleDate: new Date().toISOString().split("T")[0],
@@ -132,6 +133,7 @@ export default function SalesPage() {
     setForm((f) => ({ ...f, godownId }));
     loadGodownStock(godownId);
   };
+
 
   const addItem = () => setForm((f) => ({ ...f, items: [...f.items, { productId: 0, qty: 0, ratePerCarton: 0 }] }));
   const removeItem = (idx: number) => setForm((f) => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));

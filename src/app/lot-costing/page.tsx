@@ -22,6 +22,7 @@ export default function LotCostingPage() {
   const [lotProducts, setLotProducts] = useState<any[]>([]); // source-of-truth carton counts
   const [purchases,   setPurchases]   = useState<any[]>([]);
   const [costs,       setCosts]       = useState<any[]>([]);
+  const [lotExpensesTotal, setLotExpensesTotal] = useState(0); // lot-tagged expenses included in landed cost
   const [suppliers,   setSuppliers]   = useState<any[]>([]);
   const [products,    setProducts]    = useState<any[]>([]);
   const [loading,     setLoading]     = useState(true);
@@ -65,20 +66,37 @@ export default function LotCostingPage() {
   }, []);
 
   const loadLotData = async (lotId: number) => {
-    const [purchR, costR] = await Promise.all([
+    const [purchR, costR, detailR] = await Promise.all([
       apiCall("/api/v1/lot-purchases", { params: { lot_id: lotId } }),
       apiCall("/api/v1/lot-costs",     { params: { lot_id: lotId } }),
+      apiCall(`/api/v1/lots/${lotId}`),
     ]);
     if (purchR.success) setPurchases(purchR.data as any[]);
     if (costR.success)  setCosts(costR.data as any[]);
+    if (detailR.success) {
+      const d = detailR.data as any;
+      // totalLotExpenses is already summed by the API into costSummary
+      setLotExpensesTotal(d.costSummary?.totalLotExpenses ?? 0);
+    }
   };
 
   const selectLot = async (lot: any) => {
     setSelectedLot(lot);
-    loadLotData(lot.id);
-    // Load lot products (source of truth for carton counts)
-    const detailRes = await apiCall(`/api/v1/lots/${lot.id}`);
-    if (detailRes.success) setLotProducts((detailRes.data as any).products || []);
+    setLotProducts([]);
+    setLotExpensesTotal(0);
+    // loadLotData now also fetches lot detail (products + expense totals)
+    const [purchR, costR, detailR] = await Promise.all([
+      apiCall("/api/v1/lot-purchases", { params: { lot_id: lot.id } }),
+      apiCall("/api/v1/lot-costs",     { params: { lot_id: lot.id } }),
+      apiCall(`/api/v1/lots/${lot.id}`),
+    ]);
+    if (purchR.success) setPurchases(purchR.data as any[]);
+    if (costR.success)  setCosts(costR.data as any[]);
+    if (detailR.success) {
+      const d = detailR.data as any;
+      setLotProducts(d.products || []);
+      setLotExpensesTotal(d.costSummary?.totalLotExpenses ?? 0);
+    }
   };
 
   // ── Purchase form helpers ──
@@ -158,7 +176,8 @@ export default function LotCostingPage() {
     const rate = c.exchangeRate > 0 ? c.exchangeRate : usdPkrRate;
     return s + Number(c.amount) / rate;
   }, 0);
-  const totalLanded       = totalPurchaseUsd + totalCostsUsd;
+  // Include lot-tagged expenses (paid from cash but linked to this lot) in landed cost
+  const totalLanded       = totalPurchaseUsd + totalCostsUsd + lotExpensesTotal;
   const landedPerCarton   = totalLotCartons > 0 ? totalLanded / totalLotCartons : 0;
   const landedPerCartonPkr = landedPerCarton * usdPkrRate;
 
@@ -205,7 +224,7 @@ export default function LotCostingPage() {
         {/* ── Summary cards ── */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
           <StatsCard title={`${t("purchase_cost")} (USD)`} value={`$${formatNumber(totalPurchaseUsd)}`} icon="📦" color="blue" />
-          <StatsCard title={t("additional_costs")} value={`$${formatNumber(Math.round(totalCostsUsd * 100) / 100)}`} icon="💸" color="red" />
+          <StatsCard title={t("additional_costs")} value={`$${formatNumber(Math.round((totalCostsUsd + lotExpensesTotal) * 100) / 100)}${lotExpensesTotal > 0 ? ` (incl. $${formatNumber(lotExpensesTotal)} exp.)` : ""}`} icon="💸" color="red" />
           <StatsCard title={t("total_landed")} value={`$${formatNumber(Math.round(totalLanded * 100) / 100)}`} icon="🏷️" color="yellow" />
           <StatsCard title={t("total_cartons")} value={formatNumber(totalLotCartons)} icon="📦" color="blue" />
           <StatsCard title={`${t("cost_per_carton")} (USD)`} value={`$${(Math.round(landedPerCarton * 100) / 100).toFixed(2)}`} icon="💰" color="green" />

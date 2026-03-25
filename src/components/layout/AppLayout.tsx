@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import Sidebar, { SidebarContext, useSidebar } from "@/components/layout/Sidebar";
+import NotificationBell from "@/components/layout/NotificationBell";
 import { LangProvider, useLang } from "@/lib/lang";
 import { cn } from "@/lib/utils";
 
@@ -14,6 +15,13 @@ function AppInner({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-gray-50" dir={dir}>
       <Sidebar />
+      {/* Top-right notification bell — visible on mobile (desktop uses sidebar space) */}
+      <div className="lg:hidden fixed top-2 right-12 z-50">
+        <NotificationBell />
+      </div>
+      <div className="hidden lg:block fixed top-2 right-4 z-50">
+        <NotificationBell />
+      </div>
       <main
         className={cn(
           "min-h-screen transition-all duration-200",
