@@ -80,6 +80,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     });
 
     // Add/update products if provided
+    const warnings: string[] = [];
     if (body.products && Array.isArray(body.products)) {
       for (const p of body.products) {
         if (!p.productId || !p.totalQty) continue;
@@ -87,6 +88,16 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
           where: { lotId_productId: { lotId: id, productId: p.productId } },
         });
         if (existing) {
+          // Check cascade: if new qty < sum of city distributions for this product
+          const distTotal = await prisma.lotCityDistribution.aggregate({
+            where: { lotId: id, productId: p.productId },
+            _sum: { allocatedQty: true },
+          });
+          const allocatedTotal = Number(distTotal._sum.allocatedQty || 0);
+          if (allocatedTotal > Number(p.totalQty)) {
+            const productName = existing ? (await prisma.product.findUnique({ where: { id: p.productId }, select: { name: true } }))?.name ?? `Product #${p.productId}` : `Product #${p.productId}`;
+            warnings.push(`"${productName}": new qty ${p.totalQty} is less than already-distributed ${allocatedTotal} cartons. Distribution totals exceed new quantity — please update distributions.`);
+          }
           await prisma.lotProduct.update({ where: { id: existing.id }, data: { totalQty: p.totalQty } });
         } else {
           await prisma.lotProduct.create({ data: { lotId: id, productId: p.productId, totalQty: p.totalQty } });
@@ -95,7 +106,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     }
 
     await createAuditLog(user.userId, null, "lots", id, "update", { lotNumber: lot.lotNumber, notes: lot.notes }, { lotNumber: updated.lotNumber, notes: updated.notes }, getClientIP(request));
-    return successResponse({ id: updated.id, lotNumber: updated.lotNumber }, "Lot updated");
+    return successResponse({ id: updated.id, lotNumber: updated.lotNumber, warnings }, "Lot updated");
   } catch (error) {
     return serverError();
   }
