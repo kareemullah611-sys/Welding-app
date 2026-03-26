@@ -3,23 +3,23 @@ import prisma from "@/lib/prisma";
 import { withAuth } from "@/lib/middleware";
 import { JWTPayload } from "@/lib/auth";
 
-// ─── DeepSeek REST helpers (OpenAI-compatible) ──────────────────────────────
-const DEEPSEEK_URL   = "https://api.deepseek.com/chat/completions";
-const DEEPSEEK_MODEL = "deepseek-chat"; // DeepSeek-V3
+// ─── Groq REST helpers (OpenAI-compatible, free tier) ───────────────────────
+const GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions";
+const GROQ_MODEL = "llama-3.3-70b-versatile"; // best free model with tool use
 
 async function callDeepSeek(
   apiKey: string,
   messages: object[],
   tools: object[]
 ): Promise<any> {
-  const res = await fetch(DEEPSEEK_URL, {
+  const res = await fetch(GROQ_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: DEEPSEEK_MODEL,
+      model: GROQ_MODEL,
       messages,
       tools,
       tool_choice: "auto",
@@ -28,7 +28,7 @@ async function callDeepSeek(
   });
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`DeepSeek API error ${res.status}: ${err}`);
+    throw new Error(`Groq API error ${res.status}: ${err}`);
   }
   return res.json();
 }
@@ -501,9 +501,9 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
     return NextResponse.json({ error: "Superadmin only" }, { status: 403 });
   }
 
-  const apiKey = process.env.DEEPSEEK_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({ error: "DEEPSEEK_API_KEY is not configured on the server." }, { status: 500 });
+    return NextResponse.json({ error: "GROQ_API_KEY is not configured on the server." }, { status: 500 });
   }
 
   try {

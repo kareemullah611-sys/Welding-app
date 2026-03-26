@@ -7,14 +7,14 @@ export const GET = withAuth(async (_request: NextRequest, _context, user: JWTPay
     return NextResponse.json({ error: "Superadmin only" }, { status: 403 });
   }
 
-  const deepseekKey = process.env.DEEPSEEK_API_KEY;
+  const groqKey = process.env.GROQ_API_KEY;
 
   return NextResponse.json({
     ok: true,
     user: { role: user.role, username: user.username },
     env: {
-      hasDeepSeekKey: !!deepseekKey,
-      deepseekKeyPrefix: deepseekKey?.slice(0, 10) ?? "MISSING",
+      hasGroqKey: !!groqKey,
+      groqKeyPrefix: groqKey?.slice(0, 10) ?? "MISSING",
       nodeEnv: process.env.NODE_ENV,
     },
   });
