@@ -4,7 +4,7 @@ import { withAuth } from "@/lib/middleware";
 import { JWTPayload } from "@/lib/auth";
 
 // ─── Gemini REST helpers ────────────────────────────────────────────────────
-const GEMINI_MODEL = "gemini-1.5-flash";
+const GEMINI_MODEL = "gemini-1.5-flash-latest";
 const GEMINI_BASE  = "https://generativelanguage.googleapis.com/v1beta/models";
 
 function geminiUrl(key: string) {
