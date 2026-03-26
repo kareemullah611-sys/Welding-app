@@ -12,7 +12,7 @@ import {
   BookOpen, Receipt, Wallet, Users, Warehouse, ClipboardList,
   ArrowLeftRight, TrendingUp, BarChart2, FileText, Search,
   Activity, Settings, LogOut, ChevronLeft, ChevronRight,
-  Menu, FileCheck, Landmark, type LucideIcon,
+  Menu, FileCheck, Landmark, BotMessageSquare, type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -83,8 +83,9 @@ const navGroups: { label: string; items: NavItemDef[] }[] = [
   {
     label: "Tools",
     items: [
-      { label: "Search",        key: "search",        href: "/search",        icon: Search,   roles: ["super_admin", "city_admin"] },
-      { label: "Activity Feed", key: "activity_feed", href: "/activity-feed", icon: Activity, roles: ["super_admin", "city_admin"] },
+      { label: "Search",        key: "search",        href: "/search",        icon: Search,          roles: ["super_admin", "city_admin"] },
+      { label: "Activity Feed", key: "activity_feed", href: "/activity-feed", icon: Activity,        roles: ["super_admin", "city_admin"] },
+      { label: "AI Assistant",  key: "assistant",     href: "/assistant",     icon: BotMessageSquare,roles: ["super_admin"] },
     ],
   },
   {
