@@ -5,9 +5,14 @@ import { JWTPayload } from "@/lib/auth";
 
 // ─── Groq (simple text completion — no tool calling needed) ─────────────────
 const GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions";
-const GROQ_MODEL = "llama-3.1-8b-instant"; // fast, reliable, free
+const GROQ_MODEL = "llama-3.3-70b-versatile"; // smarter model — no tool-calling = no format issues
 
-async function askGroq(apiKey: string, systemPrompt: string, userMessage: string): Promise<string> {
+async function askGroq(
+  apiKey: string,
+  systemPrompt: string,
+  history: { role: string; content: string }[],
+  userMessage: string
+): Promise<string> {
   const res = await fetch(GROQ_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
@@ -15,7 +20,8 @@ async function askGroq(apiKey: string, systemPrompt: string, userMessage: string
       model: GROQ_MODEL,
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user",   content: userMessage },
+        ...history,
+        { role: "user", content: userMessage },
       ],
       max_tokens: 2048,
       temperature: 0.1,
@@ -271,28 +277,35 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
   }
 
   try {
-    const { message } = await request.json();
+    const { message, messages: clientHistory } = await request.json();
 
-    // 1. Fetch relevant data from DB
+    // 1. Fetch relevant data from DB based on latest message
     const context = await buildContext(message);
 
-    // 2. Ask Groq to format/analyse it
+    // 2. Build conversation history for Groq (so it remembers the chat)
+    const history = (clientHistory || []).map((m: any) => ({
+      role: m.role === "user" ? "user" : "assistant",
+      content: m.content || "",
+    }));
+
+    // 3. Ask Groq to format/analyse the data
     const systemPrompt = `You are a smart business assistant for MRF Hardware Management System.
 
-You are given REAL DATA fetched directly from the database. Your job is to analyse it and answer the user's question clearly.
+You are given REAL DATA fetched directly from the live database. Your job is to analyse it and answer the user's question clearly.
 
 Rules:
 - Use bullet points and clear formatting
-- Always include totals and counts
+- Always include totals and counts from the data
 - Be concise but complete
 - Amounts are in USD unless stated otherwise
 - "5 lacs" = 500,000 | "1 crore" = 10,000,000
+- Remember the full conversation context when answering follow-up questions
 - Today's date: ${new Date().toISOString().split("T")[0]}
 
-DATABASE DATA:
+LIVE DATABASE DATA (fetched for this query):
 ${context}`;
 
-    const reply = await askGroq(apiKey, systemPrompt, message);
+    const reply = await askGroq(apiKey, systemPrompt, history, message);
     return NextResponse.json({ reply });
 
   } catch (err: any) {
