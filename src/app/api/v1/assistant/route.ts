@@ -4,7 +4,8 @@ import prisma from "@/lib/prisma";
 import { withAuth } from "@/lib/middleware";
 import { JWTPayload } from "@/lib/auth";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+// Initialized lazily inside handler (after key check)
+let genAI: GoogleGenerativeAI | null = null;
 
 // ─── Tool Definitions ─────────────────────────────────────────────────────────
 const tools: Tool[] = [
@@ -538,15 +539,21 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
     return NextResponse.json({ error: "Superadmin only" }, { status: 403 });
   }
 
-  if (!process.env.GEMINI_API_KEY) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
     return NextResponse.json({ error: "GEMINI_API_KEY is not configured on the server. Please add it to your environment variables." }, { status: 500 });
+  }
+
+  // Lazy init so module load never fails
+  if (!genAI) {
+    genAI = new GoogleGenerativeAI(apiKey);
   }
 
   try {
     const { messages, message } = await request.json();
 
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
+      model: "gemini-2.0-flash",
       tools,
       systemInstruction: `You are a smart business assistant for MRF Hardware Management System. You help the superadmin answer questions about their business data in real time.
 
@@ -613,7 +620,10 @@ Today's date: ${new Date().toISOString().split("T")[0]}`,
     return NextResponse.json({ reply: finalText });
 
   } catch (err: any) {
-    console.error("Assistant error:", err);
-    return NextResponse.json({ error: err.message || "Failed" }, { status: 500 });
+    console.error("Assistant error:", err?.message, err?.status, err?.errorDetails);
+    return NextResponse.json({
+      error: err.message || "Failed",
+      details: err?.errorDetails || err?.status || null,
+    }, { status: 500 });
   }
 });
