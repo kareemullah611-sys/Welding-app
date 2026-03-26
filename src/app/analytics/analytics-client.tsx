@@ -9,6 +9,7 @@ import {
   BarChart, Bar,
   XAxis, YAxis,
   CartesianGrid, Tooltip, Legend,
+  ReferenceLine,
 } from "recharts";
 
 type Period = "daily" | "monthly" | "yearly" | "custom";
@@ -31,22 +32,31 @@ interface Totals {
   hajiTransfers: number;
 }
 
-const COLORS = {
-  sales:         "#3b82f6",
-  payments:      "#22c55e",
-  expenses:      "#ef4444",
-  hajiTransfers: "#f97316",
-  cartons:       "#8b5cf6",
+const PALETTE = {
+  sales:         { stroke: "#6366f1", fill: "#6366f1" },
+  payments:      { stroke: "#10b981", fill: "#10b981" },
+  expenses:      { stroke: "#f43f5e", fill: "#f43f5e" },
+  hajiTransfers: { stroke: "#f97316", fill: "#f97316" },
+  cartons:       { stroke: "#8b5cf6", fill: "#8b5cf6" },
 };
 
-// Static Tailwind classes — never use dynamic `border-${color}-200` (gets purged in prod)
-const CARD_STYLES: Record<string, { active: string; inactive: string; dot: string; value: string }> = {
-  sales:         { active: "border-blue-200 bg-blue-50 shadow ring-1 ring-blue-100",     inactive: "border-gray-200 bg-white hover:bg-gray-50", dot: "bg-blue-500",    value: "text-blue-700"   },
-  payments:      { active: "border-green-200 bg-green-50 shadow ring-1 ring-green-100",  inactive: "border-gray-200 bg-white hover:bg-gray-50", dot: "bg-green-500",   value: "text-green-700"  },
-  cartons:       { active: "border-purple-200 bg-purple-50 shadow ring-1 ring-purple-100", inactive: "border-gray-200 bg-white hover:bg-gray-50", dot: "bg-purple-500", value: "text-purple-700" },
-  expenses:      { active: "border-red-200 bg-red-50 shadow ring-1 ring-red-100",        inactive: "border-gray-200 bg-white hover:bg-gray-50", dot: "bg-red-500",     value: "text-red-700"    },
-  hajiTransfers: { active: "border-orange-200 bg-orange-50 shadow ring-1 ring-orange-100", inactive: "border-gray-200 bg-white hover:bg-gray-50", dot: "bg-orange-500", value: "text-orange-700" },
-};
+const KPI_CONFIG = [
+  { key: "sales"         as const, label: "Total Sales",       icon: "🧾", toggleable: true,
+    bg: "from-indigo-50 to-white", border: "border-indigo-200", activeBg: "bg-indigo-600",
+    dot: "bg-indigo-500", value: "text-indigo-700", badge: "bg-indigo-100 text-indigo-700" },
+  { key: "payments"      as const, label: "Payments Received", icon: "💰", toggleable: true,
+    bg: "from-emerald-50 to-white", border: "border-emerald-200", activeBg: "bg-emerald-600",
+    dot: "bg-emerald-500", value: "text-emerald-700", badge: "bg-emerald-100 text-emerald-700" },
+  { key: "cartons"       as const, label: "Cartons Sold",      icon: "📦", toggleable: false,
+    bg: "from-violet-50 to-white", border: "border-violet-200", activeBg: "bg-violet-600",
+    dot: "bg-violet-500", value: "text-violet-700", badge: "bg-violet-100 text-violet-700" },
+  { key: "expenses"      as const, label: "Expenses",          icon: "💸", toggleable: true,
+    bg: "from-rose-50 to-white", border: "border-rose-200", activeBg: "bg-rose-600",
+    dot: "bg-rose-500", value: "text-rose-700", badge: "bg-rose-100 text-rose-700" },
+  { key: "hajiTransfers" as const, label: "Haji Transfers",    icon: "↗️", toggleable: true,
+    bg: "from-orange-50 to-white", border: "border-orange-200", activeBg: "bg-orange-600",
+    dot: "bg-orange-500", value: "text-orange-700", badge: "bg-orange-100 text-orange-700" },
+];
 
 const currencyFmt = (v: number) =>
   v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M`
@@ -57,18 +67,35 @@ const Spinner = ({ size = "lg" }: { size?: "sm" | "lg" }) => (
   <div className={`border-4 border-primary-100 border-t-primary-600 rounded-full animate-spin ${size === "lg" ? "w-8 h-8" : "w-5 h-5"}`} />
 );
 
+// Custom tooltip shared across charts
+const CustomTooltip = ({ active, payload, label, valueLabel }: any) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-white/95 backdrop-blur rounded-xl shadow-xl border border-gray-100 px-4 py-3 text-sm min-w-[140px]">
+      <p className="font-semibold text-gray-700 mb-2">{label}</p>
+      {payload.map((p: any) => (
+        <div key={p.dataKey} className="flex items-center gap-2 mb-1">
+          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: p.color }} />
+          <span className="text-gray-500 text-xs">{p.name}:</span>
+          <span className="font-bold text-gray-800 ml-auto">{formatNumber(p.value)}</span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 export default function AnalyticsClient() {
   const { user } = useAuth();
 
-  const [period,       setPeriod]       = useState<Period>("monthly");
-  const [year,         setYear]         = useState(new Date().getFullYear());
-  const [from,         setFrom]         = useState("");
-  const [to,           setTo]           = useState("");
-  const [cityId,       setCityId]       = useState<number>(0);
-  const [cities,       setCities]       = useState<any[]>([]);
-  const [chartData,    setChartData]    = useState<ChartRow[]>([]);
-  const [totals,       setTotals]       = useState<Totals | null>(null);
-  const [loading,      setLoading]      = useState(true);
+  const [period,        setPeriod]        = useState<Period>("monthly");
+  const [year,          setYear]          = useState(new Date().getFullYear());
+  const [from,          setFrom]          = useState("");
+  const [to,            setTo]            = useState("");
+  const [cityId,        setCityId]        = useState<number>(0);
+  const [cities,        setCities]        = useState<any[]>([]);
+  const [chartData,     setChartData]     = useState<ChartRow[]>([]);
+  const [totals,        setTotals]        = useState<Totals | null>(null);
+  const [loading,       setLoading]       = useState(true);
   const [activeMetrics, setActiveMetrics] = useState({
     sales: true, payments: true, expenses: true, hajiTransfers: true,
   });
@@ -105,30 +132,24 @@ export default function AnalyticsClient() {
 
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 6 }, (_, i) => currentYear - i);
-
-  // Show dot on single-point charts so data is visible
   const showDots = chartData.length <= 2;
 
-  const KPI_ITEMS = [
-    { key: "sales"         as const, label: "Total Sales",       icon: "🧾", toggleable: true  },
-    { key: "payments"      as const, label: "Payments Received", icon: "💰", toggleable: true  },
-    { key: "cartons"       as const, label: "Cartons Sold",      icon: "📦", toggleable: false },
-    { key: "expenses"      as const, label: "Expenses",          icon: "💸", toggleable: true  },
-    { key: "hajiTransfers" as const, label: "Haji Transfers",    icon: "↗️", toggleable: true  },
-  ];
+  const noData = !loading && chartData.length === 0;
 
   return (
     <div>
       <PageHeader title="Analytics" subtitle="Sales, payments & operational insights" />
 
-      {/* ── Period Tabs ────────────────────────────────────────────── */}
+      {/* ── Period Tabs ─────────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-2 mb-4">
         {(["daily", "monthly", "yearly", "custom"] as Period[]).map((p) => (
           <button
             key={p}
             onClick={() => setPeriod(p)}
-            className={`px-4 py-1.5 rounded-full text-sm font-medium capitalize transition-colors ${
-              period === p ? "bg-primary-600 text-white shadow-sm" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            className={`px-4 py-1.5 rounded-full text-sm font-medium capitalize transition-all ${
+              period === p
+                ? "bg-indigo-600 text-white shadow-md shadow-indigo-200"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
             }`}
           >
             {p === "daily" ? "Last 30 Days" : p === "monthly" ? "Monthly" : p === "yearly" ? "Yearly" : "Custom Range"}
@@ -136,7 +157,7 @@ export default function AnalyticsClient() {
         ))}
       </div>
 
-      {/* ── Filters ─────────────────────────────────────────────────── */}
+      {/* ── Filters ─────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-3 mb-6 items-center">
         {period === "monthly" && (
           <select value={year} onChange={(e) => setYear(parseInt(e.target.value))} className="select-field w-28 text-sm">
@@ -162,97 +183,114 @@ export default function AnalyticsClient() {
         </button>
       </div>
 
-      {/* ── KPI Cards ───────────────────────────────────────────────── */}
+      {/* ── KPI Cards ───────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
-        {KPI_ITEMS.map(({ key, label, icon, toggleable }) => {
-          const isActive = !toggleable || activeMetrics[key as keyof typeof activeMetrics];
-          const styles   = CARD_STYLES[key];
+        {KPI_CONFIG.map((cfg) => {
+          const isActive = !cfg.toggleable || activeMetrics[cfg.key as keyof typeof activeMetrics];
           return (
             <div
-              key={key}
-              onClick={() => toggleable && toggleMetric(key as keyof typeof activeMetrics)}
-              className={`rounded-xl p-4 border transition-all select-none ${
-                toggleable ? "cursor-pointer" : "cursor-default"
-              } ${isActive ? styles.active : styles.inactive}`}
+              key={cfg.key}
+              onClick={() => cfg.toggleable && toggleMetric(cfg.key as keyof typeof activeMetrics)}
+              className={`relative overflow-hidden rounded-2xl border p-4 transition-all select-none ${
+                cfg.toggleable ? "cursor-pointer" : "cursor-default"
+              } ${isActive ? `bg-gradient-to-b ${cfg.bg} ${cfg.border} shadow-sm` : "border-gray-200 bg-white opacity-60"}`}
             >
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-base">{icon}</span>
-                {toggleable && (
-                  <span className={`w-2 h-2 rounded-full ${isActive ? styles.dot : "bg-gray-300"}`} />
+              {/* Top row: icon + toggle dot */}
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xl">{cfg.icon}</span>
+                {cfg.toggleable && (
+                  <span className={`w-2 h-2 rounded-full transition-colors ${isActive ? cfg.dot : "bg-gray-300"}`} />
                 )}
               </div>
-              <p className="text-xs text-gray-500 leading-tight mb-1">{label}</p>
-              <p className={`text-xl font-bold ${isActive ? styles.value : "text-gray-400"}`}>
-                {totals ? formatNumber(totals[key as keyof Totals]) : "—"}
+              {/* Label */}
+              <p className="text-xs text-gray-500 font-medium leading-tight mb-1">{cfg.label}</p>
+              {/* Value */}
+              <p className={`text-2xl font-extrabold tracking-tight ${isActive ? cfg.value : "text-gray-300"}`}>
+                {totals ? formatNumber(totals[cfg.key as keyof Totals]) : "—"}
               </p>
-              {toggleable && (
-                <p className="text-[10px] mt-1.5 text-gray-400">
-                  {isActive ? "● showing in chart" : "○ hidden"}
+              {/* Toggle hint */}
+              {cfg.toggleable && (
+                <p className={`text-[10px] mt-2 font-medium ${isActive ? "text-gray-400" : "text-gray-300"}`}>
+                  {isActive ? "● Visible in chart" : "○ Hidden"}
                 </p>
+              )}
+              {/* Decorative circle */}
+              {isActive && (
+                <div className={`absolute -bottom-4 -right-4 w-16 h-16 rounded-full opacity-10 ${cfg.activeBg}`} />
               )}
             </div>
           );
         })}
       </div>
 
-      {/* ── Main Chart: Sales & Payments ────────────────────────────── */}
-      <div className="card mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold text-gray-700">Sales & Payments Over Time</h2>
-          <span className="text-xs text-gray-400">Amounts in local currency</span>
+      {/* ── Main Chart: Sales & Payments ─────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-5">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h2 className="text-base font-bold text-gray-800">Sales &amp; Payments Over Time</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Amounts in local currency</p>
+          </div>
+          <div className="flex items-center gap-4 text-xs text-gray-500">
+            <span className="flex items-center gap-1.5">
+              <span className="w-3 h-0.5 rounded-full inline-block bg-indigo-500" />
+              Sales
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-3 h-0.5 rounded-full inline-block bg-emerald-500" />
+              Payments
+            </span>
+          </div>
         </div>
 
         {loading ? (
           <div className="h-64 flex items-center justify-center"><Spinner /></div>
-        ) : chartData.length === 0 ? (
-          <div className="h-64 flex flex-col items-center justify-center text-gray-400 gap-2">
-            <span className="text-3xl">📊</span>
-            <span className="text-sm">No data for this period</span>
+        ) : noData ? (
+          <div className="h-64 flex flex-col items-center justify-center text-gray-300 gap-3">
+            <span className="text-5xl">📊</span>
+            <span className="text-sm font-medium">No data for this period</span>
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={300}>
-            <ComposedChart data={chartData} margin={{ top: 10, right: 16, left: 0, bottom: 5 }}>
+            <ComposedChart data={chartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%"   stopColor={COLORS.sales}    stopOpacity={0.18} />
-                  <stop offset="100%" stopColor={COLORS.sales}    stopOpacity={0}    />
+                  <stop offset="0%"   stopColor={PALETTE.sales.fill}    stopOpacity={0.22} />
+                  <stop offset="100%" stopColor={PALETTE.sales.fill}    stopOpacity={0}    />
                 </linearGradient>
                 <linearGradient id="paymentsGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%"   stopColor={COLORS.payments} stopOpacity={0.18} />
-                  <stop offset="100%" stopColor={COLORS.payments} stopOpacity={0}    />
+                  <stop offset="0%"   stopColor={PALETTE.payments.fill} stopOpacity={0.22} />
+                  <stop offset="100%" stopColor={PALETTE.payments.fill} stopOpacity={0}    />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#9ca3af" }} tickLine={false} axisLine={false} />
-              <YAxis tickFormatter={currencyFmt} tick={{ fontSize: 11, fill: "#9ca3af" }} tickLine={false} axisLine={false} width={52} />
-              <Tooltip
-                formatter={(val: number, name: string) => [
-                  formatNumber(val),
-                  name === "sales" ? "Sales" : name === "payments" ? "Payments" : name,
-                ]}
-                contentStyle={{ fontSize: 12, borderRadius: 10, border: "1px solid #e5e7eb", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}
-                labelStyle={{ fontWeight: 600, color: "#374151", marginBottom: 4 }}
+              <CartesianGrid strokeDasharray="4 4" stroke="#f0f0f0" vertical={false} />
+              <XAxis
+                dataKey="label"
+                tick={{ fontSize: 11, fill: "#9ca3af", fontWeight: 500 }}
+                tickLine={false} axisLine={false}
               />
-              <Legend
-                wrapperStyle={{ fontSize: 12, paddingTop: 12 }}
-                formatter={(value) => value === "sales" ? "Sales" : "Payments"}
+              <YAxis
+                tickFormatter={currencyFmt}
+                tick={{ fontSize: 11, fill: "#9ca3af" }}
+                tickLine={false} axisLine={false} width={52}
               />
+              <Tooltip content={<CustomTooltip />} />
               {activeMetrics.sales && (
                 <Area
-                  type="monotone" dataKey="sales" name="sales"
-                  stroke={COLORS.sales} strokeWidth={2.5}
+                  type="monotone" dataKey="sales" name="Sales"
+                  stroke={PALETTE.sales.stroke} strokeWidth={2.5}
                   fill="url(#salesGrad)"
-                  dot={showDots ? { r: 5, fill: COLORS.sales, stroke: "#fff", strokeWidth: 2 } : false}
-                  activeDot={{ r: 5, stroke: "#fff", strokeWidth: 2 }}
+                  dot={showDots ? { r: 5, fill: PALETTE.sales.fill, stroke: "#fff", strokeWidth: 2.5 } : false}
+                  activeDot={{ r: 6, stroke: "#fff", strokeWidth: 2.5 }}
                 />
               )}
               {activeMetrics.payments && (
                 <Area
-                  type="monotone" dataKey="payments" name="payments"
-                  stroke={COLORS.payments} strokeWidth={2.5}
+                  type="monotone" dataKey="payments" name="Payments"
+                  stroke={PALETTE.payments.stroke} strokeWidth={2.5}
                   fill="url(#paymentsGrad)"
-                  dot={showDots ? { r: 5, fill: COLORS.payments, stroke: "#fff", strokeWidth: 2 } : false}
-                  activeDot={{ r: 5, stroke: "#fff", strokeWidth: 2 }}
+                  dot={showDots ? { r: 5, fill: PALETTE.payments.fill, stroke: "#fff", strokeWidth: 2.5 } : false}
+                  activeDot={{ r: 6, stroke: "#fff", strokeWidth: 2.5 }}
                 />
               )}
             </ComposedChart>
@@ -260,61 +298,82 @@ export default function AnalyticsClient() {
         )}
       </div>
 
-      {/* ── Bottom Charts Row ──────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-4">
+      {/* ── Bottom Charts Row ────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
 
         {/* Cartons Sold */}
-        <div className="card">
-          <h2 className="text-sm font-semibold text-gray-700 mb-4">📦 Cartons Sold</h2>
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-lg">📦</span>
+            <h2 className="text-sm font-bold text-gray-800">Cartons Sold</h2>
+          </div>
           {loading ? (
-            <div className="h-44 flex items-center justify-center"><Spinner /></div>
-          ) : chartData.length === 0 ? (
-            <div className="h-44 flex items-center justify-center text-gray-400 text-sm">No data</div>
+            <div className="h-48 flex items-center justify-center"><Spinner /></div>
+          ) : noData ? (
+            <div className="h-48 flex items-center justify-center text-gray-300 text-sm font-medium">No data</div>
           ) : (
-            <ResponsiveContainer width="100%" height={180}>
+            <ResponsiveContainer width="100%" height={200}>
               <BarChart data={chartData} margin={{ top: 4, right: 10, left: 0, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+                <defs>
+                  <linearGradient id="cartonsGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%"   stopColor={PALETTE.cartons.fill} stopOpacity={1} />
+                    <stop offset="100%" stopColor={PALETTE.cartons.fill} stopOpacity={0.5} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="4 4" stroke="#f0f0f0" vertical={false} />
                 <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#9ca3af" }} tickLine={false} axisLine={false} />
                 <YAxis tick={{ fontSize: 10, fill: "#9ca3af" }} tickLine={false} axisLine={false} width={36} />
-                <Tooltip
-                  formatter={(val: number) => [formatNumber(val), "Cartons"]}
-                  contentStyle={{ fontSize: 12, borderRadius: 10, border: "1px solid #e5e7eb" }}
-                />
-                <Bar dataKey="cartons" name="Cartons" fill={COLORS.cartons} radius={[4, 4, 0, 0]} maxBarSize={48} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="cartons" name="Cartons" fill="url(#cartonsGrad)" radius={[6, 6, 0, 0]} maxBarSize={48} />
               </BarChart>
             </ResponsiveContainer>
           )}
         </div>
 
         {/* Expenses & Haji Transfers */}
-        <div className="card">
-          <h2 className="text-sm font-semibold text-gray-700 mb-4">💸 Expenses & Haji Transfers</h2>
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">💸</span>
+              <h2 className="text-sm font-bold text-gray-800">Expenses &amp; Haji Transfers</h2>
+            </div>
+            <div className="flex items-center gap-3 text-xs text-gray-400">
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: PALETTE.expenses.fill }} />
+                Expenses
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: PALETTE.hajiTransfers.fill }} />
+                Haji
+              </span>
+            </div>
+          </div>
           {loading ? (
-            <div className="h-44 flex items-center justify-center"><Spinner /></div>
-          ) : chartData.length === 0 ? (
-            <div className="h-44 flex items-center justify-center text-gray-400 text-sm">No data</div>
+            <div className="h-48 flex items-center justify-center"><Spinner /></div>
+          ) : noData ? (
+            <div className="h-48 flex items-center justify-center text-gray-300 text-sm font-medium">No data</div>
           ) : (
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={chartData} margin={{ top: 4, right: 10, left: 0, bottom: 4 }} barGap={4}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={chartData} margin={{ top: 4, right: 10, left: 0, bottom: 4 }} barGap={3}>
+                <defs>
+                  <linearGradient id="expensesGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%"   stopColor={PALETTE.expenses.fill} stopOpacity={1} />
+                    <stop offset="100%" stopColor={PALETTE.expenses.fill} stopOpacity={0.5} />
+                  </linearGradient>
+                  <linearGradient id="hajiGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%"   stopColor={PALETTE.hajiTransfers.fill} stopOpacity={1} />
+                    <stop offset="100%" stopColor={PALETTE.hajiTransfers.fill} stopOpacity={0.5} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="4 4" stroke="#f0f0f0" vertical={false} />
                 <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#9ca3af" }} tickLine={false} axisLine={false} />
                 <YAxis tickFormatter={currencyFmt} tick={{ fontSize: 10, fill: "#9ca3af" }} tickLine={false} axisLine={false} width={44} />
-                <Tooltip
-                  formatter={(val: number, name: string) => [
-                    formatNumber(val),
-                    name === "expenses" ? "Expenses" : "Haji Transfers",
-                  ]}
-                  contentStyle={{ fontSize: 12, borderRadius: 10, border: "1px solid #e5e7eb" }}
-                />
-                <Legend
-                  wrapperStyle={{ fontSize: 11 }}
-                  formatter={(value) => value === "expenses" ? "Expenses" : "Haji Transfers"}
-                />
+                <Tooltip content={<CustomTooltip />} />
                 {activeMetrics.expenses && (
-                  <Bar dataKey="expenses" name="expenses" fill={COLORS.expenses} radius={[4, 4, 0, 0]} maxBarSize={28} />
+                  <Bar dataKey="expenses" name="Expenses" fill="url(#expensesGrad)" radius={[5, 5, 0, 0]} maxBarSize={28} />
                 )}
                 {activeMetrics.hajiTransfers && (
-                  <Bar dataKey="hajiTransfers" name="hajiTransfers" fill={COLORS.hajiTransfers} radius={[4, 4, 0, 0]} maxBarSize={28} />
+                  <Bar dataKey="hajiTransfers" name="Haji Transfers" fill="url(#hajiGrad)" radius={[5, 5, 0, 0]} maxBarSize={28} />
                 )}
               </BarChart>
             </ResponsiveContainer>
@@ -322,7 +381,7 @@ export default function AnalyticsClient() {
         </div>
       </div>
 
-      <p className="text-xs text-gray-400 text-center pb-2">
+      <p className="text-xs text-gray-400 text-center pb-4">
         Click any coloured KPI card above to toggle its series on/off in the charts
       </p>
     </div>

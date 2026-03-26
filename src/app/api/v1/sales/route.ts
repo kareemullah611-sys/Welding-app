@@ -119,6 +119,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           customer: { select: { id: true, name: true } },
           lot: { select: { id: true, lotNumber: true, status: true } },
           godown: { select: { id: true, name: true, cityId: true, city: { select: { name: true } } } },
+          city: { select: { id: true, name: true } },
           currency: true,
           items: { include: { product: { select: { id: true, name: true } } } },
           creator: { select: { id: true, fullName: true } },
@@ -133,6 +134,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const formatted = sales.map((s) => ({
       id: s.id,
       cityId: s.cityId,
+      cityName: (s as any).city?.name ?? null,
       voucherNo: s.voucherNo,
       saleDate: s.saleDate.toISOString().split("T")[0],
       totalAmount: Number(s.totalAmount),

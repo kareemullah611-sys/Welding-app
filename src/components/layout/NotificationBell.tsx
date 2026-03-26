@@ -12,7 +12,14 @@ interface Notification {
   createdAt: string;
 }
 
-export default function NotificationBell() {
+interface Props {
+  /** Render as part of the sidebar (dark background, no fixed positioning) */
+  sidebarMode?: boolean;
+  /** Show only the icon + badge (no label) — for collapsed sidebar */
+  compact?: boolean;
+}
+
+export default function NotificationBell({ sidebarMode = false, compact = false }: Props) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -25,7 +32,6 @@ export default function NotificationBell() {
 
   useEffect(() => {
     load();
-    // Poll every 60s to pick up new alerts
     const iv = setInterval(load, 60_000);
     return () => clearInterval(iv);
   }, [load]);
@@ -66,6 +72,77 @@ export default function NotificationBell() {
     return `${Math.floor(hrs / 24)}d ago`;
   };
 
+  // Dropdown opens upward when inside sidebar footer
+  const dropdownPositionClass = sidebarMode
+    ? "bottom-full mb-2 left-0"
+    : "right-0 top-full mt-2";
+
+  if (sidebarMode) {
+    return (
+      <div className="relative" ref={dropdownRef}>
+        <button
+          onClick={() => setOpen((o) => !o)}
+          title="Notifications"
+          className={
+            compact
+              ? "relative p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+              : "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-500 hover:text-white hover:bg-slate-700 transition-all duration-150"
+          }
+        >
+          <span className="relative flex-shrink-0">
+            🔔
+            {unreadCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-[14px] bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
+          </span>
+          {!compact && (
+            <span className="truncate flex-1">Notifications</span>
+          )}
+          {!compact && unreadCount > 0 && (
+            <span className="ml-auto bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none flex-shrink-0">
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </span>
+          )}
+        </button>
+
+        {open && (
+          <div className={`absolute ${dropdownPositionClass} w-80 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden`}>
+            <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50">
+              <span className="font-semibold text-gray-800 text-sm">Notifications</span>
+              {unreadCount > 0 && (
+                <button onClick={markAllRead} disabled={loading} className="text-xs text-primary-600 hover:underline">
+                  {loading ? "..." : "Mark all read"}
+                </button>
+              )}
+            </div>
+            <div className="max-h-80 overflow-y-auto divide-y">
+              {notifications.length === 0 ? (
+                <div className="px-4 py-8 text-center text-gray-400 text-sm">No notifications</div>
+              ) : (
+                notifications.map((n) => (
+                  <div key={n.id} className={`px-4 py-3 text-sm ${n.isRead ? "bg-white" : "bg-blue-50"}`}>
+                    <div className="flex items-start gap-2">
+                      <span className="text-base leading-none mt-0.5">{typeIcon(n.type)}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className={`font-medium truncate ${n.isRead ? "text-gray-700" : "text-gray-900"}`}>{n.title}</p>
+                        <p className="text-gray-500 text-xs mt-0.5 line-clamp-2">{n.message}</p>
+                        <p className="text-gray-400 text-xs mt-1">{timeAgo(n.createdAt)}</p>
+                      </div>
+                      {!n.isRead && <span className="w-2 h-2 rounded-full bg-blue-500 mt-1 shrink-0" />}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Legacy floating mode (kept for backward compat but no longer used)
   return (
     <div className="relative" ref={dropdownRef}>
       <button
@@ -82,7 +159,7 @@ export default function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden">
+        <div className={`absolute ${dropdownPositionClass} w-80 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden`}>
           <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50">
             <span className="font-semibold text-gray-800 text-sm">Notifications</span>
             {unreadCount > 0 && (
@@ -91,16 +168,12 @@ export default function NotificationBell() {
               </button>
             )}
           </div>
-
           <div className="max-h-80 overflow-y-auto divide-y">
             {notifications.length === 0 ? (
               <div className="px-4 py-8 text-center text-gray-400 text-sm">No notifications</div>
             ) : (
               notifications.map((n) => (
-                <div
-                  key={n.id}
-                  className={`px-4 py-3 text-sm ${n.isRead ? "bg-white" : "bg-blue-50"}`}
-                >
+                <div key={n.id} className={`px-4 py-3 text-sm ${n.isRead ? "bg-white" : "bg-blue-50"}`}>
                   <div className="flex items-start gap-2">
                     <span className="text-base leading-none mt-0.5">{typeIcon(n.type)}</span>
                     <div className="flex-1 min-w-0">

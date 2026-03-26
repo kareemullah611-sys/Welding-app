@@ -296,7 +296,7 @@ export default function PaymentsPage() {
     },
     {
       key: "date", label: t("date"),
-      render: (item: any) => <span className="whitespace-nowrap text-sm">{item.date}</span>,
+      render: (item: any) => <span className="whitespace-nowrap text-sm">{formatDate(item.date)}</span>,
     },
     {
       key: "detail", label: t("detail"),
@@ -311,7 +311,14 @@ export default function PaymentsPage() {
     },
     {
       key: "person", label: t("customer"),
-      render: (item: any) => item.person ? <span className="text-sm text-gray-600">{item.person}</span> : <span className="text-gray-300">—</span>,
+      render: (item: any) => item.person ? (
+        <div>
+          <span className="text-sm text-gray-600">{item.person}</span>
+          {user?.role === "super_admin" && item.cityName && (
+            <p className="text-xs text-indigo-500 mt-0.5">{item.cityName}</p>
+          )}
+        </div>
+      ) : <span className="text-gray-300">—</span>,
     },
     {
       key: "amount", label: t("amount"),

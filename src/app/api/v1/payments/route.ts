@@ -56,6 +56,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         include: {
           customer: { select: { id: true, name: true } },
           lot: { select: { id: true, lotNumber: true, status: true } },
+          city: { select: { id: true, name: true } },
           currency: true,
           creator: { select: { id: true, fullName: true } },
           attachments: { select: { id: true, fileName: true, filePath: true, fileType: true } },
@@ -70,6 +71,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const formatted = payments.map((p) => ({
       id: p.id,
       cityId: p.cityId,
+      cityName: (p as any).city?.name ?? null,
       paymentDate: p.paymentDate.toISOString().split("T")[0],
       detail: p.detail,
       amount: Number(p.amount),

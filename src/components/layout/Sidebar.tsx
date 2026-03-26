@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { LangSwitcher, useLang } from "@/lib/lang";
 import { apiCall } from "@/hooks/useApi";
+import NotificationBell from "@/components/layout/NotificationBell";
 import {
   LayoutDashboard, Package, Tag, Factory, Banknote, Handshake,
   BookOpen, Receipt, Wallet, Users, Warehouse, ClipboardList,
@@ -259,6 +260,17 @@ export default function Sidebar() {
         {!collapsed && (
           <div className="px-2 pt-0.5 pb-1">
             <LangSwitcher />
+          </div>
+        )}
+
+        {/* Notification Bell */}
+        {!collapsed ? (
+          <div className="px-2 pb-0.5">
+            <NotificationBell sidebarMode />
+          </div>
+        ) : (
+          <div className="flex justify-center py-1">
+            <NotificationBell sidebarMode compact />
           </div>
         )}
 

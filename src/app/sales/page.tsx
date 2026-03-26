@@ -281,7 +281,14 @@ export default function SalesPage() {
       <DataTable columns={[
         { key: "voucherNo", label: t("voucher_hash"), render: (s: any) => <span className="font-mono font-medium">{s.voucherNo}</span> },
         { key: "saleDate", label: t("date"), render: (s: any) => formatDate(s.saleDate) },
-        { key: "customer", label: t("customer"), render: (s: any) => s.customer?.name },
+        { key: "customer", label: t("customer"), render: (s: any) => (
+          <div>
+            <span>{s.customer?.name}</span>
+            {user?.role === "super_admin" && s.cityName && (
+              <p className="text-xs text-indigo-500 mt-0.5">{s.cityName}</p>
+            )}
+          </div>
+        )},
         { key: "items", label: t("product"), render: (s: any) => <div className="text-xs">{s.items?.map((i: any, idx: number) => <div key={idx}>{i.productName}</div>)}</div> },
         { key: "cartons", label: t("cartons"), render: (s: any) => <div className="text-xs">{s.items?.map((i: any, idx: number) => <div key={idx} className="font-medium">{i.qty}</div>)}</div> },
         { key: "totalAmount", label: t("amount"), render: (s: any) => <span className="font-medium">{s.currency?.symbol} {formatCurrency(s.totalAmount, "").trim()}</span> },

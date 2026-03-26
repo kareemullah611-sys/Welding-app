@@ -33,6 +33,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         include: {
           customer: { select: { id: true, name: true } },
           currency: { select: { id: true, code: true, symbol: true } },
+          city: { select: { id: true, name: true } },
         },
         orderBy: { paymentDate: "desc" },
       });
@@ -45,6 +46,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         currencySymbol: p.currency.symbol,
         currencyCode: p.currency.code,
         person: p.customer?.name ?? null,
+        cityName: (p as any).city?.name ?? null,
         status: p.status,
         raw: {
           ...p,
