@@ -131,17 +131,25 @@ export default function AssistantPage() {
       const res = await fetch("/api/v1/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ message: content, messages: history.slice(0, -1) }),
       });
 
-      const data = await res.json();
+      // Read raw text first so we never crash on non-JSON responses
+      const rawText = await res.text();
       let reply: string;
-      if (data.reply) {
-        reply = data.reply;
-      } else if (data.error) {
-        reply = `⚠️ Server error: ${data.error}${data.details ? `\n\nDetails: ${JSON.stringify(data.details)}` : ""}`;
-      } else {
-        reply = "Sorry, something went wrong.";
+      try {
+        const data = JSON.parse(rawText);
+        if (data.reply) {
+          reply = data.reply;
+        } else if (data.error) {
+          reply = `⚠️ Server error (${res.status}): ${data.error}${data.details ? `\n\nDetails: ${JSON.stringify(data.details)}` : ""}`;
+        } else {
+          reply = `⚠️ Unexpected response (${res.status}): ${rawText.slice(0, 300)}`;
+        }
+      } catch {
+        // Server returned non-JSON (HTML error page etc.)
+        reply = `⚠️ Server returned non-JSON (${res.status}):\n${rawText.slice(0, 500)}`;
       }
 
       setMessages(prev => [
@@ -151,7 +159,7 @@ export default function AssistantPage() {
     } catch (e: any) {
       setMessages(prev => [
         ...prev.slice(0, -1),
-        { role: "assistant", content: `⚠️ Network error: ${e?.message || "Failed to reach server. Please try again."}` },
+        { role: "assistant", content: `⚠️ Network error: ${e?.message || "Failed to reach server."}` },
       ]);
     } finally {
       setLoading(false);
