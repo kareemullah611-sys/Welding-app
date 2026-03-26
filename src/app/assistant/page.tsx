@@ -135,16 +135,23 @@ export default function AssistantPage() {
       });
 
       const data = await res.json();
-      const reply = data.reply || data.error || "Sorry, something went wrong.";
+      let reply: string;
+      if (data.reply) {
+        reply = data.reply;
+      } else if (data.error) {
+        reply = `⚠️ Server error: ${data.error}${data.details ? `\n\nDetails: ${JSON.stringify(data.details)}` : ""}`;
+      } else {
+        reply = "Sorry, something went wrong.";
+      }
 
       setMessages(prev => [
         ...prev.slice(0, -1), // remove loading
         { role: "assistant", content: reply },
       ]);
-    } catch {
+    } catch (e: any) {
       setMessages(prev => [
         ...prev.slice(0, -1),
-        { role: "assistant", content: "⚠️ Failed to get a response. Please try again." },
+        { role: "assistant", content: `⚠️ Network error: ${e?.message || "Failed to reach server. Please try again."}` },
       ]);
     } finally {
       setLoading(false);
