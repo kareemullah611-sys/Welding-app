@@ -80,7 +80,7 @@ async function fetchFinancialSummary(msg: string) {
 async function fetchWithdrawals(msg: string) {
   const { from, to } = parseDateRange(msg);
   const rows = await prisma.personalWithdrawal.findMany({
-    where: { deletedAt: null, withdrawalDate: { gte: from, lte: to } },
+    where: { withdrawalDate: { gte: from, lte: to } },
     include: { currency: { select: { symbol: true } } },
     orderBy: { withdrawalDate: "desc" }, take: 50,
   });
