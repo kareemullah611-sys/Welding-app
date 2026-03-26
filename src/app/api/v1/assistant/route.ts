@@ -5,7 +5,7 @@ import { JWTPayload } from "@/lib/auth";
 
 // ─── Groq REST helpers (OpenAI-compatible, free tier) ───────────────────────
 const GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions";
-const GROQ_MODEL = "llama-3.3-70b-versatile"; // best free model with tool use
+const GROQ_MODEL = "llama3-groq-70b-8192-tool-use-preview"; // optimized for tool/function calling
 
 async function callDeepSeek(
   apiKey: string,
