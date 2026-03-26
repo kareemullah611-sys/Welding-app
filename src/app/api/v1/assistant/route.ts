@@ -538,6 +538,10 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
     return NextResponse.json({ error: "Superadmin only" }, { status: 403 });
   }
 
+  if (!process.env.GEMINI_API_KEY) {
+    return NextResponse.json({ error: "GEMINI_API_KEY is not configured on the server. Please add it to your environment variables." }, { status: 500 });
+  }
+
   try {
     const { messages, message } = await request.json();
 
