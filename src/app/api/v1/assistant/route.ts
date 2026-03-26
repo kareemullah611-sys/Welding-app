@@ -3,174 +3,198 @@ import prisma from "@/lib/prisma";
 import { withAuth } from "@/lib/middleware";
 import { JWTPayload } from "@/lib/auth";
 
-// ─── Gemini REST helpers ────────────────────────────────────────────────────
-const GEMINI_MODEL = "gemini-2.0-flash";
-const GEMINI_BASE  = "https://generativelanguage.googleapis.com/v1beta/models";
+// ─── DeepSeek REST helpers (OpenAI-compatible) ──────────────────────────────
+const DEEPSEEK_URL   = "https://api.deepseek.com/chat/completions";
+const DEEPSEEK_MODEL = "deepseek-chat"; // DeepSeek-V3
 
-function geminiUrl(key: string) {
-  return `${GEMINI_BASE}/${GEMINI_MODEL}:generateContent?key=${key}`;
-}
-
-// Minimal tool/function-calling types for the REST API
-interface GeminiPart  { text?: string; functionCall?: { name: string; args: Record<string, any> }; functionResponse?: { name: string; response: Record<string, any> } }
-interface GeminiMsg   { role: "user" | "model"; parts: GeminiPart[] }
-interface GeminiResp  { candidates?: { content: GeminiMsg }[]; error?: { message: string } }
-
-async function callGemini(
+async function callDeepSeek(
   apiKey: string,
-  messages: GeminiMsg[],
-  tools: object[],
-  systemInstruction: string
-): Promise<GeminiResp> {
-  const res = await fetch(geminiUrl(apiKey), {
+  messages: object[],
+  tools: object[]
+): Promise<any> {
+  const res = await fetch(DEEPSEEK_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
     body: JSON.stringify({
-      system_instruction: { parts: [{ text: systemInstruction }] },
-      contents: messages,
-      tools: [{ function_declarations: tools }],
-      tool_config: { function_calling_config: { mode: "AUTO" } },
+      model: DEEPSEEK_MODEL,
+      messages,
+      tools,
+      tool_choice: "auto",
+      max_tokens: 4096,
     }),
   });
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Gemini API error ${res.status}: ${err}`);
+    throw new Error(`DeepSeek API error ${res.status}: ${err}`);
   }
   return res.json();
 }
 
-// ─── Tool Definitions ───────────────────────────────────────────────────────
+// ─── Tool Definitions (OpenAI function-calling format) ──────────────────────
 const TOOLS = [
   {
-    name: "get_withdrawals",
-    description: "Query personal withdrawals. Filter by person name, date range, amount, status.",
-    parameters: {
-      type: "object",
-      properties: {
-        person_name:  { type: "string",  description: "Part of the withdrawn-by name (optional)" },
-        from_date:    { type: "string",  description: "Start date YYYY-MM-DD (optional)" },
-        to_date:      { type: "string",  description: "End date YYYY-MM-DD (optional)" },
-        min_amount:   { type: "number",  description: "Minimum amount (optional)" },
-        max_amount:   { type: "number",  description: "Maximum amount (optional)" },
-        status:       { type: "string",  description: "'pending' or 'approved' (optional)" },
+    type: "function",
+    function: {
+      name: "get_withdrawals",
+      description: "Query personal withdrawals. Filter by person name, date range, amount, status.",
+      parameters: {
+        type: "object",
+        properties: {
+          person_name:  { type: "string",  description: "Part of the withdrawn-by name (optional)" },
+          from_date:    { type: "string",  description: "Start date YYYY-MM-DD (optional)" },
+          to_date:      { type: "string",  description: "End date YYYY-MM-DD (optional)" },
+          min_amount:   { type: "number",  description: "Minimum amount (optional)" },
+          max_amount:   { type: "number",  description: "Maximum amount (optional)" },
+          status:       { type: "string",  description: "'pending' or 'approved' (optional)" },
+        },
       },
     },
   },
   {
-    name: "get_haji_transfers",
-    description: "Query haji transfers (money sent to haji). Filter by date, amount, type, city.",
-    parameters: {
-      type: "object",
-      properties: {
-        from_date:     { type: "string",  description: "Start date YYYY-MM-DD (optional)" },
-        to_date:       { type: "string",  description: "End date YYYY-MM-DD (optional)" },
-        min_amount:    { type: "number",  description: "Minimum amount (optional)" },
-        max_amount:    { type: "number",  description: "Maximum amount (optional)" },
-        transfer_type: { type: "string",  description: "'from_in_hand' or 'direct' (optional)" },
-        city_name:     { type: "string",  description: "Filter by city name (optional)" },
+    type: "function",
+    function: {
+      name: "get_haji_transfers",
+      description: "Query haji transfers (money sent to haji). Filter by date, amount, type, city.",
+      parameters: {
+        type: "object",
+        properties: {
+          from_date:     { type: "string",  description: "Start date YYYY-MM-DD (optional)" },
+          to_date:       { type: "string",  description: "End date YYYY-MM-DD (optional)" },
+          min_amount:    { type: "number",  description: "Minimum amount (optional)" },
+          max_amount:    { type: "number",  description: "Maximum amount (optional)" },
+          transfer_type: { type: "string",  description: "'from_in_hand' or 'direct' (optional)" },
+          city_name:     { type: "string",  description: "Filter by city name (optional)" },
+        },
       },
     },
   },
   {
-    name: "get_payments",
-    description: "Query customer payments received. Filter by customer name, city, date, amount, method.",
-    parameters: {
-      type: "object",
-      properties: {
-        customer_name:  { type: "string",  description: "Customer name (optional)" },
-        city_name:      { type: "string",  description: "City name (optional)" },
-        from_date:      { type: "string",  description: "Start date YYYY-MM-DD (optional)" },
-        to_date:        { type: "string",  description: "End date YYYY-MM-DD (optional)" },
-        min_amount:     { type: "number",  description: "Minimum amount (optional)" },
-        max_amount:     { type: "number",  description: "Maximum amount (optional)" },
-        status:         { type: "string",  description: "'active' or 'cancelled' (optional)" },
-        payment_method: { type: "string",  description: "'cash','cheque','bank_transfer','online' (optional)" },
+    type: "function",
+    function: {
+      name: "get_payments",
+      description: "Query customer payments received. Filter by customer, city, date, amount, method.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_name:  { type: "string",  description: "Customer name (optional)" },
+          city_name:      { type: "string",  description: "City name (optional)" },
+          from_date:      { type: "string",  description: "Start date YYYY-MM-DD (optional)" },
+          to_date:        { type: "string",  description: "End date YYYY-MM-DD (optional)" },
+          min_amount:     { type: "number",  description: "Minimum amount (optional)" },
+          max_amount:     { type: "number",  description: "Maximum amount (optional)" },
+          status:         { type: "string",  description: "'active' or 'cancelled' (optional)" },
+          payment_method: { type: "string",  description: "'cash','cheque','bank_transfer','online' (optional)" },
+        },
       },
     },
   },
   {
-    name: "get_sales",
-    description: "Query sales transactions. Filter by customer, city, date range, lot number.",
-    parameters: {
-      type: "object",
-      properties: {
-        customer_name: { type: "string",  description: "Customer name (optional)" },
-        city_name:     { type: "string",  description: "City name (optional)" },
-        from_date:     { type: "string",  description: "Start date YYYY-MM-DD (optional)" },
-        to_date:       { type: "string",  description: "End date YYYY-MM-DD (optional)" },
-        lot_number:    { type: "string",  description: "Specific lot number (optional)" },
-        min_amount:    { type: "number",  description: "Minimum total amount (optional)" },
+    type: "function",
+    function: {
+      name: "get_sales",
+      description: "Query sales transactions. Filter by customer, city, date range, lot number.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_name: { type: "string",  description: "Customer name (optional)" },
+          city_name:     { type: "string",  description: "City name (optional)" },
+          from_date:     { type: "string",  description: "Start date YYYY-MM-DD (optional)" },
+          to_date:       { type: "string",  description: "End date YYYY-MM-DD (optional)" },
+          lot_number:    { type: "string",  description: "Specific lot number (optional)" },
+          min_amount:    { type: "number",  description: "Minimum total amount (optional)" },
+        },
       },
     },
   },
   {
-    name: "get_expenses",
-    description: "Query expenses. Filter by date, amount, description keyword, city.",
-    parameters: {
-      type: "object",
-      properties: {
-        from_date:   { type: "string",  description: "Start date YYYY-MM-DD (optional)" },
-        to_date:     { type: "string",  description: "End date YYYY-MM-DD (optional)" },
-        keyword:     { type: "string",  description: "Search in expense detail (optional)" },
-        city_name:   { type: "string",  description: "City name (optional)" },
-        min_amount:  { type: "number",  description: "Minimum amount (optional)" },
-        max_amount:  { type: "number",  description: "Maximum amount (optional)" },
+    type: "function",
+    function: {
+      name: "get_expenses",
+      description: "Query expenses. Filter by date, amount, description keyword, city.",
+      parameters: {
+        type: "object",
+        properties: {
+          from_date:   { type: "string",  description: "Start date YYYY-MM-DD (optional)" },
+          to_date:     { type: "string",  description: "End date YYYY-MM-DD (optional)" },
+          keyword:     { type: "string",  description: "Search in expense detail (optional)" },
+          city_name:   { type: "string",  description: "City name (optional)" },
+          min_amount:  { type: "number",  description: "Minimum amount (optional)" },
+          max_amount:  { type: "number",  description: "Maximum amount (optional)" },
+        },
       },
     },
   },
   {
-    name: "get_customer_balances",
-    description: "Get customer outstanding balances — how much each customer owes.",
-    parameters: {
-      type: "object",
-      properties: {
-        customer_name:     { type: "string",  description: "Customer name (optional)" },
-        city_name:         { type: "string",  description: "Filter by city (optional)" },
-        only_with_balance: { type: "string",  description: "'true' to show only customers who owe money (optional)" },
+    type: "function",
+    function: {
+      name: "get_customer_balances",
+      description: "Get customer outstanding balances — how much each customer owes.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_name:     { type: "string",  description: "Customer name (optional)" },
+          city_name:         { type: "string",  description: "Filter by city (optional)" },
+          only_with_balance: { type: "string",  description: "'true' to show only customers who owe money (optional)" },
+        },
       },
     },
   },
   {
-    name: "get_supplier_balances",
-    description: "Get supplier balances — how much is owed to each supplier.",
-    parameters: {
-      type: "object",
-      properties: {
-        supplier_name: { type: "string",  description: "Supplier name (optional)" },
+    type: "function",
+    function: {
+      name: "get_supplier_balances",
+      description: "Get supplier balances — how much is owed to each supplier.",
+      parameters: {
+        type: "object",
+        properties: {
+          supplier_name: { type: "string",  description: "Supplier name (optional)" },
+        },
       },
     },
   },
   {
-    name: "get_inventory",
-    description: "Get current inventory levels per product and city/godown.",
-    parameters: {
-      type: "object",
-      properties: {
-        product_name: { type: "string",  description: "Product name (optional)" },
-        city_name:    { type: "string",  description: "City name (optional)" },
+    type: "function",
+    function: {
+      name: "get_inventory",
+      description: "Get current inventory levels per product and city/godown.",
+      parameters: {
+        type: "object",
+        properties: {
+          product_name: { type: "string",  description: "Product name (optional)" },
+          city_name:    { type: "string",  description: "City name (optional)" },
+        },
       },
     },
   },
   {
-    name: "get_lots",
-    description: "Get lot/shipment information including costs and products.",
-    parameters: {
-      type: "object",
-      properties: {
-        lot_number: { type: "string",  description: "Specific lot number (optional)" },
-        status:     { type: "string",  description: "'open' or 'closed' (optional)" },
+    type: "function",
+    function: {
+      name: "get_lots",
+      description: "Get lot/shipment information including costs and products.",
+      parameters: {
+        type: "object",
+        properties: {
+          lot_number: { type: "string",  description: "Specific lot number (optional)" },
+          status:     { type: "string",  description: "'open' or 'closed' (optional)" },
+        },
       },
     },
   },
   {
-    name: "get_financial_summary",
-    description: "High-level financial summary for a date range: sales, payments, expenses, transfers, withdrawals.",
-    parameters: {
-      type: "object",
-      properties: {
-        from_date:  { type: "string",  description: "Start date YYYY-MM-DD (optional)" },
-        to_date:    { type: "string",  description: "End date YYYY-MM-DD (optional)" },
-        city_name:  { type: "string",  description: "Filter by city (optional)" },
+    type: "function",
+    function: {
+      name: "get_financial_summary",
+      description: "High-level financial summary: sales, payments, expenses, haji transfers, withdrawals.",
+      parameters: {
+        type: "object",
+        properties: {
+          from_date:  { type: "string",  description: "Start date YYYY-MM-DD (optional, defaults to current month)" },
+          to_date:    { type: "string",  description: "End date YYYY-MM-DD (optional, defaults to today)" },
+          city_name:  { type: "string",  description: "Filter by city (optional)" },
+        },
       },
     },
   },
@@ -367,7 +391,6 @@ async function executeTool(name: string, args: any): Promise<string> {
           ? await prisma.city.findFirst({ where: { name: { contains: args.city_name, mode: "insensitive" } } })
           : null;
         const cityId = cityFilter?.id ?? null;
-
         const inventory: any[] = await prisma.$queryRaw`
           WITH received AS (
             SELECT lcga.godown_id, lcd.product_id, COALESCE(SUM(lcga.qty), 0) as qty
@@ -411,7 +434,6 @@ async function executeTool(name: string, args: any): Promise<string> {
           HAVING SUM(COALESCE(r.qty,0) - COALESCE(s.qty,0) - COALESCE(tout.qty,0) + COALESCE(tin.qty,0)) > 0
           ORDER BY c.name, p.name
         `;
-
         let rows = inventory.map(r => ({ city: r.city_name, product: r.product_name, qty: Number(r.qty) }));
         if (args.product_name) rows = rows.filter(r => r.product.toLowerCase().includes((args.product_name as string).toLowerCase()));
         rows.sort((a, b) => b.qty - a.qty);
@@ -479,9 +501,9 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
     return NextResponse.json({ error: "Superadmin only" }, { status: 403 });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({ error: "GEMINI_API_KEY is not configured on the server." }, { status: 500 });
+    return NextResponse.json({ error: "DEEPSEEK_API_KEY is not configured on the server." }, { status: 500 });
   }
 
   try {
@@ -498,49 +520,47 @@ Amounts are USD unless stated. "5 lacs" = 500,000 | "1 crore" = 10,000,000
 
 Today's date: ${new Date().toISOString().split("T")[0]}`;
 
-    // Build Gemini message history
-    const history: GeminiMsg[] = (clientHistory || []).map((m: any) => ({
-      role: m.role === "user" ? "user" : "model",
-      parts: [{ text: m.content || "" }],
-    }));
-
-    // Add the current user message
-    const geminiMessages: GeminiMsg[] = [
-      ...history,
-      { role: "user", parts: [{ text: message }] },
+    // Build message history in OpenAI format
+    const messages: object[] = [
+      { role: "system", content: SYSTEM },
+      ...(clientHistory || []).map((m: any) => ({
+        role: m.role === "user" ? "user" : "assistant",
+        content: m.content || "",
+      })),
+      { role: "user", content: message },
     ];
 
     // Agentic loop — up to 5 rounds of tool calls
     let iterations = 0;
     while (iterations < 5) {
-      const resp = await callGemini(apiKey, geminiMessages, TOOLS, SYSTEM);
+      const data = await callDeepSeek(apiKey, messages, TOOLS);
+      const choice = data.choices?.[0];
+      if (!choice) throw new Error("No response from DeepSeek");
 
-      if (resp.error) throw new Error(resp.error.message);
+      const msg = choice.message;
+      messages.push(msg); // add assistant message to history
 
-      const candidate = resp.candidates?.[0];
-      if (!candidate) throw new Error("No candidate in Gemini response");
-
-      const modelMsg = candidate.content;
-      geminiMessages.push(modelMsg);
-
-      // Check for function calls
-      const toolCalls = modelMsg.parts.filter(p => p.functionCall);
-      if (!toolCalls.length) {
-        // No more tool calls — return the text response
-        const text = modelMsg.parts.map(p => p.text || "").join("").trim();
-        return NextResponse.json({ reply: text });
+      // No tool calls → return the final text
+      if (!msg.tool_calls || msg.tool_calls.length === 0) {
+        return NextResponse.json({ reply: msg.content || "" });
       }
 
-      // Execute tool calls and feed results back
+      // Execute all tool calls in parallel
       const toolResults = await Promise.all(
-        toolCalls.map(async (part) => {
-          const fc = part.functionCall!;
-          const result = await executeTool(fc.name, fc.args || {});
-          return { functionResponse: { name: fc.name, response: { result } } };
+        msg.tool_calls.map(async (tc: any) => {
+          const args = typeof tc.function.arguments === "string"
+            ? JSON.parse(tc.function.arguments)
+            : tc.function.arguments;
+          const result = await executeTool(tc.function.name, args);
+          return {
+            role: "tool",
+            tool_call_id: tc.id,
+            content: result,
+          };
         })
       );
 
-      geminiMessages.push({ role: "user", parts: toolResults });
+      messages.push(...toolResults);
       iterations++;
     }
 
