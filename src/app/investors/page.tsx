@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, Modal, formatNumber, StatsCard } from "@/components/ui";
-import { Plus, Users, ChevronRight, PiggyBank, Edit2, Search } from "lucide-react";
+import { Plus, Users, ChevronRight, Edit2, Search } from "lucide-react";
 
 function fmt(n: number, symbol = "") {
   return (symbol ? symbol + " " : "") + formatNumber(n);
@@ -14,8 +14,6 @@ function InvestorCard({ inv, onOpen, onEdit }: { inv: any; onOpen: () => void; o
   const mainAcc = inv.accounts[0];
   const sym = mainAcc?.currency?.symbol ?? "";
   const totalCapital = inv.accounts.reduce((s: number, a: any) => s + a.capital, 0);
-  const totalDeposits = inv.accounts.reduce((s: number, a: any) => s + a.totalDeposits, 0);
-  const totalWithdrawals = inv.accounts.reduce((s: number, a: any) => s + a.totalWithdrawals, 0);
 
   return (
     <div
@@ -46,20 +44,10 @@ function InvestorCard({ inv, onOpen, onEdit }: { inv: any; onOpen: () => void; o
           </div>
         </div>
 
-        {/* Stats row */}
-        <div className="grid grid-cols-3 gap-2">
-          <div className="bg-blue-50 rounded-xl p-3 text-center">
-            <p className="text-[10px] text-blue-400 font-semibold uppercase tracking-wide mb-0.5">Deposited</p>
-            <p className="text-sm font-bold text-blue-700">{fmt(totalDeposits, sym)}</p>
-          </div>
-          <div className="bg-red-50 rounded-xl p-3 text-center">
-            <p className="text-[10px] text-red-400 font-semibold uppercase tracking-wide mb-0.5">Withdrawn</p>
-            <p className="text-sm font-bold text-red-700">{fmt(totalWithdrawals, sym)}</p>
-          </div>
-          <div className="bg-emerald-50 rounded-xl p-3 text-center">
-            <p className="text-[10px] text-emerald-400 font-semibold uppercase tracking-wide mb-0.5">Balance</p>
-            <p className="text-sm font-bold text-emerald-700">{fmt(totalCapital, sym)}</p>
-          </div>
+        {/* Balance */}
+        <div className="bg-emerald-50 rounded-xl p-3 text-center">
+          <p className="text-[10px] text-emerald-400 font-semibold uppercase tracking-wide mb-0.5">Balance</p>
+          <p className="text-base font-bold text-emerald-700">{fmt(totalCapital, sym)}</p>
         </div>
       </div>
     </div>
@@ -113,8 +101,6 @@ export default function InvestorsPage() {
   );
 
   const totalCapitalAll = investors.reduce((s, inv) => s + inv.accounts.reduce((a: number, acc: any) => a + acc.capital, 0), 0);
-  const totalDepositsAll = investors.reduce((s, inv) => s + inv.accounts.reduce((a: number, acc: any) => a + acc.totalDeposits, 0), 0);
-  const totalWithdrawalsAll = investors.reduce((s, inv) => s + inv.accounts.reduce((a: number, acc: any) => a + acc.totalWithdrawals, 0), 0);
 
   const f = (k: string, v: any) => setForm((p: any) => ({ ...p, [k]: v }));
 
@@ -170,8 +156,6 @@ export default function InvestorsPage() {
 
       {/* Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatsCard title="Total Deposited" value={formatNumber(totalDepositsAll)} icon="🏦" color="blue" />
-        <StatsCard title="Total Withdrawn" value={formatNumber(totalWithdrawalsAll)} icon="💸" color="red" />
         <StatsCard title="Net Balance" value={formatNumber(totalCapitalAll)} icon="💰" color="green" />
       </div>
 
