@@ -101,6 +101,11 @@ export default function PaymentsPage() {
   // Attachment viewer
   const [viewingAttachment, setViewingAttachment] = useState<any | null>(null);
 
+  // ── Batch payment queue ──────────────────────────────────────────────────
+  const [paymentQueue, setPaymentQueue] = useState<Array<{ tempId: string; customerName: string; amount: number; currencySymbol: string; detail: string; date: string; body: any }>>([]);
+  const [savingQueue, setSavingQueue] = useState(false);
+  const [queueSaved, setQueueSaved] = useState(false);
+
   // Close record menu when clicking outside
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -163,6 +168,8 @@ export default function PaymentsPage() {
       setForm({ withdrawalDate: today, amount: 0, detail: "", notes: "" });
     }
     setPendingFile(null);
+    setPaymentQueue([]);
+    setQueueSaved(false);
     setShowCreate(true); setError("");
   };
 
@@ -226,6 +233,58 @@ export default function PaymentsPage() {
       setShowCreate(false); load();
     } else { setError(r.error || "Failed"); }
     setSubmitting(false);
+  };
+
+  // ── Add current form to batch queue (payment only) ──────────────────────
+  const addToQueue = async () => {
+    setError("");
+    if (!form.customerId || !(form.amount > 0) || !form.detail) {
+      setError(t("customer") + ", amount (must be > 0), detail required");
+      return;
+    }
+    // Voucher duplicate check
+    if (form.manualVoucherNo?.trim()) {
+      const check = await apiCall(`/api/v1/payments/check-voucher?voucher_no=${encodeURIComponent(form.manualVoucherNo.trim())}`);
+      if (check.success && (check.data as any).isDuplicate) {
+        setVoucherWarning({ matches: (check.data as any).matches });
+        return;
+      }
+    }
+    const selectedCur = currencies.find((c: any) => c.id === form.currencyId);
+    const body = { ...form, currencyId: form.currencyId || currencies[0]?.id };
+    setPaymentQueue(prev => [...prev, {
+      tempId: `q-${Date.now()}-${Math.random()}`,
+      customerName: form.customerName || "Customer",
+      amount: form.amount,
+      currencySymbol: selectedCur?.symbol ?? "",
+      detail: form.detail,
+      date: form.paymentDate,
+      body,
+    }]);
+    // Reset form for next entry, keep modal open
+    const today = new Date().toISOString().split("T")[0];
+    const usdCurrency = currencies.find((c: any) => c.code === "USD") || currencies[0];
+    setForm({ customerId: 0, customerName: "", paymentDate: today, amount: 0, detail: "", currencyId: usdCurrency?.id || 0, paymentMethod: "cash", destination: "haji", notes: "", exchangeRate: 280, usdEquivalent: null, chequeNumber: "", chequeBank: "", chequeDueDate: "" });
+    setPendingFile(null);
+    setQueueSaved(false);
+  };
+
+  // ── Save all queued payments ─────────────────────────────────────────────
+  const saveQueue = async () => {
+    if (paymentQueue.length === 0) return;
+    setSavingQueue(true);
+    for (const item of paymentQueue) {
+      const r = await apiCall("/api/v1/payments", { method: "POST", body: item.body });
+      if (r.success && pendingFile && (r.data as any)?.id) {
+        await uploadFile(pendingFile, "payment", (r.data as any).id);
+      }
+    }
+    setSavingQueue(false);
+    setPaymentQueue([]);
+    setQueueSaved(true);
+    setShowCreate(false);
+    setTimeout(() => setQueueSaved(false), 3000);
+    load();
   };
 
   const openEdit = async (item: any) => {
@@ -474,6 +533,12 @@ export default function PaymentsPage() {
         }
       />
 
+      {queueSaved && (
+        <div className="fixed bottom-6 right-6 z-50 bg-green-600 text-white text-sm font-medium px-5 py-3 rounded-2xl shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4">
+          ✓ All payments saved successfully!
+        </div>
+      )}
+
       <DataTable
         columns={columns}
         data={items}
@@ -646,9 +711,45 @@ export default function PaymentsPage() {
             </div>
           )}
         </div>
-        <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={() => setShowCreate(false)} className="btn-secondary text-sm">{t("cancel")}</button>
-          <button onClick={() => handleCreate()} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button>
+        {/* ── Batch queue (payment only) ── */}
+        {createType === "payment" && paymentQueue.length > 0 && (
+          <div className="mt-4 border-t pt-3 space-y-2">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Queued ({paymentQueue.length})</p>
+            <div className="space-y-1.5 max-h-40 overflow-y-auto">
+              {paymentQueue.map((q, i) => (
+                <div key={q.tempId} className="flex items-center gap-2 bg-blue-50 rounded-lg px-3 py-2">
+                  <span className="text-[10px] text-blue-400 font-bold w-4 flex-shrink-0">#{i + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-blue-900 truncate">{q.customerName}</p>
+                    <p className="text-[10px] text-blue-500 truncate">{q.detail} · {q.date}</p>
+                  </div>
+                  <span className="text-xs font-bold text-blue-800 flex-shrink-0">{q.currencySymbol} {q.amount.toLocaleString("en-US")}</span>
+                  <button onClick={() => setPaymentQueue(prev => prev.filter(p => p.tempId !== q.tempId))}
+                    className="text-blue-300 hover:text-red-400 transition-colors flex-shrink-0">✕</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-4 mt-4 border-t">
+          <button onClick={() => { setShowCreate(false); setPaymentQueue([]); }} className="btn-secondary text-sm">{t("cancel")}</button>
+          {createType === "payment" ? (
+            <>
+              <button onClick={addToQueue} disabled={submitting}
+                className="bg-gray-700 hover:bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-medium">
+                + Add to Queue
+              </button>
+              {paymentQueue.length > 0 && (
+                <button onClick={saveQueue} disabled={savingQueue}
+                  className="btn-primary text-sm flex items-center gap-1.5">
+                  {savingQueue ? "Saving…" : `✓ Confirm & Save (${paymentQueue.length})`}
+                </button>
+              )}
+            </>
+          ) : (
+            <button onClick={() => handleCreate()} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button>
+          )}
         </div>
       </Modal>
 
