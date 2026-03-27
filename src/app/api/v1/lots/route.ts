@@ -47,7 +47,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           completer: { select: { id: true, fullName: true } },
           lotProducts: { include: { product: true } },
           lotCityDistributions: {
-            include: { city: true, product: true },
+            include: { city: true, product: true, godownAllocations: true },
             ...(user.role === "city_admin" ? { where: { cityId: user.cityId! } } : {}),
           },
           _count: { select: { sales: true, hajiTransfers: true } },
@@ -84,6 +84,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         productId: d.productId,
         productName: d.product.name,
         allocatedQty: Number(d.allocatedQty),
+        godownAllocations: d.godownAllocations.map((ga) => ({
+          godownId: ga.godownId,
+          qty: Number(ga.qty),
+        })),
       })),
       salesCount: lot._count.sales,
       hajiTransfersCount: lot._count.hajiTransfers,
