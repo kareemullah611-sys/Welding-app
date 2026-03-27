@@ -122,8 +122,7 @@ export default function PaymentsPage() {
     const loadedCurrencies = await loadHelpers();
     const today = new Date().toISOString().split("T")[0];
     if (type === "payment") {
-      const usdCurrency = loadedCurrencies.find((c: any) => c.code === "USD") || loadedCurrencies[0];
-      setForm({ customerId: 0, customerName: "", paymentDate: today, amount: 0, detail: "", currencyId: usdCurrency?.id || 0, paymentMethod: "cash", destination: "haji", notes: "", exchangeRate: 280, usdEquivalent: null, chequeNumber: "", chequeBank: "", chequeDueDate: "" });
+      setForm({ customerId: 0, customerName: "", paymentDate: today, amount: 0, detail: "", currencyId: loadedCurrencies[0]?.id || 0, paymentMethod: "cash", destination: "haji", notes: "", chequeNumber: "", chequeBank: "", chequeDueDate: "" });
     } else if (type === "expense") {
       setForm({ expenseDate: today, amount: 0, detail: "", notes: "" });
     } else if (type === "haji_transfer") {
@@ -226,8 +225,7 @@ export default function PaymentsPage() {
     }]);
     // Reset form for next entry, keep modal open
     const today = new Date().toISOString().split("T")[0];
-    const usdCurrency = currencies.find((c: any) => c.code === "USD") || currencies[0];
-    setForm({ customerId: 0, customerName: "", paymentDate: today, amount: 0, detail: "", currencyId: usdCurrency?.id || 0, paymentMethod: "cash", destination: "haji", notes: "", exchangeRate: 280, usdEquivalent: null, chequeNumber: "", chequeBank: "", chequeDueDate: "" });
+    setForm({ customerId: 0, customerName: "", paymentDate: today, amount: 0, detail: "", currencyId: currencies[0]?.id || 0, paymentMethod: "cash", destination: "haji", notes: "", chequeNumber: "", chequeBank: "", chequeDueDate: "" });
     setQueueSaved(false);
   };
 
@@ -546,62 +544,11 @@ export default function PaymentsPage() {
               onKeyDown={e => { if (e.key === "Enter") { if (createType === "payment") addToQueue(); else handleCreate(); } }} />
           </div>
 
-          {createType === "payment" && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
-              <select value={form.currencyId || 0} onChange={e => {
-                const cid = parseInt(e.target.value);
-                const cur = currencies.find((c: any) => c.id === cid);
-                setForm((f: any) => ({ ...f, currencyId: cid, exchangeRate: cur?.code === "AFN" ? (f.exchangeRate || 280) : null, usdEquivalent: null }));
-              }} className="select-field">
-                {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
-              </select>
-            </div>
-          )}
-
-          {createType !== "payment" && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
-              <input type="number" min="0.01" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field"
-                onKeyDown={e => e.key === "Enter" && handleCreate()} />
-            </div>
-          )}
-
-          {createType === "payment" && (() => {
-            const selectedCur = currencies.find((c: any) => c.id === form.currencyId);
-            const isAfn = selectedCur?.code === "AFN";
-            const usdEq = isAfn && form.amount > 0 && form.exchangeRate > 0 ? (form.amount / form.exchangeRate).toFixed(2) : null;
-            return (
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} ({selectedCur?.code || "—"}) *</label>
-                    <input type="number" min="0.01" value={form.amount || ""} onChange={e => {
-                      const amt = parseFloat(e.target.value) || 0;
-                      const eq = isAfn && form.exchangeRate > 0 ? amt / form.exchangeRate : null;
-                      setForm((f: any) => ({ ...f, amount: amt, usdEquivalent: eq }));
-                    }} className="input-field" onKeyDown={e => e.key === "Enter" && addToQueue()} />
-                  </div>
-                  {isAfn && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">{t("exchange_rate_afn")}</label>
-                      <input type="number" value={form.exchangeRate || ""} onChange={e => {
-                        const rate = parseFloat(e.target.value) || 0;
-                        const eq = rate > 0 && form.amount > 0 ? form.amount / rate : null;
-                        setForm((f: any) => ({ ...f, exchangeRate: rate, usdEquivalent: eq }));
-                      }} className="input-field" placeholder="e.g. 280" />
-                    </div>
-                  )}
-                </div>
-                {isAfn && usdEq && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm text-blue-800">
-                    {t("usd_equivalent_label")}: <span className="font-bold">${usdEq}</span>
-                    <span className="text-blue-500 ml-2">(AFN {form.amount?.toLocaleString("en-US")} ÷ {form.exchangeRate})</span>
-                  </div>
-                )}
-              </div>
-            );
-          })()}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
+            <input type="number" min="0.01" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field"
+              onKeyDown={e => { if (e.key === "Enter") { if (createType === "payment") addToQueue(); else handleCreate(); } }} />
+          </div>
 
           {createType === "payment" && user?.countryName !== "Afghanistan" && (
             <div className="grid grid-cols-2 gap-3">

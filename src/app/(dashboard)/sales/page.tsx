@@ -372,12 +372,6 @@ export default function SalesPage() {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
-            <select value={form.currencyId} onChange={(e) => setForm((f) => ({ ...f, currencyId: parseInt(e.target.value) }))} className="select-field">
-              {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code} ({c.symbol})</option>)}
-            </select>
-          </div>
-          <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
             <input type="text" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" />
           </div>
