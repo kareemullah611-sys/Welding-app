@@ -185,7 +185,7 @@ export default function AssistantPage() {
           </div>
           <div>
             <h1 className="text-lg font-bold text-gray-900">Business Assistant</h1>
-            <p className="text-xs text-gray-400">Powered by Gemini · Full database access</p>
+            <p className="text-xs text-gray-400">Powered by DeepSeek · Full database access</p>
           </div>
         </div>
         {messages.length > 0 && (
