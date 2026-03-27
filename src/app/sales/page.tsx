@@ -330,6 +330,11 @@ export default function SalesPage() {
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t("new_sale")} size="xl">
         {formError && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{formError}</div>}
 
+        {/* Date — always first */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
+          <input type="date" value={form.saleDate} onChange={(e) => setForm((f) => ({ ...f, saleDate: e.target.value }))} className="input-field" autoFocus />
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("customer")} *</label>
@@ -358,10 +363,6 @@ export default function SalesPage() {
             {form.godownId > 0 && godowns.find((g: any) => g.id === form.godownId)?.cityId !== user?.cityId && (
               <p className="text-xs text-orange-600 mt-1">⚠️ Cross-city godown — stock will be taken from {godowns.find((g: any) => g.id === form.godownId)?.cityName}</p>
             )}
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
-            <input type="date" value={form.saleDate} onChange={(e) => setForm((f) => ({ ...f, saleDate: e.target.value }))} className="input-field" />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("lot")}</label>

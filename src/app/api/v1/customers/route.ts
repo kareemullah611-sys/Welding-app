@@ -33,10 +33,28 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       prisma.customer.count({ where }),
     ]);
 
+    // Compute balance for each customer via groupBy (2 queries total, not N)
+    const customerIds = customers.map((c) => c.id);
+    const [salesAgg, paymentsAgg] = await Promise.all([
+      prisma.sale.groupBy({
+        by: ["customerId"],
+        where: { customerId: { in: customerIds }, status: { not: "cancelled" } },
+        _sum: { totalAmount: true },
+      }),
+      prisma.payment.groupBy({
+        by: ["customerId"],
+        where: { customerId: { in: customerIds }, status: { not: "cancelled" } },
+        _sum: { amount: true },
+      }),
+    ]);
+    const salesMap = Object.fromEntries(salesAgg.map((s) => [s.customerId, Number(s._sum.totalAmount ?? 0)]));
+    const paymentsMap = Object.fromEntries(paymentsAgg.map((p) => [p.customerId, Number(p._sum.amount ?? 0)]));
+
     return paginatedResponse(
       customers.map((c) => ({
         id: c.id, cityId: c.cityId, cityName: c.city.name,
         name: c.name, phone: c.phone, address: c.address, isActive: c.isActive,
+        balance: Math.round(((salesMap[c.id] ?? 0) - (paymentsMap[c.id] ?? 0)) * 100) / 100,
       })),
       total, page, limit
     );

@@ -102,7 +102,7 @@ export default function PaymentsPage() {
   const [viewingAttachment, setViewingAttachment] = useState<any | null>(null);
 
   // ── Batch payment queue ──────────────────────────────────────────────────
-  const [paymentQueue, setPaymentQueue] = useState<Array<{ tempId: string; customerName: string; amount: number; currencySymbol: string; detail: string; date: string; body: any }>>([]);
+  const [paymentQueue, setPaymentQueue] = useState<Array<{ tempId: string; customerName: string; voucherNo: string; amount: number; currencySymbol: string; detail: string; date: string; body: any }>>([]);
   const [savingQueue, setSavingQueue] = useState(false);
   const [queueSaved, setQueueSaved] = useState(false);
 
@@ -230,7 +230,10 @@ export default function PaymentsPage() {
       if (pendingFile && (r.data as any)?.id && createType !== "withdrawal") {
         await uploadFile(pendingFile, entityType, (r.data as any).id);
       }
-      setShowCreate(false); load();
+      setShowCreate(false);
+      if (page !== 1) setPage(1);
+      if (typeFilter !== "all") setTypeFilter("all");
+      load();
     } else { setError(r.error || "Failed"); }
     setSubmitting(false);
   };
@@ -255,6 +258,7 @@ export default function PaymentsPage() {
     setPaymentQueue(prev => [...prev, {
       tempId: `q-${Date.now()}-${Math.random()}`,
       customerName: form.customerName || "Customer",
+      voucherNo: form.manualVoucherNo?.trim() || "",
       amount: form.amount,
       currencySymbol: selectedCur?.symbol ?? "",
       detail: form.detail,
@@ -284,6 +288,10 @@ export default function PaymentsPage() {
     setQueueSaved(true);
     setShowCreate(false);
     setTimeout(() => setQueueSaved(false), 3000);
+    // Reset to page 1 + all-types so the new payment is visible
+    if (page !== 1) setPage(1);
+    if (typeFilter !== "all") setTypeFilter("all");
+    // Always reload to show the new entry
     load();
   };
 
@@ -550,6 +558,20 @@ export default function PaymentsPage() {
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title={createTitle} size="md">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
+          {/* ── DATE — always first ── */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
+            <input type="date"
+              value={form.paymentDate || form.expenseDate || form.transferDate || form.withdrawalDate || ""}
+              onChange={e => {
+                const d = e.target.value;
+                setForm((f: any) => ({ ...f, paymentDate: d, expenseDate: d, transferDate: d, withdrawalDate: d }));
+              }}
+              className="input-field"
+              autoFocus
+            />
+          </div>
+
           {createType === "payment" && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("customer")} *</label>
@@ -561,48 +583,40 @@ export default function PaymentsPage() {
             </div>
           )}
 
+          {createType === "payment" && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Voucher No <span className="text-gray-400 font-normal">(optional)</span></label>
+              <input value={form.manualVoucherNo || ""} onChange={e => setForm((f: any) => ({ ...f, manualVoucherNo: e.target.value }))} className="input-field" placeholder="e.g. CHQ-1234"
+                onKeyDown={e => e.key === "Enter" && addToQueue()} />
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("detail")} *</label>
-            <input value={form.detail || ""} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" />
+            <input value={form.detail || ""} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field"
+              onKeyDown={e => { if (e.key === "Enter") { if (createType === "payment") addToQueue(); else handleCreate(); } }} />
           </div>
 
           {createType === "payment" && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Voucher No <span className="text-gray-400 font-normal">(optional)</span></label>
-              <input value={form.manualVoucherNo || ""} onChange={e => setForm((f: any) => ({ ...f, manualVoucherNo: e.target.value }))} className="input-field" placeholder="e.g. CHQ-1234" />
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
+              <select value={form.currencyId || 0} onChange={e => {
+                const cid = parseInt(e.target.value);
+                const cur = currencies.find((c: any) => c.id === cid);
+                setForm((f: any) => ({ ...f, currencyId: cid, exchangeRate: cur?.code === "AFN" ? (f.exchangeRate || 280) : null, usdEquivalent: null }));
+              }} className="select-field">
+                {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
+              </select>
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
+          {createType !== "payment" && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
-              <input type="date"
-                value={form.paymentDate || form.expenseDate || form.transferDate || form.withdrawalDate || ""}
-                onChange={e => {
-                  const d = e.target.value;
-                  setForm((f: any) => ({ ...f, paymentDate: d, expenseDate: d, transferDate: d, withdrawalDate: d }));
-                }}
-                className="input-field"
-              />
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
+              <input type="number" min="0.01" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field"
+                onKeyDown={e => e.key === "Enter" && handleCreate()} />
             </div>
-            {createType === "payment" ? (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
-                <select value={form.currencyId || 0} onChange={e => {
-                  const cid = parseInt(e.target.value);
-                  const cur = currencies.find((c: any) => c.id === cid);
-                  setForm((f: any) => ({ ...f, currencyId: cid, exchangeRate: cur?.code === "AFN" ? (f.exchangeRate || 280) : null, usdEquivalent: null }));
-                }} className="select-field">
-                  {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
-                </select>
-              </div>
-            ) : (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
-                <input type="number" min="0.01" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" />
-              </div>
-            )}
-          </div>
+          )}
 
           {createType === "payment" && (() => {
             const selectedCur = currencies.find((c: any) => c.id === form.currencyId);
@@ -617,7 +631,7 @@ export default function PaymentsPage() {
                       const amt = parseFloat(e.target.value) || 0;
                       const eq = isAfn && form.exchangeRate > 0 ? amt / form.exchangeRate : null;
                       setForm((f: any) => ({ ...f, amount: amt, usdEquivalent: eq }));
-                    }} className="input-field" />
+                    }} className="input-field" onKeyDown={e => e.key === "Enter" && addToQueue()} />
                   </div>
                   {isAfn && (
                     <div>
@@ -641,21 +655,19 @@ export default function PaymentsPage() {
           })()}
 
           {createType === "payment" && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">{t("method")}</label>
-                <select value={form.paymentMethod} onChange={e => setForm((f: any) => ({ ...f, paymentMethod: e.target.value }))} className="select-field">
-                  <option value="cash">{t("cash")}</option>
-                  {/* Afghanistan is cash-only — no bank/cheque/online */}
-                  {user?.countryName !== "Afghanistan" && (
-                    <>
-                      <option value="bank_transfer">{t("bank_transfer")}</option>
-                      <option value="cheque">{t("cheque")}</option>
-                      <option value="online">{t("online")}</option>
-                    </>
-                  )}
-                </select>
-              </div>
+            <div className={user?.countryName === "Afghanistan" ? "" : "grid grid-cols-2 gap-3"}>
+              {/* Hide method selector for Afghanistan — always cash */}
+              {user?.countryName !== "Afghanistan" && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("method")}</label>
+                  <select value={form.paymentMethod} onChange={e => setForm((f: any) => ({ ...f, paymentMethod: e.target.value }))} className="select-field">
+                    <option value="cash">{t("cash")}</option>
+                    <option value="bank_transfer">{t("bank_transfer")}</option>
+                    <option value="cheque">{t("cheque")}</option>
+                    <option value="online">{t("online")}</option>
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">{t("destination")}</label>
                 <select value={form.destination} onChange={e => setForm((f: any) => ({ ...f, destination: e.target.value }))} className="select-field">
@@ -715,17 +727,23 @@ export default function PaymentsPage() {
         {createType === "payment" && paymentQueue.length > 0 && (
           <div className="mt-4 border-t pt-3 space-y-2">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Queued ({paymentQueue.length})</p>
-            <div className="space-y-1.5 max-h-40 overflow-y-auto">
+            {/* Header row */}
+            <div className="grid grid-cols-[70px_1fr_80px_70px_24px] gap-1 px-3 py-1">
+              <span className="text-[9px] font-bold text-gray-400 uppercase">Date</span>
+              <span className="text-[9px] font-bold text-gray-400 uppercase">Name</span>
+              <span className="text-[9px] font-bold text-gray-400 uppercase">Voucher</span>
+              <span className="text-[9px] font-bold text-gray-400 uppercase text-right">Amount</span>
+              <span />
+            </div>
+            <div className="space-y-1 max-h-40 overflow-y-auto">
               {paymentQueue.map((q, i) => (
-                <div key={q.tempId} className="flex items-center gap-2 bg-blue-50 rounded-lg px-3 py-2">
-                  <span className="text-[10px] text-blue-400 font-bold w-4 flex-shrink-0">#{i + 1}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-blue-900 truncate">{q.customerName}</p>
-                    <p className="text-[10px] text-blue-500 truncate">{q.detail} · {q.date}</p>
-                  </div>
-                  <span className="text-xs font-bold text-blue-800 flex-shrink-0">{q.currencySymbol} {q.amount.toLocaleString("en-US")}</span>
+                <div key={q.tempId} className="grid grid-cols-[70px_1fr_80px_70px_24px] gap-1 items-center bg-blue-50 rounded-lg px-3 py-2">
+                  <span className="text-[10px] text-blue-600 font-medium whitespace-nowrap">{q.date}</span>
+                  <span className="text-xs font-semibold text-blue-900 truncate">{q.customerName}</span>
+                  <span className="text-[10px] text-blue-500 truncate">{q.voucherNo || "—"}</span>
+                  <span className="text-xs font-bold text-blue-800 text-right whitespace-nowrap">{q.currencySymbol} {q.amount.toLocaleString("en-US")}</span>
                   <button onClick={() => setPaymentQueue(prev => prev.filter(p => p.tempId !== q.tempId))}
-                    className="text-blue-300 hover:text-red-400 transition-colors flex-shrink-0">✕</button>
+                    className="text-blue-300 hover:text-red-400 transition-colors text-center">✕</button>
                 </div>
               ))}
             </div>

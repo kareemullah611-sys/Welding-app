@@ -139,8 +139,16 @@ export default function Sidebar() {
 
   if (!user) return null;
 
+  const isAfghanistan = user.countryName === "Afghanistan";
+  const afghHide = ["cheque_register", "bank_deposits", "bank_accounts"];
+
   const filteredGroups = navGroups
-    .map((g) => ({ ...g, items: g.items.filter((i) => i.roles.includes(user.role)) }))
+    .map((g) => ({
+      ...g,
+      items: g.items.filter(
+        (i) => i.roles.includes(user.role) && !(isAfghanistan && afghHide.includes(i.key))
+      ),
+    }))
     .filter((g) => g.items.length > 0);
 
   const navContent = (

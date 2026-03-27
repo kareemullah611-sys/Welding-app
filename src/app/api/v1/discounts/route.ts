@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth } from "@/lib/middleware";
 import { successResponse, serverError } from "@/lib/api-response";
@@ -73,10 +73,18 @@ export const GET = withAuth(async (request: NextRequest, _context: any, user: JW
       totalByCurrency[code] = (totalByCurrency[code] || 0) + d.discountAmount;
     }
 
-    return successResponse(formatted, "Discounts retrieved", {
-      total: formatted.length,
-      totalByCurrency,
-    } as any);
+    return NextResponse.json({
+      success: true,
+      data: formatted,
+      message: "Discounts retrieved",
+      pagination: {
+        page: 1,
+        limit: formatted.length,
+        total: formatted.length,
+        totalPages: 1,
+        totalByCurrency,
+      },
+    });
   } catch (error) {
     console.error("Discounts API error:", error);
     return serverError();
