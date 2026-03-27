@@ -92,7 +92,23 @@ export default function CustomersPage() {
         )},
         { key: "phone", label: t("phone"), render: (c: any) => c.phone || "-" },
         { key: "address", label: t("address"), render: (c: any) => c.address || "-", className: "max-w-xs truncate" },
-        { key: "balance", label: t("balance"), render: (c: any) => c.balance !== undefined ? <span className={`font-medium ${c.balance > 0 ? "text-red-600" : c.balance < 0 ? "text-green-600" : ""}`}>{c.balance > 0 ? `${t("owes")} ${c.balance.toLocaleString("en-US")}` : c.balance < 0 ? `${t("we_owe")} ${Math.abs(c.balance).toLocaleString("en-US")}` : t("settled")}</span> : "-" },
+        { key: "balance", label: t("balance"), render: (c: any) => {
+          if (c.balanceByCurrency && Object.keys(c.balanceByCurrency).length > 0) {
+            return (
+              <div className="space-y-0.5">
+                {Object.entries(c.balanceByCurrency).map(([cc, amt]: [string, any]) => (
+                  <div key={cc} className={`font-medium text-sm ${amt > 0 ? "text-red-600" : amt < 0 ? "text-green-600" : "text-gray-400"}`}>
+                    {amt > 0 ? `${t("owes")} ${cc} ${Math.abs(amt).toLocaleString("en-US")}` : amt < 0 ? `${t("we_owe")} ${cc} ${Math.abs(amt).toLocaleString("en-US")}` : `${cc} ${t("settled")}`}
+                  </div>
+                ))}
+              </div>
+            );
+          }
+          if (c.balance !== undefined) {
+            return <span className={`font-medium ${c.balance > 0 ? "text-red-600" : c.balance < 0 ? "text-green-600" : ""}`}>{c.balance > 0 ? `${t("owes")} ${c.balance.toLocaleString("en-US")}` : c.balance < 0 ? `${t("we_owe")} ${Math.abs(c.balance).toLocaleString("en-US")}` : t("settled")}</span>;
+          }
+          return <span>-</span>;
+        }},
         { key: "actions", label: "", render: (c: any) => (
           <div className="flex gap-2">
             {c.isActive && <button onClick={() => openEdit(c)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button>}

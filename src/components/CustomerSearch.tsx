@@ -105,10 +105,7 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
             className="w-full text-left px-3 py-2 text-sm hover:bg-orange-50 flex items-center gap-2 border-b border-gray-100"
           >
             <span className="text-orange-500">🚶</span>
-            <div>
-              <span className="font-medium text-orange-700">{WALKIN_NAME}</span>
-              <p className="text-xs text-gray-400">Pays on the spot — no account needed</p>
-            </div>
+            <span className="font-medium text-orange-700">{WALKIN_NAME}</span>
           </button>
           {loading && <div className="px-3 py-2 text-sm text-gray-400">Searching…</div>}
           {!loading && query && results.length === 0 && (

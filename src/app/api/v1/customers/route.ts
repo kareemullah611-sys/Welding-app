@@ -33,29 +33,54 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       prisma.customer.count({ where }),
     ]);
 
-    // Compute balance for each customer via groupBy (2 queries total, not N)
+    // Compute per-currency balance for each customer (group by customerId + currencyId)
     const customerIds = customers.map((c) => c.id);
     const [salesAgg, paymentsAgg] = await Promise.all([
       prisma.sale.groupBy({
-        by: ["customerId"],
+        by: ["customerId", "currencyId"],
         where: { customerId: { in: customerIds }, status: { not: "cancelled" } },
         _sum: { totalAmount: true },
       }),
       prisma.payment.groupBy({
-        by: ["customerId"],
+        by: ["customerId", "currencyId"],
         where: { customerId: { in: customerIds }, status: { not: "cancelled" } },
         _sum: { amount: true },
       }),
     ]);
-    const salesMap = Object.fromEntries(salesAgg.map((s) => [s.customerId, Number(s._sum.totalAmount ?? 0)]));
-    const paymentsMap = Object.fromEntries(paymentsAgg.map((p) => [p.customerId, Number(p._sum.amount ?? 0)]));
+
+    // Fetch currency codes for all referenced currencies
+    const uniqueCurrencyIds = [...new Set([...salesAgg.map((s) => s.currencyId), ...paymentsAgg.map((p) => p.currencyId)])];
+    const currencyRows = uniqueCurrencyIds.length > 0
+      ? await prisma.currency.findMany({ where: { id: { in: uniqueCurrencyIds } }, select: { id: true, code: true } })
+      : [];
+    const currencyCodeMap = Object.fromEntries(currencyRows.map((c) => [c.id, c.code]));
+
+    // Build per-customer, per-currency balance map
+    const balanceMap: Record<number, Record<string, number>> = {};
+    for (const s of salesAgg) {
+      if (!balanceMap[s.customerId]) balanceMap[s.customerId] = {};
+      const code = currencyCodeMap[s.currencyId] || `CUR${s.currencyId}`;
+      balanceMap[s.customerId][code] = (balanceMap[s.customerId][code] || 0) + Number(s._sum.totalAmount ?? 0);
+    }
+    for (const p of paymentsAgg) {
+      if (!balanceMap[p.customerId]) balanceMap[p.customerId] = {};
+      const code = currencyCodeMap[p.currencyId] || `CUR${p.currencyId}`;
+      balanceMap[p.customerId][code] = (balanceMap[p.customerId][code] || 0) - Number(p._sum.amount ?? 0);
+    }
 
     return paginatedResponse(
-      customers.map((c) => ({
-        id: c.id, cityId: c.cityId, cityName: c.city.name,
-        name: c.name, phone: c.phone, address: c.address, isActive: c.isActive,
-        balance: Math.round(((salesMap[c.id] ?? 0) - (paymentsMap[c.id] ?? 0)) * 100) / 100,
-      })),
+      customers.map((c) => {
+        const raw = balanceMap[c.id] || {};
+        const balanceByCurrency = Object.fromEntries(
+          Object.entries(raw).map(([cc, amt]) => [cc, Math.round(amt * 100) / 100])
+        );
+        return {
+          id: c.id, cityId: c.cityId, cityName: c.city.name,
+          name: c.name, phone: c.phone, address: c.address, isActive: c.isActive,
+          balanceByCurrency,
+          balance: Math.round(Object.values(raw).reduce((s, v) => s + v, 0) * 100) / 100,
+        };
+      }),
       total, page, limit
     );
   } catch (error) {

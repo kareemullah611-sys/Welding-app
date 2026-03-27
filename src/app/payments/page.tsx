@@ -8,37 +8,6 @@ import CustomerSearch from "@/components/CustomerSearch";
 import { useLang } from "@/lib/lang";
 import { ChevronDown } from "lucide-react";
 
-async function uploadFile(file: File, entityType: string, entityId: number) {
-  const fd = new FormData();
-  fd.append("file", file);
-  fd.append("entityType", entityType);
-  fd.append("entityId", String(entityId));
-  await fetch("/api/v1/upload", { method: "POST", body: fd });
-}
-
-function AttachCell({ item, entityType, uploadingFor, setUploadingFor, reload, onView }: {
-  item: any; entityType: string; uploadingFor: number | null;
-  setUploadingFor: (v: number | null) => void; reload: () => void; onView: (a: any) => void;
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      {(item.attachments || []).map((a: any) => (
-        <button key={a.id} onClick={() => onView(a)} className="text-xs text-primary-600 hover:underline truncate max-w-[90px] text-left">
-          {a.fileType === "pdf" ? "📄" : "🖼️"} {a.fileName}
-        </button>
-      ))}
-      <label className="text-xs text-gray-400 hover:text-primary-600 cursor-pointer">
-        {uploadingFor === item.id ? "..." : "+ Attach"}
-        <input type="file" accept="image/*,.pdf" className="hidden" onChange={async e => {
-          const f = e.target.files?.[0]; if (!f) return;
-          setUploadingFor(item.id);
-          await uploadFile(f, entityType, item.id);
-          setUploadingFor(null); reload(); e.target.value = "";
-        }} />
-      </label>
-    </div>
-  );
-}
 
 const TYPE_CONFIG: Record<string, { label: string; color: string; amountColor: string }> = {
   payment:      { label: "Payment",    color: "bg-blue-50 text-blue-700",   amountColor: "text-green-700" },
@@ -80,8 +49,6 @@ export default function PaymentsPage() {
   const [form, setForm] = useState<any>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const [uploadingFor, setUploadingFor] = useState<number | null>(null);
 
   // Hard delete
   const [showHardDelete, setShowHardDelete] = useState(false);
@@ -97,9 +64,6 @@ export default function PaymentsPage() {
 
   // Voucher duplicate warning
   const [voucherWarning, setVoucherWarning] = useState<{ matches: any[] } | null>(null);
-
-  // Attachment viewer
-  const [viewingAttachment, setViewingAttachment] = useState<any | null>(null);
 
   // ── Batch payment queue ──────────────────────────────────────────────────
   const [paymentQueue, setPaymentQueue] = useState<Array<{ tempId: string; customerName: string; voucherNo: string; amount: number; currencySymbol: string; detail: string; date: string; body: any }>>([]);
@@ -167,7 +131,6 @@ export default function PaymentsPage() {
     } else {
       setForm({ withdrawalDate: today, amount: 0, detail: "", notes: "" });
     }
-    setPendingFile(null);
     setPaymentQueue([]);
     setQueueSaved(false);
     setShowCreate(true); setError("");
@@ -226,10 +189,6 @@ export default function PaymentsPage() {
     // ── Online: normal submit ──
     const r = await apiCall(endpoint, { method: "POST", body });
     if (r.success) {
-      const entityType = createType === "payment" ? "payment" : createType === "expense" ? "expense" : "haji_transfer";
-      if (pendingFile && (r.data as any)?.id && createType !== "withdrawal") {
-        await uploadFile(pendingFile, entityType, (r.data as any).id);
-      }
       setShowCreate(false);
       if (page !== 1) setPage(1);
       if (typeFilter !== "all") setTypeFilter("all");
@@ -269,7 +228,6 @@ export default function PaymentsPage() {
     const today = new Date().toISOString().split("T")[0];
     const usdCurrency = currencies.find((c: any) => c.code === "USD") || currencies[0];
     setForm({ customerId: 0, customerName: "", paymentDate: today, amount: 0, detail: "", currencyId: usdCurrency?.id || 0, paymentMethod: "cash", destination: "haji", notes: "", exchangeRate: 280, usdEquivalent: null, chequeNumber: "", chequeBank: "", chequeDueDate: "" });
-    setPendingFile(null);
     setQueueSaved(false);
   };
 
@@ -278,10 +236,7 @@ export default function PaymentsPage() {
     if (paymentQueue.length === 0) return;
     setSavingQueue(true);
     for (const item of paymentQueue) {
-      const r = await apiCall("/api/v1/payments", { method: "POST", body: item.body });
-      if (r.success && pendingFile && (r.data as any)?.id) {
-        await uploadFile(pendingFile, "payment", (r.data as any).id);
-      }
+      await apiCall("/api/v1/payments", { method: "POST", body: item.body });
     }
     setSavingQueue(false);
     setPaymentQueue([]);
@@ -446,12 +401,6 @@ export default function PaymentsPage() {
         );
         return <span className="text-gray-300">—</span>;
       },
-    },
-    {
-      key: "attachment", label: "📎",
-      render: (item: any) => item.type !== "withdrawal" ? (
-        <AttachCell item={item.raw} entityType={item.type === "haji_transfer" ? "haji_transfer" : item.type} uploadingFor={uploadingFor} setUploadingFor={setUploadingFor} reload={load} onView={setViewingAttachment} />
-      ) : <span className="text-gray-300">—</span>,
     },
     {
       key: "actions", label: "",
@@ -654,20 +603,17 @@ export default function PaymentsPage() {
             );
           })()}
 
-          {createType === "payment" && (
-            <div className={user?.countryName === "Afghanistan" ? "" : "grid grid-cols-2 gap-3"}>
-              {/* Hide method selector for Afghanistan — always cash */}
-              {user?.countryName !== "Afghanistan" && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("method")}</label>
-                  <select value={form.paymentMethod} onChange={e => setForm((f: any) => ({ ...f, paymentMethod: e.target.value }))} className="select-field">
-                    <option value="cash">{t("cash")}</option>
-                    <option value="bank_transfer">{t("bank_transfer")}</option>
-                    <option value="cheque">{t("cheque")}</option>
-                    <option value="online">{t("online")}</option>
-                  </select>
-                </div>
-              )}
+          {createType === "payment" && user?.countryName !== "Afghanistan" && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t("method")}</label>
+                <select value={form.paymentMethod} onChange={e => setForm((f: any) => ({ ...f, paymentMethod: e.target.value }))} className="select-field">
+                  <option value="cash">{t("cash")}</option>
+                  <option value="bank_transfer">{t("bank_transfer")}</option>
+                  <option value="cheque">{t("cheque")}</option>
+                  <option value="online">{t("online")}</option>
+                </select>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">{t("destination")}</label>
                 <select value={form.destination} onChange={e => setForm((f: any) => ({ ...f, destination: e.target.value }))} className="select-field">
@@ -715,13 +661,6 @@ export default function PaymentsPage() {
             <input value={form.notes || ""} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" />
           </div>
 
-          {createType !== "withdrawal" && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Attach File <span className="text-gray-400 font-normal">(photo or PDF, optional)</span></label>
-              <input type="file" accept="image/*,.pdf" onChange={e => setPendingFile(e.target.files?.[0] || null)} className="text-sm text-gray-600" />
-              {pendingFile && <p className="text-xs text-green-600 mt-1">📎 {pendingFile.name}</p>}
-            </div>
-          )}
         </div>
         {/* ── Batch queue (payment only) ── */}
         {createType === "payment" && paymentQueue.length > 0 && (
@@ -862,20 +801,6 @@ export default function PaymentsPage() {
         </div>
       </Modal>
 
-      {/* ── ATTACHMENT VIEWER ────────────────────────────────────────────────── */}
-      {viewingAttachment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => setViewingAttachment(null)}>
-          <div className="relative max-w-3xl w-full max-h-[90vh] mx-4" onClick={e => e.stopPropagation()}>
-            <button onClick={() => setViewingAttachment(null)} className="absolute -top-8 right-0 text-white text-2xl font-bold">✕</button>
-            {viewingAttachment.fileType === "pdf" ? (
-              <iframe src={viewingAttachment.filePath} className="w-full h-[80vh] rounded-lg" />
-            ) : (
-              <img src={viewingAttachment.filePath} alt={viewingAttachment.fileName} className="w-full max-h-[80vh] object-contain rounded-lg bg-white" />
-            )}
-            <p className="text-white text-sm text-center mt-2">{viewingAttachment.fileName}</p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

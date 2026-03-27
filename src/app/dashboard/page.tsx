@@ -121,8 +121,8 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Cash breakdown — collapsed by default */}
-        {cashPosition && (
+        {/* Cash breakdown — collapsed by default (hidden for Afghanistan) */}
+        {cashPosition && user?.countryName !== "Afghanistan" && (
           <div className="card mb-6">
             <button
               onClick={() => setShowCashBreakdown((v) => !v)}

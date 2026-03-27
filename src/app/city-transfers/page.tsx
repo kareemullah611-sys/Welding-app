@@ -36,7 +36,7 @@ export default function CityTransfersPage() {
 
   const openSend = async () => {
     const [cR, gR, pR, lR] = await Promise.all([apiCall("/api/v1/cities", { params: { all: "true" } }), apiCall("/api/v1/godowns", { params: { limit: 100 } }), apiCall("/api/v1/products", { params: { limit: 100 } }), apiCall("/api/v1/lots", { params: { limit: 100 } })]);
-    if (cR.success) setCities((cR.data as any[]).filter((c: any) => c.id !== user?.cityId));
+    if (cR.success) setCities((cR.data as any[]).filter((c: any) => c.id !== user?.cityId && c.countryName === user?.countryName));
     if (gR.success) setGodowns((gR.data as any[]).filter((g: any) => g.cityId === user?.cityId));
     if (pR.success) setProducts(pR.data as any[]);
     if (lR.success) setLots(lR.data as any[]);

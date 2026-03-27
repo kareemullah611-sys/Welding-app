@@ -1,18 +1,10 @@
 "use client";
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 
-async function uploadFile(file: File, entityType: string, entityId: number) {
-  const fd = new FormData();
-  fd.append("file", file);
-  fd.append("entityType", entityType);
-  fd.append("entityId", String(entityId));
-  const res = await fetch("/api/v1/upload", { method: "POST", body: fd });
-  return res.json();
-}
 
 const SOURCE_CONFIG: Record<string, { label: string; color: string; icon: string }> = {
   cash_office:    { label: "Cash from Office", icon: "💵", color: "bg-green-50 text-green-700" },
@@ -43,12 +35,8 @@ export default function HajiTransfersPage() {
     amount: 0, currencyId: 0, detail: "", sourceType: "cash_office",
     bankAccountId: 0, chequePaymentId: 0, transferredTo: "", notes: "",
   });
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [uploadingFor, setUploadingFor] = useState<number | null>(null);
-  const uploadRef = useRef<HTMLInputElement>(null);
-  const [viewingAttachment, setViewingAttachment] = useState<any | null>(null);
 
   // Filters
   const [filterFrom, setFilterFrom] = useState("");
@@ -99,7 +87,6 @@ export default function HajiTransfersPage() {
       amount: 0, detail: "", sourceType: "cash_office",
       bankAccountId: 0, chequePaymentId: 0, transferredTo: "", notes: "", lotId: 0,
     }));
-    setPendingFile(null);
     setShowCreate(true); setError("");
   };
 
@@ -131,7 +118,6 @@ export default function HajiTransfersPage() {
 
     const r = await apiCall("/api/v1/haji-transfers", { method: "POST", body });
     if (r.success) {
-      if (pendingFile && (r.data as any)?.id) await uploadFile(pendingFile, "haji_transfer", (r.data as any).id);
       setShowCreate(false); load();
     } else { setError(r.error || "Failed"); }
     setSubmitting(false);
@@ -171,13 +157,6 @@ export default function HajiTransfersPage() {
   const handleDelete = async (item: any) => {
     if (!confirm(`${t("confirm_delete")} "${item.detail}"?`)) return;
     await apiCall(`/api/v1/haji-transfers/${item.id}`, { method: "DELETE" });
-    load();
-  };
-
-  const handleInlineUpload = async (item: any, file: File) => {
-    setUploadingFor(item.id);
-    await uploadFile(file, "haji_transfer", item.id);
-    setUploadingFor(null);
     load();
   };
 
@@ -245,24 +224,6 @@ export default function HajiTransfersPage() {
           },
         },
         { key: "lotNumber", label: t("lot"), render: (tr: any) => tr.lot?.lotNumber || tr.lotNumber || "-" },
-        {
-          key: "attachment", label: "📎",
-          render: (tr: any) => (
-            <div className="flex flex-col gap-1">
-              {(tr.attachments || []).map((a: any) => (
-                <button key={a.id} onClick={() => setViewingAttachment(a)} className="text-xs text-primary-600 hover:underline truncate max-w-[100px] text-left">
-                  {a.fileType === "pdf" ? "📄" : "🖼️"} {a.fileName}
-                </button>
-              ))}
-              {user?.role === "city_admin" && (
-                <label className="text-xs text-gray-400 hover:text-primary-600 cursor-pointer">
-                  {uploadingFor === tr.id ? "..." : "+ Attach"}
-                  <input type="file" accept="image/*,.pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleInlineUpload(tr, f); e.target.value = ""; }} />
-                </label>
-              )}
-            </div>
-          ),
-        },
         {
           key: "actions", label: "",
           render: (tr: any) => (
@@ -375,11 +336,6 @@ export default function HajiTransfersPage() {
             <input value={form.notes} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Attach File <span className="text-gray-400 font-normal">(photo or PDF, optional)</span></label>
-            <input type="file" accept="image/*,.pdf" ref={uploadRef} onChange={e => setPendingFile(e.target.files?.[0] || null)} className="text-sm text-gray-600" />
-            {pendingFile && <p className="text-xs text-green-600 mt-1">📎 {pendingFile.name}</p>}
-          </div>
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
           <button onClick={() => setShowCreate(false)} className="btn-secondary text-sm">{t("cancel")}</button>
@@ -415,20 +371,6 @@ export default function HajiTransfersPage() {
         </div>
       </Modal>
 
-      {/* Attachment Viewer */}
-      {viewingAttachment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => setViewingAttachment(null)}>
-          <div className="relative max-w-3xl w-full max-h-[90vh] mx-4" onClick={e => e.stopPropagation()}>
-            <button onClick={() => setViewingAttachment(null)} className="absolute -top-8 right-0 text-white text-2xl font-bold">✕</button>
-            {viewingAttachment.fileType === "pdf" ? (
-              <iframe src={viewingAttachment.filePath} className="w-full h-[80vh] rounded-lg" />
-            ) : (
-              <img src={viewingAttachment.filePath} alt={viewingAttachment.fileName} className="w-full max-h-[80vh] object-contain rounded-lg bg-white" />
-            )}
-            <p className="text-white text-sm text-center mt-2">{viewingAttachment.fileName}</p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
