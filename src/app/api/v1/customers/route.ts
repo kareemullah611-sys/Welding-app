@@ -49,7 +49,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     ]);
 
     // Fetch currency codes for all referenced currencies
-    const uniqueCurrencyIds = [...new Set([...salesAgg.map((s) => s.currencyId), ...paymentsAgg.map((p) => p.currencyId)])];
+    const uniqueCurrencyIds = Array.from(new Set([...salesAgg.map((s) => s.currencyId), ...paymentsAgg.map((p) => p.currencyId)]));
     const currencyRows = uniqueCurrencyIds.length > 0
       ? await prisma.currency.findMany({ where: { id: { in: uniqueCurrencyIds } }, select: { id: true, code: true } })
       : [];
