@@ -324,9 +324,9 @@ export default function LotsPage() {
           {l.status === "completed" && <button onClick={() => handleReopen(l)}  title={t("reactivate")} className="p-1.5 rounded-md hover:bg-orange-50 text-orange-400 hover:text-orange-600 transition-colors"><RotateCcw size={13} /></button>}
           <button onClick={() => handleDeleteLot(l)} title={t("delete")} className="p-1.5 rounded-md hover:bg-red-50 text-red-400 hover:text-red-600 transition-colors"><Trash2 size={13} /></button>
         </>}
-        {user?.role === "city_admin" && l.distributions?.filter((d: any) => d.cityId === user.cityId).map((d: any, i: number) => (
-          <button key={i} onClick={() => openGodownAlloc(l, d)} title={`${d.productName} → ${t("godown")}`} className="p-1.5 rounded-md hover:bg-teal-50 text-teal-500 hover:text-teal-700 transition-colors"><Warehouse size={13} /></button>
-        ))}
+        {user?.role === "city_admin" && (
+          <span className="text-xs text-gray-400 italic">Use Inventory page to assign godowns</span>
+        )}
       </div>
     )},
   ];

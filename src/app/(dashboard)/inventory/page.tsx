@@ -5,6 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, Modal, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { Warehouse } from "lucide-react";
 
 export default function InventoryPage() {
   const { user } = useAuth();
@@ -18,6 +19,18 @@ export default function InventoryPage() {
   const [approveForm, setApproveForm] = useState({ toGodownId: 0, approvalNotes: "" });
   const [submitting, setSubmitting] = useState(false);
   const [approveError, setApproveError] = useState("");
+
+  // Lot distributions for godown assignment
+  const [lots, setLots] = useState<any[]>([]);
+  const [lotsLoading, setLotsLoading] = useState(false);
+
+  // Godown allocation modal
+  const [showGodownAlloc, setShowGodownAlloc] = useState(false);
+  const [godownAllocs, setGodownAllocs] = useState<any[]>([]);
+  const [selectedDist, setSelectedDist] = useState<any>(null);
+  const [selectedLot, setSelectedLot] = useState<any>(null);
+  const [godownSubmitting, setGodownSubmitting] = useState(false);
+  const [godownError, setGodownError] = useState("");
 
   const loadInventory = useCallback(async () => {
     setLoading(true);
@@ -35,7 +48,16 @@ export default function InventoryPage() {
     setLoading(false);
   }, [user?.cityId]);
 
+  const loadLots = useCallback(async () => {
+    if (user?.role !== "city_admin") return;
+    setLotsLoading(true);
+    const r = await apiCall("/api/v1/lots", { params: { limit: 200 } });
+    if (r.success) setLots(r.data as any[]);
+    setLotsLoading(false);
+  }, [user?.role]);
+
   useEffect(() => { loadInventory(); }, [loadInventory]);
+  useEffect(() => { loadLots(); }, [loadLots]);
 
   const openApprove = async (tr: any) => {
     setSelected(tr);
@@ -66,6 +88,46 @@ export default function InventoryPage() {
       body: { action: "reject", approvalNotes: reason },
     });
     loadInventory();
+  };
+
+  // ── Godown allocation ──────────────────────────────────────────────────────
+  const openGodownAlloc = async (lot: any, dist: any) => {
+    setSelectedDist(dist); setSelectedLot(lot); setGodownError("");
+    const gRes = await apiCall("/api/v1/godowns", { params: { city_id: dist.cityId, limit: 50 } });
+    const godowns = ((gRes.data || []) as any[]).filter((g: any) => g.isActive);
+    const allocs: any[] = godowns.map((gd: any) => {
+      const ex = dist.godownAllocations?.find((ga: any) => ga.godownId === gd.id);
+      return { productId: dist.productId, productName: dist.productName, godownId: gd.id, godownName: gd.name, qty: ex?.qty || 0, maxQty: Number(dist.allocatedQty) };
+    });
+    setGodownAllocs(allocs); setShowGodownAlloc(true);
+  };
+
+  const godownEvenSplit = () => {
+    if (!godownAllocs.length) return;
+    const max = godownAllocs[0]?.maxQty || 0;
+    const perGodown = Math.floor(max / godownAllocs.length);
+    const remainder = max - perGodown * godownAllocs.length;
+    setGodownAllocs(prev => prev.map((a, i) => ({ ...a, qty: perGodown + (i === 0 ? remainder : 0) })));
+  };
+
+  const godownAllToOne = (godownId: number) => {
+    const max = godownAllocs[0]?.maxQty || 0;
+    setGodownAllocs(prev => prev.map(a => ({ ...a, qty: a.godownId === godownId ? max : 0 })));
+  };
+
+  const handleGodownAlloc = async () => {
+    setGodownSubmitting(true); setGodownError("");
+    const totalAlloc = godownAllocs.reduce((s, a) => s + (Number(a.qty) || 0), 0);
+    const maxQty = godownAllocs[0]?.maxQty || 0;
+    if (totalAlloc > maxQty) { setGodownError(`Total ${totalAlloc} exceeds allocated qty ${maxQty}`); setGodownSubmitting(false); return; }
+    const validAllocs = godownAllocs.filter(a => a.qty > 0).map(({ godownId, qty }: any) => ({ godownId, qty }));
+    const r = await apiCall(`/api/v1/lots/${selectedLot.id}/godown-allocation`, {
+      method: "POST",
+      body: { cityId: selectedDist.cityId, productId: selectedDist.productId, allocations: validAllocs },
+    });
+    setGodownSubmitting(false);
+    if (r.success) { setShowGodownAlloc(false); loadInventory(); loadLots(); }
+    else { setGodownError(r.error || "Failed"); }
   };
 
   if (loading || !data) {
@@ -191,6 +253,59 @@ export default function InventoryPage() {
         ))}
       </div>
 
+      {/* ── Lot Distributions → Assign to Godowns (city_admin only) ── */}
+      {user?.role === "city_admin" && (
+        <div className="card mt-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-1">{t("assign_to_godowns") || "Assign to Godowns"}</h2>
+          <p className="text-xs text-gray-400 mb-4">Lots distributed to your city — assign stock to your godowns.</p>
+          {lotsLoading ? (
+            <div className="py-6 flex justify-center"><div className="w-6 h-6 border-2 border-primary-200 border-t-primary-600 rounded-full animate-spin" /></div>
+          ) : (() => {
+            // Flatten all distributions for this city from all lots
+            const rows: { lot: any; dist: any }[] = [];
+            for (const lot of lots) {
+              for (const dist of (lot.distributions || [])) {
+                if (dist.cityId === user.cityId) rows.push({ lot, dist });
+              }
+            }
+            if (!rows.length) return <p className="text-sm text-gray-400 py-4">{t("no_data")}</p>;
+            return (
+              <div className="divide-y divide-gray-100 border border-gray-200 rounded-xl overflow-hidden">
+                {rows.map(({ lot, dist }, i) => {
+                  const assigned = (dist.godownAllocations || []).reduce((s: number, ga: any) => s + Number(ga.qty), 0);
+                  const remaining = Number(dist.allocatedQty) - assigned;
+                  const isDone = remaining <= 0;
+                  return (
+                    <div key={i} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-semibold text-gray-800">{dist.productName}</span>
+                          <span className="text-xs font-mono bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100">{lot.lotNumber}</span>
+                          {isDone
+                            ? <span className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full border border-green-100 font-medium">✓ Fully assigned</span>
+                            : <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full border border-amber-100 font-medium">{formatNumber(remaining)} unassigned</span>
+                          }
+                        </div>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          Allocated: <strong className="text-gray-600">{formatNumber(Number(dist.allocatedQty))}</strong>
+                          {" · "}Assigned to godowns: <strong className="text-gray-600">{formatNumber(assigned)}</strong>
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => openGodownAlloc(lot, dist)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-lg transition-colors flex-shrink-0"
+                      >
+                        <Warehouse size={13} /> {isDone ? "Re-assign" : "Assign"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
       {/* Approve Transfer Modal */}
       <Modal open={showApprove} onClose={() => setShowApprove(false)} title={t("approve_transfer")} size="md">
         {approveError && (
@@ -229,6 +344,66 @@ export default function InventoryPage() {
           <button onClick={handleApprove} disabled={submitting} className="btn-primary text-sm">
             {submitting ? "..." : t("approve_receive")}
           </button>
+        </div>
+      </Modal>
+
+      {/* ── Godown Allocation Modal ── */}
+      <Modal open={showGodownAlloc} onClose={() => setShowGodownAlloc(false)} title={`${t("assign_to_godowns") || "Assign to Godowns"} — ${selectedLot?.lotNumber || ""}`} size="lg">
+        {godownError && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{godownError}</div>}
+        {selectedDist && (
+          <div className="mb-3 p-3 bg-gray-50 rounded-lg text-sm text-gray-700">
+            <strong>{selectedDist.productName}</strong> — Allocated: <strong>{formatNumber(Number(selectedDist.allocatedQty))}</strong> cartons
+          </div>
+        )}
+        {godownAllocs.length > 0 ? (() => {
+          const totalAlloc = godownAllocs.reduce((s, a) => s + (Number(a.qty) || 0), 0);
+          const maxQty = godownAllocs[0]?.maxQty || 0;
+          const remaining = maxQty - totalAlloc;
+          const isOver = remaining < 0;
+          const isDone = remaining === 0;
+          return (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                <div className="flex-1">
+                  <div className="h-2 bg-gray-200 rounded-full overflow-hidden mb-1">
+                    <div className={`h-full rounded-full transition-all ${isOver ? "bg-red-500" : isDone ? "bg-green-500" : "bg-primary-500"}`}
+                      style={{ width: `${Math.min(100, maxQty > 0 ? (totalAlloc / maxQty) * 100 : 0)}%` }} />
+                  </div>
+                  <span className={`text-xs font-semibold ${isOver ? "text-red-600" : isDone ? "text-green-600" : "text-gray-500"}`}>
+                    {formatNumber(totalAlloc)} / {formatNumber(maxQty)} assigned
+                    {isOver ? ` · ⚠ ${formatNumber(Math.abs(remaining))} over` : isDone ? " · ✓ Complete" : ` · ${formatNumber(remaining)} left`}
+                  </span>
+                </div>
+                <button type="button" onClick={godownEvenSplit} className="px-3 py-1.5 text-xs rounded-lg bg-white border border-gray-200 hover:border-primary-400 hover:text-primary-600 transition-colors">
+                  ÷ Even Split
+                </button>
+                <button type="button" onClick={() => setGodownAllocs(prev => prev.map(a => ({ ...a, qty: 0 })))} className="px-3 py-1.5 text-xs rounded-lg bg-white border border-gray-200 hover:border-red-300 hover:text-red-500 transition-colors">
+                  ✕ Clear
+                </button>
+              </div>
+              <div className="space-y-1 max-h-80 overflow-y-auto">
+                <div className="flex items-center gap-3 text-xs font-semibold text-gray-400 pb-1.5 border-b px-1">
+                  <span className="w-40">{t("godown")}</span><span className="w-28">{t("qty")}</span><span className="text-gray-300">Max</span>
+                </div>
+                {godownAllocs.map((a, i) => (
+                  <div key={i} className="flex items-center gap-3 text-sm px-1">
+                    <span className="w-40 font-medium truncate text-gray-700">{a.godownName}</span>
+                    <input type="number" value={a.qty || ""} min={0}
+                      onChange={e => { const u = [...godownAllocs]; u[i] = { ...u[i], qty: parseFloat(e.target.value) || 0 }; setGodownAllocs(u); }}
+                      className="input-field w-28" />
+                    <span className="text-xs text-gray-400">/ {a.maxQty}</span>
+                    <button type="button" onClick={() => godownAllToOne(a.godownId)} className="text-xs text-primary-500 hover:underline ml-auto">
+                      All here
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })() : <p className="text-sm text-gray-400">{t("no_godowns")}</p>}
+        <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
+          <button onClick={() => setShowGodownAlloc(false)} className="btn-secondary text-sm">{t("cancel")}</button>
+          <button onClick={handleGodownAlloc} disabled={godownSubmitting} className="btn-primary text-sm">{godownSubmitting ? "..." : t("save")}</button>
         </div>
       </Modal>
     </div>
