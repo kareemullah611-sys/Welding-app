@@ -2,12 +2,13 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
-import { Send, Bot, User, Sparkles, RotateCcw } from "lucide-react";
+import { Send, Bot, Sparkles, Trash2, ChevronDown } from "lucide-react";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
   loading?: boolean;
+  timestamp?: Date;
 }
 
 const SUGGESTIONS = [
@@ -21,72 +22,81 @@ const SUGGESTIONS = [
   "What is current inventory level for all cities?",
 ];
 
+function formatTime(date?: Date) {
+  if (!date) return "";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function TypingIndicator() {
+  return (
+    <div className="flex items-end gap-2 px-4 py-1">
+      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0 shadow">
+        <Bot size={15} className="text-white" />
+      </div>
+      <div className="bg-white rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm border border-gray-100">
+        <div className="flex items-center gap-1">
+          <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+          <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "160ms" }} />
+          <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "320ms" }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MessageBubble({ msg }: { msg: Message }) {
   const isUser = msg.role === "user";
 
-  // Render markdown-like formatting
   const renderContent = (text: string) => {
     const lines = text.split("\n");
     return lines.map((line, i) => {
-      // Bold: **text**
       const formatted = line.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
-      // Bullet
       if (line.startsWith("•") || line.startsWith("-")) {
         return (
-          <div key={i} className="flex gap-2 mt-0.5">
-            <span className="text-current opacity-50 flex-shrink-0 mt-0.5">•</span>
+          <div key={i} className="flex gap-2 mt-1">
+            <span className="opacity-60 flex-shrink-0 mt-0.5 text-xs">•</span>
             <span dangerouslySetInnerHTML={{ __html: formatted.replace(/^[•\-]\s*/, "") }} />
           </div>
         );
       }
-      // Empty line
-      if (!line.trim()) return <div key={i} className="h-1" />;
-      // Heading (starts with #)
+      if (!line.trim()) return <div key={i} className="h-1.5" />;
       if (line.startsWith("# ")) {
-        return <p key={i} className="font-bold text-base mt-2 mb-1" dangerouslySetInnerHTML={{ __html: formatted.slice(2) }} />;
+        return (
+          <p key={i} className="font-semibold text-sm mt-2 mb-1"
+            dangerouslySetInnerHTML={{ __html: formatted.slice(2) }} />
+        );
       }
       return <p key={i} className="leading-relaxed" dangerouslySetInnerHTML={{ __html: formatted }} />;
     });
   };
 
-  if (msg.loading) {
+  if (isUser) {
     return (
-      <div className="flex gap-3 items-start">
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0 shadow-sm">
-          <Bot size={16} className="text-white" />
-        </div>
-        <div className="bg-white border border-gray-100 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-            <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-            <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+      <div className="flex flex-col items-end px-4 py-0.5 group">
+        <div className="max-w-[72%] flex flex-col items-end gap-1">
+          <div className="bg-emerald-500 text-white px-4 py-2.5 rounded-2xl rounded-br-sm shadow-sm text-sm leading-relaxed">
+            {msg.content}
           </div>
+          <span className="text-[10px] text-gray-400 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            {formatTime(msg.timestamp)}
+          </span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className={`flex gap-3 items-start ${isUser ? "flex-row-reverse" : ""}`}>
-      {/* Avatar */}
-      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm ${
-        isUser
-          ? "bg-gradient-to-br from-primary-500 to-primary-700"
-          : "bg-gradient-to-br from-indigo-500 to-purple-600"
-      }`}>
-        {isUser ? <User size={15} className="text-white" /> : <Bot size={15} className="text-white" />}
+    <div className="flex items-end gap-2 px-4 py-0.5 group">
+      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0 shadow mb-4">
+        <Bot size={15} className="text-white" />
       </div>
-
-      {/* Bubble */}
-      <div className={`max-w-[78%] px-4 py-3 rounded-2xl text-sm shadow-sm ${
-        isUser
-          ? "bg-gradient-to-br from-primary-600 to-primary-700 text-white rounded-tr-sm"
-          : "bg-white border border-gray-100 text-gray-800 rounded-tl-sm"
-      }`}>
-        {isUser
-          ? <p className="leading-relaxed">{msg.content}</p>
-          : <div className="space-y-0.5">{renderContent(msg.content)}</div>
-        }
+      <div className="max-w-[72%] flex flex-col gap-1">
+        <div className="bg-white border border-gray-100 text-gray-800 px-4 py-2.5 rounded-2xl rounded-bl-sm shadow-sm text-sm">
+          <div className="space-y-0.5">{renderContent(msg.content)}</div>
+        </div>
+        <span className="text-[10px] text-gray-400 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          {formatTime(msg.timestamp)}
+        </span>
       </div>
     </div>
   );
@@ -98,10 +108,12 @@ export default function AssistantPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const chatAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Redirect non-superadmin
   useEffect(() => {
     if (user && user.role !== "super_admin") router.replace("/dashboard");
   }, [user, router]);
@@ -110,19 +122,29 @@ export default function AssistantPage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  const handleScroll = () => {
+    const el = chatAreaRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    setShowScrollBtn(!atBottom);
+  };
+
+  const scrollToBottom = () => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
   const sendMessage = async (text?: string) => {
     const content = (text || input).trim();
     if (!content || loading) return;
 
     setInput("");
-    const userMsg: Message = { role: "user", content };
+    const userMsg: Message = { role: "user", content, timestamp: new Date() };
     const loadingMsg: Message = { role: "assistant", content: "", loading: true };
 
     setMessages(prev => [...prev, userMsg, loadingMsg]);
     setLoading(true);
 
     try {
-      // Build history (exclude last loading message)
       const history = [...messages, userMsg].map(m => ({
         role: m.role === "assistant" ? "model" : "user",
         content: m.content,
@@ -135,7 +157,6 @@ export default function AssistantPage() {
         body: JSON.stringify({ message: content, messages: history.slice(0, -1) }),
       });
 
-      // Read raw text first so we never crash on non-JSON responses
       const rawText = await res.text();
       let reply: string;
       try {
@@ -148,18 +169,17 @@ export default function AssistantPage() {
           reply = `⚠️ Unexpected response (${res.status}): ${rawText.slice(0, 300)}`;
         }
       } catch {
-        // Server returned non-JSON (HTML error page etc.)
         reply = `⚠️ Server returned non-JSON (${res.status}):\n${rawText.slice(0, 500)}`;
       }
 
       setMessages(prev => [
-        ...prev.slice(0, -1), // remove loading
-        { role: "assistant", content: reply },
+        ...prev.slice(0, -1),
+        { role: "assistant", content: reply, timestamp: new Date() },
       ]);
     } catch (e: any) {
       setMessages(prev => [
         ...prev.slice(0, -1),
-        { role: "assistant", content: `⚠️ Network error: ${e?.message || "Failed to reach server."}` },
+        { role: "assistant", content: `⚠️ Network error: ${e?.message || "Failed to reach server."}`, timestamp: new Date() },
       ]);
     } finally {
       setLoading(false);
@@ -171,55 +191,94 @@ export default function AssistantPage() {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   };
 
-  const clearChat = () => { setMessages([]); setInput(""); };
+  // Auto-grow textarea
+  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    e.target.style.height = "auto";
+    e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+  };
 
   if (!user || user.role !== "super_admin") return null;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-48px)] lg:h-[calc(100vh-48px)] max-h-[900px]">
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between mb-4 flex-shrink-0">
+    <div className="flex flex-col h-[calc(100vh-48px)] max-h-[900px] bg-[#f0f2f5] rounded-2xl overflow-hidden shadow-lg border border-gray-200">
+
+      {/* ── WhatsApp-style Header ── */}
+      <div className="flex items-center justify-between px-4 py-3 bg-[#008069] flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-md shadow-indigo-200">
-            <Sparkles size={20} className="text-white" />
+          <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center shadow">
+            <Bot size={20} className="text-white" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-gray-900">Business Assistant</h1>
-            <p className="text-xs text-gray-400">Powered by DeepSeek · Full database access</p>
+            <h1 className="text-[15px] font-semibold text-white leading-tight">Business Assistant</h1>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
+              <p className="text-xs text-white/70">Powered by DeepSeek · Always online</p>
+            </div>
           </div>
         </div>
+
         {messages.length > 0 && (
-          <button
-            onClick={clearChat}
-            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-full transition-colors"
-          >
-            <RotateCcw size={12} />
-            Clear chat
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => setShowClearConfirm(true)}
+              className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center transition-colors"
+              title="Clear chat"
+            >
+              <Trash2 size={16} className="text-white/80" />
+            </button>
+            {showClearConfirm && (
+              <div className="absolute right-0 top-10 bg-white rounded-xl shadow-xl border border-gray-100 p-3 z-50 w-48">
+                <p className="text-xs text-gray-600 mb-2 font-medium">Clear all messages?</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setMessages([]); setInput(""); setShowClearConfirm(false); }}
+                    className="flex-1 text-xs bg-red-500 hover:bg-red-600 text-white py-1.5 rounded-lg font-medium transition-colors"
+                  >
+                    Clear
+                  </button>
+                  <button
+                    onClick={() => setShowClearConfirm(false)}
+                    className="flex-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 py-1.5 rounded-lg font-medium transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
       {/* ── Chat Area ── */}
-      <div className="flex-1 overflow-y-auto rounded-2xl bg-gray-50 border border-gray-100 p-4 space-y-4 min-h-0">
-
-        {/* Welcome / empty state */}
+      <div
+        ref={chatAreaRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto min-h-0 py-3 space-y-1"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Crect width='400' height='400' fill='%23e5ddd5'/%3E%3C/svg%3E")`,
+          backgroundColor: "#e5ddd5",
+        }}
+      >
+        {/* ── Empty State ── */}
         {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-center gap-6 py-8">
-            <div className="w-16 h-16 rounded-3xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-xl shadow-indigo-200">
-              <Sparkles size={28} className="text-white" />
+          <div className="flex flex-col items-center justify-center h-full text-center gap-5 px-6 py-8">
+            <div className="w-20 h-20 rounded-full bg-[#008069] flex items-center justify-center shadow-xl">
+              <Sparkles size={32} className="text-white" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-gray-800 mb-1">How can I help you today?</h2>
-              <p className="text-sm text-gray-400 max-w-xs">Ask me anything about your business — sales, payments, inventory, balances, transfers, and more.</p>
+              <h2 className="text-lg font-bold text-gray-700 mb-1">How can I help you?</h2>
+              <p className="text-sm text-gray-500 max-w-xs">
+                Ask me anything about your business — sales, payments, inventory, balances, expenses, and more.
+              </p>
             </div>
 
-            {/* Suggestion chips */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-xl">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-lg mt-2">
               {SUGGESTIONS.map((s, i) => (
                 <button
                   key={i}
                   onClick={() => sendMessage(s)}
-                  className="text-left text-xs bg-white border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50 text-gray-600 hover:text-indigo-700 px-3 py-2.5 rounded-xl transition-all shadow-sm"
+                  className="text-left text-xs bg-white hover:bg-[#008069] hover:text-white text-gray-600 border border-gray-200 hover:border-[#008069] px-3 py-2.5 rounded-xl transition-all shadow-sm font-medium"
                 >
                   {s}
                 </button>
@@ -228,38 +287,47 @@ export default function AssistantPage() {
           </div>
         )}
 
-        {/* Messages */}
-        {messages.map((msg, i) => (
-          <MessageBubble key={i} msg={msg} />
-        ))}
+        {/* ── Messages ── */}
+        {messages.map((msg, i) =>
+          msg.loading
+            ? <TypingIndicator key={i} />
+            : <MessageBubble key={i} msg={msg} />
+        )}
         <div ref={bottomRef} />
       </div>
 
+      {/* ── Scroll to bottom button ── */}
+      {showScrollBtn && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-[80px] right-6 w-9 h-9 rounded-full bg-white shadow-md border border-gray-200 flex items-center justify-center hover:bg-gray-50 transition-colors z-10"
+        >
+          <ChevronDown size={18} className="text-gray-600" />
+        </button>
+      )}
+
       {/* ── Input Bar ── */}
-      <div className="mt-3 flex-shrink-0">
-        <div className="flex gap-2 items-end bg-white border border-gray-200 rounded-2xl px-4 py-3 shadow-sm focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+      <div className="flex items-end gap-2 px-3 py-2.5 bg-[#f0f2f5] flex-shrink-0 border-t border-gray-200">
+        <div className="flex-1 flex items-end bg-white rounded-2xl px-4 py-2.5 shadow-sm border border-gray-200 focus-within:border-[#008069]/40 transition-colors">
           <textarea
             ref={inputRef}
             value={input}
-            onChange={e => setInput(e.target.value)}
+            onChange={handleInput}
             onKeyDown={handleKeyDown}
-            placeholder="Ask anything about your business…"
+            placeholder="Type a message…"
             rows={1}
             disabled={loading}
-            className="flex-1 resize-none text-sm text-gray-800 placeholder-gray-400 bg-transparent outline-none leading-relaxed max-h-32 overflow-y-auto disabled:opacity-60"
-            style={{ minHeight: "24px" }}
+            className="flex-1 resize-none text-sm text-gray-800 placeholder-gray-400 bg-transparent outline-none leading-relaxed overflow-y-hidden disabled:opacity-60"
+            style={{ minHeight: "22px", maxHeight: "120px" }}
           />
-          <button
-            onClick={() => sendMessage()}
-            disabled={!input.trim() || loading}
-            className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0 shadow-sm hover:opacity-90 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            <Send size={14} className="text-white" />
-          </button>
         </div>
-        <p className="text-center text-[10px] text-gray-300 mt-2">
-          Press Enter to send · Shift+Enter for new line
-        </p>
+        <button
+          onClick={() => sendMessage()}
+          disabled={!input.trim() || loading}
+          className="w-11 h-11 rounded-full bg-[#008069] hover:bg-[#006d59] flex items-center justify-center flex-shrink-0 shadow transition-all disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
+        >
+          <Send size={18} className="text-white translate-x-0.5" />
+        </button>
       </div>
     </div>
   );
