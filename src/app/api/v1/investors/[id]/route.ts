@@ -106,6 +106,29 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
   }
 });
 
+// ─── DELETE /api/v1/investors/[id] — delete investor (only if no transactions) ─
+export const DELETE = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
+  if (user.role !== "super_admin") return errorResponse("FORBIDDEN", "Super admin only", 403);
+  try {
+    const id = parseInt(context.params.id);
+    const accounts = await prisma.investorAccount.findMany({
+      where: { investorId: id },
+      include: { _count: { select: { deposits: true, withdrawals: true, profitAllocations: true } } },
+    });
+    const hasTransactions = accounts.some(
+      (a) => a._count.deposits > 0 || a._count.withdrawals > 0 || a._count.profitAllocations > 0
+    );
+    if (hasTransactions) {
+      return errorResponse("CONFLICT", "Cannot delete investor with existing transactions. Deactivate them instead.", 409);
+    }
+    await prisma.investor.delete({ where: { id } });
+    return successResponse(null, "Investor deleted");
+  } catch (e) {
+    console.error(e);
+    return serverError();
+  }
+});
+
 // ─── PATCH /api/v1/investors/[id] — edit investor info ────────────────────
 export const PATCH = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   if (user.role !== "super_admin") return errorResponse("FORBIDDEN", "Super admin only", 403);

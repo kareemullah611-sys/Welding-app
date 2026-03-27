@@ -5,7 +5,7 @@ import { useRouter, useParams } from "next/navigation";
 import { apiCall } from "@/hooks/useApi";
 import { formatNumber } from "@/components/ui";
 import {
-  ArrowLeft, ArrowDownCircle, ArrowUpCircle, Trash2, CheckCircle2,
+  ArrowLeft, ArrowDownCircle, ArrowUpCircle, Trash2, CheckCircle2, Pencil,
 } from "lucide-react";
 
 type TxType = "deposit" | "withdrawal";
@@ -28,6 +28,11 @@ export default function InvestorLedgerPage() {
   // Delete confirm
   const [deleteTarget, setDeleteTarget] = useState<{ type: TxType; id: number } | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Edit transaction
+  const [editTarget, setEditTarget] = useState<{ type: TxType; id: number; amount: string; date: string; notes: string } | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState("");
 
   // Single entry form
   const emptyForm = () => ({
@@ -84,6 +89,21 @@ export default function InvestorLedgerPage() {
     setForm(emptyForm());
     load();
     setTimeout(() => setSaveSuccess(false), 3000);
+  };
+
+  const handleEditSave = async () => {
+    if (!editTarget) return;
+    if (!editTarget.amount || parseFloat(editTarget.amount) <= 0) { setEditError("Enter a valid amount"); return; }
+    setEditSaving(true);
+    setEditError("");
+    const res = await apiCall(`/api/v1/investors/${id}/transactions`, {
+      method: "PATCH",
+      body: { type: editTarget.type, transactionId: editTarget.id, amount: parseFloat(editTarget.amount), date: editTarget.date, notes: editTarget.notes },
+    });
+    setEditSaving(false);
+    if ((res as any).success === false) { setEditError((res as any).error || "Failed to update"); return; }
+    setEditTarget(null);
+    load();
   };
 
   const handleDelete = async () => {
@@ -274,12 +294,23 @@ export default function InvestorLedgerPage() {
                           {isDeposit ? "+" : "−"} {sym} {fmt(e.amount)}
                         </p>
                       </div>
-                      <button
-                        onClick={() => setDeleteTarget({ type: e.type as TxType, id: e.id })}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 hover:bg-red-50 rounded-lg ml-1"
-                      >
-                        <Trash2 size={13} className="text-red-400" />
-                      </button>
+                      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 ml-1">
+                        <button
+                          onClick={() => {
+                            setEditTarget({ type: e.type as TxType, id: e.id, amount: String(e.amount), date: e.date, notes: e.notes ?? "" });
+                            setEditError("");
+                          }}
+                          className="p-1.5 hover:bg-violet-50 rounded-lg"
+                        >
+                          <Pencil size={13} className="text-violet-400" />
+                        </button>
+                        <button
+                          onClick={() => setDeleteTarget({ type: e.type as TxType, id: e.id })}
+                          className="p-1.5 hover:bg-red-50 rounded-lg"
+                        >
+                          <Trash2 size={13} className="text-red-400" />
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -287,6 +318,53 @@ export default function InvestorLedgerPage() {
             )}
           </div>
         </>
+      )}
+
+      {/* ── Edit transaction ── */}
+      {editTarget && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full space-y-4">
+            <h3 className="font-semibold text-gray-900 capitalize">Edit {editTarget.type}</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Amount ({sym}) *</label>
+                <input
+                  type="number" min="0" step="0.01"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400"
+                  value={editTarget.amount}
+                  onChange={e => setEditTarget(p => p ? { ...p, amount: e.target.value } : p)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Date *</label>
+                <input
+                  type="date"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400"
+                  value={editTarget.date}
+                  onChange={e => setEditTarget(p => p ? { ...p, date: e.target.value } : p)}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Notes</label>
+              <input
+                type="text"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400"
+                value={editTarget.notes}
+                onChange={e => setEditTarget(p => p ? { ...p, notes: e.target.value } : p)}
+              />
+            </div>
+            {editError && <p className="text-xs text-red-500">{editError}</p>}
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => setEditTarget(null)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
+                Cancel
+              </button>
+              <button onClick={handleEditSave} disabled={editSaving} className="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium disabled:opacity-50">
+                {editSaving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Delete confirm ── */}

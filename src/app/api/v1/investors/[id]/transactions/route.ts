@@ -78,6 +78,61 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
   }
 });
 
+// ─── PATCH /api/v1/investors/[id]/transactions — edit amount/date/notes ───────
+export const PATCH = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
+  if (user.role !== "super_admin") return errorResponse("FORBIDDEN", "Super admin only", 403);
+  try {
+    const body = await request.json();
+    const { type, transactionId, amount, date, notes } = body;
+
+    if (!transactionId || !type) return errorResponse("VALIDATION", "type and transactionId are required", 400);
+    if (amount !== undefined && parseFloat(amount) <= 0) return errorResponse("VALIDATION", "Amount must be > 0", 400);
+
+    const id = parseInt(transactionId);
+
+    if (type === "deposit") {
+      const record = await prisma.investorDeposit.update({
+        where: { id },
+        data: {
+          ...(amount !== undefined && { amount: parseFloat(amount) }),
+          ...(date !== undefined && { depositDate: new Date(date) }),
+          ...(notes !== undefined && { notes: notes?.trim() || null }),
+        },
+      });
+      return successResponse(record, "Deposit updated");
+    }
+
+    if (type === "withdrawal") {
+      const record = await prisma.investorWithdrawal.update({
+        where: { id },
+        data: {
+          ...(amount !== undefined && { amount: parseFloat(amount) }),
+          ...(date !== undefined && { withdrawalDate: new Date(date) }),
+          ...(notes !== undefined && { notes: notes?.trim() || null }),
+        },
+      });
+      return successResponse(record, "Withdrawal updated");
+    }
+
+    if (type === "profit") {
+      const record = await prisma.profitAllocation.update({
+        where: { id },
+        data: {
+          ...(amount !== undefined && { amount: parseFloat(amount) }),
+          ...(date !== undefined && { allocationDate: new Date(date) }),
+          ...(notes !== undefined && { notes: notes?.trim() || null }),
+        },
+      });
+      return successResponse(record, "Profit updated");
+    }
+
+    return errorResponse("VALIDATION", "type must be deposit, withdrawal, or profit", 400);
+  } catch (e) {
+    console.error(e);
+    return serverError();
+  }
+});
+
 // ─── DELETE /api/v1/investors/[id]/transactions ────────────────────────────
 // Body: { type, transactionId }
 export const DELETE = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
