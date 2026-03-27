@@ -3,9 +3,9 @@ import prisma from "@/lib/prisma";
 import { withAuth } from "@/lib/middleware";
 import { JWTPayload } from "@/lib/auth";
 
-// ─── Groq (simple text completion — no tool calling needed) ─────────────────
-const GROQ_URL   = "https://api.groq.com/openai/v1/chat/completions";
-const GROQ_MODEL = "llama-3.3-70b-versatile"; // smarter model — no tool-calling = no format issues
+// ─── DeepSeek (OpenAI-compatible, ~$1/month for typical usage) ───────────────
+const AI_URL   = "https://api.deepseek.com/chat/completions";
+const AI_MODEL = "deepseek-chat"; // DeepSeek-V3
 
 async function askGroq(
   apiKey: string,
@@ -13,11 +13,11 @@ async function askGroq(
   history: { role: string; content: string }[],
   userMessage: string
 ): Promise<string> {
-  const res = await fetch(GROQ_URL, {
+  const res = await fetch(AI_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
     body: JSON.stringify({
-      model: GROQ_MODEL,
+      model: AI_MODEL,
       messages: [
         { role: "system", content: systemPrompt },
         ...history,
@@ -29,7 +29,7 @@ async function askGroq(
   });
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Groq API error ${res.status}: ${err}`);
+    throw new Error(`DeepSeek API error ${res.status}: ${err}`);
   }
   const data = await res.json();
   return data.choices?.[0]?.message?.content || "No response";
@@ -271,9 +271,9 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
     return NextResponse.json({ error: "Superadmin only" }, { status: 403 });
   }
 
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({ error: "GROQ_API_KEY is not configured on the server." }, { status: 500 });
+    return NextResponse.json({ error: "DEEPSEEK_API_KEY is not configured on the server." }, { status: 500 });
   }
 
   try {
@@ -282,7 +282,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
     // 1. Fetch relevant data from DB based on latest message
     const context = await buildContext(message);
 
-    // 2. Build conversation history for Groq (so it remembers the chat)
+    // 2. Build conversation history for DeepSeek (so it remembers the chat)
     const history = (clientHistory || []).map((m: any) => ({
       role: m.role === "user" ? "user" : "assistant",
       content: m.content || "",
