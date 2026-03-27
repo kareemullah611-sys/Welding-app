@@ -134,6 +134,7 @@ model Currency {
   saleDiscounts       SaleDiscount[]
   lotSettlementOverflows LotSettlementOverflow[]
   bankDeposits        BankDeposit[]
+  investorAccounts    InvestorAccount[]
 
   @@map("currencies")
 }
@@ -239,6 +240,11 @@ model User {
   cityTransfersApproved  CityTransfer[] @relation("TransferApprovedBy")
   agentPaymentsCreated   AgentPayment[] @relation("AgentPaymentCreatedBy")
   sessions               UserSession[]
+  investorsCreated       Investor[]
+  investorAccountsCreated InvestorAccount[]
+  investorDepositsCreated InvestorDeposit[]
+  investorWithdrawalsCreated InvestorWithdrawal[]
+  profitAllocationsCreated   ProfitAllocation[]
 
   @@index([cityId])
   @@index([role])
@@ -1165,4 +1171,100 @@ model Notification {
   @@index([userId])
   @@index([isRead])
   @@map("notifications")
+}
+
+// ============================================================
+// INVESTOR ACCOUNTS
+// ============================================================
+
+enum InvestorProfitType {
+  fixed_rate       // profit = capital × fixed_rate%
+  profit_share     // profit = total_business_profit × share%
+}
+
+model Investor {
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(200)
+  relationship String?  @db.VarChar(100)
+  phone        String?  @db.VarChar(50)
+  notes        String?  @db.Text
+  isActive     Boolean  @default(true) @map("is_active")
+  createdBy    Int      @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  creator      User               @relation(fields: [createdBy], references: [id])
+  accounts     InvestorAccount[]
+
+  @@map("investors")
+}
+
+model InvestorAccount {
+  id               Int                @id @default(autoincrement())
+  investorId       Int                @map("investor_id")
+  currencyId       Int                @map("currency_id")
+  profitType       InvestorProfitType @default(fixed_rate) @map("profit_type")
+  fixedRatePercent Decimal?           @map("fixed_rate_percent") @db.Decimal(6, 3)  // e.g. 12.000 = 12%
+  profitSharePercent Decimal?         @map("profit_share_percent") @db.Decimal(6, 3) // e.g. 5.000 = 5%
+  startDate        DateTime           @map("start_date") @db.Date
+  isActive         Boolean            @default(true) @map("is_active")
+  createdBy        Int                @map("created_by")
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+
+  investor          Investor            @relation(fields: [investorId], references: [id])
+  currency          Currency            @relation(fields: [currencyId], references: [id])
+  creator           User                @relation(fields: [createdBy], references: [id])
+  deposits          InvestorDeposit[]
+  withdrawals       InvestorWithdrawal[]
+  profitAllocations ProfitAllocation[]
+
+  @@map("investor_accounts")
+}
+
+model InvestorDeposit {
+  id          Int      @id @default(autoincrement())
+  accountId   Int      @map("account_id")
+  amount      Decimal  @db.Decimal(15, 2)
+  depositDate DateTime @map("deposit_date") @db.Date
+  notes       String?  @db.Text
+  createdBy   Int      @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  account   InvestorAccount @relation(fields: [accountId], references: [id])
+  creator   User            @relation(fields: [createdBy], references: [id])
+
+  @@map("investor_deposits")
+}
+
+model InvestorWithdrawal {
+  id             Int      @id @default(autoincrement())
+  accountId      Int      @map("account_id")
+  amount         Decimal  @db.Decimal(15, 2)
+  withdrawalDate DateTime @map("withdrawal_date") @db.Date
+  notes          String?  @db.Text
+  createdBy      Int      @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  account   InvestorAccount @relation(fields: [accountId], references: [id])
+  creator   User            @relation(fields: [createdBy], references: [id])
+
+  @@map("investor_withdrawals")
+}
+
+model ProfitAllocation {
+  id             Int      @id @default(autoincrement())
+  accountId      Int      @map("account_id")
+  amount         Decimal  @db.Decimal(15, 2)
+  periodStart    DateTime @map("period_start") @db.Date
+  periodEnd      DateTime @map("period_end") @db.Date
+  allocationDate DateTime @map("allocation_date") @db.Date
+  notes          String?  @db.Text
+  createdBy      Int      @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  account   InvestorAccount @relation(fields: [accountId], references: [id])
+  creator   User            @relation(fields: [createdBy], references: [id])
+
+  @@map("profit_allocations")
 }

@@ -12,7 +12,7 @@ import {
   BookOpen, Receipt, Wallet, Users, Warehouse, ClipboardList,
   ArrowLeftRight, TrendingUp, BarChart2, FileText, Search,
   Activity, Settings, LogOut, ChevronLeft, ChevronRight,
-  Menu, FileCheck, Landmark, BotMessageSquare, type LucideIcon,
+  Menu, FileCheck, Landmark, BotMessageSquare, PiggyBank, type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -51,6 +51,7 @@ const navGroups: { label: string; items: NavItemDef[] }[] = [
       { label: "Suppliers",        key: "suppliers",        href: "/suppliers",        icon: Factory,     roles: ["super_admin"] },
       { label: "Company Payments", key: "company_payments", href: "/supplier-payments",icon: Banknote,    roles: ["super_admin"] },
       { label: "Agents",           key: "agents",           href: "/agents",           icon: Handshake,   roles: ["super_admin"] },
+      { label: "Investors",        key: "investors",        href: "/investors",        icon: PiggyBank,   roles: ["super_admin"] },
     ],
   },
   {
