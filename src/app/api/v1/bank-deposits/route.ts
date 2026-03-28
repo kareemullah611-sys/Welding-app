@@ -9,6 +9,7 @@ import {
   getPaginationParams,
 } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { journalBankDeposit } from "@/lib/accounting";
 
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
@@ -170,18 +171,21 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     }
 
     // Validate cheque payments
+    let cheques: any[] = [];
     if (chequePaymentIds.length > 0) {
-      const cheques = await prisma.payment.findMany({
+      cheques = await prisma.payment.findMany({
         where: {
           id: { in: chequePaymentIds },
         },
         select: {
           id: true,
           cityId: true,
+          currencyId: true,
           paymentMethod: true,
           destination: true,
           status: true,
           chequeStatus: true,
+          amount: true,
         },
       });
 
@@ -217,6 +221,12 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
             `Payment ${cheque.id} does not belong to your city`
           );
         }
+        if (cheque.currencyId !== parsedCurrencyId) {
+          return errorResponse(
+            "VALIDATION_ERROR",
+            `Payment ${cheque.id} currency does not match deposit currency — all cheques must be in the same currency as the deposit`
+          );
+        }
       }
     }
 
@@ -247,6 +257,17 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
       return deposit;
     });
+
+    // Create journal entries for the deposit (outside transaction — avoids timeout)
+    try {
+      const depositCurrency = await prisma.currency.findUnique({ where: { id: parsedCurrencyId }, select: { code: true } });
+      const chequeAmounts = cheques.map((c: any) => ({ paymentId: c.id, amount: Number(c.amount) }));
+      await journalBankDeposit({
+        id: newDeposit.id, bankAccountId: parsedBankAccountId, cityId,
+        cashAmount, currencyCode: depositCurrency?.code || "PKR",
+        depositDate: parsedDepositDate, createdBy: user.userId, cheques: chequeAmounts,
+      });
+    } catch (je) { console.error("Journal error (bank deposit):", je); }
 
     // Fetch full details after transaction
     const fullDeposit = await prisma.bankDeposit.findUnique({

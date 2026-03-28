@@ -18,6 +18,8 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     if (!payment) return errorResponse("NOT_FOUND", "Payment not found", 404);
     if (payment.status === "cancelled") return errorResponse("VALIDATION_ERROR", "Already cancelled");
     if (user.role === "city_admin" && payment.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
+    if ((payment as any).chequeStatus === "deposited_to_bank") return errorResponse("VALIDATION_ERROR", "Cannot cancel a cheque that has already been deposited to bank — use bounce instead");
+    if ((payment as any).chequeStatus === "sent_to_haji") return errorResponse("VALIDATION_ERROR", "Cannot cancel a cheque that has been sent to haji — cancel the haji transfer first");
 
     await prisma.payment.update({
       where: { id },

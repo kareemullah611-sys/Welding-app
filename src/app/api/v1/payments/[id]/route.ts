@@ -3,7 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
-import { reverseJournalEntries, journalPaymentReceived } from "@/lib/accounting";
+import { reverseJournalEntries, journalPaymentReceived, journalChequeReceived } from "@/lib/accounting";
 
 export const GET = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -41,6 +41,7 @@ export const PATCH = withAuth(async (request: NextRequest, context: any, user: J
       if ((payment as any).paymentMethod !== "cheque") return errorResponse("VALIDATION_ERROR", "Payment method is not cheque");
       if (payment.status !== "active") return errorResponse("VALIDATION_ERROR", "Payment is not active");
       if ((payment as any).chequeStatus === "bounced") return errorResponse("VALIDATION_ERROR", "Cheque is already marked as bounced");
+      if ((payment as any).chequeStatus === "sent_to_haji") return errorResponse("VALIDATION_ERROR", "Cannot bounce a cheque that has been sent to haji — cancel the haji transfer first");
 
       await prisma.payment.update({
         where: { id },
@@ -53,8 +54,14 @@ export const PATCH = withAuth(async (request: NextRequest, context: any, user: J
         } as any,
       });
 
-      // Reverse the journal entry so accounting books stay balanced (same as cancel endpoint)
-      try { await reverseJournalEntries(`PAY-${id}`, user.userId); } catch (je) { console.error("Journal reversal error (bounce):", je); }
+      // Reverse the cheque receipt entry (PAY-{id})
+      try { await reverseJournalEntries(`PAY-${id}`, user.userId); } catch (je) { console.error("Journal reversal error (bounce PAY):", je); }
+
+      // If the cheque was already deposited, also reverse that deposit leg
+      const bankDepositId = (payment as any).bankDepositId;
+      if (bankDepositId) {
+        try { await reverseJournalEntries(`DEP-${bankDepositId}-PAY-${id}`, user.userId); } catch (je) { console.error("Journal reversal error (bounce DEP):", je); }
+      }
 
       await createAuditLog(user.userId, payment.cityId, "payments", id, "update",
         { chequeStatus: (payment as any).chequeStatus, status: payment.status },
@@ -107,7 +114,9 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     if (amountChanged) {
       try {
         await reverseJournalEntries(`PAY-${id}`, user.userId);
-        await journalPaymentReceived({
+        const isCheque = (payment as any).paymentMethod === "cheque" && (payment as any).destination === "our_account";
+        const journalFn = isCheque ? journalChequeReceived : journalPaymentReceived;
+        await journalFn({
           id, customerId: payment.customerId, cityId: payment.cityId, lotId: payment.lotId,
           amount: Number(updated.amount), currencyCode: payment.currency.code,
           paymentDate: payment.paymentDate, createdBy: user.userId,

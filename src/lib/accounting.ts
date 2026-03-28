@@ -16,6 +16,17 @@ export async function getCashAccountId(cityId: number): Promise<number> {
   return getOrCreateAccount(`1001-CITY${cityId}`, `Cash - ${city?.name || cityId}`, "asset", cityId);
 }
 
+export async function getChequesInHandAccountId(cityId: number): Promise<number> {
+  const city = await prisma.city.findUnique({ where: { id: cityId }, select: { name: true } });
+  return getOrCreateAccount(`1002-CHEQUE${cityId}`, `Cheques in Hand - ${city?.name || cityId}`, "asset", cityId);
+}
+
+export async function getBankGLAccountId(bankAccountId: number): Promise<number> {
+  const bank = await prisma.bankAccount.findUnique({ where: { id: bankAccountId }, select: { bankName: true, accountNumber: true } });
+  const label = bank ? `${bank.bankName} ${bank.accountNumber}` : `Bank #${bankAccountId}`;
+  return getOrCreateAccount(`1050-BANK${bankAccountId}`, `Bank - ${label}`, "asset");
+}
+
 export async function getCustomerAccountId(customerId: number): Promise<number> {
   const customer = await prisma.customer.findUnique({ where: { id: customerId }, select: { name: true } });
   return getOrCreateAccount(`1200-C${customerId}`, `AR - ${customer?.name || customerId}`, "asset");
@@ -78,12 +89,45 @@ export async function journalSaleCreated(sale: { id: number; customerId: number;
   await createJournalEntries(`SALE-${sale.id}`, lines, { currencyCode: sale.currencyCode, entityType: "sale", entityId: sale.id, lotId: sale.lotId, cityId: sale.cityId, entryDate: sale.saleDate, createdBy: sale.createdBy });
 }
 
-// PAYMENT RECEIVED
+// PAYMENT RECEIVED (cash / bank transfer / online)
 export async function journalPaymentReceived(p: { id: number; customerId: number; cityId: number; lotId: number; amount: number; currencyCode: string; paymentDate: Date; createdBy: number; }) {
   await createJournalEntries(`PAY-${p.id}`, [
     { accountId: await getCashAccountId(p.cityId), debit: p.amount, credit: 0, description: `Payment #${p.id}` },
     { accountId: await getCustomerAccountId(p.customerId), debit: 0, credit: p.amount, description: `Payment #${p.id}` },
   ], { currencyCode: p.currencyCode, entityType: "payment", entityId: p.id, lotId: p.lotId, cityId: p.cityId, entryDate: p.paymentDate, createdBy: p.createdBy });
+}
+
+// CHEQUE RECEIVED — stages into Cheques in Hand first, not Cash
+// DR Cheques in Hand | CR AR - Customer
+export async function journalChequeReceived(p: { id: number; customerId: number; cityId: number; lotId: number; amount: number; currencyCode: string; paymentDate: Date; createdBy: number; }) {
+  await createJournalEntries(`PAY-${p.id}`, [
+    { accountId: await getChequesInHandAccountId(p.cityId), debit: p.amount, credit: 0, description: `Cheque received #${p.id}` },
+    { accountId: await getCustomerAccountId(p.customerId), debit: 0, credit: p.amount, description: `Cheque received #${p.id}` },
+  ], { currencyCode: p.currencyCode, entityType: "payment", entityId: p.id, lotId: p.lotId, cityId: p.cityId, entryDate: p.paymentDate, createdBy: p.createdBy });
+}
+
+// BANK DEPOSIT CREATED
+// Cash portion:   DR Bank | CR Cash in Hand
+// Each cheque:    DR Bank | CR Cheques in Hand
+// Cheques use separate transaction IDs so individual bounces can be reversed without affecting others.
+export async function journalBankDeposit(d: {
+  id: number; bankAccountId: number; cityId: number; cashAmount: number;
+  currencyCode: string; depositDate: Date; createdBy: number;
+  cheques: Array<{ paymentId: number; amount: number; }>;
+}) {
+  const bankAccId = await getBankGLAccountId(d.bankAccountId);
+  if (d.cashAmount > 0) {
+    await createJournalEntries(`DEP-${d.id}-CASH`, [
+      { accountId: bankAccId, debit: d.cashAmount, credit: 0, description: `Deposit #${d.id} — cash` },
+      { accountId: await getCashAccountId(d.cityId), debit: 0, credit: d.cashAmount, description: `Deposit #${d.id} — cash` },
+    ], { currencyCode: d.currencyCode, entityType: "bank_deposit", entityId: d.id, cityId: d.cityId, entryDate: d.depositDate, createdBy: d.createdBy });
+  }
+  for (const cheque of d.cheques) {
+    await createJournalEntries(`DEP-${d.id}-PAY-${cheque.paymentId}`, [
+      { accountId: bankAccId, debit: cheque.amount, credit: 0, description: `Deposit #${d.id} — cheque PAY-${cheque.paymentId}` },
+      { accountId: await getChequesInHandAccountId(d.cityId), debit: 0, credit: cheque.amount, description: `Deposit #${d.id} — cheque PAY-${cheque.paymentId}` },
+    ], { currencyCode: d.currencyCode, entityType: "bank_deposit", entityId: d.id, cityId: d.cityId, entryDate: d.depositDate, createdBy: d.createdBy });
+  }
 }
 
 // LOT PURCHASE (buy from company)

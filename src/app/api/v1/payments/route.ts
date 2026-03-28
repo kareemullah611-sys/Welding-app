@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middleware";
-import { journalPaymentReceived } from "@/lib/accounting";
+import { journalPaymentReceived, journalChequeReceived } from "@/lib/accounting";
 import { createPaymentSchema } from "@/lib/validations";
 import {
   successResponse, paginatedResponse, validationError, errorResponse, serverError,
@@ -237,7 +237,8 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     };
 
     try {
-      await journalPaymentReceived({
+      const journalFn = (paymentMethod === "cheque" && destination === "our_account") ? journalChequeReceived : journalPaymentReceived;
+      await journalFn({
         id: payment.id, customerId: payment.customerId, cityId: payment.cityId, lotId: payment.lotId,
         amount: Number(payment.amount), currencyCode: payment.currency.code,
         paymentDate: payment.paymentDate, createdBy: user.userId,
