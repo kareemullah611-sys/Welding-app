@@ -98,14 +98,14 @@ export default function CustomersPage() {
               <div className="space-y-0.5">
                 {Object.entries(c.balanceByCurrency).map(([cc, amt]: [string, any]) => (
                   <div key={cc} className={`font-medium text-sm ${amt > 0 ? "text-red-600" : amt < 0 ? "text-green-600" : "text-gray-400"}`}>
-                    {amt > 0 ? `${t("owes")} ${cc} ${Math.abs(amt).toLocaleString("en-US")}` : amt < 0 ? `${t("we_owe")} ${cc} ${Math.abs(amt).toLocaleString("en-US")}` : `${cc} ${t("settled")}`}
+                    {amt !== 0 ? `${cc} ${Math.abs(amt).toLocaleString("en-US")}` : `${cc} ${t("settled")}`}
                   </div>
                 ))}
               </div>
             );
           }
           if (c.balance !== undefined) {
-            return <span className={`font-medium ${c.balance > 0 ? "text-red-600" : c.balance < 0 ? "text-green-600" : ""}`}>{c.balance > 0 ? `${t("owes")} ${c.balance.toLocaleString("en-US")}` : c.balance < 0 ? `${t("we_owe")} ${Math.abs(c.balance).toLocaleString("en-US")}` : t("settled")}</span>;
+            return <span className={`font-medium ${c.balance > 0 ? "text-red-600" : c.balance < 0 ? "text-green-600" : ""}`}>{c.balance !== 0 ? Math.abs(c.balance).toLocaleString("en-US") : t("settled")}</span>;
           }
           return <span>-</span>;
         }},
@@ -152,9 +152,9 @@ export default function CustomersPage() {
             <div className="flex flex-wrap gap-4 mb-4 text-sm">
               {ledgerData.balanceByCurrency && Object.keys(ledgerData.balanceByCurrency).length > 0
                 ? Object.entries(ledgerData.balanceByCurrency).map(([cc, amt]: [string, any]) => (
-                    <span key={cc}>{t("balance")} ({cc}): <strong className={`${amt > 0 ? "text-red-600" : amt < 0 ? "text-green-600" : ""}`}>{amt > 0 ? `${t("owes")} ${cc} ${Number(amt).toLocaleString("en-US")}` : amt < 0 ? `${t("we_owe")} ${cc} ${Math.abs(Number(amt)).toLocaleString("en-US")}` : t("settled")}</strong></span>
+                    <span key={cc}>{t("balance")} ({cc}): <strong className={`${amt > 0 ? "text-red-600" : amt < 0 ? "text-green-600" : ""}`}>{amt !== 0 ? `${cc} ${Math.abs(Number(amt)).toLocaleString("en-US")}` : t("settled")}</strong></span>
                   ))
-                : <span>{t("balance")}: <strong className={`${ledgerData.balance > 0 ? "text-red-600" : "text-green-600"}`}>{ledgerData.balance > 0 ? `${t("owes")} ${ledgerData.balance.toLocaleString("en-US")}` : ledgerData.balance < 0 ? `${t("we_owe")} ${Math.abs(ledgerData.balance).toLocaleString("en-US")}` : t("settled")}</strong></span>
+                : <span>{t("balance")}: <strong className={`${ledgerData.balance > 0 ? "text-red-600" : ledgerData.balance < 0 ? "text-green-600" : ""}`}>{ledgerData.balance !== 0 ? Math.abs(ledgerData.balance).toLocaleString("en-US") : t("settled")}</strong></span>
               }
             </div>
             <div className="overflow-x-auto max-h-96">
