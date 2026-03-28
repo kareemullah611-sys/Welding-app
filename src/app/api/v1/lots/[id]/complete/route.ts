@@ -17,6 +17,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
 
     const cityIds = Array.from(new Set(lot.lotCityDistributions.map((d) => d.cityId)));
     const overflows: any[] = [];
+    const unresolvableOverflows: any[] = [];
 
     // For each city, calculate settlement and overflow (no transaction - avoids Neon timeout)
     for (const cityId of cityIds) {
@@ -54,6 +55,9 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
               data: { cityId, lotId: nextLot.id, transferDate: new Date(), amount: overflowAmount, currencyId, detail: `Overflow credit from completed lot ${lot.lotNumber}`, transferType: "from_in_hand", createdBy: user.userId },
             });
             overflows.push({ cityId, currencyId, overflowAmount: Math.round(overflowAmount * 100) / 100, toLotId: nextLot.id, toLotNumber: nextLot.lotNumber });
+          } else {
+            // No ongoing lot to absorb the overflow — record it in the response so the super admin is aware
+            unresolvableOverflows.push({ cityId, currencyId, overflowAmount: Math.round(overflowAmount * 100) / 100, warning: "No ongoing lot found for this city — overflow was NOT applied. Manually adjust once a new lot is created." });
           }
         }
       }
@@ -65,11 +69,15 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
       data: { status: "completed", completedBy: user.userId, completedAt: new Date(), updatedAt: new Date() },
     });
 
-    await createAuditLog(user.userId, null, "lots", lotId, "update", { status: "ongoing" }, { status: "completed", overflows }, getClientIP(request));
+    await createAuditLog(user.userId, null, "lots", lotId, "update", { status: "ongoing" }, { status: "completed", overflows, unresolvableOverflows }, getClientIP(request));
 
     return successResponse({
       lotId, lotNumber: lot.lotNumber, status: "completed",
-      overflows: overflows.length > 0 ? overflows : "No overflows — all settlements balanced",
+      overflows: overflows.length > 0 ? overflows : [],
+      unresolvableOverflows: unresolvableOverflows.length > 0 ? unresolvableOverflows : [],
+      message: unresolvableOverflows.length > 0
+        ? `Lot completed with ${unresolvableOverflows.length} unresolved overflow(s) — manual adjustment required`
+        : "Lot completed successfully",
     }, "Lot completed successfully");
   } catch (error) {
     console.error("Lot completion error:", error);

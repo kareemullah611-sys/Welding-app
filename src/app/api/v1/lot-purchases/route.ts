@@ -18,6 +18,12 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     const lot = await prisma.lot.findUnique({ where: { id: lotId }, include: { lotProducts: { select: { productId: true } } } });
     if (!lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
 
+    // Validate positive qty and price on each product
+    for (const p of products) {
+      if (Number(p.qty) <= 0) return validationError(`qty must be greater than 0 (product ${p.productId})`);
+      if (Number(p.unitPriceUsd) <= 0) return validationError(`unitPriceUsd must be greater than 0 (product ${p.productId})`);
+    }
+
     // Validate all purchase products exist in this lot
     const lotProductIds = new Set(lot.lotProducts.map((lp) => lp.productId));
     const invalidProducts = products.filter((p) => !lotProductIds.has(p.productId));

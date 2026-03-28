@@ -90,7 +90,6 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     });
 
     // Add/update products if provided
-    const warnings: string[] = [];
     if (body.products && Array.isArray(body.products)) {
       for (const p of body.products) {
         if (!p.productId || !p.totalQty) continue;
@@ -105,8 +104,8 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
           });
           const allocatedTotal = Number(distTotal._sum.allocatedQty || 0);
           if (allocatedTotal > Number(p.totalQty)) {
-            const productName = existing ? (await prisma.product.findUnique({ where: { id: p.productId }, select: { name: true } }))?.name ?? `Product #${p.productId}` : `Product #${p.productId}`;
-            warnings.push(`"${productName}": new qty ${p.totalQty} is less than already-distributed ${allocatedTotal} cartons. Distribution totals exceed new quantity — please update distributions.`);
+            const productName = (await prisma.product.findUnique({ where: { id: p.productId }, select: { name: true } }))?.name ?? `Product #${p.productId}`;
+            return errorResponse("VALIDATION_ERROR", `"${productName}": new qty ${p.totalQty} is less than already-distributed ${allocatedTotal} cartons. Update distributions first.`);
           }
           await prisma.lotProduct.update({ where: { id: existing.id }, data: { totalQty: p.totalQty } });
         } else {
@@ -116,7 +115,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     }
 
     await createAuditLog(user.userId, null, "lots", id, "update", { lotNumber: lot.lotNumber, notes: lot.notes }, { lotNumber: updated.lotNumber, notes: updated.notes }, getClientIP(request));
-    return successResponse({ id: updated.id, lotNumber: updated.lotNumber, warnings }, "Lot updated");
+    return successResponse({ id: updated.id, lotNumber: updated.lotNumber }, "Lot updated");
   } catch (error) {
     return serverError();
   }
@@ -130,15 +129,17 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
     // Check if lot has sales
     const salesCount = await prisma.sale.count({ where: { lotId: id, status: "active" } });
     if (salesCount > 0) return errorResponse("FORBIDDEN", `Cannot delete: lot has ${salesCount} active sales`, 403);
-    // Delete related data first, then the lot
-    await prisma.lotCityGodownAllocation.deleteMany({ where: { lotCityDistribution: { lotId: id } } });
-    await prisma.lotCityDistribution.deleteMany({ where: { lotId: id } });
-    await prisma.lotProduct.deleteMany({ where: { lotId: id } });
-    try { await prisma.lotCost.deleteMany({ where: { lotId: id } }); } catch (e) {}
-    try { await prisma.lotPurchase.deleteMany({ where: { lotId: id } }); } catch (e) {}
-    try { await prisma.expense.deleteMany({ where: { lotId: id } }); } catch (e) {}
-    try { await prisma.hajiTransfer.deleteMany({ where: { lotId: id } }); } catch (e) {}
-    await prisma.lot.delete({ where: { id } });
+    // Delete all related data atomically — if any step fails the lot is NOT deleted
+    await prisma.$transaction(async (tx) => {
+      await tx.lotCityGodownAllocation.deleteMany({ where: { lotCityDistribution: { lotId: id } } });
+      await tx.lotCityDistribution.deleteMany({ where: { lotId: id } });
+      await tx.lotProduct.deleteMany({ where: { lotId: id } });
+      await tx.lotCost.deleteMany({ where: { lotId: id } });
+      await tx.lotPurchase.deleteMany({ where: { lotId: id } });
+      await tx.expense.deleteMany({ where: { lotId: id } });
+      await tx.hajiTransfer.deleteMany({ where: { lotId: id } });
+      await tx.lot.delete({ where: { id } });
+    });
     await createAuditLog(user.userId, null, "lots", id, "delete", { lotNumber: lot.lotNumber }, undefined, getClientIP(request));
     return successResponse({ id }, "Lot deleted");
   } catch (error: any) {

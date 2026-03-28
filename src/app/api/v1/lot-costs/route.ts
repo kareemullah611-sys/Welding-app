@@ -32,6 +32,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     if (!body.lotId || !body.costType || !body.description || !body.amount) {
       return validationError("Lot, type, description, and amount required");
     }
+    if (Number(body.amount) <= 0) return validationError("Amount must be greater than 0");
 
     const lot = await prisma.lot.findUnique({ where: { id: body.lotId } });
     if (!lot) return errorResponse("NOT_FOUND", "Lot not found", 404);

@@ -23,6 +23,13 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     if (!lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
     if (lot.status === "completed") return errorResponse("VALIDATION_ERROR", "Cannot distribute a completed lot");
 
+    // Validate each distribution entry has a positive qty
+    for (const d of distributions) {
+      if (!d.allocatedQty || Number(d.allocatedQty) <= 0) {
+        return validationError(`allocatedQty must be greater than 0 (got ${d.allocatedQty} for city ${d.cityId}, product ${d.productId})`);
+      }
+    }
+
     // Validate cities belong to lot's country
     const countryCityIds = lot.country.cities.map((c) => c.id);
     for (const d of distributions) {
