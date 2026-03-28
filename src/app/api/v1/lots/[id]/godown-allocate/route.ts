@@ -50,9 +50,9 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
     await createAuditLog(user.userId, effectiveCityId, "lot_city_godown_allocations", lotId, "create", undefined, { allocations }, getClientIP(request));
 
     // Auto-activate any marked_short sales now covered by the new stock
-    const godownIds = [...new Set(allocations.map((a: any) => a.godownId))];
+    const affectedGodownIds = [...new Set(allocations.map((a: any) => a.godownId))] as number[];
     let totalActivated = 0;
-    for (const gId of godownIds) {
+    for (const gId of affectedGodownIds) {
       totalActivated += await autoActivateShortSales(gId);
     }
 
