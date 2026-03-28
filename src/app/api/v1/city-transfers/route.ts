@@ -56,6 +56,33 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const godown = await prisma.godown.findFirst({ where: { id: fromGodownId, cityId: user.cityId!, isActive: true } });
     if (!godown) return errorResponse("NOT_FOUND", "Godown not found in your city");
 
+    // Check available stock in the sending godown
+    const stockRows: any[] = await prisma.$queryRaw`
+      SELECT
+        COALESCE(SUM(lcga.qty), 0) as received,
+        COALESCE((
+          SELECT SUM(si.qty) FROM sale_items si
+          JOIN sales s ON s.id = si.sale_id AND s.status IN ('active','marked_short')
+          WHERE s.godown_id = ${fromGodownId} AND si.product_id = ${productId}
+        ), 0) as sold,
+        COALESCE((
+          SELECT SUM(ct.qty) FROM city_transfers ct
+          WHERE ct.from_godown_id = ${fromGodownId} AND ct.product_id = ${productId} AND ct.status = 'approved'
+        ), 0) as city_out,
+        COALESCE((
+          SELECT SUM(ct.qty) FROM city_transfers ct
+          WHERE ct.from_godown_id = ${fromGodownId} AND ct.product_id = ${productId} AND ct.status = 'pending'
+        ), 0) as city_pending
+      FROM lot_city_godown_allocations lcga
+      JOIN lot_city_distributions lcd ON lcd.id = lcga.lot_city_distribution_id
+      WHERE lcga.godown_id = ${fromGodownId} AND lcd.product_id = ${productId}
+    `;
+    const row = stockRows[0];
+    const available = Number(row?.received || 0) - Number(row?.sold || 0) - Number(row?.city_out || 0) - Number(row?.city_pending || 0);
+    if (qty > available) {
+      return errorResponse("VALIDATION_ERROR", `Insufficient stock: only ${Math.max(0, available)} available (including pending transfers) in this godown`);
+    }
+
     // Get FIFO lot if not specified
     let effectiveLotId = lotId;
     if (!effectiveLotId) {

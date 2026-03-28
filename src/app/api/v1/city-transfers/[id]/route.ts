@@ -65,6 +65,22 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         });
       }
 
+      // Deduct stock from sending city's godown allocation
+      const sendingAlloc = await prisma.lotCityGodownAllocation.findFirst({
+        where: { godownId: transfer.fromGodownId, lotCityDistribution: { lotId: transfer.lotId, cityId: transfer.fromCityId, productId: transfer.productId } },
+      });
+      if (sendingAlloc) {
+        await prisma.lotCityGodownAllocation.update({
+          where: { id: sendingAlloc.id },
+          data: { qty: { decrement: Number(transfer.qty) } },
+        });
+      }
+      // Also decrement sending city's distribution total
+      await prisma.lotCityDistribution.updateMany({
+        where: { lotId: transfer.lotId, cityId: transfer.fromCityId, productId: transfer.productId },
+        data: { allocatedQty: { decrement: Number(transfer.qty) } },
+      });
+
       await createAuditLog(user.userId, transfer.toCityId, "city_transfers", id, "update", { status: "pending" }, { status: "approved", toGodownId }, getClientIP(request));
 
       // Auto-activate any marked_short sales now covered by the incoming stock
