@@ -544,6 +544,15 @@ export default function PaymentsPage() {
               onKeyDown={e => { if (e.key === "Enter") { if (createType === "payment") addToQueue(); else handleCreate(); } }} />
           </div>
 
+          {currencies.length > 1 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
+              <select value={form.currencyId || 0} onChange={e => setForm((f: any) => ({ ...f, currencyId: parseInt(e.target.value) }))} className="select-field">
+                {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code} ({c.symbol})</option>)}
+              </select>
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
             <input type="number" min="0.01" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field"
