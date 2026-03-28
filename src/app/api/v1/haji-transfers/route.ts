@@ -157,7 +157,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     await createAuditLog(user.userId, cityId, "haji_transfers", transfer.id, "create", undefined, { lotId, amount, transferType, sourceType }, getClientIP(request));
 
     try {
-      await journalHajiTransfer({ id: transfer.id, cityId, amount, currencyCode: transfer.currency.code, date: transfer.transferDate, createdBy: user.userId });
+      await journalHajiTransfer({ id: transfer.id, cityId, amount, currencyCode: transfer.currency.code, date: transfer.transferDate, createdBy: user.userId, sourceType: transfer.sourceType, bankAccountId: (transfer as any).bankAccountId ?? null });
     } catch (je) { console.error("Journal (haji):", je); }
 
     return successResponse({

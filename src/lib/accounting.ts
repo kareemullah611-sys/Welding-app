@@ -184,10 +184,19 @@ export async function journalWithdrawal(w: { id: number; cityId: number; amount:
 }
 
 // HAJI TRANSFER
-export async function journalHajiTransfer(h: { id: number; cityId: number; amount: number; currencyCode: string; date: Date; createdBy: number; }) {
+// sourceType "cheque" → CR Cheques in Hand; "bank_transfer" → CR Bank GL; default → CR Cash in Hand
+export async function journalHajiTransfer(h: { id: number; cityId: number; amount: number; currencyCode: string; date: Date; createdBy: number; sourceType?: string | null; bankAccountId?: number | null; }) {
+  let creditAccId: number;
+  if (h.sourceType === "cheque") {
+    creditAccId = await getChequesInHandAccountId(h.cityId);
+  } else if (h.sourceType === "bank_transfer" && h.bankAccountId) {
+    creditAccId = await getBankGLAccountId(h.bankAccountId);
+  } else {
+    creditAccId = await getCashAccountId(h.cityId);
+  }
   await createJournalEntries(`HAJI-${h.id}`, [
     { accountId: await getHajiAccountId(), debit: h.amount, credit: 0, description: `Haji transfer` },
-    { accountId: await getCashAccountId(h.cityId), debit: 0, credit: h.amount, description: `Haji transfer` },
+    { accountId: creditAccId, debit: 0, credit: h.amount, description: `Haji transfer` },
   ], { currencyCode: h.currencyCode, entityType: "haji_transfer", entityId: h.id, cityId: h.cityId, entryDate: h.date, createdBy: h.createdBy });
 }
 
