@@ -24,6 +24,17 @@ export default function InventoryPage() {
   const [lots, setLots] = useState<any[]>([]);
   const [lotsLoading, setLotsLoading] = useState(false);
 
+  // Stock Ledger
+  const [showLedger, setShowLedger] = useState(false);
+  const [ledger, setLedger] = useState<any[]>([]);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [ledgerGodownId, setLedgerGodownId] = useState(0);
+  const [ledgerProductId, setLedgerProductId] = useState(0);
+  const [ledgerDateFrom, setLedgerDateFrom] = useState("");
+  const [ledgerDateTo, setLedgerDateTo] = useState("");
+  const [godownList, setGodownList] = useState<any[]>([]);
+  const [productList, setProductList] = useState<any[]>([]);
+
   // Godown allocation modal
   const [showGodownAlloc, setShowGodownAlloc] = useState(false);
   const [godownAllocs, setGodownAllocs] = useState<any[]>([]);
@@ -55,6 +66,30 @@ export default function InventoryPage() {
     if (r.success) setLots(r.data as any[]);
     setLotsLoading(false);
   }, [user?.role]);
+
+  const loadLedger = useCallback(async () => {
+    setLedgerLoading(true);
+    const params: any = { limit: 500 };
+    if (ledgerGodownId) params.godown_id = ledgerGodownId;
+    if (ledgerProductId) params.product_id = ledgerProductId;
+    if (ledgerDateFrom) params.date_from = ledgerDateFrom;
+    if (ledgerDateTo) params.date_to = ledgerDateTo;
+    const r = await apiCall("/api/v1/inventory/stock-ledger", { params });
+    if (r.success) setLedger(r.data as any[]);
+    setLedgerLoading(false);
+  }, [ledgerGodownId, ledgerProductId, ledgerDateFrom, ledgerDateTo]);
+
+  const openLedger = async () => {
+    setShowLedger(true);
+    // Load godowns & products for filters
+    const [gR, pR] = await Promise.all([
+      apiCall("/api/v1/godowns", { params: { limit: 100 } }),
+      apiCall("/api/v1/products", { params: { limit: 100 } }),
+    ]);
+    if (gR.success) setGodownList(gR.data as any[]);
+    if (pR.success) setProductList(pR.data as any[]);
+    await loadLedger();
+  };
 
   useEffect(() => { loadInventory(); }, [loadInventory]);
   useEffect(() => { loadLots(); }, [loadLots]);
@@ -143,7 +178,11 @@ export default function InventoryPage() {
 
   return (
     <div>
-      <PageHeader title={t("inventory")} subtitle={t("complete_stock_overview")} />
+      <PageHeader title={t("inventory")} subtitle={t("complete_stock_overview")} action={
+        <button onClick={openLedger} className="btn-secondary text-sm flex items-center gap-2">
+          📋 Stock Ledger
+        </button>
+      } />
 
       {/* Pending Incoming City Transfers — notification banner */}
       {pendingTransfers.length > 0 && (
@@ -345,6 +384,72 @@ export default function InventoryPage() {
             {submitting ? "..." : t("approve_receive")}
           </button>
         </div>
+      </Modal>
+
+      {/* ── Stock Ledger Modal ── */}
+      <Modal open={showLedger} onClose={() => setShowLedger(false)} title="Stock Ledger" size="xl">
+        {/* Filters */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+          <select value={ledgerGodownId} onChange={e => setLedgerGodownId(parseInt(e.target.value))} className="select-field text-sm">
+            <option value={0}>All Godowns</option>
+            {godownList.map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+          <select value={ledgerProductId} onChange={e => setLedgerProductId(parseInt(e.target.value))} className="select-field text-sm">
+            <option value={0}>All Products</option>
+            {productList.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <input type="date" value={ledgerDateFrom} onChange={e => setLedgerDateFrom(e.target.value)} className="input-field text-sm" placeholder="From" />
+          <input type="date" value={ledgerDateTo} onChange={e => setLedgerDateTo(e.target.value)} className="input-field text-sm" placeholder="To" />
+        </div>
+        <button onClick={loadLedger} className="btn-primary text-sm mb-4">Apply Filters</button>
+
+        {ledgerLoading ? (
+          <div className="flex justify-center py-10"><div className="w-7 h-7 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" /></div>
+        ) : ledger.length === 0 ? (
+          <p className="text-sm text-gray-400 py-8 text-center">No stock movements found.</p>
+        ) : (
+          <div className="overflow-x-auto max-h-[55vh] overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 w-24">Date</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Type</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Ref</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Product</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Godown</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-green-600">IN</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-red-500">OUT</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {ledger.map((row: any, i: number) => {
+                  const typeLabel: Record<string, { label: string; color: string }> = {
+                    allocation:    { label: "Allocation",      color: "bg-blue-50 text-blue-700"   },
+                    sale:          { label: "Sale",            color: "bg-purple-50 text-purple-700" },
+                    godown_in:     { label: "Godown In",       color: "bg-teal-50 text-teal-700"   },
+                    godown_out:    { label: "Godown Out",      color: "bg-orange-50 text-orange-700" },
+                    city_in:       { label: "City Transfer In",  color: "bg-green-50 text-green-700" },
+                    city_out:      { label: "City Transfer Out", color: "bg-red-50 text-red-600"   },
+                  };
+                  const { label, color } = typeLabel[row.type] || { label: row.type, color: "bg-gray-50 text-gray-600" };
+                  return (
+                    <tr key={i} className="hover:bg-gray-50">
+                      <td className="px-3 py-2 text-gray-500 font-mono text-xs whitespace-nowrap">{row.date}</td>
+                      <td className="px-3 py-2">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${color}`}>{label}</span>
+                      </td>
+                      <td className="px-3 py-2 font-mono text-xs text-gray-600">{row.reference}</td>
+                      <td className="px-3 py-2 text-gray-800 font-medium">{row.productName}</td>
+                      <td className="px-3 py-2 text-gray-600 text-xs">{row.godownName}<span className="text-gray-400 ml-1">({row.cityName})</span></td>
+                      <td className="px-3 py-2 text-right font-semibold text-green-600">{row.qtyIn > 0 ? `+${row.qtyIn.toLocaleString()}` : ""}</td>
+                      <td className="px-3 py-2 text-right font-semibold text-red-500">{row.qtyOut > 0 ? `-${row.qtyOut.toLocaleString()}` : ""}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Modal>
 
       {/* ── Godown Allocation Modal ── */}
