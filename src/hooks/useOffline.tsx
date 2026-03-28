@@ -187,11 +187,6 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
   // ── Reference data sync ──
   const syncReferenceData = useCallback(async () => {
     if (!navigator.onLine) return;
-    // Don't sync if not authenticated
-    try {
-      const authRes = await fetch("/api/v1/auth/me");
-      if (!authRes.ok) return;
-    } catch { return; }
 
     // Check if any key is missing or stale
     const keys = ["cities", "products", "lots_ongoing", "godowns", "customers"];
