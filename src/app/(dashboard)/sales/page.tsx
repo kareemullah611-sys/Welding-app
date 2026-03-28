@@ -11,7 +11,7 @@ import { useLang } from "@/lib/lang";
 export default function SalesPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline, enqueue, cacheGodownStock, getCachedGodownStock, lastSyncResult, getLocalData, syncReferenceData } = useOffline();
+  const { isOnline, enqueue, cacheGodownStock, getCachedGodownStock, lastSyncResult } = useOffline();
   const [sales, setSales] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -81,36 +81,14 @@ export default function SalesPage() {
   }, [lastSyncResult, loadSales]);
 
   const loadDropdowns = async () => {
-    // Local-first: try IndexedDB cache before hitting the network
-    const [localGodowns, localProducts, localLots, localCities] = await Promise.all([
-      getLocalData("godowns"),
-      getLocalData("products"),
-      getLocalData("lots_ongoing"),
-      getLocalData("cities"),
-    ]);
-
-    if (localGodowns && localProducts && localLots && localCities) {
-      setGodowns(localGodowns);
-      setProducts(localProducts);
-      setLots(localLots);
-      if (user?.cityId) {
-        const city = localCities.find((c: any) => c.id === user.cityId);
-        if (city?.currencies?.length) {
-          setForm((f) => ({ ...f, currencyId: city.currencies[0].id }));
-          setCurrencies(city.currencies);
-        }
-      }
-      return;
-    }
-
-    // Local not available — fetch from API (syncReferenceData also caches for next time)
-    syncReferenceData();
-    const [gdRes, prodRes, lotRes, cityRes] = await Promise.all([
+    const [custRes, gdRes, prodRes, lotRes, cityRes] = await Promise.all([
+      Promise.resolve({ success: true, data: [] }), // customers loaded on-demand via CustomerSearch
       apiCall("/api/v1/godowns", { params: { limit: 200, is_active: "true", show_all: "true" } }),
       apiCall("/api/v1/products", { params: { limit: 100, is_active: "true" } }),
       apiCall("/api/v1/lots", { params: { limit: 100, status: "ongoing" } }),
       apiCall("/api/v1/cities"),
     ]);
+    if (custRes.success) setCustomers(custRes.data as any[]);
     if (gdRes.success) setGodowns(gdRes.data as any[]);
     if (prodRes.success) setProducts(prodRes.data as any[]);
     if (lotRes.success) setLots(lotRes.data as any[]);

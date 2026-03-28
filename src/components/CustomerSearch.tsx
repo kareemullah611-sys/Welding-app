@@ -1,7 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { apiCall } from "@/hooks/useApi";
-import { useOffline } from "@/hooks/useOffline";
 
 interface Props {
   value: number;           // selected customerId (0 = none)
@@ -18,7 +17,6 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
   const [selectedName, setSelectedName] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const { isOnline, searchLocalCustomers } = useOffline();
 
   // When value is cleared from outside (form reset), clear internal state
   useEffect(() => {
@@ -42,18 +40,10 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
   const search = useCallback(async (q: string) => {
     if (!q.trim()) { setResults([]); setOpen(false); return; }
     setLoading(true);
-    if (!isOnline) {
-      // Offline: search local IndexedDB cache
-      const local = await searchLocalCustomers(q);
-      setResults(local);
-      setOpen(true);
-      setLoading(false);
-      return;
-    }
     const r = await apiCall("/api/v1/customers", { params: { search: q, limit: 10, is_active: "true" } });
     setLoading(false);
     if (r.success) { setResults(r.data as any[]); setOpen(true); }
-  }, [isOnline, searchLocalCustomers]);
+  }, []);
 
   const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const q = e.target.value;

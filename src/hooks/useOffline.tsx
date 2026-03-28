@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 
 interface QueuedRequest {
   id: string;
@@ -24,10 +24,6 @@ interface OfflineContextType {
   // Stock cache: persists godown stock locally so city admins see correct numbers offline
   cacheGodownStock: (godownId: number, stock: any[]) => Promise<void>;
   getCachedGodownStock: (godownId: number) => Promise<any[] | null>;
-  // Reference data cache: cities, products, lots, godowns, customers
-  syncReferenceData: () => Promise<void>;
-  getLocalData: (key: string) => Promise<any[] | null>;
-  searchLocalCustomers: (query: string) => Promise<any[]>;
 }
 
 const OfflineContext = createContext<OfflineContextType>({
@@ -40,18 +36,13 @@ const OfflineContext = createContext<OfflineContextType>({
   enqueue: async () => {},
   cacheGodownStock: async () => {},
   getCachedGodownStock: async () => null,
-  syncReferenceData: async () => {},
-  getLocalData: async () => null,
-  searchLocalCustomers: async () => [],
 });
 
 // ── IndexedDB helpers ──────────────────────────────────────────────────────────
 const DB_NAME = "mrf-offline";
-const DB_VERSION = 3;
+const DB_VERSION = 2;
 const QUEUE_STORE = "queue";
 const STOCK_STORE = "stock_cache";
-const CACHE_STORE = "local_cache";
-const STALE_MS = 5 * 60 * 1000; // 5 minutes
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -62,8 +53,6 @@ function openDB(): Promise<IDBDatabase> {
         db.createObjectStore(QUEUE_STORE, { keyPath: "id" });
       if (!db.objectStoreNames.contains(STOCK_STORE))
         db.createObjectStore(STOCK_STORE, { keyPath: "godownId" });
-      if (!db.objectStoreNames.contains(CACHE_STORE))
-        db.createObjectStore(CACHE_STORE, { keyPath: "key" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -110,20 +99,6 @@ async function dbGet<T>(store: string, key: any): Promise<T | undefined> {
   });
 }
 
-// Cache helpers (use CACHE_STORE)
-async function dbGetCache(key: string): Promise<any[] | null> {
-  try {
-    const entry = await dbGet<{ key: string; data: any[]; cachedAt: number }>(CACHE_STORE, key);
-    if (!entry) return null;
-    if (Date.now() - entry.cachedAt > STALE_MS) return null;
-    return entry.data;
-  } catch { return null; }
-}
-
-async function dbSetCache(key: string, data: any[]): Promise<void> {
-  await dbPut(CACHE_STORE, { key, data, cachedAt: Date.now() });
-}
-
 // ── Provider ───────────────────────────────────────────────────────────────────
 export function OfflineProvider({ children }: { children: React.ReactNode }) {
   const [isOnline, setIsOnline]           = useState(true);
@@ -131,7 +106,6 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
   const [queueCount, setQueueCount]       = useState(0);
   const [isSyncing, setIsSyncing]         = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState<{ synced: number; failed: number } | null>(null);
-  const prevOnlineRef = useRef(false);
 
   // ── Online / Offline ──
   useEffect(() => {
@@ -184,73 +158,6 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     } catch { return null; }
   }, []);
 
-  // ── Reference data sync ──
-  const syncReferenceData = useCallback(async () => {
-    if (!navigator.onLine) return;
-
-    // Check if any key is missing or stale
-    const keys = ["cities", "products", "lots_ongoing", "godowns", "customers"];
-    const staleness = await Promise.all(
-      keys.map(async (key) => {
-        const entry = await dbGet<{ key: string; cachedAt: number }>(CACHE_STORE, key).catch(() => undefined);
-        return !entry || (Date.now() - entry.cachedAt > STALE_MS);
-      })
-    );
-    if (!staleness.some(Boolean)) return; // all fresh, skip
-
-    const [citiesRes, productsRes, lotsRes, godownsRes, customersRes] = await Promise.allSettled([
-      fetch("/api/v1/cities").then((r) => r.json()),
-      fetch("/api/v1/products?limit=200&is_active=true").then((r) => r.json()),
-      fetch("/api/v1/lots?limit=100&status=ongoing").then((r) => r.json()),
-      fetch("/api/v1/godowns?limit=200&is_active=true&show_all=true").then((r) => r.json()),
-      fetch("/api/v1/customers?limit=500&is_active=true").then((r) => r.json()),
-    ]);
-
-    const results = [citiesRes, productsRes, lotsRes, godownsRes, customersRes];
-    const cacheKeys = ["cities", "products", "lots_ongoing", "godowns", "customers"];
-
-    await Promise.all(
-      results.map(async (result, i) => {
-        if (result.status === "fulfilled" && result.value?.success) {
-          await dbSetCache(cacheKeys[i], result.value.data).catch(() => {});
-        }
-      })
-    );
-  }, []);
-
-  // ── Read from local cache ──
-  const getLocalData = useCallback(async (key: string): Promise<any[] | null> => {
-    return dbGetCache(key);
-  }, []);
-
-  // ── Search customers locally ──
-  const searchLocalCustomers = useCallback(async (query: string): Promise<any[]> => {
-    try {
-      const customers = await dbGetCache("customers");
-      if (!customers) return [];
-      const q = query.toLowerCase();
-      return customers
-        .filter((c: any) =>
-          c.name?.toLowerCase().includes(q) || c.phone?.includes(query)
-        )
-        .slice(0, 10);
-    } catch { return []; }
-  }, []);
-
-  // ── Auto-sync reference data: on mount and when reconnecting ──
-  useEffect(() => {
-    if (isOnline && !prevOnlineRef.current) {
-      syncReferenceData();
-    }
-    prevOnlineRef.current = isOnline;
-  }, [isOnline, syncReferenceData]);
-
-  // Initial sync on first mount (isOnline starts as true)
-  useEffect(() => {
-    if (navigator.onLine) syncReferenceData();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // ── Sync queue (FIFO) when back online ──
   const syncQueue = useCallback(async () => {
     if (isSyncing || !isOnline) return;
@@ -290,7 +197,6 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     <OfflineContext.Provider value={{
       isOnline, isServiceWorkerReady, queueCount, syncQueue, isSyncing, lastSyncResult,
       enqueue, cacheGodownStock, getCachedGodownStock,
-      syncReferenceData, getLocalData, searchLocalCustomers,
     }}>
       {children}
     </OfflineContext.Provider>

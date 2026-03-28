@@ -49,13 +49,6 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
-// Fetch with a timeout — aborts and falls through to cache if too slow
-function fetchWithTimeout(request, ms = 5000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ms);
-  return fetch(request, { signal: controller.signal }).finally(() => clearTimeout(timer));
-}
-
 // Fetch event — network-first for API, cache-first for static assets
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
@@ -68,7 +61,7 @@ self.addEventListener("fetch", (event) => {
     // For GET requests to cacheable routes — network first, fallback to cache
     if (event.request.method === "GET" && CACHEABLE_API_ROUTES.some((route) => url.pathname.startsWith(route))) {
       event.respondWith(
-        fetchWithTimeout(event.request)
+        fetch(event.request)
           .then((response) => {
             if (response.ok) {
               const clone = response.clone();
@@ -136,7 +129,7 @@ self.addEventListener("fetch", (event) => {
   // Next.js pages — network first, fallback to cache
   if (event.request.mode === "navigate") {
     event.respondWith(
-      fetchWithTimeout(event.request, 8000).catch(() => {
+      fetch(event.request).catch(() => {
         return caches.match(event.request).then((cached) => {
           return cached || caches.match("/dashboard");
         });

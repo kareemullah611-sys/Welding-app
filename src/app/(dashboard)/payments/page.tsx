@@ -24,7 +24,7 @@ function TypeBadge({ type }: { type: string }) {
 export default function PaymentsPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline, enqueue, lastSyncResult, getLocalData, syncReferenceData } = useOffline();
+  const { isOnline, enqueue, lastSyncResult } = useOffline();
   const recordMenuRef = useRef<HTMLDivElement>(null);
 
   const [items, setItems] = useState<any[]>([]);
@@ -103,24 +103,6 @@ export default function PaymentsPage() {
   }, [lastSyncResult, load]);
 
   const loadHelpers = async () => {
-    // Local-first: try IndexedDB cache before hitting the network
-    const [localLots, localCities] = await Promise.all([
-      getLocalData("lots_ongoing"),
-      getLocalData("cities"),
-    ]);
-
-    if (localLots && localCities) {
-      setLots(localLots);
-      let loadedCurrencies: any[] = [];
-      if (user?.cityId) {
-        const city = localCities.find((c: any) => c.id === user.cityId);
-        if (city?.currencies?.length) { loadedCurrencies = city.currencies; setCurrencies(city.currencies); }
-      }
-      return loadedCurrencies;
-    }
-
-    // Local not available — fetch from API
-    syncReferenceData();
     const [lR, ciR] = await Promise.all([
       apiCall("/api/v1/lots", { params: { limit: 100 } }),
       apiCall("/api/v1/cities"),

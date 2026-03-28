@@ -5,7 +5,6 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { LangProvider } from "@/lib/lang";
 import { OfflineProvider } from "@/hooks/useOffline";
 import OfflineBanner from "@/components/layout/OfflineBanner";
-import OfflinePIN from "@/components/OfflinePIN";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -37,7 +36,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <OfflineProvider>
               {children}
               <OfflineBanner />
-              <OfflinePIN />
             </OfflineProvider>
           </AuthProvider>
         </LangProvider>
