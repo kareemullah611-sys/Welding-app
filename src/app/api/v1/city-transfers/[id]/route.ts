@@ -28,6 +28,12 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       const godown = await prisma.godown.findFirst({ where: { id: toGodownId, cityId: transfer.toCityId, isActive: true } });
       if (!godown) return errorResponse("NOT_FOUND", "Godown not found in receiving city");
 
+      // Verify the lot is still ongoing
+      const lot = await prisma.lot.findUnique({ where: { id: transfer.lotId }, select: { status: true, lotNumber: true } });
+      if (!lot || lot.status === "completed") {
+        return errorResponse("VALIDATION_ERROR", `Cannot approve — lot ${lot?.lotNumber || transfer.lotId} is completed. Ask super admin to reopen it first.`);
+      }
+
       // Approve: update status and create godown allocation for receiver
       await prisma.cityTransfer.update({
         where: { id },

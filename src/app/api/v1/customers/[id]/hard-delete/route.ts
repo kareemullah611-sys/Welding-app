@@ -37,8 +37,17 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
 
       // Remove journal entries for all payments
       const payments = await tx.payment.findMany({ where: { customerId: id }, select: { id: true } });
+      const paymentIds = payments.map((p) => p.id);
       for (const payment of payments) {
         await tx.journalEntry.deleteMany({ where: { transactionId: `PAY-${payment.id}` } });
+      }
+      // Null out chequePaymentId on any haji transfers referencing these payments
+      // (avoids FK constraint violation when deleting payments)
+      if (paymentIds.length > 0) {
+        await (tx as any).hajiTransfer.updateMany({
+          where: { chequePaymentId: { in: paymentIds } },
+          data: { chequePaymentId: null },
+        });
       }
       await tx.payment.deleteMany({ where: { customerId: id } });
 

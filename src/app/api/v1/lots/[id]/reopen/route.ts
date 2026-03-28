@@ -12,6 +12,17 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     if (!lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
     if (lot.status !== "completed") return errorResponse("VALIDATION_ERROR", "Lot is not completed");
 
+    // Block reopen if any overflow target lot is already completed
+    const overflowCheck = await prisma.lotSettlementOverflow.findMany({
+      where: { fromLotId: lotId },
+      include: { toLot: { select: { lotNumber: true, status: true } } },
+    });
+    const completedDeps = overflowCheck.filter((ov: any) => ov.toLot?.status === "completed");
+    if (completedDeps.length > 0) {
+      const nums = completedDeps.map((ov: any) => ov.toLot.lotNumber).join(", ");
+      return errorResponse("CONFLICT", `Cannot reopen — overflow was applied to completed lot(s): ${nums}. Reopen those first.`, 409);
+    }
+
     // Delete any overflow records FROM this lot
     const overflows = await prisma.lotSettlementOverflow.findMany({ where: { fromLotId: lotId } });
     for (const ov of overflows) {

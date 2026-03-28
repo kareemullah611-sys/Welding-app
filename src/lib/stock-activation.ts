@@ -65,12 +65,13 @@ export async function autoActivateShortSales(godownId: number): Promise<number> 
       for (const item of sale.items) {
         freeCapacity[item.productId] = (freeCapacity[item.productId] ?? 0) - Number(item.qty);
       }
-      // Activate the sale
-      await prisma.sale.update({
-        where: { id: sale.id },
+      // Atomically activate only if still marked_short — prevents race condition where
+      // two concurrent stock events both try to activate the same sale
+      const { count } = await prisma.sale.updateMany({
+        where: { id: sale.id, status: "marked_short" },
         data: { status: "active", stockShortFlag: false },
       });
-      activated++;
+      if (count > 0) activated++;
     }
   }
 

@@ -45,9 +45,12 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     const totalExpenses = expenses.reduce((s: number, x: any) => s + Number(x.amount), 0);
     const totalHaji = hajiTransfers.reduce((s: number, x: any) => s + Number(x.amount), 0);
     const totalPurchaseUsd = lotPurchases.reduce((s: number, x: any) => s + Number(x.totalPriceUsd || 0), 0);
-    const totalLotCosts = lotCosts.reduce((s: number, x: any) => s + Number(x.amount), 0);
-    // Include lot-tagged expenses in the additional costs / landed cost total
-    const totalAdditionalCosts = totalLotCosts + totalExpenses;
+    // Group lot costs by currency — avoids mixing PKR + USD into a meaningless total
+    const costsByCurrency: Record<string, number> = {};
+    for (const c of lotCosts) {
+      const code = c.currencyCode || "PKR";
+      costsByCurrency[code] = (costsByCurrency[code] || 0) + Number(c.amount);
+    }
 
     return successResponse({
       id: lot.id, lotNumber: lot.lotNumber, lotDate: lot.lotDate.toISOString().split("T")[0],
@@ -56,7 +59,12 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       createdBy: lot.creator,
       products: lotProducts.map((lp: any) => ({ productId: lp.productId, productName: lp.product.name, totalQty: Number(lp.totalQty) })),
       distributions,
-      costSummary: { totalPurchaseUsd, totalLotCosts, totalLotExpenses: totalExpenses, totalAdditionalCosts, totalLanded: totalPurchaseUsd + totalAdditionalCosts, costBreakdown: lotCosts },
+      costSummary: {
+        totalPurchaseUsd,
+        costsByCurrency,       // { PKR: 50000, USD: 200 } — accurate per-currency breakdown
+        totalLotExpenses: totalExpenses,
+        costBreakdown: lotCosts,
+      },
       summary: { totalSales, totalPayments, totalExpenses, totalHaji, outstanding: totalSales - totalPayments },
       recentSales: sales.map((s: any) => ({ ...s, totalAmount: Number(s.totalAmount), saleDate: s.saleDate.toISOString().split("T")[0] })),
       recentPayments: payments.map((p: any) => ({ ...p, amount: Number(p.amount), paymentDate: p.paymentDate.toISOString().split("T")[0] })),
