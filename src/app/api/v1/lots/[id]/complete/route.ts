@@ -32,10 +32,12 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
 
         const expenseSum = await prisma.expense.aggregate({ where: { cityId, lotId, currencyId }, _sum: { amount: true } });
         const hajiSum = await prisma.hajiTransfer.aggregate({ where: { cityId, lotId, currencyId }, _sum: { amount: true } });
+        const discountSum = await prisma.saleDiscount.aggregate({ where: { appliedToLotId: lotId, currencyId, sale: { cityId } }, _sum: { discountAmount: true } });
 
         const expenses = Number(expenseSum._sum.amount || 0);
         const hajiTransferred = Number(hajiSum._sum.amount || 0);
-        const netOwed = revenue - expenses;
+        const discounts = Number(discountSum._sum.discountAmount || 0);
+        const netOwed = revenue - expenses - discounts;
         const overflowAmount = hajiTransferred - netOwed;
 
         if (overflowAmount > 0) {

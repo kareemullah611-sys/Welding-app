@@ -101,6 +101,9 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       if (chequePayment.cityId !== cityId) return errorResponse("FORBIDDEN", "Cheque payment does not belong to your city", 403);
       if ((chequePayment as any).paymentMethod !== "cheque") return errorResponse("VALIDATION_ERROR", "Referenced payment is not a cheque payment");
       if ((chequePayment as any).chequeStatus !== "in_hand") return errorResponse("VALIDATION_ERROR", "Cheque is not in-hand status");
+      // Prevent same cheque being used for multiple haji transfers
+      const existingTransfer = await prisma.hajiTransfer.findFirst({ where: { chequePaymentId } as any });
+      if (existingTransfer) return errorResponse("CONFLICT", "This cheque has already been used for a haji transfer", 409);
     }
 
     // Validate bank account source

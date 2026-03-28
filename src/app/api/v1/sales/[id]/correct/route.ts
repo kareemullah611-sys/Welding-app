@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
+import { reverseJournalEntries, journalSaleCreated } from "@/lib/accounting";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 
@@ -17,7 +18,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 
     const sale = await prisma.sale.findUnique({
       where: { id: saleId },
-      include: { items: true },
+      include: { items: true, currency: { select: { code: true } } },
     });
     if (!sale) return errorResponse("NOT_FOUND", "Sale not found", 404);
     if (sale.status !== "active") return errorResponse("VALIDATION_ERROR", "Can only correct active sales");
@@ -30,6 +31,9 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     const oldItems = sale.items.map(i => ({ productId: i.productId, qty: Number(i.qty), ratePerCarton: Number(i.ratePerCarton), amount: Number(i.amount) }));
 
     const roundMoney = (n: number) => Math.round(n * 100) / 100;
+
+    // Reverse original journal entries before changing items
+    try { await reverseJournalEntries(`SALE-${saleId}`, user.userId); } catch (_) {}
 
     // Delete old items and batch-create new ones atomically
     await prisma.saleItem.deleteMany({ where: { saleId } });
@@ -47,6 +51,15 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       where: { id: saleId },
       data: { totalAmount, notes: `${sale.notes || ""}\n[CORRECTION: ${reason}]`.trim() },
     });
+
+    // Re-create journal entries with corrected total
+    try {
+      await journalSaleCreated({
+        id: saleId, customerId: sale.customerId, cityId: sale.cityId,
+        lotId: sale.lotId!, totalAmount, currencyCode: (sale as any).currency?.code || "PKR",
+        saleDate: sale.saleDate, createdBy: user.userId,
+      });
+    } catch (_) {}
 
     await createAuditLog(user.userId, sale.cityId, "sales", saleId, "update",
       { items: oldItems, totalAmount: Number(sale.totalAmount) },

@@ -15,8 +15,15 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
 
     const { lotId, supplierId, products, exchangeRate } = parsed.data;
 
-    const lot = await prisma.lot.findUnique({ where: { id: lotId } });
+    const lot = await prisma.lot.findUnique({ where: { id: lotId }, include: { lotProducts: { select: { productId: true } } } });
     if (!lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
+
+    // Validate all purchase products exist in this lot
+    const lotProductIds = new Set(lot.lotProducts.map((lp) => lp.productId));
+    const invalidProducts = products.filter((p) => !lotProductIds.has(p.productId));
+    if (invalidProducts.length > 0) {
+      return errorResponse("VALIDATION_ERROR", `Products not in this lot: ${invalidProducts.map((p) => p.productId).join(", ")}`);
+    }
 
     const supplier = await prisma.supplier.findUnique({ where: { id: supplierId } });
     if (!supplier) return errorResponse("NOT_FOUND", "Supplier not found", 404);

@@ -103,6 +103,20 @@ export const PATCH = withAuth(async (request: NextRequest, context: any, user: J
     }
 
     if (type === "withdrawal") {
+      // If updating amount, verify new amount won't exceed available capital
+      if (amount !== undefined) {
+        const existing = await prisma.investorWithdrawal.findUnique({ where: { id }, select: { accountId: true } });
+        if (existing) {
+          const [deposits, otherWithdrawals] = await Promise.all([
+            prisma.investorDeposit.aggregate({ where: { accountId: existing.accountId }, _sum: { amount: true } }),
+            prisma.investorWithdrawal.aggregate({ where: { accountId: existing.accountId, id: { not: id } }, _sum: { amount: true } }),
+          ]);
+          const capital = Number(deposits._sum.amount ?? 0) - Number(otherWithdrawals._sum.amount ?? 0);
+          if (parseFloat(amount) > capital) {
+            return errorResponse("VALIDATION", `Withdrawal amount (${amount}) exceeds available capital (${capital})`, 400);
+          }
+        }
+      }
       const record = await prisma.investorWithdrawal.update({
         where: { id },
         data: {
