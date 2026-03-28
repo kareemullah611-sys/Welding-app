@@ -51,6 +51,7 @@ export default function SalesPage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [shortConfirmed, setShortConfirmed] = useState(false);
 
   // Cancel form
   const [cancelReason, setCancelReason] = useState("");
@@ -153,20 +154,18 @@ export default function SalesPage() {
     const validItems = form.items.filter((i) => i.productId && i.qty > 0);
     if (!validItems.length) { setFormError("Add at least one product with quantity"); return; }
 
-    // Check stock availability
-    for (const item of validItems) {
-      const avail = getAvailable(item.productId);
-      if (avail <= 0) {
-        const pName = products.find((p: any) => p.id === item.productId)?.name || "";
-        setFormError(`${pName}: No stock available in this godown. Allocate stock first via Lots → Assign to Godowns.`);
-        return;
-      }
-      if (item.qty > avail) {
-        const pName = products.find((p: any) => p.id === item.productId)?.name || "";
-        setFormError(`${pName}: Only ${avail} available but trying to sell ${item.qty}`);
-        return;
-      }
+    // Warn (non-blocking) if any item exceeds available stock — API will mark sale as "marked_short"
+    const shortItems = validItems.filter((item) => item.qty > getAvailable(item.productId));
+    if (shortItems.length > 0) {
+      const names = shortItems.map((item) => {
+        const avail = getAvailable(item.productId);
+        const pName = products.find((p: any) => p.id === item.productId)?.name || "Item";
+        return avail <= 0 ? `${pName} (no stock)` : `${pName} (${avail} available)`;
+      });
+      setFormError(`⚠ Short stock: ${names.join(", ")} — sale will be marked short. Submit again to confirm.`);
+      if (!shortConfirmed) { setShortConfirmed(true); return; }
     }
+    setShortConfirmed(false);
 
     const payload = { customerId: form.customerId, godownId: form.godownId, lotId: form.lotId || null, saleDate: form.saleDate, currencyId: form.currencyId, notes: form.notes, items: validItems };
 
@@ -202,6 +201,7 @@ export default function SalesPage() {
       }, ...prev]);
 
       setShowCreate(false);
+      setShortConfirmed(false);
       setForm({ customerId: 0, godownId: 0, lotId: 0, saleDate: new Date().toISOString().split("T")[0], currencyId: currencies[0]?.id || 0, notes: "", items: [{ productId: 0, qty: 0, ratePerCarton: 0 }] });
       return;
     }
@@ -212,6 +212,7 @@ export default function SalesPage() {
     setSubmitting(false);
     if (result.success) {
       setShowCreate(false);
+      setShortConfirmed(false);
       setForm({ customerId: 0, godownId: 0, lotId: 0, saleDate: new Date().toISOString().split("T")[0], currencyId: currencies[0]?.id || 0, notes: "", items: [{ productId: 0, qty: 0, ratePerCarton: 0 }] });
       loadSales();
     } else { setFormError(result.error || "Failed to create sale"); }
@@ -327,8 +328,12 @@ export default function SalesPage() {
       ]} data={sales} loading={loading} emptyMessage={t("no_data")} pagination={{ page, totalPages, total, onPageChange: setPage }} />
 
       {/* ========== CREATE SALE MODAL ========== */}
-      <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t("new_sale")} size="xl">
-        {formError && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{formError}</div>}
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); setShortConfirmed(false); setFormError(""); }} title={t("new_sale")} size="xl">
+        {formError && (
+          <div className={`mb-4 p-3 rounded-lg text-sm border ${shortConfirmed ? "bg-amber-50 border-amber-300 text-amber-800" : "bg-red-50 border-red-200 text-red-700"}`}>
+            {formError}
+          </div>
+        )}
 
         {/* Date — always first */}
         <div className="mb-4">
@@ -453,8 +458,8 @@ export default function SalesPage() {
         </div>
 
         <div className="flex justify-end gap-3 pt-4 border-t">
-          <button onClick={() => setShowCreate(false)} className="btn-secondary text-sm">{t("cancel")}</button>
-          <button onClick={handleSubmit} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("new_sale")}</button>
+          <button onClick={() => { setShowCreate(false); setShortConfirmed(false); setFormError(""); }} className="btn-secondary text-sm">{t("cancel")}</button>
+          <button onClick={handleSubmit} disabled={submitting} className={`text-sm font-medium px-4 py-2 rounded-lg transition-colors ${shortConfirmed ? "bg-amber-500 hover:bg-amber-600 text-white" : "btn-primary"}`}>{submitting ? "..." : shortConfirmed ? "⚠ Confirm Short Sale" : t("new_sale")}</button>
         </div>
       </Modal>
 
