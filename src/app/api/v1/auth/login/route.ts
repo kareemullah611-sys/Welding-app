@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
           tokenHash: hashToken(token),
           deviceInfo: parseUserAgent(userAgent),
           ipAddress,
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
         },
       });
     } catch (sessionError) {
@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 60 * 60 * 24, // 24 hours
+      maxAge: 60 * 60 * 24 * 30, // 30 days
       path: "/",
     });
 

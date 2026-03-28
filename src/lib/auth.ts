@@ -9,7 +9,7 @@ const JWT_SECRET = process.env.JWT_SECRET || (() => {
   console.warn("⚠️  JWT_SECRET is not set. Using an insecure default secret — DO NOT run this in production without setting JWT_SECRET in your environment.");
   return "dev-secret-change-in-production";
 })();
-const JWT_EXPIRY = process.env.JWT_EXPIRY || "24h";
+const JWT_EXPIRY = process.env.JWT_EXPIRY || "30d";
 
 export interface JWTPayload {
   userId: number;
