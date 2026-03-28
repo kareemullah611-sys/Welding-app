@@ -29,6 +29,7 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
 
     await prisma.$transaction(async (tx) => {
       await tx.journalEntry.deleteMany({ where: { transactionId: `PAY-${id}` } });
+      await (tx as any).paymentLotTransfer.deleteMany({ where: { paymentId: id } });
       await tx.payment.delete({ where: { id } });
     });
 

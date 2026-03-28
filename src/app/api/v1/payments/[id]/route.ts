@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { reverseJournalEntries, journalPaymentReceived } from "@/lib/accounting";
 
 export const GET = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -52,6 +53,9 @@ export const PATCH = withAuth(async (request: NextRequest, context: any, user: J
         } as any,
       });
 
+      // Reverse the journal entry so accounting books stay balanced (same as cancel endpoint)
+      try { await reverseJournalEntries(`PAY-${id}`, user.userId); } catch (je) { console.error("Journal reversal error (bounce):", je); }
+
       await createAuditLog(user.userId, payment.cityId, "payments", id, "update",
         { chequeStatus: (payment as any).chequeStatus, status: payment.status },
         { chequeStatus: "bounced", status: "cancelled", cancellationReason: "Cheque bounced" },
@@ -87,6 +91,8 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       amount: `${sym} ${Number(payment.amount).toLocaleString("en-US")}`,
       ...(payment.notes ? { notes: payment.notes } : {}),
     };
+    const amountChanged = body.amount !== undefined && Number(body.amount) !== Number(payment.amount);
+
     const updated = await prisma.payment.update({
       where: { id },
       data: {
@@ -96,6 +102,18 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         updatedAt: new Date(),
       },
     });
+
+    // If amount changed, reverse old journal and create new one with updated amount
+    if (amountChanged) {
+      try {
+        await reverseJournalEntries(`PAY-${id}`, user.userId);
+        await journalPaymentReceived({
+          id, customerId: payment.customerId, cityId: payment.cityId, lotId: payment.lotId,
+          amount: Number(updated.amount), currencyCode: payment.currency.code,
+          paymentDate: payment.paymentDate, createdBy: user.userId,
+        });
+      } catch (je) { console.error("Journal re-entry error (payment edit):", je); }
+    }
 
     await createAuditLog(user.userId, payment.cityId, "payments", id, "update", old, {
       detail: updated.detail,

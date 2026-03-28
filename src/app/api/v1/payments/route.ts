@@ -158,6 +158,14 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     });
     if (!lot) return errorResponse("VALIDATION_ERROR", "Lot not found, completed, or not distributed to your city");
 
+    // Validate no duplicate active cheque number in this city
+    if (paymentMethod === "cheque" && chequeNumber) {
+      const duplicate = await prisma.payment.findFirst({
+        where: { cityId, status: "active", paymentMethod: "cheque", chequeNumber } as any,
+      });
+      if (duplicate) return errorResponse("CONFLICT", `Cheque number "${chequeNumber}" already exists in an active payment for this city`, 409);
+    }
+
     // Determine chequeStatus for cheque payments destined to our_account
     const chequeStatus = (paymentMethod === "cheque" && destination === "our_account") ? "in_hand" : undefined;
 
@@ -178,7 +186,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         createdBy: user.userId,
         ...(chequeNumber !== undefined ? { chequeNumber } : {}),
         ...(chequeBank !== undefined ? { chequeBank } : {}),
-        ...(chequeDueDate !== undefined ? { chequeDueDate: new Date(chequeDueDate) } : {}),
+        ...(chequeDueDate ? { chequeDueDate: new Date(chequeDueDate) } : {}),
         ...(chequeStatus !== undefined ? { chequeStatus } : {}),
       },
       include: {

@@ -48,6 +48,8 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
           where: { chequePaymentId: { in: paymentIds } },
           data: { chequePaymentId: null },
         });
+        // Delete PaymentLotTransfer records referencing these payments
+        await (tx as any).paymentLotTransfer.deleteMany({ where: { paymentId: { in: paymentIds } } });
       }
       await tx.payment.deleteMany({ where: { customerId: id } });
 

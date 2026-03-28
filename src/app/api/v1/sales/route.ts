@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middleware";
 import { createSaleSchema } from "@/lib/validations";
-import { journalSaleCreated } from "@/lib/accounting";
+import { journalSaleCreated, journalPaymentReceived } from "@/lib/accounting";
 import {
   successResponse, paginatedResponse, validationError, errorResponse, serverError,
   getPaginationParams, getDateRange,
@@ -322,7 +322,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     // Auto-record cash payment for walk-in customers (they pay on the spot)
     if (sale.customer.name === "Walk-in Customer") {
       try {
-        await prisma.payment.create({
+        const walkinPayment = await prisma.payment.create({
           data: {
             cityId,
             customerId: sale.customerId,
@@ -340,7 +340,19 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
             createdBy: user.userId,
           },
         });
-      } catch (pe) { console.error("Walk-in auto-payment error:", pe); }
+        // Record journal entry for the auto-payment
+        try {
+          const curr = await prisma.currency.findUnique({ where: { id: sale.currencyId } });
+          await journalPaymentReceived({
+            id: walkinPayment.id, customerId: sale.customerId, cityId, lotId: sale.lotId,
+            amount: Number(sale.totalAmount), currencyCode: curr?.code || "PKR",
+            paymentDate: sale.saleDate, createdBy: user.userId,
+          });
+        } catch (je) { console.error("Walk-in auto-payment journal error:", je); }
+      } catch (pe) {
+        console.error("Walk-in auto-payment error:", pe);
+        (responseData as any).paymentWarning = "⚠ Walk-in payment could not be auto-recorded. Please add it manually.";
+      }
     }
 
     // Create journal entries (double-entry accounting)
