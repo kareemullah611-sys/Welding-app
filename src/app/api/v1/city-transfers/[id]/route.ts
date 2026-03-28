@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { autoActivateShortSales } from "@/lib/stock-activation";
 
 // PUT - approve or reject
 export const PUT = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
@@ -65,7 +66,15 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       }
 
       await createAuditLog(user.userId, transfer.toCityId, "city_transfers", id, "update", { status: "pending" }, { status: "approved", toGodownId }, getClientIP(request));
-      return successResponse({ id }, "Transfer approved — goods added to godown");
+
+      // Auto-activate any marked_short sales now covered by the incoming stock
+      const activated = await autoActivateShortSales(toGodownId);
+      return successResponse(
+        { id, salesActivated: activated },
+        activated > 0
+          ? `Transfer approved — ${activated} short sale(s) auto-activated`
+          : "Transfer approved — goods added to godown"
+      );
 
     } else if (action === "reject") {
       await prisma.cityTransfer.update({

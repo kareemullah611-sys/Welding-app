@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, validationError, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { autoActivateShortSales } from "@/lib/stock-activation";
 
 // POST /api/v1/lots/:id/godown-allocation
 // Body: { cityId, productId, allocations: [{ godownId, qty }] }
@@ -48,7 +49,19 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
 
     await createAuditLog(user.userId, effectiveCityId, "lot_city_godown_allocations", lotId, "create", undefined, { allocations }, getClientIP(request));
 
-    return successResponse({ lotId, cityId: effectiveCityId, productId, allocations: allocations.length }, "Godown allocations saved");
+    // Auto-activate any marked_short sales now covered by the new stock
+    const godownIds = [...new Set(allocations.map((a: any) => a.godownId))];
+    let totalActivated = 0;
+    for (const gId of godownIds) {
+      totalActivated += await autoActivateShortSales(gId);
+    }
+
+    return successResponse(
+      { lotId, cityId: effectiveCityId, productId, allocations: allocations.length, salesActivated: totalActivated },
+      totalActivated > 0
+        ? `Godown allocations saved — ${totalActivated} short sale(s) auto-activated`
+        : "Godown allocations saved"
+    );
   } catch (error) {
     console.error("Godown allocation error:", error);
     return serverError();
