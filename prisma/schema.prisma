@@ -237,7 +237,8 @@ model User {
   notifications      Notification[]
   purchasesCreated   LotPurchase[]  @relation("PurchaseCreatedBy")
   costsCreated       LotCost[]      @relation("CostCreatedBy")
-  supplierPaymentsCreated SupplierPayment[] @relation("SupplierPaymentCreatedBy")
+  supplierPaymentsCreated    SupplierPayment[]    @relation("SupplierPaymentCreatedBy")
+  shippingLinePaymentsCreated ShippingLinePayment[] @relation("ShippingLinePaymentCreatedBy")
   cityTransfersSent      CityTransfer[] @relation("TransferSentBy")
   cityTransfersApproved  CityTransfer[] @relation("TransferApprovedBy")
   agentPaymentsCreated   AgentPayment[] @relation("AgentPaymentCreatedBy")
@@ -409,6 +410,7 @@ model Lot {
   lotPurchases               LotPurchase[]
   lotCosts                   LotCost[]
   supplierPayments           SupplierPayment[]
+  shippingLinePayments       ShippingLinePayment[]
   cityTransfers              CityTransfer[]
 
   @@unique([countryId, lotNumber])
@@ -1028,16 +1030,18 @@ model LotCost {
   currencyCode String      @default("USD") @map("currency_code") @db.VarChar(10)
   exchangeRate Decimal?    @map("exchange_rate") @db.Decimal(12, 4)
   costDate     DateTime?   @map("cost_date") @db.Date
-  agentId      Int?        @map("agent_id") // customs agent, transport company etc
-  paidFromCash Boolean     @default(false) @map("paid_from_cash") // true = paid immediately, false = on credit to agent
+  agentId        Int?        @map("agent_id")         // customs / transport agent
+  shippingLineId Int?        @map("shipping_line_id")  // for freight costs
+  paidFromCash   Boolean     @default(false) @map("paid_from_cash")
   notes        String?     @db.Text
   createdBy    Int         @map("created_by")
   createdAt    DateTime    @default(now()) @map("created_at")
   updatedAt    DateTime    @updatedAt @map("updated_at")
 
-  lot     Lot    @relation(fields: [lotId], references: [id])
-  agent   Agent? @relation(fields: [agentId], references: [id])
-  creator User   @relation("CostCreatedBy", fields: [createdBy], references: [id])
+  lot          Lot          @relation(fields: [lotId], references: [id])
+  agent        Agent?       @relation(fields: [agentId], references: [id])
+  shippingLine ShippingLine? @relation(fields: [shippingLineId], references: [id])
+  creator      User         @relation("CostCreatedBy", fields: [createdBy], references: [id])
 
   @@index([lotId])
   @@index([costType])
@@ -1072,6 +1076,48 @@ model SupplierPayment {
   @@index([lotId])
   @@index([paymentDate])
   @@map("supplier_payments")
+}
+
+// ============================================================
+// SHIPPING LINE (Freight carrier — separate running USD account)
+// ============================================================
+
+model ShippingLine {
+  id        Int      @id @default(autoincrement())
+  name      String   @db.VarChar(200)
+  contact   String?  @db.VarChar(200)
+  notes     String?  @db.Text
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  lotCosts LotCost[]
+  payments ShippingLinePayment[]
+
+  @@map("shipping_lines")
+}
+
+model ShippingLinePayment {
+  id             Int      @id @default(autoincrement())
+  shippingLineId Int      @map("shipping_line_id")
+  lotId          Int?     @map("lot_id")  // optional: which lot this freight is for
+  paymentDate    DateTime @map("payment_date") @db.Date
+  amountUsd      Decimal  @map("amount_usd") @db.Decimal(15, 2)
+  exchangeRate   Decimal? @map("exchange_rate") @db.Decimal(12, 4) // USD/PKR at payment time
+  amountPkr      Decimal? @map("amount_pkr") @db.Decimal(15, 2)   // amountUsd × exchangeRate
+  reference      String?  @db.VarChar(200)
+  notes          String?  @db.Text
+  createdBy      Int      @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  shippingLine ShippingLine @relation(fields: [shippingLineId], references: [id])
+  lot          Lot?         @relation(fields: [lotId], references: [id])
+  creator      User         @relation("ShippingLinePaymentCreatedBy", fields: [createdBy], references: [id])
+
+  @@index([shippingLineId])
+  @@index([lotId])
+  @@map("shipping_line_payments")
 }
 
 // ============================================================
