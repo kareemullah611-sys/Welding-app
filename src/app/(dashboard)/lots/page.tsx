@@ -50,6 +50,12 @@ export default function LotsPage() {
   const [editProducts, setEditProducts] = useState<any[]>([]);
   const [editWarnings, setEditWarnings] = useState<string[]>([]); // cascade warnings
 
+  // PKR rate + add cost
+  const [pkrRateInput,  setPkrRateInput]  = useState("");
+  const [pkrRateSaving, setPkrRateSaving] = useState(false);
+  const [showAddCost,   setShowAddCost]   = useState(false);
+  const [costForm,      setCostForm]      = useState({ costType: "freight", description: "", amount: "", currencyCode: "USD", costDate: new Date().toISOString().split("T")[0], notes: "" });
+
   // Common
   const [submitting, setSubmitting] = useState(false);
   const [formError,  setFormError]  = useState("");
@@ -129,8 +135,44 @@ export default function LotsPage() {
   const openDetail = async (lot: any) => {
     setSelectedLot(lot); setShowDetail(true); setDetailLoading(true); setFormError("");
     const r = await apiCall(`/api/v1/lots/${lot.id}`);
-    if (r.success) { setSelectedLot(r.data); } else { setFormError(r.error || "Failed to load"); }
+    if (r.success) {
+      const d = r.data as any;
+      setSelectedLot(d);
+      setPkrRateInput(d.pkrExchangeRate ? String(d.pkrExchangeRate) : "");
+    } else { setFormError(r.error || "Failed to load"); }
     setDetailLoading(false);
+  };
+
+  const savePkrRate = async () => {
+    if (!pkrRateInput || Number(pkrRateInput) <= 0) return;
+    setPkrRateSaving(true);
+    const r = await apiCall(`/api/v1/lots/${selectedLot.id}/pkr-rate`, { method: "PUT", body: { pkrExchangeRate: Number(pkrRateInput) } });
+    setPkrRateSaving(false);
+    if (r.success) setSelectedLot((prev: any) => ({ ...prev, pkrExchangeRate: Number(pkrRateInput) }));
+  };
+
+  const handleAddCost = async () => {
+    if (!costForm.description || !costForm.amount || Number(costForm.amount) <= 0) { setFormError("Description and amount required"); return; }
+    setSubmitting(true);
+    const r = await apiCall("/api/v1/lot-costs", {
+      method: "POST",
+      body: {
+        lotId:       selectedLot.id,
+        costType:    costForm.costType,
+        description: costForm.description,
+        amount:      Number(costForm.amount),
+        currencyCode: costForm.currencyCode,
+        costDate:    costForm.costDate,
+        notes:       costForm.notes || null,
+      },
+    });
+    setSubmitting(false);
+    if (r.success) {
+      setShowAddCost(false);
+      // Refresh detail
+      const dr = await apiCall(`/api/v1/lots/${selectedLot.id}`);
+      if (dr.success) setSelectedLot(dr.data);
+    } else { setFormError(r.error || "Failed"); }
   };
 
   // ════════════════════════════════════════════
@@ -539,6 +581,60 @@ export default function LotsPage() {
               <StatsCard title={t("outstanding")}       value={formatNumber(selectedLot.summary?.outstanding   || 0)} icon="📋" color="red" />
               <StatsCard title={t("expenses")}          value={formatNumber(selectedLot.summary?.totalExpenses || 0)} icon="💸" color="yellow" />
             </div>
+
+            {/* PKR Rate + Profit (super admin only) */}
+            {user?.role === "super_admin" && (() => {
+              const rate = selectedLot.pkrExchangeRate || Number(pkrRateInput) || 0;
+              const purchaseUsd = selectedLot.costSummary?.totalPurchaseUsd || 0;
+              const freightUsd  = (selectedLot.costSummary?.costsByCurrency?.["USD"] || 0);
+              const directPkr   = (selectedLot.costSummary?.costsByCurrency?.["PKR"] || 0) + (selectedLot.summary?.totalExpenses || 0);
+              const totalCostPkr = rate > 0 ? (purchaseUsd + freightUsd) * rate + directPkr : 0;
+              // Revenue: Afghanistan = USD payments × rate; Pakistan = payments already PKR
+              const isAfg = selectedLot.country?.code === "AFG";
+              const revenuePkr = rate > 0 ? (isAfg ? (selectedLot.summary?.totalPayments || 0) * rate : (selectedLot.summary?.totalPayments || 0)) : 0;
+              const profitPkr  = rate > 0 ? revenuePkr - totalCostPkr : 0;
+              return (
+                <div className="card border border-emerald-200 bg-emerald-50/30">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h4 className="text-sm font-semibold text-emerald-800">🇵🇰 PKR Profit (Super Admin)</h4>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-500">USD/PKR Rate:</span>
+                      <input type="number" value={pkrRateInput} onChange={e => setPkrRateInput(e.target.value)}
+                        className="input-field w-28 text-sm py-1" placeholder="e.g. 278.50" step="0.01" min="1" />
+                      <button onClick={savePkrRate} disabled={pkrRateSaving || !pkrRateInput}
+                        className="px-3 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">
+                        {pkrRateSaving ? "..." : "Save"}
+                      </button>
+                    </div>
+                  </div>
+                  {rate > 0 && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+                      <div className="text-center p-2 bg-white rounded-lg border border-emerald-100">
+                        <p className="text-xs text-gray-400">Purchase Cost (PKR)</p>
+                        <p className="font-bold text-gray-800">Rs. {Math.round(purchaseUsd * rate).toLocaleString("en-US")}</p>
+                      </div>
+                      <div className="text-center p-2 bg-white rounded-lg border border-emerald-100">
+                        <p className="text-xs text-gray-400">Other Costs (PKR)</p>
+                        <p className="font-bold text-gray-800">Rs. {Math.round(freightUsd * rate + directPkr).toLocaleString("en-US")}</p>
+                      </div>
+                      <div className="text-center p-2 bg-white rounded-lg border border-emerald-100">
+                        <p className="text-xs text-gray-400">Revenue (PKR)</p>
+                        <p className="font-bold text-green-700">Rs. {Math.round(revenuePkr).toLocaleString("en-US")}</p>
+                        {isAfg && <p className="text-xs text-gray-400">USD × {rate}</p>}
+                      </div>
+                      <div className={`text-center p-2 rounded-lg border ${profitPkr >= 0 ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}>
+                        <p className="text-xs text-gray-400">Net Profit (PKR)</p>
+                        <p className={`font-bold text-lg ${profitPkr >= 0 ? "text-green-700" : "text-red-600"}`}>
+                          Rs. {Math.round(Math.abs(profitPkr)).toLocaleString("en-US")}
+                          {profitPkr < 0 ? " loss" : ""}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Purchase Invoice */}
             {(selectedLot.purchaseItems?.length > 0) && (
               <div className="card">
@@ -588,14 +684,27 @@ export default function LotsPage() {
             )}
 
             {/* Additional costs */}
-            {selectedLot.costSummary?.costBreakdown?.length > 0 && (
-              <div className="card"><h4 className="text-sm font-semibold mb-2 text-gray-600">💸 Additional Costs</h4>
-                {selectedLot.costSummary.costBreakdown.map((c: any, i: number) => (
-                  <div key={i} className="flex justify-between text-xs py-0.5">
-                    <span className="text-gray-500">{c.description} <span className="text-gray-300">({c.costType})</span></span>
-                    <span className="font-medium">{c.currencyCode} {Number(c.amount).toLocaleString("en-US")}</span>
-                  </div>
-                ))}
+            {user?.role === "super_admin" && (
+              <div className="card">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-sm font-semibold text-gray-600">💸 Additional Costs</h4>
+                  <button onClick={() => { setCostForm({ costType: "freight", description: "", amount: "", currencyCode: "USD", costDate: new Date().toISOString().split("T")[0], notes: "" }); setFormError(""); setShowAddCost(true); }}
+                    className="text-xs text-primary-600 hover:underline">+ Add Cost</button>
+                </div>
+                {(selectedLot.costSummary?.costBreakdown || []).length > 0 ? (
+                  <table className="w-full text-sm">
+                    <thead><tr className="text-left text-xs text-gray-400 border-b">
+                      <th className="pb-1">Type</th><th className="pb-1">Description</th><th className="pb-1 text-right">Amount</th>
+                    </tr></thead>
+                    <tbody>{selectedLot.costSummary.costBreakdown.map((c: any, i: number) => (
+                      <tr key={i} className="border-b border-gray-50">
+                        <td className="py-1"><span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{c.costType}</span></td>
+                        <td className="py-1 text-gray-700">{c.description}</td>
+                        <td className="py-1 text-right font-medium text-orange-700">{c.currencyCode} {Number(c.amount).toLocaleString("en-US")}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                ) : <p className="text-sm text-gray-400">No additional costs recorded</p>}
               </div>
             )}
             <div className="card"><h4 className="text-sm font-semibold mb-2 text-gray-600">{t("sales")} ({(selectedLot.recentSales || []).length})</h4>
@@ -629,6 +738,67 @@ export default function LotsPage() {
             </div>
           </div>
         ) : <p className="text-gray-400 py-4">{formError || t("no_data")}</p>}
+      </Modal>
+
+      {/* ══════════════════════════════════════
+          ADD COST
+      ══════════════════════════════════════ */}
+      <Modal open={showAddCost} onClose={() => setShowAddCost(false)} title={`Add Cost — ${selectedLot?.lotNumber || ""}`} size="md">
+        {formError && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{formError}</div>}
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Cost Type *</label>
+              <select value={costForm.costType} onChange={e => {
+                const type = e.target.value;
+                const currency = type === "freight" ? "USD" : "PKR";
+                setCostForm(f => ({ ...f, costType: type, currencyCode: currency }));
+              }} className="select-field">
+                <option value="freight">Freight (USD)</option>
+                <option value="customs_duty">Customs Duty (PKR)</option>
+                <option value="customs_agent">Customs Agent (PKR)</option>
+                <option value="clearing_agent">Clearing Agent (PKR)</option>
+                <option value="transport">Transport (PKR)</option>
+                <option value="loading_unloading">Loading / Unloading (PKR)</option>
+                <option value="port_charges">Port Charges (USD)</option>
+                <option value="insurance">Insurance (USD)</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Currency</label>
+              <select value={costForm.currencyCode} onChange={e => setCostForm(f => ({ ...f, currencyCode: e.target.value }))} className="select-field">
+                <option value="PKR">PKR</option>
+                <option value="USD">USD</option>
+                <option value="AFN">AFN</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Description *</label>
+            <input value={costForm.description} onChange={e => setCostForm(f => ({ ...f, description: e.target.value }))}
+              className="input-field" placeholder="e.g. Karachi port customs duty" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Amount * ({costForm.currencyCode})</label>
+              <input type="number" value={costForm.amount} onChange={e => setCostForm(f => ({ ...f, amount: e.target.value }))}
+                className="input-field" placeholder="0.00" min="0.01" step="0.01" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+              <input type="date" value={costForm.costDate} onChange={e => setCostForm(f => ({ ...f, costDate: e.target.value }))} className="input-field" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+            <textarea value={costForm.notes} onChange={e => setCostForm(f => ({ ...f, notes: e.target.value }))} className="input-field" rows={2} />
+          </div>
+        </div>
+        <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
+          <button onClick={() => setShowAddCost(false)} className="btn-secondary text-sm">Cancel</button>
+          <button onClick={handleAddCost} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : "Add Cost"}</button>
+        </div>
       </Modal>
 
       {/* ══════════════════════════════════════

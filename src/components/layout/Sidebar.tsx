@@ -50,6 +50,7 @@ const navGroups: { label: string; items: NavItemDef[] }[] = [
       { label: "Lot Costing",      key: "lot_costing",      href: "/lot-costing",      icon: Tag,         roles: ["super_admin"] },
       { label: "Suppliers",        key: "suppliers",        href: "/suppliers",        icon: Factory,     roles: ["super_admin"] },
       { label: "Company Payments", key: "company_payments", href: "/supplier-payments",icon: Banknote,    roles: ["super_admin"] },
+      { label: "Shipping Lines",   key: "shipping_lines",   href: "/shipping-lines",   icon: Landmark,    roles: ["super_admin"] },
       { label: "Agents",           key: "agents",           href: "/agents",           icon: Handshake,   roles: ["super_admin"] },
       { label: "Investors",        key: "investors",        href: "/investors",        icon: PiggyBank,   roles: ["super_admin"] },
     ],
