@@ -99,12 +99,21 @@ const lotDistributionSchema = z.object({
   allocatedQty: z.number().min(0),
 });
 
+// Purchase item on the invoice-style lot creation form
+const lotPurchaseItemSchema = z.object({
+  supplierId:        z.number().int().positive(),
+  productId:         z.number().int().positive(),
+  weightPerCartonKg: z.number().positive(),  // kg per carton e.g. 20
+  qtyMt:             z.number().positive(),  // quantity in metric tons
+  unitPriceUsdPerMt: z.number().positive(),  // USD per MT
+});
+
 export const createLotSchema = z.object({
-  countryId: z.number().int().positive(),
-  lotNumber: z.string().min(1).max(50),
-  lotDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  notes: z.string().optional(),
-  products: z.array(lotProductSchema).min(1),
+  countryId:     z.number().int().positive(),
+  lotNumber:     z.string().min(1).max(50),
+  lotDate:       z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  notes:         z.string().optional(),
+  purchaseItems: z.array(lotPurchaseItemSchema).min(1),
   distributions: z.array(lotDistributionSchema).optional(),
 });
 
