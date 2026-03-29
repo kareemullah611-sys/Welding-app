@@ -100,10 +100,33 @@ export default function ReportsPage() {
     ],
   };
 
+  const reportLabels: Record<ReportType, string> = {
+    sales: t("sales"), payments: t("payments"), expenses: t("expenses"),
+    haji_settlement: t("haji_settlement"), customer_ledger: t("customer_ledger"),
+    city_ledger: t("city_ledger"), discount_history: t("discount_history"),
+  };
+
   return (
     <div>
+      {/* Print-only header — hidden on screen, shown in PDF */}
+      {data.length > 0 && (
+        <div className="print-only mb-4 pb-3 border-b border-gray-300">
+          <h1 className="text-lg font-bold text-gray-900">{reportLabels[reportType]}</h1>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {filters.date_from && filters.date_to
+              ? `${filters.date_from} — ${filters.date_to}`
+              : filters.date_from
+              ? `From ${filters.date_from}`
+              : filters.date_to
+              ? `Until ${filters.date_to}`
+              : "All dates"}
+            {" · "}Printed {new Date().toLocaleDateString()}
+          </p>
+        </div>
+      )}
+
       <PageHeader title={t("reports")} subtitle={t("report_generate_subtitle")} />
-      <div className="card mb-6"><div className="flex flex-wrap gap-3 items-end">
+      <div className="card mb-6 no-print"><div className="flex flex-wrap gap-3 items-end">
         <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("report_type")}</label><select value={reportType} onChange={(e) => { setReportType(e.target.value as ReportType); setData([]); setSummary(null); }} className="select-field w-auto">
           <option value="sales">{t("sales")}</option>
           <option value="payments">{t("payments")}</option>

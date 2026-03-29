@@ -184,3 +184,70 @@ input[type="number"]::-webkit-outer-spin-button {
   margin: 0;
 }
 input[type="number"] { -moz-appearance: textfield; }
+
+/* ---- Print / PDF styles ---- */
+.print-only { display: none; }
+
+@media print {
+  /* Hide all navigation chrome */
+  aside,
+  .no-print {
+    display: none !important;
+  }
+
+  /* Reset main layout — remove sidebar offset */
+  main {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  main > div {
+    padding: 8px !important;
+    max-width: 100% !important;
+  }
+
+  /* Clean backgrounds */
+  body,
+  .card,
+  .stat-card,
+  .table-container {
+    background: #ffffff !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* Show print-only elements */
+  .print-only {
+    display: block !important;
+  }
+
+  /* Table print styles */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+  }
+  thead {
+    background-color: #f1f5f9 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  th, td {
+    border: 1px solid #e2e8f0 !important;
+    padding: 5px 8px !important;
+    text-align: left;
+  }
+
+  /* Stats cards in a row */
+  .grid {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+
+  /* Page margins */
+  @page {
+    margin: 12mm 10mm;
+    size: A4 landscape;
+  }
+}
