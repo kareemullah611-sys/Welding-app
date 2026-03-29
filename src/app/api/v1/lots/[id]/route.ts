@@ -8,7 +8,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
   try {
     const id = parseInt(context.params.id);
 
-    const lot = await prisma.lot.findUnique({ where: { id }, include: { country: true, creator: { select: { id: true, fullName: true } } } });
+    const lot = await prisma.lot.findUnique({ where: { id }, include: { country: true, creator: { select: { id: true, fullName: true } } } }) as any;
     if (!lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
 
     // Separate safe queries
@@ -37,14 +37,29 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     try { hajiTransfers = await prisma.hajiTransfer.findMany({ where: { lotId: id }, select: { id: true, amount: true, detail: true, transferDate: true, transferType: true }, orderBy: { transferDate: "desc" } }); } catch (e) {}
 
     let lotCosts: any[] = [], lotPurchases: any[] = [];
-    try { lotCosts = await prisma.lotCost.findMany({ where: { lotId: id }, select: { id: true, costType: true, description: true, amount: true, currencyCode: true } }); } catch (e) {}
-    try { lotPurchases = await prisma.lotPurchase.findMany({ where: { lotId: id }, select: { id: true, qty: true, unitPriceUsd: true, totalPriceUsd: true } }); } catch (e) {}
+    try {
+      lotCosts = await prisma.lotCost.findMany({
+        where: { lotId: id },
+        select: { id: true, costType: true, description: true, amount: true, currencyCode: true, costDate: true, notes: true },
+      });
+    } catch (e) {}
+    try {
+      lotPurchases = await prisma.lotPurchase.findMany({
+        where: { lotId: id },
+        include: {
+          supplier: { select: { id: true, name: true } },
+          product: { select: { id: true, name: true } },
+        },
+        orderBy: { id: "asc" },
+      });
+    } catch (e) {}
 
     const totalSales = sales.reduce((s: number, x: any) => s + Number(x.totalAmount), 0);
     const totalPayments = payments.reduce((s: number, x: any) => s + Number(x.amount), 0);
     const totalExpenses = expenses.reduce((s: number, x: any) => s + Number(x.amount), 0);
     const totalHaji = hajiTransfers.reduce((s: number, x: any) => s + Number(x.amount), 0);
     const totalPurchaseUsd = lotPurchases.reduce((s: number, x: any) => s + Number(x.totalPriceUsd || 0), 0);
+
     // Group lot costs by currency — avoids mixing PKR + USD into a meaningless total
     const costsByCurrency: Record<string, number> = {};
     for (const c of lotCosts) {
@@ -55,13 +70,25 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     return successResponse({
       id: lot.id, lotNumber: lot.lotNumber, lotDate: lot.lotDate.toISOString().split("T")[0],
       status: lot.status, notes: lot.notes,
+      pkrExchangeRate: lot.pkrExchangeRate ? Number(lot.pkrExchangeRate) : null,
       country: { id: lot.country.id, name: lot.country.name, code: lot.country.code },
       createdBy: lot.creator,
       products: lotProducts.map((lp: any) => ({ productId: lp.productId, productName: lp.product.name, totalQty: Number(lp.totalQty) })),
       distributions,
+      purchaseItems: lotPurchases.map((p: any) => ({
+        id: p.id,
+        supplierId: p.supplierId,
+        supplierName: p.supplier?.name || "",
+        productId: p.productId,
+        productName: p.product?.name || "",
+        qtyMt: Number(p.qty),
+        weightPerCartonKg: p.weightPerCartonKg ? Number(p.weightPerCartonKg) : null,
+        unitPriceUsdPerMt: Number(p.unitPriceUsd),
+        totalPriceUsd: Number(p.totalPriceUsd),
+      })),
       costSummary: {
-        totalPurchaseUsd,
-        costsByCurrency,       // { PKR: 50000, USD: 200 } — accurate per-currency breakdown
+        totalPurchaseUsd: Math.round(totalPurchaseUsd * 100) / 100,
+        costsByCurrency,
         totalLotExpenses: totalExpenses,
         costBreakdown: lotCosts,
       },

@@ -19,7 +19,13 @@ export default function LotsPage() {
   const [showCreate,  setShowCreate]  = useState(false);
   const [countries,   setCountries]   = useState<any[]>([]);
   const [products,    setProducts]    = useState<any[]>([]);
-  const [createForm,  setCreateForm]  = useState({ countryId: 0, lotNumber: "", lotDate: new Date().toISOString().split("T")[0], notes: "", products: [{ productId: 0, totalQty: 0 }] as any[] });
+  const [suppliers,   setSuppliers]   = useState<any[]>([]);
+
+  const emptyItem = () => ({ supplierId: 0, productId: 0, weightPerCartonKg: "", qtyMt: "", unitPriceUsdPerMt: "" });
+  const [createForm, setCreateForm] = useState({
+    countryId: 0, lotNumber: "", lotDate: new Date().toISOString().split("T")[0], notes: "",
+    purchaseItems: [emptyItem()] as any[],
+  });
 
   // Detail
   const [showDetail,    setShowDetail]    = useState(false);
@@ -64,32 +70,55 @@ export default function LotsPage() {
   // CREATE
   // ════════════════════════════════════════════
   const openCreate = async () => {
-    const [cRes, pRes] = await Promise.all([
+    const [cRes, pRes, sRes] = await Promise.all([
       apiCall("/api/v1/countries"),
       apiCall("/api/v1/products", { params: { limit: 100 } }),
+      apiCall("/api/v1/suppliers", { params: { limit: 100 } }),
     ]);
     if (cRes.success) setCountries(cRes.data as any[]);
     if (pRes.success) setProducts(pRes.data as any[]);
-    setCreateForm({ countryId: 0, lotNumber: "", lotDate: new Date().toISOString().split("T")[0], notes: "", products: [{ productId: 0, totalQty: 0 }] });
+    if (sRes.success) setSuppliers(sRes.data as any[]);
+    setCreateForm({ countryId: 0, lotNumber: "", lotDate: new Date().toISOString().split("T")[0], notes: "", purchaseItems: [emptyItem()] });
     setShowCreate(true); setFormError("");
   };
 
-  // Copy products from a previous lot
-  const copyFromLot = (sourceLot: any) => {
-    if (!sourceLot?.products?.length) return;
-    setCreateForm(f => ({
-      ...f,
-      products: sourceLot.products.map((p: any) => ({ productId: p.productId, totalQty: p.totalQty })),
+  // Copy purchase items from a previous lot
+  const copyFromLot = async (sourceLotId: number) => {
+    const r = await apiCall(`/api/v1/lots/${sourceLotId}`);
+    if (!r.success || !(r.data as any)?.purchaseItems?.length) return;
+    const items = (r.data as any).purchaseItems.map((p: any) => ({
+      supplierId: p.supplierId,
+      productId:  p.productId,
+      weightPerCartonKg: p.weightPerCartonKg ?? "",
+      qtyMt: p.qtyMt,
+      unitPriceUsdPerMt: p.unitPriceUsdPerMt,
     }));
+    setCreateForm(f => ({ ...f, purchaseItems: items }));
   };
 
   const handleCreate = async () => {
-    const validP = createForm.products.filter(p => p.productId > 0 && p.totalQty > 0);
-    if (!createForm.countryId || !createForm.lotNumber || !validP.length) {
-      setFormError("Fill country, lot number, and at least one product"); return;
+    const validItems = createForm.purchaseItems.filter(
+      (p: any) => p.supplierId > 0 && p.productId > 0 && Number(p.weightPerCartonKg) > 0 && Number(p.qtyMt) > 0 && Number(p.unitPriceUsdPerMt) > 0
+    );
+    if (!createForm.countryId || !createForm.lotNumber || !validItems.length) {
+      setFormError("Fill country, lot number and at least one complete invoice line"); return;
     }
     setSubmitting(true);
-    const r = await apiCall("/api/v1/lots", { method: "POST", body: { ...createForm, products: validP, distributions: [] } });
+    const body = {
+      countryId:     createForm.countryId,
+      lotNumber:     createForm.lotNumber,
+      lotDate:       createForm.lotDate,
+      notes:         createForm.notes,
+      purchaseItems: validItems.map((p: any) => ({
+        supplierId:        Number(p.supplierId),
+        productId:         Number(p.productId),
+        weightPerCartonKg: Number(p.weightPerCartonKg),
+        qtyMt:             Number(p.qtyMt),
+        unitPriceUsdPerMt: Number(p.unitPriceUsdPerMt),
+      })),
+      distributions: [],
+    };
+    const r = await apiCall("/api/v1/lots", { method: "POST", body });
     setSubmitting(false);
     if (r.success) { setShowCreate(false); loadLots(); } else { setFormError(r.error || "Failed"); }
   };
@@ -338,75 +367,161 @@ export default function LotsPage() {
       <DataTable columns={columns} data={lots} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />
 
       {/* ══════════════════════════════════════
-          CREATE LOT
+          CREATE LOT — Invoice-style form
       ══════════════════════════════════════ */}
-      <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t("new_lot")} size="lg">
+      <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t("new_lot")} size="xl">
         {formError && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{formError}</div>}
-        <div className="space-y-3">
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("country")} *</label>
-              <select value={createForm.countryId} onChange={e => setCreateForm(f => ({ ...f, countryId: parseInt(e.target.value) }))} className="select-field">
-                <option value={0}>{t("select")}</option>
-                {countries.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("lot_num")} *</label>
-              <input value={createForm.lotNumber} onChange={e => setCreateForm(f => ({ ...f, lotNumber: e.target.value }))} className="input-field" placeholder="e.g. LOT-2026-001" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
-              <input type="date" value={createForm.lotDate} onChange={e => setCreateForm(f => ({ ...f, lotDate: e.target.value }))} className="input-field" />
-            </div>
-          </div>
 
-          {/* Copy products from a previous lot */}
-          {lots.length > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500 shrink-0">Copy products from:</span>
-              <select className="select-field text-xs flex-1" defaultValue=""
-                onChange={e => { const src = lots.find(l => String(l.id) === e.target.value); if (src) copyFromLot(src); }}>
-                <option value="">— select a lot —</option>
-                {lots.slice(0, 20).map(l => (
-                  <option key={l.id} value={l.id}>
-                    {l.lotNumber} ({l.countryName}) — {l.products?.map((p: any) => p.productName).join(", ")}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
+        {/* ── Header row ── */}
+        <div className="grid grid-cols-3 gap-3 mb-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("product")} & {t("cartons")}</label>
-            {createForm.products.map((p, i) => (
-              <div key={i} className="flex gap-2 mb-2">
-                <select value={p.productId}
-                  onChange={e => { const u = [...createForm.products]; u[i].productId = parseInt(e.target.value); setCreateForm(f => ({ ...f, products: u })); }}
-                  className="select-field flex-1">
-                  <option value={0}>{t("select_product")}</option>
-                  {products.map(pr => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
-                </select>
-                <input type="number" value={p.totalQty || ""}
-                  onChange={e => { const u = [...createForm.products]; u[i].totalQty = parseFloat(e.target.value) || 0; setCreateForm(f => ({ ...f, products: u })); }}
-                  className="input-field w-32" placeholder={t("cartons")} />
-                {createForm.products.length > 1 && (
-                  <button onClick={() => setCreateForm(f => ({ ...f, products: f.products.filter((_, idx) => idx !== i) }))} className="text-red-500 text-lg">×</button>
-                )}
-              </div>
-            ))}
-            <button onClick={() => setCreateForm(f => ({ ...f, products: [...f.products, { productId: 0, totalQty: 0 }] }))} className="text-primary-600 text-sm hover:underline">
-              + {t("add_item")}
-            </button>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{t("date")} *</label>
+            <input type="date" value={createForm.lotDate}
+              onChange={e => setCreateForm(f => ({ ...f, lotDate: e.target.value }))}
+              className="input-field" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
-            <textarea value={createForm.notes} onChange={e => setCreateForm(f => ({ ...f, notes: e.target.value }))} className="input-field" rows={2} />
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{t("country")} *</label>
+            <select value={createForm.countryId}
+              onChange={e => setCreateForm(f => ({ ...f, countryId: parseInt(e.target.value) }))}
+              className="select-field">
+              <option value={0}>{t("select")}</option>
+              {countries.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{t("lot_num")} *</label>
+            <input value={createForm.lotNumber}
+              onChange={e => setCreateForm(f => ({ ...f, lotNumber: e.target.value }))}
+              className="input-field font-mono" placeholder="e.g. JBP-2026-001" />
           </div>
         </div>
-        <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
+
+        {/* Copy from previous lot */}
+        {lots.length > 0 && (
+          <div className="flex items-center gap-2 mb-3 pb-3 border-b">
+            <span className="text-xs text-gray-400 shrink-0">Copy items from previous lot:</span>
+            <select className="select-field text-xs flex-1" defaultValue=""
+              onChange={e => { if (e.target.value) copyFromLot(Number(e.target.value)); }}>
+              <option value="">— select —</option>
+              {lots.slice(0, 20).map(l => (
+                <option key={l.id} value={l.id}>{l.lotNumber} ({l.countryName})</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* ── Invoice items table ── */}
+        <div className="border border-gray-200 rounded-lg overflow-hidden mb-3">
+          {/* Table header */}
+          <div className="grid grid-cols-[1fr_1fr_90px_90px_110px_100px_32px] gap-0 bg-gray-50 border-b border-gray-200">
+            {["Supplier", "Product", "Wt/crt (kg)", "Qty (MT)", "USD/MT", "Amount USD", ""].map((h, i) => (
+              <div key={i} className="px-2 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide border-r last:border-r-0 border-gray-200">
+                {h}
+              </div>
+            ))}
+          </div>
+
+          {/* Item rows */}
+          {createForm.purchaseItems.map((item: any, i: number) => {
+            const amt = Number(item.qtyMt) > 0 && Number(item.unitPriceUsdPerMt) > 0
+              ? Math.round(Number(item.qtyMt) * Number(item.unitPriceUsdPerMt) * 100) / 100
+              : 0;
+            const updateItem = (field: string, val: any) => {
+              const u = [...createForm.purchaseItems]; u[i] = { ...u[i], [field]: val };
+              setCreateForm(f => ({ ...f, purchaseItems: u }));
+            };
+            return (
+              <div key={i} className="grid grid-cols-[1fr_1fr_90px_90px_110px_100px_32px] gap-0 border-b last:border-b-0 border-gray-100 hover:bg-blue-50/30 transition-colors">
+                {/* Supplier */}
+                <div className="px-2 py-1.5 border-r border-gray-100">
+                  <select value={item.supplierId} onChange={e => updateItem("supplierId", parseInt(e.target.value))}
+                    className="w-full text-sm border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-primary-400 rounded px-1">
+                    <option value={0}>Select</option>
+                    {suppliers.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+                {/* Product */}
+                <div className="px-2 py-1.5 border-r border-gray-100">
+                  <select value={item.productId} onChange={e => updateItem("productId", parseInt(e.target.value))}
+                    className="w-full text-sm border-0 bg-transparent focus:outline-none focus:ring-1 focus:ring-primary-400 rounded px-1">
+                    <option value={0}>Select</option>
+                    {products.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+                {/* Weight/crt */}
+                <div className="px-2 py-1.5 border-r border-gray-100">
+                  <input type="number" value={item.weightPerCartonKg} placeholder="20"
+                    onChange={e => updateItem("weightPerCartonKg", e.target.value)}
+                    className="w-full text-sm border-0 bg-transparent focus:outline-none text-right" min="0.001" step="0.001" />
+                </div>
+                {/* Qty MT */}
+                <div className="px-2 py-1.5 border-r border-gray-100">
+                  <input type="number" value={item.qtyMt} placeholder="0.00"
+                    onChange={e => updateItem("qtyMt", e.target.value)}
+                    className="w-full text-sm border-0 bg-transparent focus:outline-none text-right" min="0.001" step="0.001" />
+                </div>
+                {/* Unit price USD/MT */}
+                <div className="px-2 py-1.5 border-r border-gray-100">
+                  <input type="number" value={item.unitPriceUsdPerMt} placeholder="0.00"
+                    onChange={e => updateItem("unitPriceUsdPerMt", e.target.value)}
+                    className="w-full text-sm border-0 bg-transparent focus:outline-none text-right" min="0.01" step="0.01" />
+                </div>
+                {/* Amount (auto) */}
+                <div className="px-2 py-1.5 border-r border-gray-100 flex items-center justify-end">
+                  <span className="text-sm font-medium text-gray-700">
+                    {amt > 0 ? `$${amt.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}
+                  </span>
+                </div>
+                {/* Remove */}
+                <div className="px-1 py-1.5 flex items-center justify-center">
+                  {createForm.purchaseItems.length > 1 && (
+                    <button onClick={() => setCreateForm(f => ({ ...f, purchaseItems: f.purchaseItems.filter((_: any, idx: number) => idx !== i) }))}
+                      className="text-gray-300 hover:text-red-500 text-lg leading-none transition-colors">×</button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Add item */}
+        <button
+          onClick={() => setCreateForm(f => ({ ...f, purchaseItems: [...f.purchaseItems, emptyItem()] }))}
+          className="text-primary-600 text-sm hover:underline mb-4">
+          + {t("add_item")}
+        </button>
+
+        {/* Notes + Total row */}
+        <div className="grid grid-cols-2 gap-4 mb-1">
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{t("notes")}</label>
+            <textarea value={createForm.notes} onChange={e => setCreateForm(f => ({ ...f, notes: e.target.value }))}
+              className="input-field" rows={2} placeholder="Optional notes…" />
+          </div>
+          <div className="flex flex-col items-end justify-end gap-1 pb-1">
+            <span className="text-xs text-gray-400 uppercase tracking-wide font-semibold">Total Amount (USD)</span>
+            <span className="text-2xl font-bold text-gray-800">
+              ${createForm.purchaseItems.reduce((s: number, p: any) => {
+                const amt = Number(p.qtyMt) * Number(p.unitPriceUsdPerMt);
+                return s + (isNaN(amt) ? 0 : amt);
+              }, 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+            <span className="text-xs text-gray-400">
+              {createForm.purchaseItems.reduce((s: number, p: any) => {
+                const wt = Number(p.weightPerCartonKg);
+                const mt = Number(p.qtyMt);
+                return s + (wt > 0 && mt > 0 ? Math.round((mt * 1000) / wt) : 0);
+              }, 0).toLocaleString("en-US")} cartons (calculated)
+            </span>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-4 mt-2 border-t">
           <button onClick={() => setShowCreate(false)} className="btn-secondary text-sm">{t("cancel")}</button>
-          <button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("create")}</button>
+          <button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">
+            {submitting ? "Creating…" : t("create")}
+          </button>
         </div>
       </Modal>
 
@@ -424,21 +539,63 @@ export default function LotsPage() {
               <StatsCard title={t("outstanding")}       value={formatNumber(selectedLot.summary?.outstanding   || 0)} icon="📋" color="red" />
               <StatsCard title={t("expenses")}          value={formatNumber(selectedLot.summary?.totalExpenses || 0)} icon="💸" color="yellow" />
             </div>
-            {selectedLot.costSummary && (
-              <div className="card"><h4 className="text-sm font-semibold mb-2 text-gray-600">{t("cost_breakdown")}</h4>
-                <div className="grid grid-cols-3 gap-3 text-sm">
-                  <div><span className="text-gray-500">{t("purchase_cost")} (USD):</span> <strong>${formatNumber(selectedLot.costSummary.totalPurchaseUsd || 0)}</strong></div>
-                  <div><span className="text-gray-500">{t("additional_costs")}:</span> <strong>{formatNumber(selectedLot.costSummary.totalAdditionalCosts || 0)}</strong></div>
-                  <div><span className="text-gray-500">{t("total_landed")}:</span> <strong>{formatNumber(selectedLot.costSummary.totalLanded || 0)}</strong></div>
+            {/* Purchase Invoice */}
+            {(selectedLot.purchaseItems?.length > 0) && (
+              <div className="card">
+                <h4 className="text-sm font-semibold mb-3 text-gray-600">📦 Purchase Invoice</h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs text-gray-400 border-b">
+                        <th className="pb-1.5">Supplier</th>
+                        <th className="pb-1.5">Product</th>
+                        <th className="pb-1.5 text-right">Wt/crt</th>
+                        <th className="pb-1.5 text-right">Qty (MT)</th>
+                        <th className="pb-1.5 text-right">USD/MT</th>
+                        <th className="pb-1.5 text-right">Amount USD</th>
+                        <th className="pb-1.5 text-right">Cartons</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedLot.purchaseItems.map((p: any, i: number) => (
+                        <tr key={i} className="border-b border-gray-50">
+                          <td className="py-1 text-gray-700">{p.supplierName}</td>
+                          <td className="py-1 text-gray-700">{p.productName}</td>
+                          <td className="py-1 text-right text-gray-500">{p.weightPerCartonKg ?? "—"} kg</td>
+                          <td className="py-1 text-right">{Number(p.qtyMt).toLocaleString("en-US", { minimumFractionDigits: 3 })}</td>
+                          <td className="py-1 text-right">${Number(p.unitPriceUsdPerMt).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                          <td className="py-1 text-right font-semibold text-blue-700">${Number(p.totalPriceUsd).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                          <td className="py-1 text-right text-gray-400">
+                            {p.weightPerCartonKg ? Math.round((Number(p.qtyMt) * 1000) / Number(p.weightPerCartonKg)).toLocaleString("en-US") : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-gray-200">
+                        <td colSpan={5} className="pt-2 text-xs text-gray-400 font-semibold uppercase">Total</td>
+                        <td className="pt-2 text-right font-bold text-gray-800">
+                          ${selectedLot.purchaseItems.reduce((s: number, p: any) => s + Number(p.totalPriceUsd), 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="pt-2 text-right text-gray-500 font-medium">
+                          {selectedLot.products?.reduce((s: number, p: any) => s + Number(p.totalQty), 0).toLocaleString("en-US")}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
                 </div>
-                {(selectedLot.costSummary.costBreakdown || []).length > 0 && (
-                  <div className="mt-2 pt-2 border-t">{selectedLot.costSummary.costBreakdown.map((c: any, i: number) => (
-                    <div key={i} className="flex justify-between text-xs py-0.5">
-                      <span className="text-gray-500">{c.description} ({c.costType})</span>
-                      <span>{c.currencyCode} {Number(c.amount).toLocaleString("en-US")}</span>
-                    </div>
-                  ))}</div>
-                )}
+              </div>
+            )}
+
+            {/* Additional costs */}
+            {selectedLot.costSummary?.costBreakdown?.length > 0 && (
+              <div className="card"><h4 className="text-sm font-semibold mb-2 text-gray-600">💸 Additional Costs</h4>
+                {selectedLot.costSummary.costBreakdown.map((c: any, i: number) => (
+                  <div key={i} className="flex justify-between text-xs py-0.5">
+                    <span className="text-gray-500">{c.description} <span className="text-gray-300">({c.costType})</span></span>
+                    <span className="font-medium">{c.currencyCode} {Number(c.amount).toLocaleString("en-US")}</span>
+                  </div>
+                ))}
               </div>
             )}
             <div className="card"><h4 className="text-sm font-semibold mb-2 text-gray-600">{t("sales")} ({(selectedLot.recentSales || []).length})</h4>

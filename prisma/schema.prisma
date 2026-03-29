@@ -83,6 +83,8 @@ enum LotCostType {
   transport
   loading_unloading
   insurance
+  customs_agent
+  clearing_agent
   other
 }
 
@@ -380,8 +382,9 @@ model Lot {
   countryId   Int       @map("country_id")
   lotNumber   String    @map("lot_number") @db.VarChar(50)
   lotDate     DateTime  @map("lot_date") @db.Date
-  notes       String?   @db.Text
-  status      LotStatus @default(ongoing)
+  notes           String?  @db.Text
+  pkrExchangeRate Decimal? @map("pkr_exchange_rate") @db.Decimal(12, 4) // USD/PKR rate for profit calc
+  status          LotStatus @default(ongoing)
   createdBy   Int       @map("created_by")
   completedBy Int?      @map("completed_by")
   completedAt DateTime? @map("completed_at")
@@ -992,11 +995,12 @@ model LotPurchase {
   lotId           Int      @map("lot_id")
   supplierId      Int      @map("supplier_id")
   productId       Int      @map("product_id")
-  qty             Decimal  @db.Decimal(12, 2)
-  unitPriceUsd    Decimal  @map("unit_price_usd") @db.Decimal(12, 4)
-  totalPriceUsd   Decimal  @map("total_price_usd") @db.Decimal(15, 2)
-  exchangeRate    Decimal? @map("exchange_rate") @db.Decimal(12, 4) // USD to local at time of purchase
-  notes           String?  @db.Text
+  qty                Decimal  @db.Decimal(12, 3)           // quantity in MT (metric tons)
+  weightPerCartonKg  Decimal? @map("weight_per_carton_kg") @db.Decimal(10, 3) // kg per carton e.g. 20
+  unitPriceUsd       Decimal  @map("unit_price_usd") @db.Decimal(12, 4)       // USD per MT
+  totalPriceUsd      Decimal  @map("total_price_usd") @db.Decimal(15, 2)      // qty × unitPriceUsd
+  exchangeRate       Decimal? @map("exchange_rate") @db.Decimal(12, 4)        // kept for legacy; rate is on SupplierPayment
+  notes              String?  @db.Text
   createdBy       Int      @map("created_by")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")

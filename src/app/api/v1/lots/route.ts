@@ -101,14 +101,14 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
   }
 });
 
-// POST /api/v1/lots - Create lot (Super Admin only)
+// POST /api/v1/lots - Create lot with purchase invoice (Super Admin only)
 export const POST = withSuperAdmin(async (request: NextRequest, context, user: JWTPayload) => {
   try {
     const body = await request.json();
     const parsed = createLotSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid lot data", parsed.error.errors);
 
-    const { countryId, lotNumber, lotDate, notes, products, distributions } = parsed.data;
+    const { countryId, lotNumber, lotDate, notes, purchaseItems, distributions } = parsed.data;
 
     // Verify country exists
     const country = await prisma.country.findUnique({ where: { id: countryId } });
@@ -120,13 +120,31 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     });
     if (existing) return errorResponse("DUPLICATE", `Lot number ${lotNumber} already exists for ${country.name}`, 409);
 
-    // Validate products exist
-    const productIds = products.map((p) => p.productId);
+    // Validate all products exist
+    const productIds = Array.from(new Set(purchaseItems.map((p) => p.productId)));
     const existingProducts = await prisma.product.findMany({
       where: { id: { in: productIds }, isActive: true },
     });
     if (existingProducts.length !== productIds.length) {
       return errorResponse("NOT_FOUND", "One or more products not found or inactive");
+    }
+
+    // Validate all suppliers exist
+    const supplierIds = Array.from(new Set(purchaseItems.map((p) => p.supplierId)));
+    const existingSuppliers = await prisma.supplier.findMany({
+      where: { id: { in: supplierIds }, isActive: true },
+    });
+    if (existingSuppliers.length !== supplierIds.length) {
+      return errorResponse("NOT_FOUND", "One or more suppliers not found or inactive");
+    }
+
+    // Derive LotProduct totals: sum cartons per product
+    // cartons = round((qtyMt * 1000) / weightPerCartonKg)
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const productCartons: Record<number, number> = {};
+    for (const item of purchaseItems) {
+      const cartons = Math.round((item.qtyMt * 1000) / item.weightPerCartonKg);
+      productCartons[item.productId] = (productCartons[item.productId] || 0) + cartons;
     }
 
     // Validate distributions if provided
@@ -138,50 +156,61 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       if (cities.length !== cityIds.length) {
         return errorResponse("VALIDATION_ERROR", "All distribution cities must belong to the same country and be active");
       }
-
-      // Check distribution doesn't exceed total
-      for (const product of products) {
+      for (const [productId, totalQty] of Object.entries(productCartons)) {
         const totalDistributed = distributions
-          .filter((d) => d.productId === product.productId)
+          .filter((d) => d.productId === Number(productId))
           .reduce((sum, d) => sum + d.allocatedQty, 0);
-        if (totalDistributed > product.totalQty) {
-          return errorResponse(
-            "VALIDATION_ERROR",
-            `Distribution for product ${product.productId} exceeds total quantity (${totalDistributed} > ${product.totalQty})`
-          );
+        if (totalDistributed > totalQty) {
+          return errorResponse("VALIDATION_ERROR", `Distribution for product ${productId} exceeds total quantity`);
         }
       }
     }
 
-    // Create lot then products then distributions (no transaction - avoids Neon timeout)
+    // Create lot
     const lot = await prisma.lot.create({
-      data: {
-        countryId,
-        lotNumber,
-        lotDate: new Date(lotDate),
-        notes,
-        createdBy: user.userId,
-      },
+      data: { countryId, lotNumber, lotDate: new Date(lotDate), notes, createdBy: user.userId },
     });
 
-    // Add products
-    for (const p of products) {
-      await prisma.lotProduct.create({ data: { lotId: lot.id, productId: p.productId, totalQty: p.totalQty } });
+    // Add LotProduct records (one per unique product, qty in cartons)
+    for (const [productId, totalQty] of Object.entries(productCartons)) {
+      await prisma.lotProduct.create({
+        data: { lotId: lot.id, productId: Number(productId), totalQty },
+      });
+    }
+
+    // Add LotPurchase records (one per invoice line item)
+    for (const item of purchaseItems) {
+      const totalPriceUsd = round2(item.qtyMt * item.unitPriceUsdPerMt);
+      await prisma.lotPurchase.create({
+        data: {
+          lotId: lot.id,
+          supplierId: item.supplierId,
+          productId: item.productId,
+          qty: item.qtyMt,
+          weightPerCartonKg: item.weightPerCartonKg,
+          unitPriceUsd: item.unitPriceUsdPerMt,
+          totalPriceUsd,
+          createdBy: user.userId,
+        },
+      });
     }
 
     // Add distributions if provided
     if (distributions && distributions.length > 0) {
       for (const d of distributions) {
-        await prisma.lotCityDistribution.create({ data: { lotId: lot.id, cityId: d.cityId, productId: d.productId, allocatedQty: d.allocatedQty } });
+        await prisma.lotCityDistribution.create({
+          data: { lotId: lot.id, cityId: d.cityId, productId: d.productId, allocatedQty: d.allocatedQty },
+        });
       }
     }
 
-    // Refetch with includes
+    // Refetch with full includes
     const lotFull = await prisma.lot.findUnique({
       where: { id: lot.id },
       include: {
         country: true,
         lotProducts: { include: { product: true } },
+        lotPurchases: { include: { supplier: { select: { id: true, name: true } }, product: { select: { id: true, name: true } } } },
         lotCityDistributions: { include: { city: true, product: true } },
         creator: { select: { id: true, fullName: true } },
       },
@@ -189,8 +218,10 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     if (!lotFull) return serverError();
 
     await createAuditLog(user.userId, null, "lots", lotFull.id, "create", undefined, {
-      lotNumber, countryId, products, distributions,
+      lotNumber, countryId, purchaseItems, distributions,
     }, getClientIP(request));
+
+    const totalUsd = lotFull.lotPurchases.reduce((s, p) => s + Number(p.totalPriceUsd), 0);
 
     return successResponse({
       id: lotFull.id,
@@ -200,10 +231,22 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       lotDate: lotFull.lotDate.toISOString().split("T")[0],
       notes: lotFull.notes,
       status: lotFull.status,
+      totalPurchaseUsd: round2(totalUsd),
       products: lotFull.lotProducts.map((lp) => ({
         productId: lp.productId,
         productName: lp.product.name,
         totalQty: Number(lp.totalQty),
+      })),
+      purchaseItems: lotFull.lotPurchases.map((p) => ({
+        id: p.id,
+        supplierId: p.supplierId,
+        supplierName: p.supplier.name,
+        productId: p.productId,
+        productName: p.product.name,
+        qtyMt: Number(p.qty),
+        weightPerCartonKg: p.weightPerCartonKg ? Number(p.weightPerCartonKg) : null,
+        unitPriceUsdPerMt: Number(p.unitPriceUsd),
+        totalPriceUsd: Number(p.totalPriceUsd),
       })),
       distributions: lotFull.lotCityDistributions.map((d) => ({
         cityId: d.cityId,
