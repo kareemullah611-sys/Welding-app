@@ -8,40 +8,39 @@ export const POST = async (request: NextRequest) => {
   if (secret !== SECRET) return Response.json({ error: "forbidden" }, { status: 403 });
 
   try {
-    await prisma.$transaction([
-      prisma.profitAllocation.deleteMany(),
-      prisma.investorWithdrawal.deleteMany(),
-      prisma.investorDeposit.deleteMany(),
-      prisma.investorAccount.deleteMany(),
-      prisma.investor.deleteMany(),
-      prisma.journalEntry.deleteMany(),
-      prisma.auditLog.deleteMany(),
-      prisma.notification.deleteMany(),
-      prisma.attachment.deleteMany(),
-      prisma.saleItem.deleteMany(),
-      prisma.saleDiscount.deleteMany(),
-      prisma.paymentLotTransfer.deleteMany(),
-      prisma.lotSettlementOverflow.deleteMany(),
-      prisma.sale.deleteMany(),
-      prisma.payment.deleteMany(),
-      prisma.godownTransfer.deleteMany(),
-      prisma.cityTransfer.deleteMany(),
-      prisma.lotCityGodownAllocation.deleteMany(),
-      prisma.lotCityDistribution.deleteMany(),
-      prisma.lotProduct.deleteMany(),
-      prisma.lotCost.deleteMany(),
-      prisma.lotPurchase.deleteMany(),
-      prisma.supplierPayment.deleteMany(),
-      prisma.shippingLinePayment.deleteMany(),
-      prisma.agentPayment.deleteMany(),
-      prisma.lot.deleteMany(),
-      prisma.expense.deleteMany(),
-      prisma.hajiTransfer.deleteMany(),
-      prisma.personalWithdrawal.deleteMany(),
-      prisma.bankDeposit.deleteMany(),
-      prisma.customer.deleteMany(),
-      prisma.voucherSequence.deleteMany(),
-    ]);
+    // Delete in FK-safe order: children before parents
+    await prisma.profitAllocation.deleteMany();
+    await prisma.investorWithdrawal.deleteMany();
+    await prisma.investorDeposit.deleteMany();
+    await prisma.investorAccount.deleteMany();
+    await prisma.investor.deleteMany();
+    await prisma.journalEntry.deleteMany();
+    await prisma.auditLog.deleteMany();
+    await prisma.notification.deleteMany();
+    await prisma.attachment.deleteMany();
+    await prisma.saleItem.deleteMany();
+    await prisma.saleDiscount.deleteMany();
+    await prisma.paymentLotTransfer.deleteMany();
+    await prisma.lotSettlementOverflow.deleteMany();
+    await prisma.sale.deleteMany();
+    await prisma.payment.deleteMany();
+    await prisma.godownTransfer.deleteMany();
+    await prisma.cityTransfer.deleteMany();
+    await prisma.lotCityGodownAllocation.deleteMany();
+    await prisma.lotCityDistribution.deleteMany();
+    await prisma.lotProduct.deleteMany();
+    await prisma.lotCost.deleteMany();
+    await prisma.lotPurchase.deleteMany();
+    await prisma.supplierPayment.deleteMany();
+    await prisma.shippingLinePayment.deleteMany();
+    await prisma.agentPayment.deleteMany();
+    await prisma.expense.deleteMany();
+    await prisma.hajiTransfer.deleteMany();
+    await prisma.personalWithdrawal.deleteMany();
+    await prisma.bankDeposit.deleteMany();
+    await prisma.lot.deleteMany();
+    await prisma.customer.deleteMany();
+    await prisma.voucherSequence.deleteMany();
 
     return Response.json({ success: true, message: "All test data deleted" });
   } catch (error: any) {
