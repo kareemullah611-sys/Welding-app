@@ -55,6 +55,16 @@ export default function LotsPage() {
   const [pkrRateSaving, setPkrRateSaving] = useState(false);
   const [showAddCost,   setShowAddCost]   = useState(false);
   const [costForm,      setCostForm]      = useState({ costType: "freight", description: "", amount: "", currencyCode: "USD", costDate: new Date().toISOString().split("T")[0], notes: "" });
+  const [shippingLines,   setShippingLines]   = useState<any[]>([]);
+  const [costChargedTo,   setCostChargedTo]   = useState<"shipping_line" | "agent" | "cash">("cash");
+  const [costAgentId,     setCostAgentId]     = useState<number>(0);
+  const [costShippingLineId, setCostShippingLineId] = useState<number>(0);
+  const [agents,          setAgents]          = useState<any[]>([]);
+
+  // Edit purchase item
+  const [editPurchaseItem, setEditPurchaseItem] = useState<any>(null);
+  const [showEditPurchase, setShowEditPurchase] = useState(false);
+  const [editPurchaseForm, setEditPurchaseForm] = useState({ qtyMt: "", unitPriceUsdPerMt: "", weightPerCartonKg: "" });
 
   // Common
   const [submitting, setSubmitting] = useState(false);
@@ -134,6 +144,11 @@ export default function LotsPage() {
   // ════════════════════════════════════════════
   const openDetail = async (lot: any) => {
     setSelectedLot(lot); setShowDetail(true); setDetailLoading(true); setFormError("");
+    // Pre-fetch shipping lines for super admin cost form
+    if (user?.role === "super_admin" && !shippingLines.length) {
+      apiCall("/api/v1/shipping-lines").then(r => { if (r.success) setShippingLines(r.data as any[]); });
+      apiCall("/api/v1/agents", { params: { limit: 100 } }).then(r => { if (r.success) setAgents(r.data as any[]); });
+    }
     const r = await apiCall(`/api/v1/lots/${lot.id}`);
     if (r.success) {
       const d = r.data as any;
@@ -157,13 +172,16 @@ export default function LotsPage() {
     const r = await apiCall("/api/v1/lot-costs", {
       method: "POST",
       body: {
-        lotId:       selectedLot.id,
-        costType:    costForm.costType,
-        description: costForm.description,
-        amount:      Number(costForm.amount),
-        currencyCode: costForm.currencyCode,
-        costDate:    costForm.costDate,
-        notes:       costForm.notes || null,
+        lotId:            selectedLot.id,
+        costType:         costForm.costType,
+        description:      costForm.description,
+        amount:           Number(costForm.amount),
+        currencyCode:     costForm.currencyCode,
+        costDate:         costForm.costDate,
+        notes:            costForm.notes || null,
+        agentId:          costChargedTo === "agent" && costAgentId > 0 ? costAgentId : null,
+        shippingLineId:   costChargedTo === "shipping_line" && costShippingLineId > 0 ? costShippingLineId : null,
+        paidFromCash:     costChargedTo === "cash",
       },
     });
     setSubmitting(false);
@@ -173,6 +191,41 @@ export default function LotsPage() {
       const dr = await apiCall(`/api/v1/lots/${selectedLot.id}`);
       if (dr.success) setSelectedLot(dr.data);
     } else { setFormError(r.error || "Failed"); }
+  };
+
+  const openEditPurchase = (item: any) => {
+    setEditPurchaseItem(item);
+    setEditPurchaseForm({ qtyMt: String(item.qtyMt), unitPriceUsdPerMt: String(item.unitPriceUsdPerMt), weightPerCartonKg: String(item.weightPerCartonKg ?? "") });
+    setFormError(""); setShowEditPurchase(true);
+  };
+
+  const handleEditPurchase = async () => {
+    if (!editPurchaseItem) return;
+    if (Number(editPurchaseForm.qtyMt) <= 0 || Number(editPurchaseForm.unitPriceUsdPerMt) <= 0) { setFormError("Qty and price must be greater than 0"); return; }
+    setSubmitting(true);
+    const r = await apiCall(`/api/v1/lot-purchases/${editPurchaseItem.id}`, {
+      method: "PUT",
+      body: {
+        qtyMt:             Number(editPurchaseForm.qtyMt),
+        unitPriceUsdPerMt: Number(editPurchaseForm.unitPriceUsdPerMt),
+        weightPerCartonKg: Number(editPurchaseForm.weightPerCartonKg) > 0 ? Number(editPurchaseForm.weightPerCartonKg) : undefined,
+      },
+    });
+    setSubmitting(false);
+    if (r.success) {
+      setShowEditPurchase(false);
+      const dr = await apiCall(`/api/v1/lots/${selectedLot.id}`);
+      if (dr.success) setSelectedLot(dr.data);
+    } else { setFormError(r.error || "Failed"); }
+  };
+
+  const handleDeletePurchase = async (item: any) => {
+    if (!confirm(`Delete purchase item: ${item.supplierName} – ${item.productName}? This cannot be undone.`)) return;
+    const r = await apiCall(`/api/v1/lot-purchases/${item.id}`, { method: "DELETE" });
+    if (r.success) {
+      const dr = await apiCall(`/api/v1/lots/${selectedLot.id}`);
+      if (dr.success) setSelectedLot(dr.data);
+    } else { alert(r.error || "Failed"); }
   };
 
   // ════════════════════════════════════════════
@@ -650,6 +703,7 @@ export default function LotsPage() {
                         <th className="pb-1.5 text-right">USD/MT</th>
                         <th className="pb-1.5 text-right">Amount USD</th>
                         <th className="pb-1.5 text-right">Cartons</th>
+                        {user?.role === "super_admin" && <th className="pb-1.5 text-right">Actions</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -664,6 +718,12 @@ export default function LotsPage() {
                           <td className="py-1 text-right text-gray-400">
                             {p.weightPerCartonKg ? Math.round((Number(p.qtyMt) * 1000) / Number(p.weightPerCartonKg)).toLocaleString("en-US") : "—"}
                           </td>
+                          {user?.role === "super_admin" && (
+                            <td className="py-1 text-right">
+                              <button onClick={() => openEditPurchase(p)} className="p-1 text-gray-400 hover:text-blue-600 transition-colors" title="Edit"><Pencil size={12} /></button>
+                              <button onClick={() => handleDeletePurchase(p)} className="p-1 text-gray-400 hover:text-red-600 transition-colors ml-1" title="Delete"><Trash2 size={12} /></button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -676,6 +736,7 @@ export default function LotsPage() {
                         <td className="pt-2 text-right text-gray-500 font-medium">
                           {selectedLot.products?.reduce((s: number, p: any) => s + Number(p.totalQty), 0).toLocaleString("en-US")}
                         </td>
+                        {user?.role === "super_admin" && <td />}
                       </tr>
                     </tfoot>
                   </table>
@@ -688,7 +749,7 @@ export default function LotsPage() {
               <div className="card">
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-sm font-semibold text-gray-600">💸 Additional Costs</h4>
-                  <button onClick={() => { setCostForm({ costType: "freight", description: "", amount: "", currencyCode: "USD", costDate: new Date().toISOString().split("T")[0], notes: "" }); setFormError(""); setShowAddCost(true); }}
+                  <button onClick={() => { setCostForm({ costType: "freight", description: "", amount: "", currencyCode: "USD", costDate: new Date().toISOString().split("T")[0], notes: "" }); setFormError(""); setCostChargedTo("cash"); setCostAgentId(0); setCostShippingLineId(0); setShowAddCost(true); }}
                     className="text-xs text-primary-600 hover:underline">+ Add Cost</button>
                 </div>
                 {(selectedLot.costSummary?.costBreakdown || []).length > 0 ? (
@@ -779,6 +840,35 @@ export default function LotsPage() {
             <input value={costForm.description} onChange={e => setCostForm(f => ({ ...f, description: e.target.value }))}
               className="input-field" placeholder="e.g. Karachi port customs duty" />
           </div>
+          {/* Charged To */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Charged To</label>
+            <div className="flex gap-2 mb-2">
+              {[
+                { value: "cash", label: "Cash / Direct" },
+                { value: "shipping_line", label: "Shipping Line" },
+                { value: "agent", label: "Agent" },
+              ].map(opt => (
+                <button key={opt.value} type="button"
+                  onClick={() => setCostChargedTo(opt.value as any)}
+                  className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${costChargedTo === opt.value ? "bg-primary-600 text-white border-primary-600" : "bg-white text-gray-600 border-gray-300 hover:border-primary-400"}`}>
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            {costChargedTo === "shipping_line" && (
+              <select value={costShippingLineId} onChange={e => setCostShippingLineId(Number(e.target.value))} className="select-field">
+                <option value={0}>Select Shipping Line</option>
+                {shippingLines.map((sl: any) => <option key={sl.id} value={sl.id}>{sl.name}</option>)}
+              </select>
+            )}
+            {costChargedTo === "agent" && (
+              <select value={costAgentId} onChange={e => setCostAgentId(Number(e.target.value))} className="select-field">
+                <option value={0}>Select Agent</option>
+                {agents.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            )}
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Amount * ({costForm.currencyCode})</label>
@@ -798,6 +888,42 @@ export default function LotsPage() {
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
           <button onClick={() => setShowAddCost(false)} className="btn-secondary text-sm">Cancel</button>
           <button onClick={handleAddCost} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : "Add Cost"}</button>
+        </div>
+      </Modal>
+
+      {/* ══════════════════════════════════════
+          EDIT PURCHASE ITEM
+      ══════════════════════════════════════ */}
+      <Modal open={showEditPurchase} onClose={() => setShowEditPurchase(false)} title={`Edit: ${editPurchaseItem?.supplierName || ""} – ${editPurchaseItem?.productName || ""}`} size="sm">
+        {formError && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{formError}</div>}
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Wt/crt (kg)</label>
+            <input type="number" value={editPurchaseForm.weightPerCartonKg}
+              onChange={e => setEditPurchaseForm(f => ({ ...f, weightPerCartonKg: e.target.value }))}
+              className="input-field" min="0.001" step="0.001" placeholder="e.g. 20" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Qty (MT) *</label>
+            <input type="number" value={editPurchaseForm.qtyMt}
+              onChange={e => setEditPurchaseForm(f => ({ ...f, qtyMt: e.target.value }))}
+              className="input-field" min="0.001" step="0.001" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">USD/MT *</label>
+            <input type="number" value={editPurchaseForm.unitPriceUsdPerMt}
+              onChange={e => setEditPurchaseForm(f => ({ ...f, unitPriceUsdPerMt: e.target.value }))}
+              className="input-field" min="0.01" step="0.01" />
+          </div>
+          {Number(editPurchaseForm.qtyMt) > 0 && Number(editPurchaseForm.unitPriceUsdPerMt) > 0 && (
+            <div className="text-right text-sm font-semibold text-blue-700">
+              Total: ${(Number(editPurchaseForm.qtyMt) * Number(editPurchaseForm.unitPriceUsdPerMt)).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
+          <button onClick={() => setShowEditPurchase(false)} className="btn-secondary text-sm">Cancel</button>
+          <button onClick={handleEditPurchase} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : "Save"}</button>
         </div>
       </Modal>
 

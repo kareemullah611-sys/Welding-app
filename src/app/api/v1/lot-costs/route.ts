@@ -45,7 +45,8 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         exchangeRate: body.exchangeRate || null,
         costDate: body.costDate ? new Date(body.costDate) : null,
         agentId: body.agentId || null,
-        paidFromCash: !body.agentId,
+        shippingLineId: body.shippingLineId || null,
+        paidFromCash: body.paidFromCash === true,
         notes: body.notes || null, createdBy: user.userId,
       },
     });
@@ -53,7 +54,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     await createAuditLog(user.userId, null, "lot_costs", cost.id, "create", undefined, body, getClientIP(request));
 
     try {
-      await journalLotCost({ id: cost.id, lotId: body.lotId, costType: body.costType, amount: body.amount, currencyCode: body.currencyCode || "USD", createdBy: user.userId, agentId: body.agentId || undefined });
+      await journalLotCost({ id: cost.id, lotId: body.lotId, costType: body.costType, amount: body.amount, currencyCode: body.currencyCode || "USD", createdBy: user.userId, agentId: body.agentId || undefined, shippingLineId: body.shippingLineId || undefined });
     } catch (je) { console.error("Journal (lot cost):", je); }
 
     return successResponse({ id: cost.id }, "Cost recorded", 201);

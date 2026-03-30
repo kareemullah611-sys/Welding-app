@@ -33,7 +33,7 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
   // Purchase costs
   const purchases = await prisma.lotPurchase.findMany({ where: { lotId }, include: { product: true, supplier: true } });
   const totalPurchaseUsd = purchases.reduce((s, p) => s + Number(p.totalPriceUsd), 0);
-  const totalCartonsBought = purchases.reduce((s, p) => s + Number(p.qty), 0);
+  const totalCartonsBought = lot.lotProducts.reduce((s, lp) => s + Number(lp.totalQty), 0);
 
   // Additional costs (customs, freight, transport, etc.)
   const costs = await prisma.lotCost.findMany({ where: { lotId } });
@@ -52,14 +52,16 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
 
   // Per product breakdown
   const productCosts = purchases.map((p) => {
-    const qty = Number(p.qty);
+    const qtyMt = Number(p.qty);
+    const wtPerCrt = p.weightPerCartonKg ? Number(p.weightPerCartonKg) : null;
+    const cartons = wtPerCrt && wtPerCrt > 0 ? Math.round((qtyMt * 1000) / wtPerCrt) : 0;
     const purchaseCost = Number(p.totalPriceUsd);
-    const additionalCostShare = totalCartonsBought > 0 ? (qty / totalCartonsBought) * totalAdditionalCosts : 0;
+    const additionalCostShare = totalCartonsBought > 0 ? (cartons / totalCartonsBought) * totalAdditionalCosts : 0;
     const landedCost = purchaseCost + additionalCostShare;
-    const landedPerCarton = qty > 0 ? landedCost / qty : 0;
+    const landedPerCarton = cartons > 0 ? landedCost / cartons : 0;
     return {
       productId: p.productId, productName: p.product.name, supplierName: p.supplier.name,
-      qty, unitPriceUsd: Number(p.unitPriceUsd), purchaseCostUsd: purchaseCost,
+      qtyMt, cartons, unitPriceUsd: Number(p.unitPriceUsd), purchaseCostUsd: purchaseCost,
       additionalCostShare: Math.round(additionalCostShare * 100) / 100,
       totalLandedCostUsd: Math.round(landedCost * 100) / 100,
       landedCostPerCartonUsd: Math.round(landedPerCarton * 100) / 100,
@@ -114,8 +116,8 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
       ...pc, cartonsSold, revenue: Math.round(revenue * 100) / 100,
       costOfGoodsSold: Math.round(costOfSold * 100) / 100,
       grossProfit: Math.round(grossProfit * 100) / 100,
-      cartonsRemaining: pc.qty - cartonsSold,
-      unsoldValue: Math.round((pc.qty - cartonsSold) * pc.landedCostPerCartonUsd * 100) / 100,
+      cartonsRemaining: pc.cartons - cartonsSold,
+      unsoldValue: Math.round((pc.cartons - cartonsSold) * pc.landedCostPerCartonUsd * 100) / 100,
     };
   });
 
@@ -171,7 +173,7 @@ async function periodProfitReport(user: JWTPayload, year?: number, dateFrom?: st
   // Get all lots with purchases
   const lots = await prisma.lot.findMany({
     include: {
-      lotPurchases: true, lotCosts: true, country: true,
+      lotPurchases: true, lotProducts: true, lotCosts: true, country: true,
       sales: { where: saleWhere, include: { items: true } },
       expenses: { where: user.role === "city_admin" ? { cityId: user.cityId!, deletedAt: null } : { deletedAt: null } },
     },
@@ -197,7 +199,7 @@ async function periodProfitReport(user: JWTPayload, year?: number, dateFrom?: st
     const costsTotal = lot.lotCosts.reduce((s, c) => s + Number(c.amount), 0);
     // Include lot-tagged expenses in the overhead (same as lot-level report)
     const lotExpenses = lot.expenses.reduce((s, e) => s + Number(e.amount), 0);
-    const totalCartons = lot.lotPurchases.reduce((s, p) => s + Number(p.qty), 0);
+    const totalCartons = (lot.lotProducts as any[]).reduce((s: number, lp: any) => s + Number(lp.totalQty), 0);
     const landedCostPerCarton = totalCartons > 0 ? (purchaseTotal + costsTotal + lotExpenses) / totalCartons : 0;
 
     let grossLotRevenue = 0, lotCartonsSold = 0;

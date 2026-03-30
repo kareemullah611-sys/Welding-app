@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, withSuperAdmin, getCityScope, createAuditLog, getClientIP } from "@/lib/middleware";
 import { createLotSchema } from "@/lib/validations";
+import { journalLotPurchase } from "@/lib/accounting";
 import {
   successResponse, paginatedResponse, validationError, errorResponse, serverError,
   getPaginationParams, getDateRange,
@@ -181,7 +182,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     // Add LotPurchase records (one per invoice line item)
     for (const item of purchaseItems) {
       const totalPriceUsd = round2(item.qtyMt * item.unitPriceUsdPerMt);
-      await prisma.lotPurchase.create({
+      const purchase = await prisma.lotPurchase.create({
         data: {
           lotId: lot.id,
           supplierId: item.supplierId,
@@ -193,6 +194,9 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
           createdBy: user.userId,
         },
       });
+      try {
+        await journalLotPurchase({ id: purchase.id, supplierId: item.supplierId, lotId: lot.id, totalUsd: totalPriceUsd, createdBy: user.userId });
+      } catch (je) { console.error("Journal (lot purchase):", je); }
     }
 
     // Add distributions if provided

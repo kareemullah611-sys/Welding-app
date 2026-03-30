@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
+import { reverseJournalEntries, journalSupplierPaid } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 
 export const PUT = withSuperAdmin(async (request: NextRequest, context: any, user: JWTPayload) => {
@@ -10,6 +11,8 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     const body = await request.json();
     const existing = await prisma.supplierPayment.findUnique({ where: { id } });
     if (!existing) return errorResponse("NOT_FOUND", "Supplier payment not found", 404);
+
+    try { await reverseJournalEntries(`SUPPPAY-${id}`, user.userId); } catch (je) { console.error("Reverse journal (supplier payment):", je); }
 
     const updated = await prisma.supplierPayment.update({
       where: { id },
@@ -21,6 +24,10 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
         notes: body.notes ?? existing.notes,
       },
     });
+    try {
+      await journalSupplierPaid({ id, supplierId: existing.supplierId, amountUsd: Number(updated.amountUsd), paymentDate: updated.paymentDate, createdBy: user.userId });
+    } catch (je) { console.error("Re-journal (supplier payment):", je); }
+
     await createAuditLog(user.userId, null, "supplier_payments", id, "update",
       { amountUsd: Number(existing.amountUsd) }, { amountUsd: Number(updated.amountUsd) }, getClientIP(request));
     return successResponse({ id }, "Payment updated");
@@ -32,6 +39,8 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
     const id = parseInt(context.params.id);
     const existing = await prisma.supplierPayment.findUnique({ where: { id } });
     if (!existing) return errorResponse("NOT_FOUND", "Supplier payment not found", 404);
+
+    try { await reverseJournalEntries(`SUPPPAY-${id}`, user.userId); } catch (je) { console.error("Reverse journal (supplier payment delete):", je); }
 
     await prisma.supplierPayment.delete({ where: { id } });
     await createAuditLog(user.userId, null, "supplier_payments", id, "delete",

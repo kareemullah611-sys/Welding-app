@@ -42,6 +42,11 @@ export async function getAgentAccountId(agentId: number): Promise<number> {
   return getOrCreateAccount(`2200-A${agentId}`, `Payable - ${agent?.name || agentId}`, "liability");
 }
 
+export async function getShippingLineAccountId(shippingLineId: number): Promise<number> {
+  const sl = await prisma.shippingLine.findUnique({ where: { id: shippingLineId }, select: { name: true } });
+  return getOrCreateAccount(`2300-SL${shippingLineId}`, `Payable - ${sl?.name || shippingLineId}`, "liability");
+}
+
 export async function getInventoryAccountId(): Promise<number> { return getOrCreateAccount("1100", "Inventory", "asset"); }
 export async function getSalesRevenueAccountId(): Promise<number> { return getOrCreateAccount("3001", "Sales Revenue", "revenue"); }
 export async function getCOGSAccountId(): Promise<number> { return getOrCreateAccount("4001", "Cost of Goods Sold", "cogs"); }
@@ -54,6 +59,8 @@ export async function getExpenseAccountId(costType: string): Promise<number> {
     customs_duty: { code: "5001", name: "Customs Duty" }, freight: { code: "5002", name: "Freight/Shipping" },
     transport: { code: "5003", name: "Transport" }, port_charges: { code: "5004", name: "Port Charges" },
     loading_unloading: { code: "5005", name: "Loading/Unloading" }, insurance: { code: "5006", name: "Insurance" },
+    customs_agent: { code: "5007", name: "Customs Agent" },
+    clearing_agent: { code: "5008", name: "Clearing Agent" },
     office: { code: "5010", name: "Office Expenses" }, salary: { code: "5011", name: "Salaries" },
     other: { code: "5099", name: "Other Expenses" }, general: { code: "5099", name: "Other Expenses" },
   };
@@ -147,10 +154,11 @@ export async function journalSupplierPaid(p: { id: number; supplierId: number; a
 }
 
 // LOT COST (customs, freight, transport - on agent credit or cash)
-export async function journalLotCost(c: { id: number; lotId: number; costType: string; amount: number; currencyCode: string; createdBy: number; agentId?: number; cityId?: number; }) {
+export async function journalLotCost(c: { id: number; lotId: number; costType: string; amount: number; currencyCode: string; createdBy: number; agentId?: number; cityId?: number; shippingLineId?: number; }) {
   const expAccId = await getExpenseAccountId(c.costType);
   let creditAccId: number;
-  if (c.agentId) { creditAccId = await getAgentAccountId(c.agentId); }
+  if (c.shippingLineId) { creditAccId = await getShippingLineAccountId(c.shippingLineId); }
+  else if (c.agentId) { creditAccId = await getAgentAccountId(c.agentId); }
   else if (c.cityId) { creditAccId = await getCashAccountId(c.cityId); }
   else { creditAccId = await getOrCreateAccount("2999", "General Payable", "liability"); }
   await createJournalEntries(`COST-${c.id}`, [
@@ -198,6 +206,14 @@ export async function journalHajiTransfer(h: { id: number; cityId: number; amoun
     { accountId: await getHajiAccountId(), debit: h.amount, credit: 0, description: `Haji transfer` },
     { accountId: creditAccId, debit: 0, credit: h.amount, description: `Haji transfer` },
   ], { currencyCode: h.currencyCode, entityType: "haji_transfer", entityId: h.id, cityId: h.cityId, entryDate: h.date, createdBy: h.createdBy });
+}
+
+// SHIPPING LINE PAID
+export async function journalShippingLinePayment(p: { id: number; shippingLineId: number; amountUsd: number; paymentDate: Date; createdBy: number; }) {
+  await createJournalEntries(`SLPAY-${p.id}`, [
+    { accountId: await getShippingLineAccountId(p.shippingLineId), debit: p.amountUsd, credit: 0, description: `Payment to shipping line` },
+    { accountId: await getBankAccountId(), debit: 0, credit: p.amountUsd, description: `Bank to shipping line` },
+  ], { currencyCode: "USD", entityType: "shipping_line_payment", entityId: p.id, entryDate: p.paymentDate, createdBy: p.createdBy });
 }
 
 // REVERSE (for cancellations)

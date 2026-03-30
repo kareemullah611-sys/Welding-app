@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, validationError, errorResponse, serverError } from "@/lib/api-response";
+import { journalShippingLinePayment } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 
 export const POST = withSuperAdmin(async (request: NextRequest, _context, user: JWTPayload) => {
@@ -35,6 +36,10 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context, user: 
 
     await createAuditLog(user.userId, null, "shipping_line_payments", payment.id, "create", undefined,
       { shippingLineId, amountUsd, exchangeRate }, getClientIP(request));
+
+    try {
+      await journalShippingLinePayment({ id: payment.id, shippingLineId, amountUsd: Number(amountUsd), paymentDate: new Date(paymentDate), createdBy: user.userId });
+    } catch (je) { console.error("Journal (shipping line payment):", je); }
 
     return successResponse({ id: payment.id, amountUsd: Number(payment.amountUsd), amountPkr }, "Payment recorded", 201);
   } catch (error) { console.error("Create shipping line payment:", error); return serverError(); }

@@ -15,8 +15,14 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, use
     for (const c of agent.lotCosts) { entries.push({ date: c.costDate || c.createdAt, type: "charge", description: `${c.costType}: ${c.description} (Lot ${c.lot.lotNumber})`, debit: Number(c.amount), credit: 0, currency: c.currencyCode }); }
     for (const p of agent.agentPayments) { entries.push({ date: p.paymentDate, type: "payment", description: `Payment ${p.paymentMethod} ${p.reference || ""}`, debit: 0, credit: Number(p.amount), currency: p.currencyCode }); }
     entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    let balance = 0;
-    const ledger = entries.map(e => { balance += e.debit - e.credit; return { ...e, date: new Date(e.date).toISOString().split("T")[0], balance: Math.round(balance * 100) / 100 }; });
+    // Per-currency running balances
+    const currencyBalances: Record<string, number> = {};
+    const ledger = entries.map(e => {
+      const ccy = e.currency;
+      if (!currencyBalances[ccy]) currencyBalances[ccy] = 0;
+      currencyBalances[ccy] += e.debit - e.credit;
+      return { ...e, date: new Date(e.date).toISOString().split("T")[0], balance: Math.round(currencyBalances[ccy] * 100) / 100, currency: ccy };
+    });
 
     return successResponse({ ...agent, id: agent.id, name: agent.name, ledger });
   } catch (error) { return serverError(); }

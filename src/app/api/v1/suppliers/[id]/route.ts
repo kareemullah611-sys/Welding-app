@@ -9,7 +9,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, use
     const id = parseInt(context.params.id);
     const supplier = await prisma.supplier.findUnique({ where: { id },
       include: {
-        lotPurchases: { include: { lot: { select: { id: true, lotNumber: true } }, product: { select: { id: true, name: true } } }, orderBy: { createdAt: "desc" } },
+        lotPurchases: { include: { lot: { select: { id: true, lotNumber: true, lotDate: true } }, product: { select: { id: true, name: true } } }, orderBy: { createdAt: "desc" } },
         supplierPayments: { include: { lot: { select: { id: true, lotNumber: true } } }, orderBy: { paymentDate: "desc" } },
       },
     });
@@ -40,7 +40,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, use
 function buildSupplierLedger(supplier: any) {
   const entries: any[] = [];
   for (const p of supplier.lotPurchases) {
-    entries.push({ date: p.createdAt, type: "purchase", description: `${p.product.name} × ${Number(p.qty)} (Lot ${p.lot.lotNumber})`, debit: Number(p.totalPriceUsd), credit: 0 });
+    entries.push({ date: p.lot.lotDate, type: "purchase", description: `${p.product.name} × ${Number(p.qty)} (Lot ${p.lot.lotNumber})`, debit: Number(p.totalPriceUsd), credit: 0 });
   }
   for (const p of supplier.supplierPayments) {
     entries.push({ date: p.paymentDate, type: "payment", description: `Payment ${p.paymentMethod} ${p.reference || ""}`.trim() + (p.lot ? ` (Lot ${p.lot.lotNumber})` : ""), debit: 0, credit: Number(p.amountUsd) });
