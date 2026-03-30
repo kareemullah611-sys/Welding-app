@@ -785,10 +785,11 @@ model BankAccount {
   isActive      Boolean  @default(true) @map("is_active")
   createdAt     DateTime @default(now()) @map("created_at")
 
-  city          City          @relation(fields: [cityId], references: [id])
-  deposits      BankDeposit[]
-  hajiTransfers HajiTransfer[]
-  expenses      Expense[]
+  city             City              @relation(fields: [cityId], references: [id])
+  deposits         BankDeposit[]
+  hajiTransfers    HajiTransfer[]
+  expenses         Expense[]
+  supplierPayments SupplierPayment[] @relation("SupplierPaymentBankAccount")
 
   @@index([cityId])
   @@map("bank_accounts")
@@ -1057,6 +1058,7 @@ model SupplierPayment {
   id            Int                   @id @default(autoincrement())
   supplierId    Int                   @map("supplier_id")
   lotId         Int?                  @map("lot_id") // optional - link to specific lot
+  bankAccountId Int?                  @map("bank_account_id") // which bank account the payment was sent from
   paymentDate   DateTime              @map("payment_date") @db.Date
   amountUsd     Decimal               @map("amount_usd") @db.Decimal(15, 2)
   exchangeRate  Decimal?              @map("exchange_rate") @db.Decimal(12, 4) // USD rate at payment time
@@ -1068,12 +1070,14 @@ model SupplierPayment {
   createdAt     DateTime              @default(now()) @map("created_at")
   updatedAt     DateTime              @updatedAt @map("updated_at")
 
-  supplier Supplier @relation(fields: [supplierId], references: [id])
-  lot      Lot?     @relation(fields: [lotId], references: [id])
-  creator  User     @relation("SupplierPaymentCreatedBy", fields: [createdBy], references: [id])
+  supplier    Supplier     @relation(fields: [supplierId], references: [id])
+  lot         Lot?         @relation(fields: [lotId], references: [id])
+  bankAccount BankAccount? @relation("SupplierPaymentBankAccount", fields: [bankAccountId], references: [id])
+  creator     User         @relation("SupplierPaymentCreatedBy", fields: [createdBy], references: [id])
 
   @@index([supplierId])
   @@index([lotId])
+  @@index([bankAccountId])
   @@index([paymentDate])
   @@map("supplier_payments")
 }

@@ -25,7 +25,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
       },
     });
     try {
-      await journalSupplierPaid({ id, supplierId: existing.supplierId, amountUsd: Number(updated.amountUsd), paymentDate: updated.paymentDate, createdBy: user.userId });
+      await journalSupplierPaid({ id, supplierId: existing.supplierId, amountUsd: Number(updated.amountUsd), paymentDate: updated.paymentDate, createdBy: user.userId, bankAccountId: (existing as any).bankAccountId || null });
     } catch (je) { console.error("Re-journal (supplier payment):", je); }
 
     await createAuditLog(user.userId, null, "supplier_payments", id, "update",

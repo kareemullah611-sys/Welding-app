@@ -255,4 +255,5 @@ export const createSupplierPaymentSchema = z.object({
   paymentMethod: z.enum(["bank_transfer", "tt", "lc", "cash", "other"]),
   reference: z.string().max(200).optional(),
   notes: z.string().optional(),
+  bankAccountId: z.number().int().positive().optional(),
 });

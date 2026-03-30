@@ -146,10 +146,13 @@ export async function journalLotPurchase(p: { id: number; supplierId: number; lo
 }
 
 // SUPPLIER PAID
-export async function journalSupplierPaid(p: { id: number; supplierId: number; amountUsd: number; paymentDate: Date; createdBy: number; }) {
+export async function journalSupplierPaid(p: { id: number; supplierId: number; amountUsd: number; paymentDate: Date; createdBy: number; bankAccountId?: number | null; }) {
+  const creditAccId = p.bankAccountId
+    ? await getBankGLAccountId(p.bankAccountId)
+    : await getBankAccountId();
   await createJournalEntries(`SUPPPAY-${p.id}`, [
     { accountId: await getSupplierAccountId(p.supplierId), debit: p.amountUsd, credit: 0, description: `Payment to supplier` },
-    { accountId: await getBankAccountId(), debit: 0, credit: p.amountUsd, description: `Bank to supplier` },
+    { accountId: creditAccId, debit: 0, credit: p.amountUsd, description: `Bank to supplier` },
   ], { currencyCode: "USD", entityType: "supplier_payment", entityId: p.id, entryDate: p.paymentDate, createdBy: p.createdBy });
 }
 

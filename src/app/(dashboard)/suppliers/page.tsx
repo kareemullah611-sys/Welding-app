@@ -20,6 +20,21 @@ export default function SuppliersPage() {
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
+  const [showPayment,  setShowPayment]  = useState(false);
+  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
+  const [payForm,      setPayForm]      = useState({
+    paymentDate: new Date().toISOString().split("T")[0],
+    amountUsd: "",
+    exchangeRate: "",
+    amountLocal: "",
+    paymentMethod: "bank_transfer",
+    bankAccountId: 0,
+    lotId: "",
+    reference: "",
+    notes: "",
+  });
+  const [paySubmitting, setPaySubmitting] = useState(false);
+  const [payError,      setPayError]      = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -70,6 +85,48 @@ export default function SuppliersPage() {
     setSelected(s); setShowLedger(true); setLedgerData(null);
     const r = await apiCall(`/api/v1/suppliers/${s.id}`);
     if (r.success) setLedgerData(r.data);
+  };
+
+  const openPayment = async () => {
+    if (!bankAccounts.length) {
+      const r = await apiCall("/api/v1/bank-accounts");
+      if (r.success) setBankAccounts(r.data as any[]);
+    }
+    setPayForm({
+      paymentDate: new Date().toISOString().split("T")[0],
+      amountUsd: "", exchangeRate: "", amountLocal: "",
+      paymentMethod: "bank_transfer", bankAccountId: 0,
+      lotId: "", reference: "", notes: "",
+    });
+    setPayError(""); setShowPayment(true);
+  };
+
+  const handleRecordPayment = async () => {
+    if (!selected) return;
+    if (!payForm.amountUsd || Number(payForm.amountUsd) <= 0) { setPayError("Amount is required"); return; }
+    if (!payForm.paymentDate) { setPayError("Date is required"); return; }
+    setPaySubmitting(true);
+    const body: any = {
+      supplierId:    selected.id,
+      paymentDate:   payForm.paymentDate,
+      amountUsd:     Number(payForm.amountUsd),
+      paymentMethod: payForm.paymentMethod,
+      reference:     payForm.reference || undefined,
+      notes:         payForm.notes || undefined,
+    };
+    if (Number(payForm.exchangeRate) > 0) body.exchangeRate = Number(payForm.exchangeRate);
+    if (Number(payForm.amountLocal) > 0) body.amountLocal = Number(payForm.amountLocal);
+    if (payForm.bankAccountId > 0) body.bankAccountId = payForm.bankAccountId;
+    if (Number(payForm.lotId) > 0) body.lotId = Number(payForm.lotId);
+    const r = await apiCall("/api/v1/supplier-payments", { method: "POST", body });
+    setPaySubmitting(false);
+    if (r.success) {
+      setShowPayment(false);
+      // Refresh ledger
+      const lr = await apiCall(`/api/v1/suppliers/${selected.id}`);
+      if (lr.success) setLedgerData(lr.data);
+      load();
+    } else { setPayError(r.error || "Failed"); }
   };
 
   const isSuperAdmin = user?.role === "super_admin";
@@ -185,7 +242,14 @@ export default function SuppliersPage() {
             <StatsCard title={t("total_paid")} value={`$${formatNumber(ledgerData.totalPaidUsd)}`} icon="💰" color="green" />
             <StatsCard title={t("balance_owed")} value={`$${formatNumber(ledgerData.balanceOwed)}`} icon={ledgerData.balanceOwed > 0 ? "⚠️" : "✅"} color={ledgerData.balanceOwed > 0 ? "red" : "green"} />
           </div>
-          <h4 className="text-sm font-semibold text-gray-500 mb-2">{t("ledger")}</h4>
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-sm font-semibold text-gray-500">{t("ledger")}</h4>
+            {isSuperAdmin && (
+              <button onClick={openPayment} className="text-xs text-primary-600 hover:underline font-medium">
+                + Record Payment
+              </button>
+            )}
+          </div>
           <DataTable columns={[
             { key: "date", label: t("date") },
             { key: "type", label: t("type"), render: (e: any) => <span className={`text-xs px-1.5 py-0.5 rounded ${e.type === "purchase" ? "bg-blue-50 text-blue-700" : "bg-green-50 text-green-700"}`}>{e.type}</span> },
@@ -195,6 +259,88 @@ export default function SuppliersPage() {
             { key: "balance", label: t("balance"), render: (e: any) => <span className="font-medium">${e.balance.toLocaleString("en-US")}</span> },
           ]} data={ledgerData.ledger || []} loading={false} />
         </>}
+      </Modal>
+      {/* ── RECORD PAYMENT MODAL ──────────────────────────────── */}
+      <Modal open={showPayment} onClose={() => setShowPayment(false)} title={`Record Payment — ${selected?.name || ""}`} size="md">
+        {payError && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{payError}</div>}
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Date *</label>
+              <input type="date" value={payForm.paymentDate}
+                onChange={e => setPayForm(f => ({ ...f, paymentDate: e.target.value }))}
+                className="input-field" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Amount (USD) *</label>
+              <input type="number" value={payForm.amountUsd}
+                onChange={e => setPayForm(f => ({ ...f, amountUsd: e.target.value }))}
+                className="input-field" placeholder="0.00" min="0.01" step="0.01" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Paid From (Bank Account)</label>
+            <select value={payForm.bankAccountId}
+              onChange={e => setPayForm(f => ({ ...f, bankAccountId: Number(e.target.value) }))}
+              className="select-field">
+              <option value={0}>— Unspecified / Cash —</option>
+              {bankAccounts.filter((b: any) => b.isActive).map((b: any) => (
+                <option key={b.id} value={b.id}>{b.bankName}{b.accountNumber ? ` (${b.accountNumber})` : ""} — {b.cityName}</option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-400 mt-1">Which bank account was used to send this payment</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method *</label>
+              <select value={payForm.paymentMethod}
+                onChange={e => setPayForm(f => ({ ...f, paymentMethod: e.target.value }))}
+                className="select-field">
+                <option value="bank_transfer">Bank Transfer</option>
+                <option value="tt">TT (Telegraphic Transfer)</option>
+                <option value="lc">LC (Letter of Credit)</option>
+                <option value="cash">Cash</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Reference / TT No.</label>
+              <input value={payForm.reference}
+                onChange={e => setPayForm(f => ({ ...f, reference: e.target.value }))}
+                className="input-field" placeholder="e.g. TT-2026-001" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">USD/PKR Rate <span className="text-gray-400 font-normal">(optional)</span></label>
+              <input type="number" value={payForm.exchangeRate}
+                onChange={e => setPayForm(f => ({ ...f, exchangeRate: e.target.value }))}
+                className="input-field" placeholder="e.g. 278.50" step="0.01" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Amount (PKR) <span className="text-gray-400 font-normal">(auto)</span></label>
+              <input type="number" value={
+                Number(payForm.exchangeRate) > 0 && Number(payForm.amountUsd) > 0
+                  ? Math.round(Number(payForm.amountUsd) * Number(payForm.exchangeRate))
+                  : payForm.amountLocal
+              }
+                onChange={e => setPayForm(f => ({ ...f, amountLocal: e.target.value }))}
+                className="input-field" placeholder="auto-calculated" step="1" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+            <textarea value={payForm.notes}
+              onChange={e => setPayForm(f => ({ ...f, notes: e.target.value }))}
+              className="input-field" rows={2} />
+          </div>
+        </div>
+        <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
+          <button onClick={() => setShowPayment(false)} className="btn-secondary text-sm">Cancel</button>
+          <button onClick={handleRecordPayment} disabled={paySubmitting} className="btn-primary text-sm">
+            {paySubmitting ? "Recording..." : "Record Payment"}
+          </button>
+        </div>
       </Modal>
     </div>
   );
