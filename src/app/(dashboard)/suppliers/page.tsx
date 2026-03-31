@@ -20,15 +20,18 @@ export default function SuppliersPage() {
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
-  const [showPayment,  setShowPayment]  = useState(false);
-  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
-  const [payForm,      setPayForm]      = useState({
+  const [showPayment,    setShowPayment]    = useState(false);
+  const [bankAccounts,   setBankAccounts]   = useState<any[]>([]);
+  const [intermediaries, setIntermediaries] = useState<any[]>([]);
+  const [payForm,        setPayForm]        = useState({
     paymentDate: new Date().toISOString().split("T")[0],
     amountUsd: "",
     exchangeRate: "",
     amountLocal: "",
     paymentMethod: "bank_transfer",
+    paidVia: "bank",         // "bank" | "intermediary"
     bankAccountId: 0,
+    intermediaryId: 0,
     lotId: "",
     reference: "",
     notes: "",
@@ -88,14 +91,17 @@ export default function SuppliersPage() {
   };
 
   const openPayment = async () => {
-    if (!bankAccounts.length) {
-      const r = await apiCall("/api/v1/bank-accounts");
-      if (r.success) setBankAccounts(r.data as any[]);
-    }
+    const [br, ir] = await Promise.all([
+      bankAccounts.length ? Promise.resolve({ success: true, data: bankAccounts }) : apiCall("/api/v1/bank-accounts"),
+      intermediaries.length ? Promise.resolve({ success: true, data: intermediaries }) : apiCall("/api/v1/intermediaries"),
+    ]);
+    if (br.success) setBankAccounts(br.data as any[]);
+    if (ir.success) setIntermediaries(ir.data as any[]);
     setPayForm({
       paymentDate: new Date().toISOString().split("T")[0],
       amountUsd: "", exchangeRate: "", amountLocal: "",
-      paymentMethod: "bank_transfer", bankAccountId: 0,
+      paymentMethod: "bank_transfer", paidVia: "bank",
+      bankAccountId: 0, intermediaryId: 0,
       lotId: "", reference: "", notes: "",
     });
     setPayError(""); setShowPayment(true);
@@ -116,7 +122,8 @@ export default function SuppliersPage() {
     };
     if (Number(payForm.exchangeRate) > 0) body.exchangeRate = Number(payForm.exchangeRate);
     if (Number(payForm.amountLocal) > 0) body.amountLocal = Number(payForm.amountLocal);
-    if (payForm.bankAccountId > 0) body.bankAccountId = payForm.bankAccountId;
+    if (payForm.paidVia === "bank" && payForm.bankAccountId > 0) body.bankAccountId = payForm.bankAccountId;
+    if (payForm.paidVia === "intermediary" && payForm.intermediaryId > 0) body.intermediaryId = payForm.intermediaryId;
     if (Number(payForm.lotId) > 0) body.lotId = Number(payForm.lotId);
     const r = await apiCall("/api/v1/supplier-payments", { method: "POST", body });
     setPaySubmitting(false);
@@ -279,16 +286,36 @@ export default function SuppliersPage() {
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Paid From (Bank Account)</label>
-            <select value={payForm.bankAccountId}
-              onChange={e => setPayForm(f => ({ ...f, bankAccountId: Number(e.target.value) }))}
-              className="select-field">
-              <option value={0}>— Unspecified / Cash —</option>
-              {bankAccounts.filter((b: any) => b.isActive).map((b: any) => (
-                <option key={b.id} value={b.id}>{b.bankName}{b.accountNumber ? ` (${b.accountNumber})` : ""} — {b.cityName}</option>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Paid Via</label>
+            <div className="flex gap-2 mb-2">
+              {["bank", "intermediary"].map(v => (
+                <button key={v} type="button"
+                  onClick={() => setPayForm(f => ({ ...f, paidVia: v, bankAccountId: 0, intermediaryId: 0 }))}
+                  className={`px-3 py-1 rounded text-sm border ${payForm.paidVia === v ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600 border-gray-300"}`}>
+                  {v === "bank" ? "Bank Account" : "Intermediary (Hawala)"}
+                </button>
               ))}
-            </select>
-            <p className="text-xs text-gray-400 mt-1">Which bank account was used to send this payment</p>
+            </div>
+            {payForm.paidVia === "bank" && (
+              <select value={payForm.bankAccountId}
+                onChange={e => setPayForm(f => ({ ...f, bankAccountId: Number(e.target.value) }))}
+                className="select-field">
+                <option value={0}>— Unspecified / Cash —</option>
+                {bankAccounts.filter((b: any) => b.isActive).map((b: any) => (
+                  <option key={b.id} value={b.id}>{b.bankName}{b.accountNumber ? ` (${b.accountNumber})` : ""} — {b.cityName}</option>
+                ))}
+              </select>
+            )}
+            {payForm.paidVia === "intermediary" && (
+              <select value={payForm.intermediaryId}
+                onChange={e => setPayForm(f => ({ ...f, intermediaryId: Number(e.target.value) }))}
+                className="select-field">
+                <option value={0}>— Select intermediary —</option>
+                {intermediaries.map((i: any) => (
+                  <option key={i.id} value={i.id}>{i.name}</option>
+                ))}
+              </select>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

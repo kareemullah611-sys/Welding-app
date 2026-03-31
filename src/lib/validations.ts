@@ -256,4 +256,5 @@ export const createSupplierPaymentSchema = z.object({
   reference: z.string().max(200).optional(),
   notes: z.string().optional(),
   bankAccountId: z.number().int().positive().optional(),
+  intermediaryId: z.number().int().positive().optional(),
 });

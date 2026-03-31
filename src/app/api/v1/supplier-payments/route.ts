@@ -49,13 +49,19 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         paymentMethod: parsed.data.paymentMethod as any, reference: parsed.data.reference,
         notes: parsed.data.notes, createdBy: user.userId,
         bankAccountId: parsed.data.bankAccountId || null,
+        intermediaryId: parsed.data.intermediaryId || null,
       },
     });
 
     await createAuditLog(user.userId, null, "supplier_payments", payment.id, "create", undefined, parsed.data, getClientIP(request));
 
     try {
-      await journalSupplierPaid({ id: payment.id, supplierId: parsed.data.supplierId, amountUsd: parsed.data.amountUsd, paymentDate: payment.paymentDate, createdBy: user.userId, bankAccountId: parsed.data.bankAccountId });
+      await journalSupplierPaid({
+        id: payment.id, supplierId: parsed.data.supplierId, amountUsd: parsed.data.amountUsd,
+        paymentDate: payment.paymentDate, createdBy: user.userId,
+        bankAccountId: parsed.data.bankAccountId,
+        intermediaryId: parsed.data.intermediaryId || null,
+      });
     } catch (je) { console.error("Journal (supplier pay):", je); }
 
     return successResponse({ id: payment.id }, "Payment recorded", 201);

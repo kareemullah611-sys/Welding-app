@@ -39,6 +39,8 @@ export const POST = async (request: NextRequest) => {
     await prisma.personalWithdrawal.deleteMany();
     await prisma.bankDeposit.deleteMany();
     await prisma.lot.deleteMany();
+    await prisma.intermediaryDeposit.deleteMany();
+    await prisma.intermediary.deleteMany();
     await prisma.customer.deleteMany();
     await prisma.voucherSequence.deleteMany();
 
