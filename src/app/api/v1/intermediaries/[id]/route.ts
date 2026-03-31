@@ -1,12 +1,13 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, withSuperAdmin } from "@/lib/middleware";
+import { successResponse, errorResponse } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 
 export const GET = withAuth(async (_request: NextRequest, context: any, _user: JWTPayload) => {
   const id = parseInt(context.params.id);
   const intermediary = await prisma.intermediary.findUnique({ where: { id } });
-  if (!intermediary) return Response.json({ error: "Not found" }, { status: 404 });
+  if (!intermediary) return errorResponse("NOT_FOUND", "Not found", 404);
 
   const [deposits, payments] = await Promise.all([
     prisma.intermediaryDeposit.findMany({
@@ -45,7 +46,7 @@ export const GET = withAuth(async (_request: NextRequest, context: any, _user: J
     return { ...e, balance: balances[e.currencyCode] };
   });
 
-  return Response.json({ intermediary, ledger, balances });
+  return successResponse({ intermediary, ledger, balances });
 });
 
 export const PUT = withSuperAdmin(async (request: NextRequest, context: any, _user: JWTPayload) => {
@@ -60,5 +61,5 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, _us
       isActive: body.isActive !== undefined ? body.isActive : undefined,
     },
   });
-  return Response.json(updated);
+  return successResponse(updated, "Updated");
 });

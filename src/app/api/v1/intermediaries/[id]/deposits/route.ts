@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withSuperAdmin } from "@/lib/middleware";
+import { successResponse, errorResponse } from "@/lib/api-response";
 import { journalIntermediaryDeposit } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 
@@ -8,13 +9,13 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
   const intermediaryId = parseInt(context.params.id);
   const body = await request.json();
 
-  if (!body.depositDate) return Response.json({ error: "depositDate required" }, { status: 400 });
-  if (!body.amount || Number(body.amount) <= 0) return Response.json({ error: "amount must be > 0" }, { status: 400 });
-  if (!body.currencyId) return Response.json({ error: "currencyId required" }, { status: 400 });
-  if (!body.sourceType) return Response.json({ error: "sourceType required" }, { status: 400 });
+  if (!body.depositDate) return errorResponse("VALIDATION", "depositDate required", 400);
+  if (!body.amount || Number(body.amount) <= 0) return errorResponse("VALIDATION", "amount must be > 0", 400);
+  if (!body.currencyId) return errorResponse("VALIDATION", "currencyId required", 400);
+  if (!body.sourceType) return errorResponse("VALIDATION", "sourceType required", 400);
 
   const currency = await prisma.currency.findUnique({ where: { id: Number(body.currencyId) } });
-  if (!currency) return Response.json({ error: "Invalid currency" }, { status: 400 });
+  if (!currency) return errorResponse("VALIDATION", "Invalid currency", 400);
 
   const deposit = await prisma.intermediaryDeposit.create({
     data: {
@@ -39,5 +40,5 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
     bankAccountId: body.bankAccountId ? Number(body.bankAccountId) : null,
   });
 
-  return Response.json(deposit, { status: 201 });
+  return successResponse(deposit, "Deposit recorded", 201);
 });

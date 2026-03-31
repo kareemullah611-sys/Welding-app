@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withSuperAdmin } from "@/lib/middleware";
+import { successResponse, errorResponse } from "@/lib/api-response";
 import { journalIntermediaryDeposit, reverseJournalEntries } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 
@@ -11,11 +12,11 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
   const existing = await prisma.intermediaryDeposit.findUnique({
     where: { id }, include: { currency: true },
   });
-  if (!existing) return Response.json({ error: "Not found" }, { status: 404 });
+  if (!existing) return errorResponse("NOT_FOUND", "Not found", 404);
 
   const currencyId = body.currencyId ? Number(body.currencyId) : existing.currencyId;
   const currency = await prisma.currency.findUnique({ where: { id: currencyId } });
-  if (!currency) return Response.json({ error: "Invalid currency" }, { status: 400 });
+  if (!currency) return errorResponse("VALIDATION", "Invalid currency", 400);
 
   await reverseJournalEntries(`INTDEP-${id}`, user.userId);
 
@@ -40,16 +41,16 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     cityId: updated.cityId, bankAccountId: updated.bankAccountId,
   });
 
-  return Response.json(updated);
+  return successResponse(updated, "Updated");
 });
 
 export const DELETE = withSuperAdmin(async (_req: NextRequest, context: any, user: JWTPayload) => {
   const id = parseInt(context.params.id);
   const existing = await prisma.intermediaryDeposit.findUnique({ where: { id } });
-  if (!existing) return Response.json({ error: "Not found" }, { status: 404 });
+  if (!existing) return errorResponse("NOT_FOUND", "Not found", 404);
 
   await reverseJournalEntries(`INTDEP-${id}`, user.userId);
   await prisma.intermediaryDeposit.delete({ where: { id } });
 
-  return Response.json({ success: true });
+  return successResponse({ id }, "Deleted");
 });
