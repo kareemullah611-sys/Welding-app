@@ -100,6 +100,14 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       _sum: { cashAmount: true },
     });
 
+    // Fix P1: personal withdrawals reduce physical cash on hand — previously missing from
+    // the formula so treasury was overstating cash in office by every withdrawal ever recorded.
+    const withdrawalsRaw = await prisma.personalWithdrawal.groupBy({
+      by: ["currencyId"],
+      where: { cityId },
+      _sum: { amount: true },
+    });
+
     // Resolve currency codes for all currency IDs encountered
     const allCurrencyIds = Array.from(
       new Set([
@@ -107,6 +115,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         ...hajiFromCashRaw.map((r) => r.currencyId),
         ...expensesFromCashRaw.map((r) => r.currencyId),
         ...depositsRaw.map((r) => r.currencyId),
+        ...withdrawalsRaw.map((r) => r.currencyId),
       ])
     );
 
@@ -150,9 +159,16 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       }))
     );
 
+    const withdrawalsCashOut = toBalanceMap(
+      withdrawalsRaw.map((r) => ({
+        currencyCode: codeById[r.currencyId] ?? String(r.currencyId),
+        total: Number(r._sum.amount ?? 0),
+      }))
+    );
+
     const cashInOffice = subtractMap(
-      subtractMap(subtractMap(cashIn, hajiCashOut), expenseCashOut),
-      depositCashOut
+      subtractMap(subtractMap(subtractMap(cashIn, hajiCashOut), expenseCashOut), depositCashOut),
+      withdrawalsCashOut
     );
 
     // ----------------------------------------------------------------
