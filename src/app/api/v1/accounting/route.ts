@@ -108,10 +108,12 @@ async function pnlReport(year?: number, cityId?: number | null) {
   // LotPurchase/LotCost aren't city-stamped, so we filter via the lot's date range.
   const lotWhere: any = {};
   if (year) lotWhere.lotDate = { gte: new Date(`${year}-01-01`), lte: new Date(`${year}-12-31`) };
+  if (cityId) lotWhere.lotCityDistributions = { some: { cityId } };
   const lotsInScope = year
     ? await prisma.lot.findMany({ where: lotWhere, select: { id: true } })
     : null;
-  const lotIdFilter = lotsInScope ? { lotId: { in: lotsInScope.map((l) => l.id) } } : {};
+  const scopedLots = lotsInScope ?? (cityId ? await prisma.lot.findMany({ where: lotWhere, select: { id: true } }) : null);
+  const lotIdFilter = scopedLots ? { lotId: { in: scopedLots.map((l) => l.id) } } : {};
   const lotPurchases = await prisma.lotPurchase.aggregate({ where: lotIdFilter, _sum: { totalPriceUsd: true } });
   const lotCosts = await prisma.lotCost.aggregate({ where: lotIdFilter, _sum: { amount: true } });
 
@@ -152,8 +154,20 @@ async function balanceSheetReport(cityId?: number | null) {
   }
 
   // Supplier payable
-  const totalPurchased = Number((await prisma.lotPurchase.aggregate({ _sum: { totalPriceUsd: true } }))._sum.totalPriceUsd || 0);
-  const totalPaid = Number((await prisma.supplierPayment.aggregate({ _sum: { amountUsd: true } }))._sum.amountUsd || 0);
+  const payableLotWhere: any = {};
+  if (cityId) payableLotWhere.lotCityDistributions = { some: { cityId } };
+  const payableLots = cityId
+    ? await prisma.lot.findMany({ where: payableLotWhere, select: { id: true } })
+    : null;
+  const payableLotIds = payableLots?.map((l) => l.id) || [];
+  const totalPurchased = Number((await prisma.lotPurchase.aggregate({
+    where: cityId ? { lotId: { in: payableLotIds } } : undefined,
+    _sum: { totalPriceUsd: true },
+  }))._sum.totalPriceUsd || 0);
+  const totalPaid = Number((await prisma.supplierPayment.aggregate({
+    where: cityId ? { lotId: { in: payableLotIds } } : undefined,
+    _sum: { amountUsd: true },
+  }))._sum.amountUsd || 0);
 
   return successResponse({
     report: "balance_sheet",

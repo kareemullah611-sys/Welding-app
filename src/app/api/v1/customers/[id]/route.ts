@@ -7,6 +7,9 @@ import { JWTPayload } from "@/lib/auth";
 export const GET = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
     const id = parseInt(context.params.id);
+    const searchParams = request.nextUrl.searchParams;
+    const dateFrom = searchParams.get("date_from");
+    const dateTo = searchParams.get("date_to");
     const customer = await prisma.customer.findUnique({
       where: { id },
       include: { city: { include: { country: true } } },
@@ -14,15 +17,22 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     if (!customer) return errorResponse("NOT_FOUND", "Customer not found", 404);
     if (user.role === "city_admin" && customer.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
 
+    const saleDateFilter: any = {};
+    if (dateFrom) saleDateFilter.gte = new Date(dateFrom);
+    if (dateTo) saleDateFilter.lte = new Date(dateTo);
+    const paymentDateFilter: any = {};
+    if (dateFrom) paymentDateFilter.gte = new Date(dateFrom);
+    if (dateTo) paymentDateFilter.lte = new Date(dateTo);
+
     // Get ledger
     const [sales, payments] = await Promise.all([
       prisma.sale.findMany({
-        where: { customerId: id },
+        where: { customerId: id, ...(Object.keys(saleDateFilter).length ? { saleDate: saleDateFilter } : {}) },
         include: { currency: true, items: { include: { product: true } }, lot: { select: { lotNumber: true } } },
         orderBy: { saleDate: "asc" },
       }),
       prisma.payment.findMany({
-        where: { customerId: id },
+        where: { customerId: id, ...(Object.keys(paymentDateFilter).length ? { paymentDate: paymentDateFilter } : {}) },
         include: { currency: true, lot: { select: { lotNumber: true } } },
         orderBy: { paymentDate: "asc" },
       }),

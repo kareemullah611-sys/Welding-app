@@ -135,7 +135,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       // Full city ledger
       if (!cityId) return new Response("city_id required for ledger export", { status: 400 });
       const [sales, payments, expenses, withdrawals, hajiTransfers] = await Promise.all([
-        prisma.sale.findMany({ where: { cityId, status: "active" }, include: { customer: { select: { name: true } }, currency: true }, orderBy: { saleDate: "asc" } }),
+        prisma.sale.findMany({ where: { cityId, status: { in: ["active", "marked_short"] } }, include: { customer: { select: { name: true } }, currency: true }, orderBy: { saleDate: "asc" } }),
         prisma.payment.findMany({ where: { cityId, status: "active" }, include: { customer: { select: { name: true } }, currency: true }, orderBy: { paymentDate: "asc" } }),
         prisma.expense.findMany({ where: { cityId, deletedAt: null }, include: { currency: true }, orderBy: { expenseDate: "asc" } }),
         prisma.personalWithdrawal.findMany({ where: { cityId }, include: { currency: true }, orderBy: { withdrawalDate: "asc" } }),

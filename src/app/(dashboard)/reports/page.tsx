@@ -64,7 +64,12 @@ export default function ReportsPage() {
       if (result.success) { const d = result.data as any; setData(d.entries || []); setSummary(d.summary); }
     } else if (reportType === "customer_ledger") {
       if (!filters.customer_id) { alert("Select a customer"); setLoading(false); return; }
-      const result = await apiCall(`/api/v1/customers/${filters.customer_id}`);
+      const result = await apiCall(`/api/v1/customers/${filters.customer_id}`, {
+        params: {
+          ...(filters.date_from ? { date_from: filters.date_from } : {}),
+          ...(filters.date_to ? { date_to: filters.date_to } : {}),
+        },
+      });
       if (result.success) { const d = result.data as any; setData(d.ledger || []); setSummary({ balance: d.balance, balanceByCurrency: d.balanceByCurrency, name: d.name, isActive: d.isActive }); }
     } else {
       const urls: Record<string, string> = { sales: "/api/v1/sales", payments: "/api/v1/payments", expenses: "/api/v1/expenses", haji_settlement: "/api/v1/haji-transfers", discount_history: "/api/v1/discounts" };
