@@ -39,7 +39,7 @@ export default function AccountsPage() {
 
   return (
     <div>
-      <PageHeader title={t("financial_reports")} subtitle={t("double_entry")} />
+      <PageHeader title={t("financial_reports")} subtitle="Professional financial statements and ledger summaries" />
       <div className="flex flex-wrap gap-1 mb-4 bg-gray-100 p-1 rounded-lg">
         {TABS.map(tab_item => (
           <button key={tab_item.key} onClick={() => setTab(tab_item.key)}
@@ -125,9 +125,9 @@ function CashReport({ data }: { data: any }) {
 
   const hasAny = cashPositions.length || bankPositions.length || intermediaryPositions.length;
   return (<div className="space-y-4">
-    <PositionGroup label={t("cash_in_hand")} positions={cashPositions} color="text-green-700" />
-    <PositionGroup label={t("bank_accounts")} positions={bankPositions} color="text-blue-700" />
-    <PositionGroup label="Intermediaries" positions={intermediaryPositions} color="text-orange-700" />
+    <PositionGroup label="Cash Ledger Balances" positions={cashPositions} color="text-green-700" />
+    <PositionGroup label="Bank Ledger Balances" positions={bankPositions} color="text-blue-700" />
+    <PositionGroup label="Intermediary Ledger Balances" positions={intermediaryPositions} color="text-orange-700" />
     {!hasAny && <div className="text-gray-400 py-8 text-center">{t("no_cash_transactions")}</div>}
   </div>);
 }
@@ -141,7 +141,7 @@ function ReceivablesReport({ data }: { data: any }) {
       {Object.entries(totals).map(([curr, amt]: any) => <StatsCard key={curr} title={`${t("outstanding")} (${curr})`} value={n(amt)} icon="📥" color="red" />)}
     </div>
     <div className="card">
-      <h3 className="text-sm font-semibold text-gray-600 mb-3">{t("customer_balances")}</h3>
+      <h3 className="text-sm font-semibold text-gray-600 mb-3">Customer Ledger Balances</h3>
       {customers.length ? customers.map((c: any, i: number) => (
         <div key={i} className="flex justify-between py-1.5 text-sm border-b border-gray-50"><span>{c.account.replace("AR - ", "")}</span><span className="font-medium text-red-600">{c.currency} {n(c.balance)}</span></div>
       )) : <div className="text-gray-400 text-sm">{t("no_receivables")}</div>}
@@ -171,7 +171,7 @@ function PayablesReport({ data }: { data: any }) {
   return (<div className="space-y-4">
     <PaySection title={t("supplier_payables")} items={data.suppliers || []} emptyKey="no_supplier_payables" />
     <PaySection title={t("agent_payables")} items={data.agents || []} emptyKey="no_agent_payables" />
-    <PaySection title="Shipping Line Payables" items={data.shippingLines || []} emptyKey="no_data" />
+    <PaySection title="Shipping Line Payables Ledger" items={data.shippingLines || []} emptyKey="no_data" />
   </div>);
 }
 

@@ -260,7 +260,7 @@ export default function IntermediariesPage() {
     <div className="p-4 space-y-4">
       <PageHeader
         title="Intermediaries"
-        subtitle="Hawala / payment intermediary parties"
+        subtitle="Professional intermediary ledger and settlement records"
         action={isSA ? (
           <button onClick={() => { setForm({ name: "", notes: "" }); setFormError(""); setShowCreate(true); }} className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">
             + Add Intermediary
@@ -295,12 +295,12 @@ export default function IntermediariesPage() {
       </Modal>
 
       {/* Ledger */}
-      <Modal open={showLedger} onClose={() => setShowLedger(false)} title={`Ledger — ${selected?.name}`} size="xl">
+      <Modal open={showLedger} onClose={() => setShowLedger(false)} title={`Intermediary Ledger — ${selected?.name}`} size="xl">
         <div className="space-y-4">
           {isSA && (
-            <button onClick={openDeposit} className="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700">
-              + Deposit to Intermediary
-            </button>
+              <button onClick={openDeposit} className="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700">
+                + Record Deposit Entry
+              </button>
           )}
 
           {ledgerLoading ? (
@@ -312,7 +312,7 @@ export default function IntermediariesPage() {
                 <div className="flex gap-4 flex-wrap">
                   {Object.entries(ledger.balances).map(([cur, bal]) => (
                     <div key={cur} className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded px-4 py-2">
-                      <p className="text-xs text-gray-500">Balance ({cur})</p>
+                      <p className="text-xs text-gray-500">Closing Balance ({cur})</p>
                       <p className="text-lg font-bold text-blue-700 dark:text-blue-300">{formatNumber(bal as number)} {cur}</p>
                     </div>
                   ))}
@@ -325,17 +325,17 @@ export default function IntermediariesPage() {
                   <thead>
                     <tr className="bg-gray-50 dark:bg-gray-800">
                       <th className="border px-3 py-2 text-left">Date</th>
-                      <th className="border px-3 py-2 text-left">Description</th>
+                      <th className="border px-3 py-2 text-left">Particulars</th>
                       <th className="border px-3 py-2 text-left">Ccy</th>
-                      <th className="border px-3 py-2 text-right">Deposit In</th>
-                      <th className="border px-3 py-2 text-right">Payment Out</th>
-                      <th className="border px-3 py-2 text-right">Balance</th>
+                      <th className="border px-3 py-2 text-right">Debit</th>
+                      <th className="border px-3 py-2 text-right">Credit</th>
+                      <th className="border px-3 py-2 text-right">Closing Balance</th>
                       {isSA && <th className="border px-3 py-2">Actions</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {ledger.ledger?.length === 0 && (
-                      <tr><td colSpan={isSA ? 7 : 6} className="text-center py-4 text-gray-400">No entries</td></tr>
+                      <tr><td colSpan={isSA ? 7 : 6} className="text-center py-4 text-gray-400">No ledger entries</td></tr>
                     )}
                     {ledger.ledger?.map((entry: any, i: number) => (
                       <tr key={i} className={entry.type === "deposit" ? "bg-green-50 dark:bg-green-900/10" : "bg-red-50 dark:bg-red-900/10"}>
@@ -368,12 +368,12 @@ export default function IntermediariesPage() {
       </Modal>
 
       {/* Record Deposit */}
-      <Modal open={showDeposit} onClose={() => setShowDeposit(false)} title={`Deposit to ${selected?.name || "Intermediary"}`}>
+      <Modal open={showDeposit} onClose={() => setShowDeposit(false)} title={`Record Deposit Entry — ${selected?.name || "Intermediary"}`}>
         <div className="space-y-3">
           <DepositFormFields f={depositForm} setF={setDepositForm} />
           {depositError && <p className="text-red-500 text-sm">{depositError}</p>}
           <button onClick={handleDeposit} disabled={depositSubmitting} className="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700 disabled:opacity-50">
-            {depositSubmitting ? "Saving..." : "Record Deposit"}
+            {depositSubmitting ? "Saving..." : "Record Deposit Entry"}
           </button>
         </div>
       </Modal>

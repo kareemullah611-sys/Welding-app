@@ -153,9 +153,9 @@ export default function ShippingLinesPage() {
     }},
     { key: "actions", label: "Actions", render: (sl: any) => (
       <div className="flex items-center gap-1 flex-wrap">
-        <button onClick={() => openLedger(sl)} className="px-2 py-1 text-xs rounded bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200">Ledger</button>
-        <button onClick={() => openAddPayment(sl)} className="px-2 py-1 text-xs rounded bg-green-50 text-green-700 hover:bg-green-100 border border-green-200">+ Payment</button>
-        <button onClick={() => openAddCharge(sl)} className="px-2 py-1 text-xs rounded bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-200">+ Charge</button>
+        <button onClick={() => openLedger(sl)} className="px-2 py-1 text-xs rounded bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200">Open Ledger</button>
+        <button onClick={() => openAddPayment(sl)} className="px-2 py-1 text-xs rounded bg-green-50 text-green-700 hover:bg-green-100 border border-green-200">+ Record Settlement</button>
+        <button onClick={() => openAddCharge(sl)} className="px-2 py-1 text-xs rounded bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-200">+ Record Charge</button>
         <button onClick={() => openEdit(sl)} className="px-2 py-1 text-xs rounded bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200">Edit</button>
       </div>
     )},
@@ -163,7 +163,7 @@ export default function ShippingLinesPage() {
 
   return (
     <div>
-      <PageHeader title="Shipping Lines" subtitle="Freight carrier running balances (USD)"
+      <PageHeader title="Shipping Lines" subtitle="Professional freight ledger and settlement records (USD)"
         action={<button onClick={openCreate} className="btn-primary text-sm">+ Add Shipping Line</button>} />
 
       {/* Summary cards */}
@@ -215,7 +215,7 @@ export default function ShippingLinesPage() {
       </Modal>
 
       {/* ── Add Payment ── */}
-      <Modal open={showPayment} onClose={() => setShowPayment(false)} title={`Record Payment — ${selected?.name || ""}`} size="md">
+      <Modal open={showPayment} onClose={() => setShowPayment(false)} title={`Record Settlement — ${selected?.name || ""}`} size="md">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
@@ -240,15 +240,15 @@ export default function ShippingLinesPage() {
 
           {/* Paid From */}
           <div className="border rounded-lg p-3 bg-blue-50 border-blue-200 space-y-2">
-            <label className="block text-sm font-semibold text-blue-800 mb-1">Paid From *</label>
+            <label className="block text-sm font-semibold text-blue-800 mb-1">Settlement Source *</label>
             <div className="flex gap-3">
               <label className="flex items-center gap-1.5 text-sm cursor-pointer">
                 <input type="radio" name="slPaidFrom" value="bank" checked={payForm.paidFrom === "bank"} onChange={() => setPayForm(f => ({ ...f, paidFrom: "bank", intermediaryId: "" }))} />
-                Bank Account
+                Bank Ledger
               </label>
               <label className="flex items-center gap-1.5 text-sm cursor-pointer">
                 <input type="radio" name="slPaidFrom" value="intermediary" checked={payForm.paidFrom === "intermediary"} onChange={() => setPayForm(f => ({ ...f, paidFrom: "intermediary", bankAccountId: "" }))} />
-                Intermediary (Hawala)
+                Intermediary Ledger
               </label>
             </div>
             {payForm.paidFrom === "bank" && (
@@ -265,19 +265,19 @@ export default function ShippingLinesPage() {
             )}
           </div>
 
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">Reference / TT No.</label>
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">Reference / TT Number</label>
             <input value={payForm.reference} onChange={e => setPayForm(f => ({ ...f, reference: e.target.value }))} className="input-field" /></div>
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">Narration</label>
             <textarea value={payForm.notes} onChange={e => setPayForm(f => ({ ...f, notes: e.target.value }))} className="input-field" rows={2} /></div>
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
           <button onClick={() => setShowPayment(false)} className="btn-secondary text-sm">Cancel</button>
-          <button onClick={handleAddPayment} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : "Record Payment"}</button>
+          <button onClick={handleAddPayment} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : "Record Settlement"}</button>
         </div>
       </Modal>
 
       {/* ── Add Freight Charge ── */}
-      <Modal open={showCharge} onClose={() => setShowCharge(false)} title={`Add Freight Charge — ${selected?.name || ""}`} size="md">
+      <Modal open={showCharge} onClose={() => setShowCharge(false)} title={`Record Freight Charge — ${selected?.name || ""}`} size="md">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
           <div><label className="block text-sm font-medium text-gray-700 mb-1">Lot *</label>
@@ -304,7 +304,7 @@ export default function ShippingLinesPage() {
       </Modal>
 
       {/* ── Ledger ── */}
-      <Modal open={showLedger} onClose={() => setShowLedger(false)} title={`Ledger — ${selected?.name || ""}`} size="xl">
+      <Modal open={showLedger} onClose={() => setShowLedger(false)} title={`Shipping Line Ledger — ${selected?.name || ""}`} size="xl">
         {ledgerLoading
           ? <div className="py-8 text-center"><div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto" /></div>
           : ledger ? (
@@ -318,8 +318,8 @@ export default function ShippingLinesPage() {
             {/* Charges */}
             <div className="card">
               <div className="flex items-center justify-between mb-2">
-                <h4 className="text-sm font-semibold text-gray-600">Freight Charges</h4>
-                <button onClick={() => { setShowLedger(false); openAddCharge(selected); }} className="text-xs text-primary-600 hover:underline">+ Add Charge</button>
+                <h4 className="text-sm font-semibold text-gray-600">Freight Charge Entries</h4>
+                <button onClick={() => { setShowLedger(false); openAddCharge(selected); }} className="text-xs text-primary-600 hover:underline">+ Record Charge</button>
               </div>
               {ledger.charges.length > 0 ? (
                 <table className="w-full text-sm">
@@ -335,14 +335,14 @@ export default function ShippingLinesPage() {
                     </tr>
                   ))}</tbody>
                 </table>
-              ) : <p className="text-sm text-gray-400">No charges recorded</p>}
+              ) : <p className="text-sm text-gray-400">No charge entries recorded</p>}
             </div>
 
             {/* Payments */}
             <div className="card">
               <div className="flex items-center justify-between mb-2">
-                <h4 className="text-sm font-semibold text-gray-600">Payments Made</h4>
-                <button onClick={() => { setShowLedger(false); openAddPayment(selected); }} className="text-xs text-primary-600 hover:underline">+ Record Payment</button>
+                <h4 className="text-sm font-semibold text-gray-600">Settlement Entries</h4>
+                <button onClick={() => { setShowLedger(false); openAddPayment(selected); }} className="text-xs text-primary-600 hover:underline">+ Record Settlement</button>
               </div>
               {ledger.payments.length > 0 ? (
                 <table className="w-full text-sm">
@@ -361,7 +361,7 @@ export default function ShippingLinesPage() {
                     </tr>
                   ))}</tbody>
                 </table>
-              ) : <p className="text-sm text-gray-400">No payments recorded</p>}
+              ) : <p className="text-sm text-gray-400">No settlement entries recorded</p>}
             </div>
           </div>
         ) : <p className="text-gray-400">Failed to load</p>}

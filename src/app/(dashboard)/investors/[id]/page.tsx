@@ -143,7 +143,7 @@ export default function InvestorLedgerPage() {
           <div>
             <h1 className="text-xl font-bold text-gray-900">{investor.name}</h1>
             <p className="text-sm text-gray-400">
-              {[investor.relationship, investor.phone].filter(Boolean).join(" · ")}
+              {["Investor Ledger", investor.relationship, investor.phone].filter(Boolean).join(" · ")}
             </p>
           </div>
         </div>
@@ -154,22 +154,22 @@ export default function InvestorLedgerPage() {
           {/* ── Balance summary ── */}
           <div className="grid grid-cols-3 gap-3">
             <div className="bg-blue-50 rounded-2xl px-4 py-3 text-center">
-              <p className="text-[10px] font-semibold text-blue-400 uppercase tracking-wide mb-0.5">Credit</p>
+              <p className="text-[10px] font-semibold text-blue-400 uppercase tracking-wide mb-0.5">Total Credits</p>
               <p className="text-base font-bold text-blue-800">{sym} {fmt(acc.totalDeposits)}</p>
             </div>
             <div className="bg-red-50 rounded-2xl px-4 py-3 text-center">
-              <p className="text-[10px] font-semibold text-red-400 uppercase tracking-wide mb-0.5">Debit</p>
+              <p className="text-[10px] font-semibold text-red-400 uppercase tracking-wide mb-0.5">Total Debits</p>
               <p className="text-base font-bold text-red-800">{sym} {fmt(acc.totalWithdrawals)}</p>
             </div>
             <div className="bg-emerald-50 rounded-2xl px-4 py-3 text-center">
-              <p className="text-[10px] font-semibold text-emerald-400 uppercase tracking-wide mb-0.5">Balance</p>
+              <p className="text-[10px] font-semibold text-emerald-400 uppercase tracking-wide mb-0.5">Closing Balance</p>
               <p className="text-base font-bold text-emerald-800">{sym} {fmt(acc.capital)}</p>
             </div>
           </div>
 
           {/* ── Entry form ── */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
-            <h2 className="font-semibold text-gray-800 text-sm">Record Transaction</h2>
+            <h2 className="font-semibold text-gray-800 text-sm">Record Ledger Entry</h2>
 
             {/* Type toggle */}
             <div className="flex bg-gray-100 rounded-xl p-1 w-fit">
@@ -181,7 +181,7 @@ export default function InvestorLedgerPage() {
                     : "text-gray-500 hover:text-gray-700"
                 }`}
               >
-                <ArrowDownCircle size={15} /> Credit
+                <ArrowDownCircle size={15} /> Credit Entry
               </button>
               <button
                 onClick={() => setForm(p => ({ ...p, type: "withdrawal" }))}
@@ -191,7 +191,7 @@ export default function InvestorLedgerPage() {
                     : "text-gray-500 hover:text-gray-700"
                 }`}
               >
-                <ArrowUpCircle size={15} /> Debit
+                <ArrowUpCircle size={15} /> Debit Entry
               </button>
             </div>
 
@@ -225,13 +225,13 @@ export default function InvestorLedgerPage() {
 
             {/* Notes */}
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Notes</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Narration</label>
               <input
                 type="text"
                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400"
                 value={form.notes}
                 onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
-                placeholder={form.type === "deposit" ? "e.g. investor credit, added capital…" : "e.g. investor debit, amount taken out…"}
+                placeholder={form.type === "deposit" ? "e.g. capital introduced by investor" : "e.g. capital withdrawn by investor"}
               />
             </div>
 
@@ -239,7 +239,7 @@ export default function InvestorLedgerPage() {
             <div className="flex items-center gap-3 pt-1">
               {saveSuccess && (
                 <div className="flex items-center gap-1.5 text-emerald-600 text-xs font-medium">
-                  <CheckCircle2 size={14} /> Saved!
+                  <CheckCircle2 size={14} /> Entry recorded
                 </div>
               )}
               {saveError && <p className="text-xs text-red-500">{saveError}</p>}
@@ -249,8 +249,8 @@ export default function InvestorLedgerPage() {
                 className="ml-auto flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium px-6 py-2.5 rounded-xl shadow-sm disabled:opacity-50 transition-colors"
               >
                 {saving
-                  ? <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Saving…</>
-                  : "Save"
+                  ? <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Recording…</>
+                  : "Record Entry"
                 }
               </button>
             </div>
@@ -259,19 +259,19 @@ export default function InvestorLedgerPage() {
           {/* ── Transaction History ── */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-5 py-3.5 border-b border-gray-50 flex items-center justify-between">
-              <h2 className="font-semibold text-gray-800 text-sm">Transaction History</h2>
-              <span className="text-xs text-gray-400">{acc.entries.length} records</span>
+              <h2 className="font-semibold text-gray-800 text-sm">Ledger History</h2>
+              <span className="text-xs text-gray-400">{acc.entries.length} entries</span>
             </div>
 
             {acc.entries.length === 0 ? (
               <div className="py-12 text-center text-gray-400">
-                <p className="text-sm">No transactions yet.</p>
+                <p className="text-sm">No ledger entries available.</p>
               </div>
             ) : (
               <div className="divide-y divide-gray-50">
                 {[...acc.entries].reverse().map((e: any, i: number) => {
                   const isDeposit = e.type === "deposit";
-                  const label = isDeposit ? "Credit" : "Debit";
+                  const label = isDeposit ? "Credit Entry" : "Debit Entry";
                   return (
                     <div key={i} className="flex items-center gap-3 px-5 py-3.5 hover:bg-gray-50/60 group transition-colors">
                       <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${
@@ -289,7 +289,7 @@ export default function InvestorLedgerPage() {
                           <span className="text-xs text-gray-400">{e.date}</span>
                         </div>
                         {e.notes && <p className="text-xs text-gray-500 mt-0.5 truncate">{e.notes}</p>}
-                        <p className="text-[10px] text-gray-300 mt-0.5">Balance after: {sym} {fmt(e.runningBalance)}</p>
+                        <p className="text-[10px] text-gray-300 mt-0.5">Running balance: {sym} {fmt(e.runningBalance)}</p>
                       </div>
                       <div className="text-right flex-shrink-0">
                         <p className={`font-bold text-sm ${isDeposit ? "text-blue-700" : "text-red-600"}`}>

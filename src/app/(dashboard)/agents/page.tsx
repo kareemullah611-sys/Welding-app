@@ -93,20 +93,20 @@ export default function AgentsPage() {
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={() => setShowCreate(false)} className="btn-secondary text-sm">{t("cancel")}</button><button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("create")}</button></div>
       </Modal>
 
-      <Modal open={showLedger} onClose={() => setShowLedger(false)} title={`${t("agent")}: ${selected?.name || ""}`} size="lg">
+      <Modal open={showLedger} onClose={() => setShowLedger(false)} title={`Agent Ledger: ${selected?.name || ""}`} size="lg">
         {!ledgerData ? <div className="py-8 text-center text-gray-400">{t("loading")}</div> : <>
           <DataTable columns={[
             { key: "date", label: t("date") },
-            { key: "type", label: t("type"), render: (e: any) => <span className={`text-xs px-1.5 py-0.5 rounded ${e.type === "charge" ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>{e.type}</span> },
-            { key: "description", label: t("description") },
-            { key: "debit", label: t("charged"), render: (e: any) => e.debit ? <span className="text-red-600">{e.currency} {e.debit.toLocaleString("en-US")}</span> : "" },
-            { key: "credit", label: t("paid"), render: (e: any) => e.credit ? <span className="text-green-600">{e.currency} {e.credit.toLocaleString("en-US")}</span> : "" },
-            { key: "balance", label: t("balance"), render: (e: any) => <span className="font-medium">{e.balance.toLocaleString("en-US")}</span> },
+            { key: "type", label: "Entry Type", render: (e: any) => <span className={`text-xs px-1.5 py-0.5 rounded ${e.type === "charge" ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>{e.type === "charge" ? "Charge" : "Settlement"}</span> },
+            { key: "description", label: "Particulars" },
+            { key: "debit", label: "Debit", render: (e: any) => e.debit ? <span className="text-red-600">{e.currency} {e.debit.toLocaleString("en-US")}</span> : "" },
+            { key: "credit", label: "Credit", render: (e: any) => e.credit ? <span className="text-green-600">{e.currency} {e.credit.toLocaleString("en-US")}</span> : "" },
+            { key: "balance", label: "Closing Balance", render: (e: any) => <span className="font-medium">{e.balance.toLocaleString("en-US")}</span> },
           ]} data={ledgerData.ledger || []} loading={false} />
         </>}
       </Modal>
 
-      <Modal open={showPayment} onClose={() => setShowPayment(false)} title={`${t("pay_agent")}: ${selected?.name || ""}`} size="md">
+      <Modal open={showPayment} onClose={() => setShowPayment(false)} title={`Record Settlement: ${selected?.name || ""}`} size="md">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
@@ -119,19 +119,19 @@ export default function AgentsPage() {
           </div>
           {/* Paid From */}
           <div className="border rounded-lg p-3 bg-blue-50 border-blue-200 space-y-2">
-            <label className="block text-sm font-semibold text-blue-800">Paid From *</label>
+            <label className="block text-sm font-semibold text-blue-800">Settlement Source *</label>
             <div className="flex gap-3 flex-wrap">
               <label className="flex items-center gap-1.5 text-sm cursor-pointer">
                 <input type="radio" name="agentPaidFrom" value="city_cash" checked={payForm.paidFrom === "city_cash"} onChange={() => setPayForm(f => ({ ...f, paidFrom: "city_cash", bankAccountId: "", intermediaryId: "" }))} />
-                City Cash
+                Cash Office
               </label>
               <label className="flex items-center gap-1.5 text-sm cursor-pointer">
                 <input type="radio" name="agentPaidFrom" value="bank" checked={payForm.paidFrom === "bank"} onChange={() => setPayForm(f => ({ ...f, paidFrom: "bank", intermediaryId: "" }))} />
-                Bank Account
+                Bank Ledger
               </label>
               <label className="flex items-center gap-1.5 text-sm cursor-pointer">
                 <input type="radio" name="agentPaidFrom" value="intermediary" checked={payForm.paidFrom === "intermediary"} onChange={() => setPayForm(f => ({ ...f, paidFrom: "intermediary", bankAccountId: "" }))} />
-                Intermediary
+                Intermediary Ledger
               </label>
             </div>
             {payForm.paidFrom === "bank" && (
@@ -147,9 +147,9 @@ export default function AgentsPage() {
               </select>
             )}
           </div>
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("reference")}</label><input value={payForm.reference} onChange={e => setPayForm(f => ({ ...f, reference: e.target.value }))} className="input-field" placeholder="Receipt/Ref no." /></div>
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">Reference</label><input value={payForm.reference} onChange={e => setPayForm(f => ({ ...f, reference: e.target.value }))} className="input-field" placeholder="Receipt / instrument reference" /></div>
         </div>
-        <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={() => setShowPayment(false)} className="btn-secondary text-sm">{t("cancel")}</button><button onClick={handlePayment} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("record_payment")}</button></div>
+        <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={() => setShowPayment(false)} className="btn-secondary text-sm">{t("cancel")}</button><button onClick={handlePayment} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : "Record Settlement"}</button></div>
       </Modal>
     </div>
   );

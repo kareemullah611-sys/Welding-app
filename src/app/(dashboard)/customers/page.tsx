@@ -152,19 +152,19 @@ export default function CustomersPage() {
             <div className="flex flex-wrap gap-4 mb-4 text-sm">
               {ledgerData.balanceByCurrency && Object.keys(ledgerData.balanceByCurrency).length > 0
                 ? Object.entries(ledgerData.balanceByCurrency).map(([cc, amt]: [string, any]) => (
-                    <span key={cc}>{t("balance")} ({cc}): <strong className={`${amt > 0 ? "text-red-600" : amt < 0 ? "text-green-600" : ""}`}>{amt !== 0 ? `${cc} ${Math.abs(Number(amt)).toLocaleString("en-US")}` : t("settled")}</strong></span>
+                    <span key={cc}>Closing Balance ({cc}): <strong className={`${amt > 0 ? "text-red-600" : amt < 0 ? "text-green-600" : ""}`}>{amt !== 0 ? `${cc} ${Math.abs(Number(amt)).toLocaleString("en-US")}` : t("settled")}</strong></span>
                   ))
-                : <span>{t("balance")}: <strong className={`${ledgerData.balance > 0 ? "text-red-600" : ledgerData.balance < 0 ? "text-green-600" : ""}`}>{ledgerData.balance !== 0 ? Math.abs(ledgerData.balance).toLocaleString("en-US") : t("settled")}</strong></span>
+                : <span>Closing Balance: <strong className={`${ledgerData.balance > 0 ? "text-red-600" : ledgerData.balance < 0 ? "text-green-600" : ""}`}>{ledgerData.balance !== 0 ? Math.abs(ledgerData.balance).toLocaleString("en-US") : t("settled")}</strong></span>
               }
             </div>
             <div className="overflow-x-auto max-h-96">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left">{t("date")}</th><th className="px-3 py-2 text-left">{t("type")}</th><th className="px-3 py-2 text-left">{t("currency")}</th><th className="px-3 py-2 text-left">{t("detail")}</th><th className="px-3 py-2 text-right">{t("debit")}</th><th className="px-3 py-2 text-right">{t("credit")}</th><th className="px-3 py-2 text-right">{t("balance")}</th></tr></thead>
+                <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left">{t("date")}</th><th className="px-3 py-2 text-left">Entry Type</th><th className="px-3 py-2 text-left">{t("currency")}</th><th className="px-3 py-2 text-left">Particulars</th><th className="px-3 py-2 text-right">Debit</th><th className="px-3 py-2 text-right">Credit</th><th className="px-3 py-2 text-right">Closing Balance</th></tr></thead>
                 <tbody className="divide-y">
                   {ledgerData.ledger?.map((e: any, i: number) => (
                     <tr key={i} className={e.status === "cancelled" ? "opacity-40 line-through" : ""}>
                       <td className="px-3 py-1.5">{e.date}</td>
-                      <td className="px-3 py-1.5"><span className={`text-xs px-1.5 py-0.5 rounded ${e.type === "sale" ? "bg-blue-50 text-blue-700" : "bg-green-50 text-green-700"}`}>{e.type}</span></td>
+                      <td className="px-3 py-1.5"><span className={`text-xs px-1.5 py-0.5 rounded ${e.type === "sale" ? "bg-blue-50 text-blue-700" : "bg-green-50 text-green-700"}`}>{e.type === "sale" ? "Sales Invoice" : "Receipt"}</span></td>
                       <td className="px-3 py-1.5 text-xs font-semibold text-gray-500">{e.currency}</td>
                       <td className="px-3 py-1.5 max-w-xs truncate">{e.detail}</td>
                       <td className="px-3 py-1.5 text-right text-red-600">{e.debit ? e.debit.toLocaleString("en-US") : ""}</td>
