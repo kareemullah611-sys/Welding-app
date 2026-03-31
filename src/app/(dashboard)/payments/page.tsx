@@ -1,12 +1,11 @@
 "use client";
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, StatusBadge, formatDate } from "@/components/ui";
 import CustomerSearch from "@/components/CustomerSearch";
 import { useLang } from "@/lib/lang";
-import { ChevronDown } from "lucide-react";
 
 
 const TYPE_CONFIG: Record<string, { label: string; color: string; amountColor: string }> = {
@@ -25,7 +24,6 @@ export default function PaymentsPage() {
   const { user } = useAuth();
   const { t } = useLang();
   const { isOnline, enqueue, lastSyncResult } = useOffline();
-  const recordMenuRef = useRef<HTMLDivElement>(null);
   const canCreateRecords = user?.role === "city_admin";
 
   const [items, setItems] = useState<any[]>([]);
@@ -42,7 +40,6 @@ export default function PaymentsPage() {
   // Modal visibility
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
-  const [showRecordMenu, setShowRecordMenu] = useState(false);
 
   const [selected, setSelected] = useState<any>(null);
   const [currencies, setCurrencies] = useState<any[]>([]);
@@ -70,17 +67,6 @@ export default function PaymentsPage() {
   const [paymentQueue, setPaymentQueue] = useState<Array<{ tempId: string; customerName: string; voucherNo: string; amount: number; currencySymbol: string; detail: string; date: string; body: any }>>([]);
   const [savingQueue, setSavingQueue] = useState(false);
   const [queueSaved, setQueueSaved] = useState(false);
-
-  // Close record menu when clicking outside
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (recordMenuRef.current && !recordMenuRef.current.contains(e.target as Node)) {
-        setShowRecordMenu(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -119,7 +105,6 @@ export default function PaymentsPage() {
 
   const openCreate = async (type: string) => {
     setCreateType(type);
-    setShowRecordMenu(false);
     const loadedCurrencies = await loadHelpers();
     const today = new Date().toISOString().split("T")[0];
     if (type === "payment") {
@@ -430,13 +415,6 @@ export default function PaymentsPage() {
     },
   ];
 
-  const RECORD_OPTIONS = [
-    { type: "payment",       label: "💰 Customer Payment" },
-    { type: "expense",       label: "📋 Expense" },
-    { type: "haji_transfer", label: "🤝 Haji Transfer" },
-    { type: "withdrawal",    label: "💸 Withdrawal" },
-  ];
-
   const createTitle =
     createType === "payment" ? t("new_payment_title") :
     createType === "expense" ? t("new_expense_title") :
@@ -463,29 +441,13 @@ export default function PaymentsPage() {
               <option value="withdrawal">Withdrawals</option>
             </select>
 
-            {/* Record ▼ dropdown button */}
             {canCreateRecords ? (
-              <div className="relative" ref={recordMenuRef}>
-                <button
-                  onClick={() => setShowRecordMenu(v => !v)}
-                  className="btn-primary text-sm flex items-center gap-1.5"
-                >
-                  + Record <ChevronDown size={13} />
-                </button>
-                {showRecordMenu && (
-                  <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-gray-200 rounded-xl shadow-lg z-30 overflow-hidden">
-                    {RECORD_OPTIONS.map(opt => (
-                      <button
-                        key={opt.type}
-                        onClick={() => openCreate(opt.type)}
-                        className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors"
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <button
+                onClick={() => openCreate("payment")}
+                className="btn-primary text-sm"
+              >
+                + Record Customer Payment
+              </button>
             ) : (
               <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
                 Super admin can review and approve records here, but city transactions must be posted from the city admin side.
