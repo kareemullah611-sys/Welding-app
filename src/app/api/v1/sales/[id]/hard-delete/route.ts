@@ -31,9 +31,25 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
     if (!sale) return errorResponse("NOT_FOUND", "Sale not found", 404);
 
     await prisma.$transaction(async (tx) => {
+      // Fix: also remove COGS-* entries — sale creation posts SALE-* AND COGS-* journals
       await tx.journalEntry.deleteMany({ where: { transactionId: `SALE-${id}` } });
+      await tx.journalEntry.deleteMany({ where: { transactionId: `COGS-${id}` } });
       await tx.saleDiscount.deleteMany({ where: { saleId: id } });
       await tx.saleItem.deleteMany({ where: { saleId: id } });
+
+      // Fix: for walk-in sales, auto-payment was created at sale time — remove it too
+      if (sale.customer.name === "Walk-in Customer") {
+        const walkinPayment = await tx.payment.findFirst({
+          where: { manualVoucherNo: String(sale.voucherNo), customerId: sale.customerId, cityId: sale.cityId },
+          select: { id: true },
+        });
+        if (walkinPayment) {
+          await tx.journalEntry.deleteMany({ where: { transactionId: `PAY-${walkinPayment.id}` } });
+          await (tx as any).paymentLotTransfer.deleteMany({ where: { paymentId: walkinPayment.id } });
+          await tx.payment.delete({ where: { id: walkinPayment.id } });
+        }
+      }
+
       await tx.sale.delete({ where: { id } });
     });
 

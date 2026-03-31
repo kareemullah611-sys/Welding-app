@@ -30,6 +30,8 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
       const sales = await tx.sale.findMany({ where: { customerId: id }, select: { id: true } });
       for (const sale of sales) {
         await tx.journalEntry.deleteMany({ where: { transactionId: `SALE-${sale.id}` } });
+        // Fix: also remove COGS-* entries — sale creation posts both SALE-* and COGS-* journals
+        await tx.journalEntry.deleteMany({ where: { transactionId: `COGS-${sale.id}` } });
         await tx.saleDiscount.deleteMany({ where: { saleId: sale.id } });
         await tx.saleItem.deleteMany({ where: { saleId: sale.id } });
       }

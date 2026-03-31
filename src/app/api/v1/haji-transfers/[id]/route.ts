@@ -43,6 +43,16 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
 
     try { await reverseJournalEntries(`HAJI-${id}`, user.userId); } catch (je) { console.error("Reverse journal (haji delete):", je); }
 
+    // Fix: if this transfer was sourced from a cheque, restore chequeStatus → "in_hand"
+    // so the cheque can be deposited or used again. Without this the cheque is permanently
+    // stuck in "sent_to_haji" with no transfer to show for it.
+    const chequePaymentId = (h as any).chequePaymentId;
+    if (chequePaymentId) {
+      try {
+        await prisma.payment.update({ where: { id: chequePaymentId }, data: { chequeStatus: "in_hand" } as any });
+      } catch (je) { console.error("Restore cheque status (haji delete):", je); }
+    }
+
     await prisma.hajiTransfer.delete({ where: { id } });
     await createAuditLog(user.userId, h.cityId, "haji_transfers", id, "delete", undefined, undefined, getClientIP(request));
     return successResponse({ id }, "Deleted");

@@ -48,6 +48,22 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
       }
     }
 
+    // Fix P2: delete stale rows not in this payload before upserting — previously an upsert-only
+    // approach let old city/product rows persist, causing stored totals to silently exceed
+    // the intended distribution when callers send a replacement set.
+    const incomingKeys = new Set(distributions.map((d: any) => `${d.cityId}:${d.productId}`));
+    const existingRows = await prisma.lotCityDistribution.findMany({
+      where: { lotId },
+      select: { cityId: true, productId: true },
+    });
+    for (const row of existingRows) {
+      if (!incomingKeys.has(`${row.cityId}:${row.productId}`)) {
+        await prisma.lotCityDistribution.delete({
+          where: { lotId_cityId_productId: { lotId, cityId: row.cityId, productId: row.productId } },
+        });
+      }
+    }
+
     // Upsert distributions (no transaction - avoids Neon timeout)
     for (const d of distributions) {
       await prisma.lotCityDistribution.upsert({

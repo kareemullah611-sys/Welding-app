@@ -30,6 +30,12 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
     await prisma.$transaction(async (tx) => {
       await tx.journalEntry.deleteMany({ where: { transactionId: `PAY-${id}` } });
       await (tx as any).paymentLotTransfer.deleteMany({ where: { paymentId: id } });
+      // Fix: null out chequePaymentId on any haji transfer referencing this payment
+      // to avoid FK constraint failure and match the same cleanup customer hard-delete does
+      await (tx as any).hajiTransfer.updateMany({
+        where: { chequePaymentId: id },
+        data: { chequePaymentId: null },
+      });
       await tx.payment.delete({ where: { id } });
     });
 

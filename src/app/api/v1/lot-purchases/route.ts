@@ -35,31 +35,33 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     if (!supplier) return errorResponse("NOT_FOUND", "Supplier not found", 404);
 
     const roundMoney = (n: number) => Math.round(n * 100) / 100;
-    // Batch insert all purchases atomically
-    await prisma.lotPurchase.createMany({
-      data: products.map((p) => ({
-        lotId, supplierId, productId: p.productId,
-        qty: p.qty, unitPriceUsd: p.unitPriceUsd,
-        totalPriceUsd: roundMoney(p.qty * p.unitPriceUsd),
-        exchangeRate: exchangeRate || null, createdBy: user.userId,
-      })),
-    });
-    // Retrieve the created IDs for the response and journal entry
-    const created = await prisma.lotPurchase.findMany({
-      where: { lotId, supplierId, createdBy: user.userId },
-      select: { id: true },
-      orderBy: { id: "desc" },
-      take: products.length,
-    });
-    const createdIds = created.map((c) => c.id);
+
+    // Fix: create each line individually to get its exact DB id, then journal each line
+    // with key PURCH-{lotId}-{id}. Previously createMany was used and the aggregate journal
+    // was keyed to createdIds[0], making edit/delete reversals fail for every other line.
+    const createdItems: { id: number; totalPriceUsd: number }[] = [];
+    for (const p of products) {
+      const item = await prisma.lotPurchase.create({
+        data: {
+          lotId, supplierId, productId: p.productId,
+          qty: p.qty, unitPriceUsd: p.unitPriceUsd,
+          totalPriceUsd: roundMoney(p.qty * p.unitPriceUsd),
+          exchangeRate: exchangeRate || null, createdBy: user.userId,
+        },
+        select: { id: true, totalPriceUsd: true },
+      });
+      createdItems.push({ id: item.id, totalPriceUsd: Number(item.totalPriceUsd) });
+    }
+    const createdIds = createdItems.map((c) => c.id);
 
     await createAuditLog(user.userId, null, "lot_purchases", lotId, "create", undefined, { supplierId, products }, getClientIP(request));
 
-    // Journal entries for each product purchase
-    try {
-      const totalUsd = products.reduce((s: number, p: any) => s + p.qty * p.unitPriceUsd, 0);
-      await journalLotPurchase({ id: createdIds[0] || lotId, supplierId, lotId, totalUsd, createdBy: user.userId });
-    } catch (je) { console.error("Journal (purchase):", je); }
+    // Journal each line under its own key so edit/delete reversals always match
+    for (const item of createdItems) {
+      try {
+        await journalLotPurchase({ id: item.id, supplierId, lotId, totalUsd: item.totalPriceUsd, createdBy: user.userId });
+      } catch (je) { console.error(`Journal (purchase line ${item.id}):`, je); }
+    }
 
     return successResponse({ lotId, purchaseIds: createdIds }, "Purchase prices recorded", 201);
   } catch (error) { console.error("Create lot purchase error:", error); return serverError(); }
