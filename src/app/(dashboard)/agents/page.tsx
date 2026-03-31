@@ -17,7 +17,9 @@ export default function AgentsPage() {
   const [selected, setSelected] = useState<any>(null);
   const [ledgerData, setLedgerData] = useState<any>(null);
   const [form, setForm] = useState({ name: "", agentType: "customs", cityId: 0, phone: "" });
-  const [payForm, setPayForm] = useState({ agentId: 0, cityId: 0, paymentDate: new Date().toISOString().split("T")[0], amount: 0, currencyCode: "PKR", paymentMethod: "cash", reference: "" });
+  const [payForm, setPayForm] = useState({ agentId: 0, cityId: 0, paymentDate: new Date().toISOString().split("T")[0], amount: 0, currencyCode: "PKR", paymentMethod: "cash", reference: "", paidFrom: "city_cash", bankAccountId: "", intermediaryId: "" });
+  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
+  const [intermediaries, setIntermediaries] = useState<any[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -44,16 +46,25 @@ export default function AgentsPage() {
     if (r.success) setLedgerData(r.data);
   };
 
-  const openPayment = (a: any) => {
+  const openPayment = async (a: any) => {
     setSelected(a);
-    setPayForm({ agentId: a.id, cityId: a.city?.id || cities[0]?.id || 0, paymentDate: new Date().toISOString().split("T")[0], amount: 0, currencyCode: "PKR", paymentMethod: "cash", reference: "" });
+    setPayForm({ agentId: a.id, cityId: a.city?.id || cities[0]?.id || 0, paymentDate: new Date().toISOString().split("T")[0], amount: 0, currencyCode: "PKR", paymentMethod: "cash", reference: "", paidFrom: "city_cash", bankAccountId: "", intermediaryId: "" });
     setShowPayment(true); setError("");
+    const [baRes, intRes] = await Promise.all([
+      bankAccounts.length ? Promise.resolve({ success: true, data: bankAccounts }) : apiCall("/api/v1/bank-accounts", { params: { limit: 100 } }),
+      intermediaries.length ? Promise.resolve({ success: true, data: intermediaries }) : apiCall("/api/v1/intermediaries"),
+    ]);
+    if (baRes.success) setBankAccounts((baRes.data as any).items || baRes.data as any[]);
+    if (intRes.success) setIntermediaries(intRes.data as any[]);
   };
 
   const handlePayment = async () => {
     if (!payForm.amount) { setError(t("amount") + " required"); return; }
     setSubmitting(true);
-    const r = await apiCall("/api/v1/agent-payments", { method: "POST", body: payForm });
+    const body: any = { ...payForm };
+    body.bankAccountId = payForm.paidFrom === "bank" && payForm.bankAccountId ? Number(payForm.bankAccountId) : null;
+    body.intermediaryId = payForm.paidFrom === "intermediary" && payForm.intermediaryId ? Number(payForm.intermediaryId) : null;
+    const r = await apiCall("/api/v1/agent-payments", { method: "POST", body });
     setSubmitting(false);
     if (r.success) { setShowPayment(false); load(); } else { setError(r.error || "Failed"); }
   };
@@ -105,6 +116,36 @@ export default function AgentsPage() {
           <div className="grid grid-cols-2 gap-3">
             <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("date")}</label><input type="date" value={payForm.paymentDate} onChange={e => setPayForm(f => ({ ...f, paymentDate: e.target.value }))} className="input-field" /></div>
             <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("city")}</label><select value={payForm.cityId} onChange={e => setPayForm(f => ({ ...f, cityId: parseInt(e.target.value) }))} className="select-field">{cities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+          </div>
+          {/* Paid From */}
+          <div className="border rounded-lg p-3 bg-blue-50 border-blue-200 space-y-2">
+            <label className="block text-sm font-semibold text-blue-800">Paid From *</label>
+            <div className="flex gap-3 flex-wrap">
+              <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+                <input type="radio" name="agentPaidFrom" value="city_cash" checked={payForm.paidFrom === "city_cash"} onChange={() => setPayForm(f => ({ ...f, paidFrom: "city_cash", bankAccountId: "", intermediaryId: "" }))} />
+                City Cash
+              </label>
+              <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+                <input type="radio" name="agentPaidFrom" value="bank" checked={payForm.paidFrom === "bank"} onChange={() => setPayForm(f => ({ ...f, paidFrom: "bank", intermediaryId: "" }))} />
+                Bank Account
+              </label>
+              <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+                <input type="radio" name="agentPaidFrom" value="intermediary" checked={payForm.paidFrom === "intermediary"} onChange={() => setPayForm(f => ({ ...f, paidFrom: "intermediary", bankAccountId: "" }))} />
+                Intermediary
+              </label>
+            </div>
+            {payForm.paidFrom === "bank" && (
+              <select value={payForm.bankAccountId} onChange={e => setPayForm(f => ({ ...f, bankAccountId: e.target.value }))} className="select-field text-sm">
+                <option value="">Select bank account</option>
+                {bankAccounts.map((b: any) => <option key={b.id} value={b.id}>{b.bankName} {b.accountNumber || ""}</option>)}
+              </select>
+            )}
+            {payForm.paidFrom === "intermediary" && (
+              <select value={payForm.intermediaryId} onChange={e => setPayForm(f => ({ ...f, intermediaryId: e.target.value }))} className="select-field text-sm">
+                <option value="">Select intermediary</option>
+                {intermediaries.map((i: any) => <option key={i.id} value={i.id}>{i.name}</option>)}
+              </select>
+            )}
           </div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("reference")}</label><input value={payForm.reference} onChange={e => setPayForm(f => ({ ...f, reference: e.target.value }))} className="input-field" placeholder="Receipt/Ref no." /></div>
         </div>

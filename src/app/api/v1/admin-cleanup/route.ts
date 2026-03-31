@@ -54,9 +54,17 @@ export const GET = async (request: NextRequest) => {
 
     await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "supplier_payments_intermediary_id_idx" ON "supplier_payments"("intermediary_id")`);
 
-    // ShippingLinePayment: add bankAccountId
+    // ShippingLinePayment: add bankAccountId and intermediaryId
     await prisma.$executeRawUnsafe(`ALTER TABLE "shipping_line_payments" ADD COLUMN IF NOT EXISTS "bank_account_id" INTEGER REFERENCES "bank_accounts"("id")`);
     await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "shipping_line_payments_bank_account_id_idx" ON "shipping_line_payments"("bank_account_id")`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "shipping_line_payments" ADD COLUMN IF NOT EXISTS "intermediary_id" INTEGER REFERENCES "intermediaries"("id")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "shipping_line_payments_intermediary_id_idx" ON "shipping_line_payments"("intermediary_id")`);
+
+    // AgentPayment: add bankAccountId and intermediaryId
+    await prisma.$executeRawUnsafe(`ALTER TABLE "agent_payments" ADD COLUMN IF NOT EXISTS "bank_account_id" INTEGER REFERENCES "bank_accounts"("id")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "agent_payments_bank_account_id_idx" ON "agent_payments"("bank_account_id")`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "agent_payments" ADD COLUMN IF NOT EXISTS "intermediary_id" INTEGER REFERENCES "intermediaries"("id")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "agent_payments_intermediary_id_idx" ON "agent_payments"("intermediary_id")`);
 
     return Response.json({ success: true, message: "Migration complete" });
   } catch (error: any) {

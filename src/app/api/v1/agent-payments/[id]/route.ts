@@ -15,17 +15,22 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
 
     try { await reverseJournalEntries(`AGENTPAY-${id}`, user.userId); } catch (je) { console.error("Reverse journal (agent payment):", je); }
 
+    const bankAccountId = body.bankAccountId !== undefined ? (body.bankAccountId || null) : (existing as any).bankAccountId;
+    const intermediaryId = body.intermediaryId !== undefined ? (body.intermediaryId || null) : (existing as any).intermediaryId;
+
     const updated = await prisma.agentPayment.update({
       where: { id },
       data: {
         amount: body.amount ? Number(body.amount) : undefined,
+        bankAccountId,
+        intermediaryId,
         reference: body.reference !== undefined ? body.reference || null : undefined,
         notes: body.notes !== undefined ? body.notes || null : undefined,
       },
     });
 
     try {
-      await journalAgentPaid({ id, agentId: existing.agentId, cityId: existing.cityId, amount: Number(updated.amount), currencyCode: existing.currencyCode, paymentDate: existing.paymentDate, createdBy: user.userId });
+      await journalAgentPaid({ id, agentId: existing.agentId, cityId: existing.cityId, amount: Number(updated.amount), currencyCode: existing.currencyCode, paymentDate: existing.paymentDate, createdBy: user.userId, bankAccountId, intermediaryId });
     } catch (je) { console.error("Re-journal (agent payment):", je); }
 
     await createAuditLog(user.userId, existing.cityId, "agent_payments", id, "update",

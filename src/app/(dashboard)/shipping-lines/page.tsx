@@ -25,7 +25,9 @@ export default function ShippingLinesPage() {
 
   // Add payment
   const [showPayment, setShowPayment] = useState(false);
-  const [payForm, setPayForm] = useState({ paymentDate: new Date().toISOString().split("T")[0], amountUsd: "", exchangeRate: "", reference: "", notes: "" });
+  const [payForm, setPayForm] = useState({ paymentDate: new Date().toISOString().split("T")[0], amountUsd: "", exchangeRate: "", reference: "", notes: "", paidFrom: "bank", bankAccountId: "", intermediaryId: "" });
+  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
+  const [intermediaries, setIntermediaries] = useState<any[]>([]);
 
   // Add charge (lot cost)
   const [showCharge, setShowCharge] = useState(false);
@@ -76,8 +78,15 @@ export default function ShippingLinesPage() {
 
   const openAddPayment = async (sl: any) => {
     setSelected(sl);
-    setPayForm({ paymentDate: new Date().toISOString().split("T")[0], amountUsd: "", exchangeRate: "", reference: "", notes: "" });
+    setPayForm({ paymentDate: new Date().toISOString().split("T")[0], amountUsd: "", exchangeRate: "", reference: "", notes: "", paidFrom: "bank", bankAccountId: "", intermediaryId: "" });
     setError(""); setShowPayment(true);
+    // Load bank accounts and intermediaries
+    const [baRes, intRes] = await Promise.all([
+      bankAccounts.length ? Promise.resolve({ success: true, data: bankAccounts }) : apiCall("/api/v1/bank-accounts", { params: { limit: 100 } }),
+      intermediaries.length ? Promise.resolve({ success: true, data: intermediaries }) : apiCall("/api/v1/intermediaries"),
+    ]);
+    if (baRes.success) setBankAccounts((baRes.data as any).items || baRes.data as any[]);
+    if (intRes.success) setIntermediaries(intRes.data as any[]);
   };
 
   const handleAddPayment = async () => {
@@ -90,6 +99,8 @@ export default function ShippingLinesPage() {
         paymentDate:    payForm.paymentDate,
         amountUsd:      Number(payForm.amountUsd),
         exchangeRate:   payForm.exchangeRate ? Number(payForm.exchangeRate) : null,
+        bankAccountId:  payForm.paidFrom === "bank" && payForm.bankAccountId ? Number(payForm.bankAccountId) : null,
+        intermediaryId: payForm.paidFrom === "intermediary" && payForm.intermediaryId ? Number(payForm.intermediaryId) : null,
         reference:      payForm.reference || null,
         notes:          payForm.notes || null,
       },
@@ -226,6 +237,34 @@ export default function ShippingLinesPage() {
               )}
             </div>
           </div>
+
+          {/* Paid From */}
+          <div className="border rounded-lg p-3 bg-blue-50 border-blue-200 space-y-2">
+            <label className="block text-sm font-semibold text-blue-800 mb-1">Paid From *</label>
+            <div className="flex gap-3">
+              <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+                <input type="radio" name="slPaidFrom" value="bank" checked={payForm.paidFrom === "bank"} onChange={() => setPayForm(f => ({ ...f, paidFrom: "bank", intermediaryId: "" }))} />
+                Bank Account
+              </label>
+              <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+                <input type="radio" name="slPaidFrom" value="intermediary" checked={payForm.paidFrom === "intermediary"} onChange={() => setPayForm(f => ({ ...f, paidFrom: "intermediary", bankAccountId: "" }))} />
+                Intermediary (Hawala)
+              </label>
+            </div>
+            {payForm.paidFrom === "bank" && (
+              <select value={payForm.bankAccountId} onChange={e => setPayForm(f => ({ ...f, bankAccountId: e.target.value }))} className="select-field text-sm">
+                <option value="">Select bank account</option>
+                {bankAccounts.map((b: any) => <option key={b.id} value={b.id}>{b.bankName} {b.accountNumber || ""}</option>)}
+              </select>
+            )}
+            {payForm.paidFrom === "intermediary" && (
+              <select value={payForm.intermediaryId} onChange={e => setPayForm(f => ({ ...f, intermediaryId: e.target.value }))} className="select-field text-sm">
+                <option value="">Select intermediary</option>
+                {intermediaries.map((i: any) => <option key={i.id} value={i.id}>{i.name}</option>)}
+              </select>
+            )}
+          </div>
+
           <div><label className="block text-sm font-medium text-gray-700 mb-1">Reference / TT No.</label>
             <input value={payForm.reference} onChange={e => setPayForm(f => ({ ...f, reference: e.target.value }))} className="input-field" /></div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>

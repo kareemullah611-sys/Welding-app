@@ -15,7 +15,8 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
 
     try { await reverseJournalEntries(`SLPAY-${id}`, user.userId); } catch (je) { console.error("Reverse journal (SL payment):", je); }
 
-    const bankAccountId = body.bankAccountId !== undefined ? (body.bankAccountId || null) : existing.bankAccountId;
+    const bankAccountId = body.bankAccountId !== undefined ? (body.bankAccountId || null) : (existing as any).bankAccountId;
+    const intermediaryId = body.intermediaryId !== undefined ? (body.intermediaryId || null) : (existing as any).intermediaryId;
     const amountUsd = body.amountUsd ? Number(body.amountUsd) : Number(existing.amountUsd);
     const exchangeRate = body.exchangeRate ? Number(body.exchangeRate) : (existing.exchangeRate ? Number(existing.exchangeRate) : null);
 
@@ -26,13 +27,14 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
         exchangeRate,
         amountPkr: exchangeRate ? Math.round(amountUsd * exchangeRate * 100) / 100 : null,
         bankAccountId,
+        intermediaryId,
         reference: body.reference !== undefined ? body.reference || null : existing.reference,
         notes: body.notes !== undefined ? body.notes || null : existing.notes,
       },
     });
 
     try {
-      await journalShippingLinePayment({ id, shippingLineId: existing.shippingLineId, amountUsd: Number(updated.amountUsd), paymentDate: updated.paymentDate, createdBy: user.userId, bankAccountId });
+      await journalShippingLinePayment({ id, shippingLineId: existing.shippingLineId, amountUsd: Number(updated.amountUsd), paymentDate: updated.paymentDate, createdBy: user.userId, bankAccountId, intermediaryId });
     } catch (je) { console.error("Re-journal (SL payment):", je); }
 
     await createAuditLog(user.userId, null, "shipping_line_payments", id, "update",

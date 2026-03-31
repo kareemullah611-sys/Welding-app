@@ -23,10 +23,21 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
   try {
     const body = await request.json();
     if (!body.agentId || !body.amount || !body.cityId) return validationError("Agent, city, and amount required");
+    const bankAccountId = body.bankAccountId || null;
+    const intermediaryId = body.intermediaryId || null;
     const payment = await prisma.agentPayment.create({
-      data: { agentId: body.agentId, cityId: body.cityId, paymentDate: new Date(body.paymentDate || new Date()), amount: body.amount, currencyCode: body.currencyCode || "PKR", paymentMethod: body.paymentMethod || "cash", reference: body.reference, notes: body.notes, createdBy: user.userId },
+      data: {
+        agentId: body.agentId, cityId: body.cityId,
+        paymentDate: new Date(body.paymentDate || new Date()),
+        amount: body.amount, currencyCode: body.currencyCode || "PKR",
+        paymentMethod: body.paymentMethod || "cash",
+        bankAccountId, intermediaryId,
+        reference: body.reference, notes: body.notes, createdBy: user.userId,
+      },
     });
-    try { await journalAgentPaid({ id: payment.id, agentId: body.agentId, cityId: body.cityId, amount: body.amount, currencyCode: body.currencyCode || "PKR", paymentDate: new Date(body.paymentDate || new Date()), createdBy: user.userId }); } catch (e) { console.error("Journal entry error:", e); }
+    try {
+      await journalAgentPaid({ id: payment.id, agentId: body.agentId, cityId: body.cityId, amount: body.amount, currencyCode: body.currencyCode || "PKR", paymentDate: new Date(body.paymentDate || new Date()), createdBy: user.userId, bankAccountId, intermediaryId });
+    } catch (e) { console.error("Journal entry error:", e); }
     return successResponse({ id: payment.id }, "Payment recorded", 201);
   } catch (error) { return serverError(); }
 });

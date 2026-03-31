@@ -176,10 +176,19 @@ export async function journalLotCost(c: { id: number; lotId: number; costType: s
 }
 
 // AGENT PAID
-export async function journalAgentPaid(p: { id: number; agentId: number; cityId: number; amount: number; currencyCode: string; paymentDate: Date; createdBy: number; }) {
+// Source priority: intermediary → specific bank → city cash
+export async function journalAgentPaid(p: { id: number; agentId: number; cityId: number; amount: number; currencyCode: string; paymentDate: Date; createdBy: number; bankAccountId?: number | null; intermediaryId?: number | null; }) {
+  let creditAccId: number;
+  if (p.intermediaryId) {
+    creditAccId = await getIntermediaryAccountId(p.intermediaryId);
+  } else if (p.bankAccountId) {
+    creditAccId = await getBankGLAccountId(p.bankAccountId);
+  } else {
+    creditAccId = await getCashAccountId(p.cityId);
+  }
   await createJournalEntries(`AGENTPAY-${p.id}`, [
     { accountId: await getAgentAccountId(p.agentId), debit: p.amount, credit: 0, description: `Payment to agent` },
-    { accountId: await getCashAccountId(p.cityId), debit: 0, credit: p.amount, description: `Cash to agent` },
+    { accountId: creditAccId, debit: 0, credit: p.amount, description: p.intermediaryId ? `Via intermediary` : p.bankAccountId ? `Bank to agent` : `Cash to agent` },
   ], { currencyCode: p.currencyCode, entityType: "agent_payment", entityId: p.id, cityId: p.cityId, entryDate: p.paymentDate, createdBy: p.createdBy });
 }
 
@@ -245,11 +254,19 @@ export async function journalIntermediaryDeposit(d: {
 }
 
 // SHIPPING LINE PAID
-export async function journalShippingLinePayment(p: { id: number; shippingLineId: number; amountUsd: number; paymentDate: Date; createdBy: number; bankAccountId?: number | null; }) {
-  const creditAccId = p.bankAccountId ? await getBankGLAccountId(p.bankAccountId) : await getBankAccountId();
+// Source priority: intermediary → specific bank → generic bank
+export async function journalShippingLinePayment(p: { id: number; shippingLineId: number; amountUsd: number; paymentDate: Date; createdBy: number; bankAccountId?: number | null; intermediaryId?: number | null; }) {
+  let creditAccId: number;
+  if (p.intermediaryId) {
+    creditAccId = await getIntermediaryAccountId(p.intermediaryId);
+  } else if (p.bankAccountId) {
+    creditAccId = await getBankGLAccountId(p.bankAccountId);
+  } else {
+    creditAccId = await getBankAccountId();
+  }
   await createJournalEntries(`SLPAY-${p.id}`, [
     { accountId: await getShippingLineAccountId(p.shippingLineId), debit: p.amountUsd, credit: 0, description: `Payment to shipping line` },
-    { accountId: creditAccId, debit: 0, credit: p.amountUsd, description: `Bank to shipping line` },
+    { accountId: creditAccId, debit: 0, credit: p.amountUsd, description: p.intermediaryId ? `Via intermediary` : `Bank to shipping line` },
   ], { currencyCode: "USD", entityType: "shipping_line_payment", entityId: p.id, entryDate: p.paymentDate, createdBy: p.createdBy });
 }
 

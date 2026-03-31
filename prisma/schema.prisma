@@ -799,6 +799,7 @@ model BankAccount {
   expenses              Expense[]
   supplierPayments        SupplierPayment[]        @relation("SupplierPaymentBankAccount")
   shippingLinePayments    ShippingLinePayment[]    @relation("ShippingLinePaymentBankAccount")
+  agentPayments           AgentPayment[]           @relation("AgentPaymentBankAccount")
   intermediaryDeposits    IntermediaryDeposit[]
 
   @@index([cityId])
@@ -926,18 +927,24 @@ model AgentPayment {
   amount        Decimal  @db.Decimal(15, 2)
   currencyCode  String   @map("currency_code") @db.VarChar(10)
   paymentMethod String   @map("payment_method") @db.VarChar(50)
+  bankAccountId  Int?    @map("bank_account_id")  // if paid from bank
+  intermediaryId Int?    @map("intermediary_id")   // if paid through intermediary
   reference     String?  @db.VarChar(200)
   notes         String?  @db.Text
   createdBy     Int      @map("created_by")
   createdAt     DateTime @default(now()) @map("created_at")
 
-  agent   Agent @relation(fields: [agentId], references: [id])
-  city    City  @relation(fields: [cityId], references: [id])
-  creator User  @relation("AgentPaymentCreatedBy", fields: [createdBy], references: [id])
+  agent        Agent         @relation(fields: [agentId], references: [id])
+  city         City          @relation(fields: [cityId], references: [id])
+  bankAccount  BankAccount?  @relation("AgentPaymentBankAccount", fields: [bankAccountId], references: [id])
+  intermediary Intermediary? @relation("AgentPaymentIntermediary", fields: [intermediaryId], references: [id])
+  creator      User          @relation("AgentPaymentCreatedBy", fields: [createdBy], references: [id])
 
   @@index([agentId])
   @@index([cityId])
   @@index([paymentDate])
+  @@index([bankAccountId])
+  @@index([intermediaryId])
   @@map("agent_payments")
 }
 
@@ -1129,14 +1136,18 @@ model ShippingLinePayment {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
+  intermediaryId Int? @map("intermediary_id")  // paid through intermediary (alternative to bank)
+
   shippingLine ShippingLine @relation(fields: [shippingLineId], references: [id])
   lot          Lot?         @relation(fields: [lotId], references: [id])
   bankAccount  BankAccount? @relation("ShippingLinePaymentBankAccount", fields: [bankAccountId], references: [id])
+  intermediary Intermediary? @relation("ShippingLinePaymentIntermediary", fields: [intermediaryId], references: [id])
   creator      User         @relation("ShippingLinePaymentCreatedBy", fields: [createdBy], references: [id])
 
   @@index([shippingLineId])
   @@index([lotId])
   @@index([bankAccountId])
+  @@index([intermediaryId])
   @@map("shipping_line_payments")
 }
 
@@ -1333,8 +1344,10 @@ model Intermediary {
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")
 
-  deposits         IntermediaryDeposit[]
-  supplierPayments SupplierPayment[]
+  deposits             IntermediaryDeposit[]
+  supplierPayments     SupplierPayment[]
+  shippingLinePayments ShippingLinePayment[] @relation("ShippingLinePaymentIntermediary")
+  agentPayments        AgentPayment[]        @relation("AgentPaymentIntermediary")
 
   @@map("intermediaries")
 }

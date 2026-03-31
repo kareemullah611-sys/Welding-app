@@ -80,7 +80,10 @@ export default function IntermediariesPage() {
 
   const openDeposit = async () => {
     await loadRefData();
-    setDepositForm({ ...EMPTY_DEPOSIT });
+    // City admin always deposits from their own city cash
+    const defaultSource = isCityAdmin ? "city_cash" : "bank_account";
+    const defaultCity = isCityAdmin && user?.cityId ? String(user.cityId) : "";
+    setDepositForm({ ...EMPTY_DEPOSIT, sourceType: defaultSource, cityId: defaultCity });
     setDepositError("");
     setShowDeposit(true);
   };
@@ -179,6 +182,7 @@ export default function IntermediariesPage() {
   };
 
   const isSA = user?.role === "super_admin";
+  const isCityAdmin = user?.role === "city_admin";
 
   const columns = [
     { key: "name", label: "Name" },
@@ -197,15 +201,24 @@ export default function IntermediariesPage() {
   const inputCls = "w-full border rounded px-3 py-2 text-sm bg-white dark:bg-gray-800 dark:border-gray-600";
   const labelCls = "block text-sm font-medium mb-1";
 
-  const DepositFormFields = ({ f, setF }: { f: typeof EMPTY_DEPOSIT; setF: (v: any) => void }) => (
+  const DepositFormFields = ({ f, setF, forCityAdmin }: { f: typeof EMPTY_DEPOSIT; setF: (v: any) => void; forCityAdmin?: boolean }) => (
     <>
-      <div>
-        <label className={labelCls}>Date</label>
-        <input type="date" value={f.depositDate} onChange={e => setF({ ...f, depositDate: e.target.value })} className={inputCls} />
+      {/* Direction banner */}
+      <div className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800 font-medium">
+        <span>{f.sourceType === "bank_account" ? "🏦 Bank Account" : `🏙️ ${cities.find(c => String(c.id) === f.cityId)?.name || "City Cash"}`}</span>
+        <span className="text-blue-400 text-lg">→</span>
+        <span>👤 {selected?.name || "Intermediary"}</span>
       </div>
-      <div>
-        <label className={labelCls}>Amount</label>
-        <input type="number" step="0.01" value={f.amount} onChange={e => setF({ ...f, amount: e.target.value })} className={inputCls} placeholder="0.00" />
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={labelCls}>Date</label>
+          <input type="date" value={f.depositDate} onChange={e => setF({ ...f, depositDate: e.target.value })} className={inputCls} />
+        </div>
+        <div>
+          <label className={labelCls}>Amount</label>
+          <input type="number" step="0.01" value={f.amount} onChange={e => setF({ ...f, amount: e.target.value })} className={inputCls} placeholder="0.00" />
+        </div>
       </div>
       <div>
         <label className={labelCls}>Currency</label>
@@ -214,14 +227,17 @@ export default function IntermediariesPage() {
           {currencies.map(c => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
         </select>
       </div>
-      <div>
-        <label className={labelCls}>Source</label>
-        <select value={f.sourceType} onChange={e => setF({ ...f, sourceType: e.target.value, cityId: "", bankAccountId: "" })} className={inputCls}>
-          <option value="bank_account">Bank Account</option>
-          <option value="city_cash">City Cash</option>
-        </select>
-      </div>
-      {f.sourceType === "bank_account" && (
+      {/* City admin always deposits from city cash — no source choice */}
+      {!forCityAdmin && (
+        <div>
+          <label className={labelCls}>Sending From</label>
+          <select value={f.sourceType} onChange={e => setF({ ...f, sourceType: e.target.value, cityId: "", bankAccountId: "" })} className={inputCls}>
+            <option value="bank_account">Bank Account</option>
+            <option value="city_cash">City Cash</option>
+          </select>
+        </div>
+      )}
+      {f.sourceType === "bank_account" && !forCityAdmin && (
         <div>
           <label className={labelCls}>Bank Account</label>
           <select value={f.bankAccountId} onChange={e => setF({ ...f, bankAccountId: e.target.value })} className={inputCls}>
@@ -230,7 +246,7 @@ export default function IntermediariesPage() {
           </select>
         </div>
       )}
-      {f.sourceType === "city_cash" && (
+      {f.sourceType === "city_cash" && !forCityAdmin && (
         <div>
           <label className={labelCls}>City</label>
           <select value={f.cityId} onChange={e => setF({ ...f, cityId: e.target.value })} className={inputCls}>
@@ -287,9 +303,9 @@ export default function IntermediariesPage() {
       {/* Ledger */}
       <Modal open={showLedger} onClose={() => setShowLedger(false)} title={`Ledger — ${selected?.name}`} size="xl">
         <div className="space-y-4">
-          {isSA && (
+          {(isSA || isCityAdmin) && (
             <button onClick={openDeposit} className="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700">
-              + Record Deposit
+              + Deposit to Intermediary
             </button>
           )}
 
@@ -358,9 +374,9 @@ export default function IntermediariesPage() {
       </Modal>
 
       {/* Record Deposit */}
-      <Modal open={showDeposit} onClose={() => setShowDeposit(false)} title="Record Deposit to Intermediary">
+      <Modal open={showDeposit} onClose={() => setShowDeposit(false)} title={`Deposit to ${selected?.name || "Intermediary"}`}>
         <div className="space-y-3">
-          <DepositFormFields f={depositForm} setF={setDepositForm} />
+          <DepositFormFields f={depositForm} setF={setDepositForm} forCityAdmin={isCityAdmin} />
           {depositError && <p className="text-red-500 text-sm">{depositError}</p>}
           <button onClick={handleDeposit} disabled={depositSubmitting} className="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700 disabled:opacity-50">
             {depositSubmitting ? "Saving..." : "Record Deposit"}
@@ -371,7 +387,7 @@ export default function IntermediariesPage() {
       {/* Edit Deposit */}
       <Modal open={showEditDeposit} onClose={() => setShowEditDeposit(false)} title="Edit Deposit">
         <div className="space-y-3">
-          <DepositFormFields f={editDepositForm} setF={setEditDepositForm} />
+          <DepositFormFields f={editDepositForm} setF={setEditDepositForm} forCityAdmin={isCityAdmin} />
           {editDepositError && <p className="text-red-500 text-sm">{editDepositError}</p>}
           <button onClick={handleEditDeposit} disabled={editDepositSubmitting} className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50">
             {editDepositSubmitting ? "Saving..." : "Save Changes"}
