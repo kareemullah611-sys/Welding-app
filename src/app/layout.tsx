@@ -1,20 +1,9 @@
 import type { Metadata, Viewport } from "next";
-import { Manrope, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/hooks/useAuth";
 import { LangProvider } from "@/lib/lang";
 import { OfflineProvider } from "@/hooks/useOffline";
 import OfflineBanner from "@/components/layout/OfflineBanner";
-
-const manrope = Manrope({
-  subsets: ["latin"],
-  variable: "--font-sans",
-});
-
-const spaceGrotesk = Space_Grotesk({
-  subsets: ["latin"],
-  variable: "--font-display",
-});
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -38,7 +27,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className={`${manrope.variable} ${spaceGrotesk.variable}`} suppressHydrationWarning>
+      <body suppressHydrationWarning>
         <LangProvider>
           <AuthProvider>
             <OfflineProvider>
