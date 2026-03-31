@@ -44,10 +44,8 @@ export const GET = async (request: NextRequest) => {
       );
     `);
 
-    await prisma.$executeRawUnsafe(`
-      CREATE INDEX IF NOT EXISTS "intermediary_deposits_intermediary_id_idx" ON "intermediary_deposits"("intermediary_id");
-      CREATE INDEX IF NOT EXISTS "intermediary_deposits_deposit_date_idx" ON "intermediary_deposits"("deposit_date");
-    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "intermediary_deposits_intermediary_id_idx" ON "intermediary_deposits"("intermediary_id")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "intermediary_deposits_deposit_date_idx" ON "intermediary_deposits"("deposit_date")`);
 
     await prisma.$executeRawUnsafe(`
       ALTER TABLE "supplier_payments"
