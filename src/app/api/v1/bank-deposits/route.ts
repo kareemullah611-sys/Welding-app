@@ -246,13 +246,20 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       });
 
       if (chequePaymentIds.length > 0) {
-        await tx.payment.updateMany({
-          where: { id: { in: chequePaymentIds } },
+        // Fix P2 race condition: add chequeStatus predicate inside the transaction so that
+        // if two concurrent requests pass the pre-transaction validation for the same cheque,
+        // only the first one that acquires the row lock will match — the second updateMany
+        // will update 0 rows, which we detect and roll back.
+        const result = await tx.payment.updateMany({
+          where: { id: { in: chequePaymentIds }, chequeStatus: "in_hand", status: "active" },
           data: {
             chequeStatus: "deposited_to_bank",
             bankDepositId: deposit.id,
           },
         });
+        if (result.count !== chequePaymentIds.length) {
+          throw new Error("One or more cheques were already deposited by a concurrent request. Please refresh and try again.");
+        }
       }
 
       return deposit;

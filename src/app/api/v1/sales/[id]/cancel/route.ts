@@ -37,9 +37,31 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       ...(sale.notes ? { notes: sale.notes } : {}),
     }, { reason: body.reason }, getClientIP(request));
 
-    // Reverse journal entries so accounting books stay balanced
+    // Reverse sale and COGS journal entries
     try { await reverseJournalEntries(`SALE-${id}`, user.userId); } catch (je) { console.error("Journal reversal error (sale cancel):", je); }
     try { await reverseJournalEntries(`COGS-${id}`, user.userId); } catch (je) { console.error("COGS reversal error (sale cancel):", je); }
+
+    // Fix P1: If walk-in sale, cancel the auto-created payment and reverse its journal.
+    // The payment is linked via manualVoucherNo = voucherNo (no direct FK exists).
+    if (sale.customer.name === "Walk-in Customer") {
+      try {
+        const walkinPayment = await prisma.payment.findFirst({
+          where: {
+            manualVoucherNo: String(sale.voucherNo),
+            customerId: sale.customerId,
+            cityId: sale.cityId,
+            status: "active",
+          },
+        });
+        if (walkinPayment) {
+          await prisma.payment.update({
+            where: { id: walkinPayment.id },
+            data: { status: "cancelled", notes: `${walkinPayment.notes || ""}\n[Auto-cancelled: linked sale #${sale.voucherNo} was cancelled. Reason: ${body.reason}]`.trim() },
+          });
+          try { await reverseJournalEntries(`PAY-${walkinPayment.id}`, user.userId); } catch (je) { console.error("Walk-in PAY reversal error (sale cancel):", je); }
+        }
+      } catch (pe) { console.error("Walk-in payment cancel error:", pe); }
+    }
 
     return successResponse({ id, status: "cancelled" }, "Sale cancelled");
   } catch (error) {

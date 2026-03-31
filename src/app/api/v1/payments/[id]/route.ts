@@ -90,6 +90,18 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     if (payment.status !== "active") return errorResponse("VALIDATION_ERROR", "Cannot edit cancelled payment");
     if (user.role === "city_admin" && payment.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
 
+    // Fix P1 (deposited cheque): block amount changes on cheques that have already been
+    // deposited into a bank — the DEP-* journal entries would become wrong if we only
+    // repost PAY-* without cascading the fix to the deposit journal.
+    const isDepositedCheque = (payment as any).chequeStatus === "deposited_to_bank";
+    const amountChanged = body.amount !== undefined && Number(body.amount) !== Number(payment.amount);
+    if (amountChanged && isDepositedCheque) {
+      return errorResponse(
+        "VALIDATION_ERROR",
+        "Cannot change the amount of a cheque that has already been deposited to a bank. Cancel the bank deposit first, then edit the payment."
+      );
+    }
+
     const sym = payment.currency.symbol || payment.currency.code;
     const old = {
       date: payment.paymentDate.toISOString().split("T")[0],
@@ -98,7 +110,6 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       amount: `${sym} ${Number(payment.amount).toLocaleString("en-US")}`,
       ...(payment.notes ? { notes: payment.notes } : {}),
     };
-    const amountChanged = body.amount !== undefined && Number(body.amount) !== Number(payment.amount);
 
     const updated = await prisma.payment.update({
       where: { id },
@@ -110,7 +121,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       },
     });
 
-    // If amount changed, reverse old journal and create new one with updated amount
+    // If amount changed, reverse old journal and re-create with updated amount
     if (amountChanged) {
       try {
         await reverseJournalEntries(`PAY-${id}`, user.userId);
