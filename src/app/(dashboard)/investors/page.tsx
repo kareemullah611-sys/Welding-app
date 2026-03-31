@@ -12,7 +12,6 @@ export default function InvestorsPage() {
   const { user } = useAuth();
   const router = useRouter();
   const [investors, setInvestors] = useState<Investor[]>([]);
-  const [currencies, setCurrencies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
@@ -20,8 +19,6 @@ export default function InvestorsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState({
     name: "", relationship: "", phone: "", notes: "",
-    currencyId: "", profitType: "fixed_rate",
-    fixedRatePercent: "", profitSharePercent: "",
     startDate: new Date().toISOString().split("T")[0],
     initialDeposit: "",
   });
@@ -45,24 +42,16 @@ export default function InvestorsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [invRes, currRes] = await Promise.all([
-      apiCall("/api/v1/investors", { params: { limit: 200 } }),
-      apiCall("/api/v1/currencies"),
-    ]);
+    const invRes = await apiCall("/api/v1/investors", { params: { limit: 200 } });
     if (invRes.success) setInvestors(invRes.data as any[]);
-    if (currRes.success) setCurrencies(currRes.data as any[]);
     setLoading(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
   const openCreate = () => {
-    const defaultCurr = currencies.find(c => c.code === "USD") || currencies[0];
     setCreateForm({
       name: "", relationship: "", phone: "", notes: "",
-      currencyId: defaultCurr?.id?.toString() || "",
-      profitType: "fixed_rate",
-      fixedRatePercent: "", profitSharePercent: "",
       startDate: new Date().toISOString().split("T")[0],
       initialDeposit: "",
     });
@@ -72,10 +61,7 @@ export default function InvestorsPage() {
 
   const handleCreate = async () => {
     if (!createForm.name.trim()) { setCreateError("Name is required"); return; }
-    if (!createForm.currencyId) { setCreateError("Currency is required"); return; }
     if (!createForm.startDate) { setCreateError("Start date is required"); return; }
-    if (createForm.profitType === "fixed_rate" && !createForm.fixedRatePercent) { setCreateError("Fixed rate % is required"); return; }
-    if (createForm.profitType === "profit_share" && !createForm.profitSharePercent) { setCreateError("Profit share % is required"); return; }
     setCreating(true); setCreateError("");
     const r = await apiCall("/api/v1/investors", { method: "POST", body: createForm });
     setCreating(false);
@@ -232,47 +218,10 @@ export default function InvestorsPage() {
             {/* Account setup */}
             <div className="border-t pt-4 space-y-3">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Investment Account</p>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Currency *</label>
-                  <select className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400" value={createForm.currencyId} onChange={e => setCreateForm(p => ({ ...p, currencyId: e.target.value }))}>
-                    <option value="">Select…</option>
-                    {currencies.map(c => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Start Date *</label>
-                  <input type="date" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400" value={createForm.startDate} onChange={e => setCreateForm(p => ({ ...p, startDate: e.target.value }))} />
-                </div>
-              </div>
-
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Profit Type *</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                    <input type="radio" name="profitType" value="fixed_rate" checked={createForm.profitType === "fixed_rate"} onChange={() => setCreateForm(p => ({ ...p, profitType: "fixed_rate" }))} />
-                    Fixed Rate
-                  </label>
-                  <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                    <input type="radio" name="profitType" value="profit_share" checked={createForm.profitType === "profit_share"} onChange={() => setCreateForm(p => ({ ...p, profitType: "profit_share" }))} />
-                    Profit Share
-                  </label>
-                </div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Start Date *</label>
+                <input type="date" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400" value={createForm.startDate} onChange={e => setCreateForm(p => ({ ...p, startDate: e.target.value }))} />
               </div>
-
-              {createForm.profitType === "fixed_rate" && (
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Annual Rate (%) *</label>
-                  <input type="number" step="0.01" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400" value={createForm.fixedRatePercent} onChange={e => setCreateForm(p => ({ ...p, fixedRatePercent: e.target.value }))} placeholder="e.g. 12" />
-                </div>
-              )}
-              {createForm.profitType === "profit_share" && (
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Profit Share (%) *</label>
-                  <input type="number" step="0.01" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400" value={createForm.profitSharePercent} onChange={e => setCreateForm(p => ({ ...p, profitSharePercent: e.target.value }))} placeholder="e.g. 25" />
-                </div>
-              )}
-
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">Initial Deposit <span className="text-gray-300 font-normal">(optional)</span></label>
                 <input type="number" step="0.01" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400" value={createForm.initialDeposit} onChange={e => setCreateForm(p => ({ ...p, initialDeposit: e.target.value }))} placeholder="0" />

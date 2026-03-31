@@ -11,6 +11,7 @@ import {
 type TxType = "deposit" | "withdrawal";
 
 function fmt(n: number) { return formatNumber(n); }
+function txLabel(type: TxType) { return type === "deposit" ? "Credit" : "Debit"; }
 
 export default function InvestorLedgerPage() {
   const { user } = useAuth();
@@ -153,11 +154,11 @@ export default function InvestorLedgerPage() {
           {/* ── Balance summary ── */}
           <div className="grid grid-cols-3 gap-3">
             <div className="bg-blue-50 rounded-2xl px-4 py-3 text-center">
-              <p className="text-[10px] font-semibold text-blue-400 uppercase tracking-wide mb-0.5">Deposited</p>
+              <p className="text-[10px] font-semibold text-blue-400 uppercase tracking-wide mb-0.5">Credit</p>
               <p className="text-base font-bold text-blue-800">{sym} {fmt(acc.totalDeposits)}</p>
             </div>
             <div className="bg-red-50 rounded-2xl px-4 py-3 text-center">
-              <p className="text-[10px] font-semibold text-red-400 uppercase tracking-wide mb-0.5">Withdrawn</p>
+              <p className="text-[10px] font-semibold text-red-400 uppercase tracking-wide mb-0.5">Debit</p>
               <p className="text-base font-bold text-red-800">{sym} {fmt(acc.totalWithdrawals)}</p>
             </div>
             <div className="bg-emerald-50 rounded-2xl px-4 py-3 text-center">
@@ -180,7 +181,7 @@ export default function InvestorLedgerPage() {
                     : "text-gray-500 hover:text-gray-700"
                 }`}
               >
-                <ArrowDownCircle size={15} /> Deposit
+                <ArrowDownCircle size={15} /> Credit
               </button>
               <button
                 onClick={() => setForm(p => ({ ...p, type: "withdrawal" }))}
@@ -190,7 +191,7 @@ export default function InvestorLedgerPage() {
                     : "text-gray-500 hover:text-gray-700"
                 }`}
               >
-                <ArrowUpCircle size={15} /> Withdrawal
+                <ArrowUpCircle size={15} /> Debit
               </button>
             </div>
 
@@ -230,7 +231,7 @@ export default function InvestorLedgerPage() {
                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400"
                 value={form.notes}
                 onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
-                placeholder={form.type === "deposit" ? "e.g. Annual profit, new investment…" : "e.g. Personal use, medical…"}
+                placeholder={form.type === "deposit" ? "e.g. investor credit, added capital…" : "e.g. investor debit, amount taken out…"}
               />
             </div>
 
@@ -270,6 +271,7 @@ export default function InvestorLedgerPage() {
               <div className="divide-y divide-gray-50">
                 {[...acc.entries].reverse().map((e: any, i: number) => {
                   const isDeposit = e.type === "deposit";
+                  const label = isDeposit ? "Credit" : "Debit";
                   return (
                     <div key={i} className="flex items-center gap-3 px-5 py-3.5 hover:bg-gray-50/60 group transition-colors">
                       <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${
@@ -282,7 +284,7 @@ export default function InvestorLedgerPage() {
                           <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                             isDeposit ? "bg-blue-50 text-blue-700" : "bg-red-50 text-red-600"
                           }`}>
-                            {isDeposit ? "Deposit" : "Withdrawal"}
+                            {label}
                           </span>
                           <span className="text-xs text-gray-400">{e.date}</span>
                         </div>
@@ -324,7 +326,7 @@ export default function InvestorLedgerPage() {
       {editTarget && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full space-y-4">
-            <h3 className="font-semibold text-gray-900 capitalize">Edit {editTarget.type}</h3>
+            <h3 className="font-semibold text-gray-900">Edit {txLabel(editTarget.type)}</h3>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">Amount ({sym}) *</label>

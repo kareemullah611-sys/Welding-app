@@ -81,13 +81,20 @@ export const POST = withAuth(async (request: NextRequest, _ctx, user: JWTPayload
   if (user.role !== "super_admin") return errorResponse("FORBIDDEN", "Super admin only", 403);
   try {
     const body = await request.json();
-    const { name, relationship, phone, notes, currencyId, profitType, fixedRatePercent, profitSharePercent, startDate, initialDeposit } = body;
+    const { name, relationship, phone, notes, currencyId, startDate, initialDeposit } = body;
 
     if (!name?.trim()) return errorResponse("VALIDATION", "Name is required", 400);
-    if (!currencyId) return errorResponse("VALIDATION", "Currency is required", 400);
     if (!startDate) return errorResponse("VALIDATION", "Start date is required", 400);
-    if (profitType === "fixed_rate" && !fixedRatePercent) return errorResponse("VALIDATION", "Fixed rate % is required", 400);
-    if (profitType === "profit_share" && !profitSharePercent) return errorResponse("VALIDATION", "Profit share % is required", 400);
+
+    let resolvedCurrencyId = currencyId ? parseInt(currencyId) : NaN;
+    if (!resolvedCurrencyId) {
+      const pkrCurrency = await prisma.currency.findFirst({
+        where: { code: "PKR" },
+        select: { id: true },
+      });
+      if (!pkrCurrency) return errorResponse("VALIDATION", "PKR currency is not configured", 400);
+      resolvedCurrencyId = pkrCurrency.id;
+    }
 
     const investor = await prisma.investor.create({
       data: {
@@ -98,10 +105,7 @@ export const POST = withAuth(async (request: NextRequest, _ctx, user: JWTPayload
         createdBy: user.userId,
         accounts: {
           create: {
-            currencyId: parseInt(currencyId),
-            profitType,
-            fixedRatePercent: profitType === "fixed_rate" ? parseFloat(fixedRatePercent) : null,
-            profitSharePercent: profitType === "profit_share" ? parseFloat(profitSharePercent) : null,
+            currencyId: resolvedCurrencyId,
             startDate: new Date(startDate),
             createdBy: user.userId,
             ...(initialDeposit && parseFloat(initialDeposit) > 0
