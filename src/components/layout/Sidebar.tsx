@@ -95,7 +95,7 @@ const navGroups: { label: string; items: NavItemDef[] }[] = [
     label: "System",
     items: [
       { label: "Settings",      key: "settings",      href: "/settings",              icon: Settings, roles: ["super_admin"] },
-      { label: "Bank Accounts", key: "bank_accounts",  href: "/settings/bank-accounts", icon: Landmark, roles: ["city_admin"] },
+      { label: "Bank Accounts", key: "bank_accounts",  href: "/settings/bank-accounts", icon: Landmark, roles: ["super_admin", "city_admin"] },
     ],
   },
 ];

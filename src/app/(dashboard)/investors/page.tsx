@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
 import { apiCall } from "@/hooks/useApi";
 import { formatNumber } from "@/components/ui";
-import { ChevronRight, Users, Search, Pencil, Trash2 } from "lucide-react";
+import { ChevronRight, Users, Search, Pencil, Trash2, Plus } from "lucide-react";
 
 type Investor = { id: number; name: string; relationship?: string; phone?: string; accounts: any[] };
 
@@ -12,8 +12,21 @@ export default function InvestorsPage() {
   const { user } = useAuth();
   const router = useRouter();
   const [investors, setInvestors] = useState<Investor[]>([]);
+  const [currencies, setCurrencies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+
+  // Create investor
+  const [showCreate, setShowCreate] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    name: "", relationship: "", phone: "", notes: "",
+    currencyId: "", profitType: "fixed_rate",
+    fixedRatePercent: "", profitSharePercent: "",
+    startDate: new Date().toISOString().split("T")[0],
+    initialDeposit: "",
+  });
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState("");
 
   // Edit investor
   const [editTarget, setEditTarget] = useState<Investor | null>(null);
@@ -32,12 +45,44 @@ export default function InvestorsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await apiCall("/api/v1/investors", { params: { limit: 200 } });
-    if (res.success) setInvestors(res.data as any[]);
+    const [invRes, currRes] = await Promise.all([
+      apiCall("/api/v1/investors", { params: { limit: 200 } }),
+      apiCall("/api/v1/currencies"),
+    ]);
+    if (invRes.success) setInvestors(invRes.data as any[]);
+    if (currRes.success) setCurrencies(currRes.data as any[]);
     setLoading(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const openCreate = () => {
+    const defaultCurr = currencies.find(c => c.code === "USD") || currencies[0];
+    setCreateForm({
+      name: "", relationship: "", phone: "", notes: "",
+      currencyId: defaultCurr?.id?.toString() || "",
+      profitType: "fixed_rate",
+      fixedRatePercent: "", profitSharePercent: "",
+      startDate: new Date().toISOString().split("T")[0],
+      initialDeposit: "",
+    });
+    setCreateError("");
+    setShowCreate(true);
+  };
+
+  const handleCreate = async () => {
+    if (!createForm.name.trim()) { setCreateError("Name is required"); return; }
+    if (!createForm.currencyId) { setCreateError("Currency is required"); return; }
+    if (!createForm.startDate) { setCreateError("Start date is required"); return; }
+    if (createForm.profitType === "fixed_rate" && !createForm.fixedRatePercent) { setCreateError("Fixed rate % is required"); return; }
+    if (createForm.profitType === "profit_share" && !createForm.profitSharePercent) { setCreateError("Profit share % is required"); return; }
+    setCreating(true); setCreateError("");
+    const r = await apiCall("/api/v1/investors", { method: "POST", body: createForm });
+    setCreating(false);
+    if ((r as any).success === false) { setCreateError((r as any).error || "Failed to create investor"); return; }
+    setShowCreate(false);
+    load();
+  };
 
   const openEdit = (inv: Investor, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -48,8 +93,7 @@ export default function InvestorsPage() {
 
   const handleEditSave = async () => {
     if (!editTarget || !editForm.name.trim()) { setEditError("Name is required"); return; }
-    setEditSaving(true);
-    setEditError("");
+    setEditSaving(true); setEditError("");
     const res = await apiCall(`/api/v1/investors/${editTarget.id}`, {
       method: "PATCH",
       body: { name: editForm.name.trim(), relationship: editForm.relationship.trim() || null, phone: editForm.phone.trim() || null },
@@ -68,8 +112,7 @@ export default function InvestorsPage() {
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
-    setDeleting(true);
-    setDeleteError("");
+    setDeleting(true); setDeleteError("");
     const res = await apiCall(`/api/v1/investors/${deleteTarget.id}`, { method: "DELETE" });
     setDeleting(false);
     if ((res as any).success === false) { setDeleteError((res as any).error || "Failed to delete"); return; }
@@ -87,8 +130,15 @@ export default function InvestorsPage() {
 
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
-      <div className="pb-3 border-b border-gray-100">
+      <div className="pb-3 border-b border-gray-100 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Investors</h1>
+        <button
+          onClick={openCreate}
+          className="flex items-center gap-1.5 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium rounded-xl transition-colors"
+        >
+          <Plus size={15} />
+          New Investor
+        </button>
       </div>
 
       {/* Search */}
@@ -105,14 +155,13 @@ export default function InvestorsPage() {
 
       {loading ? (
         <div className="space-y-2">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="h-16 bg-gray-100 rounded-xl animate-pulse" />
-          ))}
+          {[1, 2, 3].map(i => <div key={i} className="h-16 bg-gray-100 rounded-xl animate-pulse" />)}
         </div>
       ) : investors.length === 0 ? (
         <div className="text-center py-16 text-gray-400">
           <Users size={40} className="mx-auto mb-3 opacity-30" />
           <p className="font-medium">No investors yet</p>
+          <button onClick={openCreate} className="mt-3 text-sm text-violet-600 hover:underline">Add your first investor →</button>
         </div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-16 text-gray-400">
@@ -135,15 +184,12 @@ export default function InvestorsPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-gray-900 text-sm">{inv.name}</p>
-                  {inv.relationship && (
-                    <p className="text-xs text-gray-400">{inv.relationship}</p>
-                  )}
+                  {inv.relationship && <p className="text-xs text-gray-400">{inv.relationship}</p>}
                 </div>
                 <div className="text-right flex-shrink-0 mr-1">
                   <p className="text-sm font-bold text-emerald-700">{sym} {formatNumber(capital)}</p>
-                  <p className="text-[10px] text-gray-400 uppercase tracking-wide">Balance</p>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-wide">Capital</p>
                 </div>
-                {/* Action buttons — visible on hover */}
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" onClick={e => e.stopPropagation()}>
                   <button onClick={e => openEdit(inv, e)} className="p-1.5 rounded-lg hover:bg-violet-50 transition-colors">
                     <Pencil size={13} className="text-violet-400" />
@@ -159,6 +205,92 @@ export default function InvestorsPage() {
         </div>
       )}
 
+      {/* ── Create Investor Modal ── */}
+      {showCreate && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full space-y-4 my-auto">
+            <h3 className="font-semibold text-gray-900 text-lg">New Investor</h3>
+
+            {/* Basic info */}
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Name *</label>
+                <input type="text" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400" value={createForm.name} onChange={e => setCreateForm(p => ({ ...p, name: e.target.value }))} placeholder="Full name" autoFocus />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Relationship</label>
+                  <input type="text" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400" value={createForm.relationship} onChange={e => setCreateForm(p => ({ ...p, relationship: e.target.value }))} placeholder="Partner, Family…" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Phone</label>
+                  <input type="text" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400" value={createForm.phone} onChange={e => setCreateForm(p => ({ ...p, phone: e.target.value }))} placeholder="+92 300…" />
+                </div>
+              </div>
+            </div>
+
+            {/* Account setup */}
+            <div className="border-t pt-4 space-y-3">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Investment Account</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Currency *</label>
+                  <select className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400" value={createForm.currencyId} onChange={e => setCreateForm(p => ({ ...p, currencyId: e.target.value }))}>
+                    <option value="">Select…</option>
+                    {currencies.map(c => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Start Date *</label>
+                  <input type="date" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400" value={createForm.startDate} onChange={e => setCreateForm(p => ({ ...p, startDate: e.target.value }))} />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Profit Type *</label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+                    <input type="radio" name="profitType" value="fixed_rate" checked={createForm.profitType === "fixed_rate"} onChange={() => setCreateForm(p => ({ ...p, profitType: "fixed_rate" }))} />
+                    Fixed Rate
+                  </label>
+                  <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+                    <input type="radio" name="profitType" value="profit_share" checked={createForm.profitType === "profit_share"} onChange={() => setCreateForm(p => ({ ...p, profitType: "profit_share" }))} />
+                    Profit Share
+                  </label>
+                </div>
+              </div>
+
+              {createForm.profitType === "fixed_rate" && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Annual Rate (%) *</label>
+                  <input type="number" step="0.01" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400" value={createForm.fixedRatePercent} onChange={e => setCreateForm(p => ({ ...p, fixedRatePercent: e.target.value }))} placeholder="e.g. 12" />
+                </div>
+              )}
+              {createForm.profitType === "profit_share" && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Profit Share (%) *</label>
+                  <input type="number" step="0.01" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400" value={createForm.profitSharePercent} onChange={e => setCreateForm(p => ({ ...p, profitSharePercent: e.target.value }))} placeholder="e.g. 25" />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Initial Deposit <span className="text-gray-300 font-normal">(optional)</span></label>
+                <input type="number" step="0.01" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400" value={createForm.initialDeposit} onChange={e => setCreateForm(p => ({ ...p, initialDeposit: e.target.value }))} placeholder="0" />
+              </div>
+            </div>
+
+            {createError && <p className="text-xs text-red-500">{createError}</p>}
+
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => setShowCreate(false)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
+              <button onClick={handleCreate} disabled={creating} className="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium disabled:opacity-50">
+                {creating ? "Creating…" : "Create Investor"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Edit Investor Modal ── */}
       {editTarget && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -166,38 +298,19 @@ export default function InvestorsPage() {
             <h3 className="font-semibold text-gray-900">Edit Investor</h3>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Name *</label>
-              <input
-                type="text"
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400"
-                value={editForm.name}
-                onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))}
-              />
+              <input type="text" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400" value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))} />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Relationship</label>
-              <input
-                type="text"
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400"
-                value={editForm.relationship}
-                onChange={e => setEditForm(p => ({ ...p, relationship: e.target.value }))}
-                placeholder="e.g. Partner, Family…"
-              />
+              <input type="text" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400" value={editForm.relationship} onChange={e => setEditForm(p => ({ ...p, relationship: e.target.value }))} placeholder="e.g. Partner, Family…" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Phone</label>
-              <input
-                type="text"
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400"
-                value={editForm.phone}
-                onChange={e => setEditForm(p => ({ ...p, phone: e.target.value }))}
-                placeholder="+92 300 0000000"
-              />
+              <input type="text" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400" value={editForm.phone} onChange={e => setEditForm(p => ({ ...p, phone: e.target.value }))} placeholder="+92 300 0000000" />
             </div>
             {editError && <p className="text-xs text-red-500">{editError}</p>}
             <div className="flex gap-2 pt-1">
-              <button onClick={() => setEditTarget(null)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
-                Cancel
-              </button>
+              <button onClick={() => setEditTarget(null)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
               <button onClick={handleEditSave} disabled={editSaving} className="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium disabled:opacity-50">
                 {editSaving ? "Saving…" : "Save"}
               </button>
@@ -215,9 +328,7 @@ export default function InvestorsPage() {
             <p className="text-xs text-gray-400 mb-4">Investors with existing transactions cannot be deleted.</p>
             {deleteError && <p className="text-xs text-red-500 mb-3">{deleteError}</p>}
             <div className="flex gap-2">
-              <button onClick={() => { setDeleteTarget(null); setDeleteError(""); }} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
-                Cancel
-              </button>
+              <button onClick={() => { setDeleteTarget(null); setDeleteError(""); }} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
               <button onClick={handleDelete} disabled={deleting} className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-medium disabled:opacity-50">
                 {deleting ? "Deleting…" : "Delete"}
               </button>
