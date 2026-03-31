@@ -178,11 +178,36 @@ export default function IntermediariesPage() {
     if (r.success) { setShowEdit(false); load(); } else { setFormError(r.error || "Failed"); }
   };
 
+  const handleToggleActive = async (item: any) => {
+    const action = item.isActive ? "deactivate" : "reactivate";
+    if (!confirm(`Do you want to ${action} intermediary "${item.name}"?`)) return;
+    const r = await apiCall(`/api/v1/intermediaries/${item.id}`, {
+      method: "PUT",
+      body: { isActive: !item.isActive },
+    });
+    if (!r.success) {
+      setFormError(r.error || "Failed");
+      return;
+    }
+    if (selected?.id === item.id) {
+      setSelected((prev: any) => prev ? { ...prev, isActive: !item.isActive } : prev);
+    }
+    load();
+  };
+
   const isSA = user?.role === "super_admin";
   if (!isSA) return <div className="p-8 text-gray-400">Access restricted to Super Admin.</div>;
 
   const columns = [
-    { key: "name", label: "Name" },
+    {
+      key: "name", label: "Name",
+      render: (row: any) => (
+        <div className="flex items-center gap-2">
+          <span>{row.name}</span>
+          {!row.isActive && <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-medium">Inactive</span>}
+        </div>
+      ),
+    },
     { key: "notes", label: "Notes", render: (row: any) => row.notes || "-" },
     {
       key: "actions", label: "Actions",
@@ -190,6 +215,11 @@ export default function IntermediariesPage() {
         <div className="flex gap-2">
           <button onClick={() => openLedger(row)} className="text-blue-600 hover:underline text-sm">Ledger</button>
           {isSA && <button onClick={() => openEdit(row)} className="text-yellow-600 hover:underline text-sm">Edit</button>}
+          {isSA && (
+            <button onClick={() => handleToggleActive(row)} className={`hover:underline text-sm ${row.isActive ? "text-red-600" : "text-green-600"}`}>
+              {row.isActive ? "Deactivate" : "Reactivate"}
+            </button>
+          )}
         </div>
       ),
     },

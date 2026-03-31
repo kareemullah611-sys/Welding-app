@@ -4,9 +4,9 @@ import { withAuth, withSuperAdmin } from "@/lib/middleware";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 
-export const GET = withAuth(async (_request: NextRequest, _context: any, _user: JWTPayload) => {
+export const GET = withAuth(async (_request: NextRequest, _context: any, user: JWTPayload) => {
   const intermediaries = await prisma.intermediary.findMany({
-    where: { isActive: true },
+    where: user.role === "super_admin" ? {} : { isActive: true },
     orderBy: { name: "asc" },
   });
   return successResponse(intermediaries);
