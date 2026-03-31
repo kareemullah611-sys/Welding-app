@@ -36,6 +36,19 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
       return errorResponse("VALIDATION_ERROR", "One or more godowns don't belong to this city");
     }
 
+    const incomingGodownIds = new Set(allocations.filter((a: any) => a.qty > 0).map((a: any) => a.godownId));
+    const existingRows = await prisma.lotCityGodownAllocation.findMany({
+      where: { lotCityDistributionId: dist.id },
+      select: { godownId: true },
+    });
+    for (const row of existingRows) {
+      if (!incomingGodownIds.has(row.godownId)) {
+        await prisma.lotCityGodownAllocation.delete({
+          where: { lotCityDistributionId_godownId: { lotCityDistributionId: dist.id, godownId: row.godownId } },
+        });
+      }
+    }
+
     // Upsert godown allocations one by one (no transaction - avoids Neon timeout)
     for (const a of allocations) {
       if (a.qty <= 0) continue;

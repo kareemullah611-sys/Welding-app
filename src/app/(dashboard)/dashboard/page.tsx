@@ -18,18 +18,19 @@ export default function DashboardPage() {
   useEffect(() => {
     const load = async () => {
       setLoading(true);
+      const treasuryRequest = user?.role === "city_admin" ? apiCall("/api/v1/treasury") : Promise.resolve(null);
       const [dashRes, cashRes, treasuryRes] = await Promise.all([
         apiCall("/api/v1/dashboard"),
         apiCall("/api/v1/cash-position"),
-        apiCall("/api/v1/treasury"),
+        treasuryRequest,
       ]);
       if (dashRes.success) setData(dashRes.data);
       if (cashRes.success) setCashPosition(cashRes.data);
-      if (treasuryRes.success) setTreasury(treasuryRes.data);
+      if (treasuryRes?.success) setTreasury(treasuryRes.data);
       setLoading(false);
     };
     load();
-  }, []);
+  }, [user?.role]);
 
   if (loading) return <div className="flex items-center justify-center py-20"><div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" /></div>;
 

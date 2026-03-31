@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { reverseJournalEntries, journalSaleCreated, journalSaleCOGS } from "@/lib/accounting";
@@ -43,6 +44,73 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     for (const item of items) {
       if (!item.qty || Number(item.qty) <= 0) return errorResponse("VALIDATION_ERROR", "All item quantities must be > 0");
       if (!item.ratePerCarton || Number(item.ratePerCarton) <= 0) return errorResponse("VALIDATION_ERROR", "All item rates must be > 0");
+    }
+
+    // Validate corrected quantities against currently available godown stock.
+    // Because this sale is already part of the sold total, add back its own old quantities
+    // so the correction is checked as a replacement, not as an extra sale.
+    const oldQtyByProduct = sale.items.reduce((acc: Record<number, number>, item) => {
+      acc[item.productId] = (acc[item.productId] || 0) + Number(item.qty);
+      return acc;
+    }, {});
+    const stockRows: any[] = await prisma.$queryRaw`
+      WITH received AS (
+        SELECT lcd.product_id, COALESCE(SUM(lcga.qty), 0) as qty
+        FROM lot_city_godown_allocations lcga
+        JOIN lot_city_distributions lcd ON lcd.id = lcga.lot_city_distribution_id
+        WHERE lcga.godown_id = ${sale.godownId}
+          AND lcd.product_id IN (${Prisma.join(productIds)})
+        GROUP BY lcd.product_id
+      ),
+      sold AS (
+        SELECT si.product_id, COALESCE(SUM(si.qty), 0) as qty
+        FROM sale_items si
+        JOIN sales s ON s.id = si.sale_id
+        WHERE s.godown_id = ${sale.godownId}
+          AND s.status IN ('active', 'marked_short')
+          AND si.product_id IN (${Prisma.join(productIds)})
+        GROUP BY si.product_id
+      ),
+      city_out AS (
+        SELECT ct.product_id, COALESCE(SUM(ct.qty), 0) as qty
+        FROM city_transfers ct
+        WHERE ct.from_godown_id = ${sale.godownId}
+          AND ct.status = 'approved'
+          AND ct.product_id IN (${Prisma.join(productIds)})
+        GROUP BY ct.product_id
+      ),
+      city_in AS (
+        SELECT ct.product_id, COALESCE(SUM(ct.qty), 0) as qty
+        FROM city_transfers ct
+        WHERE ct.to_godown_id = ${sale.godownId}
+          AND ct.status = 'approved'
+          AND ct.product_id IN (${Prisma.join(productIds)})
+        GROUP BY ct.product_id
+      )
+      SELECT
+        p.id as product_id,
+        COALESCE(r.qty, 0) - COALESCE(s.qty, 0) - COALESCE(co.qty, 0) + COALESCE(ci.qty, 0) as available
+      FROM products p
+      LEFT JOIN received r ON r.product_id = p.id
+      LEFT JOIN sold s ON s.product_id = p.id
+      LEFT JOIN city_out co ON co.product_id = p.id
+      LEFT JOIN city_in ci ON ci.product_id = p.id
+      WHERE p.id IN (${Prisma.join(productIds)})
+    `;
+    const availableByProduct = Object.fromEntries(
+      stockRows.map((row) => [Number(row.product_id), Number(row.available || 0)])
+    );
+    for (const item of items) {
+      const productId = Number(item.productId);
+      const requestedQty = Number(item.qty);
+      const effectiveAvailable = Number(availableByProduct[productId] || 0) + Number(oldQtyByProduct[productId] || 0);
+      if (requestedQty > effectiveAvailable) {
+        const productName = products.find((p) => p.id === productId)?.name || `Product ${productId}`;
+        return errorResponse(
+          "VALIDATION_ERROR",
+          `${productName}: corrected quantity ${requestedQty} exceeds available stock ${effectiveAvailable} in the selected godown`
+        );
+      }
     }
 
     const roundMoney = (n: number) => Math.round(n * 100) / 100;

@@ -59,7 +59,7 @@ npm run dev
 | Role | Username | Password |
 |------|----------|----------|
 | Super Admin | superadmin | admin123 |
-| Karachi Admin | karachi_admin | city123 |
+| Quetta Admin | quetta_admin | city123 |
 | Lahore Admin | lahore_admin | city123 |
 | Kabul Admin | kabul_admin | city123 |
 | Herat Admin | herat_admin | city123 |

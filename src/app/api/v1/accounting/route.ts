@@ -23,9 +23,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 });
 
 async function cashPositionReport(cityId?: number | null) {
-  // Cash per city from journal entries
+  // Fix P1: cash accounts are keyed as "1001-CITY{id}" (accounting.ts getCashAccountId),
+  // not "CASH-". The old prefix matched nothing so this always fell to the broken fallback.
   const cashAccounts = await prisma.account.findMany({
-    where: { code: { startsWith: "CASH-" }, isActive: true },
+    where: { code: { startsWith: "1001-CITY" }, isActive: true },
     include: { city: { select: { id: true, name: true } } },
   });
 
@@ -50,8 +51,11 @@ async function cashPositionReport(cityId?: number | null) {
     const cities = await prisma.city.findMany({ where: cityId ? { id: cityId } : { isActive: true }, include: { country: true, cityCurrencies: { include: { currency: true } } } });
     for (const city of cities) {
       for (const cc of city.cityCurrencies) {
-        const paymentsIn = await prisma.payment.aggregate({ where: { cityId: city.id, status: "active", currencyId: cc.currencyId, destination: "our_account" }, _sum: { amount: true } });
-        const expensesOut = await prisma.expense.aggregate({ where: { cityId: city.id, currencyId: cc.currencyId }, _sum: { amount: true } });
+        // Fix P1: only count cash payments as inflow — previously all payment methods
+        // (bank_transfer, online, cheque) were included, overstating cash in office.
+        const paymentsIn = await prisma.payment.aggregate({ where: { cityId: city.id, status: "active", currencyId: cc.currencyId, destination: "our_account", paymentMethod: "cash" }, _sum: { amount: true } });
+        // Fix P2: exclude soft-deleted expenses from outflow calculation
+        const expensesOut = await prisma.expense.aggregate({ where: { cityId: city.id, currencyId: cc.currencyId, deletedAt: null }, _sum: { amount: true } });
         const withdrawals = await prisma.personalWithdrawal.aggregate({ where: { cityId: city.id, currencyId: cc.currencyId }, _sum: { amount: true } });
         const hajiOut = await prisma.hajiTransfer.aggregate({ where: { cityId: city.id, currencyId: cc.currencyId }, _sum: { amount: true } });
 
@@ -70,7 +74,8 @@ async function pnlReport(year?: number, cityId?: number | null) {
   if (year) { dateFilter.gte = new Date(`${year}-01-01`); dateFilter.lte = new Date(`${year}-12-31`); }
 
   const saleWhere: any = { status: "active" };
-  const expWhere: any = {};
+  // Fix P2: exclude soft-deleted expenses
+  const expWhere: any = { deletedAt: null };
   if (cityId) { saleWhere.cityId = cityId; expWhere.cityId = cityId; }
   if (year) { saleWhere.saleDate = dateFilter; expWhere.expenseDate = dateFilter; }
 
@@ -82,7 +87,7 @@ async function pnlReport(year?: number, cityId?: number | null) {
     revenueByCurrency[cc] = (revenueByCurrency[cc] || 0) + Number(s.totalAmount);
   }
 
-  // Expenses by currency
+  // Expenses by currency (soft-deleted excluded)
   const expenses = await prisma.expense.findMany({ where: expWhere, include: { currency: true } });
   const expenseByCurrency: Record<string, number> = {};
   for (const e of expenses) {
@@ -98,9 +103,17 @@ async function pnlReport(year?: number, cityId?: number | null) {
   const withdrawalByCurrency: Record<string, number> = {};
   for (const w of withdrawals) { const cc = w.currency.code; withdrawalByCurrency[cc] = (withdrawalByCurrency[cc] || 0) + Number(w.amount); }
 
-  // COGS from lot purchases
-  const lotPurchases = await prisma.lotPurchase.aggregate({ _sum: { totalPriceUsd: true } });
-  const lotCosts = await prisma.lotCost.aggregate({ _sum: { amount: true } });
+  // Fix P1: COGS from lot purchases — filter by year via lot date so we don't include
+  // all-time purchases when a year-specific or city-specific report is requested.
+  // LotPurchase/LotCost aren't city-stamped, so we filter via the lot's date range.
+  const lotWhere: any = {};
+  if (year) lotWhere.lotDate = { gte: new Date(`${year}-01-01`), lte: new Date(`${year}-12-31`) };
+  const lotsInScope = year
+    ? await prisma.lot.findMany({ where: lotWhere, select: { id: true } })
+    : null;
+  const lotIdFilter = lotsInScope ? { lotId: { in: lotsInScope.map((l) => l.id) } } : {};
+  const lotPurchases = await prisma.lotPurchase.aggregate({ where: lotIdFilter, _sum: { totalPriceUsd: true } });
+  const lotCosts = await prisma.lotCost.aggregate({ where: lotIdFilter, _sum: { amount: true } });
 
   return successResponse({
     report: "profit_and_loss", period: year ? `Year ${year}` : "All Time",

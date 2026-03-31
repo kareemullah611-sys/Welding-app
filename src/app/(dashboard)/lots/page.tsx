@@ -838,7 +838,7 @@ export default function LotsPage() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Description *</label>
             <input value={costForm.description} onChange={e => setCostForm(f => ({ ...f, description: e.target.value }))}
-              className="input-field" placeholder="e.g. Karachi port customs duty" />
+              className="input-field" placeholder="e.g. Quetta city customs duty" />
           </div>
           {/* Charged To */}
           <div>

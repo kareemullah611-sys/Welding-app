@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { withAuth } from "@/lib/middleware";
+import { withAuth, getCityScope } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 
@@ -9,7 +9,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const sp = request.nextUrl.searchParams;
     const report = sp.get("report"); // pnl, balance_sheet, cash, receivables, payables
     const year = sp.get("year") ? parseInt(sp.get("year")!) : new Date().getFullYear();
-    const cityId = sp.get("city_id") ? parseInt(sp.get("city_id")!) : undefined;
+    // Fix P1: enforce city scope — city_admin must only see their own city's data.
+    // Previously city_id was read directly from query string with no role check.
+    const requestedCityId = sp.get("city_id") ? parseInt(sp.get("city_id")!) : undefined;
+    const cityId = getCityScope(user, requestedCityId);
 
     switch (report) {
       case "pnl": return await profitAndLoss(year, cityId);
@@ -101,10 +104,12 @@ async function balanceSheet(cityId?: number) {
 
   if (accountIds.length === 0) return successResponse({ assets: [], liabilities: [], equity: [], revenue: [], expenses: [] });
 
-  // One groupBy for all accounts instead of one per account
+  // Fix P1: when filtering by city, also add cityId to the journal entry query so that
+  // global accounts (inventory, revenue, COGS — no cityId on the account record itself)
+  // only return entries belonging to this city, not all cities combined.
   const groups = await prisma.journalEntry.groupBy({
     by: ["accountId", "currencyCode"],
-    where: { accountId: { in: accountIds } },
+    where: { accountId: { in: accountIds }, ...(cityId ? { cityId } : {}) },
     _sum: { debit: true, credit: true },
   });
 

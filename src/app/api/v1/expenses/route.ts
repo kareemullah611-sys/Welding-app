@@ -78,6 +78,10 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const paidFrom: "cash_office" | "bank_account" = body.paidFrom ?? "cash_office";
     const bankAccountId: number | undefined = body.bankAccountId ? parseInt(body.bankAccountId) : undefined;
 
+    if (paidFrom === "bank_account" && !bankAccountId) {
+      return errorResponse("VALIDATION_ERROR", "Bank account is required when paidFrom is bank_account");
+    }
+
     // Validate bank account if paidFrom is bank_account
     if (paidFrom === "bank_account" && bankAccountId) {
       const bankAccount = await prisma.bankAccount.findUnique({ where: { id: bankAccountId } });

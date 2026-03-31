@@ -17,6 +17,7 @@ export default function PersonalWithdrawalsPage() {
   const [showEdit, setShowEdit] = useState(false);
   const [selected, setSelected] = useState<any>(null);
   const [cashPosition, setCashPosition] = useState<any>(null);
+  const [treasury, setTreasury] = useState<any>(null);
   const [currencies, setCurrencies] = useState<any[]>([]);
   const [form, setForm] = useState({ withdrawalDate: new Date().toISOString().split("T")[0], amount: 0, detail: "", withdrawnBy: "", notes: "", currencyId: 0 });
   const [submitting, setSubmitting] = useState(false);
@@ -25,9 +26,11 @@ export default function PersonalWithdrawalsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [result, cashRes] = await Promise.all([
+    const treasuryRequest = user?.role === "city_admin" ? apiCall("/api/v1/treasury") : Promise.resolve(null);
+    const [result, cashRes, treasuryRes] = await Promise.all([
       apiCall("/api/v1/personal-withdrawals", { params: { page, limit: 20 } }),
       apiCall("/api/v1/cash-position"),
+      treasuryRequest,
     ]);
     if (result.success) {
       setItems(result.data as any[]);
@@ -35,10 +38,19 @@ export default function PersonalWithdrawalsPage() {
       setTotal((result.pagination as any)?.total || 0);
     }
     if (cashRes.success) setCashPosition(cashRes.data);
+    if (treasuryRes?.success) setTreasury(treasuryRes.data);
     setLoading(false);
-  }, [page]);
+  }, [page, user?.role]);
 
   useEffect(() => { load(); }, [load]);
+
+  const formatPot = (pot: Record<string, number> | undefined) => {
+    if (!pot) return "0";
+    const entries = Object.entries(pot).filter(([, v]) => Number(v) !== 0);
+    if (entries.length === 0) return "0";
+    if (entries.length === 1) return `${entries[0][0]} ${formatNumber(entries[0][1])}`;
+    return entries.map(([cc, amt]) => `${cc} ${formatNumber(amt)}`).join(" · ");
+  };
 
   const openCreate = async () => {
     const cityRes = await apiCall("/api/v1/cities");
@@ -107,10 +119,10 @@ export default function PersonalWithdrawalsPage() {
         ) : undefined}
       />
 
-      {cashPosition && (
+      {(treasury || cashPosition) && (
         <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
-          💰 {t("cash_in_hand")}: <strong>{formatNumber(cashPosition.netCashInHand)}</strong>
-          {" — "}{t("total_withdrawn")}: <strong>{formatNumber(cashPosition.outgoing?.personalWithdrawals || 0)}</strong>
+          💰 {t("cash_in_office")}: <strong>{treasury ? formatPot(treasury.cashInOffice) : formatNumber(cashPosition?.netCashInHand || 0)}</strong>
+          {" — "}{t("total_withdrawn")}: <strong>{formatNumber(cashPosition?.outgoing?.personalWithdrawals || 0)}</strong>
         </div>
       )}
 

@@ -44,7 +44,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         orderBy: { paymentDate: "asc" },
       }),
       prisma.expense.findMany({
-        where: { cityId, ...dateFilter("expenseDate") },
+        where: { cityId, deletedAt: null, ...dateFilter("expenseDate") },
         include: { currency: true, lot: { select: { lotNumber: true } } },
         orderBy: { expenseDate: "asc" },
       }),
