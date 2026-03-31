@@ -3,11 +3,13 @@ import prisma from "@/lib/prisma";
 import { withAuth } from "@/lib/middleware";
 import { successResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { SaleStatus } from "@prisma/client";
 
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
     const cityId = user.role === "city_admin" ? user.cityId! : undefined;
     const cityFilter = cityId ? { cityId } : {};
+    const includedSaleStatuses: SaleStatus[] = ["active", "marked_short"];
 
     // Build a currency-id → code lookup once (tiny table, very fast)
     const currencies = await prisma.currency.findMany({ select: { id: true, code: true } });
@@ -17,7 +19,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const [salesByC, paymentsByC, hajiByC, wdByC, expByC, cartonsSold] = await Promise.all([
       prisma.sale.groupBy({
         by: ["currencyId"],
-        where: { ...cityFilter, status: "active" },
+        where: { ...cityFilter, status: { in: includedSaleStatuses } },
         _sum: { totalAmount: true },
       }),
       prisma.payment.groupBy({
@@ -41,7 +43,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         _sum: { amount: true },
       }),
       prisma.saleItem.aggregate({
-        where: { sale: { ...cityFilter, status: "active" } },
+        where: { sale: { ...cityFilter, status: { in: includedSaleStatuses } } },
         _sum: { qty: true },
       }),
     ]);
@@ -168,7 +170,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         prisma.city.findMany({ where: { isActive: true }, include: { country: true } }),
         prisma.sale.groupBy({
           by: ["cityId", "currencyId"],
-          where: { status: "active" },
+          where: { status: { in: includedSaleStatuses } },
           _sum: { totalAmount: true },
         }),
         prisma.payment.groupBy({
@@ -196,7 +198,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         SELECT s.city_id, COALESCE(SUM(si.qty), 0) AS total_qty
         FROM sale_items si
         JOIN sales s ON si.sale_id = s.id
-        WHERE s.status = 'active'
+        WHERE s.status IN ('active', 'marked_short')
         GROUP BY s.city_id
       `;
       const cartonsMap: Record<number, number> = {};

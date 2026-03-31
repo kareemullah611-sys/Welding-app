@@ -39,6 +39,7 @@ export default function SettingsPage() {
 }
 
 function UsersTab() {
+  const { user } = useAuth();
   const { t } = useLang();
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,6 +59,7 @@ function UsersTab() {
   const openCreate = async () => { const c = await apiCall("/api/v1/cities"); if (c.success) setCities(c.data as any[]); setForm({ username: "", password: "", fullName: "", role: "city_admin", cityId: 0 }); setShowCreate(true); setError(""); };
   const handleCreate = async () => {
     if (!form.username || !form.password || !form.fullName) { setError("Fill all fields"); return; }
+    if (form.role === "city_admin" && !form.cityId) { setError("Select a city for city admin"); return; }
     setSubmitting(true);
     const r = await apiCall("/api/v1/users", { method: "POST", body: { ...form, cityId: form.role === "city_admin" ? form.cityId : null } });
     setSubmitting(false);
@@ -85,8 +87,13 @@ function UsersTab() {
   };
 
   const toggleActive = async (u: any) => {
+    if (u.id === user?.id) {
+      setError("You cannot deactivate your own account");
+      return;
+    }
     if (!confirm(`${u.isActive ? t("deactivate") : t("activate")} ${u.fullName}?`)) return;
-    await apiCall(`/api/v1/users/${u.id}`, { method: "PUT", body: { isActive: !u.isActive } });
+    const result = await apiCall(`/api/v1/users/${u.id}`, { method: "PUT", body: { isActive: !u.isActive } });
+    if (!result.success) setError(result.error || "Failed");
     load();
   };
 
@@ -103,7 +110,11 @@ function UsersTab() {
           <div className="flex gap-2">
             <button onClick={() => openEdit(u)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button>
             <button onClick={() => openResetPw(u)} className="text-xs text-yellow-600 hover:underline">{t("reset_pw")}</button>
-            <button onClick={() => toggleActive(u)} className="text-xs text-red-600 hover:underline">{u.isActive ? t("deactivate") : t("activate")}</button>
+            {u.id === user?.id ? (
+              <span className="text-xs text-gray-400 cursor-not-allowed">Current account</span>
+            ) : (
+              <button onClick={() => toggleActive(u)} className="text-xs text-red-600 hover:underline">{u.isActive ? t("deactivate") : t("activate")}</button>
+            )}
           </div>
         )},
       ]} data={users} loading={loading} />

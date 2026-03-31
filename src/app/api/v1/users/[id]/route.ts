@@ -20,6 +20,19 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     const existing = await prisma.user.findUnique({ where: { id } });
     if (!existing) return errorResponse("NOT_FOUND", "User not found", 404);
 
+    if (body.isActive === false && existing.id === user.userId) {
+      return errorResponse("VALIDATION_ERROR", "You cannot deactivate your own account");
+    }
+
+    if (body.isActive === false && existing.role === "super_admin") {
+      const activeSuperAdmins = await prisma.user.count({
+        where: { role: "super_admin", isActive: true },
+      });
+      if (activeSuperAdmins <= 1) {
+        return errorResponse("VALIDATION_ERROR", "At least one active super admin is required");
+      }
+    }
+
     const data: any = { updatedAt: new Date() };
     if (body.fullName) data.fullName = body.fullName;
     if (body.isActive !== undefined) data.isActive = body.isActive;

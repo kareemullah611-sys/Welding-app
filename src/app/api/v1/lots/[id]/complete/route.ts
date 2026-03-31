@@ -63,9 +63,6 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
             await prisma.lotSettlementOverflow.create({
               data: { cityId, fromLotId: lotId, toLotId: nextLot.id, overflowAmount, currencyId, notes: `Auto-overflow from lot ${lot.lotNumber} completion`, createdBy: user.userId },
             });
-            await prisma.hajiTransfer.create({
-              data: { cityId, lotId: nextLot.id, transferDate: new Date(), amount: overflowAmount, currencyId, detail: `Overflow credit from completed lot ${lot.lotNumber}`, transferType: "from_in_hand", createdBy: user.userId },
-            });
             overflows.push({ cityId, currencyId, overflowAmount: Math.round(overflowAmount * 100) / 100, toLotId: nextLot.id, toLotNumber: nextLot.lotNumber });
           } else {
             // No ongoing lot to absorb the overflow — record it in the response so the super admin is aware

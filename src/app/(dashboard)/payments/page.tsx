@@ -26,6 +26,7 @@ export default function PaymentsPage() {
   const { t } = useLang();
   const { isOnline, enqueue, lastSyncResult } = useOffline();
   const recordMenuRef = useRef<HTMLDivElement>(null);
+  const canCreateRecords = user?.role === "city_admin";
 
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -463,27 +464,33 @@ export default function PaymentsPage() {
             </select>
 
             {/* Record ▼ dropdown button */}
-            <div className="relative" ref={recordMenuRef}>
-              <button
-                onClick={() => setShowRecordMenu(v => !v)}
-                className="btn-primary text-sm flex items-center gap-1.5"
-              >
-                + Record <ChevronDown size={13} />
-              </button>
-              {showRecordMenu && (
-                <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-gray-200 rounded-xl shadow-lg z-30 overflow-hidden">
-                  {RECORD_OPTIONS.map(opt => (
-                    <button
-                      key={opt.type}
-                      onClick={() => openCreate(opt.type)}
-                      className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors"
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            {canCreateRecords ? (
+              <div className="relative" ref={recordMenuRef}>
+                <button
+                  onClick={() => setShowRecordMenu(v => !v)}
+                  className="btn-primary text-sm flex items-center gap-1.5"
+                >
+                  + Record <ChevronDown size={13} />
+                </button>
+                {showRecordMenu && (
+                  <div className="absolute right-0 top-full mt-1 w-52 bg-white border border-gray-200 rounded-xl shadow-lg z-30 overflow-hidden">
+                    {RECORD_OPTIONS.map(opt => (
+                      <button
+                        key={opt.type}
+                        onClick={() => openCreate(opt.type)}
+                        className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors"
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                Super admin can review and approve records here, but city transactions must be posted from the city admin side.
+              </div>
+            )}
           </div>
         }
       />

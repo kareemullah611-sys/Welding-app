@@ -25,10 +25,17 @@ export default function ReportsPage() {
   };
 
   useEffect(() => {
-    if (reportType === "customer_ledger" || reportType === "city_ledger" || reportType === "discount_history") {
+    if (
+      reportType === "customer_ledger" ||
+      reportType === "city_ledger" ||
+      reportType === "discount_history" ||
+      user?.role === "super_admin"
+    ) {
       loadFilters();
     }
-  }, [reportType]);
+  }, [reportType, user?.role]);
+
+  const showCityFilter = user?.role === "super_admin" && reportType !== "customer_ledger";
 
   const runReport = async () => {
     setLoading(true); if (!customers.length) await loadFilters();
@@ -72,12 +79,19 @@ export default function ReportsPage() {
   };
 
   const exportCSV = () => {
-    const tp = reportType === "city_ledger" ? "ledger" : reportType === "customer_ledger" ? "sales" : reportType === "haji_settlement" ? "expenses" : reportType;
+    const tp = reportType === "city_ledger"
+      ? "ledger"
+      : reportType === "customer_ledger"
+      ? "customer_ledger"
+      : reportType === "haji_settlement"
+      ? "haji_transfers"
+      : reportType;
     const p = new URLSearchParams({ type: tp });
     if (filters.date_from) p.set("date_from", filters.date_from);
     if (filters.date_to) p.set("date_to", filters.date_to);
     if (filters.city_id) p.set("city_id", filters.city_id);
     else if (user?.cityId) p.set("city_id", String(user.cityId));
+    if (reportType === "customer_ledger" && filters.customer_id) p.set("customer_id", filters.customer_id);
     window.open(`/api/v1/reports/export?${p.toString()}`, "_blank");
   };
 
@@ -137,7 +151,7 @@ export default function ReportsPage() {
           <option value="discount_history">{t("discount_history")}</option>
         </select></div>
         {(reportType === "customer_ledger" || reportType === "discount_history") && <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("customer")}</label><select value={filters.customer_id} onChange={(e) => setFilters((f) => ({ ...f, customer_id: e.target.value }))} className="select-field w-auto"><option value="">{t("all_customers")}</option>{customers.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>}
-        {((reportType === "city_ledger" || reportType === "discount_history") && user?.role === "super_admin") && <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("city")}</label><select value={filters.city_id} onChange={(e) => setFilters((f) => ({ ...f, city_id: e.target.value }))} className="select-field w-auto"><option value="">{t("all_cities")}</option>{cities.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>}
+        {showCityFilter && <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("city")}</label><select value={filters.city_id} onChange={(e) => setFilters((f) => ({ ...f, city_id: e.target.value }))} className="select-field w-auto"><option value="">{t("all_cities")}</option>{cities.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>}
         <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("from")}</label><input type="date" value={filters.date_from} onChange={(e) => setFilters((f) => ({ ...f, date_from: e.target.value }))} className="input-field w-auto" /></div>
         <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("to")}</label><input type="date" value={filters.date_to} onChange={(e) => setFilters((f) => ({ ...f, date_to: e.target.value }))} className="input-field w-auto" /></div>
         <button onClick={runReport} disabled={loading} className="btn-primary text-sm">{loading ? t("loading") : t("generate")}</button>

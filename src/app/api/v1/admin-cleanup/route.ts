@@ -1,12 +1,29 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
+import { withSuperAdmin } from "@/lib/middleware";
+import { JWTPayload } from "@/lib/auth";
 
-const SECRET = "mrf-cleanup-2024-xk9";
+function adminCleanupGuard(requestSecret: string | null | undefined) {
+  const enabled = process.env.ENABLE_ADMIN_CLEANUP === "true";
+  const secret = process.env.ADMIN_CLEANUP_SECRET;
+
+  if (!enabled) {
+    return Response.json({ error: "not_found" }, { status: 404 });
+  }
+  if (!secret) {
+    return Response.json({ error: "misconfigured" }, { status: 503 });
+  }
+  if (requestSecret !== secret) {
+    return Response.json({ error: "forbidden" }, { status: 403 });
+  }
+  return null;
+}
 
 // Run once after deploy to create new tables
-export const GET = async (request: NextRequest) => {
+export const GET = withSuperAdmin(async (request: NextRequest, _ctx: any, _user: JWTPayload) => {
   const secret = request.nextUrl.searchParams.get("secret");
-  if (secret !== SECRET) return Response.json({ error: "forbidden" }, { status: 403 });
+  const guard = adminCleanupGuard(secret);
+  if (guard) return guard;
 
   try {
     await prisma.$executeRawUnsafe(`
@@ -70,11 +87,12 @@ export const GET = async (request: NextRequest) => {
   } catch (error: any) {
     return Response.json({ error: error?.message ?? "failed" }, { status: 500 });
   }
-};
+});
 
-export const POST = async (request: NextRequest) => {
+export const POST = withSuperAdmin(async (request: NextRequest, _ctx: any, _user: JWTPayload) => {
   const { secret } = await request.json();
-  if (secret !== SECRET) return Response.json({ error: "forbidden" }, { status: 403 });
+  const guard = adminCleanupGuard(secret);
+  if (guard) return guard;
 
   try {
     // Delete in FK-safe order: children before parents
@@ -117,4 +135,4 @@ export const POST = async (request: NextRequest) => {
   } catch (error: any) {
     return Response.json({ error: error?.message ?? "failed" }, { status: 500 });
   }
-};
+});
