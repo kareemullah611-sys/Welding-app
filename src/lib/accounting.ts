@@ -253,6 +253,39 @@ export async function journalShippingLinePayment(p: { id: number; shippingLineId
   ], { currencyCode: "USD", entityType: "shipping_line_payment", entityId: p.id, entryDate: p.paymentDate, createdBy: p.createdBy });
 }
 
+// COGS AT POINT OF SALE
+// Computes landed cost per carton from lot data and journals:
+// DR Cost of Goods Sold | CR Inventory
+export async function journalSaleCOGS(params: {
+  saleId: number; lotId: number; totalQtySold: number;
+  saleDate: Date; cityId: number; createdBy: number;
+}) {
+  const { saleId, lotId, totalQtySold, saleDate, cityId, createdBy } = params;
+
+  const [purchases, costs, lotProducts] = await Promise.all([
+    prisma.lotPurchase.aggregate({ where: { lotId }, _sum: { totalPriceUsd: true } }),
+    prisma.lotCost.aggregate({ where: { lotId }, _sum: { amount: true } }),
+    prisma.lotProduct.aggregate({ where: { lotId }, _sum: { totalQty: true } }),
+  ]);
+
+  const totalPurchaseUsd = Number(purchases._sum.totalPriceUsd || 0);
+  const totalCostsUsd = Number(costs._sum.amount || 0);
+  const totalCartons = Number(lotProducts._sum.totalQty || 0);
+
+  if (totalCartons === 0 || totalQtySold === 0) return;
+  const totalLandedCost = totalPurchaseUsd + totalCostsUsd;
+  if (totalLandedCost === 0) return;
+
+  const costPerCarton = totalLandedCost / totalCartons;
+  const cogsAmount = Math.round(totalQtySold * costPerCarton * 100) / 100;
+  if (cogsAmount <= 0) return;
+
+  await createJournalEntries(`COGS-${saleId}`, [
+    { accountId: await getCOGSAccountId(), debit: cogsAmount, credit: 0, description: `COGS — Sale #${saleId}` },
+    { accountId: await getInventoryAccountId(), debit: 0, credit: cogsAmount, description: `Inventory reduction — Sale #${saleId}` },
+  ], { currencyCode: "USD", entityType: "sale", entityId: saleId, lotId, cityId, entryDate: saleDate, createdBy });
+}
+
 // REVERSE (for cancellations)
 export async function reverseJournalEntries(transactionId: string, createdBy: number) {
   const entries = await prisma.journalEntry.findMany({ where: { transactionId } });

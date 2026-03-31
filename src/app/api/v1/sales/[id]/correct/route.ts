@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
-import { reverseJournalEntries, journalSaleCreated } from "@/lib/accounting";
+import { reverseJournalEntries, journalSaleCreated, journalSaleCOGS } from "@/lib/accounting";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 
@@ -34,6 +34,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 
     // Reverse original journal entries before changing items
     try { await reverseJournalEntries(`SALE-${saleId}`, user.userId); } catch (_) {}
+    try { await reverseJournalEntries(`COGS-${saleId}`, user.userId); } catch (_) {}
 
     // Delete old items and batch-create new ones atomically
     await prisma.saleItem.deleteMany({ where: { saleId } });
@@ -58,6 +59,13 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         id: saleId, customerId: sale.customerId, cityId: sale.cityId,
         lotId: sale.lotId!, totalAmount, currencyCode: (sale as any).currency?.code || "PKR",
         saleDate: sale.saleDate, createdBy: user.userId,
+      });
+    } catch (_) {}
+    try {
+      const totalQtySold = newItems.reduce((s: number, i: { qty: number }) => s + i.qty, 0);
+      await journalSaleCOGS({
+        saleId, lotId: sale.lotId!, totalQtySold,
+        saleDate: sale.saleDate, cityId: sale.cityId, createdBy: user.userId,
       });
     } catch (_) {}
 

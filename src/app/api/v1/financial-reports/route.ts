@@ -59,6 +59,20 @@ async function profitAndLoss(year: number, cityId?: number) {
     }
   }
 
+  // If no COGS journal entries exist yet (legacy data), compute from purchases + costs
+  const hasCOGSJournals = Object.values(byCurrency).some(d => d.cogs > 0);
+  if (!hasCOGSJournals) {
+    const [purchases, costs] = await Promise.all([
+      prisma.lotPurchase.aggregate({ _sum: { totalPriceUsd: true } }),
+      prisma.lotCost.aggregate({ _sum: { amount: true } }),
+    ]);
+    const directCOGS = Number(purchases._sum.totalPriceUsd || 0) + Number(costs._sum.amount || 0);
+    if (directCOGS > 0) {
+      if (!byCurrency["USD"]) byCurrency["USD"] = { revenue: 0, cogs: 0, expenses: {}, expenseTotal: 0 };
+      byCurrency["USD"].cogs = directCOGS;
+    }
+  }
+
   const result: any[] = [];
   for (const [currency, data] of Object.entries(byCurrency)) {
     const grossProfit = data.revenue - data.cogs;

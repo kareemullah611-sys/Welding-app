@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middleware";
 import { createSaleSchema } from "@/lib/validations";
-import { journalSaleCreated, journalPaymentReceived } from "@/lib/accounting";
+import { journalSaleCreated, journalPaymentReceived, journalSaleCOGS } from "@/lib/accounting";
 import {
   successResponse, paginatedResponse, validationError, errorResponse, serverError,
   getPaginationParams, getDateRange,
@@ -364,6 +364,15 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         saleDate: sale.saleDate, createdBy: user.userId,
       });
     } catch (je) { console.error("Journal entry error (sale):", je); }
+
+    // COGS journal: DR Cost of Goods Sold | CR Inventory (always in USD at landed cost)
+    try {
+      const totalQtySold = items.reduce((s, i) => s + i.qty, 0);
+      await journalSaleCOGS({
+        saleId: sale.id, lotId: sale.lotId!, totalQtySold,
+        saleDate: sale.saleDate, cityId: sale.cityId, createdBy: user.userId,
+      });
+    } catch (je) { console.error("COGS journal error (sale):", je); }
 
     // Check inventory thresholds — fire low-stock notification if any product drops below minimum
     try {

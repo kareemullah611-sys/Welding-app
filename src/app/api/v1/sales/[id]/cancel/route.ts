@@ -39,6 +39,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 
     // Reverse journal entries so accounting books stay balanced
     try { await reverseJournalEntries(`SALE-${id}`, user.userId); } catch (je) { console.error("Journal reversal error (sale cancel):", je); }
+    try { await reverseJournalEntries(`COGS-${id}`, user.userId); } catch (je) { console.error("COGS reversal error (sale cancel):", je); }
 
     return successResponse({ id, status: "cancelled" }, "Sale cancelled");
   } catch (error) {
