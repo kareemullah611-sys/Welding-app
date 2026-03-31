@@ -797,8 +797,9 @@ model BankAccount {
   deposits              BankDeposit[]
   hajiTransfers         HajiTransfer[]
   expenses              Expense[]
-  supplierPayments      SupplierPayment[]      @relation("SupplierPaymentBankAccount")
-  intermediaryDeposits  IntermediaryDeposit[]
+  supplierPayments        SupplierPayment[]        @relation("SupplierPaymentBankAccount")
+  shippingLinePayments    ShippingLinePayment[]    @relation("ShippingLinePaymentBankAccount")
+  intermediaryDeposits    IntermediaryDeposit[]
 
   @@index([cityId])
   @@map("bank_accounts")
@@ -1116,11 +1117,12 @@ model ShippingLine {
 model ShippingLinePayment {
   id             Int      @id @default(autoincrement())
   shippingLineId Int      @map("shipping_line_id")
-  lotId          Int?     @map("lot_id")  // optional: which lot this freight is for
+  lotId          Int?     @map("lot_id")
+  bankAccountId  Int?     @map("bank_account_id") // which bank the payment was sent from
   paymentDate    DateTime @map("payment_date") @db.Date
   amountUsd      Decimal  @map("amount_usd") @db.Decimal(15, 2)
-  exchangeRate   Decimal? @map("exchange_rate") @db.Decimal(12, 4) // USD/PKR at payment time
-  amountPkr      Decimal? @map("amount_pkr") @db.Decimal(15, 2)   // amountUsd × exchangeRate
+  exchangeRate   Decimal? @map("exchange_rate") @db.Decimal(12, 4)
+  amountPkr      Decimal? @map("amount_pkr") @db.Decimal(15, 2)
   reference      String?  @db.VarChar(200)
   notes          String?  @db.Text
   createdBy      Int      @map("created_by")
@@ -1129,10 +1131,12 @@ model ShippingLinePayment {
 
   shippingLine ShippingLine @relation(fields: [shippingLineId], references: [id])
   lot          Lot?         @relation(fields: [lotId], references: [id])
+  bankAccount  BankAccount? @relation("ShippingLinePaymentBankAccount", fields: [bankAccountId], references: [id])
   creator      User         @relation("ShippingLinePaymentCreatedBy", fields: [createdBy], references: [id])
 
   @@index([shippingLineId])
   @@index([lotId])
+  @@index([bankAccountId])
   @@map("shipping_line_payments")
 }
 

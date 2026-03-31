@@ -245,10 +245,11 @@ export async function journalIntermediaryDeposit(d: {
 }
 
 // SHIPPING LINE PAID
-export async function journalShippingLinePayment(p: { id: number; shippingLineId: number; amountUsd: number; paymentDate: Date; createdBy: number; }) {
+export async function journalShippingLinePayment(p: { id: number; shippingLineId: number; amountUsd: number; paymentDate: Date; createdBy: number; bankAccountId?: number | null; }) {
+  const creditAccId = p.bankAccountId ? await getBankGLAccountId(p.bankAccountId) : await getBankAccountId();
   await createJournalEntries(`SLPAY-${p.id}`, [
     { accountId: await getShippingLineAccountId(p.shippingLineId), debit: p.amountUsd, credit: 0, description: `Payment to shipping line` },
-    { accountId: await getBankAccountId(), debit: 0, credit: p.amountUsd, description: `Bank to shipping line` },
+    { accountId: creditAccId, debit: 0, credit: p.amountUsd, description: `Bank to shipping line` },
   ], { currencyCode: "USD", entityType: "shipping_line_payment", entityId: p.id, entryDate: p.paymentDate, createdBy: p.createdBy });
 }
 
