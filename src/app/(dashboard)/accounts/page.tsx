@@ -97,22 +97,38 @@ function PnLReport({ data }: { data: any }) {
 
 function CashReport({ data }: { data: any }) {
   const { t } = useLang();
-  const positions = data.cashPositions || [];
-  const byCurr: Record<string, { items: any[]; total: number }> = {};
-  for (const p of positions) { if (!byCurr[p.currency]) byCurr[p.currency] = { items: [], total: 0 }; byCurr[p.currency].items.push(p); byCurr[p.currency].total += p.balance; }
-  return (<div className="space-y-4">
-    {Object.entries(byCurr).map(([curr, { items, total }]) => (
-      <div key={curr} className="card">
-        <div className="flex justify-between items-center mb-3 border-b pb-2">
-          <h3 className="text-lg font-bold text-gray-800">{t("cash")} — {curr}</h3>
-          <span className={`text-xl font-bold ${total >= 0 ? "text-green-700" : "text-red-700"}`}>{n(total)}</span>
+  const cashPositions: any[] = data.cashPositions || [];
+  const bankPositions: any[] = data.bankPositions || [];
+  const intermediaryPositions: any[] = data.intermediaryPositions || [];
+
+  function PositionGroup({ label, positions, color }: { label: string; positions: any[]; color: string }) {
+    if (!positions.length) return null;
+    const byCurr: Record<string, { items: any[]; total: number }> = {};
+    for (const p of positions) { if (!byCurr[p.currency]) byCurr[p.currency] = { items: [], total: 0 }; byCurr[p.currency].items.push(p); byCurr[p.currency].total += p.balance; }
+    return (<>
+      {Object.entries(byCurr).map(([curr, { items, total }]) => (
+        <div key={`${label}-${curr}`} className="card">
+          <div className="flex justify-between items-center mb-3 border-b pb-2">
+            <h3 className="text-lg font-bold text-gray-800">{label} — {curr}</h3>
+            <span className={`text-xl font-bold ${total >= 0 ? "text-green-700" : "text-red-700"}`}>{n(total)}</span>
+          </div>
+          {items.map((p: any, i: number) => (
+            <div key={i} className="flex justify-between py-1.5 text-sm border-b border-gray-50">
+              <span className="text-gray-600">{p.account}</span>
+              <span className={`font-medium ${p.balance >= 0 ? color : "text-red-700"}`}>{n(p.balance)}</span>
+            </div>
+          ))}
         </div>
-        {items.map((p: any, i: number) => (
-          <div key={i} className="flex justify-between py-1.5 text-sm border-b border-gray-50"><span className="text-gray-600">{p.account}</span><span className={`font-medium ${p.balance >= 0 ? "text-green-700" : "text-red-700"}`}>{n(p.balance)}</span></div>
-        ))}
-      </div>
-    ))}
-    {!positions.length && <div className="text-gray-400 py-8 text-center">{t("no_cash_transactions")}</div>}
+      ))}
+    </>);
+  }
+
+  const hasAny = cashPositions.length || bankPositions.length || intermediaryPositions.length;
+  return (<div className="space-y-4">
+    <PositionGroup label={t("cash_in_hand")} positions={cashPositions} color="text-green-700" />
+    <PositionGroup label={t("bank_accounts")} positions={bankPositions} color="text-blue-700" />
+    <PositionGroup label="Intermediaries" positions={intermediaryPositions} color="text-orange-700" />
+    {!hasAny && <div className="text-gray-400 py-8 text-center">{t("no_cash_transactions")}</div>}
   </div>);
 }
 

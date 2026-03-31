@@ -135,38 +135,47 @@ async function balanceSheet(cityId?: number) {
 }
 
 async function cashPosition(cityId?: number) {
-  // Get all cash & bank accounts in one query
-  const cashAccounts = await prisma.account.findMany({
-    where: { code: { startsWith: "1001-CITY" }, isActive: true, ...(cityId ? { cityId } : {}) },
+  // Get all cash, cheque, bank, and intermediary accounts
+  const codeFilter = { OR: [
+    { code: { startsWith: "1001-CITY" } },   // cash in hand per city
+    { code: { startsWith: "1002-CHEQUE" } }, // cheques in hand per city
+    { code: { startsWith: "1050-BANK" } },   // specific bank accounts
+    { code: "1050" },                         // generic bank (legacy)
+    { code: { startsWith: "1060-H" } },       // intermediary balances
+  ]};
+
+  const allAccounts = await prisma.account.findMany({
+    where: { isActive: true, AND: [codeFilter, cityId ? { OR: [{ cityId }, { cityId: null }] } : {}] },
   });
-  const bankAcc = await prisma.account.findUnique({ where: { code: "1050" } });
 
-  const allAccIds = [...cashAccounts.map((a) => a.id), ...(bankAcc ? [bankAcc.id] : [])];
-  const accountMap = Object.fromEntries(
-    [...cashAccounts, ...(bankAcc ? [bankAcc] : [])].map((a) => [a.id, a])
-  );
+  const accountIds = allAccounts.map((a) => a.id);
+  const accountMap = Object.fromEntries(allAccounts.map((a) => [a.id, a]));
 
-  if (allAccIds.length === 0) return successResponse({ cashPositions: [] });
+  if (accountIds.length === 0) return successResponse({ cashPositions: [], bankPositions: [], intermediaryPositions: [] });
 
-  // One groupBy for all cash accounts instead of one per account
   const groups = await prisma.journalEntry.groupBy({
     by: ["accountId", "currencyCode"],
-    where: { accountId: { in: allAccIds } },
+    where: { accountId: { in: accountIds } },
     _sum: { debit: true, credit: true },
   });
 
-  const positions: any[] = [];
+  const cashPositions: any[] = [];
+  const bankPositions: any[] = [];
+  const intermediaryPositions: any[] = [];
+
   for (const g of groups) {
     const acc = accountMap[g.accountId];
     if (!acc) continue;
     const balance = Number(g._sum.debit || 0) - Number(g._sum.credit || 0);
-    if (Math.abs(balance) > 0.01) {
-      const label = acc.id === bankAcc?.id ? "Bank (USD)" : acc.name;
-      positions.push({ account: label, cityId: acc.cityId ?? null, currency: g.currencyCode, balance: r2(balance) });
-    }
+    if (Math.abs(balance) < 0.01) continue;
+
+    const entry = { account: acc.name, cityId: acc.cityId ?? null, currency: g.currencyCode, balance: r2(balance) };
+    if (acc.code.startsWith("1001-") || acc.code.startsWith("1002-")) cashPositions.push(entry);
+    else if (acc.code.startsWith("1050")) bankPositions.push(entry);
+    else if (acc.code.startsWith("1060-")) intermediaryPositions.push(entry);
   }
 
-  return successResponse({ cashPositions: positions });
+  return successResponse({ cashPositions, bankPositions, intermediaryPositions });
 }
 
 async function receivables(cityId?: number) {
