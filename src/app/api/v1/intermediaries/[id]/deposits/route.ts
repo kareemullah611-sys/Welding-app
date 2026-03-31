@@ -1,11 +1,11 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { withAuth } from "@/lib/middleware";
+import { withSuperAdmin } from "@/lib/middleware";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { journalIntermediaryDeposit } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 
-export const POST = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
+export const POST = withSuperAdmin(async (request: NextRequest, context: any, user: JWTPayload) => {
   const intermediaryId = parseInt(context.params.id);
   const body = await request.json();
 
@@ -16,20 +16,12 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
   const currency = await prisma.currency.findUnique({ where: { id: Number(body.currencyId) } });
   if (!currency) return errorResponse("VALIDATION", "Invalid currency", 400);
 
-  // City admins can only deposit from their own city cash
-  let sourceType: string;
+  // Super admin chooses source: bank account or any city's cash
+  let sourceType: string = body.sourceType || "bank_account";
   let cityId: number | null = null;
   let bankAccountId: number | null = null;
-
-  if (user.role === "city_admin") {
-    sourceType = "city_cash";
-    cityId = user.cityId!;
-  } else {
-    // super_admin can choose source
-    sourceType = body.sourceType || "bank_account";
-    if (sourceType === "city_cash" && body.cityId) cityId = Number(body.cityId);
-    if (sourceType === "bank_account" && body.bankAccountId) bankAccountId = Number(body.bankAccountId);
-  }
+  if (sourceType === "city_cash" && body.cityId) cityId = Number(body.cityId);
+  if (sourceType === "bank_account" && body.bankAccountId) bankAccountId = Number(body.bankAccountId);
 
   const deposit = await prisma.intermediaryDeposit.create({
     data: {
