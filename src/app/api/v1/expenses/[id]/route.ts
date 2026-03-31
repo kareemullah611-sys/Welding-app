@@ -45,7 +45,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     });
 
     try {
-      await journalExpenseCreated({ id, cityId: expense.cityId, lotId: expense.lotId!, amount: Number(updated.amount), currencyCode: expense.currency.code, detail: updated.detail, expenseDate: expense.expenseDate, createdBy: user.userId });
+      await journalExpenseCreated({ id, cityId: expense.cityId, lotId: expense.lotId!, amount: Number(updated.amount), currencyCode: expense.currency.code, detail: updated.detail, expenseDate: expense.expenseDate, createdBy: user.userId, paidFrom: (expense as any).paidFrom ?? "cash_office", bankAccountId: (expense as any).bankAccountId ?? null });
     } catch (je) { console.error("Re-journal (expense):", je); }
 
     await createAuditLog(user.userId, expense.cityId, "expenses", id, "update", old, { amount: Number(updated.amount), detail: updated.detail }, getClientIP(request));

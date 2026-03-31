@@ -193,10 +193,17 @@ export async function journalAgentPaid(p: { id: number; agentId: number; cityId:
 }
 
 // EXPENSE
-export async function journalExpenseCreated(e: { id: number; cityId: number; lotId: number; amount: number; currencyCode: string; detail: string; expenseDate: Date; createdBy: number; }) {
+// CR account depends on paidFrom: bank_account → specific bank GL, else city cash
+export async function journalExpenseCreated(e: { id: number; cityId: number; lotId: number; amount: number; currencyCode: string; detail: string; expenseDate: Date; createdBy: number; paidFrom?: string | null; bankAccountId?: number | null; }) {
+  let creditAccId: number;
+  if (e.paidFrom === "bank_account" && e.bankAccountId) {
+    creditAccId = await getBankGLAccountId(e.bankAccountId);
+  } else {
+    creditAccId = await getCashAccountId(e.cityId);
+  }
   await createJournalEntries(`EXP-${e.id}`, [
     { accountId: await getExpenseAccountId("general"), debit: e.amount, credit: 0, description: e.detail },
-    { accountId: await getCashAccountId(e.cityId), debit: 0, credit: e.amount, description: `Expense: ${e.detail}` },
+    { accountId: creditAccId, debit: 0, credit: e.amount, description: `Expense: ${e.detail}` },
   ], { currencyCode: e.currencyCode, entityType: "expense", entityId: e.id, lotId: e.lotId, cityId: e.cityId, entryDate: e.expenseDate, createdBy: e.createdBy });
 }
 

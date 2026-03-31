@@ -112,7 +112,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     }, getClientIP(request));
 
     try {
-      await journalExpenseCreated({ id: expense.id, cityId, lotId: lot.id, amount, currencyCode: expense.currency.code, detail, expenseDate: expense.expenseDate, createdBy: user.userId });
+      await journalExpenseCreated({ id: expense.id, cityId, lotId: lot.id, amount, currencyCode: expense.currency.code, detail, expenseDate: expense.expenseDate, createdBy: user.userId, paidFrom: paidFrom ?? "cash_office", bankAccountId: bankAccountId ?? null });
     } catch (je) { console.error("Journal (expense):", je); }
 
     return successResponse({
