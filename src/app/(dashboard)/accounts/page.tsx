@@ -151,19 +151,27 @@ function ReceivablesReport({ data }: { data: any }) {
 
 function PayablesReport({ data }: { data: any }) {
   const { t } = useLang();
+  function PaySection({ title, items, emptyKey }: { title: string; items: any[]; emptyKey: string }) {
+    const total = items.reduce((s: number, x: any) => s + x.balance, 0);
+    return (
+      <div className="card">
+        <div className="flex justify-between items-center mb-3 border-b pb-2">
+          <h3 className="text-sm font-semibold text-gray-600">{title}</h3>
+          {items.length > 0 && <span className="text-sm font-bold text-orange-700">USD {n(total)}</span>}
+        </div>
+        {items.length ? items.map((x: any, i: number) => (
+          <div key={i} className="flex justify-between py-1.5 text-sm border-b border-gray-50">
+            <span>{x.account}</span>
+            <span className="font-medium text-orange-600">{x.currency} {n(x.balance)}</span>
+          </div>
+        )) : <div className="text-gray-400 text-sm">{t(emptyKey)}</div>}
+      </div>
+    );
+  }
   return (<div className="space-y-4">
-    <div className="card">
-      <h3 className="text-sm font-semibold text-gray-600 mb-3">{t("supplier_payables")}</h3>
-      {(data.suppliers || []).length ? (data.suppliers || []).map((s: any, i: number) => (
-        <div key={i} className="flex justify-between py-1.5 text-sm border-b border-gray-50"><span>{s.account.replace("Payable - ", "")}</span><span className="font-medium text-orange-600">{s.currency} {n(s.balance)}</span></div>
-      )) : <div className="text-gray-400 text-sm">{t("no_supplier_payables")}</div>}
-    </div>
-    <div className="card">
-      <h3 className="text-sm font-semibold text-gray-600 mb-3">{t("agent_payables")}</h3>
-      {(data.agents || []).length ? (data.agents || []).map((a: any, i: number) => (
-        <div key={i} className="flex justify-between py-1.5 text-sm border-b border-gray-50"><span>{a.account.replace("Payable - ", "")}</span><span className="font-medium text-orange-600">{a.currency} {n(a.balance)}</span></div>
-      )) : <div className="text-gray-400 text-sm">{t("no_agent_payables")}</div>}
-    </div>
+    <PaySection title={t("supplier_payables")} items={data.suppliers || []} emptyKey="no_supplier_payables" />
+    <PaySection title={t("agent_payables")} items={data.agents || []} emptyKey="no_agent_payables" />
+    <PaySection title="Shipping Line Payables" items={data.shippingLines || []} emptyKey="no_data" />
   </div>);
 }
 

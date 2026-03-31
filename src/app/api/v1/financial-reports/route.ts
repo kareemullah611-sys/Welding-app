@@ -211,19 +211,24 @@ async function receivables(cityId?: number) {
 }
 
 async function payables() {
-  // Get all supplier and agent accounts in one query
-  const [suppAccounts, agentAccounts] = await Promise.all([
-    prisma.account.findMany({ where: { code: { startsWith: "2100-S" } } }),
-    prisma.account.findMany({ where: { code: { startsWith: "2200-A" } } }),
-  ]);
+  // Get all supplier, agent, and shipping-line payable accounts in one query
+  const allPayableAccounts = await prisma.account.findMany({
+    where: {
+      OR: [
+        { code: { startsWith: "2100-S" } },   // supplier payables
+        { code: { startsWith: "2200-A" } },    // agent payables
+        { code: { startsWith: "2300-SL" } },   // shipping line payables
+      ],
+    },
+  });
 
-  const suppIds = new Set(suppAccounts.map((a) => a.id));
-  const allIds = [...suppAccounts, ...agentAccounts].map((a) => a.id);
-  const accountMap = Object.fromEntries([...suppAccounts, ...agentAccounts].map((a) => [a.id, a]));
+  if (allPayableAccounts.length === 0) return successResponse({ suppliers: [], agents: [], shippingLines: [] });
 
-  if (allIds.length === 0) return successResponse({ suppliers: [], agents: [] });
+  const suppIds = new Set(allPayableAccounts.filter(a => a.code.startsWith("2100-S")).map(a => a.id));
+  const agentIds = new Set(allPayableAccounts.filter(a => a.code.startsWith("2200-A")).map(a => a.id));
+  const accountMap = Object.fromEntries(allPayableAccounts.map((a) => [a.id, a]));
+  const allIds = allPayableAccounts.map((a) => a.id);
 
-  // One groupBy for all payable accounts instead of one per account
   const groups = await prisma.journalEntry.groupBy({
     by: ["accountId", "currencyCode"],
     where: { accountId: { in: allIds } },
@@ -232,18 +237,20 @@ async function payables() {
 
   const suppliers: any[] = [];
   const agents: any[] = [];
+  const shippingLines: any[] = [];
   for (const g of groups) {
     const acc = accountMap[g.accountId];
     if (!acc) continue;
     const balance = Number(g._sum.credit || 0) - Number(g._sum.debit || 0);
     if (Math.abs(balance) > 0.5) {
-      const entry = { account: acc.name, currency: g.currencyCode, balance: r2(balance) };
+      const entry = { account: acc.name.replace("Payable - ", ""), currency: g.currencyCode, balance: r2(balance) };
       if (suppIds.has(g.accountId)) suppliers.push(entry);
-      else agents.push(entry);
+      else if (agentIds.has(g.accountId)) agents.push(entry);
+      else shippingLines.push(entry);
     }
   }
 
-  return successResponse({ suppliers, agents });
+  return successResponse({ suppliers, agents, shippingLines });
 }
 
 function r2(n: number) { return Math.round(n * 100) / 100; }
