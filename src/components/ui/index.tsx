@@ -34,12 +34,15 @@ export function PageHeader({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6 pb-4 border-b border-gray-100">
+    <div className="mb-6 overflow-hidden rounded-[1.6rem] border border-white/75 bg-[linear-gradient(135deg,rgba(255,248,239,0.95),rgba(245,233,219,0.82))] px-5 py-5 shadow-[0_28px_70px_-42px_rgba(51,42,33,0.38)]">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{title}</h1>
-        {subtitle && <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>}
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#9a7b5b]">Workspace</p>
+        <h1 className="text-2xl font-bold text-[#241a13] tracking-tight sm:text-3xl">{title}</h1>
+        {subtitle && <p className="mt-1 text-sm text-[#7b6857]">{subtitle}</p>}
       </div>
       {action && <div className="flex-shrink-0 flex gap-2">{action}</div>}
+      </div>
     </div>
   );
 }
@@ -48,11 +51,11 @@ export function PageHeader({
 // STATS CARD
 // ============================================================
 const colorMap = {
-  blue:   { iconBg: "bg-blue-100",   iconText: "text-blue-600",   accent: "border-l-blue-500",   valueTxt: "text-blue-700" },
-  green:  { iconBg: "bg-green-100",  iconText: "text-green-600",  accent: "border-l-green-500",  valueTxt: "text-green-700" },
-  red:    { iconBg: "bg-red-100",    iconText: "text-red-600",    accent: "border-l-red-500",    valueTxt: "text-red-700" },
-  yellow: { iconBg: "bg-yellow-100", iconText: "text-yellow-600", accent: "border-l-yellow-500", valueTxt: "text-yellow-700" },
-  purple: { iconBg: "bg-purple-100", iconText: "text-purple-600", accent: "border-l-purple-500", valueTxt: "text-purple-700" },
+  blue:   { iconBg: "bg-[#dff1f6]",   iconText: "text-[#176b83]",   accent: "from-[#edf8fb] to-white",   valueTxt: "text-[#14596d]", ring: "ring-[#d2e9ef]" },
+  green:  { iconBg: "bg-[#e4f3e9]",   iconText: "text-[#2e7755]",   accent: "from-[#f1fbf4] to-white",   valueTxt: "text-[#2a6248]", ring: "ring-[#d7ebdd]" },
+  red:    { iconBg: "bg-[#fde9e4]",   iconText: "text-[#b2452d]",   accent: "from-[#fff3ef] to-white",   valueTxt: "text-[#97331d]", ring: "ring-[#f2d9d1]" },
+  yellow: { iconBg: "bg-[#fff1d6]",   iconText: "text-[#a36a12]",   accent: "from-[#fff9eb] to-white",   valueTxt: "text-[#89550e]", ring: "ring-[#f5e6c4]" },
+  purple: { iconBg: "bg-[#efe6ff]",   iconText: "text-[#7046b7]",   accent: "from-[#f7f1ff] to-white",   valueTxt: "text-[#5f399e]", ring: "ring-[#e5daf7]" },
 };
 
 export function StatsCard({
@@ -70,16 +73,16 @@ export function StatsCard({
 }) {
   const c = colorMap[color];
   return (
-    <Card className={cn("shadow-sm hover:shadow-md transition-all duration-200 border-l-4", c.accent)}>
-      <CardContent className="p-4 sm:p-5">
+    <Card className={cn("border-0 bg-transparent shadow-none")}>
+      <CardContent className={cn("stat-card bg-gradient-to-br", c.accent, c.ring, "ring-1 p-4 sm:p-5")}>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide leading-snug line-clamp-2">{title}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8b7763] leading-snug line-clamp-2">{title}</p>
             <p className={cn("text-sm sm:text-lg font-bold mt-1.5 leading-tight tabular-nums", c.valueTxt)}>{value}</p>
-            {subtitle && <p className="text-xs text-muted-foreground mt-1.5 leading-snug">{subtitle}</p>}
+            {subtitle && <p className="mt-1.5 text-xs leading-snug text-[#8e7e71]">{subtitle}</p>}
           </div>
           {icon && (
-            <div className={cn("hidden sm:flex w-11 h-11 rounded-xl items-center justify-center text-xl flex-shrink-0", c.iconBg, c.iconText)}>
+            <div className={cn("hidden sm:flex h-11 w-11 rounded-2xl items-center justify-center text-xl flex-shrink-0 shadow-inner", c.iconBg, c.iconText)}>
               {icon}
             </div>
           )}
@@ -123,10 +126,10 @@ export function DataTable<T extends Record<string, any>>({
 }: DataTableProps<T>) {
   if (loading) {
     return (
-      <div className="rounded-xl border border-border bg-white shadow-sm overflow-hidden">
+      <div className="overflow-hidden rounded-[1.4rem] border border-white/70 bg-white/85 shadow-[0_26px_70px_-42px_rgba(51,42,33,0.35)] backdrop-blur-xl">
         <Table>
           <TableHeader>
-            <TableRow className="bg-gray-50 hover:bg-gray-50">
+            <TableRow className="bg-[#f8f1e7] hover:bg-[#f8f1e7]">
               {columns.map((col) => (
                 <TableHead key={col.key} className={cn("text-xs font-semibold text-gray-500 uppercase tracking-wider", col.className)}>
                   {col.label}
@@ -151,10 +154,10 @@ export function DataTable<T extends Record<string, any>>({
   }
 
   return (
-    <div className="rounded-xl border border-border bg-white shadow-sm overflow-x-auto">
+    <div className="overflow-x-auto rounded-[1.4rem] border border-white/70 bg-white/85 shadow-[0_26px_70px_-42px_rgba(51,42,33,0.35)] backdrop-blur-xl">
         <Table>
           <TableHeader>
-            <TableRow className="bg-gray-50/80 hover:bg-gray-50/80 border-b border-gray-100">
+            <TableRow className="border-b border-[#efe2d3] bg-[#faf3ea]/90 hover:bg-[#faf3ea]/90">
               {columns.map((col) => (
                 <TableHead key={col.key} className={cn("text-xs font-semibold text-gray-500 uppercase tracking-wider py-3", col.className)}>
                   {col.label}
@@ -178,8 +181,8 @@ export function DataTable<T extends Record<string, any>>({
                   key={idx}
                   onClick={() => onRowClick?.(item)}
                   className={cn(
-                    "border-b border-gray-50 transition-colors",
-                    onRowClick ? "cursor-pointer hover:bg-primary-50/50" : "hover:bg-gray-50/50"
+                    "border-b border-[#f3e8db] transition-colors",
+                    onRowClick ? "cursor-pointer hover:bg-[#fff4ea]" : "hover:bg-[#fcf6ef]"
                   )}
                 >
                   {columns.map((col) => {
@@ -200,7 +203,7 @@ export function DataTable<T extends Record<string, any>>({
           </TableBody>
         </Table>
       {pagination && pagination.totalPages > 1 && (
-        <div className="px-4 py-3 border-t border-border flex items-center justify-between text-sm bg-gray-50/50">
+        <div className="flex items-center justify-between border-t border-[#efe2d3] bg-[#fbf6ef]/80 px-4 py-3 text-sm">
           <p className="text-muted-foreground text-xs">
             Showing page <span className="font-medium text-gray-700">{pagination.page}</span> of <span className="font-medium text-gray-700">{pagination.totalPages}</span>
             <span className="text-gray-400 ml-1">· {pagination.total} total</span>
@@ -322,4 +325,3 @@ export function formatDate(dateStr: string | Date | null | undefined): string {
   const yy = String(d.getFullYear()).slice(-2);
   return `${dd}/${mm}/${yy}`;
 }
-

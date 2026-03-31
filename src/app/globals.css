@@ -4,31 +4,31 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 34 64% 98%;
+    --foreground: 222 35% 14%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 222 35% 14%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
-    --chart-1: 12 76% 61%;
-    --chart-2: 173 58% 39%;
-    --chart-3: 197 37% 24%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
+    --popover-foreground: 222 35% 14%;
+    --primary: 8 71% 41%;
+    --primary-foreground: 42 100% 97%;
+    --secondary: 34 33% 94%;
+    --secondary-foreground: 220 27% 21%;
+    --muted: 34 24% 93%;
+    --muted-foreground: 220 10% 42%;
+    --accent: 39 77% 90%;
+    --accent-foreground: 18 57% 24%;
+    --destructive: 0 78% 57%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 31 28% 86%;
+    --input: 31 28% 86%;
+    --ring: 8 71% 41%;
+    --radius: 1rem;
+    --chart-1: 8 72% 48%;
+    --chart-2: 194 65% 36%;
+    --chart-3: 39 73% 54%;
+    --chart-4: 143 41% 37%;
+    --chart-5: 268 33% 44%;
   }
 
   .dark {
@@ -62,8 +62,33 @@
     @apply border-border;
   }
 
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
-    @apply bg-gray-50 text-gray-900 antialiased;
+    font-family: var(--font-sans), "Segoe UI", sans-serif;
+    color: hsl(var(--foreground));
+    background:
+      radial-gradient(circle at top left, rgba(159, 88, 49, 0.12), transparent 32%),
+      radial-gradient(circle at top right, rgba(116, 145, 164, 0.12), transparent 26%),
+      linear-gradient(180deg, #fff8ef 0%, #f6efe6 42%, #f7f4ef 100%);
+    @apply antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-display), var(--font-sans), sans-serif;
+    letter-spacing: -0.03em;
+  }
+
+  ::selection {
+    background: rgba(165, 68, 37, 0.18);
+    color: #34160d;
   }
 }
 
@@ -71,52 +96,52 @@
   /* ---- Buttons ---- */
   .btn-primary {
     @apply inline-flex items-center justify-center gap-2
-           bg-primary-600 text-white text-sm font-medium px-4 py-2 rounded-lg
-           shadow-sm hover:bg-primary-700 active:bg-primary-800
+           bg-gradient-to-r from-[#8f2f1c] via-[#a54425] to-[#c8622d] text-white text-sm font-semibold px-4 py-2 rounded-xl
+           shadow-[0_16px_30px_-18px_rgba(165,68,37,0.75)] hover:shadow-[0_20px_40px_-20px_rgba(165,68,37,0.9)] active:scale-[0.99]
            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2
-           transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+           transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .btn-secondary {
     @apply inline-flex items-center justify-center gap-2
-           bg-white text-gray-700 text-sm font-medium px-4 py-2 rounded-lg
-           border border-gray-200 shadow-sm hover:bg-gray-50 hover:border-gray-300 active:bg-gray-100
+           bg-white/80 backdrop-blur text-gray-700 text-sm font-medium px-4 py-2 rounded-xl
+           border border-white/70 shadow-[0_12px_30px_-24px_rgba(34,41,55,0.9)] hover:bg-white hover:border-[#d6cabb] active:bg-[#faf5ee]
            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2
-           transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+           transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .btn-danger {
     @apply inline-flex items-center justify-center gap-2
-           bg-red-600 text-white text-sm font-medium px-4 py-2 rounded-lg
-           shadow-sm hover:bg-red-700 active:bg-red-800
+           bg-gradient-to-r from-red-600 to-red-500 text-white text-sm font-semibold px-4 py-2 rounded-xl
+           shadow-[0_16px_30px_-18px_rgba(220,38,38,0.8)] hover:shadow-[0_20px_36px_-20px_rgba(220,38,38,0.9)]
            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2
-           transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+           transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
   /* ---- Inputs ---- */
   .input-field {
-    @apply w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white
-           shadow-sm transition-all duration-150
-           hover:border-gray-300
-           focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400 focus:shadow-sm
+    @apply w-full px-3.5 py-2.5 border border-[#d9d0c2] rounded-xl text-sm bg-white/85
+           shadow-[0_12px_30px_-24px_rgba(34,41,55,0.8)] transition-all duration-200
+           hover:border-[#c9baa6]
+           focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-[#b85a35] focus:shadow-[0_16px_32px_-24px_rgba(165,68,37,0.45)]
            placeholder:text-gray-400 disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed;
   }
   .select-field {
-    @apply w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white
-           shadow-sm transition-all duration-150
-           hover:border-gray-300
+    @apply w-full px-3.5 py-2.5 border border-[#d9d0c2] rounded-xl text-sm bg-white/85
+           shadow-[0_12px_30px_-24px_rgba(34,41,55,0.8)] transition-all duration-200
+           hover:border-[#c9baa6]
            focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400
            disabled:bg-gray-50 disabled:cursor-not-allowed;
   }
 
   /* ---- Cards ---- */
   .card {
-    @apply bg-white rounded-xl shadow-sm border border-gray-100 p-6;
+    @apply rounded-[1.5rem] border border-white/70 bg-white/78 p-6 backdrop-blur-xl shadow-[0_30px_80px_-42px_rgba(51,42,33,0.35)];
   }
   .stat-card {
-    @apply bg-white rounded-xl shadow-sm border border-gray-100 p-5
-           hover:shadow-md transition-shadow duration-150;
+    @apply rounded-[1.4rem] border border-white/75 bg-white/82 p-5 backdrop-blur-xl
+           shadow-[0_26px_70px_-42px_rgba(51,42,33,0.38)] hover:-translate-y-0.5 hover:shadow-[0_34px_84px_-42px_rgba(51,42,33,0.48)] transition-all duration-200;
   }
   .table-container {
-    @apply bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden;
+    @apply rounded-[1.4rem] border border-white/70 bg-white/82 backdrop-blur-xl shadow-[0_26px_70px_-42px_rgba(51,42,33,0.35)] overflow-hidden;
   }
 
   /* ---- Badges ---- */
@@ -161,12 +186,22 @@
 /* Smooth page transitions */
 @layer utilities {
   .page-enter {
-    animation: fadeSlideIn 0.2s ease-out;
+    animation: fadeSlideIn 0.35s ease-out;
+  }
+
+  .shell-panel {
+    @apply rounded-[1.6rem] border border-white/70 bg-white/70 backdrop-blur-xl shadow-[0_32px_90px_-46px_rgba(51,42,33,0.4)];
+  }
+
+  .ambient-ring {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.4),
+      0 28px 70px -42px rgba(63, 44, 28, 0.42);
   }
 }
 
 @keyframes fadeSlideIn {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 

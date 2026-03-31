@@ -85,8 +85,8 @@ export default function NotificationBell({ sidebarMode = false, compact = false 
           title="Notifications"
           className={
             compact
-              ? "relative p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
-              : "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium text-slate-500 hover:text-white hover:bg-slate-700 transition-all duration-150"
+              ? "relative rounded-2xl p-2 text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+              : "w-full flex items-center gap-3 rounded-2xl px-3 py-2.5 text-[13px] font-medium text-slate-300 hover:text-white hover:bg-white/10 transition-all duration-150"
           }
         >
           <span className="relative flex-shrink-0">
@@ -108,11 +108,11 @@ export default function NotificationBell({ sidebarMode = false, compact = false 
         </button>
 
         {open && (
-          <div className={`absolute ${dropdownPositionClass} w-80 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden`}>
-            <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50">
-              <span className="font-semibold text-gray-800 text-sm">Notifications</span>
+          <div className={`absolute ${dropdownPositionClass} w-80 overflow-hidden rounded-[1.4rem] border border-[#e8dfd4] bg-[#fffaf5]/95 shadow-[0_30px_80px_-36px_rgba(51,42,33,0.42)] backdrop-blur-xl z-50`}>
+            <div className="flex items-center justify-between border-b border-[#eee3d6] bg-[linear-gradient(180deg,#fff8ef_0%,#f8efe3_100%)] px-4 py-3">
+              <span className="font-semibold text-[#2c2118] text-sm">Notifications</span>
               {unreadCount > 0 && (
-                <button onClick={markAllRead} disabled={loading} className="text-xs text-primary-600 hover:underline">
+                <button onClick={markAllRead} disabled={loading} className="text-xs font-medium text-[#9a3a22] hover:underline">
                   {loading ? "..." : "Mark all read"}
                 </button>
               )}
@@ -122,7 +122,7 @@ export default function NotificationBell({ sidebarMode = false, compact = false 
                 <div className="px-4 py-8 text-center text-gray-400 text-sm">No notifications</div>
               ) : (
                 notifications.map((n) => (
-                  <div key={n.id} className={`px-4 py-3 text-sm ${n.isRead ? "bg-white" : "bg-blue-50"}`}>
+                  <div key={n.id} className={`px-4 py-3 text-sm ${n.isRead ? "bg-white/60" : "bg-[#fff1e8]"}`}>
                     <div className="flex items-start gap-2">
                       <span className="text-base leading-none mt-0.5">{typeIcon(n.type)}</span>
                       <div className="flex-1 min-w-0">
@@ -147,7 +147,7 @@ export default function NotificationBell({ sidebarMode = false, compact = false 
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="relative p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+        className="relative rounded-2xl p-2 text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
         title="Notifications"
       >
         🔔
@@ -159,11 +159,11 @@ export default function NotificationBell({ sidebarMode = false, compact = false 
       </button>
 
       {open && (
-        <div className={`absolute ${dropdownPositionClass} w-80 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden`}>
-          <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50">
-            <span className="font-semibold text-gray-800 text-sm">Notifications</span>
+        <div className={`absolute ${dropdownPositionClass} w-80 overflow-hidden rounded-[1.4rem] border border-[#e8dfd4] bg-[#fffaf5]/95 shadow-[0_30px_80px_-36px_rgba(51,42,33,0.42)] backdrop-blur-xl z-50`}>
+          <div className="flex items-center justify-between border-b border-[#eee3d6] bg-[linear-gradient(180deg,#fff8ef_0%,#f8efe3_100%)] px-4 py-3">
+            <span className="font-semibold text-[#2c2118] text-sm">Notifications</span>
             {unreadCount > 0 && (
-              <button onClick={markAllRead} disabled={loading} className="text-xs text-primary-600 hover:underline">
+              <button onClick={markAllRead} disabled={loading} className="text-xs font-medium text-[#9a3a22] hover:underline">
                 {loading ? "..." : "Mark all read"}
               </button>
             )}
@@ -173,7 +173,7 @@ export default function NotificationBell({ sidebarMode = false, compact = false 
               <div className="px-4 py-8 text-center text-gray-400 text-sm">No notifications</div>
             ) : (
               notifications.map((n) => (
-                <div key={n.id} className={`px-4 py-3 text-sm ${n.isRead ? "bg-white" : "bg-blue-50"}`}>
+                <div key={n.id} className={`px-4 py-3 text-sm ${n.isRead ? "bg-white/60" : "bg-[#fff1e8]"}`}>
                   <div className="flex items-start gap-2">
                     <span className="text-base leading-none mt-0.5">{typeIcon(n.type)}</span>
                     <div className="flex-1 min-w-0">
