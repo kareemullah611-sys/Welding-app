@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, paginatedResponse, errorResponse, validationError, serverError, getPaginationParams } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { canAccessGodownCity } from "@/lib/godown-access";
 
 // GET - list transfers (sent + received)
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
@@ -48,12 +49,30 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     if (user.role !== "city_admin") return errorResponse("FORBIDDEN", "Only city admins can send", 403);
     const body = await request.json();
     const { toCityId, fromGodownId, productId, lotId, qty, notes, transferDate } = body;
+    const parsedToCityId = Number(toCityId);
+    const parsedFromGodownId = Number(fromGodownId);
+    const parsedProductId = Number(productId);
+    const parsedLotId = lotId ? Number(lotId) : null;
+    const parsedQty = Number(qty);
 
-    if (!toCityId || !fromGodownId || !productId || !qty) return validationError("Missing required fields");
-    if (toCityId === user.cityId) return errorResponse("VALIDATION_ERROR", "Cannot transfer to same city");
+    if (!parsedToCityId || !parsedFromGodownId || !parsedProductId || !parsedQty) return validationError("Missing required fields");
+    if (!Number.isFinite(parsedQty) || parsedQty <= 0) return validationError("Quantity must be greater than 0");
+    if (parsedToCityId === user.cityId) return errorResponse("VALIDATION_ERROR", "Cannot transfer to same city");
+
+    const destinationCity = await prisma.city.findUnique({
+      where: { id: parsedToCityId },
+      select: { id: true, isActive: true },
+    });
+    if (!destinationCity || !destinationCity.isActive) {
+      return errorResponse("NOT_FOUND", "Destination city not found", 404);
+    }
+    const permitted = await canAccessGodownCity(user.cityId!, parsedToCityId);
+    if (!permitted) {
+      return errorResponse("FORBIDDEN", "Your city is not permitted to transfer stock to that city", 403);
+    }
 
     // Verify godown belongs to sender
-    const godown = await prisma.godown.findFirst({ where: { id: fromGodownId, cityId: user.cityId!, isActive: true } });
+    const godown = await prisma.godown.findFirst({ where: { id: parsedFromGodownId, cityId: user.cityId!, isActive: true } });
     if (!godown) return errorResponse("NOT_FOUND", "Godown not found in your city");
 
     // Check available stock in the sending godown
@@ -63,41 +82,46 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         COALESCE((
           SELECT SUM(si.qty) FROM sale_items si
           JOIN sales s ON s.id = si.sale_id AND s.status IN ('active','marked_short')
-          WHERE s.godown_id = ${fromGodownId} AND si.product_id = ${productId}
+          WHERE s.godown_id = ${parsedFromGodownId} AND si.product_id = ${parsedProductId}
         ), 0) as sold,
         COALESCE((
           SELECT SUM(ct.qty) FROM city_transfers ct
-          WHERE ct.from_godown_id = ${fromGodownId} AND ct.product_id = ${productId} AND ct.status = 'approved'
+          WHERE ct.from_godown_id = ${parsedFromGodownId} AND ct.product_id = ${parsedProductId} AND ct.status = 'approved'
         ), 0) as city_out,
         COALESCE((
           SELECT SUM(ct.qty) FROM city_transfers ct
-          WHERE ct.from_godown_id = ${fromGodownId} AND ct.product_id = ${productId} AND ct.status = 'pending'
+          WHERE ct.from_godown_id = ${parsedFromGodownId} AND ct.product_id = ${parsedProductId} AND ct.status = 'pending'
         ), 0) as city_pending
       FROM lot_city_godown_allocations lcga
       JOIN lot_city_distributions lcd ON lcd.id = lcga.lot_city_distribution_id
-      WHERE lcga.godown_id = ${fromGodownId} AND lcd.product_id = ${productId}
+      WHERE lcga.godown_id = ${parsedFromGodownId} AND lcd.product_id = ${parsedProductId}
     `;
     const row = stockRows[0];
     const available = Number(row?.received || 0) - Number(row?.sold || 0) - Number(row?.city_out || 0) - Number(row?.city_pending || 0);
-    if (qty > available) {
+    if (parsedQty > available) {
       return errorResponse("VALIDATION_ERROR", `Insufficient stock: only ${Math.max(0, available)} available (including pending transfers) in this godown`);
     }
 
     // Get FIFO lot if not specified
-    let effectiveLotId = lotId;
+    let effectiveLotId: number | null = parsedLotId;
     if (!effectiveLotId) {
       const lot = await prisma.lot.findFirst({
         where: { status: "ongoing", lotCityDistributions: { some: { cityId: user.cityId! } } },
         orderBy: [{ lotDate: "asc" }, { id: "asc" }],
       });
-      effectiveLotId = lot?.id;
+      effectiveLotId = lot?.id ?? null;
     }
     if (!effectiveLotId) return errorResponse("VALIDATION_ERROR", "No ongoing lot available");
 
     const transfer = await prisma.cityTransfer.create({
       data: {
-        fromCityId: user.cityId!, toCityId, fromGodownId, productId,
-        lotId: effectiveLotId, qty, notes,
+        fromCityId: user.cityId!,
+        toCityId: parsedToCityId,
+        fromGodownId: parsedFromGodownId,
+        productId: parsedProductId,
+        lotId: effectiveLotId,
+        qty: parsedQty,
+        notes,
         transferDate: transferDate ? new Date(transferDate) : new Date(),
         sentBy: user.userId,
       },

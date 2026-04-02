@@ -39,7 +39,17 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     ]);
 
     const transactions = [
-      ...sales.map((s) => ({ type: "sale" as const, date: s.saleDate.toISOString().split("T")[0], voucherNo: s.voucherNo, detail: (s.items || []).map((i) => `${i.product.name} × ${Number(i.qty)}`).join(", "), debit: s.status === "active" ? Number(s.totalAmount) : 0, credit: 0, status: s.status, currency: s.currency.code, lotNumber: s.lot.lotNumber })),
+      ...sales.map((s) => ({
+        type: "sale" as const,
+        date: s.saleDate.toISOString().split("T")[0],
+        voucherNo: s.voucherNo,
+        detail: (s.items || []).map((i) => `${i.product.name} × ${Number(i.qty)}`).join(", "),
+        debit: ["active", "marked_short"].includes(s.status) ? Number(s.totalAmount) : 0,
+        credit: 0,
+        status: s.status,
+        currency: s.currency.code,
+        lotNumber: s.lot.lotNumber,
+      })),
       ...payments.map((p) => ({ type: "payment" as const, date: p.paymentDate.toISOString().split("T")[0], voucherNo: p.manualVoucherNo || "-", detail: p.detail, debit: 0, credit: p.status === "active" ? Number(p.amount) : 0, status: p.status, currency: p.currency.code, lotNumber: p.lot.lotNumber })),
     ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 

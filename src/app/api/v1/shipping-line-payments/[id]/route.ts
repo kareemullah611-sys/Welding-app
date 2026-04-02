@@ -4,6 +4,7 @@ import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { reverseJournalEntries, journalShippingLinePayment } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
+import { validatePaymentSource } from "@/lib/payment-source-validation";
 
 export const PUT = withSuperAdmin(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -13,12 +14,24 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     const existing = await prisma.shippingLinePayment.findUnique({ where: { id } });
     if (!existing) return errorResponse("NOT_FOUND", "Payment not found", 404);
 
-    try { await reverseJournalEntries(`SLPAY-${id}`, user.userId); } catch (je) { console.error("Reverse journal (SL payment):", je); }
+    const source = await validatePaymentSource({
+      bankAccountId: body.bankAccountId !== undefined ? body.bankAccountId : existing.bankAccountId,
+      intermediaryId: body.intermediaryId !== undefined ? body.intermediaryId : existing.intermediaryId,
+      requireSelection: true,
+    });
+    if (!source.ok) return errorResponse(source.code, source.message, source.status);
 
-    const bankAccountId = body.bankAccountId !== undefined ? (body.bankAccountId || null) : (existing as any).bankAccountId;
-    const intermediaryId = body.intermediaryId !== undefined ? (body.intermediaryId || null) : (existing as any).intermediaryId;
-    const amountUsd = body.amountUsd ? Number(body.amountUsd) : Number(existing.amountUsd);
-    const exchangeRate = body.exchangeRate ? Number(body.exchangeRate) : (existing.exchangeRate ? Number(existing.exchangeRate) : null);
+    const amountUsd = body.amountUsd !== undefined ? Number(body.amountUsd) : Number(existing.amountUsd);
+    if (!Number.isFinite(amountUsd) || amountUsd <= 0) return errorResponse("VALIDATION_ERROR", "Amount must be greater than 0");
+
+    const exchangeRate = body.exchangeRate !== undefined
+      ? (body.exchangeRate ? Number(body.exchangeRate) : null)
+      : (existing.exchangeRate ? Number(existing.exchangeRate) : null);
+    if (exchangeRate !== null && (!Number.isFinite(exchangeRate) || exchangeRate <= 0)) {
+      return errorResponse("VALIDATION_ERROR", "Exchange rate must be greater than 0");
+    }
+
+    try { await reverseJournalEntries(`SLPAY-${id}`, user.userId); } catch (je) { console.error("Reverse journal (SL payment):", je); }
 
     const updated = await prisma.shippingLinePayment.update({
       where: { id },
@@ -26,15 +39,23 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
         amountUsd,
         exchangeRate,
         amountPkr: exchangeRate ? Math.round(amountUsd * exchangeRate * 100) / 100 : null,
-        bankAccountId,
-        intermediaryId,
+        bankAccountId: source.bankAccountId,
+        intermediaryId: source.intermediaryId,
         reference: body.reference !== undefined ? body.reference || null : existing.reference,
         notes: body.notes !== undefined ? body.notes || null : existing.notes,
       },
     });
 
     try {
-      await journalShippingLinePayment({ id, shippingLineId: existing.shippingLineId, amountUsd: Number(updated.amountUsd), paymentDate: updated.paymentDate, createdBy: user.userId, bankAccountId, intermediaryId });
+      await journalShippingLinePayment({
+        id,
+        shippingLineId: existing.shippingLineId,
+        amountUsd: Number(updated.amountUsd),
+        paymentDate: updated.paymentDate,
+        createdBy: user.userId,
+        bankAccountId: source.bankAccountId,
+        intermediaryId: source.intermediaryId,
+      });
     } catch (je) { console.error("Re-journal (SL payment):", je); }
 
     await createAuditLog(user.userId, null, "shipping_line_payments", id, "update",

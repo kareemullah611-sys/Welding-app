@@ -27,6 +27,11 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, _us
     const totalBilledUsd = costs
       .filter(c => c.currencyCode === "USD")
       .reduce((s, c) => s + Number(c.amount), 0);
+    const billedByCurrency = costs.reduce<Record<string, number>>((acc, cost) => {
+      const currencyCode = cost.currencyCode || "USD";
+      acc[currencyCode] = Math.round(((acc[currencyCode] || 0) + Number(cost.amount)) * 100) / 100;
+      return acc;
+    }, {});
     const totalPaidUsd = payments.reduce((s, p) => s + Number(p.amountUsd), 0);
     const totalPaidPkr = payments.reduce((s, p) => s + Number(p.amountPkr || 0), 0);
 
@@ -37,6 +42,8 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, _us
         totalPaidUsd:   Math.round(totalPaidUsd * 100) / 100,
         balanceOwedUsd: Math.round((totalBilledUsd - totalPaidUsd) * 100) / 100,
         totalPaidPkr:   Math.round(totalPaidPkr * 100) / 100,
+        billedByCurrency,
+        hasNonUsdCharges: Object.keys(billedByCurrency).some((currencyCode) => currencyCode !== "USD"),
       },
       charges: costs.map(c => ({
         id: c.id, lotNumber: c.lot.lotNumber, lotId: c.lotId,

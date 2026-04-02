@@ -91,6 +91,8 @@ export default function ShippingLinesPage() {
 
   const handleAddPayment = async () => {
     if (!payForm.amountUsd || Number(payForm.amountUsd) <= 0) { setError("Amount required"); return; }
+    if (payForm.paidFrom === "bank" && !payForm.bankAccountId) { setError("Select a bank account"); return; }
+    if (payForm.paidFrom === "intermediary" && !payForm.intermediaryId) { setError("Select an intermediary"); return; }
     setSubmitting(true);
     const r = await apiCall("/api/v1/shipping-line-payments", {
       method: "POST",
@@ -149,7 +151,12 @@ export default function ShippingLinesPage() {
     { key: "paid",    label: "Total Paid (USD)",   render: (sl: any) => <span className="font-mono text-sm text-green-700">${formatNumber(sl.paidUsd || 0)}</span> },
     { key: "balance", label: "Balance Owed (USD)", render: (sl: any) => {
       const bal = sl.balanceOwedUsd || 0;
-      return <span className={`font-mono text-sm font-semibold ${bal > 0 ? "text-red-600" : "text-green-600"}`}>${formatNumber(Math.abs(bal))}{bal > 0 ? " owed" : bal < 0 ? " overpaid" : " clear"}</span>;
+      return (
+        <div className="space-y-1">
+          <span className={`block font-mono text-sm font-semibold ${bal > 0 ? "text-red-600" : "text-green-600"}`}>${formatNumber(Math.abs(bal))}{bal > 0 ? " owed" : bal < 0 ? " overpaid" : " clear"}</span>
+          {sl.hasNonUsdCharges && <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">Additional non-USD charges on ledger</span>}
+        </div>
+      );
     }},
     { key: "actions", label: "Actions", render: (sl: any) => (
       <div className="flex items-center gap-1 flex-wrap">
@@ -314,6 +321,16 @@ export default function ShippingLinesPage() {
               <StatsCard title="Total Paid (USD)"   value={`$${formatNumber(ledger.summary.totalPaidUsd)}`}   icon="💰" color="green" />
               <StatsCard title="Balance Owed (USD)" value={`$${formatNumber(ledger.summary.balanceOwedUsd)}`} icon="📋" color="red" />
             </div>
+            {ledger.summary.hasNonUsdCharges && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                Additional charge currencies recorded:
+                {" "}
+                {Object.entries(ledger.summary.billedByCurrency || {})
+                  .filter(([currencyCode]) => currencyCode !== "USD")
+                  .map(([currencyCode, amount]) => `${currencyCode} ${formatNumber(amount as number)}`)
+                  .join(", ")}
+              </div>
+            )}
 
             {/* Charges */}
             <div className="card">

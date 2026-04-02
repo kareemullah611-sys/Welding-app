@@ -4,33 +4,56 @@ import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { reverseJournalEntries, journalAgentPaid } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
+import { validatePaymentSource } from "@/lib/payment-source-validation";
 
 export const PUT = withSuperAdmin(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
     const id = parseInt(context.params.id);
     const body = await request.json();
 
-    const existing = await prisma.agentPayment.findUnique({ where: { id } });
+    const existing = await prisma.agentPayment.findUnique({
+      where: { id },
+      include: { agent: { select: { cityId: true, isActive: true } } },
+    });
     if (!existing) return errorResponse("NOT_FOUND", "Payment not found", 404);
 
-    try { await reverseJournalEntries(`AGENTPAY-${id}`, user.userId); } catch (je) { console.error("Reverse journal (agent payment):", je); }
+    if (!existing.agent.isActive) return errorResponse("VALIDATION_ERROR", "Cannot update payments for an inactive agent");
 
-    const bankAccountId = body.bankAccountId !== undefined ? (body.bankAccountId || null) : (existing as any).bankAccountId;
-    const intermediaryId = body.intermediaryId !== undefined ? (body.intermediaryId || null) : (existing as any).intermediaryId;
+    const amount = body.amount !== undefined ? Number(body.amount) : Number(existing.amount);
+    if (!Number.isFinite(amount) || amount <= 0) return errorResponse("VALIDATION_ERROR", "Amount must be greater than 0");
+
+    const source = await validatePaymentSource({
+      bankAccountId: body.bankAccountId !== undefined ? body.bankAccountId : existing.bankAccountId,
+      intermediaryId: body.intermediaryId !== undefined ? body.intermediaryId : existing.intermediaryId,
+      cityId: existing.cityId,
+    });
+    if (!source.ok) return errorResponse(source.code, source.message, source.status);
+
+    try { await reverseJournalEntries(`AGENTPAY-${id}`, user.userId); } catch (je) { console.error("Reverse journal (agent payment):", je); }
 
     const updated = await prisma.agentPayment.update({
       where: { id },
       data: {
-        amount: body.amount ? Number(body.amount) : undefined,
-        bankAccountId,
-        intermediaryId,
+        amount,
+        bankAccountId: source.bankAccountId,
+        intermediaryId: source.intermediaryId,
         reference: body.reference !== undefined ? body.reference || null : undefined,
         notes: body.notes !== undefined ? body.notes || null : undefined,
       },
     });
 
     try {
-      await journalAgentPaid({ id, agentId: existing.agentId, cityId: existing.cityId, amount: Number(updated.amount), currencyCode: existing.currencyCode, paymentDate: existing.paymentDate, createdBy: user.userId, bankAccountId, intermediaryId });
+      await journalAgentPaid({
+        id,
+        agentId: existing.agentId,
+        cityId: existing.cityId,
+        amount: Number(updated.amount),
+        currencyCode: existing.currencyCode,
+        paymentDate: existing.paymentDate,
+        createdBy: user.userId,
+        bankAccountId: source.bankAccountId,
+        intermediaryId: source.intermediaryId,
+      });
     } catch (je) { console.error("Re-journal (agent payment):", je); }
 
     await createAuditLog(user.userId, existing.cityId, "agent_payments", id, "update",
