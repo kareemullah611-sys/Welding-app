@@ -266,7 +266,7 @@ export default function IntermediariesPage() {
           <label className={labelCls}>Bank Account</label>
           <select value={f.bankAccountId} onChange={e => setF({ ...f, bankAccountId: e.target.value })} className={inputCls}>
             <option value="">Select bank</option>
-            {bankAccounts.map(b => <option key={b.id} value={b.id}>{b.bankName} {b.accountNumber || ""}</option>)}
+            {bankAccounts.filter((b: any) => b.isActive).map((b: any) => <option key={b.id} value={b.id}>{b.bankName} {b.accountNumber || ""}</option>)}
           </select>
         </div>
       )}
