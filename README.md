@@ -142,38 +142,32 @@ welding-app/
 
 ## Deployment
 
-### Recommended: Fly.io
+### Recommended: Render
 
-This repo now includes a [fly.toml](/Users/kareemullah/Desktop/welding-app/fly.toml) and [Dockerfile](/Users/kareemullah/Desktop/welding-app/Dockerfile) for Fly.io deployment.
+This repo now includes a [render.yaml](/Users/kareemullah/Desktop/welding-app/render.yaml) blueprint for deploying both the web app and PostgreSQL on Render.
 
 ```bash
-# Install Fly CLI
-curl -L https://fly.io/install.sh | sh
+# 1. Push code to GitHub
 
-# Authenticate
-fly auth login
+# 2. In Render, create a new Blueprint and select this repo
 
-# Create the app the first time
-fly launch --no-deploy
+# 3. Render will read render.yaml and create:
+#    - a free Node web service
+#    - a free PostgreSQL database
 
-# Set required secrets
-fly secrets set \
-  DATABASE_URL="postgresql://..." \
-  JWT_SECRET="change-this" \
-  NEXT_PUBLIC_APP_URL="https://your-app.fly.dev" \
-  CLOUDINARY_CLOUD_NAME="..." \
-  CLOUDINARY_API_KEY="..." \
-  CLOUDINARY_API_SECRET="..." \
-  DEEPSEEK_API_KEY="..."
-
-# Deploy
-fly deploy
+# 4. In the Render dashboard, set these environment variables:
+#    JWT_SECRET
+#    NEXT_PUBLIC_APP_URL
+#    CLOUDINARY_CLOUD_NAME
+#    CLOUDINARY_API_KEY
+#    CLOUDINARY_API_SECRET
+#    DEEPSEEK_API_KEY
 ```
 
 Notes:
-- The container starts the app with `npm run start`, which already runs `prisma db push` before `next start`.
-- Fly should expose port `3000`, which is already configured in [fly.toml](/Users/kareemullah/Desktop/welding-app/fly.toml).
-- Update `app` and `primary_region` in [fly.toml](/Users/kareemullah/Desktop/welding-app/fly.toml) to match your Fly app name and preferred region.
+- The app starts with `npm run start`, which already runs `prisma db push` before `next start`.
+- Update the service and database names in [render.yaml](/Users/kareemullah/Desktop/welding-app/render.yaml) if you want different names on Render.
+- Free Render services can sleep and have cold starts, so this is best for testing, demos, or low-traffic use.
 
 ## Security
 
