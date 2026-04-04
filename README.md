@@ -142,28 +142,38 @@ welding-app/
 
 ## Deployment
 
-### Recommended: Vercel + Neon/Supabase PostgreSQL
+### Recommended: Fly.io
+
+This repo now includes a [fly.toml](/Users/kareemullah/Desktop/welding-app/fly.toml) and [Dockerfile](/Users/kareemullah/Desktop/welding-app/Dockerfile) for Fly.io deployment.
 
 ```bash
-# Install Vercel CLI
-npm i -g vercel
+# Install Fly CLI
+curl -L https://fly.io/install.sh | sh
+
+# Authenticate
+fly auth login
+
+# Create the app the first time
+fly launch --no-deploy
+
+# Set required secrets
+fly secrets set \
+  DATABASE_URL="postgresql://..." \
+  JWT_SECRET="change-this" \
+  NEXT_PUBLIC_APP_URL="https://your-app.fly.dev" \
+  CLOUDINARY_CLOUD_NAME="..." \
+  CLOUDINARY_API_KEY="..." \
+  CLOUDINARY_API_SECRET="..." \
+  DEEPSEEK_API_KEY="..."
 
 # Deploy
-vercel
-
-# Set environment variables in Vercel dashboard
-# Run database migrations
-npx prisma db push
-npx ts-node prisma/seed.ts
+fly deploy
 ```
 
-### Alternative: Railway
-
-1. Push code to GitHub
-2. Connect repo to Railway
-3. Add PostgreSQL service
-4. Set environment variables
-5. Deploy automatically
+Notes:
+- The container starts the app with `npm run start`, which already runs `prisma db push` before `next start`.
+- Fly should expose port `3000`, which is already configured in [fly.toml](/Users/kareemullah/Desktop/welding-app/fly.toml).
+- Update `app` and `primary_region` in [fly.toml](/Users/kareemullah/Desktop/welding-app/fly.toml) to match your Fly app name and preferred region.
 
 ## Security
 
