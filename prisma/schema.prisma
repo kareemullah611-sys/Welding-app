@@ -53,6 +53,8 @@ enum ChequeStatus {
   in_hand
   deposited_to_bank
   sent_to_haji
+  used_for_expense
+  used_for_withdrawal
   bounced
 }
 
@@ -70,6 +72,12 @@ enum IntermediarySourceType {
 enum ExpensePaidFrom {
   cash_office
   bank_account
+  cheque
+}
+
+enum WithdrawalSourceType {
+  cash_office
+  cheque
 }
 
 enum SupplierPaymentMethod {
@@ -621,6 +629,8 @@ model Payment {
   attachments         Attachment[]
   paymentLotTransfers PaymentLotTransfer[]
   hajiTransferCheque  HajiTransfer?       @relation("HajiCheque")
+  expenseCheque       Expense?            @relation("ExpenseCheque")
+  withdrawalCheque    PersonalWithdrawal? @relation("WithdrawalCheque")
 
   @@index([cityId])
   @@index([customerId])
@@ -667,6 +677,7 @@ model Expense {
   // Treasury: which pot paid for this expense
   paidFrom      ExpensePaidFrom @default(cash_office) @map("paid_from")
   bankAccountId Int?            @map("bank_account_id")
+  chequePaymentId Int?          @unique @map("cheque_payment_id")
   createdBy   Int       @map("created_by")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
@@ -677,6 +688,7 @@ model Expense {
   currency    Currency     @relation(fields: [currencyId], references: [id])
   creator     User         @relation(fields: [createdBy], references: [id])
   bankAccount BankAccount? @relation(fields: [bankAccountId], references: [id])
+  chequePayment Payment?   @relation("ExpenseCheque", fields: [chequePaymentId], references: [id])
   attachments Attachment[]
 
   @@index([cityId])
@@ -699,6 +711,8 @@ model PersonalWithdrawal {
   detail         String    @db.VarChar(500)
   withdrawnBy    String?   @map("withdrawn_by") @db.VarChar(100)
   notes          String?   @db.Text
+  sourceType     WithdrawalSourceType @default(cash_office) @map("source_type")
+  chequePaymentId Int?     @unique @map("cheque_payment_id")
   approvedBy     Int?      @map("approved_by")
   approvedAt     DateTime? @map("approved_at")
   hajiTransferId Int?      @unique @map("haji_transfer_id")
@@ -711,6 +725,7 @@ model PersonalWithdrawal {
   creator      User          @relation("WithdrawalCreator", fields: [createdBy], references: [id])
   approver     User?         @relation("WithdrawalApprover", fields: [approvedBy], references: [id])
   hajiTransfer HajiTransfer? @relation(fields: [hajiTransferId], references: [id])
+  chequePayment Payment?     @relation("WithdrawalCheque", fields: [chequePaymentId], references: [id])
 
   @@index([cityId])
   @@index([withdrawalDate])

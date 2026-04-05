@@ -46,6 +46,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         detail: w.detail,
         withdrawnBy: w.withdrawnBy,
         notes: w.notes,
+        sourceType: (w as any).sourceType ?? "cash_office",
+        chequePaymentId: (w as any).chequePaymentId ?? null,
         approvedBy: w.approver ? { id: w.approver.id, fullName: w.approver.fullName } : null,
         approvedAt: w.approvedAt ? w.approvedAt.toISOString() : null,
         hajiTransferId: w.hajiTransferId,
@@ -68,22 +70,60 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
     const cityId = user.cityId!;
     const { withdrawalDate, amount, currencyId, detail, withdrawnBy, notes } = parsed.data;
+    const sourceType: "cash_office" | "cheque" = body.sourceType ?? "cash_office";
+    const chequePaymentId: number | undefined = body.chequePaymentId ? parseInt(body.chequePaymentId) : undefined;
 
-    const cityCurrency = await prisma.cityCurrency.findFirst({ where: { cityId, currencyId } });
+    if (sourceType === "cheque" && !chequePaymentId) {
+      return errorResponse("VALIDATION_ERROR", "Cheque is required when source is cheque");
+    }
+
+    let chequePayment: any = null;
+    if (sourceType === "cheque" && chequePaymentId) {
+      chequePayment = await prisma.payment.findUnique({ where: { id: chequePaymentId } });
+      if (!chequePayment) return errorResponse("NOT_FOUND", "Cheque payment not found", 404);
+      if (chequePayment.cityId !== cityId) return errorResponse("FORBIDDEN", "Cheque payment does not belong to your city", 403);
+      if ((chequePayment as any).paymentMethod !== "cheque") return errorResponse("VALIDATION_ERROR", "Referenced payment is not a cheque payment");
+      if (chequePayment.destination !== "our_account") return errorResponse("VALIDATION_ERROR", "Only in-hand company cheques can fund a withdrawal");
+      if ((chequePayment as any).chequeStatus !== "in_hand") return errorResponse("VALIDATION_ERROR", "Cheque is not in-hand status");
+      const existingWithdrawal = await prisma.personalWithdrawal.findFirst({ where: { chequePaymentId } as any });
+      if (existingWithdrawal) return errorResponse("CONFLICT", "This cheque has already been used for a withdrawal", 409);
+    }
+
+    const resolvedCurrencyId = chequePayment?.currencyId ?? currencyId;
+    const resolvedAmount = chequePayment ? Number(chequePayment.amount) : amount;
+    const cityCurrency = await prisma.cityCurrency.findFirst({ where: { cityId, currencyId: resolvedCurrencyId } });
     if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported");
 
     const withdrawal = await prisma.personalWithdrawal.create({
-      data: { cityId, withdrawalDate: new Date(withdrawalDate), amount, currencyId, detail, withdrawnBy, notes, createdBy: user.userId },
+      data: {
+        cityId,
+        withdrawalDate: new Date(withdrawalDate),
+        amount: resolvedAmount,
+        currencyId: resolvedCurrencyId,
+        detail,
+        withdrawnBy,
+        notes,
+        sourceType,
+        ...(chequePaymentId !== undefined ? { chequePaymentId } : {}),
+        createdBy: user.userId,
+      } as any,
       include: {
         currency: true,
         creator: { select: { id: true, fullName: true } },
       },
-    });
+    }) as any;
 
-    await createAuditLog(user.userId, cityId, "personal_withdrawals", withdrawal.id, "create", undefined, { amount, detail, withdrawnBy }, getClientIP(request));
+    if (sourceType === "cheque" && chequePaymentId) {
+      await prisma.payment.update({
+        where: { id: chequePaymentId },
+        data: { chequeStatus: "used_for_withdrawal" } as any,
+      });
+    }
+
+    await createAuditLog(user.userId, cityId, "personal_withdrawals", withdrawal.id, "create", undefined, { amount: resolvedAmount, detail, withdrawnBy, sourceType }, getClientIP(request));
 
     try {
-      await journalWithdrawal({ id: withdrawal.id, cityId, amount, currencyCode: withdrawal.currency.code, date: withdrawal.withdrawalDate, createdBy: user.userId });
+      await journalWithdrawal({ id: withdrawal.id, cityId, amount: Number(withdrawal.amount), currencyCode: withdrawal.currency.code, date: withdrawal.withdrawalDate, createdBy: user.userId, sourceType });
     } catch (je) { console.error("Journal (withdrawal):", je); }
 
     return successResponse({
@@ -92,6 +132,8 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       amount: Number(withdrawal.amount),
       detail: withdrawal.detail,
       withdrawnBy: withdrawal.withdrawnBy,
+      sourceType: (withdrawal as any).sourceType ?? "cash_office",
+      chequePaymentId: (withdrawal as any).chequePaymentId ?? null,
       approvedBy: null,
       approvedAt: null,
       hajiTransferId: null,

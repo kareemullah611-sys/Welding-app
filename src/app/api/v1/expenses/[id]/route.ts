@@ -17,6 +17,9 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     return successResponse({
       id: expense.id, expenseDate: expense.expenseDate.toISOString().split("T")[0],
       amount: Number(expense.amount), detail: expense.detail, notes: expense.notes,
+      paidFrom: (expense as any).paidFrom ?? "cash_office",
+      bankAccountId: (expense as any).bankAccountId ?? null,
+      chequePaymentId: (expense as any).chequePaymentId ?? null,
       lotNumber: expense.lot.lotNumber, currency: expense.currency.code,
     });
   } catch (error) { return serverError(); }
@@ -29,6 +32,9 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     const expense = await prisma.expense.findUnique({ where: { id }, include: { currency: true } });
     if (!expense || expense.deletedAt !== null) return errorResponse("NOT_FOUND", "Expense not found", 404);
     if (user.role === "city_admin" && expense.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
+    if ((expense as any).paidFrom === "cheque" && body.amount !== undefined && Number(body.amount) !== Number(expense.amount)) {
+      return errorResponse("VALIDATION_ERROR", "Cannot change the amount of an expense that was paid from a cheque");
+    }
 
     const old = { amount: Number(expense.amount), detail: expense.detail };
 
@@ -61,6 +67,15 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
     if (user.role === "city_admin" && expense.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
 
     try { await reverseJournalEntries(`EXP-${id}`, user.userId); } catch (je) { console.error("Reverse journal (expense delete):", je); }
+
+    if ((expense as any).chequePaymentId) {
+      try {
+        await prisma.payment.update({
+          where: { id: (expense as any).chequePaymentId },
+          data: { chequeStatus: "in_hand" } as any,
+        });
+      } catch (je) { console.error("Restore cheque status (expense delete):", je); }
+    }
 
     await prisma.expense.update({ where: { id }, data: { deletedAt: new Date() } });
 

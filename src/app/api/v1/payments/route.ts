@@ -37,6 +37,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const status = searchParams.get("status") as "active" | "cancelled" | undefined;
     const method = searchParams.get("payment_method") as "cash" | "cheque" | "bank_transfer" | "online" | undefined;
     const destination = searchParams.get("destination") as "haji" | "our_account" | undefined;
+    const chequeStatus = searchParams.get("cheque_status") as "in_hand" | "deposited_to_bank" | "sent_to_haji" | "used_for_expense" | "used_for_withdrawal" | "bounced" | undefined;
+    const fetchAll = searchParams.get("all") === "1";
 
     const where: any = {};
     if (cityId) where.cityId = cityId;
@@ -45,6 +47,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     if (status) where.status = status;
     if (method) where.paymentMethod = method;
     if (destination) where.destination = destination;
+    if (chequeStatus) where.chequeStatus = chequeStatus;
     if (dateFrom || dateTo) {
       where.paymentDate = {};
       if (dateFrom) where.paymentDate.gte = dateFrom;
@@ -63,8 +66,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           attachments: { select: { id: true, fileName: true, filePath: true, fileType: true } },
         },
         orderBy: { paymentDate: "desc" },
-        skip,
-        take: limit,
+        ...(fetchAll ? {} : { skip, take: limit }),
       }),
       prisma.payment.count({ where }),
     ]);

@@ -198,6 +198,8 @@ export async function journalExpenseCreated(e: { id: number; cityId: number; lot
   let creditAccId: number;
   if (e.paidFrom === "bank_account" && e.bankAccountId) {
     creditAccId = await getBankGLAccountId(e.bankAccountId);
+  } else if (e.paidFrom === "cheque") {
+    creditAccId = await getChequesInHandAccountId(e.cityId);
   } else {
     creditAccId = await getCashAccountId(e.cityId);
   }
@@ -208,10 +210,13 @@ export async function journalExpenseCreated(e: { id: number; cityId: number; lot
 }
 
 // WITHDRAWAL
-export async function journalWithdrawal(w: { id: number; cityId: number; amount: number; currencyCode: string; date: Date; createdBy: number; }) {
+export async function journalWithdrawal(w: { id: number; cityId: number; amount: number; currencyCode: string; date: Date; createdBy: number; sourceType?: string | null; }) {
+  const creditAccId = w.sourceType === "cheque"
+    ? await getChequesInHandAccountId(w.cityId)
+    : await getCashAccountId(w.cityId);
   await createJournalEntries(`WDRAW-${w.id}`, [
     { accountId: await getOwnerWithdrawalAccountId(), debit: w.amount, credit: 0, description: `Owner withdrawal` },
-    { accountId: await getCashAccountId(w.cityId), debit: 0, credit: w.amount, description: `Owner withdrawal` },
+    { accountId: creditAccId, debit: 0, credit: w.amount, description: `Owner withdrawal` },
   ], { currencyCode: w.currencyCode, entityType: "withdrawal", entityId: w.id, cityId: w.cityId, entryDate: w.date, createdBy: w.createdBy });
 }
 

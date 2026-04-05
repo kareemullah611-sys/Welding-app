@@ -20,7 +20,8 @@ export default function PersonalWithdrawalsPage() {
   const [cashPosition, setCashPosition] = useState<any>(null);
   const [treasury, setTreasury] = useState<any>(null);
   const [currencies, setCurrencies] = useState<any[]>([]);
-  const [form, setForm] = useState({ withdrawalDate: new Date().toISOString().split("T")[0], amount: 0, detail: "", withdrawnBy: "", notes: "", currencyId: 0 });
+  const [inHandCheques, setInHandCheques] = useState<any[]>([]);
+  const [form, setForm] = useState({ withdrawalDate: new Date().toISOString().split("T")[0], amount: 0, detail: "", withdrawnBy: "", notes: "", currencyId: 0, sourceType: "cash_office", chequePaymentId: 0 });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [approvingId, setApprovingId] = useState<number | null>(null);
@@ -59,17 +60,24 @@ export default function PersonalWithdrawalsPage() {
   };
 
   const openCreate = async () => {
-    const cityRes = await apiCall("/api/v1/cities");
+    const [cityRes, chequeRes] = await Promise.all([
+      apiCall("/api/v1/cities"),
+      apiCall("/api/v1/payments", {
+        params: { all: 1, status: "active", payment_method: "cheque", destination: "our_account", cheque_status: "in_hand" },
+      }),
+    ]);
     if (cityRes.success && user?.cityId) {
       const city = (cityRes.data as any[]).find((c: any) => c.id === user.cityId);
       if (city?.currencies?.length) { setCurrencies(city.currencies); setForm((f) => ({ ...f, currencyId: city.currencies[0].id })); }
     }
-    setForm((f) => ({ ...f, withdrawalDate: new Date().toISOString().split("T")[0], amount: 0, detail: "", withdrawnBy: "", notes: "" }));
+    if (chequeRes.success) setInHandCheques(chequeRes.data as any[]);
+    setForm((f) => ({ ...f, withdrawalDate: new Date().toISOString().split("T")[0], amount: 0, detail: "", withdrawnBy: "", notes: "", sourceType: "cash_office", chequePaymentId: 0 }));
     setShowCreate(true); setFormError("");
   };
 
   const handleCreate = async () => {
     if (!form.amount || !form.detail) { setFormError(t("amount") + " " + t("and") + " " + t("detail") + " required"); return; }
+    if (form.sourceType === "cheque" && !form.chequePaymentId) { setFormError("Please select a cheque"); return; }
     setSubmitting(true);
     const result = await apiCall("/api/v1/personal-withdrawals", { method: "POST", body: form });
     setSubmitting(false);
@@ -78,7 +86,7 @@ export default function PersonalWithdrawalsPage() {
 
   const openEdit = (w: any) => {
     setSelected(w);
-    setForm({ withdrawalDate: w.withdrawalDate, amount: w.amount, detail: w.detail, withdrawnBy: w.withdrawnBy || "", notes: w.notes || "", currencyId: 0 });
+    setForm({ withdrawalDate: w.withdrawalDate, amount: w.amount, detail: w.detail, withdrawnBy: w.withdrawnBy || "", notes: w.notes || "", currencyId: 0, sourceType: w.sourceType || "cash_office", chequePaymentId: w.chequePaymentId || 0 });
     setShowEdit(true); setFormError("");
   };
 
@@ -211,6 +219,19 @@ export default function PersonalWithdrawalsPage() {
               </span>
             ),
           },
+          {
+            key: "sourceType",
+            label: "Source",
+            render: (w: any) => (
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${
+                w.sourceType === "cheque"
+                  ? "bg-amber-50 text-amber-700 border-amber-200"
+                  : "bg-green-50 text-green-700 border-green-200"
+              }`}>
+                {w.sourceType === "cheque" ? "🧾 Cheque in Hand" : "💵 Cash from Office"}
+              </span>
+            ),
+          },
           { key: "notes", label: t("notes"), render: (w: any) => w.notes || "-" },
           {
             key: "actions",
@@ -269,8 +290,52 @@ export default function PersonalWithdrawalsPage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
-            <input type="number" value={form.amount || ""} onChange={(e) => setForm((f) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" />
+            <input type="number" value={form.amount || ""} onChange={(e) => setForm((f) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" readOnly={form.sourceType === "cheque" && !!form.chequePaymentId} />
           </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Source of Funds</label>
+            <select value={form.sourceType} onChange={(e) => setForm((f) => ({ ...f, sourceType: e.target.value, chequePaymentId: 0 }))} className="select-field">
+              <option value="cash_office">💵 Cash from Office</option>
+              <option value="cheque">🧾 Cheque in Hand</option>
+            </select>
+          </div>
+          {form.sourceType === "cheque" && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t("cheque")} *</label>
+              {inHandCheques.length === 0 ? (
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-700">
+                  No cheques in hand. Record a cheque payment first.
+                </div>
+              ) : (
+                <select
+                  value={form.chequePaymentId || 0}
+                  onChange={(e) => {
+                    const id = parseInt(e.target.value);
+                    const sel = inHandCheques.find((c: any) => c.id === id);
+                    setForm((f) => ({
+                      ...f,
+                      chequePaymentId: id,
+                      amount: sel ? Number(sel.amount) : f.amount,
+                      currencyId: sel?.currency?.id || f.currencyId,
+                    }));
+                  }}
+                  className="select-field"
+                >
+                  <option value={0}>— Select a cheque —</option>
+                  {inHandCheques.map((c: any) => (
+                    <option key={c.id} value={c.id}>
+                      #{c.chequeNumber || c.manualVoucherNo || c.id} · {c.customer?.name} · {c.currency?.symbol || c.currency?.code || ""} {Number(c.amount || 0).toLocaleString("en-US")}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+          {form.sourceType === "cheque" && (
+            <div className="p-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-700">
+              🧾 This withdrawal will consume the selected in-hand cheque.
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
             <input value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" />
@@ -299,7 +364,10 @@ export default function PersonalWithdrawalsPage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")}</label>
-            <input type="number" value={form.amount || ""} onChange={(e) => setForm((f) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" />
+            <input type="number" value={form.amount || ""} onChange={(e) => setForm((f) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" readOnly={form.sourceType === "cheque"} />
+          </div>
+          <div className="p-2 bg-gray-50 border rounded text-xs text-gray-600">
+            Source: <strong>{selected?.sourceType === "cheque" ? "🧾 Cheque in Hand" : "💵 Cash from Office"}</strong> (cannot change after creation)
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>

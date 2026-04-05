@@ -104,7 +104,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     // the formula so treasury was overstating cash in office by every withdrawal ever recorded.
     const withdrawalsRaw = await prisma.personalWithdrawal.groupBy({
       by: ["currencyId"],
-      where: { cityId },
+      where: { cityId, sourceType: "cash_office" } as any,
       _sum: { amount: true },
     });
 
@@ -162,7 +162,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const withdrawalsCashOut = toBalanceMap(
       withdrawalsRaw.map((r) => ({
         currencyCode: codeById[r.currencyId] ?? String(r.currencyId),
-        total: Number(r._sum.amount ?? 0),
+        total: Number(r._sum?.amount ?? 0),
       }))
     );
 

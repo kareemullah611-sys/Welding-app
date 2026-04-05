@@ -12,6 +12,9 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     const w = await prisma.personalWithdrawal.findUnique({ where: { id }, include: { currency: true } });
     if (!w) return errorResponse("NOT_FOUND", "Not found", 404);
     if (user.role === "city_admin" && w.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
+    if ((w as any).sourceType === "cheque" && body.amount !== undefined && Number(body.amount) !== Number(w.amount)) {
+      return errorResponse("VALIDATION_ERROR", "Cannot change the amount of a withdrawal that was funded by a cheque");
+    }
 
     const amountChanged = body.amount !== undefined && Number(body.amount) !== Number(w.amount);
 
@@ -34,7 +37,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     // Re-journal with new amount
     if (amountChanged) {
       try {
-        await journalWithdrawal({ id, cityId: w.cityId, amount: Number(updated.amount), currencyCode: w.currency.code, date: w.withdrawalDate, createdBy: user.userId });
+        await journalWithdrawal({ id, cityId: w.cityId, amount: Number(updated.amount), currencyCode: w.currency.code, date: w.withdrawalDate, createdBy: user.userId, sourceType: (w as any).sourceType ?? "cash_office" });
       } catch (je) { console.error("Re-journal (withdrawal edit):", je); }
     }
 
@@ -61,6 +64,15 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
 
     // Reverse the WDRAW journal (cash was credited on create, must be reversed on delete)
     try { await reverseJournalEntries(`WDRAW-${id}`, user.userId); } catch (je) { console.error("Reverse journal (withdrawal delete):", je); }
+
+    if ((w as any).chequePaymentId) {
+      try {
+        await prisma.payment.update({
+          where: { id: (w as any).chequePaymentId },
+          data: { chequeStatus: "in_hand" } as any,
+        });
+      } catch (je) { console.error("Restore cheque status (withdrawal delete):", je); }
+    }
 
     // If this withdrawal was approved and linked to a haji transfer, also reverse that
     // haji transfer's journal and delete the record so no orphan exists.

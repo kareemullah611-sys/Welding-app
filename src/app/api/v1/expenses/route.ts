@@ -50,6 +50,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         paidFrom: e.paidFrom ?? "cash_office",
         bankAccountId: e.bankAccountId ?? null,
         bankAccount: e.bankAccount ? { id: e.bankAccount.id, bankName: e.bankAccount.bankName } : null,
+        chequePaymentId: (e as any).chequePaymentId ?? null,
         currency: { id: e.currency.id, code: e.currency.code, symbol: e.currency.symbol },
         createdBy: e.creator,
         attachments: (e.attachments || []).map((a: any) => ({
@@ -75,11 +76,15 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const { lotId, expenseDate, amount, currencyId, detail, notes } = parsed.data;
 
     // New payment source fields
-    const paidFrom: "cash_office" | "bank_account" = body.paidFrom ?? "cash_office";
+    const paidFrom: "cash_office" | "bank_account" | "cheque" = body.paidFrom ?? "cash_office";
     const bankAccountId: number | undefined = body.bankAccountId ? parseInt(body.bankAccountId) : undefined;
+    const chequePaymentId: number | undefined = body.chequePaymentId ? parseInt(body.chequePaymentId) : undefined;
 
     if (paidFrom === "bank_account" && !bankAccountId) {
       return errorResponse("VALIDATION_ERROR", "Bank account is required when paidFrom is bank_account");
+    }
+    if (paidFrom === "cheque" && !chequePaymentId) {
+      return errorResponse("VALIDATION_ERROR", "Cheque is required when paidFrom is cheque");
     }
 
     // Validate bank account if paidFrom is bank_account
@@ -89,34 +94,56 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       if ((bankAccount as any).cityId !== cityId) return errorResponse("FORBIDDEN", "Bank account does not belong to your city", 403);
     }
 
+    let chequePayment: any = null;
+    if (paidFrom === "cheque" && chequePaymentId) {
+      chequePayment = await prisma.payment.findUnique({ where: { id: chequePaymentId } });
+      if (!chequePayment) return errorResponse("NOT_FOUND", "Cheque payment not found", 404);
+      if (chequePayment.cityId !== cityId) return errorResponse("FORBIDDEN", "Cheque payment does not belong to your city", 403);
+      if ((chequePayment as any).paymentMethod !== "cheque") return errorResponse("VALIDATION_ERROR", "Referenced payment is not a cheque payment");
+      if (chequePayment.destination !== "our_account") return errorResponse("VALIDATION_ERROR", "Only in-hand company cheques can fund an expense");
+      if ((chequePayment as any).chequeStatus !== "in_hand") return errorResponse("VALIDATION_ERROR", "Cheque is not in-hand status");
+      const existingExpense = await prisma.expense.findFirst({ where: { chequePaymentId } as any });
+      if (existingExpense) return errorResponse("CONFLICT", "This cheque has already been used for an expense", 409);
+    }
+
     const lot = await prisma.lot.findFirst({
       where: { id: lotId ?? undefined, status: "ongoing", lotCityDistributions: { some: { cityId } } },
     });
     if (!lot) return errorResponse("VALIDATION_ERROR", "Lot not found, completed, or not distributed to your city");
 
-    const cityCurrency = await prisma.cityCurrency.findFirst({ where: { cityId, currencyId: currencyId ?? undefined } });
+    const resolvedCurrencyId = chequePayment?.currencyId ?? currencyId;
+    const resolvedAmount = chequePayment ? Number(chequePayment.amount) : amount;
+    const cityCurrency = await prisma.cityCurrency.findFirst({ where: { cityId, currencyId: resolvedCurrencyId ?? undefined } });
     if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported in your city");
 
     const expense = await prisma.expense.create({
       data: {
-        cityId, lotId: lot.id, expenseDate: new Date(expenseDate), amount,
-        currencyId: currencyId as number, detail, notes, createdBy: user.userId,
+        cityId, lotId: lot.id, expenseDate: new Date(expenseDate), amount: resolvedAmount,
+        currencyId: (resolvedCurrencyId ?? cityCurrency.currencyId) as number, detail, notes, createdBy: user.userId,
         ...(paidFrom !== "cash_office" ? { paidFrom } : {}),
         ...(bankAccountId !== undefined ? { bankAccountId } : {}),
+        ...(chequePaymentId !== undefined ? { chequePaymentId } : {}),
       } as any,
       include: { lot: { select: { id: true, lotNumber: true } }, currency: true, creator: { select: { id: true, fullName: true } } },
     }) as any;
+
+    if (paidFrom === "cheque" && chequePaymentId) {
+      await prisma.payment.update({
+        where: { id: chequePaymentId },
+        data: { chequeStatus: "used_for_expense" } as any,
+      });
+    }
 
     await createAuditLog(user.userId, cityId, "expenses", expense.id, "create", undefined, {
       date: expenseDate,
       lot: `Lot ${expense.lot.lotNumber}`,
       detail,
-      amount: `${expense.currency.symbol || expense.currency.code} ${Number(amount).toLocaleString("en-US")}`,
+      amount: `${expense.currency.symbol || expense.currency.code} ${Number(resolvedAmount).toLocaleString("en-US")}`,
       ...(notes ? { notes } : {}),
     }, getClientIP(request));
 
     try {
-      await journalExpenseCreated({ id: expense.id, cityId, lotId: lot.id, amount, currencyCode: expense.currency.code, detail, expenseDate: expense.expenseDate, createdBy: user.userId, paidFrom: paidFrom ?? "cash_office", bankAccountId: bankAccountId ?? null });
+      await journalExpenseCreated({ id: expense.id, cityId, lotId: lot.id, amount: Number(expense.amount), currencyCode: expense.currency.code, detail, expenseDate: expense.expenseDate, createdBy: user.userId, paidFrom: paidFrom ?? "cash_office", bankAccountId: bankAccountId ?? null });
     } catch (je) { console.error("Journal (expense):", je); }
 
     return successResponse({
@@ -125,6 +152,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       amount: Number(expense.amount), detail: expense.detail,
       paidFrom: expense.paidFrom ?? "cash_office",
       bankAccountId: expense.bankAccountId ?? null,
+      chequePaymentId: (expense as any).chequePaymentId ?? null,
       currency: { id: expense.currency.id, code: expense.currency.code, symbol: expense.currency.symbol },
       createdBy: expense.creator,
     }, "Expense recorded", 201);

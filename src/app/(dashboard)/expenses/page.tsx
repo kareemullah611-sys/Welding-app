@@ -23,10 +23,11 @@ export default function ExpensesPage() {
   const [lots, setLots] = useState<any[]>([]);
   const [currencies, setCurrencies] = useState<any[]>([]);
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
+  const [inHandCheques, setInHandCheques] = useState<any[]>([]);
   const [form, setForm] = useState<any>({
     expenseDate: new Date().toISOString().split("T")[0],
     amount: 0, detail: "", notes: "", lotId: 0, currencyId: 0,
-    paidFrom: "cash_office", bankAccountId: 0,
+    paidFrom: "cash_office", bankAccountId: 0, chequePaymentId: 0,
   });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
@@ -64,10 +65,13 @@ export default function ExpensesPage() {
   }, [lastSyncResult, load]);
 
   const openCreate = async () => {
-    const [lotRes, cityRes, baRes] = await Promise.all([
+    const [lotRes, cityRes, baRes, chRes] = await Promise.all([
       apiCall("/api/v1/lots", { params: { limit: 100, status: "ongoing" } }),
       apiCall("/api/v1/cities"),
       apiCall("/api/v1/bank-accounts"),
+      apiCall("/api/v1/payments", {
+        params: { all: 1, status: "active", payment_method: "cheque", destination: "our_account", cheque_status: "in_hand" },
+      }),
     ]);
     if (lotRes.success) setLots(lotRes.data as any[]);
     if (cityRes.success && user?.cityId) {
@@ -78,10 +82,11 @@ export default function ExpensesPage() {
       }
     }
     if (baRes.success) setBankAccounts(baRes.data as any[]);
+    if (chRes.success) setInHandCheques(chRes.data as any[]);
     setForm((f: any) => ({
       ...f, expenseDate: new Date().toISOString().split("T")[0],
       amount: 0, detail: "", notes: "", lotId: 0,
-      paidFrom: "cash_office", bankAccountId: 0,
+      paidFrom: "cash_office", bankAccountId: 0, chequePaymentId: 0,
     }));
     setShowCreate(true); setFormError("");
   };
@@ -89,6 +94,7 @@ export default function ExpensesPage() {
   const handleCreate = async () => {
     if (!form.amount || !form.detail) { setFormError(t("amount") + " " + t("and") + " " + t("detail") + " required"); return; }
     if (form.paidFrom === "bank_account" && !form.bankAccountId) { setFormError("Please select a bank account"); return; }
+    if (form.paidFrom === "cheque" && !form.chequePaymentId) { setFormError("Please select a cheque"); return; }
 
     // ── Offline: queue and show optimistically ──
     if (!isOnline) {
@@ -116,6 +122,7 @@ export default function ExpensesPage() {
     setSubmitting(true);
     const body: any = { ...form, lotId: form.lotId || null };
     if (form.paidFrom !== "bank_account") delete body.bankAccountId;
+    if (form.paidFrom !== "cheque") delete body.chequePaymentId;
     const result = await apiCall("/api/v1/expenses", { method: "POST", body });
     setSubmitting(false);
     if (result.success) { setShowCreate(false); load(); } else { setFormError(result.error || "Failed"); }
@@ -126,7 +133,7 @@ export default function ExpensesPage() {
     setForm({
       expenseDate: e.expenseDate, amount: e.amount, detail: e.detail,
       notes: e.notes || "", lotId: 0, currencyId: 0,
-      paidFrom: e.paidFrom || "cash_office", bankAccountId: e.bankAccountId || 0,
+      paidFrom: e.paidFrom || "cash_office", bankAccountId: e.bankAccountId || 0, chequePaymentId: e.chequePaymentId || 0,
     });
     setShowEdit(true); setFormError("");
   };
@@ -150,6 +157,9 @@ export default function ExpensesPage() {
   const renderPaidFrom = (e: any) => {
     if (e.paidFrom === "bank_account" && e.bankAccount) {
       return <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">🏦 {e.bankAccount.bankName}</span>;
+    }
+    if (e.paidFrom === "cheque") {
+      return <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded">🧾 Cheque in Hand</span>;
     }
     return <span className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded">💵 {t("cash_from_office")}</span>;
   };
@@ -205,7 +215,13 @@ export default function ExpensesPage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
-            <input type="number" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" />
+            <input
+              type="number"
+              value={form.amount || ""}
+              onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
+              className="input-field"
+              readOnly={form.paidFrom === "cheque" && !!form.chequePaymentId}
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("lot")}</label>
@@ -224,11 +240,12 @@ export default function ExpensesPage() {
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("paid_from")}</label>
             <select
               value={form.paidFrom}
-              onChange={e => setForm((f: any) => ({ ...f, paidFrom: e.target.value, bankAccountId: 0 }))}
+              onChange={e => setForm((f: any) => ({ ...f, paidFrom: e.target.value, bankAccountId: 0, chequePaymentId: 0 }))}
               className="select-field"
             >
               <option value="cash_office">💵 {t("cash_from_office")}</option>
               <option value="bank_account">🏦 {t("bank_account")}</option>
+              <option value="cheque">🧾 {t("cheque")}</option>
             </select>
           </div>
 
@@ -249,6 +266,39 @@ export default function ExpensesPage() {
               )}
             </div>
           )}
+
+          {form.paidFrom === "cheque" && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t("cheque")} *</label>
+              {inHandCheques.length === 0 ? (
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-700">
+                  No cheques in hand. Record a cheque payment first.
+                </div>
+              ) : (
+                <select
+                  value={form.chequePaymentId || 0}
+                  onChange={e => {
+                    const id = parseInt(e.target.value);
+                    const sel = inHandCheques.find((c: any) => c.id === id);
+                    setForm((f: any) => ({
+                      ...f,
+                      chequePaymentId: id,
+                      amount: sel ? Number(sel.amount) : f.amount,
+                      currencyId: sel?.currency?.id || f.currencyId,
+                    }));
+                  }}
+                  className="select-field"
+                >
+                  <option value={0}>— Select a cheque —</option>
+                  {inHandCheques.map((c: any) => (
+                    <option key={c.id} value={c.id}>
+                      #{c.chequeNumber || c.manualVoucherNo || c.id} · {c.customer?.name} · {c.currency?.symbol || c.currency?.code || ""} {Number(c.amount || 0).toLocaleString("en-US")}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
         </div>
 
         {form.paidFrom === "cash_office" && (
@@ -256,6 +306,9 @@ export default function ExpensesPage() {
         )}
         {form.paidFrom === "bank_account" && (
           <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-700">🏦 This will be deducted from the selected bank account balance.</div>
+        )}
+        {form.paidFrom === "cheque" && (
+          <div className="mt-3 p-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-700">🧾 This expense will consume the selected in-hand cheque.</div>
         )}
 
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
@@ -273,7 +326,13 @@ export default function ExpensesPage() {
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label><input value={form.notes} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" /></div>
           {selected?.paidFrom && (
             <div className="p-2 bg-gray-50 border rounded text-xs text-gray-600">
-              Paid from: <strong>{selected.paidFrom === "bank_account" ? `🏦 ${selected.bankAccount?.bankName || "Bank"}` : "💵 Cash from Office"}</strong> (cannot change after creation)
+              Paid from: <strong>{
+                selected.paidFrom === "bank_account"
+                  ? `🏦 ${selected.bankAccount?.bankName || "Bank"}`
+                  : selected.paidFrom === "cheque"
+                    ? "🧾 Cheque in Hand"
+                    : "💵 Cash from Office"
+              }</strong> (cannot change after creation)
             </div>
           )}
         </div>

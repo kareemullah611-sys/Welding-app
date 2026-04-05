@@ -41,7 +41,9 @@ export default function BankDepositsPage() {
     const [baRes, cityRes, chRes] = await Promise.all([
       apiCall("/api/v1/bank-accounts"),
       apiCall("/api/v1/cities"),
-      apiCall("/api/v1/finance/combined", { params: { type: "payment", limit: 100 } }),
+      apiCall("/api/v1/payments", {
+        params: { all: 1, status: "active", payment_method: "cheque", destination: "our_account", cheque_status: "in_hand" },
+      }),
     ]);
     if (baRes.success) setBankAccounts(baRes.data as any[]);
     if (cityRes.success && user?.cityId) {
@@ -51,12 +53,7 @@ export default function BankDepositsPage() {
         setForm((f: any) => ({ ...f, currencyId: city.currencies[0].id }));
       }
     }
-    if (chRes.success) {
-      const cheques = (chRes.data as any[]).filter((item: any) =>
-        item.type === "payment" && item.raw?.paymentMethod === "cheque" && item.raw?.chequeStatus === "in_hand"
-      );
-      setInHandCheques(cheques);
-    }
+    if (chRes.success) setInHandCheques(chRes.data as any[]);
     setForm((f: any) => ({
       ...f, bankAccountId: 0, depositDate: new Date().toISOString().split("T")[0],
       slipNumber: "", cashAmount: 0, notes: "", chequePaymentIds: [],

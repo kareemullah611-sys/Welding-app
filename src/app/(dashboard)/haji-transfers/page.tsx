@@ -70,10 +70,11 @@ export default function HajiTransfersPage() {
       apiCall("/api/v1/bank-accounts"),
       apiCall("/api/v1/payments", {
         params: {
-          limit: 500,
+          all: 1,
           status: "active",
           payment_method: "cheque",
           destination: "our_account",
+          cheque_status: "in_hand",
         },
       }),
     ]);
@@ -83,10 +84,7 @@ export default function HajiTransfersPage() {
       if (city?.currencies?.length) { setCurrencies(city.currencies); setForm((f: any) => ({ ...f, currencyId: city.currencies[0].id })); }
     }
     if (baR.success) setBankAccounts(baR.data as any[]);
-    if (chR.success) {
-      const cheques = (chR.data as any[]).filter((item: any) => item.chequeStatus === "in_hand");
-      setInHandCheques(cheques);
-    }
+    if (chR.success) setInHandCheques(chR.data as any[]);
     setForm((f: any) => ({
       ...f, transferDate: new Date().toISOString().split("T")[0],
       amount: 0, detail: "", sourceType: "cash_office",

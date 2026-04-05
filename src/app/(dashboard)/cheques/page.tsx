@@ -9,10 +9,12 @@ const CHEQUE_STATUS_CONFIG: Record<string, { label: string; color: string; icon:
   in_hand:           { label: "In Hand",           icon: "🤲", color: "bg-yellow-50 text-yellow-700 border-yellow-200" },
   deposited_to_bank: { label: "Deposited to Bank", icon: "🏦", color: "bg-blue-50 text-blue-700 border-blue-200" },
   sent_to_haji:      { label: "Sent to Haji",      icon: "↗️", color: "bg-green-50 text-green-700 border-green-200" },
+  used_for_expense:  { label: "Used for Expense",  icon: "🧾", color: "bg-orange-50 text-orange-700 border-orange-200" },
+  used_for_withdrawal:{ label: "Used for Withdrawal", icon: "👤", color: "bg-purple-50 text-purple-700 border-purple-200" },
   bounced:           { label: "Bounced",            icon: "⚠️", color: "bg-red-50 text-red-700 border-red-200" },
 };
 
-const TABS = ["all", "in_hand", "deposited_to_bank", "sent_to_haji", "bounced"] as const;
+const TABS = ["all", "in_hand", "deposited_to_bank", "sent_to_haji", "used_for_expense", "used_for_withdrawal", "bounced"] as const;
 type Tab = typeof TABS[number];
 
 export default function ChequesPage() {
@@ -72,6 +74,8 @@ export default function ChequesPage() {
     in_hand: "🤲 In Hand",
     deposited_to_bank: "🏦 Deposited",
     sent_to_haji: "↗️ Sent to Haji",
+    used_for_expense: "🧾 Used for Expense",
+    used_for_withdrawal: "👤 Used for Withdrawal",
     bounced: "⚠️ Bounced",
   };
 
