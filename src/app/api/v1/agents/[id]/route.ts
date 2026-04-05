@@ -22,7 +22,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, use
       if (!currencyBalances[ccy]) currencyBalances[ccy] = 0;
       currencyBalances[ccy] += e.debit - e.credit;
       return { ...e, date: new Date(e.date).toISOString().split("T")[0], balance: Math.round(currencyBalances[ccy] * 100) / 100, currency: ccy };
-    });
+    }).reverse();
 
     return successResponse({ ...agent, id: agent.id, name: agent.name, ledger });
   } catch (error) { return serverError(); }

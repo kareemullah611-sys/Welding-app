@@ -87,7 +87,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         totalProfits,
         balance: finalBalance,
         projectedProfit,
-        entries,
+        entries: entries.reverse(),
       };
     });
 

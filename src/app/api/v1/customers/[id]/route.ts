@@ -59,7 +59,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       const curr = t.currency;
       runningByCurrency[curr] = (runningByCurrency[curr] || 0) + t.debit - t.credit;
       return { ...t, balance: Math.round(runningByCurrency[curr] * 100) / 100 };
-    });
+    }).reverse();
 
     // Summary balance per currency
     const balanceByCurrency: Record<string, number> = {};
