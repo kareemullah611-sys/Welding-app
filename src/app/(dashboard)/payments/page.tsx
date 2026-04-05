@@ -25,6 +25,7 @@ export default function PaymentsPage() {
   const { t } = useLang();
   const { isOnline, enqueue, lastSyncResult } = useOffline();
   const canCreateRecords = user?.role === "city_admin";
+  const isAfghanistanCity = user?.countryName === "Afghanistan";
 
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,6 +81,15 @@ export default function PaymentsPage() {
     }
     setLoading(false);
   }, [typeFilter, page]);
+
+  const refreshToLatestPayments = useCallback(() => {
+    if (page !== 1 || typeFilter !== "all") {
+      if (page !== 1) setPage(1);
+      if (typeFilter !== "all") setTypeFilter("all");
+      return;
+    }
+    load();
+  }, [load, page, typeFilter]);
 
   useEffect(() => { setPage(1); }, [typeFilter]);
   useEffect(() => { load(); }, [load]);
@@ -175,9 +185,7 @@ export default function PaymentsPage() {
     const r = await apiCall(endpoint, { method: "POST", body });
     if (r.success) {
       setShowCreate(false);
-      if (page !== 1) setPage(1);
-      if (typeFilter !== "all") setTypeFilter("all");
-      load();
+      refreshToLatestPayments();
     } else { setError(r.error || "Failed"); }
     setSubmitting(false);
   };
@@ -227,11 +235,7 @@ export default function PaymentsPage() {
     setQueueSaved(true);
     setShowCreate(false);
     setTimeout(() => setQueueSaved(false), 3000);
-    // Reset to page 1 + all-types so the new payment is visible
-    if (page !== 1) setPage(1);
-    if (typeFilter !== "all") setTypeFilter("all");
-    // Always reload to show the new entry
-    load();
+    refreshToLatestPayments();
   };
 
   const openEdit = async (item: any) => {
@@ -293,6 +297,15 @@ export default function PaymentsPage() {
     setBounceSubmitting(false);
     if (r.success) { setShowBounce(false); setBounceTarget(null); load(); }
     else { setError(r.error || "Failed to mark cheque as bounced"); }
+  };
+
+  const handleToggleHajiAudit = async (item: any, confirmed: boolean) => {
+    const r = await apiCall(`/api/v1/payments/${item.id}`, {
+      method: "PATCH",
+      body: { action: "set_haji_audit", confirmed },
+    });
+    if (r.success) load();
+    else setError(r.error || "Failed to update audit confirmation");
   };
 
   const columns = [
@@ -370,9 +383,14 @@ export default function PaymentsPage() {
               {item.status === "cancelled" && item.raw?.cancellationReason && (
                 <p className="text-xs text-gray-400 mt-0.5 max-w-[120px] truncate" title={item.raw.cancellationReason}>{item.raw.cancellationReason}</p>
               )}
-              {item.raw?.chequeStatus && (
+          {item.raw?.chequeStatus && (
                 <span className={`text-xs px-1.5 py-0.5 rounded font-medium mt-1 inline-block ${chequeStatusColors[item.raw.chequeStatus] || "bg-gray-50 text-gray-700"}`}>
                   🧾 {chequeStatusLabels[item.raw.chequeStatus] || item.raw.chequeStatus}
+                </span>
+              )}
+              {item.raw?.hajiAudit?.confirmed && (
+                <span className="text-xs px-1.5 py-0.5 rounded font-medium mt-1 inline-block bg-emerald-50 text-emerald-700">
+                  ✓ Haji audit confirmed
                 </span>
               )}
             </div>
@@ -408,6 +426,17 @@ export default function PaymentsPage() {
           )}
           {item.type === "payment" && item.status === "active" && item.raw?.paymentMethod === "cheque" && item.raw?.chequeStatus === "in_hand" && (
             <button onClick={() => { setBounceTarget(item); setShowBounce(true); setError(""); }} className="text-xs text-amber-600 font-semibold hover:underline">{t("mark_bounced")}</button>
+          )}
+          {item.type === "payment" && user?.role === "super_admin" && item.status === "active" && item.raw?.destination === "haji" && ["cash", "bank_transfer", "online"].includes(item.raw?.paymentMethod) && (
+            item.raw?.hajiAudit?.confirmed ? (
+              <button onClick={() => handleToggleHajiAudit(item, false)} className="text-xs text-emerald-700 font-semibold hover:underline">
+                Remove Audit Check
+              </button>
+            ) : (
+              <button onClick={() => handleToggleHajiAudit(item, true)} className="text-xs text-emerald-700 font-semibold hover:underline">
+                ✓ Mark Audit OK
+              </button>
+            )
           )}
         </div>
         );
@@ -501,8 +530,10 @@ export default function PaymentsPage() {
 
           {createType === "payment" && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Voucher No <span className="text-gray-400 font-normal">(optional)</span></label>
-              <input value={form.manualVoucherNo || ""} onChange={e => setForm((f: any) => ({ ...f, manualVoucherNo: e.target.value }))} className="input-field" placeholder="e.g. CHQ-1234"
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {form.paymentMethod === "cheque" ? t("cheque_number") : "Voucher No"} <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <input value={form.manualVoucherNo || ""} onChange={e => setForm((f: any) => ({ ...f, manualVoucherNo: e.target.value }))} className="input-field" placeholder={form.paymentMethod === "cheque" ? "e.g. 001234" : "e.g. CHQ-1234"}
                 onKeyDown={e => e.key === "Enter" && addToQueue()} />
             </div>
           )}
@@ -528,17 +559,27 @@ export default function PaymentsPage() {
               onKeyDown={e => { if (e.key === "Enter") { if (createType === "payment") addToQueue(); else handleCreate(); } }} />
           </div>
 
-          {createType === "payment" && user?.countryName !== "Afghanistan" && (
+          {createType === "payment" && (
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">{t("method")}</label>
-                <select value={form.paymentMethod} onChange={e => setForm((f: any) => ({ ...f, paymentMethod: e.target.value }))} className="select-field">
-                  <option value="cash">{t("cash")}</option>
-                  <option value="bank_transfer">{t("bank_transfer")}</option>
-                  <option value="cheque">{t("cheque")}</option>
-                  <option value="online">{t("online")}</option>
-                </select>
-              </div>
+              {!isAfghanistanCity ? (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("method")}</label>
+                  <select value={form.paymentMethod} onChange={e => setForm((f: any) => ({ ...f, paymentMethod: e.target.value }))} className="select-field">
+                    <option value="cash">{t("cash")}</option>
+                    <option value="bank_transfer">{t("bank_transfer")}</option>
+                    <option value="cheque">{t("cheque")}</option>
+                    <option value="online">{t("online")}</option>
+                  </select>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("method")}</label>
+                  <div className="input-field bg-gray-50 text-gray-600 flex items-center justify-between">
+                    <span>{t("cash")}</span>
+                    <span className="text-xs text-gray-400">Afghanistan only</span>
+                  </div>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">{t("destination")}</label>
                 <select value={form.destination} onChange={e => setForm((f: any) => ({ ...f, destination: e.target.value }))} className="select-field">
@@ -552,13 +593,9 @@ export default function PaymentsPage() {
           {createType === "payment" && form.paymentMethod === "cheque" && (
             <div className="space-y-3">
               <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm font-semibold text-blue-800">
-                🧾 {t("cheque_number")} — {t("drawn_on_bank")}
+                🧾 {t("drawn_on_bank")}
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("cheque_number")}</label>
-                  <input value={form.chequeNumber || ""} onChange={e => setForm((f: any) => ({ ...f, chequeNumber: e.target.value }))} className="input-field" placeholder="e.g. 001234" />
-                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">{t("drawn_on_bank")}</label>
                   <input value={form.chequeBank || ""} onChange={e => setForm((f: any) => ({ ...f, chequeBank: e.target.value }))} className="input-field" placeholder="e.g. HBL" />

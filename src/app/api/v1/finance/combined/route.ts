@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth, getCityScope } from "@/lib/middleware";
 import { successResponse, paginatedResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { getPaymentHajiAuditStateMap, isHajiAuditEligible } from "@/lib/payment-audit";
 
 export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayload) => {
   try {
@@ -37,6 +38,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         },
         orderBy: { paymentDate: "desc" },
       });
+      const hajiAuditStateById = await getPaymentHajiAuditStateMap(payments.map((p) => p.id));
       combined.push(...payments.map((p) => ({
         id: p.id,
         type: "payment",
@@ -53,6 +55,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           amount: Number(p.amount),
           exchangeRate: p.exchangeRate ? Number(p.exchangeRate) : null,
           usdEquivalent: p.usdEquivalent ? Number(p.usdEquivalent) : null,
+          hajiAudit: isHajiAuditEligible(p) ? (hajiAuditStateById[p.id] || null) : null,
           attachments: (p as any).attachments ?? [],
         },
       })));

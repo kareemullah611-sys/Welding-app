@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middleware";
 import { journalPaymentReceived, journalChequeReceived } from "@/lib/accounting";
 import { createPaymentSchema } from "@/lib/validations";
+import { getPaymentHajiAuditStateMap, isHajiAuditEligible } from "@/lib/payment-audit";
 import {
   successResponse, paginatedResponse, validationError, errorResponse, serverError,
   getPaginationParams, getDateRange,
@@ -67,6 +68,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       }),
       prisma.payment.count({ where }),
     ]);
+    const hajiAuditStateById = await getPaymentHajiAuditStateMap(payments.map((p) => p.id));
 
     const formatted = payments.map((p) => ({
       id: p.id,
@@ -87,6 +89,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       chequeBank: (p as any).chequeBank ?? null,
       chequeDueDate: (p as any).chequeDueDate ? new Date((p as any).chequeDueDate).toISOString().split("T")[0] : null,
       chequeStatus: (p as any).chequeStatus ?? null,
+      hajiAudit: isHajiAuditEligible(p) ? (hajiAuditStateById[p.id] || null) : null,
       bankDepositId: (p as any).bankDepositId ?? null,
       customer: p.customer,
       lot: { id: p.lot.id, lotNumber: p.lot.lotNumber, status: p.lot.status },
@@ -117,10 +120,13 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     if (!parsed.success) return validationError("Invalid payment data", parsed.error.errors);
 
     let { customerId, lotId, paymentDate, detail, amount, currencyId, exchangeRate, usdEquivalent, manualVoucherNo, paymentMethod, destination, notes } = parsed.data;
-    const chequeNumber: string | undefined = body.chequeNumber;
+    const chequeNumberInput: string | undefined = body.chequeNumber;
     const chequeBank: string | undefined = body.chequeBank;
     const chequeDueDate: string | undefined = body.chequeDueDate;
     const cityId = user.cityId!;
+    const chequeNumber = paymentMethod === "cheque"
+      ? (manualVoucherNo?.trim() || chequeNumberInput?.trim() || undefined)
+      : chequeNumberInput?.trim() || undefined;
 
     // Handle walk-in customer (id = -1): find or create per city
     if (customerId === -1) {
@@ -141,6 +147,15 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     });
     if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported in your city");
     const resolvedCurrencyId = currencyId ?? cityCurrency.currencyId;
+
+    const city = await prisma.city.findUnique({
+      where: { id: cityId },
+      include: { country: { select: { name: true } } },
+    });
+    const isAfghanistanCity = city?.country?.name === "Afghanistan";
+    if (isAfghanistanCity && paymentMethod !== "cash") {
+      return errorResponse("VALIDATION_ERROR", "Afghanistan cities can record cash payments only");
+    }
 
     // FIFO lot assignment if not specified
     if (!lotId) {
@@ -179,7 +194,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         detail,
         amount,
         currencyId: resolvedCurrencyId,
-        manualVoucherNo,
+        manualVoucherNo: manualVoucherNo?.trim() || null,
         paymentMethod,
         destination,
         notes,

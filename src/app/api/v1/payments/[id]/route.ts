@@ -4,6 +4,7 @@ import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { reverseJournalEntries, journalPaymentReceived, journalChequeReceived } from "@/lib/accounting";
+import { getPaymentHajiAuditStateMap, isHajiAuditEligible } from "@/lib/payment-audit";
 
 export const GET = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -14,12 +15,14 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     });
     if (!payment) return errorResponse("NOT_FOUND", "Payment not found", 404);
     if (user.role === "city_admin" && payment.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
+    const hajiAuditStateById = await getPaymentHajiAuditStateMap([payment.id]);
 
     return successResponse({
       id: payment.id, paymentDate: payment.paymentDate.toISOString().split("T")[0],
       amount: Number(payment.amount), detail: payment.detail, notes: payment.notes,
       manualVoucherNo: payment.manualVoucherNo, paymentMethod: payment.paymentMethod,
       destination: payment.destination, status: payment.status,
+      hajiAudit: isHajiAuditEligible(payment) ? (hajiAuditStateById[payment.id] || null) : null,
       customer: { id: payment.customer.id, name: payment.customer.name },
       lot: payment.lot, currency: { id: payment.currency.id, code: payment.currency.code, symbol: payment.currency.symbol },
       createdBy: payment.creator,
@@ -33,6 +36,51 @@ export const PATCH = withAuth(async (request: NextRequest, context: any, user: J
   try {
     const id = parseInt(context.params.id);
     const body = await request.json();
+
+    if (body.action === "set_haji_audit") {
+      const payment = await prisma.payment.findUnique({ where: { id } });
+      if (!payment) return errorResponse("NOT_FOUND", "Payment not found", 404);
+      if (user.role !== "super_admin") return errorResponse("FORBIDDEN", "Only super admin can confirm Haji payments", 403);
+      if (payment.status !== "active") return errorResponse("VALIDATION_ERROR", "Only active payments can be confirmed");
+      if (!isHajiAuditEligible(payment)) {
+        return errorResponse("VALIDATION_ERROR", "Only Haji-destination cash or bank payments can be audit-confirmed");
+      }
+
+      const confirmed = !!body.confirmed;
+      const stateById = await getPaymentHajiAuditStateMap([payment.id]);
+      const current = stateById[payment.id] || null;
+      if ((current?.confirmed || false) === confirmed) {
+        return successResponse({
+          confirmed,
+          confirmedAt: current?.confirmedAt || null,
+          confirmedBy: current?.confirmedBy || null,
+        }, confirmed ? "Payment was already confirmed" : "Payment was already unconfirmed");
+      }
+
+      await createAuditLog(
+        user.userId,
+        payment.cityId,
+        "payments",
+        payment.id,
+        "update",
+        {
+          hajiAuditConfirmed: current?.confirmed || false,
+          hajiAuditConfirmedAt: current?.confirmedAt || null,
+          hajiAuditConfirmedBy: current?.confirmedBy?.fullName || current?.confirmedBy?.username || null,
+        },
+        {
+          hajiAuditConfirmed: confirmed,
+          hajiAuditNote: confirmed ? "Super admin confirmed payment to Haji account" : "Super admin removed Haji payment confirmation",
+        },
+        getClientIP(request)
+      );
+
+      return successResponse({
+        confirmed,
+        confirmedAt: new Date().toISOString(),
+        confirmedBy: { id: user.userId, fullName: user.username, username: user.username },
+      }, confirmed ? "Haji payment confirmed" : "Haji payment confirmation removed");
+    }
 
     if (body.action === "bounce_cheque") {
       const payment = await prisma.payment.findUnique({ where: { id } });
