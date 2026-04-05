@@ -38,7 +38,7 @@ interface NavItemDef {
 
 const navGroups: { label: string; items: NavItemDef[] }[] = [
   {
-    label: "Overview",
+    label: "Home",
     items: [
       { label: "Dashboard", key: "dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["super_admin", "city_admin"] },
     ],
@@ -57,17 +57,20 @@ const navGroups: { label: string; items: NavItemDef[] }[] = [
     ],
   },
   {
-    label: "Sales & Finance",
+    label: "Daily Work",
     items: [
       { label: "Sales",            key: "sales",            href: "/sales",            icon: Receipt,   roles: ["super_admin", "city_admin"] },
       { label: "Payments",         key: "payments",         href: "/payments",         icon: Wallet,    roles: ["super_admin", "city_admin"] },
+      { label: "Expenses",         key: "expenses",         href: "/expenses",         icon: Banknote,  roles: ["super_admin", "city_admin"] },
+      { label: "Withdrawals",      key: "personal_withdrawals", href: "/personal-withdrawals", icon: PiggyBank, roles: ["super_admin", "city_admin"] },
+      { label: "Haji Transfers",   key: "haji_transfers",   href: "/haji-transfers",   icon: ArrowLeftRight, roles: ["super_admin", "city_admin"] },
       { label: "Customers",        key: "customers",        href: "/customers",        icon: Users,     roles: ["super_admin", "city_admin"] },
       { label: "Cheque Register",  key: "cheque_register",  href: "/cheques",          icon: FileCheck, roles: ["city_admin"] },
       { label: "Bank Deposits",    key: "bank_deposits",    href: "/bank-deposits",    icon: Landmark,  roles: ["city_admin"] },
     ],
   },
   {
-    label: "Warehouse",
+    label: "Stock & Movement",
     items: [
       { label: "Godowns",        key: "godowns",        href: "/godowns",        icon: Warehouse,     roles: ["super_admin", "city_admin"] },
       { label: "Inventory",      key: "inventory",      href: "/inventory",      icon: ClipboardList, roles: ["super_admin", "city_admin"] },
@@ -75,7 +78,7 @@ const navGroups: { label: string; items: NavItemDef[] }[] = [
     ],
   },
   {
-    label: "Reports",
+    label: "Reports & Review",
     items: [
       { label: "Analytics",        key: "analytics",        href: "/analytics",     icon: BarChart2,  roles: ["super_admin", "city_admin"] },
       { label: "Profit Report",    key: "profit_report",    href: "/profit-report", icon: TrendingUp, roles: ["super_admin"] },
@@ -84,7 +87,7 @@ const navGroups: { label: string; items: NavItemDef[] }[] = [
     ],
   },
   {
-    label: "Tools",
+    label: "Search & Audit",
     items: [
       { label: "Search",        key: "search",        href: "/search",        icon: Search,          roles: ["super_admin", "city_admin"] },
       { label: "Activity Feed", key: "activity_feed", href: "/activity-feed", icon: Activity,        roles: ["super_admin", "city_admin"] },
@@ -92,7 +95,7 @@ const navGroups: { label: string; items: NavItemDef[] }[] = [
     ],
   },
   {
-    label: "System",
+    label: "Settings",
     items: [
       { label: "Settings",      key: "settings",      href: "/settings",              icon: Settings, roles: ["super_admin"] },
       { label: "Bank Accounts", key: "bank_accounts",  href: "/settings/bank-accounts", icon: Landmark, roles: ["super_admin", "city_admin"] },

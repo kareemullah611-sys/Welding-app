@@ -20,6 +20,18 @@ function TypeBadge({ type }: { type: string }) {
   return <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${cfg.color}`}>{cfg.label}</span>;
 }
 
+const PAYMENT_METHOD_OPTIONS = [
+  { value: "cash", label: "Cash", hint: "Quick office receipt" },
+  { value: "bank_transfer", label: "Bank Transfer", hint: "Money received in bank" },
+  { value: "cheque", label: "Cheque", hint: "Track cheque status" },
+  { value: "online", label: "Online", hint: "Digital transfer or wallet" },
+];
+
+const DESTINATION_OPTIONS = [
+  { value: "haji", label: "Send to Haji", hint: "Counts toward Haji settlement" },
+  { value: "our_account", label: "Keep in Office", hint: "Treat as company/office receipt" },
+];
+
 export default function PaymentsPage() {
   const { user } = useAuth();
   const { t } = useLang();
@@ -450,6 +462,9 @@ export default function PaymentsPage() {
     createType === "haji_transfer" ? t("new_haji_title") :
     t("new_withdrawal_title");
 
+  const selectedMethod = PAYMENT_METHOD_OPTIONS.find((option) => option.value === form.paymentMethod);
+  const selectedDestination = DESTINATION_OPTIONS.find((option) => option.value === form.destination);
+
   return (
     <div>
       <PageHeader
@@ -528,16 +543,6 @@ export default function PaymentsPage() {
             </div>
           )}
 
-          {createType === "payment" && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {form.paymentMethod === "cheque" ? t("cheque_number") : "Voucher No"} <span className="text-gray-400 font-normal">(optional)</span>
-              </label>
-              <input value={form.manualVoucherNo || ""} onChange={e => setForm((f: any) => ({ ...f, manualVoucherNo: e.target.value }))} className="input-field" placeholder={form.paymentMethod === "cheque" ? "e.g. 001234" : "e.g. CHQ-1234"}
-                onKeyDown={e => e.key === "Enter" && addToQueue()} />
-            </div>
-          )}
-
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("detail")} *</label>
             <input value={form.detail || ""} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field"
@@ -560,40 +565,89 @@ export default function PaymentsPage() {
           </div>
 
           {createType === "payment" && (
-            <div className="grid grid-cols-2 gap-3">
-              {!isAfghanistanCity ? (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("method")}</label>
-                  <select value={form.paymentMethod} onChange={e => setForm((f: any) => ({ ...f, paymentMethod: e.target.value }))} className="select-field">
-                    <option value="cash">{t("cash")}</option>
-                    <option value="bank_transfer">{t("bank_transfer")}</option>
-                    <option value="cheque">{t("cheque")}</option>
-                    <option value="online">{t("online")}</option>
-                  </select>
-                </div>
-              ) : (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("method")}</label>
-                  <div className="input-field bg-gray-50 text-gray-600 flex items-center justify-between">
-                    <span>{t("cash")}</span>
-                    <span className="text-xs text-gray-400">Afghanistan only</span>
-                  </div>
-                </div>
-              )}
+            <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50/70 p-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">{t("destination")}</label>
-                <select value={form.destination} onChange={e => setForm((f: any) => ({ ...f, destination: e.target.value }))} className="select-field">
-                  <option value="haji">{t("haji_label")}</option>
-                  <option value="our_account">{t("our_account")}</option>
-                </select>
+                <label className="block text-sm font-medium text-gray-700 mb-2">How was the payment received?</label>
+                {!isAfghanistanCity ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    {PAYMENT_METHOD_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setForm((f: any) => ({ ...f, paymentMethod: option.value }))}
+                        className={`rounded-xl border px-3 py-3 text-left transition-colors ${
+                          form.paymentMethod === option.value
+                            ? "border-primary-500 bg-white shadow-sm"
+                            : "border-gray-200 bg-white hover:border-primary-300"
+                        }`}
+                      >
+                        <div className="text-sm font-semibold text-gray-900">{option.label}</div>
+                        <div className="mt-1 text-xs text-gray-500">{option.hint}</div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-gray-700">
+                    <div className="font-semibold text-gray-900">Cash</div>
+                    <div className="mt-1 text-xs text-gray-500">Afghanistan city operations are cash-only.</div>
+                  </div>
+                )}
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Where should this payment go?</label>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {DESTINATION_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setForm((f: any) => ({ ...f, destination: option.value }))}
+                      className={`rounded-xl border px-3 py-3 text-left transition-colors ${
+                        form.destination === option.value
+                          ? "border-primary-500 bg-white shadow-sm"
+                          : "border-gray-200 bg-white hover:border-primary-300"
+                      }`}
+                    >
+                      <div className="text-sm font-semibold text-gray-900">{option.label}</div>
+                      <div className="mt-1 text-xs text-gray-500">{option.hint}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-dashed border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
+                Method: <strong>{isAfghanistanCity ? "Cash" : selectedMethod?.label || "Cash"}</strong>
+                {" · "}
+                Destination: <strong>{selectedDestination?.label || "Send to Haji"}</strong>
+              </div>
+            </div>
+          )}
+
+          {createType === "payment" && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {form.paymentMethod === "cheque" ? "Cheque Number" : "Voucher / Reference Number"} <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <input
+                value={form.manualVoucherNo || ""}
+                onChange={e => setForm((f: any) => ({ ...f, manualVoucherNo: e.target.value }))}
+                className="input-field"
+                placeholder={form.paymentMethod === "cheque" ? "e.g. 001234" : "e.g. REF-1024"}
+                onKeyDown={e => e.key === "Enter" && addToQueue()}
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                {form.paymentMethod === "cheque"
+                  ? "Use the cheque number here. You do not need to enter it twice."
+                  : "Helpful for voucher matching, transfer reference, or manual receipt tracking."}
+              </p>
             </div>
           )}
 
           {createType === "payment" && form.paymentMethod === "cheque" && (
             <div className="space-y-3">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm font-semibold text-blue-800">
-                🧾 {t("drawn_on_bank")}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm text-blue-800">
+                <p className="font-semibold">Cheque details</p>
+                <p className="mt-1 text-xs text-blue-700">Only fill the bank and due date. The cheque number is already captured above.</p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>

@@ -7,6 +7,7 @@ import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, StatusBadge, formatCurrency, formatDate } from "@/components/ui";
 import CustomerSearch from "@/components/CustomerSearch";
 import { useLang } from "@/lib/lang";
+import Link from "next/link";
 
 export default function SalesPage() {
   const { user } = useAuth();
@@ -52,6 +53,7 @@ export default function SalesPage() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [shortConfirmed, setShortConfirmed] = useState(false);
+  const [saleSavedNotice, setSaleSavedNotice] = useState<string | null>(null);
 
   // Cancel form
   const [cancelReason, setCancelReason] = useState("");
@@ -214,6 +216,8 @@ export default function SalesPage() {
       setShowCreate(false);
       setShortConfirmed(false);
       setForm({ customerId: 0, godownId: 0, lotId: 0, saleDate: new Date().toISOString().split("T")[0], currencyId: currencies[0]?.id || 0, notes: "", items: [{ productId: 0, qty: 0, ratePerCarton: 0 }] });
+      setSaleSavedNotice("Sale recorded successfully. Next step: record the customer payment if money was received.");
+      setTimeout(() => setSaleSavedNotice(null), 5000);
       loadSales();
     } else { setFormError(result.error || "Failed to create sale"); }
   };
@@ -270,6 +274,15 @@ export default function SalesPage() {
     <div>
       <PageHeader title={t("sales")} subtitle={`${total} ${t("records").toLowerCase()}`}
         action={user?.role === "city_admin" ? <button onClick={openCreate} className="btn-primary text-sm">+ {t("new_sale")}</button> : undefined} />
+
+      {saleSavedNotice && (
+        <div className="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 flex flex-wrap items-center justify-between gap-3">
+          <span>{saleSavedNotice}</span>
+          <Link href="/payments" className="text-sm font-semibold text-green-700 hover:underline">
+            Go to Payments
+          </Link>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-3 mb-4">
         <select value={filters.status} onChange={(e) => { setFilters((f) => ({ ...f, status: e.target.value })); setPage(1); }} className="select-field w-auto">
@@ -340,7 +353,12 @@ export default function SalesPage() {
           <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
           <input type="date" value={form.saleDate} onChange={(e) => setForm((f) => ({ ...f, saleDate: e.target.value }))} className="input-field" autoFocus />
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+        <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50/80 p-4">
+          <div className="mb-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Step 1</p>
+            <h3 className="text-sm font-semibold text-gray-900 mt-1">Choose customer and stock source</h3>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("customer")} *</label>
             <CustomerSearch
@@ -369,6 +387,10 @@ export default function SalesPage() {
               <p className="text-xs text-orange-600 mt-1">⚠️ Cross-city godown — stock will be taken from {godowns.find((g: any) => g.id === form.godownId)?.cityName}</p>
             )}
           </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("lot")}</label>
             <select value={form.lotId} onChange={(e) => setForm((f) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
@@ -418,7 +440,11 @@ export default function SalesPage() {
         )}
 
         {/* LINE ITEMS */}
-        <div className="mb-4">
+        <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50/80 p-4">
+          <div className="mb-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Step 2</p>
+            <h3 className="text-sm font-semibold text-gray-900 mt-1">Add products and selling rates</h3>
+          </div>
           <div className="flex items-center justify-between mb-2">
             <label className="text-sm font-medium text-gray-700">{t("product")} *</label>
             <button onClick={addItem} className="text-primary-600 text-sm font-medium hover:text-primary-700">+ {t("add_item")}</button>
@@ -463,6 +489,32 @@ export default function SalesPage() {
             <span className="text-sm text-gray-500">{t("total")}: </span>
             <span className="text-lg font-bold text-gray-900">{totalAmount.toLocaleString("en-US")}</span>
           </div>
+        </div>
+
+        <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Step 3</p>
+          <h3 className="text-sm font-semibold text-blue-900 mt-1">Review before saving</h3>
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-lg bg-white px-3 py-2">
+              <div className="text-xs text-gray-500">Items</div>
+              <div className="text-sm font-semibold text-gray-900">{form.items.filter((i) => i.productId && i.qty > 0).length}</div>
+            </div>
+            <div className="rounded-lg bg-white px-3 py-2">
+              <div className="text-xs text-gray-500">Cartons</div>
+              <div className="text-sm font-semibold text-gray-900">{form.items.reduce((sum, i) => sum + (i.qty || 0), 0).toLocaleString("en-US")}</div>
+            </div>
+            <div className="rounded-lg bg-white px-3 py-2">
+              <div className="text-xs text-gray-500">Godown</div>
+              <div className="text-sm font-semibold text-gray-900 truncate">{godowns.find((g: any) => g.id === form.godownId)?.name || "Not selected"}</div>
+            </div>
+            <div className="rounded-lg bg-white px-3 py-2">
+              <div className="text-xs text-gray-500">Sale Total</div>
+              <div className="text-sm font-semibold text-gray-900">{totalAmount.toLocaleString("en-US")}</div>
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-blue-700">
+            After saving, you can go straight to Payments if the customer paid on the spot.
+          </p>
         </div>
 
         <div className="flex justify-end gap-3 pt-4 border-t">

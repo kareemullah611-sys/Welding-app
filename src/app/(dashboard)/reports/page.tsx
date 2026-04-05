@@ -17,6 +17,7 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(false);
   const [customers, setCustomers] = useState<any[]>([]);
   const [cities, setCities] = useState<any[]>([]);
+  const [reportMode, setReportMode] = useState<"quick" | "advanced">("quick");
 
   const loadFilters = async () => {
     const [custRes, cityRes] = await Promise.all([apiCall("/api/v1/customers", { params: { limit: 200 } }), apiCall("/api/v1/cities")]);
@@ -145,16 +146,39 @@ export default function ReportsPage() {
       )}
 
       <PageHeader title={t("reports")} subtitle="Generate formal operational and ledger reports" />
-      <div className="card mb-6 no-print"><div className="flex flex-wrap gap-3 items-end">
-        <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("report_type")}</label><select value={reportType} onChange={(e) => { setReportType(e.target.value as ReportType); setData([]); setSummary(null); }} className="select-field w-auto">
-          <option value="sales">{t("sales")}</option>
-          <option value="payments">{t("payments")}</option>
-          <option value="expenses">{t("expenses")}</option>
-          <option value="haji_settlement">{t("haji_settlement")}</option>
-          <option value="customer_ledger">{t("customer_ledger")}</option>
-          <option value="city_ledger">{t("city_ledger")}</option>
-          <option value="discount_history">{t("discount_history")}</option>
-        </select></div>
+      <div className="card mb-6 no-print">
+        <div className="mb-4 flex flex-wrap gap-2">
+          <button onClick={() => setReportMode("quick")} className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${reportMode === "quick" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-600 border-gray-200"}`}>Quick Reports</button>
+          <button onClick={() => setReportMode("advanced")} className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${reportMode === "advanced" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-600 border-gray-200"}`}>Advanced Reports</button>
+        </div>
+
+        <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {(reportMode === "quick"
+            ? (["sales", "payments", "expenses", "customer_ledger"] as ReportType[])
+            : (["haji_settlement", "city_ledger", "discount_history"] as ReportType[])
+          ).map((type) => (
+            <button
+              key={type}
+              onClick={() => { setReportType(type); setData([]); setSummary(null); }}
+              className={`rounded-xl border px-4 py-3 text-left transition-colors ${
+                reportType === type ? "border-primary-500 bg-primary-50" : "border-gray-200 bg-white hover:border-primary-300"
+              }`}
+            >
+              <div className="text-sm font-semibold text-gray-900">{reportLabels[type]}</div>
+              <div className="mt-1 text-xs text-gray-500">
+                {type === "sales" && "Daily sale history and totals"}
+                {type === "payments" && "Receipts and Haji split"}
+                {type === "expenses" && "Cost and office spending"}
+                {type === "customer_ledger" && "Single customer statement"}
+                {type === "haji_settlement" && "Transfers and Haji settlement trail"}
+                {type === "city_ledger" && "Full city cash and ledger view"}
+                {type === "discount_history" && "Discount audit history"}
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap gap-3 items-end">
         {(reportType === "customer_ledger" || reportType === "discount_history") && <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("customer")}</label><select value={filters.customer_id} onChange={(e) => setFilters((f) => ({ ...f, customer_id: e.target.value }))} className="select-field w-auto"><option value="">{t("all_customers")}</option>{customers.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>}
         {showCityFilter && <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("city")}</label><select value={filters.city_id} onChange={(e) => setFilters((f) => ({ ...f, city_id: e.target.value }))} className="select-field w-auto"><option value="">{t("all_cities")}</option>{cities.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>}
         <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("from")}</label><input type="date" value={filters.date_from} onChange={(e) => setFilters((f) => ({ ...f, date_from: e.target.value }))} className="input-field w-auto" /></div>

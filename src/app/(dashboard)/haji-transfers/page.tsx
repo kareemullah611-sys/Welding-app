@@ -68,7 +68,14 @@ export default function HajiTransfersPage() {
       apiCall("/api/v1/lots", { params: { limit: 100 } }),
       apiCall("/api/v1/cities"),
       apiCall("/api/v1/bank-accounts"),
-      apiCall("/api/v1/finance/combined", { params: { type: "payment", limit: 100 } }),
+      apiCall("/api/v1/payments", {
+        params: {
+          limit: 500,
+          status: "active",
+          payment_method: "cheque",
+          destination: "our_account",
+        },
+      }),
     ]);
     if (lR.success) setLots(lR.data as any[]);
     if (cR.success && user?.cityId) {
@@ -77,9 +84,7 @@ export default function HajiTransfersPage() {
     }
     if (baR.success) setBankAccounts(baR.data as any[]);
     if (chR.success) {
-      const cheques = (chR.data as any[]).filter((item: any) =>
-        item.type === "payment" && item.raw?.paymentMethod === "cheque" && item.raw?.chequeStatus === "in_hand"
-      );
+      const cheques = (chR.data as any[]).filter((item: any) => item.chequeStatus === "in_hand");
       setInHandCheques(cheques);
     }
     setForm((f: any) => ({
@@ -273,7 +278,7 @@ export default function HajiTransfersPage() {
                   <option value={0}>— Select a cheque —</option>
                   {inHandCheques.map((c: any) => (
                     <option key={c.id} value={c.id}>
-                      #{c.raw?.chequeNumber || c.id} · {c.person} · {c.currencySymbol} {c.amount?.toLocaleString("en-US")}
+                      #{c.chequeNumber || c.manualVoucherNo || c.id} · {c.customer?.name} · {c.currency?.symbol || c.currency?.code || ""} {c.amount?.toLocaleString("en-US")}
                     </option>
                   ))}
                 </select>
