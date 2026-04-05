@@ -70,10 +70,161 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
   try {
     if (user.role !== "city_admin") return errorResponse("FORBIDDEN", "Only city admins can record Haji transfers", 403);
     const body = await request.json();
+    const cityId = user.cityId!;
+
+    // Batch mode: one slip can include office cash plus one or more in-hand cheques.
+    if (body.sourceType === "mixed_cash_cheque" || Array.isArray(body.chequePaymentIds)) {
+      const transferDate = body.transferDate;
+      const detail = typeof body.detail === "string" ? body.detail.trim() : "";
+      const transferredTo = typeof body.transferredTo === "string" ? body.transferredTo.trim() : null;
+      const notes = typeof body.notes === "string" ? body.notes : undefined;
+      const cashAmount = Number(body.cashAmount || 0);
+      const currencyId = body.currencyId ? parseInt(body.currencyId) : undefined;
+      const lotIdInput = body.lotId ? parseInt(body.lotId) : undefined;
+      const chequePaymentIds: number[] = Array.isArray(body.chequePaymentIds)
+        ? Array.from(new Set(body.chequePaymentIds.map((id: any) => parseInt(id)).filter((id: number) => Number.isFinite(id) && id > 0))) as number[]
+        : [];
+
+      if (!transferDate) return errorResponse("VALIDATION_ERROR", "Transfer date is required");
+      if (!detail) return errorResponse("VALIDATION_ERROR", "Detail is required");
+      if (cashAmount <= 0 && chequePaymentIds.length === 0) {
+        return errorResponse("VALIDATION_ERROR", "Enter a cash amount or select at least one cheque");
+      }
+      if (cashAmount > 0 && !currencyId) {
+        return errorResponse("VALIDATION_ERROR", "Currency is required for the cash portion");
+      }
+
+      let lotId = lotIdInput;
+      if (!lotId) {
+        const fifoLot = await prisma.lot.findFirst({
+          where: { status: "ongoing", lotCityDistributions: { some: { cityId } } },
+          orderBy: [{ lotDate: "asc" }, { id: "asc" }],
+          select: { id: true },
+        });
+        if (!fifoLot) return errorResponse("VALIDATION_ERROR", "No ongoing lot available for your city");
+        lotId = fifoLot.id;
+      }
+
+      const lot = await prisma.lot.findFirst({
+        where: { id: lotId, lotCityDistributions: { some: { cityId } } },
+      });
+      if (!lot) return errorResponse("VALIDATION_ERROR", "Lot not found or not distributed to your city");
+
+      if (cashAmount > 0) {
+        const cityCurrency = await prisma.cityCurrency.findFirst({ where: { cityId, currencyId: currencyId ?? undefined } });
+        if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported");
+      }
+
+      const chequePayments = chequePaymentIds.length > 0
+        ? await prisma.payment.findMany({ where: { id: { in: chequePaymentIds } } })
+        : [];
+      if (chequePayments.length !== chequePaymentIds.length) {
+        return errorResponse("NOT_FOUND", "One or more cheque payments were not found", 404);
+      }
+      for (const chequePayment of chequePayments) {
+        if (chequePayment.cityId !== cityId) return errorResponse("FORBIDDEN", "Cheque payment does not belong to your city", 403);
+        if ((chequePayment as any).paymentMethod !== "cheque") return errorResponse("VALIDATION_ERROR", "Referenced payment is not a cheque payment");
+        if ((chequePayment as any).chequeStatus !== "in_hand") return errorResponse("VALIDATION_ERROR", "One or more selected cheques are not in-hand");
+      }
+      const existingTransfers = chequePaymentIds.length > 0
+        ? await prisma.hajiTransfer.findMany({ where: { chequePaymentId: { in: chequePaymentIds } } as any, select: { chequePaymentId: true } })
+        : [];
+      if (existingTransfers.length > 0) {
+        return errorResponse("CONFLICT", "One or more selected cheques have already been used for a Haji transfer", 409);
+      }
+
+      const createdTransfers = await prisma.$transaction(async (tx) => {
+        const created: any[] = [];
+
+        if (cashAmount > 0) {
+          const cashTransfer = await tx.hajiTransfer.create({
+            data: {
+              cityId,
+              lotId: lotId!,
+              transferDate: new Date(transferDate),
+              amount: cashAmount,
+              currencyId,
+              detail,
+              transferType: "from_in_hand",
+              transferredTo,
+              notes,
+              sourceType: "cash_office",
+              createdBy: user.userId,
+            } as any,
+            include: { lot: { select: { id: true, lotNumber: true } }, currency: true, creator: { select: { id: true, fullName: true } } },
+          });
+          created.push(cashTransfer);
+        }
+
+        for (const chequePayment of chequePayments) {
+          const chequeTransfer = await tx.hajiTransfer.create({
+            data: {
+              cityId,
+              lotId: lotId!,
+              transferDate: new Date(transferDate),
+              amount: chequePayment.amount,
+              currencyId: chequePayment.currencyId,
+              detail,
+              transferType: "direct",
+              transferredTo,
+              notes,
+              sourceType: "cheque",
+              chequePaymentId: chequePayment.id,
+              createdBy: user.userId,
+            } as any,
+            include: { lot: { select: { id: true, lotNumber: true } }, currency: true, creator: { select: { id: true, fullName: true } } },
+          });
+          await tx.payment.update({
+            where: { id: chequePayment.id },
+            data: { chequeStatus: "sent_to_haji" } as any,
+          });
+          created.push(chequeTransfer);
+        }
+
+        return created;
+      });
+
+      for (const transfer of createdTransfers) {
+        await createAuditLog(user.userId, cityId, "haji_transfers", transfer.id, "create", undefined, {
+          lotId,
+          amount: Number(transfer.amount),
+          transferType: transfer.transferType,
+          sourceType: transfer.sourceType,
+        }, getClientIP(request));
+        try {
+          await journalHajiTransfer({
+            id: transfer.id,
+            cityId,
+            amount: Number(transfer.amount),
+            currencyCode: transfer.currency.code,
+            date: transfer.transferDate,
+            createdBy: user.userId,
+            sourceType: transfer.sourceType,
+            bankAccountId: (transfer as any).bankAccountId ?? null,
+          });
+        } catch (je) { console.error("Journal (haji batch):", je); }
+      }
+
+      return successResponse({
+        count: createdTransfers.length,
+        transfers: createdTransfers.map((transfer) => ({
+          id: transfer.id,
+          lotNumber: transfer.lot.lotNumber,
+          transferDate: transfer.transferDate.toISOString().split("T")[0],
+          amount: Number(transfer.amount),
+          detail: transfer.detail,
+          transferType: transfer.transferType,
+          sourceType: transfer.sourceType ?? null,
+          bankAccountId: transfer.bankAccountId ?? null,
+          chequePaymentId: transfer.chequePaymentId ?? null,
+          currency: { id: transfer.currency.id, code: transfer.currency.code, symbol: transfer.currency.symbol },
+          createdBy: transfer.creator,
+        })),
+      }, "Haji transfer slip recorded", 201);
+    }
+
     const parsed = createHajiTransferSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid data", parsed.error.errors);
-
-    const cityId = user.cityId!;
     let { lotId, transferDate, amount, currencyId, detail, transferType, transferredTo, notes } = parsed.data;
 
     // New source fields

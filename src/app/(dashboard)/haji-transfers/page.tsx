@@ -33,7 +33,7 @@ export default function HajiTransfersPage() {
   const [form, setForm] = useState<any>({
     lotId: 0, transferDate: new Date().toISOString().split("T")[0],
     amount: 0, currencyId: 0, detail: "", sourceType: "cash_office",
-    bankAccountId: 0, chequePaymentId: 0, transferredTo: "", notes: "",
+    bankAccountId: 0, chequePaymentId: 0, chequePaymentIds: [] as number[], cashAmount: 0, transferredTo: "", notes: "",
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -42,6 +42,19 @@ export default function HajiTransfersPage() {
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
   const [showSummary, setShowSummary] = useState(true);
+
+  const toggleCheque = (id: number) => {
+    setForm((f: any) => {
+      const nextIds = f.chequePaymentIds.includes(id)
+        ? f.chequePaymentIds.filter((v: number) => v !== id)
+        : [...f.chequePaymentIds, id];
+      return { ...f, chequePaymentIds: nextIds, chequePaymentId: nextIds[0] || 0 };
+    });
+  };
+
+  const selectedCheques = inHandCheques.filter((c: any) => form.chequePaymentIds.includes(c.id));
+  const selectedChequeTotal = selectedCheques.reduce((sum: number, cheque: any) => sum + Number(cheque.amount || 0), 0);
+  const mixedSlipTotal = Number(form.cashAmount || 0) + selectedChequeTotal;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -88,35 +101,43 @@ export default function HajiTransfersPage() {
     setForm((f: any) => ({
       ...f, transferDate: new Date().toISOString().split("T")[0],
       amount: 0, detail: "", sourceType: "cash_office",
-      bankAccountId: 0, chequePaymentId: 0, transferredTo: "", notes: "", lotId: 0,
+      bankAccountId: 0, chequePaymentId: 0, chequePaymentIds: [], cashAmount: 0, transferredTo: "", notes: "", lotId: 0,
     }));
     setShowCreate(true); setError("");
   };
 
   const handleCreate = async () => {
     if (!form.detail) { setError(t("detail") + " required"); return; }
-    if (form.sourceType !== "cheque" && !form.amount) { setError(t("amount") + " required"); return; }
-    if (form.sourceType === "cheque" && !form.chequePaymentId) { setError("Please select a cheque"); return; }
+    if (form.sourceType === "cash_office" && !form.amount) { setError(t("amount") + " required"); return; }
+    if (form.sourceType === "cheque" && form.chequePaymentIds.length === 0) { setError("Please select at least one cheque"); return; }
+    if (form.sourceType === "mixed_cash_cheque" && !form.cashAmount && form.chequePaymentIds.length === 0) { setError("Enter a cash amount or select at least one cheque"); return; }
     if (form.sourceType === "bank_transfer" && !form.bankAccountId) { setError("Please select a bank account"); return; }
 
     setSubmitting(true);
-    // Build body with backward compat transferType
-    const body: any = {
-      ...form,
-      sourceType: form.sourceType,
-      transferType: form.sourceType === "cash_office" ? "from_in_hand"
-        : form.sourceType === "bank_transfer" ? "direct"
-        : "from_in_hand",
-    };
-    if (!body.lotId) delete body.lotId;
-    if (!body.currencyId) delete body.currencyId;
-    if (!body.transferredTo) delete body.transferredTo;
-    if (body.sourceType !== "bank_transfer") delete body.bankAccountId;
-    if (body.sourceType !== "cheque") delete body.chequePaymentId;
-    // For cheque: amount comes from selected cheque
-    if (form.sourceType === "cheque" && form.chequePaymentId) {
-      const sel = inHandCheques.find((c: any) => c.id === Number(form.chequePaymentId));
-      if (sel) body.amount = sel.amount;
+    let body: any;
+    if (form.sourceType === "mixed_cash_cheque" || form.sourceType === "cheque") {
+      body = {
+        sourceType: form.sourceType === "cheque" ? "mixed_cash_cheque" : form.sourceType,
+        transferDate: form.transferDate,
+        detail: form.detail,
+        transferredTo: form.transferredTo || undefined,
+        notes: form.notes || undefined,
+        lotId: form.lotId || undefined,
+        currencyId: form.currencyId || undefined,
+        cashAmount: form.sourceType === "mixed_cash_cheque" ? Number(form.cashAmount || 0) : 0,
+        chequePaymentIds: form.chequePaymentIds,
+      };
+    } else {
+      body = {
+        ...form,
+        sourceType: form.sourceType,
+        transferType: form.sourceType === "cash_office" ? "from_in_hand" : "direct",
+      };
+      if (!body.lotId) delete body.lotId;
+      if (!body.currencyId) delete body.currencyId;
+      if (!body.transferredTo) delete body.transferredTo;
+      if (body.sourceType !== "bank_transfer") delete body.bankAccountId;
+      if (body.sourceType === "cash_office") body.amount = Number(form.amount || 0);
     }
 
     const r = await apiCall("/api/v1/haji-transfers", { method: "POST", body });
@@ -249,37 +270,67 @@ export default function HajiTransfersPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("source_of_funds")} *</label>
-              <select value={form.sourceType} onChange={e => setForm((f: any) => ({ ...f, sourceType: e.target.value, chequePaymentId: 0, bankAccountId: 0 }))} className="select-field">
+              <select
+                value={form.sourceType}
+                onChange={e => setForm((f: any) => ({
+                  ...f,
+                  sourceType: e.target.value,
+                  chequePaymentId: 0,
+                  chequePaymentIds: [],
+                  bankAccountId: 0,
+                  amount: e.target.value === "cheque" || e.target.value === "mixed_cash_cheque" ? 0 : f.amount,
+                  cashAmount: e.target.value === "mixed_cash_cheque" ? f.cashAmount : 0,
+                }))}
+                className="select-field"
+              >
                 <option value="cash_office">💵 {t("cash_from_office")}</option>
                 <option value="cheque">🧾 {t("cheque")}</option>
+                <option value="mixed_cash_cheque">💵 + 🧾 Cash + Cheques</option>
                 <option value="bank_transfer">🏦 {t("bank_transfer")}</option>
               </select>
             </div>
           </div>
 
           {/* Cheque selector */}
-          {form.sourceType === "cheque" && (
+          {(form.sourceType === "cheque" || form.sourceType === "mixed_cash_cheque") && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("select_cheques")} *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t("select_cheques")} {form.sourceType === "cheque" ? "*" : ""}</label>
               {inHandCheques.length === 0 ? (
                 <div className="p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-700">No cheques in hand. Record a cheque payment first.</div>
               ) : (
-                <select
-                  value={form.chequePaymentId || 0}
-                  onChange={e => {
-                    const id = parseInt(e.target.value);
-                    const sel = inHandCheques.find((c: any) => c.id === id);
-                    setForm((f: any) => ({ ...f, chequePaymentId: id, amount: sel ? sel.amount : f.amount }));
-                  }}
-                  className="select-field"
-                >
-                  <option value={0}>— Select a cheque —</option>
-                  {inHandCheques.map((c: any) => (
-                    <option key={c.id} value={c.id}>
-                      #{c.chequeNumber || c.manualVoucherNo || c.id} · {c.customer?.name} · {c.currency?.symbol || c.currency?.code || ""} {c.amount?.toLocaleString("en-US")}
-                    </option>
-                  ))}
-                </select>
+                <div className="max-h-52 overflow-auto rounded-lg border border-gray-200 divide-y divide-gray-100">
+                  {inHandCheques.map((c: any) => {
+                    const checked = form.chequePaymentIds.includes(c.id);
+                    return (
+                      <label key={c.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50">
+                        <span className="flex items-center gap-3 min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleCheque(c.id)}
+                            className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                          />
+                          <span className="min-w-0">
+                            <span className="block font-medium text-gray-800 truncate">
+                              #{c.chequeNumber || c.manualVoucherNo || c.id} · {c.customer?.name || "Walk-in Customer"}
+                            </span>
+                            <span className="block text-xs text-gray-500 truncate">
+                              {c.chequeBank || "Bank not set"}{c.chequeDueDate ? ` · Due ${formatDate(c.chequeDueDate)}` : ""}
+                            </span>
+                          </span>
+                        </span>
+                        <span className="font-medium text-gray-700 whitespace-nowrap">
+                          {c.currency?.symbol || c.currency?.code || ""} {Number(c.amount || 0).toLocaleString("en-US")}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+              {form.chequePaymentIds.length > 0 && (
+                <div className="mt-2 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-3 py-2">
+                  {form.chequePaymentIds.length} cheque(s) selected · Total {selectedCheques[0]?.currency?.symbol || selectedCheques[0]?.currency?.code || ""} {formatNumber(selectedChequeTotal)}
+                </div>
               )}
             </div>
           )}
@@ -316,13 +367,16 @@ export default function HajiTransfersPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                {t("amount")} {form.sourceType === "cheque" ? <span className="text-gray-400 font-normal">(auto from cheque)</span> : "*"}
+                {form.sourceType === "mixed_cash_cheque" ? "Cash Amount" : t("amount")} {form.sourceType === "cheque" ? <span className="text-gray-400 font-normal">(auto from cheque)</span> : "*"}
               </label>
               <input
-                type="number" value={form.amount || ""}
-                onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
+                type="number"
+                value={form.sourceType === "mixed_cash_cheque" ? (form.cashAmount || "") : (form.amount || "")}
+                onChange={e => setForm((f: any) => form.sourceType === "mixed_cash_cheque"
+                  ? ({ ...f, cashAmount: parseFloat(e.target.value) || 0 })
+                  : ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
                 className="input-field"
-                readOnly={form.sourceType === "cheque" && !!form.chequePaymentId}
+                readOnly={form.sourceType === "cheque"}
               />
             </div>
             <div>
@@ -333,6 +387,12 @@ export default function HajiTransfersPage() {
               </select>
             </div>
           </div>
+
+          {form.sourceType === "mixed_cash_cheque" && (
+            <div className="p-2 bg-emerald-50 border border-emerald-200 rounded text-sm text-emerald-700">
+              Slip total: {selectedCheques[0]?.currency?.symbol || selectedCheques[0]?.currency?.code || ""} {formatNumber(mixedSlipTotal)}
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
@@ -350,13 +410,8 @@ export default function HajiTransfersPage() {
       <Modal open={showEdit} onClose={() => setShowEdit(false)} title={t("edit_transfer")} size="md">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("source_of_funds")}</label>
-            <select value={form.sourceType} onChange={e => setForm((f: any) => ({ ...f, sourceType: e.target.value }))} className="select-field">
-              <option value="cash_office">💵 {t("cash_from_office")}</option>
-              <option value="cheque">🧾 {t("cheque")}</option>
-              <option value="bank_transfer">🏦 {t("bank_transfer")}</option>
-            </select>
+          <div className="p-2 bg-gray-50 border rounded text-xs text-gray-600">
+            {t("source_of_funds")}: <strong>{SOURCE_CONFIG[form.sourceType]?.icon} {SOURCE_CONFIG[form.sourceType]?.label || form.sourceType}</strong> (cannot change after creation)
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Transferred To</label>
