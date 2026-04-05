@@ -628,9 +628,9 @@ model Payment {
 
   attachments         Attachment[]
   paymentLotTransfers PaymentLotTransfer[]
-  hajiTransferCheque  HajiTransfer?       @relation("HajiCheque")
-  expenseCheque       Expense?            @relation("ExpenseCheque")
-  withdrawalCheque    PersonalWithdrawal? @relation("WithdrawalCheque")
+  hajiTransferCheque  HajiTransfer?        @relation("HajiCheque")
+  expenseCheques      Expense[]            @relation("ExpenseCheque")
+  withdrawalCheques   PersonalWithdrawal[] @relation("WithdrawalCheque")
 
   @@index([cityId])
   @@index([customerId])
@@ -677,7 +677,7 @@ model Expense {
   // Treasury: which pot paid for this expense
   paidFrom      ExpensePaidFrom @default(cash_office) @map("paid_from")
   bankAccountId Int?            @map("bank_account_id")
-  chequePaymentId Int?          @unique @map("cheque_payment_id")
+  chequePaymentId Int?          @map("cheque_payment_id")
   createdBy   Int       @map("created_by")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
@@ -712,7 +712,7 @@ model PersonalWithdrawal {
   withdrawnBy    String?   @map("withdrawn_by") @db.VarChar(100)
   notes          String?   @db.Text
   sourceType     WithdrawalSourceType @default(cash_office) @map("source_type")
-  chequePaymentId Int?     @unique @map("cheque_payment_id")
+  chequePaymentId Int?     @map("cheque_payment_id")
   approvedBy     Int?      @map("approved_by")
   approvedAt     DateTime? @map("approved_at")
   hajiTransferId Int?      @unique @map("haji_transfer_id")
