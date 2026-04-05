@@ -32,6 +32,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
   try {
     const id = parseInt(context.params.id);
     const body = await request.json();
+    if (body.agentType === "freight") return errorResponse("VALIDATION_ERROR", "Use Shipping Lines for freight parties");
     await prisma.agent.update({ where: { id }, data: { name: body.name, agentType: body.agentType, phone: body.phone, notes: body.notes } });
     return successResponse({ id }, "Agent updated");
   } catch (error) { return serverError(); }

@@ -37,6 +37,23 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     const lot = await prisma.lot.findUnique({ where: { id: body.lotId } });
     if (!lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
 
+    const costType = String(body.costType || "");
+    const agentId = body.agentId ? Number(body.agentId) : null;
+    const shippingLineId = body.shippingLineId ? Number(body.shippingLineId) : null;
+
+    if (costType === "freight") {
+      if (!shippingLineId) return validationError("Shipping line is required for freight");
+      if (agentId) return validationError("Freight must be charged to a shipping line, not an agent");
+      const shippingLine = await prisma.shippingLine.findUnique({ where: { id: shippingLineId }, select: { id: true, isActive: true } });
+      if (!shippingLine?.isActive) return errorResponse("NOT_FOUND", "Shipping line not found", 404);
+    } else {
+      if (shippingLineId) return validationError("Shipping line can only be used for freight costs");
+      if (agentId) {
+        const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { id: true, isActive: true } });
+        if (!agent?.isActive) return errorResponse("NOT_FOUND", "Agent not found", 404);
+      }
+    }
+
     const cost = await prisma.lotCost.create({
       data: {
         lotId: body.lotId, costType: body.costType as any,
@@ -44,8 +61,8 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         currencyCode: body.currencyCode || "USD",
         exchangeRate: body.exchangeRate || null,
         costDate: body.costDate ? new Date(body.costDate) : null,
-        agentId: body.agentId || null,
-        shippingLineId: body.shippingLineId || null,
+        agentId,
+        shippingLineId,
         paidFromCash: body.paidFromCash === true,
         notes: body.notes || null, createdBy: user.userId,
       },
@@ -54,7 +71,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     await createAuditLog(user.userId, null, "lot_costs", cost.id, "create", undefined, body, getClientIP(request));
 
     try {
-      await journalLotCost({ id: cost.id, lotId: body.lotId, costType: body.costType, amount: body.amount, currencyCode: body.currencyCode || "USD", createdBy: user.userId, agentId: body.agentId || undefined, shippingLineId: body.shippingLineId || undefined });
+      await journalLotCost({ id: cost.id, lotId: body.lotId, costType: body.costType, amount: body.amount, currencyCode: body.currencyCode || "USD", createdBy: user.userId, agentId: agentId || undefined, shippingLineId: shippingLineId || undefined });
     } catch (je) { console.error("Journal (lot cost):", je); }
 
     return successResponse({ id: cost.id }, "Cost recorded", 201);

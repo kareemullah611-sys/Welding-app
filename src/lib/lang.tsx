@@ -5,7 +5,7 @@ const translations: Record<string, Record<string, string>> = {
   en: {
     // Navigation
     dashboard: "Dashboard", lots: "Lots", lot_costing: "Lot Costing", suppliers: "Suppliers",
-    company_payments: "Company Payments", agents: "Agents", analytics: "Analytics",
+    company_payments: "Company Payments", agents: "Clearing Agents", analytics: "Analytics",
     sales: "Sales", payments: "Payments", customers: "Customers", godowns: "Godowns",
     inventory: "Inventory", city_transfers: "City Transfers", profit_report: "Profit Report",
     financial_reports: "Financial Reports", reports: "Reports", search: "Search", settings: "Settings",
@@ -102,7 +102,7 @@ const translations: Record<string, Record<string, string>> = {
     no_cash_transactions: "No cash transactions yet", no_receivables: "No outstanding receivables",
     no_supplier_payables: "No supplier payables", no_agent_payables: "No agent payables",
     customer_balances: "Customer Balances", supplier_payables: "Supplier Payables",
-    agent_payables: "Agent Payables (Customs, Transport)",
+    agent_payables: "Clearing Agent Payables",
     assets: "ASSETS (What you own)", liabilities: "LIABILITIES (What you owe)", equity: "EQUITY",
     double_entry: "Double-entry accounting",
     // Country ledger
@@ -113,7 +113,7 @@ const translations: Record<string, Record<string, string>> = {
     auto_refresh: "Auto-refresh", no_activity: "No activity yet.",
     today: "Today", yesterday: "Yesterday", just_now: "just now",
     // New record buttons
-    new_supplier: "New Supplier", new_agent: "New Agent", new_godown: "New Godown",
+    new_supplier: "New Supplier", new_agent: "New Clearing Agent", new_godown: "New Godown",
     // Common new keys
     approve: "Approve", reject: "Reject", approve_receive: "Approve & Receive",
     send_goods: "Send Goods", pending: "Pending", approved: "Approved", rejected: "Rejected",
@@ -153,7 +153,7 @@ const translations: Record<string, Record<string, string>> = {
     amount_usd: "Amount (USD)", fx_rate: "FX Rate", local_amount: "Local Amount",
     lot_optional: "Lot (optional)", record_payment_to_company: "Record Payment to Company",
     record: "Record", edit_payment: "Edit Payment",
-    agents_subtitle: "Customs agents, transport companies", city_port: "City/Port",
+    agents_subtitle: "Customs, clearing, and local service parties", city_port: "City/Port",
     // City transfers
     send: "Send", send_goods_to_city: "Send Goods to Another City", approve_transfer: "Approve Transfer",
     // Search
@@ -263,7 +263,7 @@ const translations: Record<string, Record<string, string>> = {
   ur: {
     // Navigation
     dashboard: "ڈیش بورڈ", lots: "لاٹ", lot_costing: "لاٹ لاگت", suppliers: "سپلائرز",
-    company_payments: "کمپنی ادائیگیاں", agents: "ایجنٹس", analytics: "تجزیات",
+    company_payments: "کمپنی ادائیگیاں", agents: "کلیئرنگ ایجنٹس", analytics: "تجزیات",
     sales: "فروخت", payments: "ادائیگیاں", customers: "گاہک", godowns: "گودام",
     inventory: "انوینٹری", city_transfers: "شہر ٹرانسفر", profit_report: "منافع رپورٹ",
     financial_reports: "مالی رپورٹیں", reports: "رپورٹیں", search: "تلاش", settings: "ترتیبات",
@@ -360,7 +360,7 @@ const translations: Record<string, Record<string, string>> = {
     no_cash_transactions: "ابھی کوئی نقد لین دین نہیں", no_receivables: "کوئی قابل وصول رقم نہیں",
     no_supplier_payables: "کوئی سپلائر ادائیگی نہیں", no_agent_payables: "کوئی ایجنٹ ادائیگی نہیں",
     customer_balances: "گاہک بیلانس", supplier_payables: "سپلائر ادائیگیاں",
-    agent_payables: "ایجنٹ ادائیگیاں (کسٹمز، ٹرانسپورٹ)",
+    agent_payables: "کلیئرنگ ایجنٹ ادائیگیاں",
     assets: "اثاثے (جو آپ کے پاس ہے)", liabilities: "ذمہ داریاں (جو آپ نے دینا ہے)", equity: "ایکویٹی",
     double_entry: "دوہری اندراج محاسبہ",
     // Country ledger
@@ -371,7 +371,7 @@ const translations: Record<string, Record<string, string>> = {
     auto_refresh: "خودکار تازہ کاری", no_activity: "ابھی کوئی سرگرمی نہیں۔",
     today: "آج", yesterday: "کل", just_now: "ابھی",
     // New record buttons
-    new_supplier: "نیا سپلائر", new_agent: "نیا ایجنٹ", new_godown: "نیا گودام",
+    new_supplier: "نیا سپلائر", new_agent: "نیا کلیئرنگ ایجنٹ", new_godown: "نیا گودام",
     // Common new keys
     approve: "منظور", reject: "رد", approve_receive: "منظور کریں اور وصول کریں",
     send_goods: "مال بھیجیں", pending: "زیر التواء", approved: "منظور شدہ", rejected: "رد شدہ",
@@ -411,7 +411,7 @@ const translations: Record<string, Record<string, string>> = {
     amount_usd: "رقم (USD)", fx_rate: "FX نرخ", local_amount: "مقامی رقم",
     lot_optional: "لاٹ (اختیاری)", record_payment_to_company: "کمپنی کو ادائیگی ریکارڈ کریں",
     record: "ریکارڈ", edit_payment: "ادائیگی ترمیم کریں",
-    agents_subtitle: "کسٹمز ایجنٹس، ٹرانسپورٹ کمپنیاں", city_port: "شہر/بندرگاہ",
+    agents_subtitle: "کسٹمز، کلیئرنگ اور مقامی سروس پارٹیز", city_port: "شہر/بندرگاہ",
     // City transfers
     send: "بھیجیں", send_goods_to_city: "دوسرے شہر کو مال بھیجیں", approve_transfer: "ٹرانسفر منظور کریں",
     // Search
@@ -521,7 +521,7 @@ const translations: Record<string, Record<string, string>> = {
   ps: {
     // Navigation
     dashboard: "ډشبورډ", lots: "لاټ", lot_costing: "لاټ لګښت", suppliers: "عرضه کوونکي",
-    company_payments: "شرکت تادیات", agents: "ایجنټان", analytics: "تحلیل",
+    company_payments: "شرکت تادیات", agents: "د پاک کارۍ ایجنټان", analytics: "تحلیل",
     sales: "خرڅلاو", payments: "تادیات", customers: "پیرودونکي", godowns: "ګودام",
     inventory: "زیرمه", city_transfers: "ښار لیږد", profit_report: "ګټه راپور",
     financial_reports: "مالي راپورونه", reports: "راپورونه", search: "لټون", settings: "تنظیمات",
@@ -618,7 +618,7 @@ const translations: Record<string, Record<string, string>> = {
     no_cash_transactions: "لا هیڅ نقدي معاملات نشته", no_receivables: "هیڅ پور نشته",
     no_supplier_payables: "هیڅ د عرضه کوونکو تادیات نشته", no_agent_payables: "هیڅ د ایجنټانو تادیات نشته",
     customer_balances: "د پیرودونکو بیلانسونه", supplier_payables: "د عرضه کوونکو تادیات",
-    agent_payables: "د ایجنټانو تادیات (ګمرک، ترانسپورټ)",
+    agent_payables: "د پاک کارۍ ایجنټانو تادیات",
     assets: "شتمنۍ (چې تاسو لرئ)", liabilities: "مکلفیتونه (چې تاسو ورکوئ)", equity: "حق",
     double_entry: "دوه طرفه محاسبه",
     // Country ledger
@@ -629,7 +629,7 @@ const translations: Record<string, Record<string, string>> = {
     auto_refresh: "خودکاره تازه کول", no_activity: "لا هیڅ فعالیت نشته.",
     today: "نن ورځ", yesterday: "پرون", just_now: "اوس",
     // New record buttons
-    new_supplier: "نوی عرضه کوونکی", new_agent: "نوی ایجنټ", new_godown: "نوی ګودام",
+    new_supplier: "نوی عرضه کوونکی", new_agent: "نوی د پاک کارۍ ایجنټ", new_godown: "نوی ګودام",
     // Common new keys
     approve: "منل", reject: "رد کول", approve_receive: "منل او ترلاسه کول",
     send_goods: "توکي لیږل", pending: "تمه", approved: "تایید شوی", rejected: "رد شوی",
@@ -669,7 +669,7 @@ const translations: Record<string, Record<string, string>> = {
     amount_usd: "مقدار (USD)", fx_rate: "د بدلون نرخ", local_amount: "ځایي مقدار",
     lot_optional: "لاټ (اختیاري)", record_payment_to_company: "د شرکت تادیه ثبتول",
     record: "ثبتول", edit_payment: "تادیه سمول",
-    agents_subtitle: "د ګمرک ایجنټان، ترانسپورټ شرکتونه", city_port: "ښار/بندر",
+    agents_subtitle: "د ګمرک، پاک کارۍ او ځايي خدمتونو ادارې", city_port: "ښار/بندر",
     // City transfers
     send: "لیږل", send_goods_to_city: "بل ښار ته توکي لیږل", approve_transfer: "د لیږد تایید",
     // Search

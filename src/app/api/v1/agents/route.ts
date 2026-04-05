@@ -30,6 +30,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
   try {
     const body = await request.json();
     if (!body.name) return validationError("Name required");
+    if (body.agentType === "freight") return validationError("Use Shipping Lines for freight parties");
     const agent = await prisma.agent.create({ data: { name: body.name, agentType: body.agentType || "customs", cityId: body.cityId || null, phone: body.phone, notes: body.notes } });
     return successResponse({ id: agent.id }, "Agent created", 201);
   } catch (error) { return serverError(); }

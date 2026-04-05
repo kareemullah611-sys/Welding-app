@@ -4,7 +4,12 @@ import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, StatsCard, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 
-const TYPES = [{ value: "customs", label: "Customs Agent" }, { value: "transport", label: "Transport" }, { value: "freight", label: "Freight/Shipping" }, { value: "other", label: "Other" }];
+const TYPES = [
+  { value: "customs", label: "Customs Agent" },
+  { value: "transport", label: "Transport" },
+  { value: "freight", label: "Legacy Freight" },
+  { value: "other", label: "Other" },
+];
 
 export default function AgentsPage() {
   const { t } = useLang();
@@ -88,7 +93,7 @@ export default function AgentsPage() {
         <div className="space-y-3">
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("name")} *</label><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="input-field" /></div>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("type")}</label><select value={form.agentType} onChange={e => setForm(f => ({ ...f, agentType: e.target.value }))} className="select-field">{TYPES.map(ty => <option key={ty.value} value={ty.value}>{ty.label}</option>)}</select></div>
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("type")}</label><select value={form.agentType} onChange={e => setForm(f => ({ ...f, agentType: e.target.value }))} className="select-field">{TYPES.filter(ty => ty.value !== "freight").map(ty => <option key={ty.value} value={ty.value}>{ty.label}</option>)}</select></div>
             <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("city_port")}</label><select value={form.cityId} onChange={e => setForm(f => ({ ...f, cityId: parseInt(e.target.value) }))} className="select-field"><option value={0}>None</option>{cities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
           </div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("phone")}</label><input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} className="input-field" /></div>

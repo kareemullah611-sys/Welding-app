@@ -31,13 +31,14 @@ export default function LotCostingPage() {
   const [submitting,  setSubmitting]  = useState(false);
   const [error,       setError]       = useState("");
   const [agents,      setAgents]      = useState<any[]>([]);
+  const [shippingLines, setShippingLines] = useState<any[]>([]);
 
   const [purchaseForm, setPurchaseForm] = useState<{ supplierId: number; exchangeRate: number; products: any[] }>({
     supplierId: 0, exchangeRate: 0, products: [{ productId: 0, qty: 0, unitPriceUsd: 0 }],
   });
   const [costForm, setCostForm] = useState({
     costType: "freight", description: "", amount: 0, currencyCode: "PKR",
-    exchangeRate: 0, costDate: new Date().toISOString().split("T")[0], notes: "", agentId: 0,
+    exchangeRate: 0, costDate: new Date().toISOString().split("T")[0], notes: "", agentId: 0, shippingLineId: 0,
   });
 
   // USD/PKR rate — seeded from stored records; user can override
@@ -128,15 +129,19 @@ export default function LotCostingPage() {
   };
 
   const openAddCost = async () => {
-    const agentsRes = await apiCall("/api/v1/agents", { params: { limit: 100 } });
+    const [agentsRes, shippingLinesRes] = await Promise.all([
+      apiCall("/api/v1/agents", { params: { limit: 100 } }),
+      apiCall("/api/v1/shipping-lines", { params: { limit: 100 } }),
+    ]);
     if (agentsRes.success) setAgents(agentsRes.data as any[]);
+    if (shippingLinesRes.success) setShippingLines((shippingLinesRes.data as any).items || shippingLinesRes.data as any[]);
     // Pre-fill exchange rate from latest stored rate
     const latestRate =
       purchases.filter(p => p.exchangeRate > 0).slice(-1)[0]?.exchangeRate ??
       costs.filter(c => c.exchangeRate > 0).slice(-1)[0]?.exchangeRate ?? 0;
     setCostForm({
       costType: "freight", description: "", amount: 0, currencyCode: "PKR",
-      exchangeRate: latestRate, costDate: new Date().toISOString().split("T")[0], notes: "", agentId: 0,
+      exchangeRate: latestRate, costDate: new Date().toISOString().split("T")[0], notes: "", agentId: 0, shippingLineId: 0,
     });
     setShowAddCost(true); setError("");
   };
@@ -153,9 +158,16 @@ export default function LotCostingPage() {
 
   const handleAddCost = async () => {
     if (!costForm.description || !costForm.amount) { setError(t("fill_description_amount")); return; }
+    if (costForm.costType === "freight" && !costForm.shippingLineId) { setError("Select a shipping line for freight"); return; }
     setSubmitting(true);
     const body: any = { lotId: selectedLot.id, ...costForm };
-    if (!body.agentId) delete body.agentId;
+    if (body.costType === "freight") {
+      delete body.agentId;
+      if (!body.shippingLineId) delete body.shippingLineId;
+    } else {
+      delete body.shippingLineId;
+      if (!body.agentId) delete body.agentId;
+    }
     const r = await apiCall("/api/v1/lot-costs", { method: "POST", body });
     setSubmitting(false);
     if (r.success) { setShowAddCost(false); loadLotData(selectedLot.id); } else { setError(r.error || "Failed"); }
@@ -358,7 +370,7 @@ export default function LotCostingPage() {
         <div className="space-y-3">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("type")} *</label>
-            <select value={costForm.costType} onChange={e => setCostForm(f => ({ ...f, costType: e.target.value }))} className="select-field">
+            <select value={costForm.costType} onChange={e => setCostForm(f => ({ ...f, costType: e.target.value, agentId: 0, shippingLineId: 0 }))} className="select-field">
               {COST_TYPES.map(ct => <option key={ct.value} value={ct.value}>{ct.label}</option>)}
             </select>
           </div>
@@ -366,13 +378,24 @@ export default function LotCostingPage() {
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("description")} *</label>
             <input value={costForm.description} onChange={e => setCostForm(f => ({ ...f, description: e.target.value }))} className="input-field" />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("agent")}</label>
-            <select value={costForm.agentId} onChange={e => setCostForm(f => ({ ...f, agentId: parseInt(e.target.value) }))} className="select-field">
-              <option value={0}>{t("cash")}</option>
-              {agents.map(a => <option key={a.id} value={a.id}>{a.name} ({a.agentType})</option>)}
-            </select>
-          </div>
+          {costForm.costType === "freight" ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Shipping Line *</label>
+              <select value={costForm.shippingLineId} onChange={e => setCostForm(f => ({ ...f, shippingLineId: parseInt(e.target.value) }))} className="select-field">
+                <option value={0}>{t("select")}</option>
+                {shippingLines.map((line: any) => <option key={line.id} value={line.id}>{line.name}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-gray-500">Freight costs must be booked to a shipping line, not a clearing agent.</p>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t("agent")}</label>
+              <select value={costForm.agentId} onChange={e => setCostForm(f => ({ ...f, agentId: parseInt(e.target.value) }))} className="select-field">
+                <option value={0}>{t("cash")}</option>
+                {agents.map(a => <option key={a.id} value={a.id}>{a.name} ({a.agentType})</option>)}
+              </select>
+            </div>
+          )}
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
