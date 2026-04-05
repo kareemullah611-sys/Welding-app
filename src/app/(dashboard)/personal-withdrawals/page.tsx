@@ -16,6 +16,7 @@ export default function PersonalWithdrawalsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [selected, setSelected] = useState<any>(null);
+  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "approved">(user?.role === "super_admin" ? "pending" : "all");
   const [cashPosition, setCashPosition] = useState<any>(null);
   const [treasury, setTreasury] = useState<any>(null);
   const [currencies, setCurrencies] = useState<any[]>([]);
@@ -27,8 +28,10 @@ export default function PersonalWithdrawalsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     const treasuryRequest = user?.role === "city_admin" ? apiCall("/api/v1/treasury") : Promise.resolve(null);
+    const params: any = { page, limit: 20 };
+    if (statusFilter !== "all") params.approval_status = statusFilter;
     const [result, cashRes, treasuryRes] = await Promise.all([
-      apiCall("/api/v1/personal-withdrawals", { params: { page, limit: 20 } }),
+      apiCall("/api/v1/personal-withdrawals", { params }),
       apiCall("/api/v1/cash-position"),
       treasuryRequest,
     ]);
@@ -40,9 +43,12 @@ export default function PersonalWithdrawalsPage() {
     if (cashRes.success) setCashPosition(cashRes.data);
     if (treasuryRes?.success) setTreasury(treasuryRes.data);
     setLoading(false);
-  }, [page, user?.role]);
+  }, [page, statusFilter, user?.role]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    setStatusFilter(user?.role === "super_admin" ? "pending" : "all");
+  }, [user?.role]);
 
   const formatPot = (pot: Record<string, number> | undefined) => {
     if (!pot) return "0";
@@ -103,6 +109,7 @@ export default function PersonalWithdrawalsPage() {
 
   // Summary of pending withdrawals grouped by person
   const pendingItems = items.filter((w) => !w.approvedAt);
+  const approvedItems = items.filter((w) => !!w.approvedAt);
   const personTotals = pendingItems.reduce((acc: Record<string, number>, w) => {
     const name = w.withdrawnBy || "—";
     acc[name] = (acc[name] || 0) + Number(w.amount);
@@ -118,6 +125,27 @@ export default function PersonalWithdrawalsPage() {
           <button onClick={openCreate} className="btn-primary text-sm">+ {t("record_withdrawal")}</button>
         ) : undefined}
       />
+
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => setStatusFilter("all")}
+          className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${statusFilter === "all" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-600 border-gray-200"}`}
+        >
+          All ({items.length})
+        </button>
+        <button
+          onClick={() => setStatusFilter("pending")}
+          className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${statusFilter === "pending" ? "bg-amber-600 text-white border-amber-600" : "bg-white text-amber-700 border-amber-200"}`}
+        >
+          Pending ({pendingItems.length})
+        </button>
+        <button
+          onClick={() => setStatusFilter("approved")}
+          className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${statusFilter === "approved" ? "bg-green-600 text-white border-green-600" : "bg-white text-green-700 border-green-200"}`}
+        >
+          Approved ({approvedItems.length})
+        </button>
+      </div>
 
       {(treasury || cashPosition) && (
         <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
@@ -137,6 +165,15 @@ export default function PersonalWithdrawalsPage() {
               </span>
             ))}
           </div>
+        </div>
+      )}
+
+      {user?.role === "city_admin" && (
+        <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-800">
+          <p className="font-semibold mb-1">Withdrawal approval flow</p>
+          <p>
+            Record the withdrawal here, then super admin approves it. After approval, the entry is linked to a Haji transfer automatically.
+          </p>
         </div>
       )}
 

@@ -12,9 +12,12 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const { page, limit, skip } = getPaginationParams(searchParams);
     const { dateFrom, dateTo } = getDateRange(searchParams);
     const cityId = getCityScope(user, searchParams.get("city_id") ? parseInt(searchParams.get("city_id")!) : undefined);
+    const approvalStatus = searchParams.get("approval_status");
 
     const where: any = {};
     if (cityId) where.cityId = cityId;
+    if (approvalStatus === "pending") where.approvedAt = null;
+    if (approvalStatus === "approved") where.approvedAt = { not: null };
     if (dateFrom || dateTo) {
       where.withdrawalDate = {};
       if (dateFrom) where.withdrawalDate.gte = dateFrom;

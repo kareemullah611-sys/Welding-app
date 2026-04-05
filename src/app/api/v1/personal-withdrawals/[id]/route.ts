@@ -22,7 +22,13 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 
     const updated = await prisma.personalWithdrawal.update({
       where: { id },
-      data: { amount: body.amount || w.amount, detail: body.detail || w.detail, notes: body.notes !== undefined ? body.notes : w.notes, updatedAt: new Date() },
+      data: {
+        amount: body.amount || w.amount,
+        detail: body.detail || w.detail,
+        withdrawnBy: body.withdrawnBy !== undefined ? body.withdrawnBy : w.withdrawnBy,
+        notes: body.notes !== undefined ? body.notes : w.notes,
+        updatedAt: new Date(),
+      },
     });
 
     // Re-journal with new amount
@@ -32,7 +38,16 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       } catch (je) { console.error("Re-journal (withdrawal edit):", je); }
     }
 
-    await createAuditLog(user.userId, w.cityId, "personal_withdrawals", id, "update", { amount: Number(w.amount) }, { amount: Number(updated.amount) }, getClientIP(request));
+    await createAuditLog(
+      user.userId,
+      w.cityId,
+      "personal_withdrawals",
+      id,
+      "update",
+      { amount: Number(w.amount), withdrawnBy: w.withdrawnBy, detail: w.detail, notes: w.notes },
+      { amount: Number(updated.amount), withdrawnBy: updated.withdrawnBy, detail: updated.detail, notes: updated.notes },
+      getClientIP(request)
+    );
     return successResponse({ id }, "Updated");
   } catch (error) { return serverError(); }
 });
