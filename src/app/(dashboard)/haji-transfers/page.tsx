@@ -137,6 +137,9 @@ export default function HajiTransfersPage() {
       if (!body.currencyId) delete body.currencyId;
       if (!body.transferredTo) delete body.transferredTo;
       if (body.sourceType !== "bank_transfer") delete body.bankAccountId;
+      delete body.chequePaymentIds;
+      delete body.cashAmount;
+      delete body.chequePaymentId;
       if (body.sourceType === "cash_office") body.amount = Number(form.amount || 0);
     }
 

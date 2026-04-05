@@ -73,7 +73,11 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const cityId = user.cityId!;
 
     // Batch mode: one slip can include office cash plus one or more in-hand cheques.
-    if (body.sourceType === "mixed_cash_cheque" || Array.isArray(body.chequePaymentIds)) {
+    if (
+      body.sourceType === "mixed_cash_cheque" ||
+      (Array.isArray(body.chequePaymentIds) && body.chequePaymentIds.length > 0) ||
+      (body.sourceType === "mixed_cash_cheque" && Number(body.cashAmount || 0) > 0)
+    ) {
       const transferDate = body.transferDate;
       const detail = typeof body.detail === "string" ? body.detail.trim() : "";
       const transferredTo = typeof body.transferredTo === "string" ? body.transferredTo.trim() : null;
