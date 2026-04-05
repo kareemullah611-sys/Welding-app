@@ -35,6 +35,22 @@ export default function InventoryPage() {
   const [godownList, setGodownList] = useState<any[]>([]);
   const [productList, setProductList] = useState<any[]>([]);
 
+  // Inter-godown transfer
+  const [showInterGodownTransfer, setShowInterGodownTransfer] = useState(false);
+  const [transferForm, setTransferForm] = useState({
+    fromGodownId: 0,
+    toGodownId: 0,
+    productId: 0,
+    lotId: 0,
+    qty: 0,
+    transferDate: new Date().toISOString().split("T")[0],
+    notes: "",
+  });
+  const [transferError, setTransferError] = useState("");
+  const [transferSubmitting, setTransferSubmitting] = useState(false);
+  const [godownTransfers, setGodownTransfers] = useState<any[]>([]);
+  const [transferHelpersLoading, setTransferHelpersLoading] = useState(false);
+
   // Godown allocation modal
   const [showGodownAlloc, setShowGodownAlloc] = useState(false);
   const [godownAllocs, setGodownAllocs] = useState<any[]>([]);
@@ -45,9 +61,10 @@ export default function InventoryPage() {
 
   const loadInventory = useCallback(async () => {
     setLoading(true);
-    const [invRes, trRes] = await Promise.all([
+    const [invRes, trRes, gdTrRes] = await Promise.all([
       apiCall("/api/v1/inventory"),
       apiCall("/api/v1/city-transfers", { params: { limit: 100 } }),
+      apiCall("/api/v1/godowns/transfers", { params: { limit: 10 } }),
     ]);
     if (invRes.success) setData(invRes.data);
     if (trRes.success) {
@@ -56,6 +73,7 @@ export default function InventoryPage() {
       );
       setPendingTransfers(pending);
     }
+    if (gdTrRes.success) setGodownTransfers(gdTrRes.data as any[]);
     setLoading(false);
   }, [user?.cityId]);
 
@@ -89,6 +107,55 @@ export default function InventoryPage() {
     if (gR.success) setGodownList(gR.data as any[]);
     if (pR.success) setProductList(pR.data as any[]);
     await loadLedger();
+  };
+
+  const openInterGodownTransfer = async () => {
+    setTransferHelpersLoading(true);
+    setTransferError("");
+    setTransferForm({
+      fromGodownId: 0,
+      toGodownId: 0,
+      productId: 0,
+      lotId: 0,
+      qty: 0,
+      transferDate: new Date().toISOString().split("T")[0],
+      notes: "",
+    });
+    const [gR, pR, lR] = await Promise.all([
+      apiCall("/api/v1/godowns", { params: { limit: 100 } }),
+      apiCall("/api/v1/products", { params: { limit: 100 } }),
+      apiCall("/api/v1/lots", { params: { limit: 100 } }),
+    ]);
+    if (gR.success) setGodownList((gR.data as any[]).filter((g: any) => g.cityId === user?.cityId && g.isActive));
+    if (pR.success) setProductList(pR.data as any[]);
+    if (lR.success) setLots(lR.data as any[]);
+    setTransferHelpersLoading(false);
+    setShowInterGodownTransfer(true);
+  };
+
+  const handleInterGodownTransfer = async () => {
+    setTransferError("");
+    if (!transferForm.fromGodownId || !transferForm.toGodownId || !transferForm.productId || !(transferForm.qty > 0)) {
+      setTransferError("Please select source godown, destination godown, product, and a positive quantity.");
+      return;
+    }
+    if (transferForm.fromGodownId === transferForm.toGodownId) {
+      setTransferError("Source and destination godown must be different.");
+      return;
+    }
+    setTransferSubmitting(true);
+    const body = {
+      ...transferForm,
+      lotId: transferForm.lotId || undefined,
+    };
+    const r = await apiCall("/api/v1/godowns/transfers", { method: "POST", body });
+    setTransferSubmitting(false);
+    if (r.success) {
+      setShowInterGodownTransfer(false);
+      await loadInventory();
+    } else {
+      setTransferError(r.error || "Failed to transfer stock");
+    }
   };
 
   useEffect(() => { loadInventory(); }, [loadInventory]);
@@ -178,11 +245,22 @@ export default function InventoryPage() {
 
   return (
     <div>
-      <PageHeader title={t("inventory")} subtitle={t("complete_stock_overview")} action={
-        <button onClick={openLedger} className="btn-secondary text-sm flex items-center gap-2">
-          📋 Stock Ledger
-        </button>
-      } />
+      <PageHeader
+        title={t("inventory")}
+        subtitle={t("complete_stock_overview")}
+        action={
+          <div className="flex items-center gap-2">
+            {user?.role === "city_admin" && (
+              <button onClick={openInterGodownTransfer} className="btn-primary text-sm flex items-center gap-2">
+                ↔ Inter-Godown Transfer
+              </button>
+            )}
+            <button onClick={openLedger} className="btn-secondary text-sm flex items-center gap-2">
+              📋 Stock Ledger
+            </button>
+          </div>
+        }
+      />
 
       {/* Pending Incoming City Transfers — notification banner */}
       {pendingTransfers.length > 0 && (
@@ -265,6 +343,43 @@ export default function InventoryPage() {
           ))}
         </div>
       </div>
+
+      {user?.role === "city_admin" && (
+        <div className="card mb-6">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Recent Inter-Godown Transfers</h2>
+              <p className="text-xs text-gray-400">Move stock between godowns in your city from one clear place.</p>
+            </div>
+            <button onClick={openInterGodownTransfer} className="btn-secondary text-sm">
+              + New Transfer
+            </button>
+          </div>
+          {godownTransfers.length === 0 ? (
+            <p className="text-sm text-gray-400">No inter-godown transfers recorded yet.</p>
+          ) : (
+            <div className="divide-y divide-gray-100 border border-gray-200 rounded-xl overflow-hidden">
+              {godownTransfers.map((tr: any) => (
+                <div key={tr.id} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-gray-50">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold text-gray-800">{tr.product}</span>
+                      <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100">{tr.lotNumber}</span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {tr.fromGodown} → {tr.toGodown} · {tr.transferDate}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-bold text-gray-900">{formatNumber(tr.qty)}</p>
+                    <p className="text-xs text-gray-400">{t("cartons")}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Detailed Breakdown */}
       <div className="card">
@@ -384,6 +499,90 @@ export default function InventoryPage() {
             {submitting ? "..." : t("approve_receive")}
           </button>
         </div>
+      </Modal>
+
+      <Modal open={showInterGodownTransfer} onClose={() => setShowInterGodownTransfer(false)} title="Inter-Godown Transfer" size="md">
+        {transferError && (
+          <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{transferError}</div>
+        )}
+        {transferHelpersLoading ? (
+          <div className="py-10 flex justify-center">
+            <div className="w-7 h-7 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
+          </div>
+        ) : (
+          <>
+            <div className="mb-3 p-3 bg-blue-50 rounded-lg text-sm text-blue-800">
+              Move stock between your godowns without using the city transfer workflow.
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
+                <input
+                  type="date"
+                  value={transferForm.transferDate}
+                  onChange={e => setTransferForm((f) => ({ ...f, transferDate: e.target.value }))}
+                  className="input-field"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("from_godown")} *</label>
+                  <select value={transferForm.fromGodownId} onChange={e => setTransferForm((f) => ({ ...f, fromGodownId: parseInt(e.target.value) }))} className="select-field">
+                    <option value={0}>{t("select_godown")}</option>
+                    {godownList.map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("store_in_godown")} *</label>
+                  <select value={transferForm.toGodownId} onChange={e => setTransferForm((f) => ({ ...f, toGodownId: parseInt(e.target.value) }))} className="select-field">
+                    <option value={0}>{t("select_godown")}</option>
+                    {godownList.map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("product")} *</label>
+                  <select value={transferForm.productId} onChange={e => setTransferForm((f) => ({ ...f, productId: parseInt(e.target.value) }))} className="select-field">
+                    <option value={0}>{t("select")}</option>
+                    {productList.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Lot</label>
+                  <select value={transferForm.lotId} onChange={e => setTransferForm((f) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
+                    <option value={0}>Auto-select FIFO lot</option>
+                    {lots.filter((lot: any) => lot.status === "ongoing").map((lot: any) => <option key={lot.id} value={lot.id}>{lot.lotNumber}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t("qty")} *</label>
+                <input
+                  type="number"
+                  min="0.01"
+                  value={transferForm.qty || ""}
+                  onChange={e => setTransferForm((f) => ({ ...f, qty: parseFloat(e.target.value) || 0 }))}
+                  className="input-field"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
+                <input
+                  value={transferForm.notes}
+                  onChange={e => setTransferForm((f) => ({ ...f, notes: e.target.value }))}
+                  className="input-field"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
+              <button onClick={() => setShowInterGodownTransfer(false)} className="btn-secondary text-sm">{t("cancel")}</button>
+              <button onClick={handleInterGodownTransfer} disabled={transferSubmitting} className="btn-primary text-sm">
+                {transferSubmitting ? "..." : "Transfer Stock"}
+              </button>
+            </div>
+          </>
+        )}
       </Modal>
 
       {/* ── Stock Ledger Modal ── */}
