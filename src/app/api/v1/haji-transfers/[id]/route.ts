@@ -5,6 +5,8 @@ import { successResponse, errorResponse, serverError } from "@/lib/api-response"
 import { reverseJournalEntries, journalHajiTransfer } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 
+const PAKISTAN_HAJI_TARGET = "Super Admin Account";
+
 export const PUT = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
     const id = parseInt(context.params.id);
@@ -12,6 +14,8 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     const h = await prisma.hajiTransfer.findUnique({ where: { id }, include: { currency: true } });
     if (!h) return errorResponse("NOT_FOUND", "Not found", 404);
     if (user.role === "city_admin" && h.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
+    const city = await prisma.city.findUnique({ where: { id: h.cityId }, include: { country: true } });
+    const forcedTransferredTo = city?.country?.name === "Pakistan" ? PAKISTAN_HAJI_TARGET : (body.transferredTo !== undefined ? body.transferredTo : h.transferredTo);
 
     try { await reverseJournalEntries(`HAJI-${id}`, user.userId); } catch (je) { console.error("Reverse journal (haji):", je); }
 
@@ -20,6 +24,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       data: {
         amount: body.amount || h.amount,
         detail: body.detail || h.detail,
+        transferredTo: forcedTransferredTo,
         notes: body.notes !== undefined ? body.notes : h.notes,
         updatedAt: new Date(),
       },

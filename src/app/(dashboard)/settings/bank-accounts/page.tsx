@@ -44,10 +44,8 @@ export default function BankAccountsPage() {
 
   const handleCreate = async () => {
     if (!form.bankName.trim()) { setError("Bank name is required"); return; }
-    if (isSA && !form.cityId) { setError("City is required"); return; }
     setSubmitting(true);
     const body: any = { bankName: form.bankName, accountNumber: form.accountNumber };
-    if (isSA) body.cityId = form.cityId;
     const r = await apiCall("/api/v1/bank-accounts", { method: "POST", body });
     setSubmitting(false);
     if (r.success) { setShowCreate(false); load(); } else { setError(r.error || "Failed"); }
@@ -112,7 +110,7 @@ export default function BankAccountsPage() {
         </span>
       ),
     },
-    {
+    ...(!isSA ? [{
       key: "actions", label: "",
       render: (acc: any) => (
         <div className="flex gap-2">
@@ -122,15 +120,15 @@ export default function BankAccountsPage() {
           </button>
         </div>
       ),
-    },
+    }] : []),
   ];
 
   return (
     <div>
       <PageHeader
         title={t("bank_accounts")}
-        subtitle={isSA ? "All cities' bank accounts" : "Manage bank accounts for your city"}
-        action={<button onClick={openCreate} className="btn-primary text-sm">+ {t("new_bank_account")}</button>}
+        subtitle={isSA ? "View city bank accounts" : "Manage bank accounts for your city"}
+        action={!isSA ? <button onClick={openCreate} className="btn-primary text-sm">+ {t("new_bank_account")}</button> : undefined}
       />
 
       <DataTable columns={columns} data={accounts} loading={loading} />

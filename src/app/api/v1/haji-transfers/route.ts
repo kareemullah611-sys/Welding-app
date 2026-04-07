@@ -6,6 +6,8 @@ import { createHajiTransferSchema } from "@/lib/validations";
 import { successResponse, paginatedResponse, validationError, errorResponse, serverError, getPaginationParams, getDateRange } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 
+const PAKISTAN_HAJI_TARGET = "Super Admin Account";
+
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
     const searchParams = request.nextUrl.searchParams;
@@ -71,6 +73,8 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     if (user.role !== "city_admin") return errorResponse("FORBIDDEN", "Only city admins can record Haji transfers", 403);
     const body = await request.json();
     const cityId = user.cityId!;
+    const city = await prisma.city.findUnique({ where: { id: cityId }, include: { country: true } });
+    const shouldUseSuperAdminTarget = city?.country?.name === "Pakistan";
 
     // Batch mode: one slip can include office cash plus one or more in-hand cheques.
     if (
@@ -80,7 +84,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     ) {
       const transferDate = body.transferDate;
       const detail = typeof body.detail === "string" ? body.detail.trim() : "";
-      const transferredTo = typeof body.transferredTo === "string" ? body.transferredTo.trim() : null;
+      const transferredTo = shouldUseSuperAdminTarget ? PAKISTAN_HAJI_TARGET : (typeof body.transferredTo === "string" ? body.transferredTo.trim() : null);
       const notes = typeof body.notes === "string" ? body.notes : undefined;
       const cashAmount = Number(body.cashAmount || 0);
       const currencyId = body.currencyId ? parseInt(body.currencyId) : undefined;
@@ -230,6 +234,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const parsed = createHajiTransferSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid data", parsed.error.errors);
     let { lotId, transferDate, amount, currencyId, detail, transferType, transferredTo, notes } = parsed.data;
+    if (shouldUseSuperAdminTarget) transferredTo = PAKISTAN_HAJI_TARGET;
 
     // New source fields
     let sourceType: string = body.sourceType ?? undefined;

@@ -15,9 +15,12 @@ const SOURCE_CONFIG: Record<string, { label: string; color: string; icon: string
   direct:         { label: "Bank Transfer",     icon: "🏦", color: "bg-purple-50 text-purple-700" },
 };
 
+const PAKISTAN_HAJI_TARGET = "Super Admin Account";
+
 export default function HajiTransfersPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const shouldUseSuperAdminTarget = user?.role === "city_admin" && user?.countryName === "Pakistan";
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -101,7 +104,7 @@ export default function HajiTransfersPage() {
     setForm((f: any) => ({
       ...f, transferDate: new Date().toISOString().split("T")[0],
       amount: 0, detail: "", sourceType: "cash_office",
-      bankAccountId: 0, chequePaymentId: 0, chequePaymentIds: [], cashAmount: 0, transferredTo: "", notes: "", lotId: 0,
+      bankAccountId: 0, chequePaymentId: 0, chequePaymentIds: [], cashAmount: 0, transferredTo: shouldUseSuperAdminTarget ? PAKISTAN_HAJI_TARGET : "", notes: "", lotId: 0,
     }));
     setShowCreate(true); setError("");
   };
@@ -357,9 +360,18 @@ export default function HajiTransfersPage() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Transferred To <span className="text-gray-400 font-normal">(optional)</span>
+              Transferred To {shouldUseSuperAdminTarget ? "" : <span className="text-gray-400 font-normal">(optional)</span>}
             </label>
-            <input value={form.transferredTo} onChange={e => setForm((f: any) => ({ ...f, transferredTo: e.target.value }))} className="input-field" placeholder="Person or account name" />
+            <input
+              value={shouldUseSuperAdminTarget ? PAKISTAN_HAJI_TARGET : form.transferredTo}
+              onChange={e => setForm((f: any) => ({ ...f, transferredTo: e.target.value }))}
+              className="input-field"
+              placeholder={shouldUseSuperAdminTarget ? "" : "Person or account name"}
+              readOnly={shouldUseSuperAdminTarget}
+            />
+            {shouldUseSuperAdminTarget && (
+              <p className="mt-1 text-xs text-blue-600">Pakistan city transfers are recorded against the super-admin account automatically.</p>
+            )}
           </div>
 
           <div>
@@ -418,7 +430,13 @@ export default function HajiTransfersPage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Transferred To</label>
-            <input value={form.transferredTo} onChange={e => setForm((f: any) => ({ ...f, transferredTo: e.target.value }))} className="input-field" placeholder="Person or account name" />
+            <input
+              value={shouldUseSuperAdminTarget ? PAKISTAN_HAJI_TARGET : form.transferredTo}
+              onChange={e => setForm((f: any) => ({ ...f, transferredTo: e.target.value }))}
+              className="input-field"
+              placeholder="Person or account name"
+              readOnly={shouldUseSuperAdminTarget}
+            />
           </div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("detail")}</label><input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" /></div>
           <div className="grid grid-cols-2 gap-3">

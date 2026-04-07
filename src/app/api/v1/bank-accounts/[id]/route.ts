@@ -6,6 +6,9 @@ import { JWTPayload } from "@/lib/auth";
 
 export const PATCH = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
+    if (user.role === "super_admin") {
+      return errorResponse("FORBIDDEN", "Super admin can view bank accounts but city admins manage city bank accounts", 403);
+    }
     const id = parseInt(context.params.id);
     if (isNaN(id)) return errorResponse("VALIDATION_ERROR", "Invalid bank account id");
 
@@ -78,6 +81,9 @@ export const PATCH = withAuth(async (request: NextRequest, context: any, user: J
 
 export const DELETE = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
+    if (user.role === "super_admin") {
+      return errorResponse("FORBIDDEN", "Super admin can view bank accounts but city admins manage city bank accounts", 403);
+    }
     const id = parseInt(context.params.id);
     if (isNaN(id)) return errorResponse("VALIDATION_ERROR", "Invalid bank account id");
 

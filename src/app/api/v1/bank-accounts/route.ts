@@ -51,25 +51,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
 export const POST = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
-    const body = await request.json();
-
-    // Determine cityId: city_admin always uses own city; super_admin can specify
-    let cityId: number;
-    if (user.role === "city_admin") {
-      cityId = user.cityId!;
-    } else {
-      // super_admin must supply cityId
-      if (!body.cityId) {
-        return errorResponse("VALIDATION_ERROR", "cityId is required for super_admin");
-      }
-      cityId = parseInt(body.cityId);
-      if (isNaN(cityId)) {
-        return errorResponse("VALIDATION_ERROR", "cityId must be a valid number");
-      }
-      // Verify city exists
-      const city = await prisma.city.findUnique({ where: { id: cityId } });
-      if (!city) return errorResponse("VALIDATION_ERROR", "City not found", 404);
+    if (user.role === "super_admin") {
+      return errorResponse("FORBIDDEN", "Super admin can view bank accounts but city admins manage city bank accounts", 403);
     }
+    const body = await request.json();
+    const cityId = user.cityId!;
 
     // Validate bankName
     const bankName: string = (body.bankName || "").trim();
