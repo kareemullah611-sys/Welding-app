@@ -36,7 +36,7 @@ interface NavItemDef {
   roles: string[];
 }
 
-const navGroups: { label: string; items: NavItemDef[] }[] = [
+const superAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
   {
     label: "Home",
     items: [
@@ -103,6 +103,43 @@ const navGroups: { label: string; items: NavItemDef[] }[] = [
   },
 ];
 
+const cityAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
+  {
+    label: "Daily Work",
+    items: [
+      { label: "Dashboard",       key: "dashboard",             href: "/dashboard",             icon: LayoutDashboard, roles: ["city_admin"] },
+      { label: "Sales",           key: "sales",                 href: "/sales",                 icon: Receipt,         roles: ["city_admin"] },
+      { label: "Payments",        key: "payments",              href: "/payments",              icon: Wallet,          roles: ["city_admin"] },
+      { label: "Expenses",        key: "expenses",              href: "/expenses",              icon: Banknote,        roles: ["city_admin"] },
+      { label: "Withdrawals",     key: "personal_withdrawals",  href: "/personal-withdrawals",  icon: PiggyBank,       roles: ["city_admin"] },
+      { label: "Haji Transfers",  key: "haji_transfers",        href: "/haji-transfers",        icon: ArrowLeftRight,  roles: ["city_admin"] },
+      { label: "Customers",       key: "customers",             href: "/customers",             icon: Users,           roles: ["city_admin"] },
+    ],
+  },
+  {
+    label: "Stock",
+    items: [
+      { label: "Inventory",      key: "inventory",      href: "/inventory",      icon: ClipboardList, roles: ["city_admin"] },
+      { label: "Godowns",        key: "godowns",        href: "/godowns",        icon: Warehouse,     roles: ["city_admin"] },
+      { label: "City Transfers", key: "city_transfers", href: "/city-transfers", icon: ArrowLeftRight,roles: ["city_admin"] },
+    ],
+  },
+  {
+    label: "Treasury",
+    items: [
+      { label: "Cheque Register", key: "cheque_register", href: "/cheques",               icon: FileCheck, roles: ["city_admin"] },
+      { label: "Bank Deposits",   key: "bank_deposits",   href: "/bank-deposits",         icon: Landmark,  roles: ["city_admin"] },
+      { label: "Bank Accounts",   key: "bank_accounts",   href: "/settings/bank-accounts",icon: Landmark,  roles: ["city_admin"] },
+    ],
+  },
+  {
+    label: "Reports",
+    items: [
+      { label: "Reports", key: "reports", href: "/reports", icon: FileText, roles: ["city_admin"] },
+    ],
+  },
+];
+
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 function UserAvatar({ name, size = "md" }: { name: string; size?: "sm" | "md" }) {
   const initials = name
@@ -146,6 +183,8 @@ export default function Sidebar() {
 
   const isAfghanistan = user.countryName === "Afghanistan";
   const afghHide = ["cheque_register", "bank_deposits", "bank_accounts"];
+
+  const navGroups = user.role === "city_admin" ? cityAdminNavGroups : superAdminNavGroups;
 
   const filteredGroups = navGroups
     .map((g) => ({
