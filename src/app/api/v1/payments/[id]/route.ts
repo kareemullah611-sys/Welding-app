@@ -11,8 +11,15 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     const id = parseInt(context.params.id);
     const payment = await prisma.payment.findUnique({
       where: { id },
-      include: { customer: true, lot: { select: { id: true, lotNumber: true } }, currency: true, creator: { select: { id: true, fullName: true } } },
-    });
+      include: {
+        customer: true,
+        lot: { select: { id: true, lotNumber: true } },
+        currency: true,
+        creator: { select: { id: true, fullName: true } },
+        bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+        superAdminBankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+      },
+    } as any) as any;
     if (!payment) return errorResponse("NOT_FOUND", "Payment not found", 404);
     if (user.role === "city_admin" && payment.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
     const hajiAuditStateById = await getPaymentHajiAuditStateMap([payment.id]);
@@ -22,6 +29,10 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       amount: Number(payment.amount), detail: payment.detail, notes: payment.notes,
       manualVoucherNo: payment.manualVoucherNo, paymentMethod: payment.paymentMethod,
       destination: payment.destination, status: payment.status,
+      bankAccountId: (payment as any).bankAccountId ?? null,
+      bankAccount: (payment as any).bankAccount ?? null,
+      superAdminBankAccountId: (payment as any).superAdminBankAccountId ?? null,
+      superAdminBankAccount: (payment as any).superAdminBankAccount ?? null,
       hajiAudit: isHajiAuditEligible(payment) ? (hajiAuditStateById[payment.id] || null) : null,
       customer: { id: payment.customer.id, name: payment.customer.name },
       lot: payment.lot, currency: { id: payment.currency.id, code: payment.currency.code, symbol: payment.currency.symbol },

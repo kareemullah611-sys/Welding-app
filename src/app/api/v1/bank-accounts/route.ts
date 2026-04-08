@@ -6,6 +6,44 @@ import { JWTPayload } from "@/lib/auth";
 
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
+    const searchParams = request.nextUrl.searchParams;
+    const scope = searchParams.get("scope");
+
+    if (scope === "super_admin") {
+      const accounts = await prisma.superAdminBankAccount.findMany({
+        where: { isActive: true },
+        include: {
+          currency: true,
+          _count: {
+            select: {
+              expenses: { where: { deletedAt: null } },
+            },
+          },
+        },
+        orderBy: [{ isActive: "desc" }, { createdAt: "desc" }],
+      });
+
+      return successResponse(
+        accounts.map((a) => ({
+          id: a.id,
+          cityId: null,
+          cityName: "Super Admin",
+          bankName: a.bankName,
+          accountNumber: a.accountNumber,
+          currencyId: a.currencyId,
+          currency: a.currency,
+          isActive: a.isActive,
+          createdAt: a.createdAt.toISOString(),
+          _count: {
+            deposits: 0,
+            hajiTransfers: 0,
+            expenses: a._count.expenses,
+          },
+          accountScope: "super_admin",
+        }))
+      );
+    }
+
     if (user.role === "super_admin") {
       const accounts = await prisma.superAdminBankAccount.findMany({
         include: {
@@ -40,7 +78,6 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       );
     }
 
-    const searchParams = request.nextUrl.searchParams;
     const requestedCityId = searchParams.get("cityId") ? parseInt(searchParams.get("cityId")!) : undefined;
     const cityId = getCityScope(user, requestedCityId);
 

@@ -59,6 +59,8 @@ export default function PaymentsPage() {
   const [selected, setSelected] = useState<any>(null);
   const [currencies, setCurrencies] = useState<any[]>([]);
   const [lots, setLots] = useState<any[]>([]);
+  const [cityBankAccounts, setCityBankAccounts] = useState<any[]>([]);
+  const [superAdminBankAccounts, setSuperAdminBankAccounts] = useState<any[]>([]);
   const [form, setForm] = useState<any>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -115,11 +117,15 @@ export default function PaymentsPage() {
   }, [lastSyncResult, load]);
 
   const loadHelpers = async () => {
-    const [lR, ciR] = await Promise.all([
+    const [lR, ciR, cityBanksR, superAdminBanksR] = await Promise.all([
       apiCall("/api/v1/lots", { params: { limit: 100 } }),
       apiCall("/api/v1/cities"),
+      apiCall("/api/v1/bank-accounts"),
+      apiCall("/api/v1/bank-accounts", { params: { scope: "super_admin" } }),
     ]);
     if (lR.success) setLots(lR.data as any[]);
+    if (cityBanksR.success) setCityBankAccounts(cityBanksR.data as any[]);
+    if (superAdminBanksR.success) setSuperAdminBankAccounts(superAdminBanksR.data as any[]);
     let loadedCurrencies: any[] = [];
     if (ciR.success && user?.cityId) {
       const city = (ciR.data as any[]).find((c: any) => c.id === user.cityId);
@@ -146,6 +152,8 @@ export default function PaymentsPage() {
         chequeNumber: "",
         chequeBank: "",
         chequeDueDate: "",
+        bankAccountId: 0,
+        superAdminBankAccountId: 0,
         ...preset,
       });
     } else if (type === "expense") {
@@ -262,7 +270,7 @@ export default function PaymentsPage() {
     }]);
     // Reset form for next entry, keep modal open
     const today = new Date().toISOString().split("T")[0];
-    setForm({ customerId: 0, customerName: "", paymentDate: today, amount: 0, detail: "", currencyId: currencies[0]?.id || 0, paymentMethod: "cash", destination: "haji", notes: "", chequeNumber: "", chequeBank: "", chequeDueDate: "" });
+    setForm({ customerId: 0, customerName: "", paymentDate: today, amount: 0, detail: "", currencyId: currencies[0]?.id || 0, paymentMethod: "cash", destination: "our_account", notes: "", chequeNumber: "", chequeBank: "", chequeDueDate: "", bankAccountId: 0, superAdminBankAccountId: 0 });
     setQueueSaved(false);
   };
 
@@ -516,6 +524,9 @@ export default function PaymentsPage() {
 
   const selectedMethod = PAYMENT_METHOD_OPTIONS.find((option) => option.value === form.paymentMethod);
   const selectedDestination = DESTINATION_OPTIONS.find((option) => option.value === form.destination);
+  const needsBankAccountSelection = createType === "payment" && ["bank_transfer", "online"].includes(form.paymentMethod);
+  const showCityBankAccountSelect = needsBankAccountSelection && form.destination === "our_account";
+  const showSuperAdminBankAccountSelect = needsBankAccountSelection && form.destination === "haji";
 
   return (
     <div>
@@ -626,7 +637,7 @@ export default function PaymentsPage() {
                       <button
                         key={option.value}
                         type="button"
-                        onClick={() => setForm((f: any) => ({ ...f, paymentMethod: option.value }))}
+                        onClick={() => setForm((f: any) => ({ ...f, paymentMethod: option.value, bankAccountId: 0, superAdminBankAccountId: 0 }))}
                         className={`rounded-xl border px-3 py-3 text-left transition-colors ${
                           form.paymentMethod === option.value
                             ? "border-primary-500 bg-white shadow-sm"
@@ -653,7 +664,7 @@ export default function PaymentsPage() {
                     <button
                       key={option.value}
                       type="button"
-                      onClick={() => setForm((f: any) => ({ ...f, destination: option.value }))}
+                      onClick={() => setForm((f: any) => ({ ...f, destination: option.value, bankAccountId: 0, superAdminBankAccountId: 0 }))}
                       className={`rounded-xl border px-3 py-3 text-left transition-colors ${
                         form.destination === option.value
                           ? "border-primary-500 bg-white shadow-sm"
@@ -672,6 +683,44 @@ export default function PaymentsPage() {
                 {" · "}
                 Destination: <strong>{selectedDestination?.label || "Send to Haji"}</strong>
               </div>
+
+              {showCityBankAccountSelect && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">City Bank Account *</label>
+                  <select
+                    value={form.bankAccountId || 0}
+                    onChange={e => setForm((f: any) => ({ ...f, bankAccountId: parseInt(e.target.value), superAdminBankAccountId: 0 }))}
+                    className="select-field"
+                  >
+                    <option value={0}>Select city bank account…</option>
+                    {cityBankAccounts.filter((a: any) => a.isActive).map((a: any) => (
+                      <option key={a.id} value={a.id}>
+                        {a.bankName}{a.accountNumber ? ` (${a.accountNumber})` : ""}{a.currency?.code ? ` · ${a.currency.code}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">This payment will be treated as received into your city bank account.</p>
+                </div>
+              )}
+
+              {showSuperAdminBankAccountSelect && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Super Admin Bank Account *</label>
+                  <select
+                    value={form.superAdminBankAccountId || 0}
+                    onChange={e => setForm((f: any) => ({ ...f, superAdminBankAccountId: parseInt(e.target.value), bankAccountId: 0 }))}
+                    className="select-field"
+                  >
+                    <option value={0}>Select super admin bank account…</option>
+                    {superAdminBankAccounts.filter((a: any) => a.isActive).map((a: any) => (
+                      <option key={a.id} value={a.id}>
+                        {a.bankName}{a.accountNumber ? ` (${a.accountNumber})` : ""}{a.currency?.code ? ` · ${a.currency.code}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">This payment will be marked as sent directly to the selected super admin bank account.</p>
+                </div>
+              )}
             </div>
           )}
 

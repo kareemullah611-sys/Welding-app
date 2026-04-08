@@ -62,17 +62,19 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           lot: { select: { id: true, lotNumber: true, status: true } },
           city: { select: { id: true, name: true } },
           currency: true,
+          bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+          superAdminBankAccount: { select: { id: true, bankName: true, accountNumber: true } },
           creator: { select: { id: true, fullName: true } },
           attachments: { select: { id: true, fileName: true, filePath: true, fileType: true } },
         },
         orderBy: { paymentDate: "desc" },
         ...(fetchAll ? {} : { skip, take: limit }),
-      }),
+      } as any),
       prisma.payment.count({ where }),
     ]);
     const hajiAuditStateById = await getPaymentHajiAuditStateMap(payments.map((p) => p.id));
 
-    const formatted = payments.map((p) => ({
+    const formatted = (payments as any[]).map((p: any) => ({
       id: p.id,
       cityId: p.cityId,
       cityName: (p as any).city?.name ?? null,
@@ -91,6 +93,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       chequeBank: (p as any).chequeBank ?? null,
       chequeDueDate: (p as any).chequeDueDate ? new Date((p as any).chequeDueDate).toISOString().split("T")[0] : null,
       chequeStatus: (p as any).chequeStatus ?? null,
+      bankAccountId: (p as any).bankAccountId ?? null,
+      bankAccount: (p as any).bankAccount ?? null,
+      superAdminBankAccountId: (p as any).superAdminBankAccountId ?? null,
+      superAdminBankAccount: (p as any).superAdminBankAccount ?? null,
       hajiAudit: isHajiAuditEligible(p) ? (hajiAuditStateById[p.id] || null) : null,
       bankDepositId: (p as any).bankDepositId ?? null,
       customer: p.customer,
@@ -126,6 +132,8 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const chequeBank: string | undefined = body.chequeBank;
     const chequeDueDate: string | undefined = body.chequeDueDate;
     const cityId = user.cityId!;
+    const bankAccountId: number | undefined = body.bankAccountId ? parseInt(body.bankAccountId) : undefined;
+    const superAdminBankAccountId: number | undefined = body.superAdminBankAccountId ? parseInt(body.superAdminBankAccountId) : undefined;
     const chequeNumber = paymentMethod === "cheque"
       ? (manualVoucherNo?.trim() || chequeNumberInput?.trim() || undefined)
       : chequeNumberInput?.trim() || undefined;
@@ -157,6 +165,35 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const isAfghanistanCity = city?.country?.name === "Afghanistan";
     if (isAfghanistanCity && paymentMethod !== "cash") {
       return errorResponse("VALIDATION_ERROR", "Afghanistan cities can record cash payments only");
+    }
+
+    const isBankLikePayment = paymentMethod === "bank_transfer" || paymentMethod === "online";
+    if (isBankLikePayment && destination === "our_account") {
+      if (!bankAccountId) {
+        return errorResponse("VALIDATION_ERROR", "Please select the city bank account that received this payment");
+      }
+      const bankAccount = await prisma.bankAccount.findUnique({ where: { id: bankAccountId } });
+      if (!bankAccount || !bankAccount.isActive) {
+        return errorResponse("NOT_FOUND", "Selected city bank account not found", 404);
+      }
+      if (bankAccount.cityId !== cityId) {
+        return errorResponse("FORBIDDEN", "Selected bank account does not belong to your city", 403);
+      }
+    }
+    if (isBankLikePayment && destination === "haji") {
+      if (!superAdminBankAccountId) {
+        return errorResponse("VALIDATION_ERROR", "Please select the super admin bank account that received this payment");
+      }
+      const superAdminAccount = await prisma.superAdminBankAccount.findUnique({ where: { id: superAdminBankAccountId } });
+      if (!superAdminAccount || !superAdminAccount.isActive) {
+        return errorResponse("NOT_FOUND", "Selected super admin bank account not found", 404);
+      }
+    }
+    if (!isBankLikePayment && (bankAccountId || superAdminBankAccountId)) {
+      return errorResponse("VALIDATION_ERROR", "Bank account selection is only allowed for bank transfer or online payments");
+    }
+    if (bankAccountId && superAdminBankAccountId) {
+      return errorResponse("VALIDATION_ERROR", "Select only one bank account");
     }
 
     // FIFO lot assignment if not specified
@@ -205,14 +242,18 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         ...(chequeBank !== undefined ? { chequeBank } : {}),
         ...(chequeDueDate ? { chequeDueDate: new Date(chequeDueDate) } : {}),
         ...(chequeStatus !== undefined ? { chequeStatus } : {}),
+        ...(bankAccountId !== undefined ? { bankAccountId } : {}),
+        ...(superAdminBankAccountId !== undefined ? { superAdminBankAccountId } : {}),
       },
       include: {
         customer: { select: { id: true, name: true } },
         lot: { select: { id: true, lotNumber: true, status: true } },
         currency: true,
+        bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+        superAdminBankAccount: { select: { id: true, bankName: true, accountNumber: true } },
         creator: { select: { id: true, fullName: true } },
       },
-    }) as any;
+    } as any) as any;
 
     // Store exchange rate fields via raw SQL — safe to skip if columns don't exist yet
     if (exchangeRate != null || usdEquivalent != null) {
@@ -251,6 +292,10 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       lot: { id: payment.lot.id, lotNumber: payment.lot.lotNumber },
       currency: { id: payment.currency.id, code: payment.currency.code, symbol: payment.currency.symbol },
       createdBy: payment.creator,
+      bankAccountId: payment.bankAccountId ?? null,
+      bankAccount: payment.bankAccount ?? null,
+      superAdminBankAccountId: (payment as any).superAdminBankAccountId ?? null,
+      superAdminBankAccount: (payment as any).superAdminBankAccount ?? null,
     };
 
     try {

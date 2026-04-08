@@ -617,6 +617,8 @@ model Payment {
   chequeDueDate      DateTime?          @map("cheque_due_date") @db.Date
   chequeStatus       ChequeStatus?      @map("cheque_status")
   bankDepositId      Int?               @map("bank_deposit_id")
+  bankAccountId      Int?               @map("bank_account_id")
+  superAdminBankAccountId Int?          @map("super_admin_bank_account_id")
   createdBy          Int                @map("created_by")
   createdAt          DateTime           @default(now()) @map("created_at")
   updatedAt          DateTime           @updatedAt @map("updated_at")
@@ -628,6 +630,8 @@ model Payment {
   creator     User        @relation("PaymentCreatedBy", fields: [createdBy], references: [id])
   canceller   User?       @relation("PaymentCancelledBy", fields: [cancelledBy], references: [id])
   bankDeposit BankDeposit? @relation("DepositCheques", fields: [bankDepositId], references: [id])
+  bankAccount BankAccount? @relation("PaymentBankAccount", fields: [bankAccountId], references: [id])
+  superAdminBankAccount SuperAdminBankAccount? @relation("PaymentSuperAdminBankAccount", fields: [superAdminBankAccountId], references: [id])
 
   attachments         Attachment[]
   paymentLotTransfers PaymentLotTransfer[]
@@ -641,6 +645,8 @@ model Payment {
   @@index([paymentDate])
   @@index([status])
   @@index([paymentMethod])
+  @@index([bankAccountId])
+  @@index([superAdminBankAccountId])
   @@map("payments")
 }
 
@@ -819,6 +825,7 @@ model BankAccount {
   shippingLinePayments    ShippingLinePayment[]    @relation("ShippingLinePaymentBankAccount")
   agentPayments           AgentPayment[]           @relation("AgentPaymentBankAccount")
   intermediaryDeposits    IntermediaryDeposit[]
+  incomingPayments        Payment[]                @relation("PaymentBankAccount")
 
   @@index([cityId])
   @@map("bank_accounts")
@@ -860,6 +867,7 @@ model SuperAdminBankAccount {
   currency Currency @relation(fields: [currencyId], references: [id])
   creator  User     @relation(fields: [createdBy], references: [id])
   expenses SuperAdminPersonalExpense[]
+  incomingHajiPayments Payment[] @relation("PaymentSuperAdminBankAccount")
 
   @@index([currencyId])
   @@index([createdBy])

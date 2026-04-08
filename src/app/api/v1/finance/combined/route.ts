@@ -35,11 +35,13 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           customer: { select: { id: true, name: true } },
           currency: { select: { id: true, code: true, symbol: true } },
           city: { select: { id: true, name: true } },
+          bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+          superAdminBankAccount: { select: { id: true, bankName: true, accountNumber: true } },
         },
         orderBy: { paymentDate: "desc" },
-      });
+      } as any);
       const hajiAuditStateById = await getPaymentHajiAuditStateMap(payments.map((p) => p.id));
-      combined.push(...payments.map((p) => ({
+      combined.push(...(payments as any[]).map((p: any) => ({
         id: p.id,
         type: "payment",
         date: p.paymentDate.toISOString().split("T")[0],
@@ -55,6 +57,10 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           amount: Number(p.amount),
           exchangeRate: p.exchangeRate ? Number(p.exchangeRate) : null,
           usdEquivalent: p.usdEquivalent ? Number(p.usdEquivalent) : null,
+          bankAccount: (p as any).bankAccount ?? null,
+          bankAccountId: (p as any).bankAccountId ?? null,
+          superAdminBankAccount: (p as any).superAdminBankAccount ?? null,
+          superAdminBankAccountId: (p as any).superAdminBankAccountId ?? null,
           hajiAudit: isHajiAuditEligible(p) ? (hajiAuditStateById[p.id] || null) : null,
           attachments: (p as any).attachments ?? [],
         },

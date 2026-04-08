@@ -222,9 +222,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         paymentMethod: { in: ["bank_transfer", "online"] },
         destination: "our_account",
         status: "active",
+        bankAccountId: { not: null },
       },
       _sum: { amount: true },
-    });
+    } as any);
 
     // Cheques that have been deposited to bank (for this city)
     const depositedChequesRaw = await prisma.payment.groupBy({
@@ -279,7 +280,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const bankPaymentsIn = toBalanceMap(
       bankPaymentsRaw.map((r) => ({
         currencyCode: codeById[r.currencyId] ?? String(r.currencyId),
-        total: Number(r._sum.amount ?? 0),
+        total: Number(r._sum?.amount ?? 0),
       }))
     );
 
@@ -319,15 +320,12 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     // For each bank account, compute its own balance slice
     // Formula per account:
-    //   bank/online payments directed to this account (none — payments aren't linked to accounts)
+    //   bank/online payments directed to this account
     //   + deposits to this account (cashAmount)
     //   + cheques deposited via deposits linked to this account
     //   - haji transfers from this bank account
     //   - expenses from this bank account
     //
-    // Note: bank_transfer/online payments are not linked to a specific BankAccount in the schema,
-    // so per-account balance uses only deposit-derived inflows and account-specific outflows.
-
     const perAccountBalances: Array<{
       id: number;
       bankName: string;
@@ -337,6 +335,18 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     for (const acct of bankAccounts) {
       // Deposits (cash) into this account
+      const acctBankPaymentsRaw = await prisma.payment.groupBy({
+        by: ["currencyId"],
+        where: {
+          cityId,
+          paymentMethod: { in: ["bank_transfer", "online"] },
+          destination: "our_account",
+          status: "active",
+          bankAccountId: acct.id,
+        },
+        _sum: { amount: true },
+      } as any);
+
       const acctDepositsRaw = await prisma.bankDeposit.groupBy({
         by: ["currencyId"],
         where: { cityId, bankAccountId: acct.id },
@@ -382,6 +392,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
       // Ensure currencies are resolved
       const acctNewIds = [
+        ...acctBankPaymentsRaw.map((r) => r.currencyId),
         ...acctDepositsRaw.map((r) => r.currencyId),
         ...acctDepositedChequesRaw.map((r) => r.currencyId),
         ...acctHajiRaw.map((r) => r.currencyId),
@@ -395,6 +406,13 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         });
         for (const c of extra) codeById[c.id] = c.code;
       }
+
+      const acctBankPaymentsIn = toBalanceMap(
+        acctBankPaymentsRaw.map((r) => ({
+          currencyCode: codeById[r.currencyId] ?? String(r.currencyId),
+          total: Number(r._sum?.amount ?? 0),
+        }))
+      );
 
       const acctDepositsIn = toBalanceMap(
         acctDepositsRaw.map((r) => ({
@@ -425,7 +443,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       );
 
       const acctBalance = subtractMap(
-        subtractMap(addMap(acctDepositsIn, acctChequesIn), acctHajiOut),
+        subtractMap(addMap(addMap(acctBankPaymentsIn, acctDepositsIn), acctChequesIn), acctHajiOut),
         acctExpensesOut
       );
 
