@@ -11,7 +11,7 @@ export default function BankAccountsPage() {
   const isSA = user?.role === "super_admin";
 
   const [accounts, setAccounts] = useState<any[]>([]);
-  const [cities, setCities] = useState<any[]>([]);
+  const [currencies, setCurrencies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -31,14 +31,14 @@ export default function BankAccountsPage() {
 
   useEffect(() => {
     if (isSA) {
-      apiCall("/api/v1/cities", { params: { all: "true" } }).then(r => {
-        if (r.success) setCities(r.data as any[]);
+      apiCall("/api/v1/currencies").then(r => {
+        if (r.success) setCurrencies(r.data as any[]);
       });
     }
   }, [isSA]);
 
   const openCreate = () => {
-    setForm({ bankName: "", accountNumber: "", cityId: cities[0]?.id?.toString() || "" });
+    setForm({ bankName: "", accountNumber: "", cityId: isSA ? (currencies[0]?.id?.toString() || "") : "" });
     setShowCreate(true); setError("");
   };
 
@@ -46,6 +46,7 @@ export default function BankAccountsPage() {
     if (!form.bankName.trim()) { setError("Bank name is required"); return; }
     setSubmitting(true);
     const body: any = { bankName: form.bankName, accountNumber: form.accountNumber };
+    if (isSA) body.currencyId = Number(form.cityId);
     const r = await apiCall("/api/v1/bank-accounts", { method: "POST", body });
     setSubmitting(false);
     if (r.success) { setShowCreate(false); load(); } else { setError(r.error || "Failed"); }
@@ -53,28 +54,36 @@ export default function BankAccountsPage() {
 
   const openEdit = (acc: any) => {
     setSelected(acc);
-    setForm({ bankName: acc.bankName, accountNumber: acc.accountNumber || "", cityId: acc.cityId?.toString() || "" });
+    setForm({ bankName: acc.bankName, accountNumber: acc.accountNumber || "", cityId: isSA ? String(acc.currencyId || "") : (acc.cityId?.toString() || "") });
     setShowEdit(true); setError("");
   };
 
   const handleEdit = async () => {
     if (!form.bankName.trim()) { setError("Bank name is required"); return; }
     setSubmitting(true);
-    const r = await apiCall(`/api/v1/bank-accounts/${selected.id}`, { method: "PATCH", body: { bankName: form.bankName, accountNumber: form.accountNumber } });
+    const body: any = { bankName: form.bankName, accountNumber: form.accountNumber };
+    if (isSA) body.currencyId = Number(form.cityId);
+    const r = await apiCall(`/api/v1/bank-accounts/${selected.id}`, { method: "PATCH", body });
     setSubmitting(false);
     if (r.success) { setShowEdit(false); load(); } else { setError(r.error || "Failed"); }
   };
 
   const toggleActive = async (acc: any) => {
     if (!confirm(`${acc.isActive ? "Deactivate" : "Reactivate"} "${acc.bankName}"?`)) return;
-    await apiCall(`/api/v1/bank-accounts/${acc.id}`, { method: "PATCH", body: { isActive: !acc.isActive } });
+    const body: any = { isActive: !acc.isActive };
+    if (isSA) {
+      body.bankName = acc.bankName;
+      body.accountNumber = acc.accountNumber;
+      body.currencyId = acc.currencyId;
+    }
+    await apiCall(`/api/v1/bank-accounts/${acc.id}`, { method: "PATCH", body });
     load();
   };
 
   const columns: any[] = [
     ...(isSA ? [{
-      key: "cityName", label: "City",
-      render: (acc: any) => <span className="text-sm text-gray-600 font-medium">{acc.cityName}</span>,
+      key: "currency", label: "Currency",
+      render: (acc: any) => <span className="text-sm text-gray-600 font-medium">{acc.currency?.code} {acc.currency?.symbol}</span>,
     }] : []),
     {
       key: "bankName", label: t("bank_name"),
@@ -110,7 +119,7 @@ export default function BankAccountsPage() {
         </span>
       ),
     },
-    ...(!isSA ? [{
+    {
       key: "actions", label: "",
       render: (acc: any) => (
         <div className="flex gap-2">
@@ -120,15 +129,15 @@ export default function BankAccountsPage() {
           </button>
         </div>
       ),
-    }] : []),
+    },
   ];
 
   return (
     <div>
       <PageHeader
         title={t("bank_accounts")}
-        subtitle={isSA ? "View city bank accounts" : "Manage bank accounts for your city"}
-        action={!isSA ? <button onClick={openCreate} className="btn-primary text-sm">+ {t("new_bank_account")}</button> : undefined}
+        subtitle={isSA ? "Manage super admin bank accounts" : "Manage bank accounts for your city"}
+        action={<button onClick={openCreate} className="btn-primary text-sm">+ {t("new_bank_account")}</button>}
       />
 
       <DataTable columns={columns} data={accounts} loading={loading} />
@@ -139,10 +148,10 @@ export default function BankAccountsPage() {
         <div className="space-y-3">
           {isSA && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">City *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Currency *</label>
               <select value={form.cityId} onChange={e => setForm(f => ({ ...f, cityId: e.target.value }))} className="select-field">
-                <option value="">Select city…</option>
-                {cities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                <option value="">Select currency…</option>
+                {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code} {c.symbol}</option>)}
               </select>
             </div>
           )}
@@ -178,7 +187,16 @@ export default function BankAccountsPage() {
         <div className="space-y-3">
           {isSA && selected && (
             <div className="text-sm text-gray-500 bg-gray-50 rounded px-3 py-2">
-              City: <strong className="text-gray-700">{selected.cityName}</strong>
+              Currency: <strong className="text-gray-700">{selected.currency?.code} {selected.currency?.symbol}</strong>
+            </div>
+          )}
+          {isSA && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Currency *</label>
+              <select value={form.cityId} onChange={e => setForm(f => ({ ...f, cityId: e.target.value }))} className="select-field">
+                <option value="">Select currency…</option>
+                {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code} {c.symbol}</option>)}
+              </select>
             </div>
           )}
           <div>

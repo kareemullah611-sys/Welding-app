@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { DataTable, Modal, PageHeader, formatDate, formatNumber } from "@/components/ui";
+import Link from "next/link";
 
 export default function SuperAdminPersonalExpensesPage() {
   const { user } = useAuth();
@@ -11,27 +12,22 @@ export default function SuperAdminPersonalExpensesPage() {
   const [loading, setLoading] = useState(true);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [expenses, setExpenses] = useState<any[]>([]);
-  const [currencies, setCurrencies] = useState<any[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
-  const [showAccount, setShowAccount] = useState(false);
   const [showExpense, setShowExpense] = useState(false);
   const [showEditExpense, setShowEditExpense] = useState(false);
   const [editingExpense, setEditingExpense] = useState<any>(null);
-  const [editingAccount, setEditingAccount] = useState<any>(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [accountForm, setAccountForm] = useState<any>({ bankName: "", accountNumber: "", currencyId: 0, isActive: true });
   const [expenseForm, setExpenseForm] = useState<any>({ expenseDate: new Date().toISOString().split("T")[0], detail: "", amount: 0, notes: "", bankAccountId: 0 });
 
   const load = useCallback(async () => {
     if (!isSA) return;
     setLoading(true);
-    const [accountsRes, expensesRes, currenciesRes] = await Promise.all([
-      apiCall("/api/v1/super-admin-bank-accounts"),
+    const [accountsRes, expensesRes] = await Promise.all([
+      apiCall("/api/v1/bank-accounts"),
       apiCall("/api/v1/super-admin-personal-expenses", { params: { page, limit: 20 } }),
-      apiCall("/api/v1/currencies"),
     ]);
     if (accountsRes.success) setAccounts(accountsRes.data as any[]);
     if (expensesRes.success) {
@@ -39,7 +35,6 @@ export default function SuperAdminPersonalExpensesPage() {
       setTotalPages((expensesRes.pagination as any)?.totalPages || 1);
       setTotal((expensesRes.pagination as any)?.total || 0);
     }
-    if (currenciesRes.success) setCurrencies(currenciesRes.data as any[]);
     setLoading(false);
   }, [isSA, page]);
 
@@ -48,45 +43,6 @@ export default function SuperAdminPersonalExpensesPage() {
   if (!isSA) {
     return <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">Only super admin can access this module.</div>;
   }
-
-  const openNewAccount = () => {
-    setEditingAccount(null);
-    setAccountForm({ bankName: "", accountNumber: "", currencyId: currencies[0]?.id || 0, isActive: true });
-    setError("");
-    setShowAccount(true);
-  };
-
-  const openEditAccount = (account: any) => {
-    setEditingAccount(account);
-    setAccountForm({
-      bankName: account.bankName,
-      accountNumber: account.accountNumber || "",
-      currencyId: account.currencyId,
-      isActive: account.isActive,
-    });
-    setError("");
-    setShowAccount(true);
-  };
-
-  const saveAccount = async () => {
-    if (!accountForm.bankName.trim() || !accountForm.currencyId) {
-      setError("Bank name and currency are required");
-      return;
-    }
-    setSubmitting(true);
-    const endpoint = editingAccount
-      ? `/api/v1/super-admin-bank-accounts/${editingAccount.id}`
-      : "/api/v1/super-admin-bank-accounts";
-    const method = editingAccount ? "PATCH" : "POST";
-    const result = await apiCall(endpoint, { method, body: accountForm });
-    setSubmitting(false);
-    if (result.success) {
-      setShowAccount(false);
-      load();
-    } else {
-      setError(result.error || "Failed");
-    }
-  };
 
   const openNewExpense = () => {
     setEditingExpense(null);
@@ -144,14 +100,6 @@ export default function SuperAdminPersonalExpensesPage() {
     load();
   };
 
-  const toggleAccount = async (account: any) => {
-    await apiCall(`/api/v1/super-admin-bank-accounts/${account.id}`, {
-      method: "PATCH",
-      body: { isActive: !account.isActive, bankName: account.bankName, accountNumber: account.accountNumber, currencyId: account.currencyId },
-    });
-    load();
-  };
-
   return (
     <div>
       <PageHeader
@@ -159,7 +107,6 @@ export default function SuperAdminPersonalExpensesPage() {
         subtitle="Record personal expenses from super admin bank accounts"
         action={
           <div className="flex gap-2">
-            <button onClick={openNewAccount} className="btn-secondary text-sm">+ Bank Account</button>
             <button onClick={openNewExpense} className="btn-primary text-sm">+ Personal Expense</button>
           </div>
         }
@@ -171,12 +118,12 @@ export default function SuperAdminPersonalExpensesPage() {
 
       <div className="grid gap-4 md:grid-cols-3 mb-6">
         <div className="card">
-          <p className="text-xs uppercase tracking-[0.18em] text-gray-500">Active Accounts</p>
-          <p className="mt-2 text-3xl font-semibold text-gray-900">{accounts.filter((a) => a.isActive).length}</p>
-        </div>
-        <div className="card">
           <p className="text-xs uppercase tracking-[0.18em] text-gray-500">Recorded Expenses</p>
           <p className="mt-2 text-3xl font-semibold text-gray-900">{total}</p>
+        </div>
+        <div className="card">
+          <p className="text-xs uppercase tracking-[0.18em] text-gray-500">Active Accounts</p>
+          <p className="mt-2 text-3xl font-semibold text-gray-900">{accounts.filter((a) => a.isActive).length}</p>
         </div>
         <div className="card">
           <p className="text-xs uppercase tracking-[0.18em] text-gray-500">Accounts in Use</p>
@@ -184,27 +131,11 @@ export default function SuperAdminPersonalExpensesPage() {
         </div>
       </div>
 
-      <div className="mb-6">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.16em] text-gray-500">Super Admin Bank Accounts</h2>
-        <DataTable
-          columns={[
-            { key: "bankName", label: "Bank", render: (a: any) => <span className="font-medium">{a.bankName}</span> },
-            { key: "accountNumber", label: "Account Number", render: (a: any) => a.accountNumber || "—" },
-            { key: "currency", label: "Currency", render: (a: any) => `${a.currency?.code || ""} ${a.currency?.symbol || ""}`.trim() },
-            { key: "expenseCount", label: "Usage", render: (a: any) => `${a.expenseCount || 0} expenses` },
-            { key: "status", label: "Status", render: (a: any) => <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${a.isActive ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-500"}`}>{a.isActive ? "Active" : "Inactive"}</span> },
-            {
-              key: "actions", label: "", render: (a: any) => (
-                <div className="flex gap-2">
-                  <button onClick={() => openEditAccount(a)} className="text-xs text-primary-600 hover:underline">Edit</button>
-                  <button onClick={() => toggleAccount(a)} className="text-xs text-gray-600 hover:underline">{a.isActive ? "Deactivate" : "Reactivate"}</button>
-                </div>
-              ),
-            },
-          ]}
-          data={accounts}
-          loading={loading}
-        />
+      <div className="mb-6 rounded-2xl border border-amber-100 bg-amber-50/70 p-4 text-sm text-amber-900">
+        Manage super admin bank accounts from{" "}
+        <Link href="/settings/bank-accounts" className="font-semibold underline underline-offset-2">
+          Bank Accounts
+        </Link>.
       </div>
 
       <div>
@@ -230,31 +161,6 @@ export default function SuperAdminPersonalExpensesPage() {
           pagination={{ page, totalPages, total, onPageChange: setPage }}
         />
       </div>
-
-      <Modal open={showAccount} onClose={() => setShowAccount(false)} title={editingAccount ? `Edit — ${editingAccount.bankName}` : "New Super Admin Bank Account"} size="sm">
-        {error && <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{error}</div>}
-        <div className="space-y-3">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Bank Name *</label>
-            <input className="input-field" value={accountForm.bankName} onChange={(e) => setAccountForm((f: any) => ({ ...f, bankName: e.target.value }))} />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Account Number</label>
-            <input className="input-field" value={accountForm.accountNumber} onChange={(e) => setAccountForm((f: any) => ({ ...f, accountNumber: e.target.value }))} />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Currency *</label>
-            <select className="select-field" value={accountForm.currencyId} onChange={(e) => setAccountForm((f: any) => ({ ...f, currencyId: Number(e.target.value) }))}>
-              <option value={0}>Select currency…</option>
-              {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code} {c.symbol}</option>)}
-            </select>
-          </div>
-        </div>
-        <div className="mt-4 flex justify-end gap-3 border-t pt-4">
-          <button onClick={() => setShowAccount(false)} className="btn-secondary text-sm">Cancel</button>
-          <button onClick={saveAccount} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : "Save"}</button>
-        </div>
-      </Modal>
 
       <Modal open={showExpense} onClose={() => setShowExpense(false)} title="Record Personal Expense" size="md">
         {error && <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{error}</div>}
