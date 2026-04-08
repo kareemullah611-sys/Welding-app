@@ -151,6 +151,7 @@ model Currency {
   bankDeposits           BankDeposit[]
   investorAccounts       InvestorAccount[]
   intermediaryDeposits   IntermediaryDeposit[]
+  superAdminBankAccounts SuperAdminBankAccount[]
 
   @@map("currencies")
 }
@@ -264,6 +265,8 @@ model User {
   investorWithdrawalsCreated InvestorWithdrawal[]
   profitAllocationsCreated     ProfitAllocation[]
   intermediaryDepositsCreated  IntermediaryDeposit[]
+  superAdminBankAccountsCreated SuperAdminBankAccount[]
+  superAdminPersonalExpensesCreated SuperAdminPersonalExpense[]
 
   @@index([cityId])
   @@index([role])
@@ -842,6 +845,46 @@ model BankDeposit {
   @@index([bankAccountId])
   @@index([depositDate])
   @@map("bank_deposits")
+}
+
+model SuperAdminBankAccount {
+  id            Int      @id @default(autoincrement())
+  bankName      String   @map("bank_name") @db.VarChar(100)
+  accountNumber String?  @map("account_number") @db.VarChar(50)
+  currencyId    Int      @map("currency_id")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdBy     Int      @map("created_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  currency Currency @relation(fields: [currencyId], references: [id])
+  creator  User     @relation(fields: [createdBy], references: [id])
+  expenses SuperAdminPersonalExpense[]
+
+  @@index([currencyId])
+  @@index([createdBy])
+  @@map("super_admin_bank_accounts")
+}
+
+model SuperAdminPersonalExpense {
+  id           Int       @id @default(autoincrement())
+  bankAccountId Int      @map("bank_account_id")
+  expenseDate  DateTime  @map("expense_date") @db.Date
+  amount       Decimal   @db.Decimal(15, 2)
+  detail       String    @db.VarChar(500)
+  notes        String?   @db.Text
+  createdBy    Int       @map("created_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  bankAccount SuperAdminBankAccount @relation(fields: [bankAccountId], references: [id])
+  creator     User                  @relation(fields: [createdBy], references: [id])
+
+  @@index([bankAccountId])
+  @@index([expenseDate])
+  @@index([deletedAt])
+  @@map("super_admin_personal_expenses")
 }
 
 // ============================================================

@@ -1,11 +1,12 @@
 "use client";
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, StatusBadge, formatDate } from "@/components/ui";
 import CustomerSearch from "@/components/CustomerSearch";
 import { useLang } from "@/lib/lang";
+import { useSearchParams } from "next/navigation";
 
 
 const TYPE_CONFIG: Record<string, { label: string; color: string; amountColor: string }> = {
@@ -28,13 +29,14 @@ const PAYMENT_METHOD_OPTIONS = [
 ];
 
 const DESTINATION_OPTIONS = [
-  { value: "haji", label: "Send to Haji", hint: "Counts toward Haji settlement" },
   { value: "our_account", label: "Keep in Office", hint: "Treat as company/office receipt" },
+  { value: "haji", label: "Send to Haji", hint: "Counts toward Haji settlement" },
 ];
 
 export default function PaymentsPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const searchParams = useSearchParams();
   const { isOnline, enqueue, lastSyncResult } = useOffline();
   const canCreateRecords = user?.role === "city_admin";
   const isAfghanistanCity = user?.countryName === "Afghanistan";
@@ -80,6 +82,7 @@ export default function PaymentsPage() {
   const [paymentQueue, setPaymentQueue] = useState<Array<{ tempId: string; customerName: string; voucherNo: string; amount: number; currencySymbol: string; detail: string; date: string; body: any }>>([]);
   const [savingQueue, setSavingQueue] = useState(false);
   const [queueSaved, setQueueSaved] = useState(false);
+  const prefillHandledRef = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -125,12 +128,26 @@ export default function PaymentsPage() {
     return loadedCurrencies;
   };
 
-  const openCreate = async (type: string) => {
+  const openCreate = async (type: string, preset?: Record<string, any>) => {
     setCreateType(type);
     const loadedCurrencies = await loadHelpers();
     const today = new Date().toISOString().split("T")[0];
     if (type === "payment") {
-      setForm({ customerId: 0, customerName: "", paymentDate: today, amount: 0, detail: "", currencyId: loadedCurrencies[0]?.id || 0, paymentMethod: "cash", destination: "haji", notes: "", chequeNumber: "", chequeBank: "", chequeDueDate: "" });
+      setForm({
+        customerId: 0,
+        customerName: "",
+        paymentDate: today,
+        amount: 0,
+        detail: "",
+        currencyId: loadedCurrencies[0]?.id || 0,
+        paymentMethod: "cash",
+        destination: "our_account",
+        notes: "",
+        chequeNumber: "",
+        chequeBank: "",
+        chequeDueDate: "",
+        ...preset,
+      });
     } else if (type === "expense") {
       setForm({ expenseDate: today, amount: 0, detail: "", notes: "" });
     } else if (type === "haji_transfer") {
@@ -142,6 +159,20 @@ export default function PaymentsPage() {
     setQueueSaved(false);
     setShowCreate(true); setError("");
   };
+
+  useEffect(() => {
+    if (prefillHandledRef.current || !canCreateRecords) return;
+    if (searchParams.get("create") !== "payment") return;
+    prefillHandledRef.current = true;
+    const customerId = parseInt(searchParams.get("customer_id") || "0");
+    const customerName = searchParams.get("customer_name") || "";
+    openCreate("payment", {
+      customerId: Number.isFinite(customerId) ? customerId : 0,
+      customerName,
+      detail: searchParams.get("detail") || "",
+    });
+    window.history.replaceState({}, "", "/payments");
+  }, [canCreateRecords, searchParams]);
 
   const handleCreate = async (forceVoucher = false) => {
     setSubmitting(true); setError("");
@@ -322,34 +353,41 @@ export default function PaymentsPage() {
 
   const columns = [
     {
+      key: "date", label: t("date"),
+      render: (item: any) => <span className="whitespace-nowrap text-sm">{formatDate(item.date)}</span>,
+    },
+    {
       key: "type", label: "Type",
       render: (item: any) => <TypeBadge type={item.type} />,
     },
     {
-      key: "date", label: t("date"),
-      render: (item: any) => <span className="whitespace-nowrap text-sm">{formatDate(item.date)}</span>,
+      key: "person", label: "Name",
+      render: (item: any) => item.person ? (
+        <div>
+          <span className="text-sm text-gray-700">{item.person}</span>
+          {user?.role === "super_admin" && item.cityName && (
+            <p className="text-xs text-indigo-500 mt-0.5">{item.cityName}</p>
+          )}
+        </div>
+      ) : <span className="text-gray-300">—</span>,
     },
     {
       key: "detail", label: t("detail"),
       render: (item: any) => (
         <div>
           <span className="text-sm">{item.detail}</span>
-          {item.raw?.manualVoucherNo && <p className="text-xs text-gray-400 mt-0.5">#{item.raw.manualVoucherNo}</p>}
           {item.type === "haji_transfer" && item.raw?.lotNumber && <p className="text-xs text-gray-400 mt-0.5">Lot {item.raw.lotNumber}</p>}
           {item.type === "expense" && item.raw?.lotNumber && <p className="text-xs text-gray-400 mt-0.5">Lot {item.raw.lotNumber}</p>}
         </div>
       ),
     },
     {
-      key: "person", label: t("customer"),
-      render: (item: any) => item.person ? (
-        <div>
-          <span className="text-sm text-gray-600">{item.person}</span>
-          {user?.role === "super_admin" && item.cityName && (
-            <p className="text-xs text-indigo-500 mt-0.5">{item.cityName}</p>
-          )}
-        </div>
-      ) : <span className="text-gray-300">—</span>,
+      key: "ref", label: "Ref No.",
+      render: (item: any) => item.raw?.manualVoucherNo ? (
+        <span className="font-mono text-xs text-gray-600">{item.raw.manualVoucherNo}</span>
+      ) : (
+        <span className="text-gray-300">—</span>
+      ),
     },
     {
       key: "amount", label: t("amount"),
@@ -362,9 +400,6 @@ export default function PaymentsPage() {
             </span>
             {item.type === "payment" && item.raw?.currencyCode === "AFN" && item.raw?.usdEquivalent && (
               <p className="text-xs text-gray-400 mt-0.5">≈ ${Number(item.raw.usdEquivalent).toLocaleString("en-US")}</p>
-            )}
-            {item.type === "payment" && item.raw?.destination && (
-              <p className="text-xs text-gray-400 mt-0.5">→ {item.raw.destination === "haji" ? t("haji_label") : t("our_account")}</p>
             )}
           </div>
         );
@@ -416,41 +451,58 @@ export default function PaymentsPage() {
         return <span className="text-gray-300">—</span>;
       },
     },
+    ...(user?.role === "super_admin" ? [{
+      key: "sa_check", label: "SA Check",
+      render: (item: any) => (
+        item.type === "payment" && item.status === "active" && item.raw?.destination === "haji" && ["cash", "bank_transfer", "online"].includes(item.raw?.paymentMethod) ? (
+          <label className="inline-flex items-center gap-2 text-xs text-gray-700">
+            <input
+              type="checkbox"
+              checked={!!item.raw?.hajiAudit?.confirmed}
+              onChange={(e) => handleToggleHajiAudit(item, e.target.checked)}
+              className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+            />
+            Confirm
+          </label>
+        ) : <span className="text-gray-300">—</span>
+      ),
+    }] : []),
+    {
+      key: "runningBalance",
+      label: "Running Balance",
+      render: (item: any) => (
+        <span className="text-sm font-medium text-gray-700">
+          {item.currencyCode} {Number(item.runningBalance || 0).toLocaleString("en-US")}
+        </span>
+      ),
+    },
     {
       key: "actions", label: "",
       render: (item: any) => {
         // Pending (offline) rows have no server ID — disable all mutating actions
         if (item._pending) return <span className="text-xs text-gray-400 italic">syncing…</span>;
         return (
-        <div className="flex flex-wrap gap-2">
-          <button onClick={() => openEdit(item)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button>
-          {item.type === "payment" && item.status === "active" && (
-            <button onClick={() => handleDelete(item)} className="text-xs text-red-600 hover:underline">{t("cancel")}</button>
-          )}
-          {item.type !== "payment" && (
-            <button onClick={() => handleDelete(item)} className="text-xs text-red-600 hover:underline">{t("delete")}</button>
-          )}
-          {item.type === "payment" && user?.role === "super_admin" && (
-            <button onClick={() => openHardDelete(item)} className="text-xs text-red-800 font-semibold hover:underline">{t("hard_delete")}</button>
-          )}
-          {item.type === "withdrawal" && item.status === "pending" && user?.role === "super_admin" && (
-            <button onClick={() => handleApproveWithdrawal(item)} className="text-xs text-green-700 font-semibold hover:underline">Approve</button>
-          )}
-          {item.type === "payment" && item.status === "active" && item.raw?.paymentMethod === "cheque" && item.raw?.chequeStatus === "in_hand" && (
-            <button onClick={() => { setBounceTarget(item); setShowBounce(true); setError(""); }} className="text-xs text-amber-600 font-semibold hover:underline">{t("mark_bounced")}</button>
-          )}
-          {item.type === "payment" && user?.role === "super_admin" && item.status === "active" && item.raw?.destination === "haji" && ["cash", "bank_transfer", "online"].includes(item.raw?.paymentMethod) && (
-            item.raw?.hajiAudit?.confirmed ? (
-              <button onClick={() => handleToggleHajiAudit(item, false)} className="text-xs text-emerald-700 font-semibold hover:underline">
-                Remove Audit Check
-              </button>
-            ) : (
-              <button onClick={() => handleToggleHajiAudit(item, true)} className="text-xs text-emerald-700 font-semibold hover:underline">
-                ✓ Mark Audit OK
-              </button>
-            )
-          )}
-        </div>
+        <details className="relative">
+          <summary className="list-none cursor-pointer text-lg leading-none px-2 py-1 rounded hover:bg-gray-100 text-gray-600">⋯</summary>
+          <div className="absolute right-0 z-10 mt-1 w-40 rounded-xl border border-gray-200 bg-white shadow-lg p-1.5 space-y-1">
+            <button onClick={() => openEdit(item)} className="w-full text-left rounded-lg px-3 py-2 text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
+            {item.type === "payment" && item.status === "active" && (
+              <button onClick={() => handleDelete(item)} className="w-full text-left rounded-lg px-3 py-2 text-xs text-red-600 hover:bg-red-50">{t("cancel")}</button>
+            )}
+            {item.type !== "payment" && (
+              <button onClick={() => handleDelete(item)} className="w-full text-left rounded-lg px-3 py-2 text-xs text-red-600 hover:bg-red-50">{t("delete")}</button>
+            )}
+            {item.type === "payment" && user?.role === "super_admin" && (
+              <button onClick={() => openHardDelete(item)} className="w-full text-left rounded-lg px-3 py-2 text-xs text-red-800 hover:bg-red-50">{t("hard_delete")}</button>
+            )}
+            {item.type === "withdrawal" && item.status === "pending" && user?.role === "super_admin" && (
+              <button onClick={() => handleApproveWithdrawal(item)} className="w-full text-left rounded-lg px-3 py-2 text-xs text-green-700 hover:bg-green-50">Approve</button>
+            )}
+            {item.type === "payment" && item.status === "active" && item.raw?.paymentMethod === "cheque" && item.raw?.chequeStatus === "in_hand" && (
+              <button onClick={() => { setBounceTarget(item); setShowBounce(true); setError(""); }} className="w-full text-left rounded-lg px-3 py-2 text-xs text-amber-700 hover:bg-amber-50">{t("mark_bounced")}</button>
+            )}
+          </div>
+        </details>
         );
       },
     },

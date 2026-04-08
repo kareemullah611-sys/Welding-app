@@ -62,6 +62,7 @@ const superAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
       { label: "Sales",            key: "sales",            href: "/sales",            icon: Receipt,   roles: ["super_admin", "city_admin"] },
       { label: "Payments",         key: "payments",         href: "/payments",         icon: Wallet,    roles: ["super_admin", "city_admin"] },
       { label: "Expenses",         key: "expenses",         href: "/expenses",         icon: Banknote,  roles: ["super_admin", "city_admin"] },
+      { label: "Personal Expenses", key: "super_admin_personal_expenses", href: "/super-admin-personal-expenses", icon: Banknote, roles: ["super_admin"] },
       { label: "Withdrawals",      key: "personal_withdrawals", href: "/personal-withdrawals", icon: PiggyBank, roles: ["super_admin", "city_admin"] },
       { label: "Haji Transfers",   key: "haji_transfers",   href: "/haji-transfers",   icon: ArrowLeftRight, roles: ["super_admin", "city_admin"] },
       { label: "Customers",        key: "customers",        href: "/customers",        icon: Users,     roles: ["super_admin", "city_admin"] },

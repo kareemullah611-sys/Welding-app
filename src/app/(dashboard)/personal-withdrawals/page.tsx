@@ -9,6 +9,7 @@ export default function PersonalWithdrawalsPage() {
   const { user } = useAuth();
   const { t } = useLang();
   const [items, setItems] = useState<any[]>([]);
+  const [counts, setCounts] = useState({ all: 0, pending: 0, approved: 0 });
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -31,10 +32,13 @@ export default function PersonalWithdrawalsPage() {
     const treasuryRequest = user?.role === "city_admin" ? apiCall("/api/v1/treasury") : Promise.resolve(null);
     const params: any = { page, limit: 20 };
     if (statusFilter !== "all") params.approval_status = statusFilter;
-    const [result, cashRes, treasuryRes] = await Promise.all([
+    const [result, cashRes, treasuryRes, allCountRes, pendingCountRes, approvedCountRes] = await Promise.all([
       apiCall("/api/v1/personal-withdrawals", { params }),
       apiCall("/api/v1/cash-position"),
       treasuryRequest,
+      apiCall("/api/v1/personal-withdrawals", { params: { page: 1, limit: 1 } }),
+      apiCall("/api/v1/personal-withdrawals", { params: { page: 1, limit: 1, approval_status: "pending" } }),
+      apiCall("/api/v1/personal-withdrawals", { params: { page: 1, limit: 1, approval_status: "approved" } }),
     ]);
     if (result.success) {
       setItems(result.data as any[]);
@@ -43,6 +47,11 @@ export default function PersonalWithdrawalsPage() {
     }
     if (cashRes.success) setCashPosition(cashRes.data);
     if (treasuryRes?.success) setTreasury(treasuryRes.data);
+    setCounts({
+      all: (allCountRes.pagination as any)?.total || 0,
+      pending: (pendingCountRes.pagination as any)?.total || 0,
+      approved: (approvedCountRes.pagination as any)?.total || 0,
+    });
     setLoading(false);
   }, [page, statusFilter, user?.role]);
 
@@ -139,19 +148,19 @@ export default function PersonalWithdrawalsPage() {
           onClick={() => setStatusFilter("all")}
           className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${statusFilter === "all" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-600 border-gray-200"}`}
         >
-          All ({items.length})
+          All ({counts.all})
         </button>
         <button
           onClick={() => setStatusFilter("pending")}
           className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${statusFilter === "pending" ? "bg-amber-600 text-white border-amber-600" : "bg-white text-amber-700 border-amber-200"}`}
         >
-          Pending ({pendingItems.length})
+          Pending ({counts.pending})
         </button>
         <button
           onClick={() => setStatusFilter("approved")}
           className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${statusFilter === "approved" ? "bg-green-600 text-white border-green-600" : "bg-white text-green-700 border-green-200"}`}
         >
-          Approved ({approvedItems.length})
+          Approved ({counts.approved})
         </button>
       </div>
 

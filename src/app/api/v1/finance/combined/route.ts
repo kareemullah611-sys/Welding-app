@@ -145,11 +145,31 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
       })));
     }
 
-    // Sort by date desc (then by id desc as tiebreaker)
+    // Build running treasury balance in chronological order:
+    // keep-in-office payments increase it, expenses/withdrawals/haji transfers reduce it.
     combined.sort((a, b) => {
-      if (b.date !== a.date) return b.date.localeCompare(a.date);
-      return b.id - a.id;
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      return a.id - b.id;
     });
+
+    const runningByCurrency: Record<string, number> = {};
+    combined = combined.map((item) => {
+      const currencyCode = item.currencyCode || "";
+      let delta = 0;
+      if (item.type === "payment") {
+        delta = item.raw?.destination === "our_account" ? Number(item.amount || 0) : 0;
+      } else if (item.type === "expense" || item.type === "withdrawal" || item.type === "haji_transfer") {
+        delta = -Number(item.amount || 0);
+      }
+      runningByCurrency[currencyCode] = (runningByCurrency[currencyCode] || 0) + delta;
+      return {
+        ...item,
+        runningBalance: Math.round((runningByCurrency[currencyCode] || 0) * 100) / 100,
+      };
+    });
+
+    // Return newest first for display
+    combined.reverse();
 
     const total = combined.length;
     const skip = (page - 1) * limit;

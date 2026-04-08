@@ -28,7 +28,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const transferredToFilter = searchParams.get("transferred_to");
     if (transferredToFilter) where.transferredTo = { contains: transferredToFilter, mode: "insensitive" };
 
-    const [transfers, total] = await Promise.all([
+    const [transfers, directPayments, transferCount, directPaymentsCount] = await Promise.all([
       prisma.hajiTransfer.findMany({
         where,
         include: {
@@ -38,14 +38,46 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           attachments: { select: { id: true, fileName: true, filePath: true, fileType: true } },
         },
         orderBy: { transferDate: "desc" },
-        skip, take: limit,
+      }),
+      prisma.payment.findMany({
+        where: {
+          ...(cityId ? { cityId } : {}),
+          ...(dateFrom || dateTo ? {
+            paymentDate: {
+              ...(dateFrom ? { gte: dateFrom } : {}),
+              ...(dateTo ? { lte: dateTo } : {}),
+            },
+          } : {}),
+          destination: "haji",
+          status: "active",
+        },
+        include: {
+          customer: { select: { id: true, name: true } },
+          currency: true,
+          creator: { select: { id: true, fullName: true } },
+        },
+        orderBy: { paymentDate: "desc" },
       }),
       prisma.hajiTransfer.count({ where }),
+      prisma.payment.count({
+        where: {
+          ...(cityId ? { cityId } : {}),
+          ...(dateFrom || dateTo ? {
+            paymentDate: {
+              ...(dateFrom ? { gte: dateFrom } : {}),
+              ...(dateTo ? { lte: dateTo } : {}),
+            },
+          } : {}),
+          destination: "haji",
+          status: "active",
+        },
+      }),
     ]);
 
-    return paginatedResponse(
-      transfers.map((t) => ({
+    const rows = [
+      ...transfers.map((t) => ({
         id: t.id, cityId: t.cityId, lotId: t.lotId,
+        recordType: "haji_transfer",
         lotNumber: t.lot.lotNumber, lotStatus: t.lot.status,
         transferDate: t.transferDate.toISOString().split("T")[0],
         amount: Number(t.amount), detail: t.detail,
@@ -61,8 +93,35 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           filePath: a.filePath.split("|||")[0],
         })),
       })),
-      total, page, limit
-    );
+      ...directPayments.map((p) => ({
+        id: p.id,
+        cityId: p.cityId,
+        lotId: p.lotId,
+        recordType: "customer_payment",
+        lotNumber: "",
+        lotStatus: null,
+        transferDate: p.paymentDate.toISOString().split("T")[0],
+        amount: Number(p.amount),
+        detail: p.detail,
+        transferType: "customer_direct",
+        transferredTo: p.customer?.name || null,
+        sourceType: p.paymentMethod,
+        bankAccountId: null,
+        chequePaymentId: null,
+        notes: p.notes,
+        currency: { id: p.currency.id, code: p.currency.code, symbol: p.currency.symbol },
+        createdBy: p.creator,
+        attachments: [],
+      })),
+    ].sort((a, b) => {
+      if (b.transferDate !== a.transferDate) return b.transferDate.localeCompare(a.transferDate);
+      return b.id - a.id;
+    });
+
+    const total = transferCount + directPaymentsCount;
+    const pagedRows = rows.slice(skip, skip + limit);
+
+    return paginatedResponse(pagedRows, total, page, limit);
   } catch (error) {
     return serverError();
   }

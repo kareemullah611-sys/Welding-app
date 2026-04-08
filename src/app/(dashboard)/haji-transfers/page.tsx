@@ -241,6 +241,7 @@ export default function HajiTransfersPage() {
             <div>
               <span>{tr.detail}</span>
               {tr.transferredTo && <p className="text-xs text-blue-600 mt-0.5">→ {tr.transferredTo}</p>}
+              {tr.recordType === "customer_payment" && <p className="text-xs text-emerald-600 mt-0.5">Customer payment sent directly to Haji</p>}
             </div>
           ),
         },
@@ -248,6 +249,9 @@ export default function HajiTransfersPage() {
         {
           key: "sourceType", label: t("type"),
           render: (tr: any) => {
+            if (tr.recordType === "customer_payment") {
+              return <span className="text-xs px-2 py-0.5 rounded font-medium bg-emerald-50 text-emerald-700">↗️ Customer to Haji</span>;
+            }
             const st = getSourceType(tr);
             const cfg = SOURCE_CONFIG[st] || SOURCE_CONFIG.cash_office;
             return <span className={`text-xs px-2 py-0.5 rounded font-medium ${cfg.color}`}>{cfg.icon} {cfg.label}</span>;
@@ -258,8 +262,8 @@ export default function HajiTransfersPage() {
           key: "actions", label: "",
           render: (tr: any) => (
             <div className="flex gap-2">
-              {user?.role === "city_admin" && <button onClick={() => openEdit(tr)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button>}
-              {user?.role === "city_admin" && <button onClick={() => handleDelete(tr)} className="text-xs text-red-600 hover:underline">{t("delete")}</button>}
+              {user?.role === "city_admin" && tr.recordType !== "customer_payment" && <button onClick={() => openEdit(tr)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button>}
+              {user?.role === "city_admin" && tr.recordType !== "customer_payment" && <button onClick={() => handleDelete(tr)} className="text-xs text-red-600 hover:underline">{t("delete")}</button>}
             </div>
           ),
         },
