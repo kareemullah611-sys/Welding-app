@@ -62,33 +62,35 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        {showOperationalDetails && (
-          <div className="card mb-6">
-            <div className="flex items-center justify-between gap-3 mb-4">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">Daily Work</h3>
-                <p className="text-sm text-gray-500">Start from the action you want to complete, not from the module list.</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <Link href="/sales" className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4 hover:bg-blue-100 transition-colors">
-                <div className="text-sm font-semibold text-blue-900">New Sale</div>
-                <div className="mt-1 text-xs text-blue-700">Record a customer sale and deduct stock.</div>
-              </Link>
-              <Link href="/payments" className="rounded-2xl border border-green-200 bg-green-50 px-4 py-4 hover:bg-green-100 transition-colors">
-                <div className="text-sm font-semibold text-green-900">Receive Payment</div>
-                <div className="mt-1 text-xs text-green-700">Record money received from a customer.</div>
-              </Link>
-              <Link href="/expenses" className="rounded-2xl border border-red-200 bg-red-50 px-4 py-4 hover:bg-red-100 transition-colors">
-                <div className="text-sm font-semibold text-red-900">Record Expense</div>
-                <div className="mt-1 text-xs text-red-700">Add office or lot expense quickly.</div>
-              </Link>
-              <Link href="/inventory" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 hover:bg-amber-100 transition-colors">
-                <div className="text-sm font-semibold text-amber-900">Move Stock</div>
-                <div className="mt-1 text-xs text-amber-700">Check stock, approve transfers, or move between godowns.</div>
-              </Link>
+        <div className="card mb-6">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Daily Work</h3>
+              <p className="text-sm text-gray-500">Start from the action you want to complete, not from the module list.</p>
             </div>
           </div>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <Link href="/sales" className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4 hover:bg-blue-100 transition-colors">
+              <div className="text-sm font-semibold text-blue-900">New Sale</div>
+              <div className="mt-1 text-xs text-blue-700">Record a customer sale and deduct stock.</div>
+            </Link>
+            <Link href="/payments" className="rounded-2xl border border-green-200 bg-green-50 px-4 py-4 hover:bg-green-100 transition-colors">
+              <div className="text-sm font-semibold text-green-900">Receive Payment</div>
+              <div className="mt-1 text-xs text-green-700">Record money received from a customer.</div>
+            </Link>
+            <Link href="/expenses" className="rounded-2xl border border-red-200 bg-red-50 px-4 py-4 hover:bg-red-100 transition-colors">
+              <div className="text-sm font-semibold text-red-900">Record Expense</div>
+              <div className="mt-1 text-xs text-red-700">Add office or lot expense quickly.</div>
+            </Link>
+            <Link href="/inventory" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 hover:bg-amber-100 transition-colors">
+              <div className="text-sm font-semibold text-amber-900">Move Stock</div>
+              <div className="mt-1 text-xs text-amber-700">Check stock, approve transfers, or move between godowns.</div>
+            </Link>
+          </div>
+        </div>
+
+        {showOperationalDetails && (
+          <></>
         )}
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
