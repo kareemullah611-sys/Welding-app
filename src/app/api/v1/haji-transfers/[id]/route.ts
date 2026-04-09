@@ -15,6 +15,9 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     if (!h) return errorResponse("NOT_FOUND", "Not found", 404);
     if (user.role === "city_admin" && h.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
     const city = await prisma.city.findUnique({ where: { id: h.cityId }, include: { country: true } });
+    if (city?.country?.name === "Afghanistan" && body.sourceType && body.sourceType !== "cash_office") {
+      return errorResponse("VALIDATION_ERROR", "Afghanistan city Haji transfers can only use office cash");
+    }
     const forcedTransferredTo = city?.country?.name === "Pakistan" ? PAKISTAN_HAJI_TARGET : (body.transferredTo !== undefined ? body.transferredTo : h.transferredTo);
 
     try { await reverseJournalEntries(`HAJI-${id}`, user.userId); } catch (je) { console.error("Reverse journal (haji):", je); }

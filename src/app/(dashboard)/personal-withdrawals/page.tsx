@@ -8,6 +8,7 @@ import { useLang } from "@/lib/lang";
 export default function PersonalWithdrawalsPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
   const [items, setItems] = useState<any[]>([]);
   const [counts, setCounts] = useState({ all: 0, pending: 0, approved: 0 });
   const [loading, setLoading] = useState(true);
@@ -69,17 +70,19 @@ export default function PersonalWithdrawalsPage() {
   };
 
   const openCreate = async () => {
-    const [cityRes, chequeRes] = await Promise.all([
-      apiCall("/api/v1/cities"),
-      apiCall("/api/v1/payments", {
+    const requests: Promise<any>[] = [apiCall("/api/v1/cities")];
+    if (!isAfghanistanCity) {
+      requests.push(apiCall("/api/v1/payments", {
         params: { all: 1, status: "active", payment_method: "cheque", destination: "our_account", cheque_status: "in_hand" },
-      }),
-    ]);
+      }));
+    }
+    const [cityRes, chequeRes] = await Promise.all(requests);
     if (cityRes.success && user?.cityId) {
       const city = (cityRes.data as any[]).find((c: any) => c.id === user.cityId);
       if (city?.currencies?.length) { setCurrencies(city.currencies); setForm((f) => ({ ...f, currencyId: city.currencies[0].id })); }
     }
-    if (chequeRes.success) setInHandCheques(chequeRes.data as any[]);
+    if (!isAfghanistanCity && chequeRes?.success) setInHandCheques(chequeRes.data as any[]);
+    else setInHandCheques([]);
     setForm((f) => ({ ...f, withdrawalDate: new Date().toISOString().split("T")[0], amount: 0, detail: "", withdrawnBy: "", notes: "", sourceType: "cash_office", chequePaymentId: 0 }));
     setShowCreate(true); setFormError("");
   };
@@ -303,12 +306,18 @@ export default function PersonalWithdrawalsPage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Source of Funds</label>
-            <select value={form.sourceType} onChange={(e) => setForm((f) => ({ ...f, sourceType: e.target.value, chequePaymentId: 0 }))} className="select-field">
-              <option value="cash_office">💵 Cash from Office</option>
-              <option value="cheque">🧾 Cheque in Hand</option>
-            </select>
+            {isAfghanistanCity ? (
+              <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+                💵 Cash from Office only for Afghanistan city operations
+              </div>
+            ) : (
+              <select value={form.sourceType} onChange={(e) => setForm((f) => ({ ...f, sourceType: e.target.value, chequePaymentId: 0 }))} className="select-field">
+                <option value="cash_office">💵 Cash from Office</option>
+                <option value="cheque">🧾 Cheque in Hand</option>
+              </select>
+            )}
           </div>
-          {form.sourceType === "cheque" && (
+          {!isAfghanistanCity && form.sourceType === "cheque" && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("cheque")} *</label>
               {inHandCheques.length === 0 ? (
@@ -340,7 +349,7 @@ export default function PersonalWithdrawalsPage() {
               )}
             </div>
           )}
-          {form.sourceType === "cheque" && (
+          {!isAfghanistanCity && form.sourceType === "cheque" && (
             <div className="p-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-700">
               🧾 This withdrawal will consume the selected in-hand cheque.
             </div>

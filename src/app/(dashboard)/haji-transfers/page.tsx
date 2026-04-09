@@ -21,6 +21,7 @@ export default function HajiTransfersPage() {
   const { user } = useAuth();
   const { t } = useLang();
   const shouldUseSuperAdminTarget = user?.role === "city_admin" && user?.countryName === "Pakistan";
+  const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -80,27 +81,34 @@ export default function HajiTransfersPage() {
   }, {});
 
   const openCreate = async () => {
-    const [lR, cR, baR, chR] = await Promise.all([
+    const requests: Promise<any>[] = [
       apiCall("/api/v1/lots", { params: { limit: 100 } }),
       apiCall("/api/v1/cities"),
-      apiCall("/api/v1/bank-accounts"),
-      apiCall("/api/v1/payments", {
-        params: {
-          all: 1,
-          status: "active",
-          payment_method: "cheque",
-          destination: "our_account",
-          cheque_status: "in_hand",
-        },
-      }),
-    ]);
+    ];
+    if (!isAfghanistanCity) {
+      requests.push(
+        apiCall("/api/v1/bank-accounts"),
+        apiCall("/api/v1/payments", {
+          params: {
+            all: 1,
+            status: "active",
+            payment_method: "cheque",
+            destination: "our_account",
+            cheque_status: "in_hand",
+          },
+        }),
+      );
+    }
+    const [lR, cR, baR, chR] = await Promise.all(requests);
     if (lR.success) setLots(lR.data as any[]);
     if (cR.success && user?.cityId) {
       const city = (cR.data as any[]).find((c: any) => c.id === user.cityId);
       if (city?.currencies?.length) { setCurrencies(city.currencies); setForm((f: any) => ({ ...f, currencyId: city.currencies[0].id })); }
     }
-    if (baR.success) setBankAccounts(baR.data as any[]);
-    if (chR.success) setInHandCheques(chR.data as any[]);
+    if (!isAfghanistanCity && baR?.success) setBankAccounts(baR.data as any[]);
+    else setBankAccounts([]);
+    if (!isAfghanistanCity && chR?.success) setInHandCheques(chR.data as any[]);
+    else setInHandCheques([]);
     setForm((f: any) => ({
       ...f, transferDate: new Date().toISOString().split("T")[0],
       amount: 0, detail: "", sourceType: "cash_office",
@@ -280,29 +288,35 @@ export default function HajiTransfersPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("source_of_funds")} *</label>
-              <select
-                value={form.sourceType}
-                onChange={e => setForm((f: any) => ({
-                  ...f,
-                  sourceType: e.target.value,
-                  chequePaymentId: 0,
-                  chequePaymentIds: [],
-                  bankAccountId: 0,
-                  amount: e.target.value === "cheque" || e.target.value === "mixed_cash_cheque" ? 0 : f.amount,
-                  cashAmount: e.target.value === "mixed_cash_cheque" ? f.cashAmount : 0,
-                }))}
-                className="select-field"
-              >
-                <option value="cash_office">💵 {t("cash_from_office")}</option>
-                <option value="cheque">🧾 {t("cheque")}</option>
-                <option value="mixed_cash_cheque">💵 + 🧾 Cash + Cheques</option>
-                <option value="bank_transfer">🏦 {t("bank_transfer")}</option>
-              </select>
+              {isAfghanistanCity ? (
+                <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+                  💵 Cash from Office only for Afghanistan city operations
+                </div>
+              ) : (
+                <select
+                  value={form.sourceType}
+                  onChange={e => setForm((f: any) => ({
+                    ...f,
+                    sourceType: e.target.value,
+                    chequePaymentId: 0,
+                    chequePaymentIds: [],
+                    bankAccountId: 0,
+                    amount: e.target.value === "cheque" || e.target.value === "mixed_cash_cheque" ? 0 : f.amount,
+                    cashAmount: e.target.value === "mixed_cash_cheque" ? f.cashAmount : 0,
+                  }))}
+                  className="select-field"
+                >
+                  <option value="cash_office">💵 {t("cash_from_office")}</option>
+                  <option value="cheque">🧾 {t("cheque")}</option>
+                  <option value="mixed_cash_cheque">💵 + 🧾 Cash + Cheques</option>
+                  <option value="bank_transfer">🏦 {t("bank_transfer")}</option>
+                </select>
+              )}
             </div>
           </div>
 
           {/* Cheque selector */}
-          {(form.sourceType === "cheque" || form.sourceType === "mixed_cash_cheque") && (
+          {!isAfghanistanCity && (form.sourceType === "cheque" || form.sourceType === "mixed_cash_cheque") && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("select_cheques")} {form.sourceType === "cheque" ? "*" : ""}</label>
               {inHandCheques.length === 0 ? (
@@ -346,7 +360,7 @@ export default function HajiTransfersPage() {
           )}
 
           {/* Bank account selector */}
-          {form.sourceType === "bank_transfer" && (
+          {!isAfghanistanCity && form.sourceType === "bank_transfer" && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("bank_account")} *</label>
               {bankAccounts.length === 0 ? (
@@ -407,7 +421,7 @@ export default function HajiTransfersPage() {
             </div>
           </div>
 
-          {form.sourceType === "mixed_cash_cheque" && (
+          {!isAfghanistanCity && form.sourceType === "mixed_cash_cheque" && (
             <div className="p-2 bg-emerald-50 border border-emerald-200 rounded text-sm text-emerald-700">
               Slip total: {selectedCheques[0]?.currency?.symbol || selectedCheques[0]?.currency?.code || ""} {formatNumber(mixedSlipTotal)}
             </div>

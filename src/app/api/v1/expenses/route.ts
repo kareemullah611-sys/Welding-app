@@ -73,12 +73,17 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     if (!parsed.success) return validationError("Invalid expense data", parsed.error.errors);
 
     const cityId = user.cityId!;
+    const city = await prisma.city.findUnique({ where: { id: cityId }, include: { country: true } });
     const { lotId, expenseDate, amount, currencyId, detail, notes } = parsed.data;
 
     // New payment source fields
     const paidFrom: "cash_office" | "bank_account" | "cheque" = body.paidFrom ?? "cash_office";
     const bankAccountId: number | undefined = body.bankAccountId ? parseInt(body.bankAccountId) : undefined;
     const chequePaymentId: number | undefined = body.chequePaymentId ? parseInt(body.chequePaymentId) : undefined;
+
+    if (city?.country?.name === "Afghanistan" && paidFrom !== "cash_office") {
+      return errorResponse("VALIDATION_ERROR", "Afghanistan city expenses can only be paid from office cash");
+    }
 
     if (paidFrom === "bank_account" && !bankAccountId) {
       return errorResponse("VALIDATION_ERROR", "Bank account is required when paidFrom is bank_account");

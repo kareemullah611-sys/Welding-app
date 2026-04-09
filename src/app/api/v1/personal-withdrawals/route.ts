@@ -69,9 +69,14 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     if (!parsed.success) return validationError("Invalid data", parsed.error.errors);
 
     const cityId = user.cityId!;
+    const city = await prisma.city.findUnique({ where: { id: cityId }, include: { country: true } });
     const { withdrawalDate, amount, currencyId, detail, withdrawnBy, notes } = parsed.data;
     const sourceType: "cash_office" | "cheque" = body.sourceType ?? "cash_office";
     const chequePaymentId: number | undefined = body.chequePaymentId ? parseInt(body.chequePaymentId) : undefined;
+
+    if (city?.country?.name === "Afghanistan" && sourceType !== "cash_office") {
+      return errorResponse("VALIDATION_ERROR", "Afghanistan city withdrawals can only use office cash");
+    }
 
     if (sourceType === "cheque" && !chequePaymentId) {
       return errorResponse("VALIDATION_ERROR", "Cheque is required when source is cheque");

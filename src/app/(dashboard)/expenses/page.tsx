@@ -9,6 +9,7 @@ import { useLang } from "@/lib/lang";
 export default function ExpensesPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
   const { isOnline, enqueue, lastSyncResult } = useOffline();
   const [expenses, setExpenses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,14 +66,19 @@ export default function ExpensesPage() {
   }, [lastSyncResult, load]);
 
   const openCreate = async () => {
-    const [lotRes, cityRes, baRes, chRes] = await Promise.all([
+    const requests: Promise<any>[] = [
       apiCall("/api/v1/lots", { params: { limit: 100, status: "ongoing" } }),
       apiCall("/api/v1/cities"),
-      apiCall("/api/v1/bank-accounts"),
-      apiCall("/api/v1/payments", {
-        params: { all: 1, status: "active", payment_method: "cheque", destination: "our_account", cheque_status: "in_hand" },
-      }),
-    ]);
+    ];
+    if (!isAfghanistanCity) {
+      requests.push(
+        apiCall("/api/v1/bank-accounts"),
+        apiCall("/api/v1/payments", {
+          params: { all: 1, status: "active", payment_method: "cheque", destination: "our_account", cheque_status: "in_hand" },
+        }),
+      );
+    }
+    const [lotRes, cityRes, baRes, chRes] = await Promise.all(requests);
     if (lotRes.success) setLots(lotRes.data as any[]);
     if (cityRes.success && user?.cityId) {
       const city = (cityRes.data as any[]).find((c: any) => c.id === user.cityId);
@@ -81,8 +87,10 @@ export default function ExpensesPage() {
         setForm((f: any) => ({ ...f, currencyId: city.currencies[0].id }));
       }
     }
-    if (baRes.success) setBankAccounts(baRes.data as any[]);
-    if (chRes.success) setInHandCheques(chRes.data as any[]);
+    if (!isAfghanistanCity && baRes?.success) setBankAccounts(baRes.data as any[]);
+    else setBankAccounts([]);
+    if (!isAfghanistanCity && chRes?.success) setInHandCheques(chRes.data as any[]);
+    else setInHandCheques([]);
     setForm((f: any) => ({
       ...f, expenseDate: new Date().toISOString().split("T")[0],
       amount: 0, detail: "", notes: "", lotId: 0,
@@ -238,18 +246,24 @@ export default function ExpensesPage() {
           {/* Paid From */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("paid_from")}</label>
-            <select
-              value={form.paidFrom}
-              onChange={e => setForm((f: any) => ({ ...f, paidFrom: e.target.value, bankAccountId: 0, chequePaymentId: 0 }))}
-              className="select-field"
-            >
-              <option value="cash_office">💵 {t("cash_from_office")}</option>
-              <option value="bank_account">🏦 {t("bank_account")}</option>
-              <option value="cheque">🧾 {t("cheque")}</option>
-            </select>
+            {isAfghanistanCity ? (
+              <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+                💵 Cash from Office only for Afghanistan city operations
+              </div>
+            ) : (
+              <select
+                value={form.paidFrom}
+                onChange={e => setForm((f: any) => ({ ...f, paidFrom: e.target.value, bankAccountId: 0, chequePaymentId: 0 }))}
+                className="select-field"
+              >
+                <option value="cash_office">💵 {t("cash_from_office")}</option>
+                <option value="bank_account">🏦 {t("bank_account")}</option>
+                <option value="cheque">🧾 {t("cheque")}</option>
+              </select>
+            )}
           </div>
 
-          {form.paidFrom === "bank_account" && (
+          {!isAfghanistanCity && form.paidFrom === "bank_account" && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("bank_account")} *</label>
               {bankAccounts.length === 0 ? (
@@ -267,7 +281,7 @@ export default function ExpensesPage() {
             </div>
           )}
 
-          {form.paidFrom === "cheque" && (
+          {!isAfghanistanCity && form.paidFrom === "cheque" && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("cheque")} *</label>
               {inHandCheques.length === 0 ? (

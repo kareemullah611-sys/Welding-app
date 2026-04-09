@@ -134,6 +134,17 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const cityId = user.cityId!;
     const city = await prisma.city.findUnique({ where: { id: cityId }, include: { country: true } });
     const shouldUseSuperAdminTarget = city?.country?.name === "Pakistan";
+    const isAfghanistanCity = city?.country?.name === "Afghanistan";
+
+    if (isAfghanistanCity && body.sourceType && body.sourceType !== "cash_office") {
+      return errorResponse("VALIDATION_ERROR", "Afghanistan city Haji transfers can only use office cash");
+    }
+    if (isAfghanistanCity && Array.isArray(body.chequePaymentIds) && body.chequePaymentIds.length > 0) {
+      return errorResponse("VALIDATION_ERROR", "Afghanistan city Haji transfers cannot use cheques");
+    }
+    if (isAfghanistanCity && Number(body.cashAmount || 0) > 0 && body.sourceType === "mixed_cash_cheque") {
+      return errorResponse("VALIDATION_ERROR", "Afghanistan city Haji transfers can only use office cash");
+    }
 
     // Batch mode: one slip can include office cash plus one or more in-hand cheques.
     if (
