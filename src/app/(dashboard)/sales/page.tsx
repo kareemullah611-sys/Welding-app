@@ -8,10 +8,12 @@ import { PageHeader, DataTable, Modal, StatusBadge, formatCurrency, formatDate }
 import CustomerSearch from "@/components/CustomerSearch";
 import { useLang } from "@/lib/lang";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
 export default function SalesPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const searchParams = useSearchParams();
   const { isOnline, enqueue, cacheGodownStock, getCachedGodownStock, lastSyncResult } = useOffline();
   const [sales, setSales] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,6 +56,7 @@ export default function SalesPage() {
   const [formError, setFormError] = useState("");
   const [shortConfirmed, setShortConfirmed] = useState(false);
   const [saleSavedNotice, setSaleSavedNotice] = useState<string | null>(null);
+  const [prefillHandled, setPrefillHandled] = useState(false);
 
   // Cancel form
   const [cancelReason, setCancelReason] = useState("");
@@ -76,6 +79,13 @@ export default function SalesPage() {
   }, [page, filters]);
 
   useEffect(() => { loadSales(); }, [loadSales]);
+  useEffect(() => {
+    if (prefillHandled || user?.role !== "city_admin") return;
+    if (searchParams.get("create") !== "1") return;
+    setPrefillHandled(true);
+    openCreate();
+    window.history.replaceState({}, "", "/sales");
+  }, [prefillHandled, searchParams, user?.role]);
 
   // Reload from server after pending entries sync successfully
   useEffect(() => {
@@ -283,8 +293,7 @@ export default function SalesPage() {
 
   return (
     <div>
-      <PageHeader title={t("sales")} subtitle={`${total} ${t("records").toLowerCase()}`}
-        action={user?.role === "city_admin" ? <button onClick={openCreate} className="btn-primary text-sm">+ {t("new_sale")}</button> : undefined} />
+      <PageHeader title={t("sales")} subtitle={`${total} ${t("records").toLowerCase()}`} />
 
       {saleSavedNotice && (
         <div className="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 flex flex-wrap items-center justify-between gap-3">

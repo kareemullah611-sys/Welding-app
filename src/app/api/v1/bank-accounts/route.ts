@@ -10,6 +10,27 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const scope = searchParams.get("scope");
 
     if (scope === "super_admin") {
+      const [incomingHajiPayments, expenses] = await Promise.all([
+        prisma.payment.groupBy({
+          by: ["superAdminBankAccountId", "currencyId"],
+          where: {
+            superAdminBankAccountId: { not: null },
+            destination: "haji",
+            status: "active",
+          },
+          _sum: { amount: true },
+        }),
+        prisma.superAdminPersonalExpense.groupBy({
+          by: ["bankAccountId"],
+          where: { deletedAt: null },
+          _sum: { amount: true },
+        }),
+      ]);
+      const incomingMap = new Map<string, number>();
+      for (const row of incomingHajiPayments) incomingMap.set(`${row.superAdminBankAccountId}:${row.currencyId}`, Number(row._sum.amount || 0));
+      const expenseMap = new Map<number, number>();
+      for (const row of expenses) expenseMap.set(row.bankAccountId, Number(row._sum.amount || 0));
+
       const accounts = await prisma.superAdminBankAccount.findMany({
         where: { isActive: true },
         include: {
@@ -39,12 +60,34 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
             hajiTransfers: 0,
             expenses: a._count.expenses,
           },
+          runningBalance: Math.round((((incomingMap.get(`${a.id}:${a.currencyId}`) || 0) - (expenseMap.get(a.id) || 0)) * 100)) / 100,
           accountScope: "super_admin",
         }))
       );
     }
 
     if (user.role === "super_admin") {
+      const [incomingHajiPayments, expenses] = await Promise.all([
+        prisma.payment.groupBy({
+          by: ["superAdminBankAccountId", "currencyId"],
+          where: {
+            superAdminBankAccountId: { not: null },
+            destination: "haji",
+            status: "active",
+          },
+          _sum: { amount: true },
+        }),
+        prisma.superAdminPersonalExpense.groupBy({
+          by: ["bankAccountId"],
+          where: { deletedAt: null },
+          _sum: { amount: true },
+        }),
+      ]);
+      const incomingMap = new Map<string, number>();
+      for (const row of incomingHajiPayments) incomingMap.set(`${row.superAdminBankAccountId}:${row.currencyId}`, Number(row._sum.amount || 0));
+      const expenseMap = new Map<number, number>();
+      for (const row of expenses) expenseMap.set(row.bankAccountId, Number(row._sum.amount || 0));
+
       const accounts = await prisma.superAdminBankAccount.findMany({
         include: {
           currency: true,
@@ -73,6 +116,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
             hajiTransfers: 0,
             expenses: a._count.expenses,
           },
+          runningBalance: Math.round((((incomingMap.get(`${a.id}:${a.currencyId}`) || 0) - (expenseMap.get(a.id) || 0)) * 100)) / 100,
           accountScope: "super_admin",
         }))
       );
@@ -83,6 +127,60 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     const where: any = {};
     if (cityId) where.cityId = cityId;
+
+    const currencies = await prisma.currency.findMany({ select: { id: true, code: true } });
+    const currencyCodeById = Object.fromEntries(currencies.map((currency) => [currency.id, currency.code]));
+
+    const [paymentsIn, deposits, depositedCheques, expenses, hajiTransfers] = await Promise.all([
+      prisma.payment.groupBy({
+        by: ["bankAccountId", "currencyId"],
+        where: {
+          bankAccountId: { not: null },
+          destination: "our_account",
+          status: "active",
+          ...(cityId ? { cityId } : {}),
+        },
+        _sum: { amount: true },
+      }),
+      prisma.bankDeposit.groupBy({
+        by: ["bankAccountId", "currencyId"],
+        where: cityId ? { cityId } : {},
+        _sum: { cashAmount: true },
+      }),
+      prisma.payment.groupBy({
+        by: ["bankAccountId", "currencyId"],
+        where: {
+          bankDepositId: { not: null },
+          bankAccountId: { not: null },
+          status: "active",
+          ...(cityId ? { cityId } : {}),
+        },
+        _sum: { amount: true },
+      }),
+      prisma.expense.groupBy({
+        by: ["bankAccountId", "currencyId"],
+        where: { bankAccountId: { not: null }, deletedAt: null, ...(cityId ? { cityId } : {}) },
+        _sum: { amount: true },
+      }),
+      prisma.hajiTransfer.groupBy({
+        by: ["bankAccountId", "currencyId"],
+        where: { bankAccountId: { not: null }, sourceType: "bank_transfer", ...(cityId ? { cityId } : {}) } as any,
+        _sum: { amount: true },
+      }),
+    ]);
+    const balanceByAccount = new Map<number, Record<string, number>>();
+    const addBalance = (accountId: number | null, currencyId: number, amount: number) => {
+      if (!accountId || !amount) return;
+      const key = currencyCodeById[currencyId] || String(currencyId);
+      const pot = balanceByAccount.get(accountId) || {};
+      pot[key] = Math.round(((pot[key] || 0) + amount) * 100) / 100;
+      balanceByAccount.set(accountId, pot);
+    };
+    for (const row of paymentsIn) addBalance(row.bankAccountId, row.currencyId, Number(row._sum.amount || 0));
+    for (const row of deposits) addBalance(row.bankAccountId, row.currencyId, Number(row._sum.cashAmount || 0));
+    for (const row of depositedCheques) addBalance(row.bankAccountId, row.currencyId, Number(row._sum.amount || 0));
+    for (const row of expenses) addBalance(row.bankAccountId, row.currencyId, -Number(row._sum.amount || 0));
+    for (const row of hajiTransfers) addBalance(row.bankAccountId, row.currencyId, -Number(row._sum.amount || 0));
 
     const accounts = await prisma.bankAccount.findMany({
       where,
@@ -108,6 +206,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         accountNumber: a.accountNumber,
         isActive: a.isActive,
         createdAt: a.createdAt.toISOString(),
+        runningBalanceByCurrency: balanceByAccount.get(a.id) || {},
         _count: {
           deposits: a._count.deposits,
           hajiTransfers: a._count.hajiTransfers,

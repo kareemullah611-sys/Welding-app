@@ -101,13 +101,18 @@ export default function BankAccountsPage() {
         : <span className="text-gray-300">—</span>,
     },
     {
-      key: "stats", label: "Usage",
+      key: "balance", label: "Running Balance",
       render: (acc: any) => (
-        <div className="text-xs text-gray-500 space-y-0.5">
-          {acc._count?.deposits > 0 && <div>📥 {acc._count.deposits} deposit{acc._count.deposits !== 1 ? "s" : ""}</div>}
-          {acc._count?.hajiTransfers > 0 && <div>↗️ {acc._count.hajiTransfers} haji transfer{acc._count.hajiTransfers !== 1 ? "s" : ""}</div>}
-          {acc._count?.expenses > 0 && <div>💸 {acc._count.expenses} expense{acc._count.expenses !== 1 ? "s" : ""}</div>}
-          {!acc._count?.deposits && !acc._count?.hajiTransfers && !acc._count?.expenses && <span className="text-gray-300">No transactions yet</span>}
+        <div className="text-sm font-medium text-gray-700 space-y-0.5">
+          {isSA ? (
+            <span>{acc.currency?.code} {Number(acc.runningBalance || 0).toLocaleString("en-US")}</span>
+          ) : acc.runningBalanceByCurrency && Object.keys(acc.runningBalanceByCurrency).length > 0 ? (
+            Object.entries(acc.runningBalanceByCurrency).map(([currencyCode, amount]: [string, any]) => (
+              <div key={currencyCode}>{currencyCode} {Number(amount).toLocaleString("en-US")}</div>
+            ))
+          ) : (
+            <span className="text-gray-300">0</span>
+          )}
         </div>
       ),
     },

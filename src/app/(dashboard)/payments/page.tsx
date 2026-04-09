@@ -40,6 +40,7 @@ export default function PaymentsPage() {
   const { isOnline, enqueue, lastSyncResult } = useOffline();
   const canCreateRecords = user?.role === "city_admin";
   const isAfghanistanCity = user?.countryName === "Afghanistan";
+  const isSuperAdmin = user?.role === "super_admin";
 
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -89,7 +90,12 @@ export default function PaymentsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     const params: any = { page, limit: 20 };
-    if (typeFilter !== "all") params.type = typeFilter;
+    if (isSuperAdmin) {
+      params.type = "payment";
+      params.destination = "haji";
+    } else if (typeFilter !== "all") {
+      params.type = typeFilter;
+    }
     const r = await apiCall("/api/v1/finance/combined", { params });
     if (r.success) {
       setItems(r.data as any[]);
@@ -97,7 +103,7 @@ export default function PaymentsPage() {
       setTotal((r.pagination as any)?.total || 0);
     }
     setLoading(false);
-  }, [typeFilter, page]);
+  }, [isSuperAdmin, typeFilter, page]);
 
   const refreshToLatestPayments = useCallback(() => {
     if (page !== 1 || typeFilter !== "all") {
@@ -536,30 +542,25 @@ export default function PaymentsPage() {
         action={
           <div className="flex items-center gap-3">
             {/* Type filter */}
-            <select
-              value={typeFilter}
-              onChange={e => setTypeFilter(e.target.value)}
-              className="select-field text-sm py-1.5 pr-8"
-            >
-              <option value="all">All Types</option>
-              <option value="payment">Payments</option>
-              <option value="expense">Expenses</option>
-              <option value="haji_transfer">Haji Transfers</option>
-              <option value="withdrawal">Withdrawals</option>
-            </select>
-
-            {canCreateRecords ? (
-              <button
-                onClick={() => openCreate("payment")}
-                className="btn-primary text-sm"
+            {!isSuperAdmin && (
+              <select
+                value={typeFilter}
+                onChange={e => setTypeFilter(e.target.value)}
+                className="select-field text-sm py-1.5 pr-8"
               >
-                + Record Customer Payment
-              </button>
-            ) : (
-              <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-                Super admin can review and approve records here, but city transactions must be posted from the city admin side.
-              </div>
+                <option value="all">All Types</option>
+                <option value="payment">Payments</option>
+                <option value="expense">Expenses</option>
+                <option value="haji_transfer">Haji Transfers</option>
+                <option value="withdrawal">Withdrawals</option>
+              </select>
             )}
+
+            {!canCreateRecords ? (
+              <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                Super admin reviews payments credited to the super-admin side here.
+              </div>
+            ) : null}
           </div>
         }
       />

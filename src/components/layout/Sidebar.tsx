@@ -59,9 +59,9 @@ const superAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
   {
     label: "Daily Work",
     items: [
-      { label: "Sales",            key: "sales",            href: "/sales",            icon: Receipt,   roles: ["super_admin", "city_admin"] },
+      { label: "Sales",            key: "sales",            href: "/sales",            icon: Receipt,   roles: ["city_admin"] },
       { label: "Payments",         key: "payments",         href: "/payments",         icon: Wallet,    roles: ["super_admin", "city_admin"] },
-      { label: "Expenses",         key: "expenses",         href: "/expenses",         icon: Banknote,  roles: ["super_admin", "city_admin"] },
+      { label: "Expenses",         key: "expenses",         href: "/expenses",         icon: Banknote,  roles: ["city_admin"] },
       { label: "Personal Expenses", key: "super_admin_personal_expenses", href: "/super-admin-personal-expenses", icon: Banknote, roles: ["super_admin"] },
       { label: "Withdrawals",      key: "personal_withdrawals", href: "/personal-withdrawals", icon: PiggyBank, roles: ["super_admin", "city_admin"] },
       { label: "Haji Transfers",   key: "haji_transfers",   href: "/haji-transfers",   icon: ArrowLeftRight, roles: ["super_admin", "city_admin"] },
@@ -73,9 +73,9 @@ const superAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
   {
     label: "Stock & Movement",
     items: [
-      { label: "Godowns",        key: "godowns",        href: "/godowns",        icon: Warehouse,     roles: ["super_admin", "city_admin"] },
+      { label: "Godowns",        key: "godowns",        href: "/godowns",        icon: Warehouse,     roles: ["city_admin"] },
       { label: "Inventory",      key: "inventory",      href: "/inventory",      icon: ClipboardList, roles: ["super_admin", "city_admin"] },
-      { label: "City Transfers", key: "city_transfers", href: "/city-transfers", icon: ArrowLeftRight,roles: ["super_admin", "city_admin"] },
+      { label: "City Transfers", key: "city_transfers", href: "/city-transfers", icon: ArrowLeftRight,roles: ["city_admin"] },
     ],
   },
   {

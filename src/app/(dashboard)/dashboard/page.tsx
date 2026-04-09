@@ -14,7 +14,6 @@ export default function DashboardPage() {
   const [treasury, setTreasury] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [selectedCountry, setSelectedCountry] = useState<string>("");
-  const [showCashBreakdown, setShowCashBreakdown] = useState(false);
   const [showOperationalDetails, setShowOperationalDetails] = useState(false);
 
   useEffect(() => {
@@ -66,33 +65,33 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between gap-3 mb-4">
             <div>
               <h3 className="text-lg font-semibold text-gray-900">Daily Work</h3>
-              <p className="text-sm text-gray-500">Start from the action you want to complete, not from the module list.</p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Link href="/sales" className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4 hover:bg-blue-100 transition-colors">
+            <Link href="/sales?create=1" className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4 hover:bg-blue-100 transition-colors">
               <div className="text-sm font-semibold text-blue-900">New Sale</div>
-              <div className="mt-1 text-xs text-blue-700">Record a customer sale and deduct stock.</div>
             </Link>
-            <Link href="/payments" className="rounded-2xl border border-green-200 bg-green-50 px-4 py-4 hover:bg-green-100 transition-colors">
+            <Link href="/payments?create=payment" className="rounded-2xl border border-green-200 bg-green-50 px-4 py-4 hover:bg-green-100 transition-colors">
               <div className="text-sm font-semibold text-green-900">Receive Payment</div>
-              <div className="mt-1 text-xs text-green-700">Record money received from a customer.</div>
             </Link>
-            <Link href="/expenses" className="rounded-2xl border border-red-200 bg-red-50 px-4 py-4 hover:bg-red-100 transition-colors">
+            <Link href="/expenses?create=1" className="rounded-2xl border border-red-200 bg-red-50 px-4 py-4 hover:bg-red-100 transition-colors">
               <div className="text-sm font-semibold text-red-900">Record Expense</div>
-              <div className="mt-1 text-xs text-red-700">Add office or lot expense quickly.</div>
+            </Link>
+            <Link href="/personal-withdrawals?create=1" className="rounded-2xl border border-purple-200 bg-purple-50 px-4 py-4 hover:bg-purple-100 transition-colors">
+              <div className="text-sm font-semibold text-purple-900">Personal Withdrawal</div>
+            </Link>
+            <Link href="/haji-transfers?create=1" className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-4 hover:bg-orange-100 transition-colors">
+              <div className="text-sm font-semibold text-orange-900">Haji Transfer</div>
+            </Link>
+            <Link href="/customers?create=1" className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-4 hover:bg-teal-100 transition-colors">
+              <div className="text-sm font-semibold text-teal-900">New Customer</div>
             </Link>
             <Link href="/inventory" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 hover:bg-amber-100 transition-colors">
               <div className="text-sm font-semibold text-amber-900">Move Stock</div>
-              <div className="mt-1 text-xs text-amber-700">Check stock, approve transfers, or move between godowns.</div>
             </Link>
           </div>
         </div>
-
         {showOperationalDetails && (
-          <></>
-        )}
-
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
           {/* Treasury 3-pot cards (if treasury data available) */}
           {hasTreasury ? (
@@ -143,6 +142,7 @@ export default function DashboardPage() {
             : <StatsCard title={`↗️ ${t("owed_to_haji")}`} value="0" color="yellow" icon="↗️" />
           }
         </div>
+        )}
 
         {/* Bank account breakdown (if available) */}
         {showOperationalDetails && treasury?.hasBankAccounts && treasury.bankAccounts?.length > 1 && (
@@ -164,18 +164,11 @@ export default function DashboardPage() {
         )}
 
         {/* Cash breakdown — collapsed by default (hidden for Afghanistan) */}
-        {cashPosition && user?.countryName !== "Afghanistan" && (
+        {showOperationalDetails && cashPosition && (
           <div className="card mb-6">
-            <button
-              onClick={() => setShowCashBreakdown((v) => !v)}
-              className="w-full flex items-center justify-between text-left"
-            >
-              <h3 className="text-sm font-semibold text-gray-500">{t("cash_position_breakdown")}</h3>
-              <span className="text-gray-400 text-xs">{showCashBreakdown ? t("hide") : t("show")}</span>
-            </button>
-            {showCashBreakdown && (
+            <h3 className="text-sm font-semibold text-gray-500 mb-3">{t("cash_position_breakdown")}</h3>
               <>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mt-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
                   <div className="bg-green-50 rounded-lg p-3"><div className="text-gray-500">{t("cash_received")}</div><div className="text-lg font-bold text-green-700">{formatNumber(cashPosition.incomingToHand?.cash || 0)}</div></div>
                   <div className="bg-blue-50 rounded-lg p-3"><div className="text-gray-500">{t("cheques")}</div><div className="text-lg font-bold text-blue-700">{formatNumber(cashPosition.incomingToHand?.cheque || 0)}</div></div>
                   <div className="bg-purple-50 rounded-lg p-3"><div className="text-gray-500">{t("bank_online")}</div><div className="text-lg font-bold text-purple-700">{formatNumber((cashPosition.incomingToHand?.bankTransfer || 0) + (cashPosition.incomingToHand?.online || 0))}</div></div>
@@ -187,7 +180,6 @@ export default function DashboardPage() {
                   <div className="bg-orange-50 rounded-lg p-3"><div className="text-gray-500">{t("haji_transfers")}</div><div className="text-lg font-bold text-orange-700">{formatNumber(cashPosition.outgoing?.hajiTransfers || 0)}</div></div>
                 </div>
               </>
-            )}
           </div>
         )}
 
@@ -203,25 +195,6 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {showOperationalDetails && (
-        <div className="card mt-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-3">What Needs Attention</h3>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-yellow-700">Cash Flow</p>
-              <p className="mt-2 text-sm text-yellow-900">Withdrawals and Haji transfers affect today’s usable cash immediately.</p>
-            </div>
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-700">Outstanding</p>
-              <p className="mt-2 text-sm text-red-900">Review balances and collect payments before opening new large credit sales.</p>
-            </div>
-            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Stock</p>
-              <p className="mt-2 text-sm text-blue-900">Use Inventory for incoming approvals, godown assignments, and inter-godown moves.</p>
-            </div>
-          </div>
-        </div>
-        )}
       </div>
     );
   }

@@ -160,6 +160,7 @@ export default function InventoryPage() {
 
   useEffect(() => { loadInventory(); }, [loadInventory]);
   useEffect(() => { loadLots(); }, [loadLots]);
+  useEffect(() => { loadLedger(); }, [loadLedger]);
 
   const openApprove = async (tr: any) => {
     setSelected(tr);
@@ -255,9 +256,6 @@ export default function InventoryPage() {
                 ↔ Inter-Godown Transfer
               </button>
             )}
-            <button onClick={openLedger} className="btn-secondary text-sm flex items-center gap-2">
-              📋 Stock Ledger
-            </button>
           </div>
         }
       />
@@ -330,6 +328,35 @@ export default function InventoryPage() {
         </div>
       </div>
 
+      <div className="card mb-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Current Stock Position</h2>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Godown</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Product</th>
+                <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Current Stock</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {data.detailed?.flatMap((godown: any) => godown.products.map((p: any) => ({ godownName: godown.godownName, cityName: godown.cityName, productName: p.productName, qty: p.qty, productId: p.productId })))
+                .sort((a: any, b: any) => b.qty - a.qty)
+                .map((row: any, index: number) => (
+                  <tr key={`${row.godownName}-${row.productId}-${index}`}>
+                    <td className="px-3 py-2">
+                      <div className="font-medium text-gray-800">{row.godownName}</div>
+                      <div className="text-xs text-gray-400">{row.cityName}</div>
+                    </td>
+                    <td className="px-3 py-2 text-gray-700">{row.productName}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-gray-900">{formatNumber(row.qty)}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {/* Godown-wise Summary */}
       <div className="card mb-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4">{t("stock_by_godown")}</h2>
@@ -381,30 +408,47 @@ export default function InventoryPage() {
         </div>
       )}
 
-      {/* Detailed Breakdown */}
-      <div className="card">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">{t("detailed_product_godown")}</h2>
-        {data.detailed?.map((godown: any) => (
-          <div key={godown.godownId} className="border border-gray-200 rounded-lg overflow-hidden mb-3">
-            <div className="bg-gray-50 px-4 py-3 flex items-center justify-between">
-              <div>
-                <span className="font-semibold text-gray-900">{godown.godownName}</span>
-                <span className="text-xs text-gray-500 ml-2">({godown.cityName})</span>
-              </div>
-              <span className="text-sm font-bold text-gray-700">{formatNumber(godown.totalQty)} {t("total")}</span>
-            </div>
-            <div className="divide-y divide-gray-100">
-              {godown.products.map((p: any) => (
-                <div key={p.productId} className="px-4 py-2 flex items-center justify-between text-sm">
-                  <span className="text-gray-700">{p.productName}</span>
-                  <span className={`font-medium ${p.qty <= 0 ? "text-red-600" : "text-gray-900"}`}>
-                    {formatNumber(p.qty)}
-                  </span>
-                </div>
-              ))}
-            </div>
+      <div className="card mt-6">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <h2 className="text-lg font-semibold text-gray-900">Stock Movement</h2>
+          <button onClick={openLedger} className="btn-secondary text-sm">Filters</button>
+        </div>
+        {ledgerLoading ? (
+          <div className="flex justify-center py-10"><div className="w-7 h-7 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" /></div>
+        ) : ledger.length === 0 ? (
+          <p className="text-sm text-gray-400 py-8 text-center">No stock movements found.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Date</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Type</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Ref</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Product</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Godown</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-green-600">In</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-red-600">Out</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-700">Running Stock</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {ledger.slice(0, 150).map((row: any, index: number) => (
+                  <tr key={`${row.reference}-${index}`}>
+                    <td className="px-3 py-2">{row.date}</td>
+                    <td className="px-3 py-2">{row.type}</td>
+                    <td className="px-3 py-2 font-mono text-xs text-gray-500">{row.reference}</td>
+                    <td className="px-3 py-2">{row.productName}</td>
+                    <td className="px-3 py-2">{row.godownName}</td>
+                    <td className="px-3 py-2 text-right text-green-700">{row.qtyIn ? formatNumber(row.qtyIn) : "—"}</td>
+                    <td className="px-3 py-2 text-right text-red-600">{row.qtyOut ? formatNumber(row.qtyOut) : "—"}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-gray-900">{formatNumber(row.runningStock || 0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        ))}
+        )}
       </div>
 
       {/* ── Lot Distributions → Assign to Godowns (city_admin only) ── */}

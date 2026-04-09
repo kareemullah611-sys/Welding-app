@@ -143,7 +143,17 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         WHERE ct.status = 'approved' AND ct.to_godown_id IS NOT NULL
 
       )
-      SELECT * FROM movements
+      SELECT *
+      FROM (
+        SELECT
+          movements.*,
+          SUM(qty_in - qty_out) OVER (
+            PARTITION BY godown_id, product_id
+            ORDER BY date ASC, reference ASC, type ASC
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) AS running_stock
+        FROM movements
+      ) movement_rows
       WHERE
         (${godownId}::int IS NULL OR godown_id = ${godownId})
         AND (${productId}::int IS NULL OR product_id = ${productId})
@@ -165,6 +175,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       cityName:    r.city_name,
       qtyIn:       Math.round(Number(r.qty_in)  * 100) / 100,
       qtyOut:      Math.round(Number(r.qty_out) * 100) / 100,
+      runningStock: Math.round(Number((r as any).running_stock || 0) * 100) / 100,
     })));
   } catch (error) {
     console.error("Stock ledger error:", error);

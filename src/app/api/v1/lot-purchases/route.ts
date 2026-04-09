@@ -85,6 +85,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
       productId: p.productId, productName: p.product.name,
       qty: Number(p.qty), unitPriceUsd: Number(p.unitPriceUsd), totalPriceUsd: Number(p.totalPriceUsd),
       exchangeRate: p.exchangeRate ? Number(p.exchangeRate) : null,
+      weightPerCartonKg: p.weightPerCartonKg ? Number(p.weightPerCartonKg) : null,
     })));
   } catch (error) { return serverError(); }
 });

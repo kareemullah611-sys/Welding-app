@@ -193,6 +193,42 @@ export default function LotCostingPage() {
   const landedPerCarton   = totalLotCartons > 0 ? totalLanded / totalLotCartons : 0;
   const landedPerCartonPkr = landedPerCarton * usdPkrRate;
 
+  const costUsdByType = costs.reduce<Record<string, number>>((acc, c) => {
+    const rate = c.currencyCode === "USD" ? 1 : (c.exchangeRate > 0 ? c.exchangeRate : usdPkrRate);
+    const usd = c.currencyCode === "USD" ? Number(c.amount) : Number(c.amount) / rate;
+    acc[c.costType] = (acc[c.costType] || 0) + usd;
+    return acc;
+  }, {});
+
+  const purchaseByProduct = purchases.reduce<Record<number, { productName: string; cartons: number; purchaseUsd: number; weightKg: number }>>((acc, p) => {
+    if (!acc[p.productId]) acc[p.productId] = { productName: p.productName, cartons: 0, purchaseUsd: 0, weightKg: 0 };
+    acc[p.productId].cartons += Number(p.qty || 0);
+    acc[p.productId].purchaseUsd += Number(p.totalPriceUsd || 0);
+    acc[p.productId].weightKg += Number(p.qty || 0) * Number(p.weightPerCartonKg || 0);
+    return acc;
+  }, {});
+  const productRows = Object.entries(purchaseByProduct).map(([productId, row]) => ({ productId: Number(productId), ...row }));
+  const totalPurchaseBase = productRows.reduce((sum, row) => sum + row.purchaseUsd, 0);
+  const totalWeightBase = productRows.reduce((sum, row) => sum + row.weightKg, 0);
+  const equalShareTypes = ["port_charges", "loading_unloading", "insurance", "other"];
+  const equalShareUsd = equalShareTypes.reduce((sum, type) => sum + (costUsdByType[type] || 0), 0) + lotExpensesTotal;
+  const perProductEqualShare = productRows.length > 0 ? equalShareUsd / productRows.length : 0;
+  const landedCostRows = productRows.map((row) => {
+    const customsShare = totalPurchaseBase > 0 ? ((costUsdByType.customs_duty || 0) * row.purchaseUsd) / totalPurchaseBase : 0;
+    const freightShare = totalWeightBase > 0 ? ((costUsdByType.freight || 0) * row.weightKg) / totalWeightBase : 0;
+    const transportShare = totalWeightBase > 0 ? ((costUsdByType.transport || 0) * row.weightKg) / totalWeightBase : 0;
+    const equalShare = perProductEqualShare;
+    const landedTotalUsd = row.purchaseUsd + customsShare + freightShare + transportShare + equalShare;
+    const landedPerCartonUsd = row.cartons > 0 ? landedTotalUsd / row.cartons : 0;
+    return {
+      ...row,
+      landedTotalUsd,
+      landedPerCartonUsd,
+      landedPerCartonPkr: landedPerCartonUsd * usdPkrRate,
+      overheadUsd: customsShare + freightShare + transportShare + equalShare,
+    };
+  });
+
   // Per-product purchased totals (for over-purchase warning in form)
   const purchasedQtyByProduct: Record<number, number> = {};
   purchases.forEach(p => { purchasedQtyByProduct[p.productId] = (purchasedQtyByProduct[p.productId] || 0) + Number(p.qty); });
@@ -280,6 +316,7 @@ export default function LotCostingPage() {
             { key: "costType",    label: t("type"),        render: (c: any) => <span className="text-xs">{COST_TYPES.find(ct => ct.value === c.costType)?.label || c.costType}</span> },
             { key: "description", label: t("description") },
             { key: "amount",      label: t("amount"),      render: (c: any) => <span className="font-medium">{c.currencyCode !== "USD" ? c.currencyCode + " " : "$"}{Number(c.amount).toLocaleString("en-US")}</span> },
+            { key: "exchangeRate", label: "Costing Rate", render: (c: any) => c.currencyCode === "USD" ? "—" : (c.exchangeRate ? c.exchangeRate : "—") },
             { key: "usdEquiv",    label: "≈ USD",          render: (c: any) => {
               if (c.currencyCode === "USD") return `$${Number(c.amount).toFixed(2)}`;
               const rate = c.exchangeRate > 0 ? c.exchangeRate : usdPkrRate;
@@ -288,6 +325,43 @@ export default function LotCostingPage() {
             { key: "costDate",    label: t("date") },
             { key: "actions",     label: "", render: (c: any) => <button onClick={() => deleteCost(c.id)} className="text-xs text-red-600 hover:underline">{t("delete")}</button> },
           ]} data={costs} loading={false} emptyMessage={t("no_costs")} />
+        </div>
+
+        <div className="card mt-4">
+          <h3 className="text-sm font-semibold text-gray-600 mb-3">Landed Cost Per Carton by Item</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Item</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Cartons</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Weight</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Purchase USD</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Overheads USD</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Landed USD</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Per Carton USD</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Per Carton PKR</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {landedCostRows.map((row) => (
+                  <tr key={row.productId}>
+                    <td className="px-3 py-2 font-medium text-gray-800">{row.productName}</td>
+                    <td className="px-3 py-2 text-right">{formatNumber(row.cartons)}</td>
+                    <td className="px-3 py-2 text-right">{formatNumber(row.weightKg)} kg</td>
+                    <td className="px-3 py-2 text-right">${row.purchaseUsd.toFixed(2)}</td>
+                    <td className="px-3 py-2 text-right">${row.overheadUsd.toFixed(2)}</td>
+                    <td className="px-3 py-2 text-right font-medium">${row.landedTotalUsd.toFixed(2)}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-emerald-700">${row.landedPerCartonUsd.toFixed(2)}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-blue-700">PKR {formatNumber(Math.round(row.landedPerCartonPkr))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-xs text-gray-500">
+            Customs duty is allocated by purchase value. Freight and transport are allocated by item weight. Port, loading, insurance, other charges, and lot-tagged expenses are shared equally across items.
+          </p>
         </div>
       </>}
 
@@ -418,12 +492,15 @@ export default function LotCostingPage() {
           {costForm.currencyCode !== "USD" && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                {t("exchange_rate")} (USD→{costForm.currencyCode})
+                Costing Exchange Rate (USD→{costForm.currencyCode})
               </label>
               <input type="number" step="0.01" placeholder="e.g. 280"
                 value={costForm.exchangeRate || ""}
                 onChange={e => setCostForm(f => ({ ...f, exchangeRate: parseFloat(e.target.value) || 0 }))}
                 className="input-field" />
+              {costForm.costType === "freight" && (
+                <p className="mt-1 text-xs text-gray-500">Use this rate only for landed-costing. The later shipping-line settlement rate is entered separately when you pay the shipping line.</p>
+              )}
             </div>
           )}
           {costForm.currencyCode !== "USD" && costForm.amount > 0 && (

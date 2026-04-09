@@ -4,10 +4,12 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { useSearchParams } from "next/navigation";
 
 export default function PersonalWithdrawalsPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const searchParams = useSearchParams();
   const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
   const [items, setItems] = useState<any[]>([]);
   const [counts, setCounts] = useState({ all: 0, pending: 0, approved: 0 });
@@ -27,6 +29,7 @@ export default function PersonalWithdrawalsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [approvingId, setApprovingId] = useState<number | null>(null);
+  const [prefillHandled, setPrefillHandled] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -57,6 +60,13 @@ export default function PersonalWithdrawalsPage() {
   }, [page, statusFilter, user?.role]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (prefillHandled || user?.role !== "city_admin") return;
+    if (searchParams.get("create") !== "1") return;
+    setPrefillHandled(true);
+    openCreate();
+    window.history.replaceState({}, "", "/personal-withdrawals");
+  }, [prefillHandled, searchParams, user?.role]);
   useEffect(() => {
     setStatusFilter(user?.role === "super_admin" ? "pending" : "all");
   }, [user?.role]);
@@ -141,9 +151,6 @@ export default function PersonalWithdrawalsPage() {
       <PageHeader
         title={t("personal_withdrawals")}
         subtitle={`${total} ${t("records").toLowerCase()}`}
-        action={user?.role === "city_admin" ? (
-          <button onClick={openCreate} className="btn-primary text-sm">+ {t("record_withdrawal")}</button>
-        ) : undefined}
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">

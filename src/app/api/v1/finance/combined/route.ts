@@ -11,6 +11,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
     const page = Math.max(1, parseInt(sp.get("page") || "1"));
     const limit = Math.max(1, Math.min(100, parseInt(sp.get("limit") || "20")));
     const typeFilter = sp.get("type") || "all";
+    const destinationFilter = sp.get("destination");
     const fromDate = sp.get("from_date");
     const toDate = sp.get("to_date");
 
@@ -30,7 +31,11 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
     // ── Payments ──────────────────────────────────────────────────────────────
     if (typeFilter === "all" || typeFilter === "payment") {
       const payments = await prisma.payment.findMany({
-        where: { ...cityWhere, ...dateWhere("paymentDate") },
+        where: {
+          ...cityWhere,
+          ...dateWhere("paymentDate"),
+          ...(destinationFilter ? { destination: destinationFilter } : {}),
+        },
         include: {
           customer: { select: { id: true, name: true } },
           currency: { select: { id: true, code: true, symbol: true } },
@@ -68,7 +73,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
     }
 
     // ── Expenses ──────────────────────────────────────────────────────────────
-    if (typeFilter === "all" || typeFilter === "expense") {
+    if ((typeFilter === "all" || typeFilter === "expense") && !(user.role === "super_admin" && destinationFilter === "haji")) {
       const expenses = await prisma.expense.findMany({
         where: { ...cityWhere, ...dateWhere("expenseDate"), deletedAt: null },
         include: {
@@ -97,7 +102,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
     }
 
     // ── Haji Transfers ────────────────────────────────────────────────────────
-    if (typeFilter === "all" || typeFilter === "haji_transfer") {
+    if ((typeFilter === "all" || typeFilter === "haji_transfer") && !(user.role === "super_admin" && destinationFilter === "haji")) {
       const hajis = await prisma.hajiTransfer.findMany({
         where: { ...cityWhere, ...dateWhere("transferDate") },
         include: {
@@ -126,7 +131,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
     }
 
     // ── Personal Withdrawals ──────────────────────────────────────────────────
-    if (typeFilter === "all" || typeFilter === "withdrawal") {
+    if ((typeFilter === "all" || typeFilter === "withdrawal") && !(user.role === "super_admin" && destinationFilter === "haji")) {
       const withdrawals = await prisma.personalWithdrawal.findMany({
         where: { ...cityWhere, ...dateWhere("withdrawalDate") },
         include: {
