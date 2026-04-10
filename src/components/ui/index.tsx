@@ -247,12 +247,14 @@ export function Modal({
   title,
   children,
   size = "md",
+  inline = false,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: React.ReactNode;
   size?: "sm" | "md" | "lg" | "xl";
+  inline?: boolean;
 }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -265,6 +267,18 @@ export function Modal({
   };
 
   if (!mounted) return null;
+  if (!open) return null;
+
+  if (inline) {
+    return (
+      <div className="rounded-2xl border border-gray-200 bg-white shadow-[0_20px_60px_-32px_rgba(34,41,55,0.35)]">
+        <div className="border-b border-gray-200 px-6 py-4">
+          <div className="text-base font-semibold text-gray-900">{title}</div>
+        </div>
+        <div className="max-h-[78vh] overflow-y-auto px-6 py-5">{children}</div>
+      </div>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
