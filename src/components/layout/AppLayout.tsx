@@ -5,11 +5,24 @@ import { useAuth } from "@/hooks/useAuth";
 import Sidebar, { SidebarContext, useSidebar } from "@/components/layout/Sidebar";
 import { LangProvider, useLang } from "@/lib/lang";
 import { cn } from "@/lib/utils";
+import { useSearchParams } from "next/navigation";
 
 function AppInner({ children }: { children: React.ReactNode }) {
   const { dir } = useLang();
   const { collapsed } = useSidebar();
   const isRTL = dir === "rtl";
+  const searchParams = useSearchParams();
+  const isEmbed = searchParams.get("embed") === "1";
+
+  if (isEmbed) {
+    return (
+      <div className="min-h-screen bg-transparent" dir={dir}>
+        <main className="min-h-screen">
+          <div className="px-0 py-0">{children}</div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen relative overflow-hidden" dir={dir}>
