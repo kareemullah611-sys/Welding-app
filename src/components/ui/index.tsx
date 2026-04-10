@@ -20,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { X } from "lucide-react";
 
 // ============================================================
 // PAGE HEADER
@@ -264,17 +265,32 @@ export function Modal({
   useEffect(() => setMounted(true), []);
 
   const sizes = {
-    sm: "sm:max-w-md",
-    md: "sm:max-w-lg",
-    lg: "sm:max-w-2xl",
-    xl: "sm:max-w-4xl",
+    sm: "max-w-md",
+    md: "max-w-lg",
+    lg: "max-w-2xl",
+    xl: "max-w-6xl",
   };
 
   if (!mounted) return null;
   if (!open) return null;
 
   if (inline) {
-    return <div className="max-h-[78vh] overflow-y-auto px-1 py-1">{children}</div>;
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+        <div className={cn("relative w-full mx-4 bg-white rounded-2xl shadow-2xl max-h-[85vh] flex flex-col", sizes[size])}>
+          {!hideHeader && (
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
+              <h2 className="text-base font-semibold text-gray-900">{title}</h2>
+              <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 transition-colors">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+          )}
+          <div className={cn("overflow-y-auto flex-1", bodyClassName || "p-6")}>{children}</div>
+        </div>
+      </div>
+    );
   }
 
   return (
