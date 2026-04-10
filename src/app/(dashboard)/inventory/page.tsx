@@ -77,8 +77,17 @@ export default function InventoryPage() {
   const loadLots = useCallback(async () => {
     if (user?.role !== "city_admin") return;
     setLotsLoading(true);
-    const r = await apiCall("/api/v1/lots", { params: { limit: 200 } });
-    if (r.success) setLots(r.data as any[]);
+    let page = 1;
+    let totalPages = 1;
+    const allLots: any[] = [];
+    do {
+      const r = await apiCall("/api/v1/lots", { params: { limit: 200, page } });
+      if (!r.success) break;
+      allLots.push(...((r.data as any[]) || []));
+      totalPages = (r.pagination as any)?.totalPages || 1;
+      page += 1;
+    } while (page <= totalPages);
+    setLots(allLots);
     setLotsLoading(false);
   }, [user?.role]);
 
