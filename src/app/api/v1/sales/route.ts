@@ -212,6 +212,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       where: { cityId, currencyId: currencyId ?? undefined },
     });
     if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported in your city");
+    const resolvedCurrencyId = currencyId ?? cityCurrency.currencyId;
 
     // FIFO lot assignment if not specified
     if (!lotId) {
@@ -264,7 +265,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           voucherNo,
           saleDate: new Date(saleDate),
           totalAmount,
-          currencyId: currencyId as number,
+          currencyId: resolvedCurrencyId,
           notes,
           status: hasShortage ? "marked_short" : "active",
           stockShortFlag: hasShortage,
