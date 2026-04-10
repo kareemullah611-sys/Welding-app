@@ -72,7 +72,7 @@ export default function PersonalWithdrawalsPage() {
     if (searchParams.get("create") !== "1") return;
     setPrefillHandled(true);
     openCreate();
-    window.history.replaceState({}, "", "/personal-withdrawals");
+    window.history.replaceState({}, "", isEmbed ? "/personal-withdrawals?embed=1" : "/personal-withdrawals");
   }, [prefillHandled, searchParams, user?.role]);
   useEffect(() => {
     setStatusFilter(user?.role === "super_admin" ? "pending" : "all");

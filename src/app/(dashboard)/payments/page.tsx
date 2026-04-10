@@ -198,7 +198,7 @@ export default function PaymentsPage() {
       customerName,
       detail: searchParams.get("detail") || "",
     });
-    window.history.replaceState({}, "", "/payments");
+    window.history.replaceState({}, "", isEmbed ? "/payments?embed=1" : "/payments");
   }, [canCreateRecords, searchParams]);
 
   const handleCreate = async (forceVoucher = false) => {

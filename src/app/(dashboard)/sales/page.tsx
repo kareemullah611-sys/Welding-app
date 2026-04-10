@@ -90,7 +90,7 @@ export default function SalesPage() {
     if (searchParams.get("create") !== "1") return;
     setPrefillHandled(true);
     openCreate();
-    window.history.replaceState({}, "", "/sales");
+    window.history.replaceState({}, "", isEmbed ? "/sales?embed=1" : "/sales");
   }, [prefillHandled, searchParams, user?.role]);
 
   // Reload from server after pending entries sync successfully

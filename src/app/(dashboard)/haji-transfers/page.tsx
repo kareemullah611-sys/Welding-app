@@ -84,7 +84,7 @@ export default function HajiTransfersPage() {
     if (searchParams.get("create") !== "1") return;
     setPrefillHandled(true);
     openCreate();
-    window.history.replaceState({}, "", "/haji-transfers");
+    window.history.replaceState({}, "", isEmbed ? "/haji-transfers?embed=1" : "/haji-transfers");
   }, [prefillHandled, searchParams, user?.role]);
 
   // Group totals by transferredTo person

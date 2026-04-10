@@ -65,7 +65,7 @@ export default function ExpensesPage() {
     if (searchParams.get("create") !== "1") return;
     setPrefillHandled(true);
     openCreate();
-    window.history.replaceState({}, "", "/expenses");
+    window.history.replaceState({}, "", isEmbed ? "/expenses?embed=1" : "/expenses");
   }, [prefillHandled, searchParams, user?.role]);
 
   const formatPot = (pot: Record<string, number> | undefined) => {

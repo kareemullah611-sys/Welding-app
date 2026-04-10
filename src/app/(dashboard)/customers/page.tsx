@@ -47,7 +47,7 @@ export default function CustomersPage() {
     if (searchParams.get("create") !== "1") return;
     setPrefillHandled(true);
     openCreate();
-    window.history.replaceState({}, "", "/customers");
+    window.history.replaceState({}, "", isEmbed ? "/customers?embed=1" : "/customers");
   }, [prefillHandled, searchParams, user?.role]);
 
   const openCreate = () => { setForm({ name: "", phone: "", address: "", cityId: user?.cityId || 0 }); setShowCreate(true); setFormError(""); };
