@@ -14,6 +14,7 @@ export default function SalesPage() {
   const { user } = useAuth();
   const { t } = useLang();
   const searchParams = useSearchParams();
+  const isEmbed = searchParams.get("embed") === "1";
   const { isOnline, enqueue, cacheGodownStock, getCachedGodownStock, lastSyncResult } = useOffline();
   const [sales, setSales] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,6 +58,11 @@ export default function SalesPage() {
   const [shortConfirmed, setShortConfirmed] = useState(false);
   const [saleSavedNotice, setSaleSavedNotice] = useState<string | null>(null);
   const [prefillHandled, setPrefillHandled] = useState(false);
+  const closeEmbed = useCallback(() => {
+    if (typeof window !== "undefined" && window.parent !== window) {
+      window.parent.postMessage({ type: "dashboard-quick-close" }, window.location.origin);
+    }
+  }, []);
 
   // Cancel form
   const [cancelReason, setCancelReason] = useState("");
@@ -224,6 +230,7 @@ export default function SalesPage() {
     setSubmitting(false);
     if (result.success) {
       setShowCreate(false);
+      if (isEmbed) closeEmbed();
       setShortConfirmed(false);
       setForm({ customerId: 0, godownId: 0, lotId: 0, saleDate: new Date().toISOString().split("T")[0], currencyId: currencies[0]?.id || 0, notes: "", items: [{ productId: 0, qty: 0, ratePerCarton: 0 }] });
       const isPakistanWalkIn = user?.role === "city_admin" && user?.countryName === "Pakistan" && form.customerId === -1;
@@ -293,7 +300,9 @@ export default function SalesPage() {
 
   return (
     <div>
-      <PageHeader title={t("sales")} subtitle={`${total} ${t("records").toLowerCase()}`} />
+      {!isEmbed && <PageHeader title={t("sales")} subtitle={`${total} ${t("records").toLowerCase()}`} />}
+      {!isEmbed && (
+      <>
 
       {saleSavedNotice && (
         <div className="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 flex flex-wrap items-center justify-between gap-3">
@@ -360,8 +369,10 @@ export default function SalesPage() {
         )},
       ]} data={sales} loading={loading} emptyMessage={t("no_data")} pagination={{ page, totalPages, total, onPageChange: setPage }} />
 
+      </>
+      )}
       {/* ========== CREATE SALE MODAL ========== */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); setShortConfirmed(false); setFormError(""); }} title={t("new_sale")} size="xl">
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); setShortConfirmed(false); setFormError(""); if (isEmbed) closeEmbed(); }} title={t("new_sale")} size="xl">
         {formError && (
           <div className={`mb-4 p-3 rounded-lg text-sm border ${shortConfirmed ? "bg-amber-50 border-amber-300 text-amber-800" : "bg-red-50 border-red-200 text-red-700"}`}>
             {formError}

@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, StatsCard, formatNumber, DataTable, formatDate } from "@/components/ui";
+import { PageHeader, StatsCard, formatNumber, DataTable, formatDate, Modal } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import Link from "next/link";
 
@@ -15,6 +15,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [selectedCountry, setSelectedCountry] = useState<string>("");
   const [showOperationalDetails, setShowOperationalDetails] = useState(false);
+  const [quickAction, setQuickAction] = useState<{ title: string; src: string } | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -32,6 +33,14 @@ export default function DashboardPage() {
     };
     load();
   }, [user?.role]);
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type === "dashboard-quick-close") setQuickAction(null);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
 
   if (loading) return <div className="flex items-center justify-center py-20"><div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" /></div>;
 
@@ -68,24 +77,24 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Link href="/sales?create=1" className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4 hover:bg-blue-100 transition-colors">
+            <button onClick={() => setQuickAction({ title: "New Sale", src: "/sales?create=1&embed=1" })} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4 text-left hover:bg-blue-100 transition-colors">
               <div className="text-sm font-semibold text-blue-900">New Sale</div>
-            </Link>
-            <Link href="/payments?create=payment" className="rounded-2xl border border-green-200 bg-green-50 px-4 py-4 hover:bg-green-100 transition-colors">
+            </button>
+            <button onClick={() => setQuickAction({ title: "Receive Payment", src: "/payments?create=payment&embed=1" })} className="rounded-2xl border border-green-200 bg-green-50 px-4 py-4 text-left hover:bg-green-100 transition-colors">
               <div className="text-sm font-semibold text-green-900">Receive Payment</div>
-            </Link>
-            <Link href="/expenses?create=1" className="rounded-2xl border border-red-200 bg-red-50 px-4 py-4 hover:bg-red-100 transition-colors">
+            </button>
+            <button onClick={() => setQuickAction({ title: "Record Expense", src: "/expenses?create=1&embed=1" })} className="rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-left hover:bg-red-100 transition-colors">
               <div className="text-sm font-semibold text-red-900">Record Expense</div>
-            </Link>
-            <Link href="/personal-withdrawals?create=1" className="rounded-2xl border border-purple-200 bg-purple-50 px-4 py-4 hover:bg-purple-100 transition-colors">
+            </button>
+            <button onClick={() => setQuickAction({ title: "Personal Withdrawal", src: "/personal-withdrawals?create=1&embed=1" })} className="rounded-2xl border border-purple-200 bg-purple-50 px-4 py-4 text-left hover:bg-purple-100 transition-colors">
               <div className="text-sm font-semibold text-purple-900">Personal Withdrawal</div>
-            </Link>
-            <Link href="/haji-transfers?create=1" className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-4 hover:bg-orange-100 transition-colors">
+            </button>
+            <button onClick={() => setQuickAction({ title: "Haji Transfer", src: "/haji-transfers?create=1&embed=1" })} className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-4 text-left hover:bg-orange-100 transition-colors">
               <div className="text-sm font-semibold text-orange-900">Haji Transfer</div>
-            </Link>
-            <Link href="/customers?create=1" className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-4 hover:bg-teal-100 transition-colors">
+            </button>
+            <button onClick={() => setQuickAction({ title: "New Customer", src: "/customers?create=1&embed=1" })} className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-4 text-left hover:bg-teal-100 transition-colors">
               <div className="text-sm font-semibold text-teal-900">New Customer</div>
-            </Link>
+            </button>
             <Link href="/inventory" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 hover:bg-amber-100 transition-colors">
               <div className="text-sm font-semibold text-amber-900">Move Stock</div>
             </Link>
@@ -194,6 +203,10 @@ export default function DashboardPage() {
             ))}
           </div>
         )}
+
+        <Modal open={!!quickAction} onClose={() => setQuickAction(null)} title={quickAction?.title || "Quick Action"} size="xl">
+          {quickAction && <iframe src={quickAction.src} title={quickAction.title} className="h-[78vh] w-full rounded-xl border border-gray-200" />}
+        </Modal>
 
       </div>
     );

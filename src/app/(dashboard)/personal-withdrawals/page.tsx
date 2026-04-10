@@ -10,6 +10,7 @@ export default function PersonalWithdrawalsPage() {
   const { user } = useAuth();
   const { t } = useLang();
   const searchParams = useSearchParams();
+  const isEmbed = searchParams.get("embed") === "1";
   const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
   const [items, setItems] = useState<any[]>([]);
   const [counts, setCounts] = useState({ all: 0, pending: 0, approved: 0 });
@@ -31,6 +32,11 @@ export default function PersonalWithdrawalsPage() {
   const [approvingId, setApprovingId] = useState<number | null>(null);
   const [openActionId, setOpenActionId] = useState<number | null>(null);
   const [prefillHandled, setPrefillHandled] = useState(false);
+  const closeEmbed = useCallback(() => {
+    if (typeof window !== "undefined" && window.parent !== window) {
+      window.parent.postMessage({ type: "dashboard-quick-close" }, window.location.origin);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -109,7 +115,7 @@ export default function PersonalWithdrawalsPage() {
     setSubmitting(true);
     const result = await apiCall("/api/v1/personal-withdrawals", { method: "POST", body: form });
     setSubmitting(false);
-    if (result.success) { setShowCreate(false); load(); } else { setFormError(result.error || "Failed"); }
+    if (result.success) { setShowCreate(false); if (isEmbed) closeEmbed(); load(); } else { setFormError(result.error || "Failed"); }
   };
 
   const openEdit = (w: any) => {
@@ -154,12 +160,12 @@ export default function PersonalWithdrawalsPage() {
 
   return (
     <div>
-      <PageHeader
+      {!isEmbed && <PageHeader
         title={t("personal_withdrawals")}
         subtitle={`${total} ${t("records").toLowerCase()}`}
-      />
+      />}
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      {!isEmbed && <div className="mb-4 flex flex-wrap items-center gap-2">
         <button
           onClick={() => setStatusFilter("all")}
           className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${statusFilter === "all" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-600 border-gray-200"}`}
@@ -178,9 +184,9 @@ export default function PersonalWithdrawalsPage() {
         >
           Approved ({counts.approved})
         </button>
-      </div>
+      </div>}
 
-      {(treasury || cashPosition) && (
+      {!isEmbed && (treasury || cashPosition) && (
         <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
           💰 {t("cash_in_office")}: <strong>{treasury ? formatPot(treasury.cashInOffice) : formatNumber(cashPosition?.netCashInHand || 0)}</strong>
           {" — "}{t("total_withdrawn")}: <strong>{formatNumber(cashPosition?.outgoing?.personalWithdrawals || 0)}</strong>
@@ -188,7 +194,7 @@ export default function PersonalWithdrawalsPage() {
       )}
 
       {/* Pending approvals summary for super admin */}
-      {user?.role === "super_admin" && pendingItems.length > 0 && (
+      {!isEmbed && user?.role === "super_admin" && pendingItems.length > 0 && (
         <div className="mb-4 p-4 bg-orange-50 border border-orange-200 rounded-xl">
           <p className="text-sm font-semibold text-orange-800 mb-2">⏳ Pending Approval — {pendingItems.length} withdrawal(s)</p>
           <div className="flex flex-wrap gap-2">
@@ -201,7 +207,7 @@ export default function PersonalWithdrawalsPage() {
         </div>
       )}
 
-      <DataTable
+      {!isEmbed && <DataTable
         columns={[
           { key: "withdrawalDate", label: t("date"), render: (w: any) => formatDate(w.withdrawalDate) },
           {
@@ -300,10 +306,10 @@ export default function PersonalWithdrawalsPage() {
         data={items}
         loading={loading}
         pagination={{ page, totalPages, total, onPageChange: setPage }}
-      />
+      />}
 
       {/* CREATE */}
-      <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t("record_withdrawal")} size="md">
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={t("record_withdrawal")} size="md">
         {formError && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{formError}</div>}
         <div className="space-y-3">
           <div>

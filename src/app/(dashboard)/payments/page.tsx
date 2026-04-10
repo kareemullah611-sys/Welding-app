@@ -37,6 +37,7 @@ export default function PaymentsPage() {
   const { user } = useAuth();
   const { t } = useLang();
   const searchParams = useSearchParams();
+  const isEmbed = searchParams.get("embed") === "1";
   const { isOnline, enqueue, lastSyncResult } = useOffline();
   const canCreateRecords = user?.role === "city_admin";
   const isAfghanistanCity = user?.countryName === "Afghanistan";
@@ -87,6 +88,11 @@ export default function PaymentsPage() {
   const [savingQueue, setSavingQueue] = useState(false);
   const [queueSaved, setQueueSaved] = useState(false);
   const prefillHandledRef = useRef(false);
+  const closeEmbed = useCallback(() => {
+    if (typeof window !== "undefined" && window.parent !== window) {
+      window.parent.postMessage({ type: "dashboard-quick-close" }, window.location.origin);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -249,6 +255,7 @@ export default function PaymentsPage() {
     const r = await apiCall(endpoint, { method: "POST", body });
     if (r.success) {
       setShowCreate(false);
+      if (isEmbed) closeEmbed();
       refreshToLatestPayments();
     } else { setError(r.error || "Failed"); }
     setSubmitting(false);
@@ -298,6 +305,7 @@ export default function PaymentsPage() {
     setPaymentQueue([]);
     setQueueSaved(true);
     setShowCreate(false);
+    if (isEmbed) closeEmbed();
     setTimeout(() => setQueueSaved(false), 3000);
     refreshToLatestPayments();
   };
@@ -551,7 +559,7 @@ export default function PaymentsPage() {
 
   return (
     <div>
-      <PageHeader
+      {!isEmbed && <PageHeader
         title={t("payments")}
         subtitle={`${total} ${t("records").toLowerCase()}`}
         action={
@@ -573,23 +581,23 @@ export default function PaymentsPage() {
 
           </div>
         }
-      />
+      />}
 
-      {queueSaved && (
+      {!isEmbed && queueSaved && (
         <div className="fixed bottom-6 right-6 z-50 bg-green-600 text-white text-sm font-medium px-5 py-3 rounded-2xl shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4">
           ✓ All payments saved successfully!
         </div>
       )}
 
-      <DataTable
+      {!isEmbed && <DataTable
         columns={columns}
         data={items}
         loading={loading}
         pagination={{ page, totalPages, total, onPageChange: setPage }}
-      />
+      />}
 
       {/* ── CREATE MODAL ───────────────────────────────────────────────────── */}
-      <Modal open={showCreate} onClose={() => setShowCreate(false)} title={createTitle} size="md">
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={createTitle} size="md">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
           {/* ── DATE — always first ── */}

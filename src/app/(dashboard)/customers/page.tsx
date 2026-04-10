@@ -10,6 +10,7 @@ export default function CustomersPage() {
   const { user } = useAuth();
   const { t } = useLang();
   const searchParams = useSearchParams();
+  const isEmbed = searchParams.get("embed") === "1";
   const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -28,6 +29,11 @@ export default function CustomersPage() {
   const [hardDeletePassword, setHardDeletePassword] = useState("");
   const [hardDeleteError, setHardDeleteError] = useState("");
   const [prefillHandled, setPrefillHandled] = useState(false);
+  const closeEmbed = useCallback(() => {
+    if (typeof window !== "undefined" && window.parent !== window) {
+      window.parent.postMessage({ type: "dashboard-quick-close" }, window.location.origin);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -50,7 +56,7 @@ export default function CustomersPage() {
     setSubmitting(true);
     const result = await apiCall("/api/v1/customers", { method: "POST", body: form });
     setSubmitting(false);
-    if (result.success) { setShowCreate(false); load(); } else { setFormError(result.error || "Failed"); }
+    if (result.success) { setShowCreate(false); if (isEmbed) closeEmbed(); load(); } else { setFormError(result.error || "Failed"); }
   };
 
   const openEdit = (c: any) => { setSelected(c); setForm({ name: c.name, phone: c.phone || "", address: c.address || "", cityId: c.cityId }); setShowEdit(true); setFormError(""); };
@@ -91,8 +97,8 @@ export default function CustomersPage() {
 
   return (
     <div>
-      <PageHeader title={t("customers")} subtitle={`${total} ${t("customers").toLowerCase()}`} />
-      <DataTable columns={[
+      {!isEmbed && <PageHeader title={t("customers")} subtitle={`${total} ${t("customers").toLowerCase()}`} />}
+      {!isEmbed && <DataTable columns={[
         { key: "name", label: t("name"), render: (c: any) => (
           <div className="flex items-center gap-2">
             <button onClick={() => openLedger(c)} className="font-medium text-primary-600 hover:underline">{c.name}</button>
@@ -130,10 +136,10 @@ export default function CustomersPage() {
             )}
           </div>
         )},
-      ]} data={customers} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />
+      ]} data={customers} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />}
 
       {/* CREATE */}
-      <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t("new_customer")} size="md">
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={t("new_customer")} size="md">
         {formError && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{formError}</div>}
         <div className="space-y-3">
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("name")} *</label><input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="input-field" /></div>

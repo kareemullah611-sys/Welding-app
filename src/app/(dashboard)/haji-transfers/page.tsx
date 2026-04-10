@@ -22,6 +22,7 @@ export default function HajiTransfersPage() {
   const { user } = useAuth();
   const { t } = useLang();
   const searchParams = useSearchParams();
+  const isEmbed = searchParams.get("embed") === "1";
   const shouldUseSuperAdminTarget = user?.role === "city_admin" && user?.countryName === "Pakistan";
   const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
   const [items, setItems] = useState<any[]>([]);
@@ -49,6 +50,11 @@ export default function HajiTransfersPage() {
   const [filterTo, setFilterTo] = useState("");
   const [showSummary, setShowSummary] = useState(true);
   const [prefillHandled, setPrefillHandled] = useState(false);
+  const closeEmbed = useCallback(() => {
+    if (typeof window !== "undefined" && window.parent !== window) {
+      window.parent.postMessage({ type: "dashboard-quick-close" }, window.location.origin);
+    }
+  }, []);
 
   const toggleCheque = (id: number) => {
     setForm((f: any) => {
@@ -166,7 +172,7 @@ export default function HajiTransfersPage() {
 
     const r = await apiCall("/api/v1/haji-transfers", { method: "POST", body });
     if (r.success) {
-      setShowCreate(false); load();
+      setShowCreate(false); if (isEmbed) closeEmbed(); load();
     } else { setError(r.error || "Failed"); }
     setSubmitting(false);
   };
@@ -212,7 +218,7 @@ export default function HajiTransfersPage() {
 
   return (
     <div>
-      <PageHeader
+      {!isEmbed && <PageHeader
         title={t("haji_transfers")}
         subtitle={`${total} ${t("records").toLowerCase()}`}
         action={user?.role === "city_admin" ? (
@@ -226,10 +232,10 @@ export default function HajiTransfersPage() {
             <input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} className="input-field w-auto text-xs" />
           </div>
         )}
-      />
+      />}
 
       {/* Person totals summary */}
-      {Object.keys(personTotals).length > 0 && (
+      {!isEmbed && Object.keys(personTotals).length > 0 && (
         <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-xl">
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm font-semibold text-blue-800">💸 Transferred To — Summary</p>
@@ -250,7 +256,7 @@ export default function HajiTransfersPage() {
         </div>
       )}
 
-      <DataTable columns={[
+      {!isEmbed && <DataTable columns={[
         { key: "transferDate", label: t("date"), render: (tr: any) => formatDate(tr.transferDate) },
         {
           key: "detail", label: t("detail"),
@@ -284,10 +290,10 @@ export default function HajiTransfersPage() {
             </div>
           ),
         },
-      ]} data={items} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />
+      ]} data={items} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />}
 
       {/* CREATE MODAL */}
-      <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t("record_haji_transfer")} size="md">
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={t("record_haji_transfer")} size="md">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">

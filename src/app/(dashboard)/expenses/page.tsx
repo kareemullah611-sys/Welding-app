@@ -11,6 +11,7 @@ export default function ExpensesPage() {
   const { user } = useAuth();
   const { t } = useLang();
   const searchParams = useSearchParams();
+  const isEmbed = searchParams.get("embed") === "1";
   const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
   const { isOnline, enqueue, lastSyncResult } = useOffline();
   const [expenses, setExpenses] = useState<any[]>([]);
@@ -35,6 +36,11 @@ export default function ExpensesPage() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [prefillHandled, setPrefillHandled] = useState(false);
+  const closeEmbed = useCallback(() => {
+    if (typeof window !== "undefined" && window.parent !== window) {
+      window.parent.postMessage({ type: "dashboard-quick-close" }, window.location.origin);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -143,7 +149,7 @@ export default function ExpensesPage() {
     if (form.paidFrom !== "cheque") delete body.chequePaymentId;
     const result = await apiCall("/api/v1/expenses", { method: "POST", body });
     setSubmitting(false);
-    if (result.success) { setShowCreate(false); load(); } else { setFormError(result.error || "Failed"); }
+    if (result.success) { setShowCreate(false); if (isEmbed) closeEmbed(); load(); } else { setFormError(result.error || "Failed"); }
   };
 
   const openEdit = (e: any) => {
@@ -184,18 +190,18 @@ export default function ExpensesPage() {
 
   return (
     <div>
-      <PageHeader
+      {!isEmbed && <PageHeader
         title={t("expenses")}
         subtitle={`${total} ${t("records").toLowerCase()}`}
-      />
+      />}
 
-      {(treasury || cashPosition) && (
+      {!isEmbed && (treasury || cashPosition) && (
         <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
           💰 {t("cash_in_office")}: <strong>{treasury ? formatPot(treasury.cashInOffice) : formatNumber(cashPosition?.netCashInHand || 0)}</strong>
         </div>
       )}
 
-      <DataTable columns={[
+      {!isEmbed && <DataTable columns={[
         { key: "expenseDate", label: t("date"), render: (e: any) => formatDate(e.expenseDate) },
         { key: "detail", label: t("detail"), className: "max-w-xs" },
         { key: "amount", label: t("amount"), render: (e: any) => <span className="font-medium text-red-600">{e.currency?.symbol} {e.amount.toLocaleString("en-US")}</span> },
@@ -216,10 +222,10 @@ export default function ExpensesPage() {
             </div>
           ),
         },
-      ]} data={expenses} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />
+      ]} data={expenses} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />}
 
       {/* CREATE MODAL */}
-      <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t("record_expense")} size="md">
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={t("record_expense")} size="md">
         {formError && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{formError}</div>}
         <div className="space-y-3">
           <div>
