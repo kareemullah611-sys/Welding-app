@@ -80,6 +80,7 @@ export default function PaymentsPage() {
 
   // Voucher duplicate warning
   const [voucherWarning, setVoucherWarning] = useState<{ matches: any[] } | null>(null);
+  const [openActionId, setOpenActionId] = useState<number | string | null>(null);
 
   // ── Batch payment queue ──────────────────────────────────────────────────
   const [paymentQueue, setPaymentQueue] = useState<Array<{ tempId: string; customerName: string; voucherNo: string; amount: number; currencySymbol: string; detail: string; date: string; body: any }>>([]);
@@ -116,6 +117,11 @@ export default function PaymentsPage() {
 
   useEffect(() => { setPage(1); }, [typeFilter]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const closeMenus = () => setOpenActionId(null);
+    document.addEventListener("click", closeMenus);
+    return () => document.removeEventListener("click", closeMenus);
+  }, []);
 
   // Reload from server after queued entries sync
   useEffect(() => {
@@ -176,9 +182,9 @@ export default function PaymentsPage() {
 
   useEffect(() => {
     if (prefillHandledRef.current || !canCreateRecords) return;
-    if (searchParams.get("create") !== "payment") return;
-    prefillHandledRef.current = true;
     const customerId = parseInt(searchParams.get("customer_id") || "0");
+    if (!customerId) return;
+    prefillHandledRef.current = true;
     const customerName = searchParams.get("customer_name") || "";
     openCreate("payment", {
       customerId: Number.isFinite(customerId) ? customerId : 0,
@@ -496,27 +502,35 @@ export default function PaymentsPage() {
         // Pending (offline) rows have no server ID — disable all mutating actions
         if (item._pending) return <span className="text-xs text-gray-400 italic">syncing…</span>;
         return (
-        <details className="relative">
-          <summary className="list-none cursor-pointer text-lg leading-none px-2 py-1 rounded hover:bg-gray-100 text-gray-600">⋯</summary>
-          <div className="absolute right-0 z-10 mt-1 w-40 rounded-xl border border-gray-200 bg-white shadow-lg p-1.5 space-y-1">
-            <button onClick={() => openEdit(item)} className="w-full text-left rounded-lg px-3 py-2 text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
-            {item.type === "payment" && item.status === "active" && (
-              <button onClick={() => handleDelete(item)} className="w-full text-left rounded-lg px-3 py-2 text-xs text-red-600 hover:bg-red-50">{t("cancel")}</button>
-            )}
-            {item.type !== "payment" && (
-              <button onClick={() => handleDelete(item)} className="w-full text-left rounded-lg px-3 py-2 text-xs text-red-600 hover:bg-red-50">{t("delete")}</button>
-            )}
-            {item.type === "payment" && user?.role === "super_admin" && (
-              <button onClick={() => openHardDelete(item)} className="w-full text-left rounded-lg px-3 py-2 text-xs text-red-800 hover:bg-red-50">{t("hard_delete")}</button>
-            )}
-            {item.type === "withdrawal" && item.status === "pending" && user?.role === "super_admin" && (
-              <button onClick={() => handleApproveWithdrawal(item)} className="w-full text-left rounded-lg px-3 py-2 text-xs text-green-700 hover:bg-green-50">Approve</button>
-            )}
-            {item.type === "payment" && item.status === "active" && item.raw?.paymentMethod === "cheque" && item.raw?.chequeStatus === "in_hand" && (
-              <button onClick={() => { setBounceTarget(item); setShowBounce(true); setError(""); }} className="w-full text-left rounded-lg px-3 py-2 text-xs text-amber-700 hover:bg-amber-50">{t("mark_bounced")}</button>
+          <div className="relative" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setOpenActionId((current) => current === item.id ? null : item.id)}
+              className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
+            >
+              ⋯
+            </button>
+            {openActionId === item.id && (
+              <div className="absolute right-0 z-10 mt-1 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg">
+                <button onClick={() => { setOpenActionId(null); openEdit(item); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
+                {item.type === "payment" && item.status === "active" && (
+                  <button onClick={() => { setOpenActionId(null); handleDelete(item); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("cancel")}</button>
+                )}
+                {item.type !== "payment" && (
+                  <button onClick={() => { setOpenActionId(null); handleDelete(item); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("delete")}</button>
+                )}
+                {item.type === "payment" && user?.role === "super_admin" && (
+                  <button onClick={() => { setOpenActionId(null); openHardDelete(item); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-800 hover:bg-red-50">{t("hard_delete")}</button>
+                )}
+                {item.type === "withdrawal" && item.status === "pending" && user?.role === "super_admin" && (
+                  <button onClick={() => { setOpenActionId(null); handleApproveWithdrawal(item); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-green-700 hover:bg-green-50">Approve</button>
+                )}
+                {item.type === "payment" && item.status === "active" && item.raw?.paymentMethod === "cheque" && item.raw?.chequeStatus === "in_hand" && (
+                  <button onClick={() => { setOpenActionId(null); setBounceTarget(item); setShowBounce(true); setError(""); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-amber-700 hover:bg-amber-50">{t("mark_bounced")}</button>
+                )}
+              </div>
             )}
           </div>
-        </details>
         );
       },
     },
@@ -556,11 +570,6 @@ export default function PaymentsPage() {
               </select>
             )}
 
-            {!canCreateRecords ? (
-              <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-                Super admin reviews payments credited to the super-admin side here.
-              </div>
-            ) : null}
           </div>
         }
       />

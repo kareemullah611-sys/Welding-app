@@ -160,7 +160,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         AND (${cityId}::int IS NULL OR city_id = ${cityId})
         AND (${dateFrom}::date IS NULL OR date >= ${dateFrom}::date)
         AND (${dateTo}::date IS NULL OR date <= ${dateTo}::date)
-      ORDER BY date DESC, type
+      ORDER BY date ASC, reference ASC, type ASC
       LIMIT 500
     `;
 

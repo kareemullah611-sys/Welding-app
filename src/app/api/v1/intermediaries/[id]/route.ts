@@ -44,7 +44,7 @@ export const GET = withAuth(async (_request: NextRequest, context: any, _user: J
   const ledger = entries.map((e) => {
     balances[e.currencyCode] = (balances[e.currencyCode] || 0) + e.debit - e.credit;
     return { ...e, balance: balances[e.currencyCode] };
-  }).reverse();
+  });
 
   return successResponse({ intermediary, ledger, balances });
 });

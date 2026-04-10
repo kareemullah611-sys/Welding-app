@@ -25,7 +25,6 @@ export default function InventoryPage() {
   const [lotsLoading, setLotsLoading] = useState(false);
 
   // Stock Ledger
-  const [showLedger, setShowLedger] = useState(false);
   const [ledger, setLedger] = useState<any[]>([]);
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledgerGodownId, setLedgerGodownId] = useState(0);
@@ -34,6 +33,7 @@ export default function InventoryPage() {
   const [ledgerDateTo, setLedgerDateTo] = useState("");
   const [godownList, setGodownList] = useState<any[]>([]);
   const [productList, setProductList] = useState<any[]>([]);
+  const [showAssignedRows, setShowAssignedRows] = useState(false);
 
   // Inter-godown transfer
   const [showInterGodownTransfer, setShowInterGodownTransfer] = useState(false);
@@ -48,7 +48,6 @@ export default function InventoryPage() {
   });
   const [transferError, setTransferError] = useState("");
   const [transferSubmitting, setTransferSubmitting] = useState(false);
-  const [godownTransfers, setGodownTransfers] = useState<any[]>([]);
   const [transferHelpersLoading, setTransferHelpersLoading] = useState(false);
 
   // Godown allocation modal
@@ -61,10 +60,9 @@ export default function InventoryPage() {
 
   const loadInventory = useCallback(async () => {
     setLoading(true);
-    const [invRes, trRes, gdTrRes] = await Promise.all([
+    const [invRes, trRes] = await Promise.all([
       apiCall("/api/v1/inventory"),
       apiCall("/api/v1/city-transfers", { params: { limit: 100 } }),
-      apiCall("/api/v1/godowns/transfers", { params: { limit: 10 } }),
     ]);
     if (invRes.success) setData(invRes.data);
     if (trRes.success) {
@@ -73,7 +71,6 @@ export default function InventoryPage() {
       );
       setPendingTransfers(pending);
     }
-    if (gdTrRes.success) setGodownTransfers(gdTrRes.data as any[]);
     setLoading(false);
   }, [user?.cityId]);
 
@@ -97,17 +94,14 @@ export default function InventoryPage() {
     setLedgerLoading(false);
   }, [ledgerGodownId, ledgerProductId, ledgerDateFrom, ledgerDateTo]);
 
-  const openLedger = async () => {
-    setShowLedger(true);
-    // Load godowns & products for filters
+  const loadLedgerHelpers = useCallback(async () => {
     const [gR, pR] = await Promise.all([
       apiCall("/api/v1/godowns", { params: { limit: 100 } }),
       apiCall("/api/v1/products", { params: { limit: 100 } }),
     ]);
     if (gR.success) setGodownList(gR.data as any[]);
     if (pR.success) setProductList(pR.data as any[]);
-    await loadLedger();
-  };
+  }, []);
 
   const openInterGodownTransfer = async () => {
     setTransferHelpersLoading(true);
@@ -161,6 +155,7 @@ export default function InventoryPage() {
   useEffect(() => { loadInventory(); }, [loadInventory]);
   useEffect(() => { loadLots(); }, [loadLots]);
   useEffect(() => { loadLedger(); }, [loadLedger]);
+  useEffect(() => { loadLedgerHelpers(); }, [loadLedgerHelpers]);
 
   const openApprove = async (tr: any) => {
     setSelected(tr);
@@ -244,6 +239,41 @@ export default function InventoryPage() {
     );
   }
 
+  const inventorySummaryRows = [
+    { type: "overall", name: "Grand Total", cityName: "-", qty: Number(data.grandTotalQty || 0) },
+    ...((data.productsSummary || []).map((p: any) => ({
+      type: "product",
+      name: p.productName,
+      cityName: "All Godowns",
+      qty: Number(p.totalQty || 0),
+    }))),
+    ...((data.godownsSummary || []).map((g: any) => ({
+      type: "godown",
+      name: g.godownName,
+      cityName: g.cityName,
+      qty: Number(g.totalQty || 0),
+    }))),
+  ];
+
+  const lotAssignmentRows: { lot: any; dist: any; assigned: number; remaining: number; isDone: boolean; hasExistingAllocations: boolean }[] = [];
+  for (const lot of lots) {
+    for (const dist of lot.distributions || []) {
+      if (dist.cityId !== user?.cityId) continue;
+      const assigned = (dist.godownAllocations || []).reduce((s: number, ga: any) => s + Number(ga.qty), 0);
+      const remaining = Number(dist.allocatedQty) - assigned;
+      lotAssignmentRows.push({
+        lot,
+        dist,
+        assigned,
+        remaining,
+        isDone: remaining <= 0,
+        hasExistingAllocations: assigned > 0,
+      });
+    }
+  }
+  const newAssignmentRows = lotAssignmentRows.filter((row) => !row.hasExistingAllocations);
+  const existingAssignmentRows = lotAssignmentRows.filter((row) => row.hasExistingAllocations);
+
   return (
     <div>
       <PageHeader
@@ -305,50 +335,34 @@ export default function InventoryPage() {
         </div>
       )}
 
-      {/* Grand Total */}
-      <div className="card mb-6 text-center">
-        <p className="text-sm text-gray-500">{t("grand_total")}</p>
-        <p className="text-4xl font-bold text-primary-600 mt-1">{formatNumber(data.grandTotalQty)}</p>
-        <p className="text-xs text-gray-400 mt-1">{t("cartons_across_godowns")}</p>
-      </div>
-
-      {/* Product-wise Summary */}
       <div className="card mb-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">{t("stock_by_product")}</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-          {data.productsSummary?.map((p: any) => (
-            <div key={p.productId} className="bg-gray-50 rounded-lg p-3">
-              <p className="text-sm font-medium text-gray-700 truncate">{p.productName}</p>
-              <p className="text-xl font-bold text-gray-900">{formatNumber(p.totalQty)}</p>
-            </div>
-          ))}
-          {(!data.productsSummary || data.productsSummary.length === 0) && (
-            <p className="text-sm text-gray-400 col-span-full">{t("no_stock_data")}</p>
-          )}
-        </div>
-      </div>
-
-      <div className="card mb-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Current Stock Position</h2>
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Inventory Summary</h2>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Godown</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Product</th>
-                <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Current Stock</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Category</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Name</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">City / Scope</th>
+                <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Stock</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {data.detailed?.flatMap((godown: any) => godown.products.map((p: any) => ({ godownName: godown.godownName, cityName: godown.cityName, productName: p.productName, qty: p.qty, productId: p.productId })))
-                .sort((a: any, b: any) => b.qty - a.qty)
-                .map((row: any, index: number) => (
-                  <tr key={`${row.godownName}-${row.productId}-${index}`}>
+              {inventorySummaryRows.map((row: any, index: number) => (
+                  <tr key={`${row.type}-${row.name}-${index}`}>
                     <td className="px-3 py-2">
-                      <div className="font-medium text-gray-800">{row.godownName}</div>
-                      <div className="text-xs text-gray-400">{row.cityName}</div>
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
+                        row.type === "overall"
+                          ? "bg-primary-50 text-primary-700"
+                          : row.type === "product"
+                            ? "bg-gray-100 text-gray-700"
+                            : "bg-blue-50 text-blue-700"
+                      }`}>
+                        {row.type === "overall" ? "Overall" : row.type === "product" ? "Product" : "Godown"}
+                      </span>
                     </td>
-                    <td className="px-3 py-2 text-gray-700">{row.productName}</td>
+                    <td className="px-3 py-2 font-medium text-gray-800">{row.name}</td>
+                    <td className="px-3 py-2 text-gray-500">{row.cityName}</td>
                     <td className="px-3 py-2 text-right font-semibold text-gray-900">{formatNumber(row.qty)}</td>
                   </tr>
                 ))}
@@ -357,52 +371,92 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {/* Godown-wise Summary */}
-      <div className="card mb-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">{t("stock_by_godown")}</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-          {data.godownsSummary?.map((g: any) => (
-            <div key={g.godownId} className="bg-blue-50 rounded-lg p-3">
-              <p className="text-sm font-medium text-blue-700 truncate">{g.godownName}</p>
-              <p className="text-xs text-blue-500">{g.cityName}</p>
-              <p className="text-xl font-bold text-blue-900 mt-1">{formatNumber(g.totalQty)}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
       {user?.role === "city_admin" && (
         <div className="card mb-6">
           <div className="flex items-center justify-between gap-3 mb-4">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">Recent Inter-Godown Transfers</h2>
-              <p className="text-xs text-gray-400">Move stock between godowns in your city from one clear place.</p>
-            </div>
+            <h2 className="text-lg font-semibold text-gray-900">{t("assign_to_godowns") || "Assign to Godowns"}</h2>
             <button onClick={openInterGodownTransfer} className="btn-secondary text-sm">
-              + New Transfer
+              ↔ Inter-Godown Transfer
             </button>
           </div>
-          {godownTransfers.length === 0 ? (
-            <p className="text-sm text-gray-400">No inter-godown transfers recorded yet.</p>
+
+          {lotsLoading ? (
+            <div className="py-6 flex justify-center"><div className="w-6 h-6 border-2 border-primary-200 border-t-primary-600 rounded-full animate-spin" /></div>
+          ) : !lotAssignmentRows.length ? (
+            <p className="text-sm text-gray-400 py-4">{t("no_data")}</p>
           ) : (
-            <div className="divide-y divide-gray-100 border border-gray-200 rounded-xl overflow-hidden">
-              {godownTransfers.map((tr: any) => (
-                <div key={tr.id} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-gray-50">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-semibold text-gray-800">{tr.product}</span>
-                      <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100">{tr.lotNumber}</span>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      {tr.fromGodown} → {tr.toGodown} · {tr.transferDate}
-                    </p>
+            <div className="space-y-4">
+              <div>
+                <h3 className="mb-2 text-sm font-semibold text-gray-700">New Assignments</h3>
+                {newAssignmentRows.length === 0 ? (
+                  <p className="rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-400">No new assignments waiting.</p>
+                ) : (
+                  <div className="divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-200">
+                    {newAssignmentRows.map(({ lot, dist, assigned, remaining, isDone }, i) => (
+                      <div key={`new-${i}`} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-semibold text-gray-800">{dist.productName}</span>
+                            <span className="text-xs font-mono bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100">{lot.lotNumber}</span>
+                            {isDone
+                              ? <span className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full border border-green-100 font-medium">✓ Fully assigned</span>
+                              : <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full border border-amber-100 font-medium">{formatNumber(remaining)} unassigned</span>
+                            }
+                          </div>
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            Allocated: <strong className="text-gray-600">{formatNumber(Number(dist.allocatedQty))}</strong>
+                            {" · "}Assigned: <strong className="text-gray-600">{formatNumber(assigned)}</strong>
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => openGodownAlloc(lot, dist)}
+                          className="flex shrink-0 items-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-medium text-teal-700 transition-colors hover:bg-teal-100"
+                        >
+                          <Warehouse size={13} /> Assign
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-sm font-bold text-gray-900">{formatNumber(tr.qty)}</p>
-                    <p className="text-xs text-gray-400">{t("cartons")}</p>
+                )}
+              </div>
+
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowAssignedRows((v) => !v)}
+                  className="text-sm font-semibold text-gray-700 hover:text-primary-700"
+                >
+                  {showAssignedRows ? "Hide Assigned / Reassignment" : "Show Assigned / Reassignment"}
+                </button>
+                {showAssignedRows && (
+                  <div className="mt-3 divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-200">
+                    {existingAssignmentRows.map(({ lot, dist, assigned, remaining, isDone }, i) => (
+                      <div key={`existing-${i}`} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-semibold text-gray-800">{dist.productName}</span>
+                            <span className="text-xs font-mono bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100">{lot.lotNumber}</span>
+                            {isDone
+                              ? <span className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full border border-green-100 font-medium">✓ Fully assigned</span>
+                              : <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full border border-amber-100 font-medium">{formatNumber(remaining)} unassigned</span>
+                            }
+                          </div>
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            Allocated: <strong className="text-gray-600">{formatNumber(Number(dist.allocatedQty))}</strong>
+                            {" · "}Assigned: <strong className="text-gray-600">{formatNumber(assigned)}</strong>
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => openGodownAlloc(lot, dist)}
+                          className="flex shrink-0 items-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-medium text-teal-700 transition-colors hover:bg-teal-100"
+                        >
+                          <Warehouse size={13} /> Re-assign
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                </div>
-              ))}
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -411,7 +465,18 @@ export default function InventoryPage() {
       <div className="card mt-6">
         <div className="flex items-center justify-between gap-3 mb-4">
           <h2 className="text-lg font-semibold text-gray-900">Stock Movement</h2>
-          <button onClick={openLedger} className="btn-secondary text-sm">Filters</button>
+        </div>
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <select value={ledgerGodownId} onChange={e => setLedgerGodownId(parseInt(e.target.value))} className="select-field text-sm">
+            <option value={0}>All Godowns</option>
+            {godownList.map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+          <select value={ledgerProductId} onChange={e => setLedgerProductId(parseInt(e.target.value))} className="select-field text-sm">
+            <option value={0}>All Products</option>
+            {productList.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <input type="date" value={ledgerDateFrom} onChange={e => setLedgerDateFrom(e.target.value)} className="input-field text-sm" />
+          <input type="date" value={ledgerDateTo} onChange={e => setLedgerDateTo(e.target.value)} className="input-field text-sm" />
         </div>
         {ledgerLoading ? (
           <div className="flex justify-center py-10"><div className="w-7 h-7 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" /></div>
@@ -433,7 +498,7 @@ export default function InventoryPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {ledger.slice(0, 150).map((row: any, index: number) => (
+                {ledger.map((row: any, index: number) => (
                   <tr key={`${row.reference}-${index}`}>
                     <td className="px-3 py-2">{row.date}</td>
                     <td className="px-3 py-2">{row.type}</td>
@@ -450,59 +515,6 @@ export default function InventoryPage() {
           </div>
         )}
       </div>
-
-      {/* ── Lot Distributions → Assign to Godowns (city_admin only) ── */}
-      {user?.role === "city_admin" && (
-        <div className="card mt-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-1">{t("assign_to_godowns") || "Assign to Godowns"}</h2>
-          <p className="text-xs text-gray-400 mb-4">Lots distributed to your city — assign stock to your godowns.</p>
-          {lotsLoading ? (
-            <div className="py-6 flex justify-center"><div className="w-6 h-6 border-2 border-primary-200 border-t-primary-600 rounded-full animate-spin" /></div>
-          ) : (() => {
-            // Flatten all distributions for this city from all lots
-            const rows: { lot: any; dist: any }[] = [];
-            for (const lot of lots) {
-              for (const dist of (lot.distributions || [])) {
-                if (dist.cityId === user.cityId) rows.push({ lot, dist });
-              }
-            }
-            if (!rows.length) return <p className="text-sm text-gray-400 py-4">{t("no_data")}</p>;
-            return (
-              <div className="divide-y divide-gray-100 border border-gray-200 rounded-xl overflow-hidden">
-                {rows.map(({ lot, dist }, i) => {
-                  const assigned = (dist.godownAllocations || []).reduce((s: number, ga: any) => s + Number(ga.qty), 0);
-                  const remaining = Number(dist.allocatedQty) - assigned;
-                  const isDone = remaining <= 0;
-                  return (
-                    <div key={i} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-sm font-semibold text-gray-800">{dist.productName}</span>
-                          <span className="text-xs font-mono bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100">{lot.lotNumber}</span>
-                          {isDone
-                            ? <span className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full border border-green-100 font-medium">✓ Fully assigned</span>
-                            : <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full border border-amber-100 font-medium">{formatNumber(remaining)} unassigned</span>
-                          }
-                        </div>
-                        <p className="text-xs text-gray-400 mt-0.5">
-                          Allocated: <strong className="text-gray-600">{formatNumber(Number(dist.allocatedQty))}</strong>
-                          {" · "}Assigned to godowns: <strong className="text-gray-600">{formatNumber(assigned)}</strong>
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => openGodownAlloc(lot, dist)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-lg transition-colors flex-shrink-0"
-                      >
-                        <Warehouse size={13} /> {isDone ? "Re-assign" : "Assign"}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
-        </div>
-      )}
 
       {/* Approve Transfer Modal */}
       <Modal open={showApprove} onClose={() => setShowApprove(false)} title={t("approve_transfer")} size="md">
@@ -626,72 +638,6 @@ export default function InventoryPage() {
               </button>
             </div>
           </>
-        )}
-      </Modal>
-
-      {/* ── Stock Ledger Modal ── */}
-      <Modal open={showLedger} onClose={() => setShowLedger(false)} title="Stock Ledger" size="xl">
-        {/* Filters */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-          <select value={ledgerGodownId} onChange={e => setLedgerGodownId(parseInt(e.target.value))} className="select-field text-sm">
-            <option value={0}>All Godowns</option>
-            {godownList.map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
-          </select>
-          <select value={ledgerProductId} onChange={e => setLedgerProductId(parseInt(e.target.value))} className="select-field text-sm">
-            <option value={0}>All Products</option>
-            {productList.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          <input type="date" value={ledgerDateFrom} onChange={e => setLedgerDateFrom(e.target.value)} className="input-field text-sm" placeholder="From" />
-          <input type="date" value={ledgerDateTo} onChange={e => setLedgerDateTo(e.target.value)} className="input-field text-sm" placeholder="To" />
-        </div>
-        <button onClick={loadLedger} className="btn-primary text-sm mb-4">Apply Filters</button>
-
-        {ledgerLoading ? (
-          <div className="flex justify-center py-10"><div className="w-7 h-7 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" /></div>
-        ) : ledger.length === 0 ? (
-          <p className="text-sm text-gray-400 py-8 text-center">No stock movements found.</p>
-        ) : (
-          <div className="overflow-x-auto max-h-[55vh] overflow-y-auto">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 w-24">Date</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Type</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Ref</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Product</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Godown</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-green-600">IN</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-red-500">OUT</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {ledger.map((row: any, i: number) => {
-                  const typeLabel: Record<string, { label: string; color: string }> = {
-                    allocation:    { label: "Allocation",      color: "bg-blue-50 text-blue-700"   },
-                    sale:          { label: "Sale",            color: "bg-purple-50 text-purple-700" },
-                    godown_in:     { label: "Godown In",       color: "bg-teal-50 text-teal-700"   },
-                    godown_out:    { label: "Godown Out",      color: "bg-orange-50 text-orange-700" },
-                    city_in:       { label: "City Transfer In",  color: "bg-green-50 text-green-700" },
-                    city_out:      { label: "City Transfer Out", color: "bg-red-50 text-red-600"   },
-                  };
-                  const { label, color } = typeLabel[row.type] || { label: row.type, color: "bg-gray-50 text-gray-600" };
-                  return (
-                    <tr key={i} className="hover:bg-gray-50">
-                      <td className="px-3 py-2 text-gray-500 font-mono text-xs whitespace-nowrap">{row.date}</td>
-                      <td className="px-3 py-2">
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${color}`}>{label}</span>
-                      </td>
-                      <td className="px-3 py-2 font-mono text-xs text-gray-600">{row.reference}</td>
-                      <td className="px-3 py-2 text-gray-800 font-medium">{row.productName}</td>
-                      <td className="px-3 py-2 text-gray-600 text-xs">{row.godownName}<span className="text-gray-400 ml-1">({row.cityName})</span></td>
-                      <td className="px-3 py-2 text-right font-semibold text-green-600">{row.qtyIn > 0 ? `+${row.qtyIn.toLocaleString()}` : ""}</td>
-                      <td className="px-3 py-2 text-right font-semibold text-red-500">{row.qtyOut > 0 ? `-${row.qtyOut.toLocaleString()}` : ""}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
         )}
       </Modal>
 

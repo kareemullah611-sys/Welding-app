@@ -25,7 +25,14 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 
     await prisma.payment.update({
       where: { id },
-      data: { status: "cancelled", cancellationReason: body.reason, cancelledAt: new Date(), cancelledBy: user.userId, updatedAt: new Date() },
+      data: {
+        status: "cancelled",
+        chequeStatus: payment.paymentMethod === "cheque" ? null : payment.chequeStatus,
+        cancellationReason: body.reason,
+        cancelledAt: new Date(),
+        cancelledBy: user.userId,
+        updatedAt: new Date(),
+      },
     });
 
     await createAuditLog(user.userId, payment.cityId, "payments", id, "cancel", {

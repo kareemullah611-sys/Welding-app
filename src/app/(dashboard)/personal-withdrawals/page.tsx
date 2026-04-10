@@ -4,12 +4,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
-import { useSearchParams } from "next/navigation";
 
 export default function PersonalWithdrawalsPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const searchParams = useSearchParams();
   const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
   const [items, setItems] = useState<any[]>([]);
   const [counts, setCounts] = useState({ all: 0, pending: 0, approved: 0 });
@@ -29,7 +27,7 @@ export default function PersonalWithdrawalsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [approvingId, setApprovingId] = useState<number | null>(null);
-  const [prefillHandled, setPrefillHandled] = useState(false);
+  const [openActionId, setOpenActionId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,15 +59,13 @@ export default function PersonalWithdrawalsPage() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    if (prefillHandled || user?.role !== "city_admin") return;
-    if (searchParams.get("create") !== "1") return;
-    setPrefillHandled(true);
-    openCreate();
-    window.history.replaceState({}, "", "/personal-withdrawals");
-  }, [prefillHandled, searchParams, user?.role]);
-  useEffect(() => {
     setStatusFilter(user?.role === "super_admin" ? "pending" : "all");
   }, [user?.role]);
+  useEffect(() => {
+    const closeMenus = () => setOpenActionId(null);
+    document.addEventListener("click", closeMenus);
+    return () => document.removeEventListener("click", closeMenus);
+  }, []);
 
   const formatPot = (pot: Record<string, number> | undefined) => {
     if (!pot) return "0";
@@ -195,15 +191,6 @@ export default function PersonalWithdrawalsPage() {
         </div>
       )}
 
-      {user?.role === "city_admin" && (
-        <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-800">
-          <p className="font-semibold mb-1">Withdrawal approval flow</p>
-          <p>
-            Record the withdrawal here, then super admin approves it. After approval, the entry is linked to a Haji transfer automatically.
-          </p>
-        </div>
-      )}
-
       <DataTable
         columns={[
           { key: "withdrawalDate", label: t("date"), render: (w: any) => formatDate(w.withdrawalDate) },
@@ -256,24 +243,45 @@ export default function PersonalWithdrawalsPage() {
             key: "actions",
             label: "",
             render: (w: any) => (
-              <div className="flex gap-2 items-center flex-wrap">
-                {!w.approvedAt && (
-                  <>
-                    <button onClick={() => openEdit(w)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button>
-                    {user?.role === "super_admin" && (
-                      <button
-                        onClick={() => handleApprove(w)}
-                        disabled={approvingId === w.id}
-                        className="text-xs bg-green-600 hover:bg-green-700 text-white px-2 py-0.5 rounded font-semibold disabled:opacity-50"
-                      >
-                        {approvingId === w.id ? "Approving..." : "Approve → Haji"}
-                      </button>
+              <div className="relative" onClick={(e) => e.stopPropagation()}>
+                <button
+                  type="button"
+                  onClick={() => setOpenActionId((current) => current === w.id ? null : w.id)}
+                  className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
+                >
+                  ⋯
+                </button>
+                {openActionId === w.id && (
+                  <div className="absolute right-0 z-10 mt-1 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg">
+                    {!w.approvedAt && (
+                      <>
+                        <button
+                          onClick={() => { setOpenActionId(null); openEdit(w); }}
+                          className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50"
+                        >
+                          {t("edit")}
+                        </button>
+                        {user?.role === "super_admin" && (
+                          <button
+                            onClick={() => { setOpenActionId(null); handleApprove(w); }}
+                            disabled={approvingId === w.id}
+                            className="w-full rounded-lg px-3 py-2 text-left text-xs text-green-700 hover:bg-green-50 disabled:opacity-50"
+                          >
+                            {approvingId === w.id ? "Approving..." : "Approve"}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => { setOpenActionId(null); handleDelete(w); }}
+                          className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50"
+                        >
+                          {t("delete")}
+                        </button>
+                      </>
                     )}
-                    <button onClick={() => handleDelete(w)} className="text-xs text-red-600 hover:underline">{t("delete")}</button>
-                  </>
-                )}
-                {w.approvedAt && w.hajiTransferId && (
-                  <span className="text-xs text-gray-400">Haji #{w.hajiTransferId}</span>
+                    {w.approvedAt && w.hajiTransferId && (
+                      <div className="px-3 py-2 text-xs text-gray-500">Haji #{w.hajiTransferId}</div>
+                    )}
+                  </div>
                 )}
               </div>
             ),
@@ -365,9 +373,6 @@ export default function PersonalWithdrawalsPage() {
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
             <input value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" />
           </div>
-        </div>
-        <div className="mt-3 p-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-700">
-          ⏳ This withdrawal stays <strong>pending</strong> until super admin approves it — then it automatically becomes a Haji Transfer.
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
           <button onClick={() => setShowCreate(false)} className="btn-secondary text-sm">{t("cancel")}</button>

@@ -5,12 +5,10 @@ import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
-import { useSearchParams } from "next/navigation";
 
 export default function ExpensesPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const searchParams = useSearchParams();
   const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
   const { isOnline, enqueue, lastSyncResult } = useOffline();
   const [expenses, setExpenses] = useState<any[]>([]);
@@ -34,7 +32,6 @@ export default function ExpensesPage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
-  const [prefillHandled, setPrefillHandled] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -54,13 +51,6 @@ export default function ExpensesPage() {
     setLoading(false);
   }, [page, user?.role]);
   useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    if (prefillHandled || user?.role !== "city_admin") return;
-    if (searchParams.get("create") !== "1") return;
-    setPrefillHandled(true);
-    openCreate();
-    window.history.replaceState({}, "", "/expenses");
-  }, [prefillHandled, searchParams, user?.role]);
 
   const formatPot = (pot: Record<string, number> | undefined) => {
     if (!pot) return "0";
@@ -191,7 +181,7 @@ export default function ExpensesPage() {
 
       {(treasury || cashPosition) && (
         <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
-          💰 {t("cash_in_office")}: <strong>{treasury ? formatPot(treasury.cashInOffice) : formatNumber(cashPosition?.netCashInHand || 0)}</strong> — {t("expenses_cash_note")}
+          💰 {t("cash_in_office")}: <strong>{treasury ? formatPot(treasury.cashInOffice) : formatNumber(cashPosition?.netCashInHand || 0)}</strong>
         </div>
       )}
 
@@ -323,16 +313,6 @@ export default function ExpensesPage() {
             </div>
           )}
         </div>
-
-        {form.paidFrom === "cash_office" && (
-          <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-700">💸 {t("deducted_from_cash_note")}</div>
-        )}
-        {form.paidFrom === "bank_account" && (
-          <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-700">🏦 This will be deducted from the selected bank account balance.</div>
-        )}
-        {form.paidFrom === "cheque" && (
-          <div className="mt-3 p-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-700">🧾 This expense will consume the selected in-hand cheque.</div>
-        )}
 
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
           <button onClick={() => setShowCreate(false)} className="btn-secondary text-sm">{t("cancel")}</button>

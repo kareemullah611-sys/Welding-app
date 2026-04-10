@@ -179,9 +179,6 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
       };
     });
 
-    // Return newest first for display
-    combined.reverse();
-
     const total = combined.length;
     const skip = (page - 1) * limit;
     const items = combined.slice(skip, skip + limit);

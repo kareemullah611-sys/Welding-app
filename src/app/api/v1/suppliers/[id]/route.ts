@@ -47,7 +47,7 @@ function buildSupplierLedger(supplier: any) {
   }
   entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   let balance = 0;
-  return entries.map((e) => { balance += e.debit - e.credit; return { ...e, date: new Date(e.date).toISOString().split("T")[0], balance }; }).reverse();
+  return entries.map((e) => { balance += e.debit - e.credit; return { ...e, date: new Date(e.date).toISOString().split("T")[0], balance }; });
 }
 
 export const PUT = withSuperAdmin(async (request: NextRequest, context: any, user: JWTPayload) => {
