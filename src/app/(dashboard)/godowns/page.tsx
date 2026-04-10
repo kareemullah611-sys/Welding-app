@@ -17,6 +17,7 @@ export default function GodownsPage() {
   const [form, setForm] = useState({ name: "", cityId: 0 });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [openActionId, setOpenActionId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -25,6 +26,11 @@ export default function GodownsPage() {
     setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const closeMenus = () => setOpenActionId(null);
+    document.addEventListener("click", closeMenus);
+    return () => document.removeEventListener("click", closeMenus);
+  }, []);
 
   const openCreate = async () => {
     if (user?.role === "super_admin") { const cityRes = await apiCall("/api/v1/cities"); if (cityRes.success) setCities(cityRes.data as any[]); }
@@ -64,10 +70,24 @@ export default function GodownsPage() {
         { key: "countryName", label: t("country") },
         { key: "isActive", label: t("status"), render: (g: any) => <span className={g.isActive ? "badge-active" : "badge-cancelled"}>{g.isActive ? t("active") : t("inactive")}</span> },
         { key: "actions", label: "", render: (g: any) => (
-          <div className="flex gap-2">
-            <button onClick={() => openEdit(g)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button>
-            {g.isActive && <button onClick={() => handleDeactivate(g)} className="text-xs text-red-600 hover:underline">{t("deactivate")}</button>}
-            {!g.isActive && <button onClick={() => handleDeleteGodown(g)} className="text-xs text-red-600 hover:underline">{t("delete")}</button>}
+          <div className="relative" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setOpenActionId((current) => current === g.id ? null : g.id)}
+              className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
+            >
+              ⋯
+            </button>
+            {openActionId === g.id && (
+              <div className="absolute right-0 z-10 mt-1 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg">
+                <button onClick={() => { setOpenActionId(null); openEdit(g); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
+                {g.isActive ? (
+                  <button onClick={() => { setOpenActionId(null); handleDeactivate(g); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("deactivate")}</button>
+                ) : (
+                  <button onClick={() => { setOpenActionId(null); handleDeleteGodown(g); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("delete")}</button>
+                )}
+              </div>
+            )}
           </div>
         )},
       ]} data={godowns} loading={loading} />

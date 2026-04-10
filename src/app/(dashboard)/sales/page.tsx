@@ -34,6 +34,7 @@ export default function SalesPage() {
   const [hardDeletePassword, setHardDeletePassword] = useState("");
   const [hardDeleteError, setHardDeleteError] = useState("");
   const [hardDeleteSubmitting, setHardDeleteSubmitting] = useState(false);
+  const [openActionId, setOpenActionId] = useState<number | null>(null);
 
   // Dropdowns
   const [customers, setCustomers] = useState<any[]>([]);
@@ -85,6 +86,11 @@ export default function SalesPage() {
   }, [page, filters]);
 
   useEffect(() => { loadSales(); }, [loadSales]);
+  useEffect(() => {
+    const closeMenus = () => setOpenActionId(null);
+    document.addEventListener("click", closeMenus);
+    return () => document.removeEventListener("click", closeMenus);
+  }, []);
   useEffect(() => {
     if (prefillHandled || user?.role !== "city_admin") return;
     if (searchParams.get("create") !== "1") return;
@@ -356,14 +362,27 @@ export default function SalesPage() {
           </div>
         )},
         { key: "actions", label: "", render: (s: any) => (
-          <div className="flex gap-2">
-            {s.status === "active" && <>
-              <button onClick={() => openCorrect(s)} className="text-xs text-primary-600 hover:underline">{t("correct_sale")}</button>
-              <button onClick={() => openCancel(s)} className="text-xs text-red-600 hover:underline">{t("cancel")}</button>
-              <button onClick={() => openDiscount(s)} className="text-xs text-yellow-600 hover:underline">{t("discount")}</button>
-            </>}
-            {user?.role === "super_admin" && (
-              <button onClick={() => openHardDelete(s)} className="text-xs text-red-800 font-semibold hover:underline">{t("hard_delete")}</button>
+          <div className="relative" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setOpenActionId((current) => current === s.id ? null : s.id)}
+              className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
+            >
+              ⋯
+            </button>
+            {openActionId === s.id && (
+              <div className="absolute right-0 z-10 mt-1 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg">
+                {s.status === "active" && (
+                  <>
+                    <button onClick={() => { setOpenActionId(null); openCorrect(s); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("correct_sale")}</button>
+                    <button onClick={() => { setOpenActionId(null); openDiscount(s); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-yellow-700 hover:bg-yellow-50">{t("discount")}</button>
+                    <button onClick={() => { setOpenActionId(null); openCancel(s); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("cancel")}</button>
+                  </>
+                )}
+                {user?.role === "super_admin" && (
+                  <button onClick={() => { setOpenActionId(null); openHardDelete(s); }} className="w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-red-800 hover:bg-red-50">{t("hard_delete")}</button>
+                )}
+              </div>
             )}
           </div>
         )},

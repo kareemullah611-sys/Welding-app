@@ -35,6 +35,7 @@ export default function ExpensesPage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [openActionId, setOpenActionId] = useState<number | null>(null);
   const [prefillHandled, setPrefillHandled] = useState(false);
   const closeEmbed = useCallback(() => {
     if (typeof window !== "undefined" && window.parent !== window) {
@@ -60,6 +61,11 @@ export default function ExpensesPage() {
     setLoading(false);
   }, [page, user?.role]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const closeMenus = () => setOpenActionId(null);
+    document.addEventListener("click", closeMenus);
+    return () => document.removeEventListener("click", closeMenus);
+  }, []);
   useEffect(() => {
     if (prefillHandled || user?.role !== "city_admin") return;
     if (searchParams.get("create") !== "1") return;
@@ -216,9 +222,20 @@ export default function ExpensesPage() {
           render: (e: any) => e._pending
             ? <span className="text-xs text-gray-400 italic">syncing…</span>
             : (
-            <div className="flex gap-2">
-              <button onClick={() => openEdit(e)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button>
-              <button onClick={() => handleDelete(e)} className="text-xs text-red-600 hover:underline">{t("delete")}</button>
+            <div className="relative" onClick={(evt) => evt.stopPropagation()}>
+              <button
+                type="button"
+                onClick={() => setOpenActionId((current) => current === e.id ? null : e.id)}
+                className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
+              >
+                ⋯
+              </button>
+              {openActionId === e.id && (
+                <div className="absolute right-0 z-10 mt-1 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg">
+                  <button onClick={() => { setOpenActionId(null); openEdit(e); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
+                  <button onClick={() => { setOpenActionId(null); handleDelete(e); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("delete")}</button>
+                </div>
+              )}
             </div>
           ),
         },

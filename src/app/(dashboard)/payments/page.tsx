@@ -81,7 +81,7 @@ export default function PaymentsPage() {
 
   // Voucher duplicate warning
   const [voucherWarning, setVoucherWarning] = useState<{ matches: any[] } | null>(null);
-  const [openActionId, setOpenActionId] = useState<number | string | null>(null);
+  const [openActionId, setOpenActionId] = useState<string | null>(null);
 
   // ── Batch payment queue ──────────────────────────────────────────────────
   const [paymentQueue, setPaymentQueue] = useState<Array<{ tempId: string; customerName: string; voucherNo: string; amount: number; currencySymbol: string; detail: string; date: string; body: any }>>([]);
@@ -92,6 +92,14 @@ export default function PaymentsPage() {
     if (typeof window !== "undefined" && window.parent !== window) {
       window.parent.postMessage({ type: "dashboard-quick-close" }, window.location.origin);
     }
+  }, []);
+
+  const getActionKey = useCallback((item: any) => `${item.type}-${item.id}`, []);
+
+  useEffect(() => {
+    const closeMenus = () => setOpenActionId(null);
+    document.addEventListener("click", closeMenus);
+    return () => document.removeEventListener("click", closeMenus);
   }, []);
 
   const load = useCallback(async () => {
@@ -514,12 +522,15 @@ export default function PaymentsPage() {
           <div className="relative" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
-              onClick={() => setOpenActionId((current) => current === item.id ? null : item.id)}
+              onClick={() => {
+                const actionKey = getActionKey(item);
+                setOpenActionId((current) => current === actionKey ? null : actionKey);
+              }}
               className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
             >
               ⋯
             </button>
-            {openActionId === item.id && (
+            {openActionId === getActionKey(item) && (
               <div className="absolute right-0 z-10 mt-1 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg">
                 <button onClick={() => { setOpenActionId(null); openEdit(item); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
                 {item.type === "payment" && item.status === "active" && (

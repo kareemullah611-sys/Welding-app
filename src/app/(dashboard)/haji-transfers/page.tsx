@@ -49,6 +49,7 @@ export default function HajiTransfersPage() {
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
   const [showSummary, setShowSummary] = useState(true);
+  const [openActionId, setOpenActionId] = useState<number | null>(null);
   const [prefillHandled, setPrefillHandled] = useState(false);
   const closeEmbed = useCallback(() => {
     if (typeof window !== "undefined" && window.parent !== window) {
@@ -79,6 +80,11 @@ export default function HajiTransfersPage() {
     setLoading(false);
   }, [page, filterFrom, filterTo]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const closeMenus = () => setOpenActionId(null);
+    document.addEventListener("click", closeMenus);
+    return () => document.removeEventListener("click", closeMenus);
+  }, []);
   useEffect(() => {
     if (prefillHandled || user?.role !== "city_admin") return;
     if (searchParams.get("create") !== "1") return;
@@ -284,9 +290,24 @@ export default function HajiTransfersPage() {
         {
           key: "actions", label: "",
           render: (tr: any) => (
-            <div className="flex gap-2">
-              {user?.role === "city_admin" && tr.recordType !== "customer_payment" && <button onClick={() => openEdit(tr)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button>}
-              {user?.role === "city_admin" && tr.recordType !== "customer_payment" && <button onClick={() => handleDelete(tr)} className="text-xs text-red-600 hover:underline">{t("delete")}</button>}
+            <div className="relative" onClick={(e) => e.stopPropagation()}>
+              {user?.role === "city_admin" && tr.recordType !== "customer_payment" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setOpenActionId((current) => current === tr.id ? null : tr.id)}
+                    className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
+                  >
+                    ⋯
+                  </button>
+                  {openActionId === tr.id && (
+                    <div className="absolute right-0 z-10 mt-1 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg">
+                      <button onClick={() => { setOpenActionId(null); openEdit(tr); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
+                      <button onClick={() => { setOpenActionId(null); handleDelete(tr); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("delete")}</button>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           ),
         },

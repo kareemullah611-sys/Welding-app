@@ -19,6 +19,7 @@ export default function BankAccountsPage() {
   const [form, setForm] = useState({ bankName: "", accountNumber: "", cityId: "" });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [openActionId, setOpenActionId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -28,6 +29,11 @@ export default function BankAccountsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const closeMenus = () => setOpenActionId(null);
+    document.addEventListener("click", closeMenus);
+    return () => document.removeEventListener("click", closeMenus);
+  }, []);
 
   useEffect(() => {
     if (isSA) {
@@ -127,11 +133,22 @@ export default function BankAccountsPage() {
     {
       key: "actions", label: "",
       render: (acc: any) => (
-        <div className="flex gap-2">
-          <button onClick={() => openEdit(acc)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button>
-          <button onClick={() => toggleActive(acc)} className={`text-xs hover:underline ${acc.isActive ? "text-gray-500" : "text-green-600"}`}>
-            {acc.isActive ? t("deactivate") : t("reactivate")}
+        <div className="relative" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            onClick={() => setOpenActionId((current) => current === acc.id ? null : acc.id)}
+            className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
+          >
+            ⋯
           </button>
+          {openActionId === acc.id && (
+            <div className="absolute right-0 z-10 mt-1 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg">
+              <button onClick={() => { setOpenActionId(null); openEdit(acc); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
+              <button onClick={() => { setOpenActionId(null); toggleActive(acc); }} className={`w-full rounded-lg px-3 py-2 text-left text-xs hover:bg-gray-50 ${acc.isActive ? "text-gray-600" : "text-green-700 hover:bg-green-50"}`}>
+                {acc.isActive ? t("deactivate") : t("reactivate")}
+              </button>
+            </div>
+          )}
         </div>
       ),
     },

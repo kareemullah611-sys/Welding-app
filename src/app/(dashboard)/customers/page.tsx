@@ -28,6 +28,7 @@ export default function CustomersPage() {
   const [hardDeleteTarget, setHardDeleteTarget] = useState<any>(null);
   const [hardDeletePassword, setHardDeletePassword] = useState("");
   const [hardDeleteError, setHardDeleteError] = useState("");
+  const [openActionId, setOpenActionId] = useState<number | null>(null);
   const [prefillHandled, setPrefillHandled] = useState(false);
   const closeEmbed = useCallback(() => {
     if (typeof window !== "undefined" && window.parent !== window) {
@@ -42,6 +43,11 @@ export default function CustomersPage() {
     setLoading(false);
   }, [page]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const closeMenus = () => setOpenActionId(null);
+    document.addEventListener("click", closeMenus);
+    return () => document.removeEventListener("click", closeMenus);
+  }, []);
   useEffect(() => {
     if (prefillHandled || user?.role !== "city_admin") return;
     if (searchParams.get("create") !== "1") return;
@@ -125,14 +131,28 @@ export default function CustomersPage() {
           return <span>-</span>;
         }},
         { key: "actions", label: "", render: (c: any) => (
-          <div className="flex gap-2">
-            {c.isActive && <button onClick={() => openEdit(c)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button>}
-            {c.isActive
-              ? <button onClick={() => handleDelete(c)} className="text-xs text-red-600 hover:underline">{t("deactivate")}</button>
-              : <button onClick={() => handleReactivate(c)} className="text-xs text-green-600 hover:underline">{t("reactivate")}</button>
-            }
-            {user?.role === "super_admin" && (
-              <button onClick={() => openHardDelete(c)} className="text-xs text-red-800 font-semibold hover:underline">{t("hard_delete")}</button>
+          <div className="relative" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setOpenActionId((current) => current === c.id ? null : c.id)}
+              className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
+            >
+              ⋯
+            </button>
+            {openActionId === c.id && (
+              <div className="absolute right-0 z-10 mt-1 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg">
+                {c.isActive && (
+                  <button onClick={() => { setOpenActionId(null); openEdit(c); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
+                )}
+                {c.isActive ? (
+                  <button onClick={() => { setOpenActionId(null); handleDelete(c); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("deactivate")}</button>
+                ) : (
+                  <button onClick={() => { setOpenActionId(null); handleReactivate(c); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-green-700 hover:bg-green-50">{t("reactivate")}</button>
+                )}
+                {user?.role === "super_admin" && (
+                  <button onClick={() => { setOpenActionId(null); openHardDelete(c); }} className="w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-red-800 hover:bg-red-50">{t("hard_delete")}</button>
+                )}
+              </div>
             )}
           </div>
         )},
