@@ -182,8 +182,9 @@ export default function PaymentsPage() {
 
   useEffect(() => {
     if (prefillHandledRef.current || !canCreateRecords) return;
+    const create = searchParams.get("create");
     const customerId = parseInt(searchParams.get("customer_id") || "0");
-    if (!customerId) return;
+    if (create !== "payment" && !customerId) return;
     prefillHandledRef.current = true;
     const customerName = searchParams.get("customer_name") || "";
     openCreate("payment", {

@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { useSearchParams } from "next/navigation";
 
 
 const SOURCE_CONFIG: Record<string, { label: string; color: string; icon: string }> = {
@@ -20,6 +21,7 @@ const PAKISTAN_HAJI_TARGET = "Super Admin Account";
 export default function HajiTransfersPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const searchParams = useSearchParams();
   const shouldUseSuperAdminTarget = user?.role === "city_admin" && user?.countryName === "Pakistan";
   const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
   const [items, setItems] = useState<any[]>([]);
@@ -46,6 +48,7 @@ export default function HajiTransfersPage() {
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
   const [showSummary, setShowSummary] = useState(true);
+  const [prefillHandled, setPrefillHandled] = useState(false);
 
   const toggleCheque = (id: number) => {
     setForm((f: any) => {
@@ -70,6 +73,13 @@ export default function HajiTransfersPage() {
     setLoading(false);
   }, [page, filterFrom, filterTo]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (prefillHandled || user?.role !== "city_admin") return;
+    if (searchParams.get("create") !== "1") return;
+    setPrefillHandled(true);
+    openCreate();
+    window.history.replaceState({}, "", "/haji-transfers");
+  }, [prefillHandled, searchParams, user?.role]);
 
   // Group totals by transferredTo person
   const personTotals = items.reduce((acc: Record<string, Record<string, number>>, tr: any) => {

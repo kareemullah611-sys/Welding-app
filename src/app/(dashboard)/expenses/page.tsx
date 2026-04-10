@@ -5,10 +5,12 @@ import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { useSearchParams } from "next/navigation";
 
 export default function ExpensesPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const searchParams = useSearchParams();
   const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
   const { isOnline, enqueue, lastSyncResult } = useOffline();
   const [expenses, setExpenses] = useState<any[]>([]);
@@ -32,6 +34,7 @@ export default function ExpensesPage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [prefillHandled, setPrefillHandled] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -51,6 +54,13 @@ export default function ExpensesPage() {
     setLoading(false);
   }, [page, user?.role]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (prefillHandled || user?.role !== "city_admin") return;
+    if (searchParams.get("create") !== "1") return;
+    setPrefillHandled(true);
+    openCreate();
+    window.history.replaceState({}, "", "/expenses");
+  }, [prefillHandled, searchParams, user?.role]);
 
   const formatPot = (pot: Record<string, number> | undefined) => {
     if (!pot) return "0";

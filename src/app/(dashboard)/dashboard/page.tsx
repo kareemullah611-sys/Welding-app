@@ -68,22 +68,22 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Link href="/sales" className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4 hover:bg-blue-100 transition-colors">
+            <Link href="/sales?create=1" className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4 hover:bg-blue-100 transition-colors">
               <div className="text-sm font-semibold text-blue-900">New Sale</div>
             </Link>
-            <Link href="/payments" className="rounded-2xl border border-green-200 bg-green-50 px-4 py-4 hover:bg-green-100 transition-colors">
+            <Link href="/payments?create=payment" className="rounded-2xl border border-green-200 bg-green-50 px-4 py-4 hover:bg-green-100 transition-colors">
               <div className="text-sm font-semibold text-green-900">Receive Payment</div>
             </Link>
-            <Link href="/expenses" className="rounded-2xl border border-red-200 bg-red-50 px-4 py-4 hover:bg-red-100 transition-colors">
+            <Link href="/expenses?create=1" className="rounded-2xl border border-red-200 bg-red-50 px-4 py-4 hover:bg-red-100 transition-colors">
               <div className="text-sm font-semibold text-red-900">Record Expense</div>
             </Link>
-            <Link href="/personal-withdrawals" className="rounded-2xl border border-purple-200 bg-purple-50 px-4 py-4 hover:bg-purple-100 transition-colors">
+            <Link href="/personal-withdrawals?create=1" className="rounded-2xl border border-purple-200 bg-purple-50 px-4 py-4 hover:bg-purple-100 transition-colors">
               <div className="text-sm font-semibold text-purple-900">Personal Withdrawal</div>
             </Link>
-            <Link href="/haji-transfers" className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-4 hover:bg-orange-100 transition-colors">
+            <Link href="/haji-transfers?create=1" className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-4 hover:bg-orange-100 transition-colors">
               <div className="text-sm font-semibold text-orange-900">Haji Transfer</div>
             </Link>
-            <Link href="/customers" className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-4 hover:bg-teal-100 transition-colors">
+            <Link href="/customers?create=1" className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-4 hover:bg-teal-100 transition-colors">
               <div className="text-sm font-semibold text-teal-900">New Customer</div>
             </Link>
             <Link href="/inventory" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 hover:bg-amber-100 transition-colors">

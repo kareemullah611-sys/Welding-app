@@ -4,10 +4,12 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { useSearchParams } from "next/navigation";
 
 export default function CustomersPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const searchParams = useSearchParams();
   const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -25,6 +27,7 @@ export default function CustomersPage() {
   const [hardDeleteTarget, setHardDeleteTarget] = useState<any>(null);
   const [hardDeletePassword, setHardDeletePassword] = useState("");
   const [hardDeleteError, setHardDeleteError] = useState("");
+  const [prefillHandled, setPrefillHandled] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -33,6 +36,13 @@ export default function CustomersPage() {
     setLoading(false);
   }, [page]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (prefillHandled || user?.role !== "city_admin") return;
+    if (searchParams.get("create") !== "1") return;
+    setPrefillHandled(true);
+    openCreate();
+    window.history.replaceState({}, "", "/customers");
+  }, [prefillHandled, searchParams, user?.role]);
 
   const openCreate = () => { setForm({ name: "", phone: "", address: "", cityId: user?.cityId || 0 }); setShowCreate(true); setFormError(""); };
   const handleCreate = async () => {
