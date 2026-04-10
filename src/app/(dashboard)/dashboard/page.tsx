@@ -204,8 +204,8 @@ export default function DashboardPage() {
           </div>
         )}
 
-        <Modal open={!!quickAction} onClose={() => setQuickAction(null)} title={quickAction?.title || "Quick Action"} size="xl">
-          {quickAction && <iframe src={quickAction.src} title={quickAction.title} className="h-[78vh] w-full rounded-xl border border-gray-200" />}
+        <Modal open={!!quickAction} onClose={() => setQuickAction(null)} title={quickAction?.title || "Quick Action"} size="xl" hideHeader bodyClassName="p-0">
+          {quickAction && <iframe src={quickAction.src} title={quickAction.title} className="h-[78vh] w-full border-0" />}
         </Modal>
 
       </div>

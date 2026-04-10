@@ -248,6 +248,8 @@ export function Modal({
   children,
   size = "md",
   inline = false,
+  hideHeader = false,
+  bodyClassName,
 }: {
   open: boolean;
   onClose: () => void;
@@ -255,6 +257,8 @@ export function Modal({
   children: React.ReactNode;
   size?: "sm" | "md" | "lg" | "xl";
   inline?: boolean;
+  hideHeader?: boolean;
+  bodyClassName?: string;
 }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -276,10 +280,12 @@ export function Modal({
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className={cn("w-full gap-0 p-0 overflow-hidden", sizes[size])}>
-        <DialogHeader className="px-6 py-4 border-b border-border flex-shrink-0">
-          <DialogTitle asChild><div className="text-base font-semibold text-gray-900">{title}</div></DialogTitle>
-        </DialogHeader>
-        <div className="overflow-y-auto px-6 py-5 max-h-[75vh]">{children}</div>
+        {!hideHeader && (
+          <DialogHeader className="px-6 py-4 border-b border-border flex-shrink-0">
+            <DialogTitle asChild><div className="text-base font-semibold text-gray-900">{title}</div></DialogTitle>
+          </DialogHeader>
+        )}
+        <div className={cn("overflow-y-auto max-h-[75vh]", hideHeader ? "" : "px-6 py-5", bodyClassName)}>{children}</div>
       </DialogContent>
     </Dialog>
   );

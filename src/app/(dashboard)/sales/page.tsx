@@ -372,7 +372,7 @@ export default function SalesPage() {
       </>
       )}
       {/* ========== CREATE SALE MODAL ========== */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); setShortConfirmed(false); setFormError(""); if (isEmbed) closeEmbed(); }} title={t("new_sale")} size="xl" inline={isEmbed}>
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); setShortConfirmed(false); setFormError(""); if (isEmbed) closeEmbed(); }} title={t("new_sale")} size="xl">
         {formError && (
           <div className={`mb-4 p-3 rounded-lg text-sm border ${shortConfirmed ? "bg-amber-50 border-amber-300 text-amber-800" : "bg-red-50 border-red-200 text-red-700"}`}>
             {formError}
