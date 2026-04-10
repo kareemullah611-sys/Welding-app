@@ -85,6 +85,11 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       effectiveLotId = lot?.id ?? null;
     }
     if (!effectiveLotId) return errorResponse("VALIDATION_ERROR", "No ongoing lot available");
+    const effectiveLot = await prisma.lot.findFirst({
+      where: { id: effectiveLotId, status: "ongoing", lotCityDistributions: { some: { cityId: user.cityId! } } },
+      select: { id: true },
+    });
+    if (!effectiveLot) return errorResponse("VALIDATION_ERROR", "Selected lot is not ongoing or not distributed to your city");
 
     const transfer = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${31001}, ${parsedFromGodownId * 100000 + parsedProductId})`;

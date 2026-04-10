@@ -193,26 +193,22 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported");
       }
 
-      const chequePayments = chequePaymentIds.length > 0
-        ? await prisma.payment.findMany({ where: { id: { in: chequePaymentIds } } })
-        : [];
-      if (chequePayments.length !== chequePaymentIds.length) {
-        return errorResponse("NOT_FOUND", "One or more cheque payments were not found", 404);
-      }
-      for (const chequePayment of chequePayments) {
-        if (chequePayment.cityId !== cityId) return errorResponse("FORBIDDEN", "Cheque payment does not belong to your city", 403);
-        if ((chequePayment as any).paymentMethod !== "cheque") return errorResponse("VALIDATION_ERROR", "Referenced payment is not a cheque payment");
-        if ((chequePayment as any).chequeStatus !== "in_hand") return errorResponse("VALIDATION_ERROR", "One or more selected cheques are not in-hand");
-      }
-      const existingTransfers = chequePaymentIds.length > 0
-        ? await prisma.hajiTransfer.findMany({ where: { chequePaymentId: { in: chequePaymentIds } } as any, select: { chequePaymentId: true } })
-        : [];
-      if (existingTransfers.length > 0) {
-        return errorResponse("CONFLICT", "One or more selected cheques have already been used for a Haji transfer", 409);
-      }
-
       const createdTransfers = await prisma.$transaction(async (tx) => {
         const created: any[] = [];
+        const chequePayments: any[] = [];
+
+        for (const chequePaymentId of chequePaymentIds) {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${32003}, ${chequePaymentId})`;
+        }
+
+        for (const chequePaymentId of chequePaymentIds) {
+          const chequePayment = await tx.payment.findUnique({ where: { id: chequePaymentId } });
+          if (!chequePayment) throw new Error("CHEQUE_NOT_FOUND");
+          if (chequePayment.cityId !== cityId) throw new Error("CHEQUE_FORBIDDEN");
+          if ((chequePayment as any).paymentMethod !== "cheque") throw new Error("CHEQUE_NOT_CHEQUE");
+          if ((chequePayment as any).chequeStatus !== "in_hand") throw new Error("CHEQUE_NOT_IN_HAND");
+          chequePayments.push(chequePayment);
+        }
 
         if (cashAmount > 0) {
           const cashTransfer = await tx.hajiTransfer.create({
@@ -231,10 +227,32 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
             } as any,
             include: { lot: { select: { id: true, lotNumber: true } }, currency: true, creator: { select: { id: true, fullName: true } } },
           });
+          await createAuditLog(user.userId, cityId, "haji_transfers", cashTransfer.id, "create", undefined, {
+            lotId,
+            amount: Number(cashTransfer.amount),
+            transferType: cashTransfer.transferType,
+            sourceType: cashTransfer.sourceType,
+          }, getClientIP(request), tx);
+          await journalHajiTransfer({
+            id: cashTransfer.id,
+            cityId,
+            amount: Number(cashTransfer.amount),
+            currencyCode: cashTransfer.currency.code,
+            date: cashTransfer.transferDate,
+            createdBy: user.userId,
+            sourceType: cashTransfer.sourceType,
+            bankAccountId: (cashTransfer as any).bankAccountId ?? null,
+          }, tx);
           created.push(cashTransfer);
         }
 
         for (const chequePayment of chequePayments) {
+          const claimed = await tx.payment.updateMany({
+            where: { id: chequePayment.id, chequeStatus: "in_hand" as any },
+            data: { chequeStatus: "sent_to_haji" } as any,
+          });
+          if (claimed.count !== 1) throw new Error("CHEQUE_ALREADY_USED");
+
           const chequeTransfer = await tx.hajiTransfer.create({
             data: {
               cityId,
@@ -252,36 +270,27 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
             } as any,
             include: { lot: { select: { id: true, lotNumber: true } }, currency: true, creator: { select: { id: true, fullName: true } } },
           });
-          await tx.payment.update({
-            where: { id: chequePayment.id },
-            data: { chequeStatus: "sent_to_haji" } as any,
-          });
+          await createAuditLog(user.userId, cityId, "haji_transfers", chequeTransfer.id, "create", undefined, {
+            lotId,
+            amount: Number(chequeTransfer.amount),
+            transferType: chequeTransfer.transferType,
+            sourceType: chequeTransfer.sourceType,
+          }, getClientIP(request), tx);
+          await journalHajiTransfer({
+            id: chequeTransfer.id,
+            cityId,
+            amount: Number(chequeTransfer.amount),
+            currencyCode: chequeTransfer.currency.code,
+            date: chequeTransfer.transferDate,
+            createdBy: user.userId,
+            sourceType: chequeTransfer.sourceType,
+            bankAccountId: (chequeTransfer as any).bankAccountId ?? null,
+          }, tx);
           created.push(chequeTransfer);
         }
 
         return created;
       });
-
-      for (const transfer of createdTransfers) {
-        await createAuditLog(user.userId, cityId, "haji_transfers", transfer.id, "create", undefined, {
-          lotId,
-          amount: Number(transfer.amount),
-          transferType: transfer.transferType,
-          sourceType: transfer.sourceType,
-        }, getClientIP(request));
-        try {
-          await journalHajiTransfer({
-            id: transfer.id,
-            cityId,
-            amount: Number(transfer.amount),
-            currencyCode: transfer.currency.code,
-            date: transfer.transferDate,
-            createdBy: user.userId,
-            sourceType: transfer.sourceType,
-            bankAccountId: (transfer as any).bankAccountId ?? null,
-          });
-        } catch (je) { console.error("Journal (haji batch):", je); }
-      }
 
       return successResponse({
         count: createdTransfers.length,
@@ -324,18 +333,6 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       else if (sourceType === "cheque") transferType = "direct";
     }
 
-    // Validate cheque source
-    if (sourceType === "cheque" && chequePaymentId) {
-      const chequePayment = await prisma.payment.findUnique({ where: { id: chequePaymentId } });
-      if (!chequePayment) return errorResponse("NOT_FOUND", "Cheque payment not found", 404);
-      if (chequePayment.cityId !== cityId) return errorResponse("FORBIDDEN", "Cheque payment does not belong to your city", 403);
-      if ((chequePayment as any).paymentMethod !== "cheque") return errorResponse("VALIDATION_ERROR", "Referenced payment is not a cheque payment");
-      if ((chequePayment as any).chequeStatus !== "in_hand") return errorResponse("VALIDATION_ERROR", "Cheque is not in-hand status");
-      // Prevent same cheque being used for multiple haji transfers
-      const existingTransfer = await prisma.hajiTransfer.findFirst({ where: { chequePaymentId } as any });
-      if (existingTransfer) return errorResponse("CONFLICT", "This cheque has already been used for a haji transfer", 409);
-    }
-
     // Validate bank account source
     if (sourceType === "bank_transfer" && bankAccountId) {
       const bankAccount = await prisma.bankAccount.findUnique({ where: { id: bankAccountId } });
@@ -363,32 +360,36 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported");
     const resolvedCurrencyId = currencyId ?? cityCurrency.currencyId;
 
-    const transfer = await prisma.hajiTransfer.create({
-      data: {
-        cityId, lotId, transferDate: new Date(transferDate), amount, currencyId: resolvedCurrencyId,
-        detail, transferType, transferredTo, notes, createdBy: user.userId,
-        ...(sourceType !== undefined ? { sourceType } : {}),
-        ...(bankAccountId !== undefined ? { bankAccountId } : {}),
-        ...(chequePaymentId !== undefined ? { chequePaymentId } : {}),
-      } as any,
-      include: { lot: { select: { id: true, lotNumber: true } }, currency: true, creator: { select: { id: true, fullName: true } } },
-    }) as any;
-
-    // If sourced from a cheque, update the cheque payment status to 'sent_to_haji'
-    if (sourceType === "cheque" && chequePaymentId) {
-      try {
-        await prisma.payment.update({
-          where: { id: chequePaymentId },
+    const transfer = await prisma.$transaction(async (tx) => {
+      if (sourceType === "cheque" && chequePaymentId) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${32003}, ${chequePaymentId})`;
+        const chequePayment = await tx.payment.findUnique({ where: { id: chequePaymentId } });
+        if (!chequePayment) throw new Error("CHEQUE_NOT_FOUND");
+        if (chequePayment.cityId !== cityId) throw new Error("CHEQUE_FORBIDDEN");
+        if ((chequePayment as any).paymentMethod !== "cheque") throw new Error("CHEQUE_NOT_CHEQUE");
+        if ((chequePayment as any).chequeStatus !== "in_hand") throw new Error("CHEQUE_NOT_IN_HAND");
+        const claimed = await tx.payment.updateMany({
+          where: { id: chequePaymentId, chequeStatus: "in_hand" as any },
           data: { chequeStatus: "sent_to_haji" } as any,
         });
-      } catch (_) { /* chequeStatus column not yet migrated — ignore */ }
-    }
+        if (claimed.count !== 1) throw new Error("CHEQUE_ALREADY_USED");
+      }
 
-    await createAuditLog(user.userId, cityId, "haji_transfers", transfer.id, "create", undefined, { lotId, amount, transferType, sourceType }, getClientIP(request));
+      const createdTransfer = await tx.hajiTransfer.create({
+        data: {
+          cityId, lotId, transferDate: new Date(transferDate), amount, currencyId: resolvedCurrencyId,
+          detail, transferType, transferredTo, notes, createdBy: user.userId,
+          ...(sourceType !== undefined ? { sourceType } : {}),
+          ...(bankAccountId !== undefined ? { bankAccountId } : {}),
+          ...(chequePaymentId !== undefined ? { chequePaymentId } : {}),
+        } as any,
+        include: { lot: { select: { id: true, lotNumber: true } }, currency: true, creator: { select: { id: true, fullName: true } } },
+      }) as any;
 
-    try {
-      await journalHajiTransfer({ id: transfer.id, cityId, amount, currencyCode: transfer.currency.code, date: transfer.transferDate, createdBy: user.userId, sourceType: transfer.sourceType, bankAccountId: (transfer as any).bankAccountId ?? null });
-    } catch (je) { console.error("Journal (haji):", je); }
+      await createAuditLog(user.userId, cityId, "haji_transfers", createdTransfer.id, "create", undefined, { lotId, amount, transferType, sourceType }, getClientIP(request), tx);
+      await journalHajiTransfer({ id: createdTransfer.id, cityId, amount, currencyCode: createdTransfer.currency.code, date: createdTransfer.transferDate, createdBy: user.userId, sourceType: createdTransfer.sourceType, bankAccountId: (createdTransfer as any).bankAccountId ?? null }, tx);
+      return createdTransfer;
+    });
 
     return successResponse({
       id: transfer.id, lotNumber: transfer.lot.lotNumber,
@@ -400,7 +401,11 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       currency: { id: transfer.currency.id, code: transfer.currency.code, symbol: transfer.currency.symbol },
       createdBy: transfer.creator,
     }, "Haji transfer recorded", 201);
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.message === "CHEQUE_NOT_FOUND") return errorResponse("NOT_FOUND", "Cheque payment not found", 404);
+    if (error?.message === "CHEQUE_FORBIDDEN") return errorResponse("FORBIDDEN", "Cheque payment does not belong to your city", 403);
+    if (error?.message === "CHEQUE_NOT_CHEQUE") return errorResponse("VALIDATION_ERROR", "Referenced payment is not a cheque payment");
+    if (error?.message === "CHEQUE_NOT_IN_HAND" || error?.message === "CHEQUE_ALREADY_USED") return errorResponse("CONFLICT", "One or more selected cheques are no longer available", 409);
     return serverError();
   }
 });

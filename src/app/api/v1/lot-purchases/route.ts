@@ -17,6 +17,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
 
     const lot = await prisma.lot.findUnique({ where: { id: lotId }, include: { lotProducts: { select: { productId: true } } } });
     if (!lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
+    if (lot.status !== "ongoing") return errorResponse("VALIDATION_ERROR", "Purchase prices can only be recorded against ongoing lots");
 
     // Validate positive qty and price on each product
     for (const p of products) {
@@ -39,29 +40,30 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     // Fix: create each line individually to get its exact DB id, then journal each line
     // with key PURCH-{lotId}-{id}. Previously createMany was used and the aggregate journal
     // was keyed to createdIds[0], making edit/delete reversals fail for every other line.
-    const createdItems: { id: number; totalPriceUsd: number }[] = [];
-    for (const p of products) {
-      const item = await prisma.lotPurchase.create({
-        data: {
-          lotId, supplierId, productId: p.productId,
-          qty: p.qty, unitPriceUsd: p.unitPriceUsd,
-          totalPriceUsd: roundMoney(p.qty * p.unitPriceUsd),
-          exchangeRate: exchangeRate || null, createdBy: user.userId,
-        },
-        select: { id: true, totalPriceUsd: true },
-      });
-      createdItems.push({ id: item.id, totalPriceUsd: Number(item.totalPriceUsd) });
-    }
+    const createdItems = await prisma.$transaction(async (tx) => {
+      const itemsCreated: { id: number; totalPriceUsd: number }[] = [];
+      for (const p of products) {
+        const item = await tx.lotPurchase.create({
+          data: {
+            lotId, supplierId, productId: p.productId,
+            qty: p.qty, unitPriceUsd: p.unitPriceUsd,
+            totalPriceUsd: roundMoney(p.qty * p.unitPriceUsd),
+            exchangeRate: exchangeRate || null, createdBy: user.userId,
+          },
+          select: { id: true, totalPriceUsd: true },
+        });
+        itemsCreated.push({ id: item.id, totalPriceUsd: Number(item.totalPriceUsd) });
+      }
+
+      await createAuditLog(user.userId, null, "lot_purchases", lotId, "create", undefined, { supplierId, products }, getClientIP(request), tx);
+
+      for (const item of itemsCreated) {
+        await journalLotPurchase({ id: item.id, supplierId, lotId, totalUsd: item.totalPriceUsd, createdBy: user.userId }, tx);
+      }
+
+      return itemsCreated;
+    });
     const createdIds = createdItems.map((c) => c.id);
-
-    await createAuditLog(user.userId, null, "lot_purchases", lotId, "create", undefined, { supplierId, products }, getClientIP(request));
-
-    // Journal each line under its own key so edit/delete reversals always match
-    for (const item of createdItems) {
-      try {
-        await journalLotPurchase({ id: item.id, supplierId, lotId, totalUsd: item.totalPriceUsd, createdBy: user.userId });
-      } catch (je) { console.error(`Journal (purchase line ${item.id}):`, je); }
-    }
 
     return successResponse({ lotId, purchaseIds: createdIds }, "Purchase prices recorded", 201);
   } catch (error) { console.error("Create lot purchase error:", error); return serverError(); }

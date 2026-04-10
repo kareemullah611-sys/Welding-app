@@ -54,25 +54,25 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       }
     }
 
-    const cost = await prisma.lotCost.create({
-      data: {
-        lotId: body.lotId, costType: body.costType as any,
-        description: body.description, amount: body.amount,
-        currencyCode: body.currencyCode || "USD",
-        exchangeRate: body.exchangeRate || null,
-        costDate: body.costDate ? new Date(body.costDate) : null,
-        agentId,
-        shippingLineId,
-        paidFromCash: body.paidFromCash === true,
-        notes: body.notes || null, createdBy: user.userId,
-      },
+    const cost = await prisma.$transaction(async (tx) => {
+      const createdCost = await tx.lotCost.create({
+        data: {
+          lotId: body.lotId, costType: body.costType as any,
+          description: body.description, amount: body.amount,
+          currencyCode: body.currencyCode || "USD",
+          exchangeRate: body.exchangeRate || null,
+          costDate: body.costDate ? new Date(body.costDate) : null,
+          agentId,
+          shippingLineId,
+          paidFromCash: body.paidFromCash === true,
+          notes: body.notes || null, createdBy: user.userId,
+        },
+      });
+
+      await createAuditLog(user.userId, null, "lot_costs", createdCost.id, "create", undefined, body, getClientIP(request), tx);
+      await journalLotCost({ id: createdCost.id, lotId: body.lotId, costType: body.costType, amount: body.amount, currencyCode: body.currencyCode || "USD", createdBy: user.userId, agentId: agentId || undefined, shippingLineId: shippingLineId || undefined }, tx);
+      return createdCost;
     });
-
-    await createAuditLog(user.userId, null, "lot_costs", cost.id, "create", undefined, body, getClientIP(request));
-
-    try {
-      await journalLotCost({ id: cost.id, lotId: body.lotId, costType: body.costType, amount: body.amount, currencyCode: body.currencyCode || "USD", createdBy: user.userId, agentId: agentId || undefined, shippingLineId: shippingLineId || undefined });
-    } catch (je) { console.error("Journal (lot cost):", je); }
 
     return successResponse({ id: cost.id }, "Cost recorded", 201);
   } catch (error) { console.error("Create lot cost error:", error); return serverError(); }

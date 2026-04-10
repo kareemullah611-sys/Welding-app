@@ -82,54 +82,54 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       return errorResponse("VALIDATION_ERROR", "Cheque is required when source is cheque");
     }
 
-    let chequePayment: any = null;
-    if (sourceType === "cheque" && chequePaymentId) {
-      chequePayment = await prisma.payment.findUnique({ where: { id: chequePaymentId } });
-      if (!chequePayment) return errorResponse("NOT_FOUND", "Cheque payment not found", 404);
-      if (chequePayment.cityId !== cityId) return errorResponse("FORBIDDEN", "Cheque payment does not belong to your city", 403);
-      if ((chequePayment as any).paymentMethod !== "cheque") return errorResponse("VALIDATION_ERROR", "Referenced payment is not a cheque payment");
-      if (chequePayment.destination !== "our_account") return errorResponse("VALIDATION_ERROR", "Only in-hand company cheques can fund a withdrawal");
-      if ((chequePayment as any).chequeStatus !== "in_hand") return errorResponse("VALIDATION_ERROR", "Cheque is not in-hand status");
-      const existingWithdrawal = await prisma.personalWithdrawal.findFirst({ where: { chequePaymentId } as any });
-      if (existingWithdrawal) return errorResponse("CONFLICT", "This cheque has already been used for a withdrawal", 409);
-    }
+    const withdrawal = await prisma.$transaction(async (tx) => {
+      let chequePayment: any = null;
+      if (sourceType === "cheque" && chequePaymentId) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${32001}, ${chequePaymentId})`;
+        chequePayment = await tx.payment.findUnique({ where: { id: chequePaymentId } });
+        if (!chequePayment) throw new Error("CHEQUE_NOT_FOUND");
+        if (chequePayment.cityId !== cityId) throw new Error("CHEQUE_FORBIDDEN");
+        if ((chequePayment as any).paymentMethod !== "cheque") throw new Error("CHEQUE_NOT_CHEQUE");
+        if (chequePayment.destination !== "our_account") throw new Error("CHEQUE_NOT_OUR_ACCOUNT");
+        if ((chequePayment as any).chequeStatus !== "in_hand") throw new Error("CHEQUE_NOT_IN_HAND");
+        if (Number(chequePayment.amount) !== Number(amount)) throw new Error(`CHEQUE_AMOUNT_MISMATCH:${Number(chequePayment.amount)}`);
+      }
 
-    const resolvedCurrencyId = chequePayment?.currencyId ?? currencyId;
-    const resolvedAmount = chequePayment ? Number(chequePayment.amount) : amount;
-    const cityCurrency = await prisma.cityCurrency.findFirst({ where: { cityId, currencyId: resolvedCurrencyId } });
-    if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported");
+      const resolvedCurrencyId = chequePayment?.currencyId ?? currencyId;
+      const cityCurrency = await tx.cityCurrency.findFirst({ where: { cityId, currencyId: resolvedCurrencyId } });
+      if (!cityCurrency) throw new Error("CURRENCY_NOT_SUPPORTED");
 
-    const withdrawal = await prisma.personalWithdrawal.create({
-      data: {
-        cityId,
-        withdrawalDate: new Date(withdrawalDate),
-        amount: resolvedAmount,
-        currencyId: resolvedCurrencyId,
-        detail,
-        withdrawnBy,
-        notes,
-        sourceType,
-        ...(chequePaymentId !== undefined ? { chequePaymentId } : {}),
-        createdBy: user.userId,
-      } as any,
-      include: {
-        currency: true,
-        creator: { select: { id: true, fullName: true } },
-      },
-    }) as any;
+      if (sourceType === "cheque" && chequePaymentId) {
+        const claimed = await tx.payment.updateMany({
+          where: { id: chequePaymentId, chequeStatus: "in_hand" as any },
+          data: { chequeStatus: "used_for_withdrawal" } as any,
+        });
+        if (claimed.count !== 1) throw new Error("CHEQUE_ALREADY_USED");
+      }
 
-    if (sourceType === "cheque" && chequePaymentId) {
-      await prisma.payment.update({
-        where: { id: chequePaymentId },
-        data: { chequeStatus: "used_for_withdrawal" } as any,
-      });
-    }
+      const createdWithdrawal = await tx.personalWithdrawal.create({
+        data: {
+          cityId,
+          withdrawalDate: new Date(withdrawalDate),
+          amount,
+          currencyId: resolvedCurrencyId,
+          detail,
+          withdrawnBy,
+          notes,
+          sourceType,
+          ...(chequePaymentId !== undefined ? { chequePaymentId } : {}),
+          createdBy: user.userId,
+        } as any,
+        include: {
+          currency: true,
+          creator: { select: { id: true, fullName: true } },
+        },
+      }) as any;
 
-    await createAuditLog(user.userId, cityId, "personal_withdrawals", withdrawal.id, "create", undefined, { amount: resolvedAmount, detail, withdrawnBy, sourceType }, getClientIP(request));
-
-    try {
-      await journalWithdrawal({ id: withdrawal.id, cityId, amount: Number(withdrawal.amount), currencyCode: withdrawal.currency.code, date: withdrawal.withdrawalDate, createdBy: user.userId, sourceType });
-    } catch (je) { console.error("Journal (withdrawal):", je); }
+      await createAuditLog(user.userId, cityId, "personal_withdrawals", createdWithdrawal.id, "create", undefined, { amount, detail, withdrawnBy, sourceType }, getClientIP(request), tx);
+      await journalWithdrawal({ id: createdWithdrawal.id, cityId, amount: Number(createdWithdrawal.amount), currencyCode: createdWithdrawal.currency.code, date: createdWithdrawal.withdrawalDate, createdBy: user.userId, sourceType }, tx);
+      return createdWithdrawal;
+    });
 
     return successResponse({
       id: withdrawal.id,
@@ -145,7 +145,17 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       currency: { id: withdrawal.currency.id, code: withdrawal.currency.code, symbol: withdrawal.currency.symbol },
       createdBy: withdrawal.creator,
     }, "Withdrawal recorded", 201);
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.message === "CHEQUE_NOT_FOUND") return errorResponse("NOT_FOUND", "Cheque payment not found", 404);
+    if (error?.message === "CHEQUE_FORBIDDEN") return errorResponse("FORBIDDEN", "Cheque payment does not belong to your city", 403);
+    if (error?.message === "CHEQUE_NOT_CHEQUE") return errorResponse("VALIDATION_ERROR", "Referenced payment is not a cheque payment");
+    if (error?.message === "CHEQUE_NOT_OUR_ACCOUNT") return errorResponse("VALIDATION_ERROR", "Only in-hand company cheques can fund a withdrawal");
+    if (error?.message === "CHEQUE_NOT_IN_HAND" || error?.message === "CHEQUE_ALREADY_USED") return errorResponse("CONFLICT", "Cheque is no longer available for withdrawal", 409);
+    if (typeof error?.message === "string" && error.message.startsWith("CHEQUE_AMOUNT_MISMATCH:")) {
+      const chequeAmount = Number(error.message.split(":")[1] || 0);
+      return errorResponse("VALIDATION_ERROR", `Withdrawal amount must match the selected cheque amount of ${chequeAmount}`);
+    }
+    if (error?.message === "CURRENCY_NOT_SUPPORTED") return errorResponse("VALIDATION_ERROR", "Currency not supported");
     return serverError();
   }
 });

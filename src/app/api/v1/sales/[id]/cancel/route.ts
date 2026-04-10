@@ -41,15 +41,19 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     try { await reverseJournalEntries(`SALE-${id}`, user.userId); } catch (je) { console.error("Journal reversal error (sale cancel):", je); }
     try { await reverseJournalEntries(`COGS-${id}`, user.userId); } catch (je) { console.error("COGS reversal error (sale cancel):", je); }
 
-    // Fix P1: If walk-in sale, cancel the auto-created payment and reverse its journal.
-    // The payment is linked via manualVoucherNo = voucherNo (no direct FK exists).
+    // If walk-in sale, cancel the auto-created payment and reverse its journal.
     if (sale.customer.name === "Walk-in Customer") {
       try {
         const walkinPayment = await prisma.payment.findFirst({
           where: {
-            manualVoucherNo: String(sale.voucherNo),
-            customerId: sale.customerId,
-            cityId: sale.cityId,
+            OR: [
+              { saleId: sale.id },
+              {
+                manualVoucherNo: String(sale.voucherNo),
+                customerId: sale.customerId,
+                cityId: sale.cityId,
+              },
+            ],
             status: "active",
           },
         });

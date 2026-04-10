@@ -40,7 +40,12 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
       // Fix: for walk-in sales, auto-payment was created at sale time — remove it too
       if (sale.customer.name === "Walk-in Customer") {
         const walkinPayment = await tx.payment.findFirst({
-          where: { manualVoucherNo: String(sale.voucherNo), customerId: sale.customerId, cityId: sale.cityId },
+          where: {
+            OR: [
+              { saleId: sale.id },
+              { manualVoucherNo: String(sale.voucherNo), customerId: sale.customerId, cityId: sale.cityId },
+            ],
+          },
           select: { id: true },
         });
         if (walkinPayment) {

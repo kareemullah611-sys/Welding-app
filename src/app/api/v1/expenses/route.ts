@@ -99,57 +99,57 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       if ((bankAccount as any).cityId !== cityId) return errorResponse("FORBIDDEN", "Bank account does not belong to your city", 403);
     }
 
-    let chequePayment: any = null;
-    if (paidFrom === "cheque" && chequePaymentId) {
-      chequePayment = await prisma.payment.findUnique({ where: { id: chequePaymentId } });
-      if (!chequePayment) return errorResponse("NOT_FOUND", "Cheque payment not found", 404);
-      if (chequePayment.cityId !== cityId) return errorResponse("FORBIDDEN", "Cheque payment does not belong to your city", 403);
-      if ((chequePayment as any).paymentMethod !== "cheque") return errorResponse("VALIDATION_ERROR", "Referenced payment is not a cheque payment");
-      if (chequePayment.destination !== "our_account") return errorResponse("VALIDATION_ERROR", "Only in-hand company cheques can fund an expense");
-      if ((chequePayment as any).chequeStatus !== "in_hand") return errorResponse("VALIDATION_ERROR", "Cheque is not in-hand status");
-      const existingExpense = await prisma.expense.findFirst({ where: { chequePaymentId } as any });
-      if (existingExpense) return errorResponse("CONFLICT", "This cheque has already been used for an expense", 409);
-    }
-
     const lot = await prisma.lot.findFirst({
       where: { id: lotId ?? undefined, status: "ongoing", lotCityDistributions: { some: { cityId } } },
     });
     if (!lot) return errorResponse("VALIDATION_ERROR", "Lot not found, completed, or not distributed to your city");
+    const expense = await prisma.$transaction(async (tx) => {
+      let chequePayment: any = null;
+      if (paidFrom === "cheque" && chequePaymentId) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${32002}, ${chequePaymentId})`;
+        chequePayment = await tx.payment.findUnique({ where: { id: chequePaymentId } });
+        if (!chequePayment) throw new Error("CHEQUE_NOT_FOUND");
+        if (chequePayment.cityId !== cityId) throw new Error("CHEQUE_FORBIDDEN");
+        if ((chequePayment as any).paymentMethod !== "cheque") throw new Error("CHEQUE_NOT_CHEQUE");
+        if (chequePayment.destination !== "our_account") throw new Error("CHEQUE_NOT_OUR_ACCOUNT");
+        if ((chequePayment as any).chequeStatus !== "in_hand") throw new Error("CHEQUE_NOT_IN_HAND");
+      }
 
-    const resolvedCurrencyId = chequePayment?.currencyId ?? currencyId;
-    const resolvedAmount = chequePayment ? Number(chequePayment.amount) : amount;
-    const cityCurrency = await prisma.cityCurrency.findFirst({ where: { cityId, currencyId: resolvedCurrencyId ?? undefined } });
-    if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported in your city");
+      const resolvedCurrencyId = chequePayment?.currencyId ?? currencyId;
+      const resolvedAmount = chequePayment ? Number(chequePayment.amount) : amount;
+      const cityCurrency = await tx.cityCurrency.findFirst({ where: { cityId, currencyId: resolvedCurrencyId ?? undefined } });
+      if (!cityCurrency) throw new Error("CURRENCY_NOT_SUPPORTED");
 
-    const expense = await prisma.expense.create({
-      data: {
-        cityId, lotId: lot.id, expenseDate: new Date(expenseDate), amount: resolvedAmount,
-        currencyId: (resolvedCurrencyId ?? cityCurrency.currencyId) as number, detail, notes, createdBy: user.userId,
-        ...(paidFrom !== "cash_office" ? { paidFrom } : {}),
-        ...(bankAccountId !== undefined ? { bankAccountId } : {}),
-        ...(chequePaymentId !== undefined ? { chequePaymentId } : {}),
-      } as any,
-      include: { lot: { select: { id: true, lotNumber: true } }, currency: true, creator: { select: { id: true, fullName: true } } },
-    }) as any;
+      if (paidFrom === "cheque" && chequePaymentId) {
+        const claimed = await tx.payment.updateMany({
+          where: { id: chequePaymentId, chequeStatus: "in_hand" as any },
+          data: { chequeStatus: "used_for_expense" } as any,
+        });
+        if (claimed.count !== 1) throw new Error("CHEQUE_ALREADY_USED");
+      }
 
-    if (paidFrom === "cheque" && chequePaymentId) {
-      await prisma.payment.update({
-        where: { id: chequePaymentId },
-        data: { chequeStatus: "used_for_expense" } as any,
-      });
-    }
+      const createdExpense = await tx.expense.create({
+        data: {
+          cityId, lotId: lot.id, expenseDate: new Date(expenseDate), amount: resolvedAmount,
+          currencyId: (resolvedCurrencyId ?? cityCurrency.currencyId) as number, detail, notes, createdBy: user.userId,
+          ...(paidFrom !== "cash_office" ? { paidFrom } : {}),
+          ...(bankAccountId !== undefined ? { bankAccountId } : {}),
+          ...(chequePaymentId !== undefined ? { chequePaymentId } : {}),
+        } as any,
+        include: { lot: { select: { id: true, lotNumber: true } }, currency: true, creator: { select: { id: true, fullName: true } } },
+      }) as any;
 
-    await createAuditLog(user.userId, cityId, "expenses", expense.id, "create", undefined, {
-      date: expenseDate,
-      lot: `Lot ${expense.lot.lotNumber}`,
-      detail,
-      amount: `${expense.currency.symbol || expense.currency.code} ${Number(resolvedAmount).toLocaleString("en-US")}`,
-      ...(notes ? { notes } : {}),
-    }, getClientIP(request));
+      await createAuditLog(user.userId, cityId, "expenses", createdExpense.id, "create", undefined, {
+        date: expenseDate,
+        lot: `Lot ${createdExpense.lot.lotNumber}`,
+        detail,
+        amount: `${createdExpense.currency.symbol || createdExpense.currency.code} ${Number(resolvedAmount).toLocaleString("en-US")}`,
+        ...(notes ? { notes } : {}),
+      }, getClientIP(request), tx);
 
-    try {
-      await journalExpenseCreated({ id: expense.id, cityId, lotId: lot.id, amount: Number(expense.amount), currencyCode: expense.currency.code, detail, expenseDate: expense.expenseDate, createdBy: user.userId, paidFrom: paidFrom ?? "cash_office", bankAccountId: bankAccountId ?? null });
-    } catch (je) { console.error("Journal (expense):", je); }
+      await journalExpenseCreated({ id: createdExpense.id, cityId, lotId: lot.id, amount: Number(createdExpense.amount), currencyCode: createdExpense.currency.code, detail, expenseDate: createdExpense.expenseDate, createdBy: user.userId, paidFrom: paidFrom ?? "cash_office", bankAccountId: bankAccountId ?? null }, tx);
+      return createdExpense;
+    });
 
     return successResponse({
       id: expense.id, lotNumber: expense.lot.lotNumber,
@@ -161,7 +161,13 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       currency: { id: expense.currency.id, code: expense.currency.code, symbol: expense.currency.symbol },
       createdBy: expense.creator,
     }, "Expense recorded", 201);
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.message === "CHEQUE_NOT_FOUND") return errorResponse("NOT_FOUND", "Cheque payment not found", 404);
+    if (error?.message === "CHEQUE_FORBIDDEN") return errorResponse("FORBIDDEN", "Cheque payment does not belong to your city", 403);
+    if (error?.message === "CHEQUE_NOT_CHEQUE") return errorResponse("VALIDATION_ERROR", "Referenced payment is not a cheque payment");
+    if (error?.message === "CHEQUE_NOT_OUR_ACCOUNT") return errorResponse("VALIDATION_ERROR", "Only in-hand company cheques can fund an expense");
+    if (error?.message === "CHEQUE_NOT_IN_HAND" || error?.message === "CHEQUE_ALREADY_USED") return errorResponse("CONFLICT", "Cheque is no longer available for expense use", 409);
+    if (error?.message === "CURRENCY_NOT_SUPPORTED") return errorResponse("VALIDATION_ERROR", "Currency not supported in your city");
     return serverError();
   }
 });
