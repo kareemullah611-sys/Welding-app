@@ -151,7 +151,7 @@ function UserAvatar({ name, size = "md" }: { name: string; size?: "sm" | "md" })
   return (
     <div
       className={cn(
-        "rounded-full bg-gradient-to-br from-[#9a3a22] via-[#b7562c] to-[#d4873e] text-white font-bold flex items-center justify-center flex-shrink-0 shadow-[0_10px_24px_-16px_rgba(154,58,34,0.85)]",
+        "rounded-full bg-gradient-to-br from-[#5e6ad2] via-[#6a74da] to-[#7170ff] text-white font-[590] flex items-center justify-center flex-shrink-0 shadow-[0_10px_24px_-16px_rgba(94,106,210,0.8)]",
         size === "md" ? "w-8 h-8 text-[11px]" : "w-7 h-7 text-[10px]"
       )}
     >
@@ -214,8 +214,8 @@ export default function Sidebar() {
         </div>
         {!collapsed && (
           <div className="min-w-0">
-            <p className="text-white font-bold text-sm leading-tight tracking-tight">MRF Hardware</p>
-            <p className="text-[#8f9ab1] text-[10px] uppercase tracking-[0.24em] mt-0.5">Operations Suite</p>
+            <p className="text-white font-[590] text-sm leading-tight tracking-[-0.02em]">MRF Hardware</p>
+            <p className="mt-0.5 text-[10px] uppercase tracking-[0.24em] text-[#62666d]">Operations Suite</p>
           </div>
         )}
       </div>
@@ -226,11 +226,11 @@ export default function Sidebar() {
           <div key={group.label} className={gi > 0 ? "mt-4" : ""}>
             {/* Section label */}
             {!collapsed ? (
-              <p className="px-2 pt-1 pb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#6f7b93] select-none">
+              <p className="px-2 pt-1 pb-2 text-[10px] font-[590] uppercase tracking-[0.2em] text-[#62666d] select-none">
                 {group.label}
               </p>
             ) : (
-              gi > 0 && <div className="mx-2 mb-2 mt-2 h-px bg-white/10" />
+              gi > 0 && <div className="mx-2 mb-2 mt-2 h-px bg-white/[0.06]" />
             )}
 
             {/* Items */}
@@ -248,15 +248,15 @@ export default function Sidebar() {
                     "group relative flex items-center rounded-2xl text-[13px] font-medium transition-all duration-200",
                     collapsed ? "justify-center px-0 py-2.5 mx-0" : "gap-2.5 px-3 py-2",
                     isActive
-                      ? "bg-[linear-gradient(135deg,rgba(154,58,34,0.95),rgba(207,127,66,0.92))] text-white shadow-[0_18px_36px_-24px_rgba(183,86,44,0.9)]"
-                      : "text-[#98a4bc] hover:text-white hover:bg-white/[0.06]"
+                      ? "bg-[linear-gradient(135deg,rgba(94,106,210,0.22),rgba(113,112,255,0.14))] text-white shadow-[0_18px_36px_-24px_rgba(94,106,210,0.45)] ring-1 ring-white/[0.07]"
+                      : "text-[#8a8f98] hover:text-white hover:bg-white/[0.04]"
                   )}
                 >
                   {/* Active left accent */}
                   {isActive && !collapsed && (
                     <span
                       className={cn(
-                        "absolute inset-y-2 w-[3px] rounded-full bg-violet-400",
+                        "absolute inset-y-2 w-[3px] rounded-full bg-[#828fff]",
                         isRTL ? "right-0" : "left-0"
                       )}
                     />
@@ -266,8 +266,8 @@ export default function Sidebar() {
                       className={cn(
                         "w-[16px] h-[16px] transition-colors",
                         isActive
-                          ? "text-[#fff4dc]"
-                          : "text-[#657089] group-hover:text-[#d4deef]"
+                          ? "text-[#cdd1ff]"
+                          : "text-[#62666d] group-hover:text-[#d0d6e0]"
                       )}
                     />
                     {item.href === "/city-transfers" && pendingTransfers > 0 && (
@@ -295,11 +295,11 @@ export default function Sidebar() {
       <div className="border-t border-sidebar-border flex-shrink-0 p-2 space-y-0.5">
         {/* User info */}
         {!collapsed ? (
-          <div className="flex items-center gap-2.5 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-3">
+          <div className="flex items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-3">
             <UserAvatar name={user.fullName} />
             <div className="min-w-0 flex-1">
-              <p className="text-white text-xs font-semibold truncate leading-tight">{user.fullName}</p>
-              <p className="text-[#8f9ab1] text-[10px] truncate mt-0.5">
+              <p className="text-xs font-[590] leading-tight text-white truncate">{user.fullName}</p>
+              <p className="mt-0.5 truncate text-[10px] text-[#8a8f98]">
                 {user.role === "super_admin" ? "Super Admin" : `${user.cityName} Admin`}
               </p>
             </div>
@@ -333,7 +333,7 @@ export default function Sidebar() {
           onClick={logout}
           title={collapsed ? "Logout" : undefined}
           className={cn(
-            "w-full flex items-center rounded-2xl text-[13px] text-[#8f9ab1] hover:text-red-300 hover:bg-red-500/10 transition-all duration-150",
+            "w-full flex items-center rounded-2xl text-[13px] text-[#8a8f98] hover:text-red-300 hover:bg-red-500/10 transition-all duration-150",
             collapsed ? "justify-center px-0 py-2.5" : "gap-2.5 px-3 py-2"
           )}
         >
@@ -350,7 +350,7 @@ export default function Sidebar() {
       <button
         onClick={() => setMobileOpen(true)}
         className={cn(
-          "lg:hidden fixed top-4 z-50 rounded-2xl border border-white/10 bg-[#111722]/90 p-2.5 text-[#c2cede] shadow-2xl backdrop-blur-xl hover:text-white transition-colors",
+          "lg:hidden fixed top-4 z-50 rounded-2xl border border-white/[0.08] bg-[#111214]/90 p-2.5 text-[#8a8f98] shadow-2xl backdrop-blur-xl hover:text-white transition-colors",
           isRTL ? "right-3" : "left-3"
         )}
       >
@@ -368,7 +368,7 @@ export default function Sidebar() {
       {/* Mobile sidebar */}
       <aside
         className={cn(
-          "lg:hidden fixed top-0 z-50 h-full w-72 bg-[linear-gradient(180deg,#0b111d_0%,#121a28_46%,#0f1520_100%)] border-r border-white/10 shadow-2xl transform transition-transform duration-300",
+          "lg:hidden fixed top-0 z-50 h-full w-72 bg-[linear-gradient(180deg,#0b0c0e_0%,#101113_46%,#0f1011_100%)] border-r border-white/[0.08] shadow-2xl transform transition-transform duration-300",
           isRTL ? "right-0" : "left-0",
           mobileOpen ? "translate-x-0" : isRTL ? "translate-x-full" : "-translate-x-full"
         )}
@@ -379,7 +379,7 @@ export default function Sidebar() {
       {/* Desktop sidebar */}
       <aside
         className={cn(
-          "hidden lg:block fixed top-0 h-full bg-[linear-gradient(180deg,#0a111b_0%,#111826_55%,#0f1520_100%)] border-r border-white/10 transition-all duration-300 z-30 shadow-[24px_0_80px_-54px_rgba(7,10,18,0.9)]",
+          "hidden lg:block fixed top-0 h-full bg-[linear-gradient(180deg,#08090a_0%,#0f1011_55%,#101113_100%)] border-r border-white/[0.08] transition-all duration-300 z-30 shadow-[24px_0_80px_-54px_rgba(0,0,0,0.95)]",
           isRTL ? "right-0" : "left-0",
           collapsed ? "w-16" : "w-60"
         )}
@@ -391,7 +391,7 @@ export default function Sidebar() {
           onClick={() => setCollapsed(!collapsed)}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           className={cn(
-            "absolute top-[4.75rem] h-6 w-6 rounded-full border border-white/10 bg-[#111722] flex items-center justify-center text-[#95a1b9] hover:text-white hover:bg-[#a54425] transition-all duration-150 shadow-lg z-10",
+            "absolute top-[4.75rem] h-6 w-6 rounded-full border border-white/[0.08] bg-[#111214] flex items-center justify-center text-[#8a8f98] hover:text-white hover:bg-[#5e6ad2] transition-all duration-150 shadow-lg z-10",
             isRTL ? "-left-2.5" : "-right-2.5"
           )}
         >

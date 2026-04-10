@@ -4,31 +4,46 @@
 
 @layer base {
   :root {
-    --background: 34 64% 98%;
-    --foreground: 222 35% 14%;
-    --card: 0 0% 100%;
-    --card-foreground: 222 35% 14%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 35% 14%;
-    --primary: 8 71% 41%;
-    --primary-foreground: 42 100% 97%;
-    --secondary: 34 33% 94%;
-    --secondary-foreground: 220 27% 21%;
-    --muted: 34 24% 93%;
-    --muted-foreground: 220 10% 42%;
-    --accent: 39 77% 90%;
-    --accent-foreground: 18 57% 24%;
-    --destructive: 0 78% 57%;
+    --background: 240 10% 4%;
+    --foreground: 180 9% 96%;
+    --card: 220 6% 9%;
+    --card-foreground: 180 9% 96%;
+    --popover: 220 6% 9%;
+    --popover-foreground: 180 9% 96%;
+    --primary: 234 56% 59%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 7% 16%;
+    --secondary-foreground: 210 17% 88%;
+    --muted: 220 7% 16%;
+    --muted-foreground: 220 9% 58%;
+    --accent: 238 100% 72%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 72% 56%;
     --destructive-foreground: 0 0% 100%;
-    --border: 31 28% 86%;
-    --input: 31 28% 86%;
-    --ring: 8 71% 41%;
-    --radius: 1rem;
-    --chart-1: 8 72% 48%;
-    --chart-2: 194 65% 36%;
-    --chart-3: 39 73% 54%;
-    --chart-4: 143 41% 37%;
-    --chart-5: 268 33% 44%;
+    --border: 220 8% 17%;
+    --input: 220 8% 17%;
+    --ring: 238 100% 72%;
+    --radius: 0.75rem;
+    --chart-1: 234 56% 59%;
+    --chart-2: 160 65% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+    --surface-canvas: #08090a;
+    --surface-panel: #0f1011;
+    --surface-elevated: #191a1b;
+    --surface-hover: #28282c;
+    --text-primary: #f7f8f8;
+    --text-secondary: #d0d6e0;
+    --text-tertiary: #8a8f98;
+    --text-quaternary: #62666d;
+    --brand-indigo: #5e6ad2;
+    --brand-accent: #7170ff;
+    --brand-hover: #828fff;
+    --success-green: #10b981;
+    --border-subtle: rgba(255, 255, 255, 0.05);
+    --border-standard: rgba(255, 255, 255, 0.08);
+    --overlay-primary: rgba(0, 0, 0, 0.85);
   }
 
   .dark {
@@ -67,12 +82,13 @@
   }
 
   body {
-    font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
-    color: hsl(var(--foreground));
+    font-family: "Inter Variable", Inter, "SF Pro Display", -apple-system, system-ui, "Segoe UI", sans-serif;
+    font-feature-settings: "cv01", "ss03";
+    color: var(--text-primary);
     background:
-      radial-gradient(circle at top left, rgba(159, 88, 49, 0.12), transparent 32%),
-      radial-gradient(circle at top right, rgba(116, 145, 164, 0.12), transparent 26%),
-      linear-gradient(180deg, #fff8ef 0%, #f6efe6 42%, #f7f4ef 100%);
+      radial-gradient(circle at top left, rgba(94, 106, 210, 0.14), transparent 30%),
+      radial-gradient(circle at top right, rgba(113, 112, 255, 0.08), transparent 24%),
+      linear-gradient(180deg, #08090a 0%, #0b0c0e 42%, #101113 100%);
     @apply antialiased;
   }
 
@@ -82,13 +98,14 @@
   h4,
   h5,
   h6 {
-    font-family: "Trebuchet MS", "Avenir Next", "Segoe UI", sans-serif;
+    font-family: "Inter Variable", Inter, "SF Pro Display", -apple-system, system-ui, sans-serif;
+    font-feature-settings: "cv01", "ss03";
     letter-spacing: -0.03em;
   }
 
   ::selection {
-    background: rgba(165, 68, 37, 0.18);
-    color: #34160d;
+    background: rgba(113, 112, 255, 0.22);
+    color: #f7f8f8;
   }
 }
 
@@ -96,74 +113,80 @@
   /* ---- Buttons ---- */
   .btn-primary {
     @apply inline-flex items-center justify-center gap-2
-           bg-gradient-to-r from-[#8f2f1c] via-[#a54425] to-[#c8622d] text-white text-sm font-semibold px-4 py-2 rounded-xl
-           shadow-[0_16px_30px_-18px_rgba(165,68,37,0.75)] hover:shadow-[0_20px_40px_-20px_rgba(165,68,37,0.9)] active:scale-[0.99]
-           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2
+           bg-[var(--brand-indigo)] text-white text-sm font-[510] px-4 py-2 rounded-lg
+           shadow-[0_18px_40px_-22px_rgba(94,106,210,0.65)] hover:bg-[var(--brand-hover)] active:scale-[0.99]
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[#08090a]
            transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .btn-secondary {
     @apply inline-flex items-center justify-center gap-2
-           bg-[rgba(255,255,255,0.8)] backdrop-blur text-gray-700 text-sm font-medium px-4 py-2 rounded-xl
-           border border-[rgba(255,255,255,0.7)] shadow-[0_12px_30px_-24px_rgba(34,41,55,0.9)] hover:bg-white hover:border-[#d6cabb] active:bg-[#faf5ee]
-           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2
+           bg-white/[0.03] backdrop-blur text-[var(--text-secondary)] text-sm font-[510] px-4 py-2 rounded-lg
+           border border-white/[0.08] shadow-[0_18px_40px_-28px_rgba(0,0,0,0.75)] hover:bg-white/[0.05] hover:text-white active:bg-white/[0.06]
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[#08090a]
            transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .btn-danger {
     @apply inline-flex items-center justify-center gap-2
-           bg-gradient-to-r from-red-600 to-red-500 text-white text-sm font-semibold px-4 py-2 rounded-xl
-           shadow-[0_16px_30px_-18px_rgba(220,38,38,0.8)] hover:shadow-[0_20px_36px_-20px_rgba(220,38,38,0.9)]
-           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2
+           bg-red-500 text-white text-sm font-[510] px-4 py-2 rounded-lg
+           shadow-[0_18px_40px_-22px_rgba(220,38,38,0.55)] hover:bg-red-400
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#08090a]
            transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
   /* ---- Inputs ---- */
   .input-field {
-    @apply w-full px-3.5 py-2.5 border border-[#d9d0c2] rounded-xl text-sm bg-[rgba(255,255,255,0.85)]
-           shadow-[0_12px_30px_-24px_rgba(34,41,55,0.8)] transition-all duration-200
-           hover:border-[#c9baa6]
-           focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-[#b85a35] focus:shadow-[0_16px_32px_-24px_rgba(165,68,37,0.45)]
-           placeholder:text-gray-400 disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed;
+    @apply w-full px-3.5 py-2.5 border rounded-lg text-sm bg-white/[0.03] text-[var(--text-primary)]
+           shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-all duration-200
+           border-white/[0.08] hover:border-white/[0.12]
+           focus:outline-none focus:ring-2 focus:ring-[#7170ff]/20 focus:border-[#7170ff] focus:shadow-[0_0_0_1px_rgba(113,112,255,0.28)]
+           placeholder:text-[var(--text-quaternary)] disabled:bg-white/[0.02] disabled:text-[var(--text-quaternary)] disabled:cursor-not-allowed;
   }
   .select-field {
-    @apply w-full px-3.5 py-2.5 border border-[#d9d0c2] rounded-xl text-sm bg-[rgba(255,255,255,0.85)]
-           shadow-[0_12px_30px_-24px_rgba(34,41,55,0.8)] transition-all duration-200
-           hover:border-[#c9baa6]
-           focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-400
-           disabled:bg-gray-50 disabled:cursor-not-allowed;
+    @apply w-full px-3.5 py-2.5 border rounded-lg text-sm bg-white/[0.03] text-[var(--text-primary)]
+           shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-all duration-200
+           border-white/[0.08] hover:border-white/[0.12]
+           focus:outline-none focus:ring-2 focus:ring-[#7170ff]/20 focus:border-[#7170ff]
+           disabled:bg-white/[0.02] disabled:cursor-not-allowed;
   }
 
   /* ---- Cards ---- */
   .card {
-    @apply rounded-[1.5rem] border border-[rgba(255,255,255,0.7)] bg-[rgba(255,255,255,0.78)] p-6 backdrop-blur-xl shadow-[0_30px_80px_-42px_rgba(51,42,33,0.35)];
+    @apply rounded-xl border p-6 backdrop-blur-xl shadow-[0_24px_60px_-34px_rgba(0,0,0,0.72)];
+    border-color: var(--border-standard);
+    background: linear-gradient(180deg, rgba(25, 26, 27, 0.96), rgba(15, 16, 17, 0.92));
   }
   .stat-card {
-    @apply rounded-[1.4rem] border border-[rgba(255,255,255,0.75)] bg-[rgba(255,255,255,0.82)] p-5 backdrop-blur-xl
-           shadow-[0_26px_70px_-42px_rgba(51,42,33,0.38)] hover:-translate-y-0.5 hover:shadow-[0_34px_84px_-42px_rgba(51,42,33,0.48)] transition-all duration-200;
+    @apply rounded-xl border p-5 backdrop-blur-xl
+           shadow-[0_24px_60px_-36px_rgba(0,0,0,0.82)] hover:-translate-y-0.5 hover:border-white/[0.12] transition-all duration-200;
+    border-color: var(--border-standard);
+    background: linear-gradient(180deg, rgba(25, 26, 27, 0.98), rgba(15, 16, 17, 0.94));
   }
   .table-container {
-    @apply rounded-[1.4rem] border border-[rgba(255,255,255,0.7)] bg-[rgba(255,255,255,0.82)] backdrop-blur-xl shadow-[0_26px_70px_-42px_rgba(51,42,33,0.35)] overflow-hidden;
+    @apply rounded-xl border backdrop-blur-xl shadow-[0_24px_60px_-34px_rgba(0,0,0,0.75)] overflow-hidden;
+    border-color: var(--border-standard);
+    background: linear-gradient(180deg, rgba(25, 26, 27, 0.98), rgba(15, 16, 17, 0.94));
   }
 
   /* ---- Badges ---- */
   .badge-active {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold
-           bg-green-100 text-green-800 border border-green-200;
+           bg-[rgba(16,185,129,0.12)] text-emerald-300 border border-[rgba(16,185,129,0.2)];
   }
   .badge-cancelled {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold
-           bg-red-100 text-red-800 border border-red-200;
+           bg-[rgba(239,68,68,0.12)] text-red-300 border border-[rgba(239,68,68,0.2)];
   }
   .badge-short {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold
-           bg-yellow-100 text-yellow-800 border border-yellow-200;
+           bg-[rgba(234,179,8,0.12)] text-yellow-300 border border-[rgba(234,179,8,0.2)];
   }
   .badge-ongoing {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold
-           bg-blue-100 text-blue-800 border border-blue-200;
+           bg-[rgba(113,112,255,0.12)] text-[#c8ccff] border border-[rgba(113,112,255,0.2)];
   }
   .badge-completed {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold
-           bg-gray-100 text-gray-700 border border-gray-200;
+           bg-[rgba(255,255,255,0.08)] text-[var(--text-secondary)] border border-[rgba(255,255,255,0.1)];
   }
 }
 
@@ -176,11 +199,11 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #CBD5E1;
+  background: rgba(255, 255, 255, 0.18);
   border-radius: 10px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94A3B8;
+  background: rgba(255, 255, 255, 0.28);
 }
 
 /* Smooth page transitions */
@@ -190,13 +213,17 @@
   }
 
   .shell-panel {
-    @apply rounded-[1.6rem] border border-[rgba(255,255,255,0.7)] bg-[rgba(255,255,255,0.7)] backdrop-blur-xl shadow-[0_32px_90px_-46px_rgba(51,42,33,0.4)];
+    @apply rounded-[1.35rem] border backdrop-blur-xl shadow-[0_32px_90px_-50px_rgba(0,0,0,0.78)];
+    border-color: var(--border-standard);
+    background:
+      linear-gradient(180deg, rgba(15, 16, 17, 0.92), rgba(15, 16, 17, 0.88)),
+      radial-gradient(circle at top, rgba(113, 112, 255, 0.08), transparent 34%);
   }
 
   .ambient-ring {
     box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.4),
-      0 28px 70px -42px rgba(63, 44, 28, 0.42);
+      0 0 0 1px rgba(255, 255, 255, 0.05),
+      0 28px 70px -42px rgba(0, 0, 0, 0.78);
   }
 }
 

@@ -14,8 +14,8 @@ function AppInner({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen relative overflow-hidden" dir={dir}>
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-24 left-[-8rem] h-72 w-72 rounded-full bg-[#cc8b60]/20 blur-3xl" />
-        <div className="absolute top-1/3 right-[-6rem] h-80 w-80 rounded-full bg-[#7b99aa]/15 blur-3xl" />
+        <div className="absolute -top-24 left-[-8rem] h-72 w-72 rounded-full bg-[#5e6ad2]/16 blur-3xl" />
+        <div className="absolute top-1/3 right-[-6rem] h-80 w-80 rounded-full bg-[#7170ff]/10 blur-3xl" />
       </div>
       <Sidebar />
       <main
@@ -32,8 +32,8 @@ function AppInner({ children }: { children: React.ReactNode }) {
           </div>
         </div>
         <div className="pointer-events-none absolute inset-x-4 top-4 z-10 lg:hidden">
-          <div className="rounded-2xl border border-white/60 bg-white/70 px-14 py-3 backdrop-blur-xl shadow-[0_18px_48px_-30px_rgba(51,42,33,0.45)]">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#7a6652]">MRF Hardware</p>
+          <div className="rounded-2xl border border-white/[0.08] bg-[#111214]/88 px-14 py-3 backdrop-blur-xl shadow-[0_18px_48px_-30px_rgba(0,0,0,0.75)]">
+            <p className="text-[11px] font-[590] uppercase tracking-[0.22em] text-[#8a8f98]">MRF Hardware</p>
           </div>
         </div>
       </main>
@@ -47,10 +47,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[linear-gradient(180deg,#fff8ef_0%,#f5efe7_45%,#f7f4ef_100%)]">
+      <div className="min-h-screen flex items-center justify-center bg-[linear-gradient(180deg,#08090a_0%,#0b0c0e_45%,#101113_100%)]">
         <div className="shell-panel px-8 py-10 text-center">
-          <div className="mx-auto mb-4 h-12 w-12 rounded-full border-4 border-[#eed9c6] border-t-[#a54425] animate-spin" />
-          <p className="text-sm font-medium text-[#745f4c]">Loading workspace...</p>
+          <div className="mx-auto mb-4 h-12 w-12 rounded-full border-4 border-white/[0.08] border-t-[#7170ff] animate-spin" />
+          <p className="text-sm font-[510] text-[#8a8f98]">Loading workspace...</p>
         </div>
       </div>
     );

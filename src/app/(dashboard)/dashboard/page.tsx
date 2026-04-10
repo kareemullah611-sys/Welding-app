@@ -64,7 +64,7 @@ export default function DashboardPage() {
         <div className="mb-4 flex justify-end">
           <button
             onClick={() => setShowOperationalDetails((v) => !v)}
-            className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:border-primary-300 hover:text-primary-700"
+            className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm font-[510] text-[#d0d6e0] hover:border-white/[0.12] hover:bg-white/[0.05] hover:text-white"
           >
             {showOperationalDetails ? "Hide Details" : "Show Details"}
           </button>
@@ -73,30 +73,38 @@ export default function DashboardPage() {
         <div className="card mb-6">
           <div className="flex items-center justify-between gap-3 mb-4">
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Daily Work</h3>
+              <h3 className="text-lg font-[590] tracking-[-0.02em] text-[#f7f8f8]">Daily Work</h3>
+              <p className="mt-1 text-sm text-[#8a8f98]">Open the task you need without leaving the dashboard.</p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <button onClick={() => setQuickAction({ title: "New Sale", src: "/sales?create=1&embed=1" })} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4 text-left hover:bg-blue-100 transition-colors">
-              <div className="text-sm font-semibold text-blue-900">New Sale</div>
+            <button onClick={() => setQuickAction({ title: "New Sale", src: "/sales?create=1&embed=1" })} className="rounded-xl border border-white/[0.08] bg-[linear-gradient(180deg,rgba(25,26,27,0.98),rgba(15,16,17,0.92))] px-4 py-4 text-left transition-colors hover:border-[#7170ff]/30 hover:bg-[#17181d]">
+              <div className="text-[11px] font-[590] uppercase tracking-[0.18em] text-[#62666d]">Sales</div>
+              <div className="mt-2 text-sm font-[510] text-[#f7f8f8]">New Sale</div>
             </button>
-            <button onClick={() => setQuickAction({ title: "Receive Payment", src: "/payments?create=payment&embed=1" })} className="rounded-2xl border border-green-200 bg-green-50 px-4 py-4 text-left hover:bg-green-100 transition-colors">
-              <div className="text-sm font-semibold text-green-900">Receive Payment</div>
+            <button onClick={() => setQuickAction({ title: "Receive Payment", src: "/payments?create=payment&embed=1" })} className="rounded-xl border border-white/[0.08] bg-[linear-gradient(180deg,rgba(25,26,27,0.98),rgba(15,16,17,0.92))] px-4 py-4 text-left transition-colors hover:border-[#7170ff]/30 hover:bg-[#17181d]">
+              <div className="text-[11px] font-[590] uppercase tracking-[0.18em] text-[#62666d]">Treasury</div>
+              <div className="mt-2 text-sm font-[510] text-[#f7f8f8]">Receive Payment</div>
             </button>
-            <button onClick={() => setQuickAction({ title: "Record Expense", src: "/expenses?create=1&embed=1" })} className="rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-left hover:bg-red-100 transition-colors">
-              <div className="text-sm font-semibold text-red-900">Record Expense</div>
+            <button onClick={() => setQuickAction({ title: "Record Expense", src: "/expenses?create=1&embed=1" })} className="rounded-xl border border-white/[0.08] bg-[linear-gradient(180deg,rgba(25,26,27,0.98),rgba(15,16,17,0.92))] px-4 py-4 text-left transition-colors hover:border-[#7170ff]/30 hover:bg-[#17181d]">
+              <div className="text-[11px] font-[590] uppercase tracking-[0.18em] text-[#62666d]">Treasury</div>
+              <div className="mt-2 text-sm font-[510] text-[#f7f8f8]">Record Expense</div>
             </button>
-            <button onClick={() => setQuickAction({ title: "Personal Withdrawal", src: "/personal-withdrawals?create=1&embed=1" })} className="rounded-2xl border border-purple-200 bg-purple-50 px-4 py-4 text-left hover:bg-purple-100 transition-colors">
-              <div className="text-sm font-semibold text-purple-900">Personal Withdrawal</div>
+            <button onClick={() => setQuickAction({ title: "Personal Withdrawal", src: "/personal-withdrawals?create=1&embed=1" })} className="rounded-xl border border-white/[0.08] bg-[linear-gradient(180deg,rgba(25,26,27,0.98),rgba(15,16,17,0.92))] px-4 py-4 text-left transition-colors hover:border-[#7170ff]/30 hover:bg-[#17181d]">
+              <div className="text-[11px] font-[590] uppercase tracking-[0.18em] text-[#62666d]">Treasury</div>
+              <div className="mt-2 text-sm font-[510] text-[#f7f8f8]">Personal Withdrawal</div>
             </button>
-            <button onClick={() => setQuickAction({ title: "Haji Transfer", src: "/haji-transfers?create=1&embed=1" })} className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-4 text-left hover:bg-orange-100 transition-colors">
-              <div className="text-sm font-semibold text-orange-900">Haji Transfer</div>
+            <button onClick={() => setQuickAction({ title: "Haji Transfer", src: "/haji-transfers?create=1&embed=1" })} className="rounded-xl border border-white/[0.08] bg-[linear-gradient(180deg,rgba(25,26,27,0.98),rgba(15,16,17,0.92))] px-4 py-4 text-left transition-colors hover:border-[#7170ff]/30 hover:bg-[#17181d]">
+              <div className="text-[11px] font-[590] uppercase tracking-[0.18em] text-[#62666d]">Treasury</div>
+              <div className="mt-2 text-sm font-[510] text-[#f7f8f8]">Haji Transfer</div>
             </button>
-            <button onClick={() => setQuickAction({ title: "New Customer", src: "/customers?create=1&embed=1" })} className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-4 text-left hover:bg-teal-100 transition-colors">
-              <div className="text-sm font-semibold text-teal-900">New Customer</div>
+            <button onClick={() => setQuickAction({ title: "New Customer", src: "/customers?create=1&embed=1" })} className="rounded-xl border border-white/[0.08] bg-[linear-gradient(180deg,rgba(25,26,27,0.98),rgba(15,16,17,0.92))] px-4 py-4 text-left transition-colors hover:border-[#7170ff]/30 hover:bg-[#17181d]">
+              <div className="text-[11px] font-[590] uppercase tracking-[0.18em] text-[#62666d]">People</div>
+              <div className="mt-2 text-sm font-[510] text-[#f7f8f8]">New Customer</div>
             </button>
-            <Link href="/inventory" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 hover:bg-amber-100 transition-colors">
-              <div className="text-sm font-semibold text-amber-900">Move Stock</div>
+            <Link href="/inventory" className="rounded-xl border border-white/[0.08] bg-[linear-gradient(180deg,rgba(25,26,27,0.98),rgba(15,16,17,0.92))] px-4 py-4 transition-colors hover:border-[#7170ff]/30 hover:bg-[#17181d]">
+              <div className="text-[11px] font-[590] uppercase tracking-[0.18em] text-[#62666d]">Stock</div>
+              <div className="mt-2 text-sm font-[510] text-[#f7f8f8]">Move Stock</div>
             </Link>
           </div>
         </div>
@@ -159,9 +167,9 @@ export default function DashboardPage() {
             <h3 className="text-sm font-semibold text-gray-500 mb-3">🏦 Bank Accounts</h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {treasury.bankAccounts.map((ba: any) => (
-                <div key={ba.id} className="bg-blue-50 border border-blue-100 rounded-lg p-3">
-                  <p className="text-sm font-semibold text-blue-800">{ba.bankName}</p>
-                  <p className="text-lg font-bold text-blue-700 mt-1">
+                <div key={ba.id} className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-3">
+                  <p className="text-sm font-[510] text-[#f7f8f8]">{ba.bankName}</p>
+                  <p className="mt-1 text-lg font-[590] text-[#c6c8ff]">
                     {Object.entries(ba.balance || {}).filter(([, v]) => Number(v) !== 0).map(([cc, amt]: [string, any]) => (
                       <span key={cc}>{cc} {formatNumber(amt)}</span>
                     ))}
@@ -175,18 +183,18 @@ export default function DashboardPage() {
         {/* Cash breakdown — collapsed by default (hidden for Afghanistan) */}
         {showOperationalDetails && cashPosition && (
           <div className="card mb-6">
-            <h3 className="text-sm font-semibold text-gray-500 mb-3">{t("cash_position_breakdown")}</h3>
+            <h3 className="mb-3 text-sm font-[590] text-[#8a8f98]">{t("cash_position_breakdown")}</h3>
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                  <div className="bg-green-50 rounded-lg p-3"><div className="text-gray-500">{t("cash_received")}</div><div className="text-lg font-bold text-green-700">{formatNumber(cashPosition.incomingToHand?.cash || 0)}</div></div>
-                  <div className="bg-blue-50 rounded-lg p-3"><div className="text-gray-500">{t("cheques")}</div><div className="text-lg font-bold text-blue-700">{formatNumber(cashPosition.incomingToHand?.cheque || 0)}</div></div>
-                  <div className="bg-purple-50 rounded-lg p-3"><div className="text-gray-500">{t("bank_online")}</div><div className="text-lg font-bold text-purple-700">{formatNumber((cashPosition.incomingToHand?.bankTransfer || 0) + (cashPosition.incomingToHand?.online || 0))}</div></div>
-                  <div className="bg-orange-50 rounded-lg p-3"><div className="text-gray-500">{t("direct_to_haji")}</div><div className="text-lg font-bold text-orange-700">{formatNumber(cashPosition.directToHaji || 0)}</div></div>
+                  <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-3"><div className="text-[#8a8f98]">{t("cash_received")}</div><div className="text-lg font-[590] text-[#f7f8f8]">{formatNumber(cashPosition.incomingToHand?.cash || 0)}</div></div>
+                  <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-3"><div className="text-[#8a8f98]">{t("cheques")}</div><div className="text-lg font-[590] text-[#f7f8f8]">{formatNumber(cashPosition.incomingToHand?.cheque || 0)}</div></div>
+                  <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-3"><div className="text-[#8a8f98]">{t("bank_online")}</div><div className="text-lg font-[590] text-[#f7f8f8]">{formatNumber((cashPosition.incomingToHand?.bankTransfer || 0) + (cashPosition.incomingToHand?.online || 0))}</div></div>
+                  <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-3"><div className="text-[#8a8f98]">{t("direct_to_haji")}</div><div className="text-lg font-[590] text-[#f7f8f8]">{formatNumber(cashPosition.directToHaji || 0)}</div></div>
                 </div>
                 <div className="grid grid-cols-3 gap-3 mt-3 text-sm">
-                  <div className="bg-red-50 rounded-lg p-3"><div className="text-gray-500">{t("expenses_paid")}</div><div className="text-lg font-bold text-red-700">{formatNumber(cashPosition.outgoing?.expenses || 0)}</div></div>
-                  <div className="bg-yellow-50 rounded-lg p-3"><div className="text-gray-500">{t("withdrawals")}</div><div className="text-lg font-bold text-yellow-700">{formatNumber(cashPosition.outgoing?.personalWithdrawals || 0)}</div></div>
-                  <div className="bg-orange-50 rounded-lg p-3"><div className="text-gray-500">{t("haji_transfers")}</div><div className="text-lg font-bold text-orange-700">{formatNumber(cashPosition.outgoing?.hajiTransfers || 0)}</div></div>
+                  <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-3"><div className="text-[#8a8f98]">{t("expenses_paid")}</div><div className="text-lg font-[590] text-[#f7f8f8]">{formatNumber(cashPosition.outgoing?.expenses || 0)}</div></div>
+                  <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-3"><div className="text-[#8a8f98]">{t("withdrawals")}</div><div className="text-lg font-[590] text-[#f7f8f8]">{formatNumber(cashPosition.outgoing?.personalWithdrawals || 0)}</div></div>
+                  <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-3"><div className="text-[#8a8f98]">{t("haji_transfers")}</div><div className="text-lg font-[590] text-[#f7f8f8]">{formatNumber(cashPosition.outgoing?.hajiTransfers || 0)}</div></div>
                 </div>
               </>
           </div>
@@ -194,18 +202,18 @@ export default function DashboardPage() {
 
         {showOperationalDetails && data?.ongoingLots?.length > 0 && (
           <div className="card">
-            <h3 className="text-sm font-semibold text-gray-500 mb-3">{t("ongoing_lots")}</h3>
+            <h3 className="mb-3 text-sm font-[590] text-[#8a8f98]">{t("ongoing_lots")}</h3>
             {data.ongoingLots.map((l: any) => (
-              <div key={l.id} className="flex justify-between items-center py-2 border-b last:border-0">
-                <span className="font-mono font-medium">{l.lotNumber}</span>
-                <span className="text-sm text-gray-500">{formatDate(l.lotDate)}</span>
+              <div key={l.id} className="flex items-center justify-between border-b border-white/[0.06] py-2 last:border-0">
+                <span className="font-mono text-[#f7f8f8] font-medium">{l.lotNumber}</span>
+                <span className="text-sm text-[#8a8f98]">{formatDate(l.lotDate)}</span>
               </div>
             ))}
           </div>
         )}
 
         <Modal open={!!quickAction} onClose={() => setQuickAction(null)} title={quickAction?.title || "Quick Action"} size="xl">
-          {quickAction && <iframe src={quickAction.src} title={quickAction.title} className="h-[78vh] w-full rounded-xl border border-gray-200" />}
+          {quickAction && <iframe src={quickAction.src} title={quickAction.title} className="h-[78vh] w-full rounded-xl border border-white/[0.08] bg-[#0f1011]" />}
         </Modal>
 
       </div>
