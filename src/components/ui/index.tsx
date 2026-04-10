@@ -276,9 +276,8 @@ export function Modal({
 
   if (inline) {
     return (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center">
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-        <div className={cn("relative w-full mx-4 bg-white rounded-2xl shadow-2xl max-h-[85vh] flex flex-col", sizes[size])}>
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className={cn("relative w-full bg-white rounded-2xl shadow-2xl max-h-[85vh] flex flex-col", sizes[size])}>
           {!hideHeader && (
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
               <h2 className="text-base font-semibold text-gray-900">{title}</h2>
