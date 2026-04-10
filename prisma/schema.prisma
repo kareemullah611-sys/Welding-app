@@ -540,6 +540,7 @@ model Sale {
   items       SaleItem[]
   discounts   SaleDiscount[]
   attachments Attachment[]
+  payments    Payment[]
 
   @@index([cityId])
   @@index([customerId])
@@ -619,6 +620,7 @@ model Payment {
   bankDepositId      Int?               @map("bank_deposit_id")
   bankAccountId      Int?               @map("bank_account_id")
   superAdminBankAccountId Int?          @map("super_admin_bank_account_id")
+  saleId              Int?              @map("sale_id")
   createdBy          Int                @map("created_by")
   createdAt          DateTime           @default(now()) @map("created_at")
   updatedAt          DateTime           @updatedAt @map("updated_at")
@@ -632,6 +634,7 @@ model Payment {
   bankDeposit BankDeposit? @relation("DepositCheques", fields: [bankDepositId], references: [id])
   bankAccount BankAccount? @relation("PaymentBankAccount", fields: [bankAccountId], references: [id])
   superAdminBankAccount SuperAdminBankAccount? @relation("PaymentSuperAdminBankAccount", fields: [superAdminBankAccountId], references: [id])
+  sale        Sale?        @relation(fields: [saleId], references: [id])
 
   attachments         Attachment[]
   paymentLotTransfers PaymentLotTransfer[]
@@ -647,6 +650,7 @@ model Payment {
   @@index([paymentMethod])
   @@index([bankAccountId])
   @@index([superAdminBankAccountId])
+  @@index([saleId])
   @@map("payments")
 }
 

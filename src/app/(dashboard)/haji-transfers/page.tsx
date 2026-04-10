@@ -293,7 +293,7 @@ export default function HajiTransfersPage() {
       ]} data={items} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />}
 
       {/* CREATE MODAL */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={t("record_haji_transfer")} size="md" inline={isEmbed}>
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={t("record_haji_transfer")} size="md">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">

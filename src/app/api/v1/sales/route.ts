@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middleware";
 import { createSaleSchema } from "@/lib/validations";
 import { journalSaleCreated, journalPaymentReceived, journalSaleCOGS } from "@/lib/accounting";
@@ -14,15 +15,15 @@ import { canAccessGodownCity } from "@/lib/godown-access";
 function roundMoney(n: number): number { return Math.round(n * 100) / 100; }
 
 // Helper: Generate next 4-digit voucher
-async function generateVoucherNo(cityId: number): Promise<string> {
-  const result = await prisma.voucherSequence.upsert({
+async function generateVoucherNo(cityId: number, db: PrismaClient | Prisma.TransactionClient = prisma): Promise<string> {
+  const result = await db.voucherSequence.upsert({
     where: { cityId },
     create: { cityId, currentNumber: 1 },
     update: { currentNumber: { increment: 1 } },
   });
   let num = result.currentNumber;
   if (num > 9999) {
-    await prisma.voucherSequence.update({
+    await db.voucherSequence.update({
       where: { cityId },
       data: { currentNumber: 1 },
     });
@@ -252,50 +253,104 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     // Calculate total using integer-rounded arithmetic to avoid floating-point errors
     const totalAmount = roundMoney(items.reduce((sum, i) => sum + roundMoney(i.qty * i.ratePerCarton), 0));
 
-    // Generate voucher number
-    const voucherNo = await generateVoucherNo(cityId);
-
-    // Create sale (no transaction - avoids Neon timeout)
-    const sale = await prisma.sale.create({
-      data: {
-        cityId,
-        customerId,
-        lotId: lotId!,
-        godownId,
-        voucherNo,
-        saleDate: new Date(saleDate),
-        totalAmount,
-        currencyId: currencyId as number,
-        notes,
-        status: hasShortage ? "marked_short" : "active",
-        stockShortFlag: hasShortage,
-        createdBy: user.userId,
-        items: {
-          create: items.map((i) => ({
-            productId: i.productId,
-            qty: i.qty,
-            ratePerCarton: i.ratePerCarton,
-            amount: roundMoney(i.qty * i.ratePerCarton),
-          })),
+    const sale = await prisma.$transaction(async (tx) => {
+      const voucherNo = await generateVoucherNo(cityId, tx);
+      const createdSale = await tx.sale.create({
+        data: {
+          cityId,
+          customerId,
+          lotId: lotId!,
+          godownId,
+          voucherNo,
+          saleDate: new Date(saleDate),
+          totalAmount,
+          currencyId: currencyId as number,
+          notes,
+          status: hasShortage ? "marked_short" : "active",
+          stockShortFlag: hasShortage,
+          createdBy: user.userId,
+          items: {
+            create: items.map((i) => ({
+              productId: i.productId,
+              qty: i.qty,
+              ratePerCarton: i.ratePerCarton,
+              amount: roundMoney(i.qty * i.ratePerCarton),
+            })),
+          },
         },
-      },
-      include: {
-        customer: { select: { id: true, name: true } },
-        lot: { select: { id: true, lotNumber: true, status: true } },
-        godown: { select: { id: true, name: true } },
-        currency: true,
-        items: { include: { product: { select: { id: true, name: true } } } },
-        creator: { select: { id: true, fullName: true } },
-      },
-    }) as any;
+        include: {
+          customer: { select: { id: true, name: true } },
+          lot: { select: { id: true, lotNumber: true, status: true } },
+          godown: { select: { id: true, name: true } },
+          currency: true,
+          items: { include: { product: { select: { id: true, name: true } } } },
+          creator: { select: { id: true, fullName: true } },
+        },
+      }) as any;
 
-    await createAuditLog(user.userId, cityId, "sales", sale.id, "create", undefined, {
-      voucher: `#${voucherNo}`,
-      date: saleDate,
-      customer: sale.customer.name,
-      total: `${Number(totalAmount).toLocaleString("en-US")}`,
-      items: sale.items.map((i: any) => `${i.product.name} ×${Number(i.qty)}`).join(", ") || undefined,
-    }, getClientIP(request));
+      await createAuditLog(user.userId, cityId, "sales", createdSale.id, "create", undefined, {
+        voucher: `#${voucherNo}`,
+        date: saleDate,
+        customer: createdSale.customer.name,
+        total: `${Number(totalAmount).toLocaleString("en-US")}`,
+        items: createdSale.items.map((i: any) => `${i.product.name} ×${Number(i.qty)}`).join(", ") || undefined,
+      }, getClientIP(request), tx);
+
+      if (createdSale.customer.name === "Walk-in Customer") {
+        const walkinPayment = await tx.payment.create({
+          data: {
+            cityId,
+            customerId: createdSale.customerId,
+            lotId: createdSale.lotId,
+            saleId: createdSale.id,
+            paymentDate: createdSale.saleDate,
+            detail: `Walk-in cash payment — Sale Voucher #${createdSale.voucherNo}`,
+            amount: createdSale.totalAmount,
+            currencyId: createdSale.currencyId,
+            exchangeRate: exchangeRate ?? null,
+            usdEquivalent: usdEquivalent ?? null,
+            manualVoucherNo: String(createdSale.voucherNo),
+            paymentMethod: "cash",
+            destination: "our_account",
+            notes: `Auto-recorded. Mode: Cash. Sale Voucher: #${createdSale.voucherNo}. Sale ID: ${createdSale.id}.`,
+            createdBy: user.userId,
+          },
+        });
+        await createAuditLog(user.userId, cityId, "payments", walkinPayment.id, "create", undefined, {
+          date: createdSale.saleDate.toISOString().split("T")[0],
+          customer: createdSale.customer.name,
+          detail: `Walk-in cash payment — Sale Voucher #${createdSale.voucherNo}`,
+          amount: `${createdSale.currency.symbol || createdSale.currency.code} ${Number(createdSale.totalAmount).toLocaleString("en-US")}`,
+          method: "cash",
+          destination: "our_account",
+          autoLinkedSaleId: createdSale.id,
+        }, getClientIP(request), tx);
+        await journalPaymentReceived({
+          id: walkinPayment.id,
+          customerId: createdSale.customerId,
+          cityId,
+          lotId: createdSale.lotId,
+          amount: Number(createdSale.totalAmount),
+          currencyCode: createdSale.currency.code,
+          paymentDate: createdSale.saleDate,
+          createdBy: user.userId,
+        }, tx);
+      }
+
+      await journalSaleCreated({
+        id: createdSale.id, customerId: createdSale.customerId, cityId: createdSale.cityId, lotId: createdSale.lotId,
+        totalAmount: Number(createdSale.totalAmount), currencyCode: createdSale.currency.code,
+        saleDate: createdSale.saleDate, createdBy: user.userId,
+      }, tx);
+
+      const totalQtySold = items.reduce((s, i) => s + i.qty, 0);
+      await journalSaleCOGS({
+        saleId: createdSale.id, lotId: createdSale.lotId!, totalQtySold,
+        saleDate: createdSale.saleDate, cityId: createdSale.cityId, createdBy: user.userId,
+      }, tx);
+
+      return createdSale;
+    });
 
     const responseData = {
       id: sale.id,
@@ -318,61 +373,6 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       createdBy: sale.creator,
       ...(stockWarnings.length > 0 ? { stockWarnings } : {}),
     };
-
-    // Auto-record cash payment for walk-in customers (they pay on the spot)
-    if (sale.customer.name === "Walk-in Customer") {
-      try {
-        const walkinPayment = await prisma.payment.create({
-          data: {
-            cityId,
-            customerId: sale.customerId,
-            lotId: sale.lotId,
-            paymentDate: sale.saleDate,
-            detail: `Walk-in cash payment — Sale Voucher #${sale.voucherNo}`,
-            amount: sale.totalAmount,
-            currencyId: sale.currencyId,
-            exchangeRate: null,
-            usdEquivalent: null,
-            manualVoucherNo: String(sale.voucherNo),  // link to sale voucher
-            paymentMethod: "cash",                     // walk-in always pays cash
-            destination: "our_account",
-            notes: `Auto-recorded. Mode: Cash. Sale Voucher: #${sale.voucherNo}.`,
-            createdBy: user.userId,
-          },
-        });
-        // Record journal entry for the auto-payment
-        try {
-          const curr = await prisma.currency.findUnique({ where: { id: sale.currencyId } });
-          await journalPaymentReceived({
-            id: walkinPayment.id, customerId: sale.customerId, cityId, lotId: sale.lotId,
-            amount: Number(sale.totalAmount), currencyCode: curr?.code || "PKR",
-            paymentDate: sale.saleDate, createdBy: user.userId,
-          });
-        } catch (je) { console.error("Walk-in auto-payment journal error:", je); }
-      } catch (pe) {
-        console.error("Walk-in auto-payment error:", pe);
-        (responseData as any).paymentWarning = "⚠ Walk-in payment could not be auto-recorded. Please add it manually.";
-      }
-    }
-
-    // Create journal entries (double-entry accounting)
-    try {
-      const curr = await prisma.currency.findUnique({ where: { id: sale.currencyId } });
-      await journalSaleCreated({
-        id: sale.id, customerId: sale.customerId, cityId: sale.cityId, lotId: sale.lotId,
-        totalAmount: Number(sale.totalAmount), currencyCode: curr?.code || "PKR",
-        saleDate: sale.saleDate, createdBy: user.userId,
-      });
-    } catch (je) { console.error("Journal entry error (sale):", je); }
-
-    // COGS journal: DR Cost of Goods Sold | CR Inventory (always in USD at landed cost)
-    try {
-      const totalQtySold = items.reduce((s, i) => s + i.qty, 0);
-      await journalSaleCOGS({
-        saleId: sale.id, lotId: sale.lotId!, totalQtySold,
-        saleDate: sale.saleDate, cityId: sale.cityId, createdBy: user.userId,
-      });
-    } catch (je) { console.error("COGS journal error (sale):", je); }
 
     // Check inventory thresholds — fire low-stock notification if any product drops below minimum
     try {

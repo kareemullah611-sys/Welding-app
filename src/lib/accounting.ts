@@ -1,60 +1,62 @@
 import prisma from "@/lib/prisma";
-import { AccountType } from "@prisma/client";
+import { AccountType, Prisma, PrismaClient } from "@prisma/client";
 
-async function getOrCreateAccount(code: string, name: string, type: AccountType, cityId?: number | null): Promise<number> {
-  let acc = await prisma.account.findUnique({ where: { code } });
+type DbClient = PrismaClient | Prisma.TransactionClient;
+
+async function getOrCreateAccount(code: string, name: string, type: AccountType, cityId?: number | null, db: DbClient = prisma): Promise<number> {
+  let acc = await db.account.findUnique({ where: { code } });
   if (!acc) {
-    acc = await prisma.account.create({
+    acc = await db.account.create({
       data: { code, name, accountType: type, cityId: cityId || null, isSystem: true },
     });
   }
   return acc.id;
 }
 
-export async function getCashAccountId(cityId: number): Promise<number> {
-  const city = await prisma.city.findUnique({ where: { id: cityId }, select: { name: true } });
-  return getOrCreateAccount(`1001-CITY${cityId}`, `Cash - ${city?.name || cityId}`, "asset", cityId);
+export async function getCashAccountId(cityId: number, db: DbClient = prisma): Promise<number> {
+  const city = await db.city.findUnique({ where: { id: cityId }, select: { name: true } });
+  return getOrCreateAccount(`1001-CITY${cityId}`, `Cash - ${city?.name || cityId}`, "asset", cityId, db);
 }
 
-export async function getChequesInHandAccountId(cityId: number): Promise<number> {
-  const city = await prisma.city.findUnique({ where: { id: cityId }, select: { name: true } });
-  return getOrCreateAccount(`1002-CHEQUE${cityId}`, `Cheques in Hand - ${city?.name || cityId}`, "asset", cityId);
+export async function getChequesInHandAccountId(cityId: number, db: DbClient = prisma): Promise<number> {
+  const city = await db.city.findUnique({ where: { id: cityId }, select: { name: true } });
+  return getOrCreateAccount(`1002-CHEQUE${cityId}`, `Cheques in Hand - ${city?.name || cityId}`, "asset", cityId, db);
 }
 
-export async function getBankGLAccountId(bankAccountId: number): Promise<number> {
-  const bank = await prisma.bankAccount.findUnique({ where: { id: bankAccountId }, select: { bankName: true, accountNumber: true } });
+export async function getBankGLAccountId(bankAccountId: number, db: DbClient = prisma): Promise<number> {
+  const bank = await db.bankAccount.findUnique({ where: { id: bankAccountId }, select: { bankName: true, accountNumber: true } });
   const label = bank ? `${bank.bankName} ${bank.accountNumber}` : `Bank #${bankAccountId}`;
-  return getOrCreateAccount(`1050-BANK${bankAccountId}`, `Bank - ${label}`, "asset");
+  return getOrCreateAccount(`1050-BANK${bankAccountId}`, `Bank - ${label}`, "asset", undefined, db);
 }
 
-export async function getCustomerAccountId(customerId: number): Promise<number> {
-  const customer = await prisma.customer.findUnique({ where: { id: customerId }, select: { name: true } });
-  return getOrCreateAccount(`1200-C${customerId}`, `AR - ${customer?.name || customerId}`, "asset");
+export async function getCustomerAccountId(customerId: number, db: DbClient = prisma): Promise<number> {
+  const customer = await db.customer.findUnique({ where: { id: customerId }, select: { name: true } });
+  return getOrCreateAccount(`1200-C${customerId}`, `AR - ${customer?.name || customerId}`, "asset", undefined, db);
 }
 
-export async function getSupplierAccountId(supplierId: number): Promise<number> {
-  const supplier = await prisma.supplier.findUnique({ where: { id: supplierId }, select: { name: true } });
-  return getOrCreateAccount(`2100-S${supplierId}`, `Payable - ${supplier?.name || supplierId}`, "liability");
+export async function getSupplierAccountId(supplierId: number, db: DbClient = prisma): Promise<number> {
+  const supplier = await db.supplier.findUnique({ where: { id: supplierId }, select: { name: true } });
+  return getOrCreateAccount(`2100-S${supplierId}`, `Payable - ${supplier?.name || supplierId}`, "liability", undefined, db);
 }
 
-export async function getAgentAccountId(agentId: number): Promise<number> {
-  const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { name: true } });
-  return getOrCreateAccount(`2200-A${agentId}`, `Payable - ${agent?.name || agentId}`, "liability");
+export async function getAgentAccountId(agentId: number, db: DbClient = prisma): Promise<number> {
+  const agent = await db.agent.findUnique({ where: { id: agentId }, select: { name: true } });
+  return getOrCreateAccount(`2200-A${agentId}`, `Payable - ${agent?.name || agentId}`, "liability", undefined, db);
 }
 
-export async function getShippingLineAccountId(shippingLineId: number): Promise<number> {
-  const sl = await prisma.shippingLine.findUnique({ where: { id: shippingLineId }, select: { name: true } });
-  return getOrCreateAccount(`2300-SL${shippingLineId}`, `Payable - ${sl?.name || shippingLineId}`, "liability");
+export async function getShippingLineAccountId(shippingLineId: number, db: DbClient = prisma): Promise<number> {
+  const sl = await db.shippingLine.findUnique({ where: { id: shippingLineId }, select: { name: true } });
+  return getOrCreateAccount(`2300-SL${shippingLineId}`, `Payable - ${sl?.name || shippingLineId}`, "liability", undefined, db);
 }
 
-export async function getInventoryAccountId(): Promise<number> { return getOrCreateAccount("1100", "Inventory", "asset"); }
-export async function getSalesRevenueAccountId(): Promise<number> { return getOrCreateAccount("3001", "Sales Revenue", "revenue"); }
-export async function getCOGSAccountId(): Promise<number> { return getOrCreateAccount("4001", "Cost of Goods Sold", "cogs"); }
-export async function getOwnerWithdrawalAccountId(): Promise<number> { return getOrCreateAccount("6002", "Owner Withdrawals", "equity"); }
-export async function getHajiAccountId(): Promise<number> { return getOrCreateAccount("6003", "Haji Account", "equity"); }
-export async function getBankAccountId(): Promise<number> { return getOrCreateAccount("1050", "Bank Account (USD)", "asset"); }
+export async function getInventoryAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("1100", "Inventory", "asset", undefined, db); }
+export async function getSalesRevenueAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("3001", "Sales Revenue", "revenue", undefined, db); }
+export async function getCOGSAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("4001", "Cost of Goods Sold", "cogs", undefined, db); }
+export async function getOwnerWithdrawalAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("6002", "Owner Withdrawals", "equity", undefined, db); }
+export async function getHajiAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("6003", "Haji Account", "equity", undefined, db); }
+export async function getBankAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("1050", "Bank Account (USD)", "asset", undefined, db); }
 
-export async function getExpenseAccountId(costType: string): Promise<number> {
+export async function getExpenseAccountId(costType: string, db: DbClient = prisma): Promise<number> {
   const m: Record<string, { code: string; name: string }> = {
     customs_duty: { code: "5001", name: "Customs Duty" }, freight: { code: "5002", name: "Freight/Shipping" },
     transport: { code: "5003", name: "Transport" }, port_charges: { code: "5004", name: "Port Charges" },
@@ -65,7 +67,7 @@ export async function getExpenseAccountId(costType: string): Promise<number> {
     other: { code: "5099", name: "Other Expenses" }, general: { code: "5099", name: "Other Expenses" },
   };
   const entry = m[costType] || m.other;
-  return getOrCreateAccount(entry.code, entry.name, "expense");
+  return getOrCreateAccount(entry.code, entry.name, "expense", undefined, db);
 }
 
 interface JournalLine { accountId: number; debit: number; credit: number; description: string; }
@@ -73,6 +75,7 @@ interface JournalLine { accountId: number; debit: number; credit: number; descri
 export async function createJournalEntries(
   transactionId: string, lines: JournalLine[],
   meta: { currencyCode: string; exchangeRate?: number; entityType: string; entityId: number; lotId?: number | null; cityId?: number | null; entryDate: Date; createdBy: number; }
+  , db: DbClient = prisma
 ): Promise<void> {
   const data = lines
     .filter((line) => line.debit !== 0 || line.credit !== 0)
@@ -83,34 +86,34 @@ export async function createJournalEntries(
       cityId: meta.cityId || null, entryDate: meta.entryDate, createdBy: meta.createdBy,
     }));
   if (data.length > 0) {
-    await prisma.journalEntry.createMany({ data });
+    await db.journalEntry.createMany({ data });
   }
 }
 
 // SALE CREATED
-export async function journalSaleCreated(sale: { id: number; customerId: number; cityId: number; lotId: number; totalAmount: number; currencyCode: string; saleDate: Date; createdBy: number; }) {
+export async function journalSaleCreated(sale: { id: number; customerId: number; cityId: number; lotId: number; totalAmount: number; currencyCode: string; saleDate: Date; createdBy: number; }, db: DbClient = prisma) {
   const lines: JournalLine[] = [
-    { accountId: await getCustomerAccountId(sale.customerId), debit: sale.totalAmount, credit: 0, description: `Sale #${sale.id}` },
-    { accountId: await getSalesRevenueAccountId(), debit: 0, credit: sale.totalAmount, description: `Sale #${sale.id}` },
+    { accountId: await getCustomerAccountId(sale.customerId, db), debit: sale.totalAmount, credit: 0, description: `Sale #${sale.id}` },
+    { accountId: await getSalesRevenueAccountId(db), debit: 0, credit: sale.totalAmount, description: `Sale #${sale.id}` },
   ];
-  await createJournalEntries(`SALE-${sale.id}`, lines, { currencyCode: sale.currencyCode, entityType: "sale", entityId: sale.id, lotId: sale.lotId, cityId: sale.cityId, entryDate: sale.saleDate, createdBy: sale.createdBy });
+  await createJournalEntries(`SALE-${sale.id}`, lines, { currencyCode: sale.currencyCode, entityType: "sale", entityId: sale.id, lotId: sale.lotId, cityId: sale.cityId, entryDate: sale.saleDate, createdBy: sale.createdBy }, db);
 }
 
 // PAYMENT RECEIVED (cash / bank transfer / online)
-export async function journalPaymentReceived(p: { id: number; customerId: number; cityId: number; lotId: number; amount: number; currencyCode: string; paymentDate: Date; createdBy: number; }) {
+export async function journalPaymentReceived(p: { id: number; customerId: number; cityId: number; lotId: number; amount: number; currencyCode: string; paymentDate: Date; createdBy: number; }, db: DbClient = prisma) {
   await createJournalEntries(`PAY-${p.id}`, [
-    { accountId: await getCashAccountId(p.cityId), debit: p.amount, credit: 0, description: `Payment #${p.id}` },
-    { accountId: await getCustomerAccountId(p.customerId), debit: 0, credit: p.amount, description: `Payment #${p.id}` },
-  ], { currencyCode: p.currencyCode, entityType: "payment", entityId: p.id, lotId: p.lotId, cityId: p.cityId, entryDate: p.paymentDate, createdBy: p.createdBy });
+    { accountId: await getCashAccountId(p.cityId, db), debit: p.amount, credit: 0, description: `Payment #${p.id}` },
+    { accountId: await getCustomerAccountId(p.customerId, db), debit: 0, credit: p.amount, description: `Payment #${p.id}` },
+  ], { currencyCode: p.currencyCode, entityType: "payment", entityId: p.id, lotId: p.lotId, cityId: p.cityId, entryDate: p.paymentDate, createdBy: p.createdBy }, db);
 }
 
 // CHEQUE RECEIVED — stages into Cheques in Hand first, not Cash
 // DR Cheques in Hand | CR AR - Customer
-export async function journalChequeReceived(p: { id: number; customerId: number; cityId: number; lotId: number; amount: number; currencyCode: string; paymentDate: Date; createdBy: number; }) {
+export async function journalChequeReceived(p: { id: number; customerId: number; cityId: number; lotId: number; amount: number; currencyCode: string; paymentDate: Date; createdBy: number; }, db: DbClient = prisma) {
   await createJournalEntries(`PAY-${p.id}`, [
-    { accountId: await getChequesInHandAccountId(p.cityId), debit: p.amount, credit: 0, description: `Cheque received #${p.id}` },
-    { accountId: await getCustomerAccountId(p.customerId), debit: 0, credit: p.amount, description: `Cheque received #${p.id}` },
-  ], { currencyCode: p.currencyCode, entityType: "payment", entityId: p.id, lotId: p.lotId, cityId: p.cityId, entryDate: p.paymentDate, createdBy: p.createdBy });
+    { accountId: await getChequesInHandAccountId(p.cityId, db), debit: p.amount, credit: 0, description: `Cheque received #${p.id}` },
+    { accountId: await getCustomerAccountId(p.customerId, db), debit: 0, credit: p.amount, description: `Cheque received #${p.id}` },
+  ], { currencyCode: p.currencyCode, entityType: "payment", entityId: p.id, lotId: p.lotId, cityId: p.cityId, entryDate: p.paymentDate, createdBy: p.createdBy }, db);
 }
 
 // BANK DEPOSIT CREATED
@@ -138,11 +141,11 @@ export async function journalBankDeposit(d: {
 }
 
 // LOT PURCHASE (buy from company)
-export async function journalLotPurchase(p: { id: number; supplierId: number; lotId: number; totalUsd: number; createdBy: number; }) {
+export async function journalLotPurchase(p: { id: number; supplierId: number; lotId: number; totalUsd: number; createdBy: number; }, db: DbClient = prisma) {
   await createJournalEntries(`PURCH-${p.lotId}-${p.id}`, [
-    { accountId: await getInventoryAccountId(), debit: p.totalUsd, credit: 0, description: `Purchase Lot` },
-    { accountId: await getSupplierAccountId(p.supplierId), debit: 0, credit: p.totalUsd, description: `Supplier payable` },
-  ], { currencyCode: "USD", entityType: "lot_purchase", entityId: p.id, lotId: p.lotId, entryDate: new Date(), createdBy: p.createdBy });
+    { accountId: await getInventoryAccountId(db), debit: p.totalUsd, credit: 0, description: `Purchase Lot` },
+    { accountId: await getSupplierAccountId(p.supplierId, db), debit: 0, credit: p.totalUsd, description: `Supplier payable` },
+  ], { currencyCode: "USD", entityType: "lot_purchase", entityId: p.id, lotId: p.lotId, entryDate: new Date(), createdBy: p.createdBy }, db);
 }
 
 // SUPPLIER PAID
@@ -162,17 +165,17 @@ export async function journalSupplierPaid(p: { id: number; supplierId: number; a
 }
 
 // LOT COST (customs, freight, transport - on agent credit or cash)
-export async function journalLotCost(c: { id: number; lotId: number; costType: string; amount: number; currencyCode: string; createdBy: number; agentId?: number; cityId?: number; shippingLineId?: number; }) {
-  const expAccId = await getExpenseAccountId(c.costType);
+export async function journalLotCost(c: { id: number; lotId: number; costType: string; amount: number; currencyCode: string; createdBy: number; agentId?: number; cityId?: number; shippingLineId?: number; }, db: DbClient = prisma) {
+  const expAccId = await getExpenseAccountId(c.costType, db);
   let creditAccId: number;
-  if (c.shippingLineId) { creditAccId = await getShippingLineAccountId(c.shippingLineId); }
-  else if (c.agentId) { creditAccId = await getAgentAccountId(c.agentId); }
-  else if (c.cityId) { creditAccId = await getCashAccountId(c.cityId); }
-  else { creditAccId = await getOrCreateAccount("2999", "General Payable", "liability"); }
+  if (c.shippingLineId) { creditAccId = await getShippingLineAccountId(c.shippingLineId, db); }
+  else if (c.agentId) { creditAccId = await getAgentAccountId(c.agentId, db); }
+  else if (c.cityId) { creditAccId = await getCashAccountId(c.cityId, db); }
+  else { creditAccId = await getOrCreateAccount("2999", "General Payable", "liability", undefined, db); }
   await createJournalEntries(`COST-${c.id}`, [
     { accountId: expAccId, debit: c.amount, credit: 0, description: `${c.costType} Lot #${c.lotId}` },
     { accountId: creditAccId, debit: 0, credit: c.amount, description: `${c.costType}` },
-  ], { currencyCode: c.currencyCode, entityType: "lot_cost", entityId: c.id, lotId: c.lotId, cityId: c.cityId, entryDate: new Date(), createdBy: c.createdBy });
+  ], { currencyCode: c.currencyCode, entityType: "lot_cost", entityId: c.id, lotId: c.lotId, cityId: c.cityId, entryDate: new Date(), createdBy: c.createdBy }, db);
 }
 
 // AGENT PAID
@@ -194,47 +197,47 @@ export async function journalAgentPaid(p: { id: number; agentId: number; cityId:
 
 // EXPENSE
 // CR account depends on paidFrom: bank_account → specific bank GL, else city cash
-export async function journalExpenseCreated(e: { id: number; cityId: number; lotId: number; amount: number; currencyCode: string; detail: string; expenseDate: Date; createdBy: number; paidFrom?: string | null; bankAccountId?: number | null; }) {
+export async function journalExpenseCreated(e: { id: number; cityId: number; lotId: number; amount: number; currencyCode: string; detail: string; expenseDate: Date; createdBy: number; paidFrom?: string | null; bankAccountId?: number | null; }, db: DbClient = prisma) {
   let creditAccId: number;
   if (e.paidFrom === "bank_account" && e.bankAccountId) {
-    creditAccId = await getBankGLAccountId(e.bankAccountId);
+    creditAccId = await getBankGLAccountId(e.bankAccountId, db);
   } else if (e.paidFrom === "cheque") {
-    creditAccId = await getChequesInHandAccountId(e.cityId);
+    creditAccId = await getChequesInHandAccountId(e.cityId, db);
   } else {
-    creditAccId = await getCashAccountId(e.cityId);
+    creditAccId = await getCashAccountId(e.cityId, db);
   }
   await createJournalEntries(`EXP-${e.id}`, [
-    { accountId: await getExpenseAccountId("general"), debit: e.amount, credit: 0, description: e.detail },
+    { accountId: await getExpenseAccountId("general", db), debit: e.amount, credit: 0, description: e.detail },
     { accountId: creditAccId, debit: 0, credit: e.amount, description: `Expense: ${e.detail}` },
-  ], { currencyCode: e.currencyCode, entityType: "expense", entityId: e.id, lotId: e.lotId, cityId: e.cityId, entryDate: e.expenseDate, createdBy: e.createdBy });
+  ], { currencyCode: e.currencyCode, entityType: "expense", entityId: e.id, lotId: e.lotId, cityId: e.cityId, entryDate: e.expenseDate, createdBy: e.createdBy }, db);
 }
 
 // WITHDRAWAL
-export async function journalWithdrawal(w: { id: number; cityId: number; amount: number; currencyCode: string; date: Date; createdBy: number; sourceType?: string | null; }) {
+export async function journalWithdrawal(w: { id: number; cityId: number; amount: number; currencyCode: string; date: Date; createdBy: number; sourceType?: string | null; }, db: DbClient = prisma) {
   const creditAccId = w.sourceType === "cheque"
-    ? await getChequesInHandAccountId(w.cityId)
-    : await getCashAccountId(w.cityId);
+    ? await getChequesInHandAccountId(w.cityId, db)
+    : await getCashAccountId(w.cityId, db);
   await createJournalEntries(`WDRAW-${w.id}`, [
-    { accountId: await getOwnerWithdrawalAccountId(), debit: w.amount, credit: 0, description: `Owner withdrawal` },
+    { accountId: await getOwnerWithdrawalAccountId(db), debit: w.amount, credit: 0, description: `Owner withdrawal` },
     { accountId: creditAccId, debit: 0, credit: w.amount, description: `Owner withdrawal` },
-  ], { currencyCode: w.currencyCode, entityType: "withdrawal", entityId: w.id, cityId: w.cityId, entryDate: w.date, createdBy: w.createdBy });
+  ], { currencyCode: w.currencyCode, entityType: "withdrawal", entityId: w.id, cityId: w.cityId, entryDate: w.date, createdBy: w.createdBy }, db);
 }
 
 // HAJI TRANSFER
 // sourceType "cheque" → CR Cheques in Hand; "bank_transfer" → CR Bank GL; default → CR Cash in Hand
-export async function journalHajiTransfer(h: { id: number; cityId: number; amount: number; currencyCode: string; date: Date; createdBy: number; sourceType?: string | null; bankAccountId?: number | null; }) {
+export async function journalHajiTransfer(h: { id: number; cityId: number; amount: number; currencyCode: string; date: Date; createdBy: number; sourceType?: string | null; bankAccountId?: number | null; }, db: DbClient = prisma) {
   let creditAccId: number;
   if (h.sourceType === "cheque") {
-    creditAccId = await getChequesInHandAccountId(h.cityId);
+    creditAccId = await getChequesInHandAccountId(h.cityId, db);
   } else if (h.sourceType === "bank_transfer" && h.bankAccountId) {
-    creditAccId = await getBankGLAccountId(h.bankAccountId);
+    creditAccId = await getBankGLAccountId(h.bankAccountId, db);
   } else {
-    creditAccId = await getCashAccountId(h.cityId);
+    creditAccId = await getCashAccountId(h.cityId, db);
   }
   await createJournalEntries(`HAJI-${h.id}`, [
-    { accountId: await getHajiAccountId(), debit: h.amount, credit: 0, description: `Haji transfer` },
+    { accountId: await getHajiAccountId(db), debit: h.amount, credit: 0, description: `Haji transfer` },
     { accountId: creditAccId, debit: 0, credit: h.amount, description: `Haji transfer` },
-  ], { currencyCode: h.currencyCode, entityType: "haji_transfer", entityId: h.id, cityId: h.cityId, entryDate: h.date, createdBy: h.createdBy });
+  ], { currencyCode: h.currencyCode, entityType: "haji_transfer", entityId: h.id, cityId: h.cityId, entryDate: h.date, createdBy: h.createdBy }, db);
 }
 
 // INTERMEDIARY (HAWALA) ACCOUNT
@@ -288,13 +291,13 @@ export async function journalShippingLinePayment(p: { id: number; shippingLineId
 export async function journalSaleCOGS(params: {
   saleId: number; lotId: number; totalQtySold: number;
   saleDate: Date; cityId: number; createdBy: number;
-}) {
+}, db: DbClient = prisma) {
   const { saleId, lotId, totalQtySold, saleDate, cityId, createdBy } = params;
 
   const [purchases, costs, lotProducts] = await Promise.all([
-    prisma.lotPurchase.aggregate({ where: { lotId }, _sum: { totalPriceUsd: true } }),
-    prisma.lotCost.aggregate({ where: { lotId }, _sum: { amount: true } }),
-    prisma.lotProduct.aggregate({ where: { lotId }, _sum: { totalQty: true } }),
+    db.lotPurchase.aggregate({ where: { lotId }, _sum: { totalPriceUsd: true } }),
+    db.lotCost.aggregate({ where: { lotId }, _sum: { amount: true } }),
+    db.lotProduct.aggregate({ where: { lotId }, _sum: { totalQty: true } }),
   ]);
 
   const totalPurchaseUsd = Number(purchases._sum.totalPriceUsd || 0);
@@ -310,9 +313,9 @@ export async function journalSaleCOGS(params: {
   if (cogsAmount <= 0) return;
 
   await createJournalEntries(`COGS-${saleId}`, [
-    { accountId: await getCOGSAccountId(), debit: cogsAmount, credit: 0, description: `COGS — Sale #${saleId}` },
-    { accountId: await getInventoryAccountId(), debit: 0, credit: cogsAmount, description: `Inventory reduction — Sale #${saleId}` },
-  ], { currencyCode: "USD", entityType: "sale", entityId: saleId, lotId, cityId, entryDate: saleDate, createdBy });
+    { accountId: await getCOGSAccountId(db), debit: cogsAmount, credit: 0, description: `COGS — Sale #${saleId}` },
+    { accountId: await getInventoryAccountId(db), debit: 0, credit: cogsAmount, description: `Inventory reduction — Sale #${saleId}` },
+  ], { currencyCode: "USD", entityType: "sale", entityId: saleId, lotId, cityId, entryDate: saleDate, createdBy }, db);
 }
 
 // REVERSE (for cancellations)

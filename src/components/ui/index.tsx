@@ -270,14 +270,7 @@ export function Modal({
   if (!open) return null;
 
   if (inline) {
-    return (
-      <div className="rounded-2xl border border-gray-200 bg-white shadow-[0_20px_60px_-32px_rgba(34,41,55,0.35)]">
-        <div className="border-b border-gray-200 px-6 py-4">
-          <div className="text-base font-semibold text-gray-900">{title}</div>
-        </div>
-        <div className="max-h-[78vh] overflow-y-auto px-6 py-5">{children}</div>
-      </div>
-    );
+    return <div className="max-h-[78vh] overflow-y-auto px-1 py-1">{children}</div>;
   }
 
   return (

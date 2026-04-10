@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { getUserFromRequest, JWTPayload } from "@/lib/auth";
 import { unauthorizedResponse, forbiddenResponse } from "@/lib/api-response";
 import prisma from "@/lib/prisma";
+import { Prisma, PrismaClient } from "@prisma/client";
 
 export type ApiHandler = (
   request: NextRequest,
@@ -110,10 +111,11 @@ export async function createAuditLog(
   action: "create" | "update" | "delete" | "cancel" | "restore" | "hard_delete",
   oldValues?: Record<string, unknown>,
   newValues?: Record<string, unknown>,
-  ipAddress?: string
+  ipAddress?: string,
+  db: PrismaClient | Prisma.TransactionClient = prisma
 ) {
   try {
-    await prisma.auditLog.create({
+    await db.auditLog.create({
       data: {
         userId,
         cityId,

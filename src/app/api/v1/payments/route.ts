@@ -223,59 +223,68 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     // Determine chequeStatus for cheque payments destined to our_account
     const chequeStatus = (paymentMethod === "cheque" && destination === "our_account") ? "in_hand" : undefined;
 
-    // Create payment (without new columns so it works before migration is run)
-    const payment = await prisma.payment.create({
-      data: {
-        cityId,
-        customerId,
-        lotId: lotId!,
-        paymentDate: new Date(paymentDate),
-        detail,
-        amount,
-        currencyId: resolvedCurrencyId,
-        manualVoucherNo: manualVoucherNo?.trim() || null,
-        paymentMethod,
-        destination,
-        notes,
-        createdBy: user.userId,
-        ...(chequeNumber !== undefined ? { chequeNumber } : {}),
-        ...(chequeBank !== undefined ? { chequeBank } : {}),
-        ...(chequeDueDate ? { chequeDueDate: new Date(chequeDueDate) } : {}),
-        ...(chequeStatus !== undefined ? { chequeStatus } : {}),
-        ...(bankAccountId !== undefined ? { bankAccountId } : {}),
-        ...(superAdminBankAccountId !== undefined ? { superAdminBankAccountId } : {}),
-      },
-      include: {
-        customer: { select: { id: true, name: true } },
-        lot: { select: { id: true, lotNumber: true, status: true } },
-        currency: true,
-        bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
-        superAdminBankAccount: { select: { id: true, bankName: true, accountNumber: true } },
-        creator: { select: { id: true, fullName: true } },
-      },
-    } as any) as any;
+    const payment = await prisma.$transaction(async (tx) => {
+      const createdPayment = await tx.payment.create({
+        data: {
+          cityId,
+          customerId,
+          lotId: lotId!,
+          paymentDate: new Date(paymentDate),
+          detail,
+          amount,
+          currencyId: resolvedCurrencyId,
+          manualVoucherNo: manualVoucherNo?.trim() || null,
+          paymentMethod,
+          destination,
+          notes,
+          createdBy: user.userId,
+          ...(chequeNumber !== undefined ? { chequeNumber } : {}),
+          ...(chequeBank !== undefined ? { chequeBank } : {}),
+          ...(chequeDueDate ? { chequeDueDate: new Date(chequeDueDate) } : {}),
+          ...(chequeStatus !== undefined ? { chequeStatus } : {}),
+          ...(bankAccountId !== undefined ? { bankAccountId } : {}),
+          ...(superAdminBankAccountId !== undefined ? { superAdminBankAccountId } : {}),
+        },
+        include: {
+          customer: { select: { id: true, name: true } },
+          lot: { select: { id: true, lotNumber: true, status: true } },
+          currency: true,
+          bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+          superAdminBankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+          creator: { select: { id: true, fullName: true } },
+        },
+      } as any) as any;
 
-    // Store exchange rate fields via raw SQL — safe to skip if columns don't exist yet
-    if (exchangeRate != null || usdEquivalent != null) {
-      try {
-        await prisma.$executeRaw`
-          UPDATE payments
-          SET exchange_rate = ${exchangeRate ?? null},
-              usd_equivalent = ${usdEquivalent ?? null}
-          WHERE id = ${payment.id}
-        `;
-      } catch (_) { /* columns not yet migrated — ignore */ }
-    }
+      if (exchangeRate != null || usdEquivalent != null) {
+        try {
+          await tx.$executeRaw`
+            UPDATE payments
+            SET exchange_rate = ${exchangeRate ?? null},
+                usd_equivalent = ${usdEquivalent ?? null}
+            WHERE id = ${createdPayment.id}
+          `;
+        } catch (_) { /* columns not yet migrated — ignore */ }
+      }
 
-    await createAuditLog(user.userId, cityId, "payments", payment.id, "create", undefined, {
-      date: paymentDate,
-      customer: payment.customer.name,
-      detail: payment.detail,
-      amount: `${payment.currency.symbol || payment.currency.code} ${Number(payment.amount).toLocaleString("en-US")}`,
-      method: paymentMethod,
-      ...(destination ? { destination } : {}),
-      ...(notes ? { notes } : {}),
-    }, getClientIP(request));
+      await createAuditLog(user.userId, cityId, "payments", createdPayment.id, "create", undefined, {
+        date: paymentDate,
+        customer: createdPayment.customer.name,
+        detail: createdPayment.detail,
+        amount: `${createdPayment.currency.symbol || createdPayment.currency.code} ${Number(createdPayment.amount).toLocaleString("en-US")}`,
+        method: paymentMethod,
+        ...(destination ? { destination } : {}),
+        ...(notes ? { notes } : {}),
+      }, getClientIP(request), tx);
+
+      const journalFn = (paymentMethod === "cheque" && destination === "our_account") ? journalChequeReceived : journalPaymentReceived;
+      await journalFn({
+        id: createdPayment.id, customerId: createdPayment.customerId, cityId: createdPayment.cityId, lotId: createdPayment.lotId,
+        amount: Number(createdPayment.amount), currencyCode: createdPayment.currency.code,
+        paymentDate: createdPayment.paymentDate, createdBy: user.userId,
+      }, tx);
+
+      return createdPayment;
+    });
 
     const responsePayData = {
       id: payment.id,
@@ -297,15 +306,6 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       superAdminBankAccountId: (payment as any).superAdminBankAccountId ?? null,
       superAdminBankAccount: (payment as any).superAdminBankAccount ?? null,
     };
-
-    try {
-      const journalFn = (paymentMethod === "cheque" && destination === "our_account") ? journalChequeReceived : journalPaymentReceived;
-      await journalFn({
-        id: payment.id, customerId: payment.customerId, cityId: payment.cityId, lotId: payment.lotId,
-        amount: Number(payment.amount), currencyCode: payment.currency.code,
-        paymentDate: payment.paymentDate, createdBy: user.userId,
-      });
-    } catch (je) { console.error("Journal entry error (payment):", je); }
 
     return successResponse(responsePayData, "Payment recorded successfully", 201);
   } catch (error) {

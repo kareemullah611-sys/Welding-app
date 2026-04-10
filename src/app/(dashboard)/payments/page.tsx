@@ -597,7 +597,7 @@ export default function PaymentsPage() {
       />}
 
       {/* ── CREATE MODAL ───────────────────────────────────────────────────── */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={createTitle} size="md" inline={isEmbed}>
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={createTitle} size="md">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
           {/* ── DATE — always first ── */}
