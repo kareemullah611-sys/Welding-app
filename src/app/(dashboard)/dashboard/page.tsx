@@ -5,6 +5,125 @@ import { apiCall } from "@/hooks/useApi";
 import { PageHeader, StatsCard, formatNumber, DataTable, formatDate, Modal } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import Link from "next/link";
+import { 
+  ShoppingCart, 
+  Banknote, 
+  Receipt, 
+  Wallet, 
+  ArrowRightLeft, 
+  Users, 
+  Package, 
+  TrendingUp, 
+  TrendingDown,
+  Building2,
+  ChevronRight,
+  AlertCircle,
+  CheckCircle2
+} from "lucide-react";
+
+const QuickActionCard = ({ 
+  icon: Icon, 
+  title, 
+  src, 
+  color, 
+  onClick 
+}: { 
+  icon: React.ElementType; 
+  title: string; 
+  src?: string; 
+  color: string; 
+  onClick?: () => void;
+}) => {
+  const colors: Record<string, { bg: string; border: string; icon: string; text: string; hover: string }> = {
+    blue: { bg: "bg-blue-50", border: "border-blue-200", icon: "text-blue-600", text: "text-blue-900", hover: "hover:bg-blue-100" },
+    green: { bg: "bg-emerald-50", border: "border-emerald-200", icon: "text-emerald-600", text: "text-emerald-900", hover: "hover:bg-emerald-100" },
+    red: { bg: "bg-rose-50", border: "border-rose-200", icon: "text-rose-600", text: "text-rose-900", hover: "hover:bg-rose-100" },
+    purple: { bg: "bg-violet-50", border: "border-violet-200", icon: "text-violet-600", text: "text-violet-900", hover: "hover:bg-violet-100" },
+    orange: { bg: "bg-amber-50", border: "border-amber-200", icon: "text-amber-600", text: "text-amber-900", hover: "hover:bg-amber-100" },
+    teal: { bg: "bg-teal-50", border: "border-teal-200", icon: "text-teal-600", text: "text-teal-900", hover: "hover:bg-teal-100" },
+  };
+  const c = colors[color] || colors.blue;
+  
+  const content = (
+    <div className={`${c.bg} ${c.border} border rounded-2xl p-4 cursor-pointer transition-all duration-200 ${c.hover} group`}>
+      <div className="flex items-center gap-3">
+        <div className={`${c.icon} p-2.5 rounded-xl bg-white/80 shadow-sm`}>
+          <Icon className="w-5 h-5" />
+        </div>
+        <span className={`text-sm font-semibold ${c.text} group-hover:translate-x-0.5 transition-transform`}>
+          {title}
+        </span>
+        <ChevronRight className={`w-4 h-4 ml-auto ${c.icon} opacity-0 group-hover:opacity-100 transition-opacity`} />
+      </div>
+    </div>
+  );
+  
+  if (src) {
+    return <button onClick={onClick} className="w-full text-left">{content}</button>;
+  }
+  return content;
+};
+
+const MetricCard = ({ 
+  title, 
+  value, 
+  subtitle, 
+  trend,
+  icon: Icon,
+  color 
+}: { 
+  title: string; 
+  value: string | number; 
+  subtitle?: string;
+  trend?: 'up' | 'down' | null;
+  icon: React.ElementType;
+  color: string;
+}) => {
+  const colors: Record<string, { bg: string; icon: string; value: string }> = {
+    green: { bg: "from-emerald-50 to-white", icon: "text-emerald-600", value: "text-emerald-700" },
+    red: { bg: "from-rose-50 to-white", icon: "text-rose-600", value: "text-rose-700" },
+    blue: { bg: "from-blue-50 to-white", icon: "text-blue-600", value: "text-blue-700" },
+    yellow: { bg: "from-amber-50 to-white", icon: "text-amber-600", value: "text-amber-700" },
+    purple: { bg: "from-violet-50 to-white", icon: "text-violet-600", value: "text-violet-700" },
+  };
+  const c = colors[color] || colors.blue;
+  
+  return (
+    <div className="bg-gradient-to-br bg-white border border-gray-100 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow">
+      <div className="flex items-start justify-between mb-3">
+        <div className={`p-2.5 rounded-xl bg-gradient-to-br ${c.bg} shadow-sm`}>
+          <Icon className={`w-5 h-5 ${c.icon}`} />
+        </div>
+        {trend && (
+          <div className={`flex items-center gap-1 text-xs font-medium ${trend === 'up' ? 'text-emerald-600' : 'text-rose-600'}`}>
+            {trend === 'up' ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+          </div>
+        )}
+      </div>
+      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">{title}</p>
+      <p className={`text-xl font-bold ${c.value} tabular-nums`}>{value}</p>
+      {subtitle && <p className="text-xs text-gray-400 mt-1">{subtitle}</p>}
+    </div>
+  );
+};
+
+const SectionCard = ({ 
+  title, 
+  children, 
+  action 
+}: { 
+  title: string; 
+  children: React.ReactNode; 
+  action?: React.ReactNode;
+}) => (
+  <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
+    <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+      <h3 className="text-sm font-semibold text-gray-800">{title}</h3>
+      {action}
+    </div>
+    <div className="p-5">{children}</div>
+  </div>
+);
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -14,7 +133,7 @@ export default function DashboardPage() {
   const [treasury, setTreasury] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [selectedCountry, setSelectedCountry] = useState<string>("");
-  const [showOperationalDetails, setShowOperationalDetails] = useState(false);
+  const [showOperationalDetails, setShowOperationalDetails] = useState(true);
   const [quickAction, setQuickAction] = useState<{ title: string; src: string } | null>(null);
 
   useEffect(() => {
@@ -33,6 +152,7 @@ export default function DashboardPage() {
     };
     load();
   }, [user?.role]);
+
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
@@ -42,14 +162,20 @@ export default function DashboardPage() {
     return () => window.removeEventListener("message", onMessage);
   }, []);
 
-  if (loading) return <div className="flex items-center justify-center py-20"><div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" /></div>;
+  if (loading) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-amber-200 border-t-amber-600 rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-sm text-gray-500">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   // ─── CITY ADMIN DASHBOARD ─────────────────────────────────────────────────
   if (user?.role === "city_admin") {
-    // Build treasury cards
     const hasTreasury = treasury && (treasury.hasBankAccounts || treasury.cashInOffice || treasury.chequesInHand);
-
-    // Format multi-currency value for a pot
     const formatPot = (pot: Record<string, number> | undefined) => {
       if (!pot) return "0";
       const entries = Object.entries(pot).filter(([, v]) => Number(v) !== 0);
@@ -59,155 +185,247 @@ export default function DashboardPage() {
     };
 
     return (
-      <div>
-        <PageHeader title={t("dashboard")} subtitle={`${t("welcome")}, ${user?.fullName}`} />
-        <div className="mb-4 flex justify-end">
-          <button
-            onClick={() => setShowOperationalDetails((v) => !v)}
-            className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:border-primary-300 hover:text-primary-700"
-          >
-            {showOperationalDetails ? "Hide Details" : "Show Details"}
-          </button>
+      <div className="space-y-6">
+        <PageHeader 
+          title={t("dashboard")} 
+          subtitle={`Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}, ${user?.fullName}`} 
+        />
+
+        {/* Quick Actions - Featured */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <QuickActionCard 
+            icon={ShoppingCart} 
+            title="New Sale" 
+            src="/sales?create=1&embed=1" 
+            color="blue"
+            onClick={() => setQuickAction({ title: "New Sale", src: "/sales?create=1&embed=1" })}
+          />
+          <QuickActionCard 
+            icon={Banknote} 
+            title="Receive Payment" 
+            src="/payments?create=payment&embed=1"
+            color="green"
+            onClick={() => setQuickAction({ title: "Receive Payment", src: "/payments?create=payment&embed=1" })}
+          />
+          <QuickActionCard 
+            icon={Receipt} 
+            title="Record Expense" 
+            src="/expenses?create=1&embed=1"
+            color="red"
+            onClick={() => setQuickAction({ title: "Record Expense", src: "/expenses?create=1&embed=1" })}
+          />
+          <QuickActionCard 
+            icon={Wallet} 
+            title="Withdrawal" 
+            src="/personal-withdrawals?create=1&embed=1"
+            color="purple"
+            onClick={() => setQuickAction({ title: "Personal Withdrawal", src: "/personal-withdrawals?create=1&embed=1" })}
+          />
         </div>
 
-        <div className="card mb-6">
-          <div className="flex items-center justify-between gap-3 mb-4">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">Daily Work</h3>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <button onClick={() => setQuickAction({ title: "New Sale", src: "/sales?create=1&embed=1" })} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4 text-left hover:bg-blue-100 transition-colors">
-              <div className="text-sm font-semibold text-blue-900">New Sale</div>
-            </button>
-            <button onClick={() => setQuickAction({ title: "Receive Payment", src: "/payments?create=payment&embed=1" })} className="rounded-2xl border border-green-200 bg-green-50 px-4 py-4 text-left hover:bg-green-100 transition-colors">
-              <div className="text-sm font-semibold text-green-900">Receive Payment</div>
-            </button>
-            <button onClick={() => setQuickAction({ title: "Record Expense", src: "/expenses?create=1&embed=1" })} className="rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-left hover:bg-red-100 transition-colors">
-              <div className="text-sm font-semibold text-red-900">Record Expense</div>
-            </button>
-            <button onClick={() => setQuickAction({ title: "Personal Withdrawal", src: "/personal-withdrawals?create=1&embed=1" })} className="rounded-2xl border border-purple-200 bg-purple-50 px-4 py-4 text-left hover:bg-purple-100 transition-colors">
-              <div className="text-sm font-semibold text-purple-900">Personal Withdrawal</div>
-            </button>
-            <button onClick={() => setQuickAction({ title: "Haji Transfer", src: "/haji-transfers?create=1&embed=1" })} className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-4 text-left hover:bg-orange-100 transition-colors">
-              <div className="text-sm font-semibold text-orange-900">Haji Transfer</div>
-            </button>
-            <button onClick={() => setQuickAction({ title: "New Customer", src: "/customers?create=1&embed=1" })} className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-4 text-left hover:bg-teal-100 transition-colors">
-              <div className="text-sm font-semibold text-teal-900">New Customer</div>
-            </button>
-            <Link href="/inventory" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 hover:bg-amber-100 transition-colors">
-              <div className="text-sm font-semibold text-amber-900">Move Stock</div>
-            </Link>
-          </div>
+        {/* Secondary Quick Actions */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <QuickActionCard 
+            icon={ArrowRightLeft} 
+            title="Haji Transfer" 
+            src="/haji-transfers?create=1&embed=1"
+            color="orange"
+            onClick={() => setQuickAction({ title: "Haji Transfer", src: "/haji-transfers?create=1&embed=1" })}
+          />
+          <QuickActionCard 
+            icon={Users} 
+            title="New Customer" 
+            src="/customers?create=1&embed=1"
+            color="teal"
+            onClick={() => setQuickAction({ title: "New Customer", src: "/customers?create=1&embed=1" })}
+          />
+          <Link href="/inventory" className="sm:col-span-2 lg:col-span-4">
+            <QuickActionCard icon={Package} title="Move Stock" color="amber" />
+          </Link>
         </div>
-        {showOperationalDetails && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-          {/* Treasury 3-pot cards (if treasury data available) */}
+
+        {/* Key Metrics */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {hasTreasury ? (
             <>
-              <StatsCard
-                title={`💵 ${t("cash_in_office")}`}
-                value={formatPot(treasury.cashInOffice)}
-                color="green"
-                icon="💵"
+              <MetricCard 
+                title="Cash in Office" 
+                value={formatPot(treasury.cashInOffice)} 
+                icon={Banknote} 
+                color="green" 
               />
               {(treasury.hasBankAccounts || Object.values(treasury.chequesInHand || {}).some(v => Number(v) > 0)) && (
-                <StatsCard
-                  title={`🧾 ${t("cheques_in_hand")}`}
-                  value={formatPot(treasury.chequesInHand)}
-                  color="yellow"
-                  icon="🧾"
+                <MetricCard 
+                  title="Cheques in Hand" 
+                  value={formatPot(treasury.chequesInHand)} 
+                  icon={Receipt} 
+                  color="yellow" 
                 />
               )}
               {treasury.hasBankAccounts && (
-                <StatsCard
-                  title={`🏦 ${t("bank_balance")}`}
-                  value={formatPot(treasury.bankBalance)}
-                  color="blue"
-                  icon="🏦"
+                <MetricCard 
+                  title="Bank Balance" 
+                  value={formatPot(treasury.bankBalance)} 
+                  icon={Building2} 
+                  color="blue" 
                 />
               )}
             </>
           ) : (
-            /* Fallback to old single cash card */
-            <StatsCard title={`💰 ${t("cash_in_hand")}`} value={formatNumber(cashPosition?.netCashInHand || 0)} color="green" icon="💰" />
+            <MetricCard 
+              title="Cash in Hand" 
+              value={formatNumber(cashPosition?.netCashInHand || 0)} 
+              icon={Banknote} 
+              color="green" 
+            />
           )}
-
+          
           {/* Outstanding */}
           {Object.entries(data?.outstandingByCurrency || {}).length > 0
             ? Object.entries(data.outstandingByCurrency).map(([cc, amt]: [string, any]) => (
-                <StatsCard key={`out-${cc}`} title={`📋 ${t("outstanding")} (${cc})`} value={`${cc} ${formatNumber(amt || 0)}`} color="red" icon="📋" />
+                <MetricCard 
+                  key={`out-${cc}`} 
+                  title={`Outstanding (${cc})`} 
+                  value={`${cc} ${formatNumber(amt || 0)}`}
+                  icon={AlertCircle}
+                  color="red"
+                />
               ))
-            : <StatsCard title={`📋 ${t("outstanding")}`} value="0" color="red" icon="📋" />
+            : <MetricCard title="Outstanding" value="0" icon={CheckCircle2} color="green" />
           }
-
-          <StatsCard title={`📦 ${t("cartons_sold")}`} value={formatNumber(data?.totalCartonsSold || 0)} color="blue" icon="📦" />
-
+          
+          <MetricCard 
+            title="Cartons Sold" 
+            value={formatNumber(data?.totalCartonsSold || 0)} 
+            icon={Package} 
+            color="blue" 
+          />
+          
           {/* Owed to Haji */}
           {Object.entries(data?.hajiByCurrency || {}).length > 0
             ? Object.entries(data.hajiByCurrency).map(([cc, amt]: [string, any]) => (
-                <StatsCard key={`haji-${cc}`} title={`↗️ ${t("owed_to_haji")} (${cc})`} value={`${cc} ${formatNumber(amt || 0)}`} color="yellow" icon="↗️" />
+                <MetricCard 
+                  key={`haji-${cc}`} 
+                  title={`Owed to Haji (${cc})`} 
+                  value={`${cc} ${formatNumber(amt || 0)}`}
+                  icon={ArrowRightLeft}
+                  color="orange"
+                />
               ))
-            : <StatsCard title={`↗️ ${t("owed_to_haji")}`} value="0" color="yellow" icon="↗️" />
+            : <MetricCard title="Owed to Haji" value="0" icon={ArrowRightLeft} color="green" />
           }
         </div>
-        )}
 
-        {/* Bank account breakdown (if available) */}
-        {showOperationalDetails && treasury?.hasBankAccounts && treasury.bankAccounts?.length > 1 && (
-          <div className="card mb-6">
-            <h3 className="text-sm font-semibold text-gray-500 mb-3">🏦 Bank Accounts</h3>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {treasury.bankAccounts.map((ba: any) => (
-                <div key={ba.id} className="bg-blue-50 border border-blue-100 rounded-lg p-3">
-                  <p className="text-sm font-semibold text-blue-800">{ba.bankName}</p>
-                  <p className="text-lg font-bold text-blue-700 mt-1">
-                    {Object.entries(ba.balance || {}).filter(([, v]) => Number(v) !== 0).map(([cc, amt]: [string, any]) => (
-                      <span key={cc}>{cc} {formatNumber(amt)}</span>
-                    ))}
-                  </p>
+        {/* Operational Details */}
+        {showOperationalDetails && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Cash Flow Breakdown */}
+            {cashPosition && (
+              <SectionCard title="Cash Flow">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-3">
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Incoming</p>
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-gray-600">Cash Received</span>
+                        <span className="font-semibold text-emerald-700">{formatNumber(cashPosition.incomingToHand?.cash || 0)}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-gray-600">Cheques</span>
+                        <span className="font-semibold text-blue-700">{formatNumber(cashPosition.incomingToHand?.cheque || 0)}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-gray-600">Bank/Online</span>
+                        <span className="font-semibold text-violet-700">{formatNumber((cashPosition.incomingToHand?.bankTransfer || 0) + (cashPosition.incomingToHand?.online || 0))}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-gray-600">Direct to Haji</span>
+                        <span className="font-semibold text-amber-700">{formatNumber(cashPosition.directToHaji || 0)}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Outgoing</p>
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-gray-600">Expenses</span>
+                        <span className="font-semibold text-rose-700">{formatNumber(cashPosition.outgoing?.expenses || 0)}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-gray-600">Withdrawals</span>
+                        <span className="font-semibold text-amber-700">{formatNumber(cashPosition.outgoing?.personalWithdrawals || 0)}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-gray-600">Haji Transfers</span>
+                        <span className="font-semibold text-orange-700">{formatNumber(cashPosition.outgoing?.hajiTransfers || 0)}</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              ))}
-            </div>
+              </SectionCard>
+            )}
+
+            {/* Bank Accounts */}
+            {treasury?.hasBankAccounts && treasury.bankAccounts?.length > 1 && (
+              <SectionCard title="Bank Accounts">
+                <div className="space-y-3">
+                  {treasury.bankAccounts.map((ba: any) => (
+                    <div key={ba.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-blue-100 rounded-lg">
+                          <Building2 className="w-4 h-4 text-blue-600" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">{ba.bankName}</p>
+                          <p className="text-xs text-gray-500">{ba.accountNumber}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        {Object.entries(ba.balance || {}).filter(([, v]) => Number(v) !== 0).map(([cc, amt]: [string, any]) => (
+                          <p key={cc} className="text-sm font-bold text-blue-700">{cc} {formatNumber(amt)}</p>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </SectionCard>
+            )}
+
+            {/* Ongoing Lots */}
+            {data?.ongoingLots?.length > 0 && (
+              <SectionCard 
+                title="Ongoing Lots" 
+                action={<span className="text-xs text-gray-400">{data.ongoingLots.length} active</span>}
+              >
+                <div className="space-y-2">
+                  {data.ongoingLots.map((l: any) => (
+                    <div key={l.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                      <div className="flex items-center gap-3">
+                        <div className="w-2 h-2 rounded-full bg-blue-500" />
+                        <span className="font-mono text-sm font-medium text-gray-900">{l.lotNumber}</span>
+                      </div>
+                      <span className="text-sm text-gray-500">{formatDate(l.lotDate)}</span>
+                    </div>
+                  ))}
+                </div>
+              </SectionCard>
+            )}
           </div>
         )}
 
-        {/* Cash breakdown — collapsed by default (hidden for Afghanistan) */}
-        {showOperationalDetails && cashPosition && (
-          <div className="card mb-6">
-            <h3 className="text-sm font-semibold text-gray-500 mb-3">{t("cash_position_breakdown")}</h3>
-              <>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                  <div className="bg-green-50 rounded-lg p-3"><div className="text-gray-500">{t("cash_received")}</div><div className="text-lg font-bold text-green-700">{formatNumber(cashPosition.incomingToHand?.cash || 0)}</div></div>
-                  <div className="bg-blue-50 rounded-lg p-3"><div className="text-gray-500">{t("cheques")}</div><div className="text-lg font-bold text-blue-700">{formatNumber(cashPosition.incomingToHand?.cheque || 0)}</div></div>
-                  <div className="bg-purple-50 rounded-lg p-3"><div className="text-gray-500">{t("bank_online")}</div><div className="text-lg font-bold text-purple-700">{formatNumber((cashPosition.incomingToHand?.bankTransfer || 0) + (cashPosition.incomingToHand?.online || 0))}</div></div>
-                  <div className="bg-orange-50 rounded-lg p-3"><div className="text-gray-500">{t("direct_to_haji")}</div><div className="text-lg font-bold text-orange-700">{formatNumber(cashPosition.directToHaji || 0)}</div></div>
-                </div>
-                <div className="grid grid-cols-3 gap-3 mt-3 text-sm">
-                  <div className="bg-red-50 rounded-lg p-3"><div className="text-gray-500">{t("expenses_paid")}</div><div className="text-lg font-bold text-red-700">{formatNumber(cashPosition.outgoing?.expenses || 0)}</div></div>
-                  <div className="bg-yellow-50 rounded-lg p-3"><div className="text-gray-500">{t("withdrawals")}</div><div className="text-lg font-bold text-yellow-700">{formatNumber(cashPosition.outgoing?.personalWithdrawals || 0)}</div></div>
-                  <div className="bg-orange-50 rounded-lg p-3"><div className="text-gray-500">{t("haji_transfers")}</div><div className="text-lg font-bold text-orange-700">{formatNumber(cashPosition.outgoing?.hajiTransfers || 0)}</div></div>
-                </div>
-              </>
-          </div>
-        )}
-
-        {showOperationalDetails && data?.ongoingLots?.length > 0 && (
-          <div className="card">
-            <h3 className="text-sm font-semibold text-gray-500 mb-3">{t("ongoing_lots")}</h3>
-            {data.ongoingLots.map((l: any) => (
-              <div key={l.id} className="flex justify-between items-center py-2 border-b last:border-0">
-                <span className="font-mono font-medium">{l.lotNumber}</span>
-                <span className="text-sm text-gray-500">{formatDate(l.lotDate)}</span>
-              </div>
-            ))}
-          </div>
-        )}
+        {/* Toggle Details */}
+        <div className="flex justify-center">
+          <button
+            onClick={() => setShowOperationalDetails((v) => !v)}
+            className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1.5 transition-colors"
+          >
+            {showOperationalDetails ? 'Hide details' : 'Show more details'}
+          </button>
+        </div>
 
         <Modal open={!!quickAction} onClose={() => setQuickAction(null)} title={quickAction?.title || "Quick Action"} size="xl" hideHeader bodyClassName="p-0">
           {quickAction && <iframe src={quickAction.src} title={quickAction.title} className="h-[78vh] w-full border-0" />}
         </Modal>
-
       </div>
     );
   }
@@ -234,54 +452,104 @@ export default function DashboardPage() {
   });
 
   return (
-    <div>
-      <PageHeader title={t("dashboard")} subtitle={`${t("welcome")}, ${user?.fullName}`} />
+    <div className="space-y-6">
+      <PageHeader 
+        title={t("dashboard")} 
+        subtitle={`Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}, ${user?.fullName}`} 
+      />
 
-      {/* Global stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+      {/* Global Metrics */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {Object.entries(data?.outstandingByCurrency || {}).map(([cc, amt]: [string, any]) => (
-          <StatsCard key={`out-${cc}`} title={`${t("outstanding")} (${cc})`} value={`${cc} ${formatNumber(amt)}`} color="red" icon="📋" />
+          <MetricCard 
+            key={`out-${cc}`} 
+            title={`Total Outstanding (${cc})`} 
+            value={`${cc} ${formatNumber(amt)}`}
+            icon={AlertCircle}
+            color="red"
+          />
         ))}
-        <StatsCard title={t("cartons_sold")} value={formatNumber(data?.totalCartonsSold || 0)} color="blue" icon="📦" />
-        {data?.supplierPayable && <StatsCard title="Owed to Company" value={`$${formatNumber(data.supplierPayable.balanceUsd)}`} color="yellow" icon="🏭" />}
+        <MetricCard 
+          title="Total Cartons Sold" 
+          value={formatNumber(data?.totalCartonsSold || 0)} 
+          icon={Package} 
+          color="blue" 
+        />
+        {data?.supplierPayable && (
+          <MetricCard 
+            title="Owed to Company" 
+            value={`$${formatNumber(data.supplierPayable.balanceUsd)}`}
+            icon={Building2}
+            color="purple"
+          />
+        )}
       </div>
 
-      {/* Country tabs */}
+      {/* Country Tabs */}
       {countries.length > 0 && (
-        <div className="mb-6">
-          <div className="flex gap-2 mb-4">
+        <div className="space-y-6">
+          {/* Country Selector */}
+          <div className="flex gap-2">
             {countries.map((c) => (
-              <button key={c as string} onClick={() => setSelectedCountry(c as string)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeCountry === c ? "bg-primary-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-                {c === "Pakistan" ? "🇵🇰" : "🇦🇫"} {c as string}
+              <button 
+                key={c as string} 
+                onClick={() => setSelectedCountry(c as string)}
+                className={`px-5 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                  activeCountry === c 
+                    ? 'bg-gradient-to-r from-amber-600 to-amber-700 text-white shadow-lg shadow-amber-200' 
+                    : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
+                }`}
+              >
+                {c === "Pakistan" ? '🇵🇰' : '🇦🇫'} {c as string}
               </button>
             ))}
           </div>
 
-          {/* Country summary */}
+          {/* Country Summary */}
           {countryTotals.filter((ct) => ct.country === activeCountry).map((ct) => (
-            <div key={ct.country as string} className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+            <div key={ct.country as string} className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {Object.entries((ct as any).outstandingByCurrency || {}).map(([cc, amt]: [string, any]) => (
-                <StatsCard key={`${ct.country}-out-${cc}`} title={`${t("outstanding")} (${cc})`} value={`${cc} ${formatNumber(amt)}`} color="red" icon="📋" />
+                <MetricCard 
+                  key={`${ct.country}-out-${cc}`} 
+                  title={`Outstanding (${cc})`} 
+                  value={`${cc} ${formatNumber(amt)}`}
+                  icon={AlertCircle}
+                  color="red"
+                />
               ))}
               {Object.entries((ct as any).hajiByCurrency || {}).map(([cc, amt]: [string, any]) => (
-                <StatsCard key={`${ct.country}-haji-${cc}`} title={`${t("owed_to_haji")} (${cc})`} value={`${cc} ${formatNumber(amt)}`} color="yellow" icon="↗️" />
+                <MetricCard 
+                  key={`${ct.country}-haji-${cc}`} 
+                  title={`Owed to Haji (${cc})`} 
+                  value={`${cc} ${formatNumber(amt)}`}
+                  icon={ArrowRightLeft}
+                  color="orange"
+                />
               ))}
-              <StatsCard title={`${ct.country} ${t("cartons")}`} value={formatNumber(ct.cartons)} color="blue" icon="📦" />
+              <MetricCard 
+                title={`${ct.country} Cartons`} 
+                value={formatNumber(ct.cartons)} 
+                icon={Package} 
+                color="blue" 
+              />
             </div>
           ))}
 
-          {/* City breakdown table */}
-          <div className="card">
-            <h3 className="text-sm font-semibold text-gray-500 mb-3">{activeCountry} — {t("city")} Breakdown</h3>
+          {/* City Breakdown Table */}
+          <SectionCard title={`${activeCountry} — City Breakdown`}>
             <DataTable columns={[
-              { key: "cityName", label: t("city"), render: (c: any) => <span className="font-medium">{c.cityName}</span> },
+              { key: "cityName", label: t("city"), render: (c: any) => (
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-blue-500" />
+                  <span className="font-medium">{c.cityName}</span>
+                </div>
+              )},
               {
                 key: "outstanding", label: t("outstanding"),
                 render: (c: any) => (
                   <div className="space-y-0.5">
                     {Object.entries(c.outstandingByCurrency || {}).map(([cc, amt]: [string, any]) => (
-                      <div key={cc} className="text-red-600 font-medium text-sm">{cc} {(amt as number).toLocaleString("en-US")}</div>
+                      <div key={cc} className="text-rose-700 font-semibold text-sm tabular-nums">{cc} {formatNumber(amt as number)}</div>
                     ))}
                     {!Object.keys(c.outstandingByCurrency || {}).length && <span className="text-gray-400">—</span>}
                   </div>
@@ -292,27 +560,33 @@ export default function DashboardPage() {
                 render: (c: any) => (
                   <div className="space-y-0.5">
                     {Object.entries(c.hajiByCurrency || {}).map(([cc, amt]: [string, any]) => (
-                      <div key={cc} className="text-orange-600 font-medium text-sm">{cc} {(amt as number).toLocaleString("en-US")}</div>
+                      <div key={cc} className="text-amber-700 font-semibold text-sm tabular-nums">{cc} {formatNumber(amt as number)}</div>
                     ))}
                     {!Object.keys(c.hajiByCurrency || {}).length && <span className="text-gray-400">—</span>}
                   </div>
                 ),
               },
-              { key: "cartonsSold", label: t("cartons_sold"), render: (c: any) => formatNumber(c.cartonsSold) },
+              { key: "cartonsSold", label: t("cartons_sold"), render: (c: any) => (
+                <span className="font-semibold tabular-nums">{formatNumber(c.cartonsSold)}</span>
+              )},
               {
                 key: "personalWithdrawals", label: t("withdrawals"),
                 render: (c: any) => (
                   <div className="space-y-0.5">
                     {Object.entries(c.withdrawalByCurrency || {}).map(([cc, amt]: [string, any]) => (
-                      <div key={cc} className="text-red-500 text-sm">{cc} {(amt as number).toLocaleString("en-US")}</div>
+                      <div key={cc} className="text-amber-600 text-sm tabular-nums">{cc} {formatNumber(amt as number)}</div>
                     ))}
                     {!Object.keys(c.withdrawalByCurrency || {}).length && <span className="text-gray-400">—</span>}
                   </div>
                 ),
               },
-              { key: "activeLots", label: t("ongoing_lots") },
+              { key: "activeLots", label: t("ongoing_lots"), render: (c: any) => (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                  {c.activeLots}
+                </span>
+              )},
             ]} data={countryCities} loading={false} />
-          </div>
+          </SectionCard>
         </div>
       )}
     </div>
