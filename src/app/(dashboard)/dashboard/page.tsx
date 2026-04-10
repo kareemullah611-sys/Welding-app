@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, StatsCard, formatNumber, DataTable, formatDate, Modal } from "@/components/ui";
+import { PageHeader, StatsCard, formatNumber, DataTable, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import Link from "next/link";
 import { 
@@ -423,9 +423,23 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        <Modal open={!!quickAction} onClose={() => setQuickAction(null)} title={quickAction?.title || "Quick Action"} size="xl" hideHeader bodyClassName="p-0">
-          {quickAction && <iframe src={quickAction.src} title={quickAction.title} className="h-[78vh] w-full border-0" />}
-        </Modal>
+        {quickAction && (
+          <div className="fixed inset-0 z-50 bg-black/70">
+            <button
+              type="button"
+              onClick={() => setQuickAction(null)}
+              className="absolute right-5 top-5 z-10 rounded-full bg-black/55 px-3 py-2 text-sm font-medium text-white hover:bg-black/70"
+              aria-label="Close quick form"
+            >
+              ×
+            </button>
+            <iframe
+              src={quickAction.src}
+              title="Dashboard quick form"
+              className="h-full w-full border-0 bg-transparent"
+            />
+          </div>
+        )}
       </div>
     );
   }
