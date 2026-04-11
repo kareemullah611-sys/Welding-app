@@ -8,7 +8,7 @@ import { LangSwitcher, useLang } from "@/lib/lang";
 import { apiCall } from "@/hooks/useApi";
 import NotificationBell from "@/components/layout/NotificationBell";
 import {
-  LayoutDashboard, Package, Tag, Factory, Banknote, Handshake,
+  LayoutDashboard, Package, Factory, Banknote, Handshake,
   BookOpen, Receipt, Wallet, Users, Warehouse, ClipboardList,
   ArrowLeftRight, TrendingUp, BarChart2, FileText, Search,
   Activity, Settings, LogOut, ChevronLeft, ChevronRight,
@@ -47,7 +47,6 @@ const superAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
     label: "Procurement",
     items: [
       { label: "Lots",             key: "lots",             href: "/lots",             icon: Package,     roles: ["super_admin"] },
-      { label: "Lot Costing",      key: "lot_costing",      href: "/lot-costing",      icon: Tag,         roles: ["super_admin"] },
       { label: "Suppliers",        key: "suppliers",        href: "/suppliers",        icon: Factory,     roles: ["super_admin"] },
       { label: "Company Payments", key: "company_payments", href: "/supplier-payments",icon: Banknote,    roles: ["super_admin"] },
       { label: "Shipping Lines",   key: "shipping_lines",   href: "/shipping-lines",   icon: Landmark,    roles: ["super_admin"] },

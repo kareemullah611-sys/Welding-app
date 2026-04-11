@@ -291,6 +291,10 @@ export default function LotCostingPage() {
       </div>
 
       {selectedLot && <>
+        <div className="mb-4 text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded px-3 py-2">
+          This page is now analysis-only. Add or edit purchase prices and additional costs from the <strong>Lots</strong> module.
+        </div>
+
         {/* ── Lot product summary banner ── */}
         {lotProducts.length > 0 && (
           <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800 flex flex-wrap items-center gap-x-4 gap-y-1">
@@ -339,7 +343,7 @@ export default function LotCostingPage() {
         <div className="card mb-4">
           <div className="flex justify-between items-center mb-3">
             <h3 className="text-sm font-semibold text-gray-600">{t("purchase_prices")}</h3>
-            <button onClick={openAddPurchase} className="btn-primary text-xs">+ {t("add_cost")}</button>
+            <span className="text-xs text-gray-400">Managed in Lots</span>
           </div>
           <DataTable columns={[
             { key: "supplierName",  label: t("supplier") },
@@ -355,7 +359,7 @@ export default function LotCostingPage() {
         <div className="card">
           <div className="flex justify-between items-center mb-3">
             <h3 className="text-sm font-semibold text-gray-600">{t("additional_costs")}</h3>
-            <button onClick={openAddCost} className="btn-primary text-xs">+ {t("add_cost")}</button>
+            <span className="text-xs text-gray-400">Managed in Lots</span>
           </div>
           {totalLotCartons > 0 && (
             <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700">
@@ -373,7 +377,6 @@ export default function LotCostingPage() {
               return <span className="text-gray-500 text-xs">PKR {formatNumber(Math.round(pkr))}</span>;
             }},
             { key: "costDate",    label: t("date") },
-            { key: "actions",     label: "", render: (c: any) => <button onClick={() => deleteCost(c.id)} className="text-xs text-red-600 hover:underline">{t("delete")}</button> },
           ]} data={costs} loading={false} emptyMessage={t("no_costs")} />
         </div>
 
