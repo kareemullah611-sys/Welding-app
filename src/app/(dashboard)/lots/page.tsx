@@ -259,27 +259,32 @@ export default function LotsPage() {
 
   const exportLotPdf = () => {
     if (!selectedLot?.id) return;
-    const w = window.open("", "_blank", "noopener,noreferrer,width=1100,height=900");
-    if (!w) return;
+    const htmlEsc = (value: any) =>
+      String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
 
     const rows = (selectedLot.recentSales || []).map((s: any) => `
       <tr>
-        <td>${s.saleDate || ""}</td>
-        <td>${s.voucherNo || ""}</td>
-        <td>${s.customer?.name || ""}</td>
+        <td>${htmlEsc(s.saleDate || "")}</td>
+        <td>${htmlEsc(s.voucherNo || "")}</td>
+        <td>${htmlEsc(s.customer?.name || "")}</td>
         <td style="text-align:right;">${Number(s.totalAmount || 0).toLocaleString("en-US")}</td>
       </tr>
     `).join("");
 
     const costRows = (selectedLot.costSummary?.costBreakdown || []).map((c: any) => `
       <tr>
-        <td>${c.costType || ""}</td>
-        <td>${c.description || ""}</td>
+        <td>${htmlEsc(c.costType || "")}</td>
+        <td>${htmlEsc(c.description || "")}</td>
         <td style="text-align:right;">${c.currencyCode || ""} ${Number(c.amount || 0).toLocaleString("en-US")}</td>
       </tr>
     `).join("");
 
-    w.document.write(`
+    const html = `
       <html>
         <head>
           <title>Lot Snapshot ${selectedLot.lotNumber || selectedLot.id}</title>
@@ -298,7 +303,7 @@ export default function LotsPage() {
         </head>
         <body>
           <h1>Lot Snapshot</h1>
-          <p class="meta">Lot ${selectedLot.lotNumber || selectedLot.id} · ${selectedLot.country?.name || ""} · ${selectedLot.lotDate || ""}</p>
+          <p class="meta">Lot ${htmlEsc(selectedLot.lotNumber || selectedLot.id)} · ${htmlEsc(selectedLot.country?.name || "")} · ${htmlEsc(selectedLot.lotDate || "")}</p>
 
           <div class="grid">
             <div class="card"><div class="label">Total Sales</div><div class="value">${Number(selectedLot.summary?.totalSales || 0).toLocaleString("en-US")}</div></div>
@@ -320,10 +325,35 @@ export default function LotsPage() {
           </table>
         </body>
       </html>
-    `);
-    w.document.close();
-    w.focus();
-    w.print();
+    `;
+
+    // More reliable than popup windows: print from a temporary iframe.
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    document.body.appendChild(iframe);
+    const frameDoc = iframe.contentWindow?.document;
+    if (!frameDoc) {
+      document.body.removeChild(iframe);
+      alert("Unable to open print preview. Please allow popups/printing and try again.");
+      return;
+    }
+
+    frameDoc.open();
+    frameDoc.write(html);
+    frameDoc.close();
+
+    setTimeout(() => {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+      setTimeout(() => {
+        if (document.body.contains(iframe)) document.body.removeChild(iframe);
+      }, 2000);
+    }, 200);
   };
 
   const savePkrRate = async () => {
