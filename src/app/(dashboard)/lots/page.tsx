@@ -665,35 +665,73 @@ export default function LotsPage() {
         {detailLoading
           ? <div className="py-8 text-center"><div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto mb-2" /><p className="text-sm text-gray-400">{t("loading")}</p></div>
           : selectedLot?.id ? (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-              <StatsCard title={t("total_sales")}       value={formatNumber(selectedLot.summary?.totalSales    || 0)} icon="🧾" color="green" />
-              <StatsCard title={t("payments_received")} value={formatNumber(selectedLot.summary?.totalPayments || 0)} icon="💰" color="blue" />
-              <StatsCard title={t("outstanding")}       value={formatNumber(selectedLot.summary?.outstanding   || 0)} icon="📋" color="red" />
-              <StatsCard title={t("expenses")}          value={formatNumber(selectedLot.summary?.totalExpenses || 0)} icon="💸" color="yellow" />
-              <StatsCard title="Total Cartons"          value={formatNumber(selectedLot.stockSummary?.totalCartons || selectedLot.products?.reduce((s: number, p: any) => s + Number(p.totalQty || 0), 0) || 0)} icon="📦" color="blue" />
-              <StatsCard title="Sold Cartons"           value={formatNumber(selectedLot.stockSummary?.soldCartons || selectedLot.products?.reduce((s: number, p: any) => s + Number(p.soldQty || 0), 0) || 0)} icon="✅" color="green" />
-              <StatsCard title="Remaining Cartons"      value={formatNumber(selectedLot.stockSummary?.remainingCartons || selectedLot.products?.reduce((s: number, p: any) => s + Number(p.remainingQty || 0), 0) || 0)} icon="📉" color="yellow" />
+          <div className="space-y-5">
+            <div className="rounded-2xl border border-[#e9dccb] bg-[linear-gradient(135deg,rgba(255,248,239,0.95),rgba(245,233,219,0.84))] p-4 shadow-[0_22px_50px_-42px_rgba(51,42,33,0.38)]">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-[#8f7963]">{t("lot")}</p>
+                  <p className="mt-1 text-sm font-semibold text-[#2f241b]">{selectedLot.lotNumber}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-[#8f7963]">{t("date")}</p>
+                  <p className="mt-1 text-sm font-semibold text-[#2f241b]">{formatDate(selectedLot.lotDate)}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-[#8f7963]">{t("country")}</p>
+                  <p className="mt-1 text-sm font-semibold text-[#2f241b]">{selectedLot.country?.name || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-[#8f7963]">{t("status")}</p>
+                  <div className="mt-1"><StatusBadge status={selectedLot.status} /></div>
+                </div>
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-[#8f7963]">Created By</p>
+                  <p className="mt-1 text-sm font-semibold text-[#2f241b]">{selectedLot.createdBy?.fullName || "—"}</p>
+                </div>
+              </div>
+              {selectedLot.notes && (
+                <div className="mt-3 rounded-xl border border-[#eadccb] bg-white/70 px-3 py-2 text-xs text-[#6f5f50]">
+                  <span className="font-semibold text-[#5f4e3e]">{t("notes")}:</span> {selectedLot.notes}
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <StatsCard title={t("total_sales")} value={formatNumber(selectedLot.summary?.totalSales || 0)} icon="S" color="green" />
+              <StatsCard title={t("payments_received")} value={formatNumber(selectedLot.summary?.totalPayments || 0)} icon="P" color="blue" />
+              <StatsCard title={t("outstanding")} value={formatNumber(selectedLot.summary?.outstanding || 0)} icon="O" color="red" />
+              <StatsCard title={t("expenses")} value={formatNumber(selectedLot.summary?.totalExpenses || 0)} icon="E" color="yellow" />
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <StatsCard title="Total Cartons" value={formatNumber(selectedLot.stockSummary?.totalCartons || selectedLot.products?.reduce((s: number, p: any) => s + Number(p.totalQty || 0), 0) || 0)} icon="T" color="blue" />
+              <StatsCard title="Sold Cartons" value={formatNumber(selectedLot.stockSummary?.soldCartons || selectedLot.products?.reduce((s: number, p: any) => s + Number(p.soldQty || 0), 0) || 0)} icon="S" color="green" />
+              <StatsCard title="Remaining Cartons" value={formatNumber(selectedLot.stockSummary?.remainingCartons || selectedLot.products?.reduce((s: number, p: any) => s + Number(p.remainingQty || 0), 0) || 0)} icon="R" color="yellow" />
             </div>
 
             {(selectedLot.stockSummary?.byProduct || selectedLot.products || []).length > 0 && (
               <div className="card">
-                <h4 className="text-sm font-semibold mb-2 text-gray-600">📊 Lot Carton Position</h4>
+                <div className="mb-3 flex items-center justify-between">
+                  <h4 className="text-sm font-semibold text-gray-700">Stock Position By Product</h4>
+                  <span className="text-xs text-gray-400">{(selectedLot.stockSummary?.byProduct || selectedLot.products || []).length} items</span>
+                </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead><tr className="text-left text-xs text-gray-400 border-b">
-                      <th className="pb-1.5">Product</th>
-                      <th className="pb-1.5 text-right">Total</th>
-                      <th className="pb-1.5 text-right">Sold</th>
-                      <th className="pb-1.5 text-right">Remaining</th>
-                    </tr></thead>
+                  <table className="w-full min-w-[560px] text-sm">
+                    <thead>
+                      <tr className="border-b border-[#eadfce] bg-[#f9f3ea] text-left text-[11px] uppercase tracking-[0.12em] text-[#8b7b6c]">
+                        <th className="px-3 py-2.5">Product</th>
+                        <th className="px-3 py-2.5 text-right">Total Cartons</th>
+                        <th className="px-3 py-2.5 text-right">Sold</th>
+                        <th className="px-3 py-2.5 text-right">Remaining</th>
+                      </tr>
+                    </thead>
                     <tbody>
                       {(selectedLot.stockSummary?.byProduct || selectedLot.products || []).map((p: any) => (
-                        <tr key={p.productId} className="border-b border-gray-50">
-                          <td className="py-1 text-gray-700">{p.productName}</td>
-                          <td className="py-1 text-right">{formatNumber(Number(p.totalQty || 0))}</td>
-                          <td className="py-1 text-right text-green-700 font-medium">{formatNumber(Number(p.soldQty || 0))}</td>
-                          <td className="py-1 text-right text-blue-700 font-medium">{formatNumber(Number(p.remainingQty || 0))}</td>
+                        <tr key={p.productId} className="border-b border-[#f1e8dd]">
+                          <td className="px-3 py-2.5 text-gray-700">{p.productName}</td>
+                          <td className="px-3 py-2.5 text-right">{formatNumber(Number(p.totalQty || 0))}</td>
+                          <td className="px-3 py-2.5 text-right font-medium text-green-700">{formatNumber(Number(p.soldQty || 0))}</td>
+                          <td className="px-3 py-2.5 text-right font-medium text-blue-700">{formatNumber(Number(p.remainingQty || 0))}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -702,7 +740,61 @@ export default function LotsPage() {
               </div>
             )}
 
-            {/* PKR Rate + Profit (super admin only) */}
+            {(selectedLot.purchaseItems?.length > 0) && (
+              <div className="card">
+                <h4 className="mb-3 text-sm font-semibold text-gray-700">Purchase Invoice</h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[860px] text-sm">
+                    <thead>
+                      <tr className="border-b border-[#eadfce] bg-[#f9f3ea] text-left text-[11px] uppercase tracking-[0.12em] text-[#8b7b6c]">
+                        <th className="px-3 py-2.5">Supplier</th>
+                        <th className="px-3 py-2.5">Product</th>
+                        <th className="px-3 py-2.5 text-right">Wt / Ctn</th>
+                        <th className="px-3 py-2.5 text-right">Qty (MT)</th>
+                        <th className="px-3 py-2.5 text-right">USD / MT</th>
+                        <th className="px-3 py-2.5 text-right">Amount (USD)</th>
+                        <th className="px-3 py-2.5 text-right">Cartons</th>
+                        {user?.role === "super_admin" && <th className="px-3 py-2.5 text-right">Actions</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedLot.purchaseItems.map((p: any, i: number) => (
+                        <tr key={i} className="border-b border-[#f1e8dd]">
+                          <td className="px-3 py-2.5 text-gray-700">{p.supplierName}</td>
+                          <td className="px-3 py-2.5 text-gray-700">{p.productName}</td>
+                          <td className="px-3 py-2.5 text-right text-gray-500">{p.weightPerCartonKg ?? "—"} kg</td>
+                          <td className="px-3 py-2.5 text-right">{Number(p.qtyMt).toLocaleString("en-US", { minimumFractionDigits: 3 })}</td>
+                          <td className="px-3 py-2.5 text-right">${Number(p.unitPriceUsdPerMt).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                          <td className="px-3 py-2.5 text-right font-semibold text-blue-700">${Number(p.totalPriceUsd).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                          <td className="px-3 py-2.5 text-right text-gray-600">
+                            {p.weightPerCartonKg ? Math.round((Number(p.qtyMt) * 1000) / Number(p.weightPerCartonKg)).toLocaleString("en-US") : "—"}
+                          </td>
+                          {user?.role === "super_admin" && (
+                            <td className="px-3 py-2.5 text-right">
+                              <button onClick={() => openEditPurchase(p)} className="p-1 text-gray-400 hover:text-blue-600 transition-colors" title="Edit"><Pencil size={12} /></button>
+                              <button onClick={() => handleDeletePurchase(p)} className="ml-1 p-1 text-gray-400 hover:text-red-600 transition-colors" title="Delete"><Trash2 size={12} /></button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t border-[#ded1c1] bg-[#fbf7f1]">
+                        <td colSpan={5} className="px-3 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#887766]">Total</td>
+                        <td className="px-3 py-2.5 text-right font-bold text-gray-800">
+                          ${selectedLot.purchaseItems.reduce((s: number, p: any) => s + Number(p.totalPriceUsd), 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-medium text-gray-700">
+                          {selectedLot.products?.reduce((s: number, p: any) => s + Number(p.totalQty), 0).toLocaleString("en-US")}
+                        </td>
+                        {user?.role === "super_admin" && <td />}
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+            )}
+
             {user?.role === "super_admin" && (() => {
               const rate = selectedLot.pkrExchangeRate || Number(pkrRateInput) || 0;
               const purchaseUsd = selectedLot.costSummary?.totalPurchaseUsd || 0;
@@ -723,45 +815,55 @@ export default function LotsPage() {
                 Number(lotExpenseByCurrency["AFN"] || 0) * Number(afnPkrRate || 0);
               const directPkr = nonFreightPkr + lotExpensesPkr;
               const totalCostPkr = rate > 0 ? (purchaseUsd + freightUsd) * rate + directPkr : 0;
-              // Revenue: Afghanistan = USD payments × rate; Pakistan = payments already PKR
               const isAfg = selectedLot.country?.code === "AFG";
               const revenuePkr = rate > 0 ? (isAfg ? (selectedLot.summary?.totalPayments || 0) * rate : (selectedLot.summary?.totalPayments || 0)) : 0;
               const profitPkr  = rate > 0 ? revenuePkr - totalCostPkr : 0;
+
               return (
                 <div className="card border border-emerald-200 bg-emerald-50/30">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <h4 className="text-sm font-semibold text-emerald-800">🇵🇰 PKR Profit (Super Admin)</h4>
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                    <h4 className="text-sm font-semibold text-emerald-800">PKR Profit Snapshot (Super Admin)</h4>
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-gray-500">USD/PKR Rate:</span>
-                      <input type="number" value={pkrRateInput} onChange={e => setPkrRateInput(e.target.value)}
-                        className="input-field w-28 text-sm py-1" placeholder="e.g. 278.50" step="0.01" min="1" />
-                      <button onClick={savePkrRate} disabled={pkrRateSaving || !pkrRateInput}
-                        className="px-3 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">
+                      <input
+                        type="number"
+                        value={pkrRateInput}
+                        onChange={e => setPkrRateInput(e.target.value)}
+                        className="input-field w-28 py-1 text-sm"
+                        placeholder="e.g. 278.50"
+                        step="0.01"
+                        min="1"
+                      />
+                      <button
+                        onClick={savePkrRate}
+                        disabled={pkrRateSaving || !pkrRateInput}
+                        className="rounded bg-emerald-600 px-3 py-1 text-xs text-white hover:bg-emerald-700 disabled:opacity-50"
+                      >
                         {pkrRateSaving ? "..." : "Save"}
                       </button>
                     </div>
                   </div>
                   {rate > 0 && (
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
-                      <div className="text-center p-2 bg-white rounded-lg border border-emerald-100">
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                      <div className="rounded-lg border border-emerald-100 bg-white p-2 text-center">
                         <p className="text-xs text-gray-400">Purchase Cost (PKR)</p>
                         <p className="font-bold text-gray-800">Rs. {Math.round(purchaseUsd * rate).toLocaleString("en-US")}</p>
                       </div>
-                      <div className="text-center p-2 bg-white rounded-lg border border-emerald-100">
+                      <div className="rounded-lg border border-emerald-100 bg-white p-2 text-center">
                         <p className="text-xs text-gray-400">Other Costs (PKR)</p>
                         <p className="font-bold text-gray-800">Rs. {Math.round(freightUsd * rate + directPkr).toLocaleString("en-US")}</p>
                         {Number(lotExpenseByCurrency["AFN"] || 0) > 0 && !afnPkrRate && (
                           <p className="text-[11px] text-amber-600">AFN expenses not converted (missing AFN→PKR rate)</p>
                         )}
                       </div>
-                      <div className="text-center p-2 bg-white rounded-lg border border-emerald-100">
+                      <div className="rounded-lg border border-emerald-100 bg-white p-2 text-center">
                         <p className="text-xs text-gray-400">Revenue (PKR)</p>
                         <p className="font-bold text-green-700">Rs. {Math.round(revenuePkr).toLocaleString("en-US")}</p>
                         {isAfg && <p className="text-xs text-gray-400">USD × {rate}</p>}
                       </div>
-                      <div className={`text-center p-2 rounded-lg border ${profitPkr >= 0 ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}>
+                      <div className={`rounded-lg border p-2 text-center ${profitPkr >= 0 ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}>
                         <p className="text-xs text-gray-400">Net Profit (PKR)</p>
-                        <p className={`font-bold text-lg ${profitPkr >= 0 ? "text-green-700" : "text-red-600"}`}>
+                        <p className={`text-lg font-bold ${profitPkr >= 0 ? "text-green-700" : "text-red-600"}`}>
                           Rs. {Math.round(Math.abs(profitPkr)).toLocaleString("en-US")}
                           {profitPkr < 0 ? " loss" : ""}
                         </p>
@@ -772,69 +874,16 @@ export default function LotsPage() {
               );
             })()}
 
-            {/* Purchase Invoice */}
-            {(selectedLot.purchaseItems?.length > 0) && (
-              <div className="card">
-                <h4 className="text-sm font-semibold mb-3 text-gray-600">📦 Purchase Invoice</h4>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-xs text-gray-400 border-b">
-                        <th className="pb-1.5">Supplier</th>
-                        <th className="pb-1.5">Product</th>
-                        <th className="pb-1.5 text-right">Wt/crt</th>
-                        <th className="pb-1.5 text-right">Qty (MT)</th>
-                        <th className="pb-1.5 text-right">USD/MT</th>
-                        <th className="pb-1.5 text-right">Amount USD</th>
-                        <th className="pb-1.5 text-right">Cartons</th>
-                        {user?.role === "super_admin" && <th className="pb-1.5 text-right">Actions</th>}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedLot.purchaseItems.map((p: any, i: number) => (
-                        <tr key={i} className="border-b border-gray-50">
-                          <td className="py-1 text-gray-700">{p.supplierName}</td>
-                          <td className="py-1 text-gray-700">{p.productName}</td>
-                          <td className="py-1 text-right text-gray-500">{p.weightPerCartonKg ?? "—"} kg</td>
-                          <td className="py-1 text-right">{Number(p.qtyMt).toLocaleString("en-US", { minimumFractionDigits: 3 })}</td>
-                          <td className="py-1 text-right">${Number(p.unitPriceUsdPerMt).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
-                          <td className="py-1 text-right font-semibold text-blue-700">${Number(p.totalPriceUsd).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
-                          <td className="py-1 text-right text-gray-400">
-                            {p.weightPerCartonKg ? Math.round((Number(p.qtyMt) * 1000) / Number(p.weightPerCartonKg)).toLocaleString("en-US") : "—"}
-                          </td>
-                          {user?.role === "super_admin" && (
-                            <td className="py-1 text-right">
-                              <button onClick={() => openEditPurchase(p)} className="p-1 text-gray-400 hover:text-blue-600 transition-colors" title="Edit"><Pencil size={12} /></button>
-                              <button onClick={() => handleDeletePurchase(p)} className="p-1 text-gray-400 hover:text-red-600 transition-colors ml-1" title="Delete"><Trash2 size={12} /></button>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t-2 border-gray-200">
-                        <td colSpan={5} className="pt-2 text-xs text-gray-400 font-semibold uppercase">Total</td>
-                        <td className="pt-2 text-right font-bold text-gray-800">
-                          ${selectedLot.purchaseItems.reduce((s: number, p: any) => s + Number(p.totalPriceUsd), 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="pt-2 text-right text-gray-500 font-medium">
-                          {selectedLot.products?.reduce((s: number, p: any) => s + Number(p.totalQty), 0).toLocaleString("en-US")}
-                        </td>
-                        {user?.role === "super_admin" && <td />}
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* Additional costs */}
             {user?.role === "super_admin" && (
               <div className="card">
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="text-sm font-semibold text-gray-600">💸 Additional Costs</h4>
-                  <button onClick={() => { setCostForm({ costType: "freight", description: "", amount: "", currencyCode: "USD", exchangeRate: String(selectedLot?.pkrExchangeRate || ""), costDate: new Date().toISOString().split("T")[0], notes: "" }); setFormError(""); setCostChargedTo("shipping_line"); setCostAgentId(0); setCostShippingLineId(0); setShowAddCost(true); }}
-                    className="text-xs text-primary-600 hover:underline">+ Add Cost</button>
+                <div className="mb-3 flex items-center justify-between">
+                  <h4 className="text-sm font-semibold text-gray-700">Additional Costs</h4>
+                  <button
+                    onClick={() => { setCostForm({ costType: "freight", description: "", amount: "", currencyCode: "USD", exchangeRate: String(selectedLot?.pkrExchangeRate || ""), costDate: new Date().toISOString().split("T")[0], notes: "" }); setFormError(""); setCostChargedTo("shipping_line"); setCostAgentId(0); setCostShippingLineId(0); setShowAddCost(true); }}
+                    className="text-xs text-primary-600 hover:underline"
+                  >
+                    + Add Cost
+                  </button>
                 </div>
                 {(() => {
                   const usdPkr = Number(selectedLot?.pkrExchangeRate || pkrRateInput || 0);
@@ -847,45 +896,84 @@ export default function LotsPage() {
                     Number(lotExpenseByCurrency["USD"] || 0) * usdPkr +
                     Number(lotExpenseByCurrency["AFN"] || 0) * Number(afnPkr || 0);
                   return (
-                    <div className="mb-2 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-1.5">
+                    <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-2 text-xs text-blue-700">
                       City-admin lot expenses included: PKR {formatNumber(Math.round(lotExpensesPkr))}
                       {Number(lotExpenseByCurrency["AFN"] || 0) > 0 && !afnPkr ? " (AFN rate missing)" : ""}
                     </div>
                   );
                 })()}
                 {(selectedLot.costSummary?.costBreakdown || []).length > 0 ? (
-                  <table className="w-full text-sm">
-                    <thead><tr className="text-left text-xs text-gray-400 border-b">
-                      <th className="pb-1">Type</th><th className="pb-1">Description</th><th className="pb-1 text-right">Amount</th><th className="pb-1 text-right">Rate</th><th className="pb-1 text-right">PKR</th>
-                    </tr></thead>
-                    <tbody>{selectedLot.costSummary.costBreakdown.map((c: any, i: number) => (
-                      <tr key={i} className="border-b border-gray-50">
-                        <td className="py-1"><span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{c.costType}</span></td>
-                        <td className="py-1 text-gray-700">{c.description}</td>
-                        <td className="py-1 text-right font-medium text-orange-700">{c.currencyCode} {Number(c.amount).toLocaleString("en-US")}</td>
-                        <td className="py-1 text-right text-gray-500">{(c.costType === "freight" || String(c.currencyCode || "").toUpperCase() === "AFN") ? (c.exchangeRate ? Number(c.exchangeRate).toLocaleString("en-US") : "—") : "—"}</td>
-                        <td className="py-1 text-right font-semibold text-blue-700">PKR {formatNumber(Math.round(lotCostToPkr(c, Number(selectedLot.pkrExchangeRate || pkrRateInput || 0))))}</td>
-                      </tr>
-                    ))}</tbody>
-                  </table>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[760px] text-sm">
+                      <thead>
+                        <tr className="border-b border-[#eadfce] bg-[#f9f3ea] text-left text-[11px] uppercase tracking-[0.12em] text-[#8b7b6c]">
+                          <th className="px-3 py-2.5">Type</th>
+                          <th className="px-3 py-2.5">Description</th>
+                          <th className="px-3 py-2.5 text-right">Amount</th>
+                          <th className="px-3 py-2.5 text-right">Rate</th>
+                          <th className="px-3 py-2.5 text-right">PKR</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedLot.costSummary.costBreakdown.map((c: any, i: number) => (
+                          <tr key={i} className="border-b border-[#f1e8dd]">
+                            <td className="px-3 py-2.5">
+                              <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">{c.costType}</span>
+                            </td>
+                            <td className="px-3 py-2.5 text-gray-700">{c.description}</td>
+                            <td className="px-3 py-2.5 text-right font-medium text-orange-700">{c.currencyCode} {Number(c.amount).toLocaleString("en-US")}</td>
+                            <td className="px-3 py-2.5 text-right text-gray-500">{(c.costType === "freight" || String(c.currencyCode || "").toUpperCase() === "AFN") ? (c.exchangeRate ? Number(c.exchangeRate).toLocaleString("en-US") : "—") : "—"}</td>
+                            <td className="px-3 py-2.5 text-right font-semibold text-blue-700">PKR {formatNumber(Math.round(lotCostToPkr(c, Number(selectedLot.pkrExchangeRate || pkrRateInput || 0))))}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 ) : <p className="text-sm text-gray-400">No additional costs recorded</p>}
               </div>
             )}
-            <div className="card"><h4 className="text-sm font-semibold mb-2 text-gray-600">{t("sales")} ({(selectedLot.recentSales || []).length})</h4>
+
+            <div className="card">
+              <div className="mb-3 flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-gray-700">{t("sales")}</h4>
+                <span className="text-xs text-gray-400">{(selectedLot.recentSales || []).length} records</span>
+              </div>
               {(selectedLot.recentSales || []).length > 0 ? (
-                <table className="w-full text-sm">
-                  <thead><tr className="text-left text-xs text-gray-400 border-b"><th className="pb-1">{t("date")}</th><th className="pb-1">{t("voucher")}</th><th className="pb-1">{t("customer")}</th><th className="pb-1">{t("items")}</th><th className="pb-1 text-right">{t("amount")}</th></tr></thead>
-                  <tbody>{(selectedLot.recentSales || []).map((s: any) => (
-                    <tr key={s.id} className="border-b border-gray-50">
-                      <td className="py-1">{formatDate(s.saleDate)}</td>
-                      <td className="py-1 font-mono text-xs">{s.voucherNo}</td>
-                      <td className="py-1">{s.customer?.name}</td>
-                      <td className="py-1 text-xs">{s.items?.map((it: any, j: number) => <div key={j}>{it.product?.name}: {Number(it.qty)} × {Number(it.amount)}</div>)}</td>
-                      <td className="py-1 text-right font-medium text-green-700">{Number(s.totalAmount).toLocaleString("en-US")}</td>
-                    </tr>
-                  ))}</tbody>
-                </table>
-              ) : <p className="text-gray-400 text-sm">{t("no_data")}</p>}
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[860px] text-sm">
+                    <thead>
+                      <tr className="border-b border-[#eadfce] bg-[#f9f3ea] text-left text-[11px] uppercase tracking-[0.12em] text-[#8b7b6c]">
+                        <th className="px-3 py-2.5">{t("date")}</th>
+                        <th className="px-3 py-2.5">{t("voucher")}</th>
+                        <th className="px-3 py-2.5">{t("customer")}</th>
+                        <th className="px-3 py-2.5 text-right">Cartons</th>
+                        <th className="px-3 py-2.5">{t("items")}</th>
+                        <th className="px-3 py-2.5 text-right">{t("amount")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(selectedLot.recentSales || []).map((s: any) => (
+                        <tr key={s.id} className="border-b border-[#f1e8dd]">
+                          <td className="px-3 py-2.5">{formatDate(s.saleDate)}</td>
+                          <td className="px-3 py-2.5 font-mono text-xs">{s.voucherNo}</td>
+                          <td className="px-3 py-2.5">{s.customer?.name}</td>
+                          <td className="px-3 py-2.5 text-right font-medium text-gray-700">
+                            {formatNumber((s.items || []).reduce((sum: number, it: any) => sum + Number(it.qty || 0), 0))}
+                          </td>
+                          <td className="px-3 py-2.5 text-xs">
+                            {(s.items || []).map((it: any, j: number) => (
+                              <div key={j} className="text-gray-600">
+                                {it.product?.name} - {Number(it.qty || 0)} ctn
+                              </div>
+                            ))}
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-medium text-green-700">{Number(s.totalAmount).toLocaleString("en-US")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : <p className="text-sm text-gray-400">{t("no_data")}</p>}
             </div>
           </div>
         ) : <p className="text-gray-400 py-4">{formError || t("no_data")}</p>}
