@@ -428,7 +428,7 @@ export default function DashboardPage() {
             <iframe
               src={quickAction.src}
               title="Dashboard quick form"
-              className="h-full w-full border-0 bg-transparent"
+              className="h-[100dvh] w-full border-0 bg-transparent"
             />
           </div>
         )}

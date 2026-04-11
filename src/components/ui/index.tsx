@@ -276,8 +276,8 @@ export function Modal({
 
   if (inline) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <div className={cn("relative w-full bg-white rounded-2xl shadow-2xl max-h-[85vh] flex flex-col", sizes[size])}>
+      <div className="h-[100dvh] w-full overflow-y-auto overscroll-contain p-2 sm:p-4">
+        <div className={cn("relative mx-auto w-full bg-white rounded-xl sm:rounded-2xl shadow-2xl min-h-[calc(100dvh-1rem)] sm:min-h-0 sm:max-h-[calc(100dvh-2rem)] flex flex-col", sizes[size])}>
           {!hideHeader && (
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
               <h2 className="text-base font-semibold text-gray-900">{title}</h2>
@@ -286,7 +286,7 @@ export function Modal({
               </button>
             </div>
           )}
-          <div className={cn("overflow-y-auto flex-1", bodyClassName || "p-6")}>{children}</div>
+          <div className={cn("overflow-y-auto overscroll-contain flex-1", bodyClassName || "p-4 sm:p-6")}>{children}</div>
         </div>
       </div>
     );
