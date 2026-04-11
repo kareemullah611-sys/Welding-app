@@ -81,11 +81,6 @@ export default function HajiTransfersPage() {
   }, [page, filterFrom, filterTo]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    const closeMenus = () => setOpenActionId(null);
-    document.addEventListener("click", closeMenus);
-    return () => document.removeEventListener("click", closeMenus);
-  }, []);
-  useEffect(() => {
     if (prefillHandled || user?.role !== "city_admin") return;
     if (searchParams.get("create") !== "1") return;
     setPrefillHandled(true);
@@ -223,7 +218,7 @@ export default function HajiTransfersPage() {
   const getSourceType = (tr: any) => tr.sourceType || (tr.transferType === "direct" ? "bank_transfer" : "cash_office");
 
   return (
-    <div>
+    <div onClick={() => setOpenActionId(null)}>
       {!isEmbed && <PageHeader
         title={t("haji_transfers")}
         subtitle={`${total} ${t("records").toLowerCase()}`}
@@ -295,7 +290,10 @@ export default function HajiTransfersPage() {
                 <>
                   <button
                     type="button"
-                    onClick={() => setOpenActionId((current) => current === tr.id ? null : tr.id)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setOpenActionId((current) => current === tr.id ? null : tr.id);
+                    }}
                     className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
                   >
                     ⋯

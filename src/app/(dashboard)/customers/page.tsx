@@ -44,11 +44,6 @@ export default function CustomersPage() {
   }, [page]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    const closeMenus = () => setOpenActionId(null);
-    document.addEventListener("click", closeMenus);
-    return () => document.removeEventListener("click", closeMenus);
-  }, []);
-  useEffect(() => {
     if (prefillHandled || user?.role !== "city_admin") return;
     if (searchParams.get("create") !== "1") return;
     setPrefillHandled(true);
@@ -102,7 +97,7 @@ export default function CustomersPage() {
   };
 
   return (
-    <div>
+    <div onClick={() => setOpenActionId(null)}>
       {!isEmbed && <PageHeader title={t("customers")} subtitle={`${total} ${t("customers").toLowerCase()}`} />}
       {!isEmbed && <DataTable columns={[
         { key: "name", label: t("name"), render: (c: any) => (
@@ -134,7 +129,10 @@ export default function CustomersPage() {
           <div className="relative" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
-              onClick={() => setOpenActionId((current) => current === c.id ? null : c.id)}
+              onClick={(event) => {
+                event.stopPropagation();
+                setOpenActionId((current) => current === c.id ? null : c.id);
+              }}
               className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
             >
               ⋯

@@ -29,11 +29,6 @@ export default function BankAccountsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    const closeMenus = () => setOpenActionId(null);
-    document.addEventListener("click", closeMenus);
-    return () => document.removeEventListener("click", closeMenus);
-  }, []);
 
   useEffect(() => {
     if (isSA) {
@@ -136,7 +131,10 @@ export default function BankAccountsPage() {
         <div className="relative" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
-            onClick={() => setOpenActionId((current) => current === acc.id ? null : acc.id)}
+            onClick={(event) => {
+              event.stopPropagation();
+              setOpenActionId((current) => current === acc.id ? null : acc.id);
+            }}
             className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
           >
             ⋯
@@ -155,7 +153,7 @@ export default function BankAccountsPage() {
   ];
 
   return (
-    <div>
+    <div onClick={() => setOpenActionId(null)}>
       <PageHeader
         title={t("bank_accounts")}
         subtitle={isSA ? "Manage super admin bank accounts" : "Manage bank accounts for your city"}

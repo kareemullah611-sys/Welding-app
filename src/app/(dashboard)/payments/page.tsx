@@ -96,12 +96,6 @@ export default function PaymentsPage() {
 
   const getActionKey = useCallback((item: any) => `${item.type}-${item.id}`, []);
 
-  useEffect(() => {
-    const closeMenus = () => setOpenActionId(null);
-    document.addEventListener("click", closeMenus);
-    return () => document.removeEventListener("click", closeMenus);
-  }, []);
-
   const load = useCallback(async () => {
     setLoading(true);
     const params: any = { page, limit: 20 };
@@ -566,7 +560,7 @@ export default function PaymentsPage() {
   const showSuperAdminBankAccountSelect = needsBankAccountSelection && form.destination === "haji";
 
   return (
-    <div>
+    <div onClick={() => setOpenActionId(null)}>
       {!isEmbed && <PageHeader
         title={t("payments")}
         subtitle={`${total} ${t("records").toLowerCase()}`}

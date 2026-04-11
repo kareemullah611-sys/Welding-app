@@ -87,11 +87,6 @@ export default function SalesPage() {
 
   useEffect(() => { loadSales(); }, [loadSales]);
   useEffect(() => {
-    const closeMenus = () => setOpenActionId(null);
-    document.addEventListener("click", closeMenus);
-    return () => document.removeEventListener("click", closeMenus);
-  }, []);
-  useEffect(() => {
     if (prefillHandled || user?.role !== "city_admin") return;
     if (searchParams.get("create") !== "1") return;
     setPrefillHandled(true);
@@ -305,7 +300,7 @@ export default function SalesPage() {
   };
 
   return (
-    <div>
+    <div onClick={() => setOpenActionId(null)}>
       {!isEmbed && <PageHeader title={t("sales")} subtitle={`${total} ${t("records").toLowerCase()}`} />}
       {!isEmbed && (
       <>
@@ -374,7 +369,10 @@ export default function SalesPage() {
           <div className="relative" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
-              onClick={() => setOpenActionId((current) => current === s.id ? null : s.id)}
+              onClick={(event) => {
+                event.stopPropagation();
+                setOpenActionId((current) => current === s.id ? null : s.id);
+              }}
               className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
             >
               ⋯

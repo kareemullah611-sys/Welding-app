@@ -26,11 +26,6 @@ export default function GodownsPage() {
     setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    const closeMenus = () => setOpenActionId(null);
-    document.addEventListener("click", closeMenus);
-    return () => document.removeEventListener("click", closeMenus);
-  }, []);
 
   const openCreate = async () => {
     if (user?.role === "super_admin") { const cityRes = await apiCall("/api/v1/cities"); if (cityRes.success) setCities(cityRes.data as any[]); }
@@ -62,7 +57,7 @@ export default function GodownsPage() {
   };
 
   return (
-    <div>
+    <div onClick={() => setOpenActionId(null)}>
       <PageHeader title={t("godowns")} subtitle={`${godowns.length} ${t("godowns").toLowerCase()}`} action={<button onClick={openCreate} className="btn-primary text-sm">+ {t("new_godown")}</button>} />
       <DataTable columns={[
         { key: "name", label: t("godown_name"), render: (g: any) => <span className="font-medium">{g.name}</span> },
@@ -73,7 +68,10 @@ export default function GodownsPage() {
           <div className="relative" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
-              onClick={() => setOpenActionId((current) => current === g.id ? null : g.id)}
+              onClick={(event) => {
+                event.stopPropagation();
+                setOpenActionId((current) => current === g.id ? null : g.id);
+              }}
               className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
             >
               ⋯

@@ -77,11 +77,6 @@ export default function PersonalWithdrawalsPage() {
   useEffect(() => {
     setStatusFilter(user?.role === "super_admin" ? "pending" : "all");
   }, [user?.role]);
-  useEffect(() => {
-    const closeMenus = () => setOpenActionId(null);
-    document.addEventListener("click", closeMenus);
-    return () => document.removeEventListener("click", closeMenus);
-  }, []);
 
   const formatPot = (pot: Record<string, number> | undefined) => {
     if (!pot) return "0";
@@ -159,7 +154,7 @@ export default function PersonalWithdrawalsPage() {
   }, {});
 
   return (
-    <div>
+    <div onClick={() => setOpenActionId(null)}>
       {!isEmbed && <PageHeader
         title={t("personal_withdrawals")}
         subtitle={`${total} ${t("records").toLowerCase()}`}
@@ -262,7 +257,10 @@ export default function PersonalWithdrawalsPage() {
               <div className="relative" onClick={(e) => e.stopPropagation()}>
                 <button
                   type="button"
-                  onClick={() => setOpenActionId((current) => current === w.id ? null : w.id)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setOpenActionId((current) => current === w.id ? null : w.id);
+                  }}
                   className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
                 >
                   ⋯
