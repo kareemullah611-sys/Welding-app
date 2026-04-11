@@ -127,35 +127,38 @@ export function DataTable<T extends Record<string, any>>({
 }: DataTableProps<T>) {
   if (loading) {
     return (
-      <div className="overflow-hidden rounded-[1.4rem] border border-white/70 bg-white/85 shadow-[0_26px_70px_-42px_rgba(51,42,33,0.35)] backdrop-blur-xl">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-[#f8f1e7] hover:bg-[#f8f1e7]">
-              {columns.map((col) => (
-                <TableHead key={col.key} className={cn("text-xs font-semibold text-gray-500 uppercase tracking-wider", col.className)}>
-                  {col.label}
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {Array.from({ length: 6 }).map((_, i) => (
-              <TableRow key={i} className="hover:bg-transparent">
+      <div className="rounded-[1.4rem] border border-white/70 bg-white/85 shadow-[0_26px_70px_-42px_rgba(51,42,33,0.35)] backdrop-blur-xl">
+        <div className="overflow-x-auto overflow-y-visible">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-[#f8f1e7] hover:bg-[#f8f1e7]">
                 {columns.map((col) => (
-                  <TableCell key={col.key}>
-                    <Skeleton className="h-4 w-3/4 rounded" />
-                  </TableCell>
+                  <TableHead key={col.key} className={cn("text-xs font-semibold text-gray-500 uppercase tracking-wider", col.className)}>
+                    {col.label}
+                  </TableHead>
                 ))}
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <TableRow key={i} className="hover:bg-transparent">
+                  {columns.map((col) => (
+                    <TableCell key={col.key}>
+                      <Skeleton className="h-4 w-3/4 rounded" />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto rounded-[1.4rem] border border-white/70 bg-white/85 shadow-[0_26px_70px_-42px_rgba(51,42,33,0.35)] backdrop-blur-xl">
+    <div className="rounded-[1.4rem] border border-white/70 bg-white/85 shadow-[0_26px_70px_-42px_rgba(51,42,33,0.35)] backdrop-blur-xl">
+      <div className="overflow-x-auto overflow-y-visible">
         <Table>
           <TableHeader>
             <TableRow className="border-b border-[#efe2d3] bg-[#faf3ea]/90 hover:bg-[#faf3ea]/90">
@@ -203,6 +206,7 @@ export function DataTable<T extends Record<string, any>>({
             )}
           </TableBody>
         </Table>
+      </div>
       {pagination && pagination.totalPages > 1 && (
         <div className="flex items-center justify-between border-t border-[#efe2d3] bg-[#fbf6ef]/80 px-4 py-3 text-sm">
           <p className="text-muted-foreground text-xs">
