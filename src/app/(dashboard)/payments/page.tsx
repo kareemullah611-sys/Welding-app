@@ -131,11 +131,6 @@ export default function PaymentsPage() {
 
   useEffect(() => { setPage(1); }, [typeFilter]);
   useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    const closeMenus = () => setOpenActionId(null);
-    document.addEventListener("click", closeMenus);
-    return () => document.removeEventListener("click", closeMenus);
-  }, []);
 
   // Reload from server after queued entries sync
   useEffect(() => {
@@ -522,10 +517,12 @@ export default function PaymentsPage() {
           <div className="relative" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
-              onClick={() => {
+              onClick={(event) => {
+                event.stopPropagation();
                 const actionKey = getActionKey(item);
                 setOpenActionId((current) => current === actionKey ? null : actionKey);
               }}
+              aria-label="Open actions"
               className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
             >
               ⋯
