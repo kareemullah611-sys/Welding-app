@@ -825,6 +825,7 @@ model BankAccount {
   deposits              BankDeposit[]
   hajiTransfers         HajiTransfer[]
   expenses              Expense[]
+  lotCosts              LotCost[]
   supplierPayments        SupplierPayment[]        @relation("SupplierPaymentBankAccount")
   shippingLinePayments    ShippingLinePayment[]    @relation("ShippingLinePaymentBankAccount")
   agentPayments           AgentPayment[]           @relation("AgentPaymentBankAccount")
@@ -1120,6 +1121,8 @@ model LotCost {
   costDate     DateTime?   @map("cost_date") @db.Date
   agentId        Int?        @map("agent_id")         // customs / transport agent
   shippingLineId Int?        @map("shipping_line_id")  // for freight costs
+  bankAccountId  Int?        @map("bank_account_id")   // for direct bank payment
+  intermediaryId Int?        @map("intermediary_id")   // for intermediary settlement
   paidFromCash   Boolean     @default(false) @map("paid_from_cash")
   notes        String?     @db.Text
   createdBy    Int         @map("created_by")
@@ -1129,11 +1132,15 @@ model LotCost {
   lot          Lot          @relation(fields: [lotId], references: [id])
   agent        Agent?       @relation(fields: [agentId], references: [id])
   shippingLine ShippingLine? @relation(fields: [shippingLineId], references: [id])
+  bankAccount  BankAccount?  @relation(fields: [bankAccountId], references: [id])
+  intermediary Intermediary? @relation(fields: [intermediaryId], references: [id])
   creator      User         @relation("CostCreatedBy", fields: [createdBy], references: [id])
 
   @@index([lotId])
   @@index([costType])
   @@index([agentId])
+  @@index([bankAccountId])
+  @@index([intermediaryId])
   @@map("lot_costs")
 }
 
@@ -1415,6 +1422,7 @@ model Intermediary {
   createdAt DateTime @default(now()) @map("created_at")
 
   deposits             IntermediaryDeposit[]
+  lotCosts             LotCost[]
   supplierPayments     SupplierPayment[]
   shippingLinePayments ShippingLinePayment[] @relation("ShippingLinePaymentIntermediary")
   agentPayments        AgentPayment[]        @relation("AgentPaymentIntermediary")

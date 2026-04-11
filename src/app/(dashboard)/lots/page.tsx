@@ -59,9 +59,13 @@ export default function LotsPage() {
   const [showAddCost,   setShowAddCost]   = useState(false);
   const [costForm,      setCostForm]      = useState({ costType: "freight", description: "", amount: "", currencyCode: "USD", exchangeRate: "", costDate: new Date().toISOString().split("T")[0], notes: "" });
   const [shippingLines,   setShippingLines]   = useState<any[]>([]);
-  const [costChargedTo,   setCostChargedTo]   = useState<"shipping_line" | "agent" | "cash">("cash");
+  const [bankAccounts,    setBankAccounts]    = useState<any[]>([]);
+  const [intermediaries,  setIntermediaries]  = useState<any[]>([]);
+  const [costChargedTo,   setCostChargedTo]   = useState<"shipping_line" | "agent" | "cash" | "bank" | "intermediary">("cash");
   const [costAgentId,     setCostAgentId]     = useState<number>(0);
   const [costShippingLineId, setCostShippingLineId] = useState<number>(0);
+  const [costBankAccountId, setCostBankAccountId] = useState<number>(0);
+  const [costIntermediaryId, setCostIntermediaryId] = useState<number>(0);
   const [agents,          setAgents]          = useState<any[]>([]);
 
   // Edit purchase item
@@ -169,9 +173,11 @@ export default function LotsPage() {
     setSelectedLot(lot); setShowDetail(true); setDetailLoading(true); setFormError("");
     setActiveDetailTab("overview");
     // Pre-fetch shipping lines for super admin cost form
-    if (user?.role === "super_admin" && !shippingLines.length) {
-      apiCall("/api/v1/shipping-lines").then(r => { if (r.success) setShippingLines(r.data as any[]); });
-      apiCall("/api/v1/agents", { params: { limit: 100 } }).then(r => { if (r.success) setAgents(r.data as any[]); });
+    if (user?.role === "super_admin") {
+      if (!shippingLines.length) apiCall("/api/v1/shipping-lines").then(r => { if (r.success) setShippingLines(r.data as any[]); });
+      if (!agents.length) apiCall("/api/v1/agents", { params: { limit: 100 } }).then(r => { if (r.success) setAgents(r.data as any[]); });
+      if (!bankAccounts.length) apiCall("/api/v1/bank-accounts").then(r => { if (r.success) setBankAccounts(r.data as any[]); });
+      if (!intermediaries.length) apiCall("/api/v1/intermediaries").then(r => { if (r.success) setIntermediaries(r.data as any[]); });
     }
     const r = await apiCall(`/api/v1/lots/${lot.id}`);
     if (r.success) {
@@ -332,6 +338,24 @@ export default function LotsPage() {
     if (!costForm.description || !costForm.amount || Number(costForm.amount) <= 0) { setFormError("Description and amount required"); return; }
     const isFreight = costForm.costType === "freight";
     const isAfgNonFreight = !isFreight && nonFreightCostCurrency === "AFN";
+    if (isFreight && costShippingLineId <= 0) {
+      setFormError("Shipping line is required for freight cost");
+      return;
+    }
+    if (!isFreight) {
+      if (costChargedTo === "agent" && costAgentId <= 0) {
+        setFormError("Please select an agent");
+        return;
+      }
+      if (costChargedTo === "bank" && costBankAccountId <= 0) {
+        setFormError("Please select a bank account");
+        return;
+      }
+      if (costChargedTo === "intermediary" && costIntermediaryId <= 0) {
+        setFormError("Please select an intermediary");
+        return;
+      }
+    }
     if ((isFreight || isAfgNonFreight) && Number(costForm.exchangeRate) <= 0) {
       setFormError(isFreight ? "Freight costing exchange rate is required" : "AFN→PKR exchange rate is required");
       return;
@@ -351,6 +375,8 @@ export default function LotsPage() {
         agentId:          costChargedTo === "agent" && costAgentId > 0 ? costAgentId : null,
         shippingLineId:   costChargedTo === "shipping_line" && costShippingLineId > 0 ? costShippingLineId : null,
         paidFromCash:     costChargedTo === "cash",
+        bankAccountId:    costChargedTo === "bank" ? costBankAccountId : null,
+        intermediaryId:   costChargedTo === "intermediary" ? costIntermediaryId : null,
       },
     });
     setSubmitting(false);
@@ -1067,7 +1093,16 @@ export default function LotsPage() {
                 <div className="mb-3 flex items-center justify-between">
                   <h4 className="text-sm font-semibold text-gray-700">Additional Costs</h4>
                   <button
-                    onClick={() => { setCostForm({ costType: "freight", description: "", amount: "", currencyCode: "USD", exchangeRate: String(selectedLot?.pkrExchangeRate || ""), costDate: new Date().toISOString().split("T")[0], notes: "" }); setFormError(""); setCostChargedTo("shipping_line"); setCostAgentId(0); setCostShippingLineId(0); setShowAddCost(true); }}
+                    onClick={() => {
+                      setCostForm({ costType: "freight", description: "", amount: "", currencyCode: "USD", exchangeRate: String(selectedLot?.pkrExchangeRate || ""), costDate: new Date().toISOString().split("T")[0], notes: "" });
+                      setFormError("");
+                      setCostChargedTo("shipping_line");
+                      setCostAgentId(0);
+                      setCostShippingLineId(0);
+                      setCostBankAccountId(0);
+                      setCostIntermediaryId(0);
+                      setShowAddCost(true);
+                    }}
                     className="text-xs text-primary-600 hover:underline"
                   >
                     + Add Cost
@@ -1097,6 +1132,7 @@ export default function LotsPage() {
                         <tr className="border-b border-[#eadfce] bg-[#f9f3ea] text-left text-[11px] uppercase tracking-[0.12em] text-[#8b7b6c]">
                           <th className="px-3 py-2.5">Type</th>
                           <th className="px-3 py-2.5">Description</th>
+                          <th className="px-3 py-2.5">Debit Channel</th>
                           <th className="px-3 py-2.5 text-right">Amount</th>
                           <th className="px-3 py-2.5 text-right">Rate</th>
                           <th className="px-3 py-2.5 text-right">PKR</th>
@@ -1109,6 +1145,7 @@ export default function LotsPage() {
                               <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">{c.costType}</span>
                             </td>
                             <td className="px-3 py-2.5 text-gray-700">{c.description}</td>
+                            <td className="px-3 py-2.5 text-gray-600">{c.debitChannelLabel || "General Payable"}</td>
                             <td className="px-3 py-2.5 text-right font-medium text-orange-700">{c.currencyCode} {Number(c.amount).toLocaleString("en-US")}</td>
                             <td className="px-3 py-2.5 text-right text-gray-500">{(c.costType === "freight" || String(c.currencyCode || "").toUpperCase() === "AFN") ? (c.exchangeRate ? Number(c.exchangeRate).toLocaleString("en-US") : "—") : "—"}</td>
                             <td className="px-3 py-2.5 text-right font-semibold text-blue-700">PKR {formatNumber(Math.round(lotCostToPkr(c, Number(selectedLot.pkrExchangeRate || pkrRateInput || 0))))}</td>
@@ -1223,6 +1260,7 @@ export default function LotsPage() {
                 setCostChargedTo(type === "freight" ? "shipping_line" : "cash");
                 if (type !== "freight") setCostShippingLineId(0);
                 if (type === "freight") setCostAgentId(0);
+                if (type === "freight") { setCostBankAccountId(0); setCostIntermediaryId(0); }
               }} className="select-field">
                 <option value="freight">Freight (USD)</option>
                 <option value="customs_duty">Customs Duty ({nonFreightCostCurrency})</option>
@@ -1247,11 +1285,16 @@ export default function LotsPage() {
           </div>
           {/* Charged To */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Charged To</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Debit Channel</label>
             <div className="flex gap-2 mb-2">
               {(costForm.costType === "freight"
                 ? [{ value: "shipping_line", label: "Shipping Line" }]
-                : [{ value: "cash", label: "Cash / Direct" }, { value: "agent", label: "Agent" }]
+                : [
+                  { value: "cash", label: "Cash / Direct" },
+                  { value: "bank", label: "Bank Account" },
+                  { value: "intermediary", label: "Intermediary" },
+                  { value: "agent", label: "Agent" },
+                ]
               ).map(opt => (
                 <button key={opt.value} type="button"
                   onClick={() => setCostChargedTo(opt.value as any)}
@@ -1270,6 +1313,24 @@ export default function LotsPage() {
               <select value={costAgentId} onChange={e => setCostAgentId(Number(e.target.value))} className="select-field">
                 <option value={0}>Select Agent</option>
                 {agents.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            )}
+            {costChargedTo === "bank" && (
+              <select value={costBankAccountId} onChange={e => setCostBankAccountId(Number(e.target.value))} className="select-field">
+                <option value={0}>Select Bank Account</option>
+                {bankAccounts.filter((b: any) => b.isActive !== false).map((b: any) => (
+                  <option key={b.id} value={b.id}>
+                    {b.cityName ? `${b.cityName} · ` : ""}{b.bankName}{b.accountNumber ? ` (${b.accountNumber})` : ""}
+                  </option>
+                ))}
+              </select>
+            )}
+            {costChargedTo === "intermediary" && (
+              <select value={costIntermediaryId} onChange={e => setCostIntermediaryId(Number(e.target.value))} className="select-field">
+                <option value={0}>Select Intermediary</option>
+                {intermediaries.filter((i: any) => i.isActive !== false).map((i: any) => (
+                  <option key={i.id} value={i.id}>{i.name}</option>
+                ))}
               </select>
             )}
           </div>

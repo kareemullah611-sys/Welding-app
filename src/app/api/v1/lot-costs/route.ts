@@ -5,6 +5,7 @@ import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { createLotCostSchema } from "@/lib/validations";
 import { successResponse, validationError, errorResponse, serverError, getPaginationParams } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { validatePaymentSource } from "@/lib/payment-source-validation";
 
 export const GET = withSuperAdmin(async (request: NextRequest, context, user: JWTPayload) => {
   try {
@@ -46,6 +47,9 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     const isFreight = costType === "freight";
     const agentId = body.agentId ? Number(body.agentId) : null;
     const shippingLineId = body.shippingLineId ? Number(body.shippingLineId) : null;
+    const bankAccountId = body.bankAccountId ? Number(body.bankAccountId) : null;
+    const intermediaryId = body.intermediaryId ? Number(body.intermediaryId) : null;
+    const paidFromCash = body.paidFromCash === true;
     const requestedCurrency = String(body.currencyCode || "").toUpperCase();
     const lotCountryCode = String(lot.country?.code || "").toUpperCase();
     const nonFreightCurrency = lotCountryCode === "AFG" ? "AFN" : "PKR";
@@ -81,14 +85,29 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
 
     if (isFreight) {
       if (!shippingLineId) return validationError("Shipping line is required for freight");
-      if (agentId) return validationError("Freight must be charged to a shipping line, not an agent");
+      if (agentId || bankAccountId || intermediaryId || paidFromCash) {
+        return validationError("Freight must be charged to a shipping line only");
+      }
       const shippingLine = await prisma.shippingLine.findUnique({ where: { id: shippingLineId }, select: { id: true, isActive: true } });
       if (!shippingLine?.isActive) return errorResponse("NOT_FOUND", "Shipping line not found", 404);
     } else {
       if (shippingLineId) return validationError("Shipping line can only be used for freight costs");
+      const sourceCount = Number(agentId ? 1 : 0) + Number(bankAccountId ? 1 : 0) + Number(intermediaryId ? 1 : 0) + Number(paidFromCash ? 1 : 0);
+      if (sourceCount > 1) return validationError("Choose exactly one debit channel: cash, bank, intermediary, or agent");
+      if (sourceCount === 0) return validationError("Please choose a debit channel for this cost");
       if (agentId) {
         const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { id: true, isActive: true } });
         if (!agent?.isActive) return errorResponse("NOT_FOUND", "Agent not found", 404);
+      }
+      if (bankAccountId || intermediaryId) {
+        const source = await validatePaymentSource({
+          bankAccountId,
+          intermediaryId,
+          requireSelection: true,
+        });
+        if (!source.ok) {
+          return errorResponse(source.code, source.message, source.status || 400);
+        }
       }
     }
 
@@ -102,13 +121,27 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
           costDate: body.costDate ? new Date(body.costDate) : null,
           agentId,
           shippingLineId,
-          paidFromCash: body.paidFromCash === true,
+          bankAccountId,
+          intermediaryId,
+          paidFromCash,
           notes: body.notes || null, createdBy: user.userId,
         },
       });
 
       await createAuditLog(user.userId, null, "lot_costs", createdCost.id, "create", undefined, body, getClientIP(request), tx);
-      await journalLotCost({ id: createdCost.id, lotId: body.lotId, costType: body.costType, amount, currencyCode, createdBy: user.userId, agentId: agentId || undefined, shippingLineId: shippingLineId || undefined }, tx);
+      await journalLotCost({
+        id: createdCost.id,
+        lotId: body.lotId,
+        costType: body.costType,
+        amount,
+        currencyCode,
+        createdBy: user.userId,
+        agentId: agentId || undefined,
+        shippingLineId: shippingLineId || undefined,
+        bankAccountId,
+        intermediaryId,
+        paidFromCash,
+      }, tx);
       return createdCost;
     });
 

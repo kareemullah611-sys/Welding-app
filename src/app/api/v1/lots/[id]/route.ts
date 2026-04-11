@@ -40,7 +40,25 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     try {
       lotCosts = await prisma.lotCost.findMany({
         where: { lotId: id },
-        select: { id: true, costType: true, description: true, amount: true, currencyCode: true, exchangeRate: true, costDate: true, notes: true },
+        select: {
+          id: true,
+          costType: true,
+          description: true,
+          amount: true,
+          currencyCode: true,
+          exchangeRate: true,
+          costDate: true,
+          notes: true,
+          paidFromCash: true,
+          bankAccountId: true,
+          intermediaryId: true,
+          agentId: true,
+          shippingLineId: true,
+          bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+          intermediary: { select: { id: true, name: true } },
+          agent: { select: { id: true, name: true } },
+          shippingLine: { select: { id: true, name: true } },
+        },
       });
     } catch (e) {}
     try {
@@ -131,6 +149,32 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       const code = e.currency?.code || "PKR";
       lotExpensesByCurrency[code] = (lotExpensesByCurrency[code] || 0) + Number(e.amount);
     }
+    const costBreakdown = lotCosts.map((c: any) => {
+      let debitChannel = "payable";
+      let debitChannelLabel = "General Payable";
+      if (c.shippingLineId) {
+        debitChannel = "shipping_line";
+        debitChannelLabel = `Shipping Line: ${c.shippingLine?.name || `#${c.shippingLineId}`}`;
+      } else if (c.agentId) {
+        debitChannel = "agent";
+        debitChannelLabel = `Agent: ${c.agent?.name || `#${c.agentId}`}`;
+      } else if (c.intermediaryId) {
+        debitChannel = "intermediary";
+        debitChannelLabel = `Intermediary: ${c.intermediary?.name || `#${c.intermediaryId}`}`;
+      } else if (c.bankAccountId) {
+        debitChannel = "bank";
+        debitChannelLabel = `Bank: ${c.bankAccount?.bankName || `#${c.bankAccountId}`}${c.bankAccount?.accountNumber ? ` (${c.bankAccount.accountNumber})` : ""}`;
+      } else if (c.paidFromCash) {
+        debitChannel = "cash";
+        debitChannelLabel = "Cash";
+      }
+
+      return {
+        ...c,
+        debitChannel,
+        debitChannelLabel,
+      };
+    });
 
     const describeAuditLog = (log: any): { title: string; detail: string } => {
       const newValues = (log.newValues || {}) as any;
@@ -209,7 +253,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         costsByCurrency,
         totalLotExpenses: totalExpenses,
         lotExpensesByCurrency,
-        costBreakdown: lotCosts,
+        costBreakdown,
       },
       stockSummary: { totalCartons, soldCartons, remainingCartons, byProduct: stockByProduct },
       summary: { totalSales, totalPayments, totalExpenses, totalHaji, outstanding: totalSales - totalPayments },

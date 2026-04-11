@@ -26,7 +26,19 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     });
     // Create new journal entry with updated values
     try {
-      await journalLotCost({ id, lotId: existing.lotId, costType: existing.costType, amount: Number(updated.amount), currencyCode: updated.currencyCode, createdBy: user.userId, agentId: existing.agentId || undefined, shippingLineId: (existing as any).shippingLineId || undefined });
+      await journalLotCost({
+        id,
+        lotId: existing.lotId,
+        costType: existing.costType,
+        amount: Number(updated.amount),
+        currencyCode: updated.currencyCode,
+        createdBy: user.userId,
+        agentId: existing.agentId || undefined,
+        shippingLineId: (existing as any).shippingLineId || undefined,
+        bankAccountId: (existing as any).bankAccountId || null,
+        intermediaryId: (existing as any).intermediaryId || null,
+        paidFromCash: (existing as any).paidFromCash === true,
+      });
     } catch (je) { console.error("Re-journal (lot cost):", je); }
 
     await createAuditLog(user.userId, null, "lot_costs", id, "update",

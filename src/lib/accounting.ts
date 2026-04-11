@@ -165,11 +165,28 @@ export async function journalSupplierPaid(p: { id: number; supplierId: number; a
 }
 
 // LOT COST (customs, freight, transport - on agent credit or cash)
-export async function journalLotCost(c: { id: number; lotId: number; costType: string; amount: number; currencyCode: string; createdBy: number; agentId?: number; cityId?: number; shippingLineId?: number; }, db: DbClient = prisma) {
+export async function journalLotCost(c: {
+  id: number;
+  lotId: number;
+  costType: string;
+  amount: number;
+  currencyCode: string;
+  createdBy: number;
+  agentId?: number;
+  cityId?: number;
+  shippingLineId?: number;
+  bankAccountId?: number | null;
+  intermediaryId?: number | null;
+  paidFromCash?: boolean;
+}, db: DbClient = prisma) {
   const expAccId = await getExpenseAccountId(c.costType, db);
   let creditAccId: number;
   if (c.shippingLineId) { creditAccId = await getShippingLineAccountId(c.shippingLineId, db); }
   else if (c.agentId) { creditAccId = await getAgentAccountId(c.agentId, db); }
+  else if (c.intermediaryId) { creditAccId = await getIntermediaryAccountId(c.intermediaryId); }
+  else if (c.bankAccountId) { creditAccId = await getBankGLAccountId(c.bankAccountId, db); }
+  else if (c.paidFromCash && c.cityId) { creditAccId = await getCashAccountId(c.cityId, db); }
+  else if (c.paidFromCash) { creditAccId = await getOrCreateAccount("1001-GENERAL", "Cash in Hand - General", "asset", undefined, db); }
   else if (c.cityId) { creditAccId = await getCashAccountId(c.cityId, db); }
   else { creditAccId = await getOrCreateAccount("2999", "General Payable", "liability", undefined, db); }
   await createJournalEntries(`COST-${c.id}`, [
