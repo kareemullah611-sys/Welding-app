@@ -29,11 +29,6 @@ export default function ShippingLinesPage() {
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
   const [intermediaries, setIntermediaries] = useState<any[]>([]);
 
-  // Add charge (lot cost)
-  const [showCharge, setShowCharge] = useState(false);
-  const [chargeForm, setChargeForm] = useState({ lotId: "", description: "Freight", amount: "", costDate: new Date().toISOString().split("T")[0], notes: "" });
-  const [lots, setLots] = useState<any[]>([]);
-
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -112,36 +107,6 @@ export default function ShippingLinesPage() {
     else { setError(r.error || "Failed"); }
   };
 
-  const openAddCharge = async (sl: any) => {
-    setSelected(sl);
-    if (!lots.length) {
-      const lr = await apiCall("/api/v1/lots", { params: { limit: 100 } });
-      if (lr.success) setLots(lr.data as any[]);
-    }
-    setChargeForm({ lotId: "", description: "Freight", amount: "", costDate: new Date().toISOString().split("T")[0], notes: "" });
-    setError(""); setShowCharge(true);
-  };
-
-  const handleAddCharge = async () => {
-    if (!chargeForm.lotId || !chargeForm.amount || Number(chargeForm.amount) <= 0) { setError("Lot and amount required"); return; }
-    setSubmitting(true);
-    const r = await apiCall("/api/v1/lot-costs", {
-      method: "POST",
-      body: {
-        lotId:         Number(chargeForm.lotId),
-        costType:      "freight",
-        description:   chargeForm.description,
-        amount:        Number(chargeForm.amount),
-        currencyCode:  "USD",
-        costDate:      chargeForm.costDate,
-        shippingLineId: selected.id,
-        notes:         chargeForm.notes || null,
-      },
-    });
-    setSubmitting(false);
-    if (r.success) { setShowCharge(false); load(); } else { setError(r.error || "Failed"); }
-  };
-
   if (user?.role !== "super_admin") return <div className="p-8 text-gray-400">Access restricted to Super Admin.</div>;
 
   const columns = [
@@ -162,7 +127,6 @@ export default function ShippingLinesPage() {
       <div className="flex items-center gap-1 flex-wrap">
         <button onClick={() => openLedger(sl)} className="px-2 py-1 text-xs rounded bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200">Open Ledger</button>
         <button onClick={() => openAddPayment(sl)} className="px-2 py-1 text-xs rounded bg-green-50 text-green-700 hover:bg-green-100 border border-green-200">+ Record Settlement</button>
-        <button onClick={() => openAddCharge(sl)} className="px-2 py-1 text-xs rounded bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-200">+ Record Charge</button>
         <button onClick={() => openEdit(sl)} className="px-2 py-1 text-xs rounded bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200">Edit</button>
       </div>
     )},
@@ -283,33 +247,6 @@ export default function ShippingLinesPage() {
         </div>
       </Modal>
 
-      {/* ── Add Freight Charge ── */}
-      <Modal open={showCharge} onClose={() => setShowCharge(false)} title={`Record Freight Charge — ${selected?.name || ""}`} size="md">
-        {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
-        <div className="space-y-3">
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">Lot *</label>
-            <select value={chargeForm.lotId} onChange={e => setChargeForm(f => ({ ...f, lotId: e.target.value }))} className="select-field">
-              <option value="">Select lot</option>
-              {lots.map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber} ({l.countryName})</option>)}
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-              <input value={chargeForm.description} onChange={e => setChargeForm(f => ({ ...f, description: e.target.value }))} className="input-field" /></div>
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-              <input type="date" value={chargeForm.costDate} onChange={e => setChargeForm(f => ({ ...f, costDate: e.target.value }))} className="input-field" /></div>
-          </div>
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">Amount USD *</label>
-            <input type="number" value={chargeForm.amount} onChange={e => setChargeForm(f => ({ ...f, amount: e.target.value }))} className="input-field" placeholder="0.00" min="0.01" step="0.01" /></div>
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-            <textarea value={chargeForm.notes} onChange={e => setChargeForm(f => ({ ...f, notes: e.target.value }))} className="input-field" rows={2} /></div>
-        </div>
-        <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={() => setShowCharge(false)} className="btn-secondary text-sm">Cancel</button>
-          <button onClick={handleAddCharge} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : "Add Charge"}</button>
-        </div>
-      </Modal>
-
       {/* ── Ledger ── */}
       <Modal open={showLedger} onClose={() => setShowLedger(false)} title={`Shipping Line Ledger — ${selected?.name || ""}`} size="xl">
         {ledgerLoading
@@ -336,7 +273,6 @@ export default function ShippingLinesPage() {
             <div className="card">
               <div className="flex items-center justify-between mb-2">
                 <h4 className="text-sm font-semibold text-gray-600">Freight Charge Entries</h4>
-                <button onClick={() => { setShowLedger(false); openAddCharge(selected); }} className="text-xs text-primary-600 hover:underline">+ Record Charge</button>
               </div>
               {ledger.charges.length > 0 ? (
                 <table className="w-full text-sm">
