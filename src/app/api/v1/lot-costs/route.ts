@@ -32,16 +32,54 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     if (!body.lotId || !body.costType || !body.description || !body.amount) {
       return validationError("Lot, type, description, and amount required");
     }
-    if (Number(body.amount) <= 0) return validationError("Amount must be greater than 0");
 
-    const lot = await prisma.lot.findUnique({ where: { id: body.lotId } });
+    const amount = Number(body.amount);
+    if (!Number.isFinite(amount) || amount <= 0) return validationError("Amount must be greater than 0");
+
+    const lot = await prisma.lot.findUnique({
+      where: { id: body.lotId },
+      include: { country: { select: { code: true, name: true } } },
+    });
     if (!lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
 
     const costType = String(body.costType || "");
+    const isFreight = costType === "freight";
     const agentId = body.agentId ? Number(body.agentId) : null;
     const shippingLineId = body.shippingLineId ? Number(body.shippingLineId) : null;
+    const requestedCurrency = String(body.currencyCode || "").toUpperCase();
+    const lotCountryCode = String(lot.country?.code || "").toUpperCase();
+    const nonFreightCurrency = lotCountryCode === "AFG" ? "AFN" : "PKR";
 
-    if (costType === "freight") {
+    // Business rule:
+    // - Freight is entered in USD and must carry a costing exchange rate (USD→PKR)
+    // - Non-freight follows lot country:
+    //   - Pakistan lots: PKR
+    //   - Afghanistan lots: AFN (+ AFN→PKR rate for PKR reporting)
+    const currencyCode = isFreight ? "USD" : nonFreightCurrency;
+    let exchangeRate: number | null = null;
+    if (isFreight) {
+      if (requestedCurrency && requestedCurrency !== "USD") {
+        return validationError("Freight must be recorded in USD");
+      }
+      const parsedRate = Number(body.exchangeRate);
+      if (!Number.isFinite(parsedRate) || parsedRate <= 0) {
+        return validationError("Costing exchange rate is required for freight");
+      }
+      exchangeRate = parsedRate;
+    } else {
+      if (requestedCurrency && requestedCurrency !== nonFreightCurrency) {
+        return validationError(`Only freight can be USD. Non-freight costs for ${lot.country?.name || "this lot"} must be in ${nonFreightCurrency}`);
+      }
+      if (nonFreightCurrency === "AFN") {
+        const afnToPkrRate = Number(body.exchangeRate);
+        if (!Number.isFinite(afnToPkrRate) || afnToPkrRate <= 0) {
+          return validationError("AFN→PKR exchange rate is required for Afghanistan non-freight costs");
+        }
+        exchangeRate = afnToPkrRate;
+      }
+    }
+
+    if (isFreight) {
       if (!shippingLineId) return validationError("Shipping line is required for freight");
       if (agentId) return validationError("Freight must be charged to a shipping line, not an agent");
       const shippingLine = await prisma.shippingLine.findUnique({ where: { id: shippingLineId }, select: { id: true, isActive: true } });
@@ -58,9 +96,9 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       const createdCost = await tx.lotCost.create({
         data: {
           lotId: body.lotId, costType: body.costType as any,
-          description: body.description, amount: body.amount,
-          currencyCode: body.currencyCode || "USD",
-          exchangeRate: body.exchangeRate || null,
+          description: body.description, amount,
+          currencyCode,
+          exchangeRate,
           costDate: body.costDate ? new Date(body.costDate) : null,
           agentId,
           shippingLineId,
@@ -70,7 +108,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       });
 
       await createAuditLog(user.userId, null, "lot_costs", createdCost.id, "create", undefined, body, getClientIP(request), tx);
-      await journalLotCost({ id: createdCost.id, lotId: body.lotId, costType: body.costType, amount: body.amount, currencyCode: body.currencyCode || "USD", createdBy: user.userId, agentId: agentId || undefined, shippingLineId: shippingLineId || undefined }, tx);
+      await journalLotCost({ id: createdCost.id, lotId: body.lotId, costType: body.costType, amount, currencyCode, createdBy: user.userId, agentId: agentId || undefined, shippingLineId: shippingLineId || undefined }, tx);
       return createdCost;
     });
 

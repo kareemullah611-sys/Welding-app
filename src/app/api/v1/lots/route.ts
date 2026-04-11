@@ -60,40 +60,60 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       prisma.lot.count({ where }),
     ]);
 
-    const formatted = lots.map((lot) => ({
-      id: lot.id,
-      countryId: lot.countryId,
-      countryName: lot.country.name,
-      countryCode: lot.country.code,
-      lotNumber: lot.lotNumber,
-      lotDate: lot.lotDate.toISOString().split("T")[0],
-      notes: lot.notes,
-      status: lot.status,
-      createdBy: lot.creator,
-      completedBy: lot.completer,
-      completedAt: lot.completedAt?.toISOString() || null,
-      products: lot.lotProducts.map((lp) => ({
-        id: lp.id,
-        productId: lp.productId,
-        productName: lp.product.name,
-        totalQty: Number(lp.totalQty),
-      })),
-      distributions: lot.lotCityDistributions.map((d) => ({
-        id: d.id,
-        cityId: d.cityId,
-        cityName: d.city.name,
-        productId: d.productId,
-        productName: d.product.name,
-        allocatedQty: Number(d.allocatedQty),
-        godownAllocations: d.godownAllocations.map((ga) => ({
-          godownId: ga.godownId,
-          qty: Number(ga.qty),
+    // Sold cartons summary per lot (active sales only)
+    const soldByLotId: Record<number, number> = {};
+    const lotIds = lots.map((l) => l.id);
+    if (lotIds.length > 0) {
+      const lotSales = await prisma.sale.findMany({
+        where: { lotId: { in: lotIds }, status: "active" },
+        select: { lotId: true, items: { select: { qty: true } } },
+      });
+      for (const sale of lotSales) {
+        soldByLotId[sale.lotId] = (soldByLotId[sale.lotId] || 0) + sale.items.reduce((s, it) => s + Number(it.qty || 0), 0);
+      }
+    }
+
+    const formatted = lots.map((lot) => {
+      const totalCartons = lot.lotProducts.reduce((s, lp) => s + Number(lp.totalQty), 0);
+      const soldCartons = Number(soldByLotId[lot.id] || 0);
+      return {
+        totalCartons,
+        soldCartons,
+        remainingCartons: Math.max(0, totalCartons - soldCartons),
+        id: lot.id,
+        countryId: lot.countryId,
+        countryName: lot.country.name,
+        countryCode: lot.country.code,
+        lotNumber: lot.lotNumber,
+        lotDate: lot.lotDate.toISOString().split("T")[0],
+        notes: lot.notes,
+        status: lot.status,
+        createdBy: lot.creator,
+        completedBy: lot.completer,
+        completedAt: lot.completedAt?.toISOString() || null,
+        products: lot.lotProducts.map((lp) => ({
+          id: lp.id,
+          productId: lp.productId,
+          productName: lp.product.name,
+          totalQty: Number(lp.totalQty),
         })),
-      })),
-      salesCount: lot._count.sales,
-      hajiTransfersCount: lot._count.hajiTransfers,
-      createdAt: lot.createdAt.toISOString(),
-    }));
+        distributions: lot.lotCityDistributions.map((d) => ({
+          id: d.id,
+          cityId: d.cityId,
+          cityName: d.city.name,
+          productId: d.productId,
+          productName: d.product.name,
+          allocatedQty: Number(d.allocatedQty),
+          godownAllocations: d.godownAllocations.map((ga) => ({
+            godownId: ga.godownId,
+            qty: Number(ga.qty),
+          })),
+        })),
+        salesCount: lot._count.sales,
+        hajiTransfersCount: lot._count.hajiTransfers,
+        createdAt: lot.createdAt.toISOString(),
+      };
+    });
 
     return paginatedResponse(formatted, total, page, limit);
   } catch (error) {

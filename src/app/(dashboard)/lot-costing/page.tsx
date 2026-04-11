@@ -10,6 +10,8 @@ export default function LotCostingPage() {
   const COST_TYPES = [
     { value: "freight",           label: t("cost_type_freight") },
     { value: "customs_duty",      label: t("cost_type_customs") },
+    { value: "customs_agent",     label: "Customs Agent" },
+    { value: "clearing_agent",    label: "Clearing Agent" },
     { value: "port_charges",      label: t("cost_type_port") },
     { value: "transport",         label: t("cost_type_transport") },
     { value: "loading_unloading", label: t("cost_type_loading") },
@@ -22,7 +24,7 @@ export default function LotCostingPage() {
   const [lotProducts, setLotProducts] = useState<any[]>([]); // source-of-truth carton counts
   const [purchases,   setPurchases]   = useState<any[]>([]);
   const [costs,       setCosts]       = useState<any[]>([]);
-  const [lotExpensesTotal, setLotExpensesTotal] = useState(0); // lot-tagged expenses included in landed cost
+  const [lotExpensesByCurrency, setLotExpensesByCurrency] = useState<Record<string, number>>({});
   const [suppliers,   setSuppliers]   = useState<any[]>([]);
   const [products,    setProducts]    = useState<any[]>([]);
   const [loading,     setLoading]     = useState(true);
@@ -37,19 +39,27 @@ export default function LotCostingPage() {
     supplierId: 0, exchangeRate: 0, products: [{ productId: 0, qty: 0, unitPriceUsd: 0 }],
   });
   const [costForm, setCostForm] = useState({
-    costType: "freight", description: "", amount: 0, currencyCode: "PKR",
+    costType: "freight", description: "", amount: 0, currencyCode: "USD",
     exchangeRate: 0, costDate: new Date().toISOString().split("T")[0], notes: "", agentId: 0, shippingLineId: 0,
   });
 
   // USD/PKR rate — seeded from stored records; user can override
   const [usdPkrRate, setUsdPkrRate] = useState(280);
+  const [afnPkrRate, setAfnPkrRate] = useState(0);
+  const selectedLotCountryCode = String(selectedLot?.countryCode || selectedLot?.country?.code || "").toUpperCase();
+  const nonFreightCurrency = selectedLotCountryCode === "AFG" ? "AFN" : "PKR";
 
   // ── Seed rate whenever purchases / costs change ──
   useEffect(() => {
     const fromPurchases = purchases.filter(p => p.exchangeRate > 0).map(p => p.exchangeRate);
-    const fromCosts     = costs.filter(c => c.exchangeRate > 0).map(c => c.exchangeRate);
-    const all = [...fromPurchases, ...fromCosts];
-    if (all.length > 0) setUsdPkrRate(all[all.length - 1]); // latest stored rate
+    const fromFreightCosts = costs.filter(c => c.costType === "freight" && c.exchangeRate > 0).map(c => c.exchangeRate);
+    const usdRates = [...fromPurchases, ...fromFreightCosts];
+    if (usdRates.length > 0) setUsdPkrRate(usdRates[usdRates.length - 1]); // latest USD→PKR rate
+
+    const afnRates = costs
+      .filter(c => String(c.currencyCode || "").toUpperCase() === "AFN" && c.exchangeRate > 0)
+      .map(c => c.exchangeRate);
+    if (afnRates.length > 0) setAfnPkrRate(afnRates[afnRates.length - 1]); // latest AFN→PKR rate
   }, [purchases, costs]);
 
   useEffect(() => {
@@ -76,15 +86,14 @@ export default function LotCostingPage() {
     if (costR.success)  setCosts(costR.data as any[]);
     if (detailR.success) {
       const d = detailR.data as any;
-      // totalLotExpenses is already summed by the API into costSummary
-      setLotExpensesTotal(d.costSummary?.totalLotExpenses ?? 0);
+      setLotExpensesByCurrency(d.costSummary?.lotExpensesByCurrency || {});
     }
   };
 
   const selectLot = async (lot: any) => {
     setSelectedLot(lot);
     setLotProducts([]);
-    setLotExpensesTotal(0);
+    setLotExpensesByCurrency({});
     // loadLotData now also fetches lot detail (products + expense totals)
     const [purchR, costR, detailR] = await Promise.all([
       apiCall("/api/v1/lot-purchases", { params: { lot_id: lot.id } }),
@@ -96,7 +105,7 @@ export default function LotCostingPage() {
     if (detailR.success) {
       const d = detailR.data as any;
       setLotProducts(d.products || []);
-      setLotExpensesTotal(d.costSummary?.totalLotExpenses ?? 0);
+      setLotExpensesByCurrency(d.costSummary?.lotExpensesByCurrency || {});
     }
   };
 
@@ -136,12 +145,12 @@ export default function LotCostingPage() {
     if (agentsRes.success) setAgents(agentsRes.data as any[]);
     if (shippingLinesRes.success) setShippingLines((shippingLinesRes.data as any).items || shippingLinesRes.data as any[]);
     // Pre-fill exchange rate from latest stored rate
-    const latestRate =
+    const latestUsdRate =
       purchases.filter(p => p.exchangeRate > 0).slice(-1)[0]?.exchangeRate ??
-      costs.filter(c => c.exchangeRate > 0).slice(-1)[0]?.exchangeRate ?? 0;
+      costs.filter(c => c.costType === "freight" && c.exchangeRate > 0).slice(-1)[0]?.exchangeRate ?? 0;
     setCostForm({
-      costType: "freight", description: "", amount: 0, currencyCode: "PKR",
-      exchangeRate: latestRate, costDate: new Date().toISOString().split("T")[0], notes: "", agentId: 0, shippingLineId: 0,
+      costType: "freight", description: "", amount: 0, currencyCode: "USD",
+      exchangeRate: latestUsdRate || usdPkrRate, costDate: new Date().toISOString().split("T")[0], notes: "", agentId: 0, shippingLineId: 0,
     });
     setShowAddCost(true); setError("");
   };
@@ -158,9 +167,20 @@ export default function LotCostingPage() {
 
   const handleAddCost = async () => {
     if (!costForm.description || !costForm.amount) { setError(t("fill_description_amount")); return; }
-    if (costForm.costType === "freight" && !costForm.shippingLineId) { setError("Select a shipping line for freight"); return; }
+    const isFreight = costForm.costType === "freight";
+    const isAfgNonFreight = !isFreight && nonFreightCurrency === "AFN";
+    if ((isFreight || isAfgNonFreight) && Number(costForm.exchangeRate) <= 0) {
+      setError(isFreight ? "Enter a costing exchange rate for freight" : "Enter AFN→PKR exchange rate");
+      return;
+    }
+    if (isFreight && !costForm.shippingLineId) { setError("Select a shipping line for freight"); return; }
     setSubmitting(true);
-    const body: any = { lotId: selectedLot.id, ...costForm };
+    const body: any = {
+      lotId: selectedLot.id,
+      ...costForm,
+      currencyCode: isFreight ? "USD" : nonFreightCurrency,
+      exchangeRate: isFreight || isAfgNonFreight ? Number(costForm.exchangeRate || 0) : null,
+    };
     if (body.costType === "freight") {
       delete body.agentId;
       if (!body.shippingLineId) delete body.shippingLineId;
@@ -183,20 +203,37 @@ export default function LotCostingPage() {
   // Total cartons = lot product totals (source of truth, not sum of purchases)
   const totalLotCartons  = lotProducts.reduce((s, p) => s + Number(p.totalQty), 0);
   const totalPurchaseUsd = purchases.reduce((s, p) => s + Number(p.totalPriceUsd), 0);
-  const totalCostsUsd    = costs.reduce((s, c) => {
-    if (c.currencyCode === "USD") return s + Number(c.amount);
-    const rate = c.exchangeRate > 0 ? c.exchangeRate : usdPkrRate;
-    return s + Number(c.amount) / rate;
-  }, 0);
-  // Include lot-tagged expenses (paid from cash but linked to this lot) in landed cost
-  const totalLanded       = totalPurchaseUsd + totalCostsUsd + lotExpensesTotal;
-  const landedPerCarton   = totalLotCartons > 0 ? totalLanded / totalLotCartons : 0;
-  const landedPerCartonPkr = landedPerCarton * usdPkrRate;
+  const resolveCostPkr = (c: any) => {
+    const amount = Number(c.amount || 0);
+    if (!amount) return 0;
+    const code = String(c.currencyCode || "PKR").toUpperCase();
+    if (code === "PKR") return amount;
+    if (code === "AFN") {
+      const rate = Number(c.exchangeRate || 0);
+      return rate > 0 ? amount * rate : 0;
+    }
+    if (code === "USD") {
+      const rate = Number(c.exchangeRate || 0) > 0 ? Number(c.exchangeRate) : usdPkrRate;
+      return rate > 0 ? amount * rate : 0;
+    }
+    // Legacy fallback for pre-rule records (e.g. AFN): convert via USD when possible.
+    const legacyRate = Number(c.exchangeRate || 0);
+    if (legacyRate <= 0 || usdPkrRate <= 0) return 0;
+    return (amount / legacyRate) * usdPkrRate;
+  };
+  const lotExpensesPkr =
+    Number(lotExpensesByCurrency["PKR"] || 0) +
+    Number(lotExpensesByCurrency["USD"] || 0) * usdPkrRate +
+    Number(lotExpensesByCurrency["AFN"] || 0) * afnPkrRate;
+  const hasUnconvertedAfnExpenses = Number(lotExpensesByCurrency["AFN"] || 0) > 0 && afnPkrRate <= 0;
+  const totalCostsPkr = costs.reduce((s, c) => s + resolveCostPkr(c), 0);
+  const totalPurchasePkr = totalPurchaseUsd * usdPkrRate;
+  const totalLandedPkr = totalPurchasePkr + totalCostsPkr + lotExpensesPkr;
+  const landedPerCartonPkr = totalLotCartons > 0 ? totalLandedPkr / totalLotCartons : 0;
+  const landedPerCarton = usdPkrRate > 0 ? landedPerCartonPkr / usdPkrRate : 0;
 
-  const costUsdByType = costs.reduce<Record<string, number>>((acc, c) => {
-    const rate = c.currencyCode === "USD" ? 1 : (c.exchangeRate > 0 ? c.exchangeRate : usdPkrRate);
-    const usd = c.currencyCode === "USD" ? Number(c.amount) : Number(c.amount) / rate;
-    acc[c.costType] = (acc[c.costType] || 0) + usd;
+  const costPkrByType = costs.reduce<Record<string, number>>((acc, c) => {
+    acc[c.costType] = (acc[c.costType] || 0) + resolveCostPkr(c);
     return acc;
   }, {});
 
@@ -210,22 +247,25 @@ export default function LotCostingPage() {
   const productRows = Object.entries(purchaseByProduct).map(([productId, row]) => ({ productId: Number(productId), ...row }));
   const totalPurchaseBase = productRows.reduce((sum, row) => sum + row.purchaseUsd, 0);
   const totalWeightBase = productRows.reduce((sum, row) => sum + row.weightKg, 0);
-  const equalShareTypes = ["port_charges", "loading_unloading", "insurance", "other"];
-  const equalShareUsd = equalShareTypes.reduce((sum, type) => sum + (costUsdByType[type] || 0), 0) + lotExpensesTotal;
-  const perProductEqualShare = productRows.length > 0 ? equalShareUsd / productRows.length : 0;
+  const equalShareTypes = ["port_charges", "loading_unloading", "insurance", "other", "customs_agent", "clearing_agent"];
+  const equalSharePkr = equalShareTypes.reduce((sum, type) => sum + (costPkrByType[type] || 0), 0) + lotExpensesPkr;
+  const perProductEqualShare = productRows.length > 0 ? equalSharePkr / productRows.length : 0;
   const landedCostRows = productRows.map((row) => {
-    const customsShare = totalPurchaseBase > 0 ? ((costUsdByType.customs_duty || 0) * row.purchaseUsd) / totalPurchaseBase : 0;
-    const freightShare = totalWeightBase > 0 ? ((costUsdByType.freight || 0) * row.weightKg) / totalWeightBase : 0;
-    const transportShare = totalWeightBase > 0 ? ((costUsdByType.transport || 0) * row.weightKg) / totalWeightBase : 0;
+    const purchasePkr = row.purchaseUsd * usdPkrRate;
+    const customsShare = totalPurchaseBase > 0 ? ((costPkrByType.customs_duty || 0) * row.purchaseUsd) / totalPurchaseBase : 0;
+    const freightShare = totalWeightBase > 0 ? ((costPkrByType.freight || 0) * row.weightKg) / totalWeightBase : 0;
+    const transportShare = totalWeightBase > 0 ? ((costPkrByType.transport || 0) * row.weightKg) / totalWeightBase : 0;
     const equalShare = perProductEqualShare;
-    const landedTotalUsd = row.purchaseUsd + customsShare + freightShare + transportShare + equalShare;
-    const landedPerCartonUsd = row.cartons > 0 ? landedTotalUsd / row.cartons : 0;
+    const landedTotalPkr = purchasePkr + customsShare + freightShare + transportShare + equalShare;
+    const landedPerCartonPkr = row.cartons > 0 ? landedTotalPkr / row.cartons : 0;
     return {
       ...row,
-      landedTotalUsd,
-      landedPerCartonUsd,
-      landedPerCartonPkr: landedPerCartonUsd * usdPkrRate,
-      overheadUsd: customsShare + freightShare + transportShare + equalShare,
+      purchasePkr,
+      landedTotalPkr,
+      landedTotalUsd: usdPkrRate > 0 ? landedTotalPkr / usdPkrRate : 0,
+      landedPerCartonPkr,
+      landedPerCartonUsd: usdPkrRate > 0 ? landedPerCartonPkr / usdPkrRate : 0,
+      overheadPkr: customsShare + freightShare + transportShare + equalShare,
     };
   });
 
@@ -272,8 +312,8 @@ export default function LotCostingPage() {
         {/* ── Summary cards ── */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
           <StatsCard title={`${t("purchase_cost")} (USD)`} value={`$${formatNumber(totalPurchaseUsd)}`} icon="📦" color="blue" />
-          <StatsCard title={t("additional_costs")} value={`$${formatNumber(Math.round((totalCostsUsd + lotExpensesTotal) * 100) / 100)}${lotExpensesTotal > 0 ? ` (incl. $${formatNumber(lotExpensesTotal)} exp.)` : ""}`} icon="💸" color="red" />
-          <StatsCard title={t("total_landed")} value={`$${formatNumber(Math.round(totalLanded * 100) / 100)}`} icon="🏷️" color="yellow" />
+          <StatsCard title={`${t("additional_costs")} (PKR)`} value={`PKR ${formatNumber(Math.round(totalCostsPkr + lotExpensesPkr))}${lotExpensesPkr > 0 ? ` (incl. ${formatNumber(Math.round(lotExpensesPkr))} city exp.)` : ""}`} icon="💸" color="red" />
+          <StatsCard title={`${t("total_landed")} (PKR)`} value={`PKR ${formatNumber(Math.round(totalLandedPkr))}`} icon="🏷️" color="yellow" />
           <StatsCard title={t("total_cartons")} value={formatNumber(totalLotCartons)} icon="📦" color="blue" />
           <StatsCard title={`${t("cost_per_carton")} (USD)`} value={`$${(Math.round(landedPerCarton * 100) / 100).toFixed(2)}`} icon="💰" color="green" />
           <StatsCard title={`${t("cost_per_carton")} (PKR)`} value={`PKR ${formatNumber(Math.round(landedPerCartonPkr))}`} icon="💵" color="green" />
@@ -281,8 +321,19 @@ export default function LotCostingPage() {
         <div className="flex items-center gap-2 mb-4 -mt-2">
           <label className="text-xs text-gray-500">USD/PKR rate:</label>
           <input type="number" value={usdPkrRate} onChange={e => setUsdPkrRate(parseFloat(e.target.value) || 0)} className="input-field w-28 text-xs" step="0.5" />
-          <span className="text-xs text-gray-400">(used for non-USD cost conversion)</span>
+          <span className="text-xs text-gray-400">(fallback conversion rate for old records)</span>
+          {(selectedLotCountryCode === "AFG" || Number(lotExpensesByCurrency["AFN"] || 0) > 0) && (
+            <>
+              <label className="text-xs text-gray-500 ml-3">AFN/PKR rate:</label>
+              <input type="number" value={afnPkrRate || ""} onChange={e => setAfnPkrRate(parseFloat(e.target.value) || 0)} className="input-field w-28 text-xs" step="0.0001" />
+            </>
+          )}
         </div>
+        {hasUnconvertedAfnExpenses && (
+          <div className="mb-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+            Afghanistan lot expenses are in AFN. Enter AFN/PKR rate above so these expenses are included in PKR landed cost.
+          </div>
+        )}
 
         {/* ── Purchase prices table ── */}
         <div className="card mb-4">
@@ -308,19 +359,18 @@ export default function LotCostingPage() {
           </div>
           {totalLotCartons > 0 && (
             <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700">
-              💡 Additional costs per carton: <strong>${(totalCostsUsd / totalLotCartons).toFixed(2)}</strong>
-              {" "}· Total landed per carton: <strong>${landedPerCarton.toFixed(2)}</strong> / <strong>PKR {formatNumber(Math.round(landedPerCartonPkr))}</strong>
+              💡 Additional costs per carton: <strong>PKR {formatNumber(Math.round((totalCostsPkr + lotExpensesPkr) / totalLotCartons))}</strong>
+              {" "}· Total landed per carton: <strong>PKR {formatNumber(Math.round(landedPerCartonPkr))}</strong> / <strong>${landedPerCarton.toFixed(2)}</strong>
             </div>
           )}
           <DataTable columns={[
             { key: "costType",    label: t("type"),        render: (c: any) => <span className="text-xs">{COST_TYPES.find(ct => ct.value === c.costType)?.label || c.costType}</span> },
             { key: "description", label: t("description") },
             { key: "amount",      label: t("amount"),      render: (c: any) => <span className="font-medium">{c.currencyCode !== "USD" ? c.currencyCode + " " : "$"}{Number(c.amount).toLocaleString("en-US")}</span> },
-            { key: "exchangeRate", label: "Costing Rate", render: (c: any) => c.currencyCode === "USD" ? "—" : (c.exchangeRate ? c.exchangeRate : "—") },
-            { key: "usdEquiv",    label: "≈ USD",          render: (c: any) => {
-              if (c.currencyCode === "USD") return `$${Number(c.amount).toFixed(2)}`;
-              const rate = c.exchangeRate > 0 ? c.exchangeRate : usdPkrRate;
-              return <span className="text-gray-400 text-xs">${(Number(c.amount) / rate).toFixed(2)}</span>;
+            { key: "exchangeRate", label: "Costing Rate", render: (c: any) => (c.costType === "freight" || String(c.currencyCode || "").toUpperCase() === "AFN") ? (c.exchangeRate ? c.exchangeRate : "—") : "—" },
+            { key: "pkrEquiv",    label: "≈ PKR",          render: (c: any) => {
+              const pkr = resolveCostPkr(c);
+              return <span className="text-gray-500 text-xs">PKR {formatNumber(Math.round(pkr))}</span>;
             }},
             { key: "costDate",    label: t("date") },
             { key: "actions",     label: "", render: (c: any) => <button onClick={() => deleteCost(c.id)} className="text-xs text-red-600 hover:underline">{t("delete")}</button> },
@@ -337,10 +387,10 @@ export default function LotCostingPage() {
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Cartons</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Weight</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Purchase USD</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Overheads USD</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Landed USD</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Per Carton USD</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Per Carton PKR</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Overheads PKR</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Landed PKR</th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Per Carton USD</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -350,10 +400,10 @@ export default function LotCostingPage() {
                     <td className="px-3 py-2 text-right">{formatNumber(row.cartons)}</td>
                     <td className="px-3 py-2 text-right">{formatNumber(row.weightKg)} kg</td>
                     <td className="px-3 py-2 text-right">${row.purchaseUsd.toFixed(2)}</td>
-                    <td className="px-3 py-2 text-right">${row.overheadUsd.toFixed(2)}</td>
-                    <td className="px-3 py-2 text-right font-medium">${row.landedTotalUsd.toFixed(2)}</td>
-                    <td className="px-3 py-2 text-right font-semibold text-emerald-700">${row.landedPerCartonUsd.toFixed(2)}</td>
                     <td className="px-3 py-2 text-right font-semibold text-blue-700">PKR {formatNumber(Math.round(row.landedPerCartonPkr))}</td>
+                    <td className="px-3 py-2 text-right">PKR {formatNumber(Math.round(row.overheadPkr))}</td>
+                    <td className="px-3 py-2 text-right font-medium">PKR {formatNumber(Math.round(row.landedTotalPkr))}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-emerald-700">${row.landedPerCartonUsd.toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -444,7 +494,18 @@ export default function LotCostingPage() {
         <div className="space-y-3">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("type")} *</label>
-            <select value={costForm.costType} onChange={e => setCostForm(f => ({ ...f, costType: e.target.value, agentId: 0, shippingLineId: 0 }))} className="select-field">
+            <select value={costForm.costType} onChange={e => {
+              const type = e.target.value;
+              const isFreight = type === "freight";
+              setCostForm(f => ({
+                ...f,
+                costType: type,
+                currencyCode: isFreight ? "USD" : nonFreightCurrency,
+                exchangeRate: isFreight ? (f.exchangeRate || usdPkrRate || 0) : (nonFreightCurrency === "AFN" ? (f.exchangeRate || afnPkrRate || 0) : 0),
+                agentId: 0,
+                shippingLineId: 0,
+              }));
+            }} className="select-field">
               {COST_TYPES.map(ct => <option key={ct.value} value={ct.value}>{ct.label}</option>)}
             </select>
           </div>
@@ -478,34 +539,33 @@ export default function LotCostingPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
-              <select value={costForm.currencyCode} onChange={e => setCostForm(f => ({ ...f, currencyCode: e.target.value }))} className="select-field">
-                <option value="USD">USD</option>
-                <option value="PKR">PKR</option>
-                <option value="AFN">AFN</option>
-              </select>
+              <input value={costForm.costType === "freight" ? "USD" : nonFreightCurrency} disabled className="input-field bg-gray-50 text-gray-500" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")}</label>
               <input type="date" value={costForm.costDate} onChange={e => setCostForm(f => ({ ...f, costDate: e.target.value }))} className="input-field" />
             </div>
           </div>
-          {costForm.currencyCode !== "USD" && (
+          {(costForm.costType === "freight" || nonFreightCurrency === "AFN") && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Costing Exchange Rate (USD→{costForm.currencyCode})
+                {costForm.costType === "freight" ? "Costing Exchange Rate (USD→PKR) *" : "Costing Exchange Rate (AFN→PKR) *"}
               </label>
               <input type="number" step="0.01" placeholder="e.g. 280"
                 value={costForm.exchangeRate || ""}
                 onChange={e => setCostForm(f => ({ ...f, exchangeRate: parseFloat(e.target.value) || 0 }))}
                 className="input-field" />
               {costForm.costType === "freight" && (
-                <p className="mt-1 text-xs text-gray-500">Use this rate only for landed-costing. The later shipping-line settlement rate is entered separately when you pay the shipping line.</p>
+                <p className="mt-1 text-xs text-gray-500">Use this rate only for landed-costing. The shipping-line settlement rate can be different later.</p>
               )}
             </div>
           )}
-          {costForm.currencyCode !== "USD" && costForm.amount > 0 && (
+          {costForm.amount > 0 && (
             <p className="text-xs text-gray-500">
-              ≈ USD ${costForm.exchangeRate > 0 ? (costForm.amount / costForm.exchangeRate).toFixed(2) : `(enter exchange rate)`}
+              {(costForm.costType === "freight" || nonFreightCurrency === "AFN")
+                ? `≈ PKR ${costForm.exchangeRate > 0 ? formatNumber(Math.round(costForm.amount * costForm.exchangeRate)) : "(enter exchange rate)"}`
+                : `PKR ${formatNumber(Math.round(costForm.amount))}`
+              }
             </p>
           )}
         </div>

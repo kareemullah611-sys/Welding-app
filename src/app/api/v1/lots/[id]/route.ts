@@ -31,16 +31,16 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     }
 
     let sales: any[] = [], payments: any[] = [], expenses: any[] = [], hajiTransfers: any[] = [];
-    try { sales = await prisma.sale.findMany({ where: { lotId: id, status: "active" }, select: { id: true, voucherNo: true, totalAmount: true, saleDate: true, customer: { select: { name: true } }, items: { select: { qty: true, amount: true, product: { select: { name: true } } } } }, orderBy: { saleDate: "desc" }, take: 100 }); } catch (e) {}
+    try { sales = await prisma.sale.findMany({ where: { lotId: id, status: "active" }, select: { id: true, voucherNo: true, totalAmount: true, saleDate: true, customer: { select: { name: true } }, items: { select: { qty: true, amount: true, product: { select: { id: true, name: true } } } } }, orderBy: { saleDate: "desc" }, take: 100 }); } catch (e) {}
     try { payments = await prisma.payment.findMany({ where: { lotId: id, status: "active" }, select: { id: true, amount: true, paymentDate: true, detail: true, customer: { select: { name: true } } }, orderBy: { paymentDate: "desc" }, take: 100 }); } catch (e) {}
-    try { expenses = await prisma.expense.findMany({ where: { lotId: id }, select: { id: true, amount: true, detail: true, expenseDate: true }, orderBy: { expenseDate: "desc" } }); } catch (e) {}
+    try { expenses = await prisma.expense.findMany({ where: { lotId: id, deletedAt: null }, select: { id: true, amount: true, detail: true, expenseDate: true, currency: { select: { code: true } } }, orderBy: { expenseDate: "desc" } }); } catch (e) {}
     try { hajiTransfers = await prisma.hajiTransfer.findMany({ where: { lotId: id }, select: { id: true, amount: true, detail: true, transferDate: true, transferType: true }, orderBy: { transferDate: "desc" } }); } catch (e) {}
 
     let lotCosts: any[] = [], lotPurchases: any[] = [];
     try {
       lotCosts = await prisma.lotCost.findMany({
         where: { lotId: id },
-        select: { id: true, costType: true, description: true, amount: true, currencyCode: true, costDate: true, notes: true },
+        select: { id: true, costType: true, description: true, amount: true, currencyCode: true, exchangeRate: true, costDate: true, notes: true },
       });
     } catch (e) {}
     try {
@@ -59,12 +59,39 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     const totalExpenses = expenses.reduce((s: number, x: any) => s + Number(x.amount), 0);
     const totalHaji = hajiTransfers.reduce((s: number, x: any) => s + Number(x.amount), 0);
     const totalPurchaseUsd = lotPurchases.reduce((s: number, x: any) => s + Number(x.totalPriceUsd || 0), 0);
+    const soldQtyByProduct: Record<number, number> = {};
+    for (const s of sales) {
+      for (const item of s.items || []) {
+        const productId = Number(item.product?.id || 0);
+        if (!productId) continue;
+        soldQtyByProduct[productId] = (soldQtyByProduct[productId] || 0) + Number(item.qty || 0);
+      }
+    }
+    const stockByProduct = lotProducts.map((lp: any) => {
+      const totalQty = Number(lp.totalQty || 0);
+      const soldQty = Number(soldQtyByProduct[lp.productId] || 0);
+      return {
+        productId: lp.productId,
+        productName: lp.product.name,
+        totalQty,
+        soldQty: Math.min(totalQty, soldQty),
+        remainingQty: Math.max(0, totalQty - soldQty),
+      };
+    });
+    const totalCartons = stockByProduct.reduce((s: number, p: any) => s + Number(p.totalQty), 0);
+    const soldCartons = stockByProduct.reduce((s: number, p: any) => s + Number(p.soldQty), 0);
+    const remainingCartons = stockByProduct.reduce((s: number, p: any) => s + Number(p.remainingQty), 0);
 
     // Group lot costs by currency — avoids mixing PKR + USD into a meaningless total
     const costsByCurrency: Record<string, number> = {};
     for (const c of lotCosts) {
       const code = c.currencyCode || "PKR";
       costsByCurrency[code] = (costsByCurrency[code] || 0) + Number(c.amount);
+    }
+    const lotExpensesByCurrency: Record<string, number> = {};
+    for (const e of expenses) {
+      const code = e.currency?.code || "PKR";
+      lotExpensesByCurrency[code] = (lotExpensesByCurrency[code] || 0) + Number(e.amount);
     }
 
     return successResponse({
@@ -73,7 +100,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       pkrExchangeRate: lot.pkrExchangeRate ? Number(lot.pkrExchangeRate) : null,
       country: { id: lot.country.id, name: lot.country.name, code: lot.country.code },
       createdBy: lot.creator,
-      products: lotProducts.map((lp: any) => ({ productId: lp.productId, productName: lp.product.name, totalQty: Number(lp.totalQty) })),
+      products: stockByProduct,
       distributions,
       purchaseItems: lotPurchases.map((p: any) => ({
         id: p.id,
@@ -90,8 +117,10 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         totalPurchaseUsd: Math.round(totalPurchaseUsd * 100) / 100,
         costsByCurrency,
         totalLotExpenses: totalExpenses,
+        lotExpensesByCurrency,
         costBreakdown: lotCosts,
       },
+      stockSummary: { totalCartons, soldCartons, remainingCartons, byProduct: stockByProduct },
       summary: { totalSales, totalPayments, totalExpenses, totalHaji, outstanding: totalSales - totalPayments },
       recentSales: sales.map((s: any) => ({ ...s, totalAmount: Number(s.totalAmount), saleDate: s.saleDate.toISOString().split("T")[0] })),
       recentPayments: payments.map((p: any) => ({ ...p, amount: Number(p.amount), paymentDate: p.paymentDate.toISOString().split("T")[0] })),

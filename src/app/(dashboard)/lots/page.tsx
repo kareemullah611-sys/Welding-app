@@ -54,7 +54,7 @@ export default function LotsPage() {
   const [pkrRateInput,  setPkrRateInput]  = useState("");
   const [pkrRateSaving, setPkrRateSaving] = useState(false);
   const [showAddCost,   setShowAddCost]   = useState(false);
-  const [costForm,      setCostForm]      = useState({ costType: "freight", description: "", amount: "", currencyCode: "USD", costDate: new Date().toISOString().split("T")[0], notes: "" });
+  const [costForm,      setCostForm]      = useState({ costType: "freight", description: "", amount: "", currencyCode: "USD", exchangeRate: "", costDate: new Date().toISOString().split("T")[0], notes: "" });
   const [shippingLines,   setShippingLines]   = useState<any[]>([]);
   const [costChargedTo,   setCostChargedTo]   = useState<"shipping_line" | "agent" | "cash">("cash");
   const [costAgentId,     setCostAgentId]     = useState<number>(0);
@@ -69,6 +69,26 @@ export default function LotsPage() {
   // Common
   const [submitting, setSubmitting] = useState(false);
   const [formError,  setFormError]  = useState("");
+  const selectedLotCountryCode = String(selectedLot?.country?.code || selectedLot?.countryCode || "").toUpperCase();
+  const nonFreightCostCurrency = selectedLotCountryCode === "AFG" ? "AFN" : "PKR";
+
+  const lotCostToPkr = (cost: any, usdPkrRate: number) => {
+    const amount = Number(cost?.amount || 0);
+    const code = String(cost?.currencyCode || "PKR").toUpperCase();
+    if (!amount) return 0;
+    if (code === "PKR") return amount;
+    if (code === "AFN") {
+      const afnPkrRate = Number(cost?.exchangeRate || 0);
+      return afnPkrRate > 0 ? amount * afnPkrRate : 0;
+    }
+    if (code === "USD") {
+      const rate = Number(cost?.exchangeRate || 0) > 0 ? Number(cost.exchangeRate) : usdPkrRate;
+      return rate > 0 ? amount * rate : 0;
+    }
+    const legacyRate = Number(cost?.exchangeRate || 0);
+    if (legacyRate <= 0 || usdPkrRate <= 0) return 0;
+    return (amount / legacyRate) * usdPkrRate;
+  };
 
   const loadLots = useCallback(async () => {
     setLoading(true);
@@ -168,6 +188,12 @@ export default function LotsPage() {
 
   const handleAddCost = async () => {
     if (!costForm.description || !costForm.amount || Number(costForm.amount) <= 0) { setFormError("Description and amount required"); return; }
+    const isFreight = costForm.costType === "freight";
+    const isAfgNonFreight = !isFreight && nonFreightCostCurrency === "AFN";
+    if ((isFreight || isAfgNonFreight) && Number(costForm.exchangeRate) <= 0) {
+      setFormError(isFreight ? "Freight costing exchange rate is required" : "AFN→PKR exchange rate is required");
+      return;
+    }
     setSubmitting(true);
     const r = await apiCall("/api/v1/lot-costs", {
       method: "POST",
@@ -176,7 +202,8 @@ export default function LotsPage() {
         costType:         costForm.costType,
         description:      costForm.description,
         amount:           Number(costForm.amount),
-        currencyCode:     costForm.currencyCode,
+        currencyCode:     isFreight ? "USD" : nonFreightCostCurrency,
+        exchangeRate:     isFreight || isAfgNonFreight ? Number(costForm.exchangeRate) : null,
         costDate:         costForm.costDate,
         notes:            costForm.notes || null,
         agentId:          costChargedTo === "agent" && costAgentId > 0 ? costAgentId : null,
@@ -438,6 +465,17 @@ export default function LotsPage() {
       const cityCount = Array.from(new Set(l.distributions.map((d: any) => d.cityName))).length;
       return <span className="inline-flex items-center px-2 py-0.5 bg-green-50 text-green-700 rounded-full text-xs font-medium border border-green-100">{cityCount} {t("cities") || "cities"}</span>;
     }},
+    { key: "utilization", label: "Utilization", render: (l: any) => {
+      const total = Number(l.totalCartons || 0);
+      const sold = Number(l.soldCartons || 0);
+      const pct = total > 0 ? Math.min(100, Math.round((sold / total) * 100)) : 0;
+      const cls = pct >= 90 ? "bg-green-50 text-green-700 border-green-200" : pct >= 60 ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-amber-50 text-amber-700 border-amber-200";
+      return (
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${cls}`}>
+          {sold}/{total} ({pct}%)
+        </span>
+      );
+    }},
     { key: "status",  label: t("status"),  render: (l: any) => <StatusBadge status={l.status} /> },
     { key: "actions", label: t("actions"), render: (l: any) => (
       <div className="flex items-center gap-1 flex-wrap">
@@ -628,19 +666,62 @@ export default function LotsPage() {
           ? <div className="py-8 text-center"><div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto mb-2" /><p className="text-sm text-gray-400">{t("loading")}</p></div>
           : selectedLot?.id ? (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
               <StatsCard title={t("total_sales")}       value={formatNumber(selectedLot.summary?.totalSales    || 0)} icon="🧾" color="green" />
               <StatsCard title={t("payments_received")} value={formatNumber(selectedLot.summary?.totalPayments || 0)} icon="💰" color="blue" />
               <StatsCard title={t("outstanding")}       value={formatNumber(selectedLot.summary?.outstanding   || 0)} icon="📋" color="red" />
               <StatsCard title={t("expenses")}          value={formatNumber(selectedLot.summary?.totalExpenses || 0)} icon="💸" color="yellow" />
+              <StatsCard title="Total Cartons"          value={formatNumber(selectedLot.stockSummary?.totalCartons || selectedLot.products?.reduce((s: number, p: any) => s + Number(p.totalQty || 0), 0) || 0)} icon="📦" color="blue" />
+              <StatsCard title="Sold Cartons"           value={formatNumber(selectedLot.stockSummary?.soldCartons || selectedLot.products?.reduce((s: number, p: any) => s + Number(p.soldQty || 0), 0) || 0)} icon="✅" color="green" />
+              <StatsCard title="Remaining Cartons"      value={formatNumber(selectedLot.stockSummary?.remainingCartons || selectedLot.products?.reduce((s: number, p: any) => s + Number(p.remainingQty || 0), 0) || 0)} icon="📉" color="yellow" />
             </div>
+
+            {(selectedLot.stockSummary?.byProduct || selectedLot.products || []).length > 0 && (
+              <div className="card">
+                <h4 className="text-sm font-semibold mb-2 text-gray-600">📊 Lot Carton Position</h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="text-left text-xs text-gray-400 border-b">
+                      <th className="pb-1.5">Product</th>
+                      <th className="pb-1.5 text-right">Total</th>
+                      <th className="pb-1.5 text-right">Sold</th>
+                      <th className="pb-1.5 text-right">Remaining</th>
+                    </tr></thead>
+                    <tbody>
+                      {(selectedLot.stockSummary?.byProduct || selectedLot.products || []).map((p: any) => (
+                        <tr key={p.productId} className="border-b border-gray-50">
+                          <td className="py-1 text-gray-700">{p.productName}</td>
+                          <td className="py-1 text-right">{formatNumber(Number(p.totalQty || 0))}</td>
+                          <td className="py-1 text-right text-green-700 font-medium">{formatNumber(Number(p.soldQty || 0))}</td>
+                          <td className="py-1 text-right text-blue-700 font-medium">{formatNumber(Number(p.remainingQty || 0))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             {/* PKR Rate + Profit (super admin only) */}
             {user?.role === "super_admin" && (() => {
               const rate = selectedLot.pkrExchangeRate || Number(pkrRateInput) || 0;
               const purchaseUsd = selectedLot.costSummary?.totalPurchaseUsd || 0;
-              const freightUsd  = (selectedLot.costSummary?.costsByCurrency?.["USD"] || 0);
-              const directPkr   = (selectedLot.costSummary?.costsByCurrency?.["PKR"] || 0) + (selectedLot.summary?.totalExpenses || 0);
+              const costRows = selectedLot.costSummary?.costBreakdown || [];
+              const freightUsd = costRows
+                .filter((c: any) => c.costType === "freight")
+                .reduce((s: number, c: any) => s + Number(c.amount || 0), 0);
+              const afnPkrRate = costRows
+                .filter((c: any) => String(c.currencyCode || "").toUpperCase() === "AFN" && Number(c.exchangeRate || 0) > 0)
+                .slice(-1)[0]?.exchangeRate || 0;
+              const nonFreightPkr = costRows
+                .filter((c: any) => c.costType !== "freight")
+                .reduce((s: number, c: any) => s + lotCostToPkr(c, rate), 0);
+              const lotExpenseByCurrency = selectedLot.costSummary?.lotExpensesByCurrency || {};
+              const lotExpensesPkr =
+                Number(lotExpenseByCurrency["PKR"] || 0) +
+                Number(lotExpenseByCurrency["USD"] || 0) * rate +
+                Number(lotExpenseByCurrency["AFN"] || 0) * Number(afnPkrRate || 0);
+              const directPkr = nonFreightPkr + lotExpensesPkr;
               const totalCostPkr = rate > 0 ? (purchaseUsd + freightUsd) * rate + directPkr : 0;
               // Revenue: Afghanistan = USD payments × rate; Pakistan = payments already PKR
               const isAfg = selectedLot.country?.code === "AFG";
@@ -669,6 +750,9 @@ export default function LotsPage() {
                       <div className="text-center p-2 bg-white rounded-lg border border-emerald-100">
                         <p className="text-xs text-gray-400">Other Costs (PKR)</p>
                         <p className="font-bold text-gray-800">Rs. {Math.round(freightUsd * rate + directPkr).toLocaleString("en-US")}</p>
+                        {Number(lotExpenseByCurrency["AFN"] || 0) > 0 && !afnPkrRate && (
+                          <p className="text-[11px] text-amber-600">AFN expenses not converted (missing AFN→PKR rate)</p>
+                        )}
                       </div>
                       <div className="text-center p-2 bg-white rounded-lg border border-emerald-100">
                         <p className="text-xs text-gray-400">Revenue (PKR)</p>
@@ -749,19 +833,38 @@ export default function LotsPage() {
               <div className="card">
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-sm font-semibold text-gray-600">💸 Additional Costs</h4>
-                  <button onClick={() => { setCostForm({ costType: "freight", description: "", amount: "", currencyCode: "USD", costDate: new Date().toISOString().split("T")[0], notes: "" }); setFormError(""); setCostChargedTo("cash"); setCostAgentId(0); setCostShippingLineId(0); setShowAddCost(true); }}
+                  <button onClick={() => { setCostForm({ costType: "freight", description: "", amount: "", currencyCode: "USD", exchangeRate: String(selectedLot?.pkrExchangeRate || ""), costDate: new Date().toISOString().split("T")[0], notes: "" }); setFormError(""); setCostChargedTo("shipping_line"); setCostAgentId(0); setCostShippingLineId(0); setShowAddCost(true); }}
                     className="text-xs text-primary-600 hover:underline">+ Add Cost</button>
                 </div>
+                {(() => {
+                  const usdPkr = Number(selectedLot?.pkrExchangeRate || pkrRateInput || 0);
+                  const afnPkr = (selectedLot.costSummary?.costBreakdown || [])
+                    .filter((c: any) => String(c.currencyCode || "").toUpperCase() === "AFN" && Number(c.exchangeRate || 0) > 0)
+                    .slice(-1)[0]?.exchangeRate || 0;
+                  const lotExpenseByCurrency = selectedLot.costSummary?.lotExpensesByCurrency || {};
+                  const lotExpensesPkr =
+                    Number(lotExpenseByCurrency["PKR"] || 0) +
+                    Number(lotExpenseByCurrency["USD"] || 0) * usdPkr +
+                    Number(lotExpenseByCurrency["AFN"] || 0) * Number(afnPkr || 0);
+                  return (
+                    <div className="mb-2 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-1.5">
+                      City-admin lot expenses included: PKR {formatNumber(Math.round(lotExpensesPkr))}
+                      {Number(lotExpenseByCurrency["AFN"] || 0) > 0 && !afnPkr ? " (AFN rate missing)" : ""}
+                    </div>
+                  );
+                })()}
                 {(selectedLot.costSummary?.costBreakdown || []).length > 0 ? (
                   <table className="w-full text-sm">
                     <thead><tr className="text-left text-xs text-gray-400 border-b">
-                      <th className="pb-1">Type</th><th className="pb-1">Description</th><th className="pb-1 text-right">Amount</th>
+                      <th className="pb-1">Type</th><th className="pb-1">Description</th><th className="pb-1 text-right">Amount</th><th className="pb-1 text-right">Rate</th><th className="pb-1 text-right">PKR</th>
                     </tr></thead>
                     <tbody>{selectedLot.costSummary.costBreakdown.map((c: any, i: number) => (
                       <tr key={i} className="border-b border-gray-50">
                         <td className="py-1"><span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{c.costType}</span></td>
                         <td className="py-1 text-gray-700">{c.description}</td>
                         <td className="py-1 text-right font-medium text-orange-700">{c.currencyCode} {Number(c.amount).toLocaleString("en-US")}</td>
+                        <td className="py-1 text-right text-gray-500">{(c.costType === "freight" || String(c.currencyCode || "").toUpperCase() === "AFN") ? (c.exchangeRate ? Number(c.exchangeRate).toLocaleString("en-US") : "—") : "—"}</td>
+                        <td className="py-1 text-right font-semibold text-blue-700">PKR {formatNumber(Math.round(lotCostToPkr(c, Number(selectedLot.pkrExchangeRate || pkrRateInput || 0))))}</td>
                       </tr>
                     ))}</tbody>
                   </table>
@@ -812,27 +915,36 @@ export default function LotsPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">Cost Type *</label>
               <select value={costForm.costType} onChange={e => {
                 const type = e.target.value;
-                const currency = type === "freight" ? "USD" : "PKR";
-                setCostForm(f => ({ ...f, costType: type, currencyCode: currency }));
+                const currency = type === "freight" ? "USD" : nonFreightCostCurrency;
+                const latestAfnRate = (selectedLot?.costSummary?.costBreakdown || [])
+                  .filter((c: any) => String(c.currencyCode || "").toUpperCase() === "AFN" && Number(c.exchangeRate || 0) > 0)
+                  .slice(-1)[0]?.exchangeRate;
+                setCostForm(f => ({
+                  ...f,
+                  costType: type,
+                  currencyCode: currency,
+                  exchangeRate: type === "freight"
+                    ? (f.exchangeRate || String(selectedLot?.pkrExchangeRate || ""))
+                    : (currency === "AFN" ? (f.exchangeRate || String(latestAfnRate || "")) : ""),
+                }));
+                setCostChargedTo(type === "freight" ? "shipping_line" : "cash");
+                if (type !== "freight") setCostShippingLineId(0);
+                if (type === "freight") setCostAgentId(0);
               }} className="select-field">
                 <option value="freight">Freight (USD)</option>
-                <option value="customs_duty">Customs Duty (PKR)</option>
-                <option value="customs_agent">Customs Agent (PKR)</option>
-                <option value="clearing_agent">Clearing Agent (PKR)</option>
-                <option value="transport">Transport (PKR)</option>
-                <option value="loading_unloading">Loading / Unloading (PKR)</option>
-                <option value="port_charges">Port Charges (USD)</option>
-                <option value="insurance">Insurance (USD)</option>
-                <option value="other">Other</option>
+                <option value="customs_duty">Customs Duty ({nonFreightCostCurrency})</option>
+                <option value="customs_agent">Customs Agent ({nonFreightCostCurrency})</option>
+                <option value="clearing_agent">Clearing Agent ({nonFreightCostCurrency})</option>
+                <option value="transport">Transport ({nonFreightCostCurrency})</option>
+                <option value="loading_unloading">Loading / Unloading ({nonFreightCostCurrency})</option>
+                <option value="port_charges">Port Charges ({nonFreightCostCurrency})</option>
+                <option value="insurance">Insurance ({nonFreightCostCurrency})</option>
+                <option value="other">Other ({nonFreightCostCurrency})</option>
               </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Currency</label>
-              <select value={costForm.currencyCode} onChange={e => setCostForm(f => ({ ...f, currencyCode: e.target.value }))} className="select-field">
-                <option value="PKR">PKR</option>
-                <option value="USD">USD</option>
-                <option value="AFN">AFN</option>
-              </select>
+              <input value={costForm.costType === "freight" ? "USD" : nonFreightCostCurrency} disabled className="input-field bg-gray-50 text-gray-500" />
             </div>
           </div>
           <div>
@@ -844,11 +956,10 @@ export default function LotsPage() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Charged To</label>
             <div className="flex gap-2 mb-2">
-              {[
-                { value: "cash", label: "Cash / Direct" },
-                { value: "shipping_line", label: "Shipping Line" },
-                { value: "agent", label: "Agent" },
-              ].map(opt => (
+              {(costForm.costType === "freight"
+                ? [{ value: "shipping_line", label: "Shipping Line" }]
+                : [{ value: "cash", label: "Cash / Direct" }, { value: "agent", label: "Agent" }]
+              ).map(opt => (
                 <button key={opt.value} type="button"
                   onClick={() => setCostChargedTo(opt.value as any)}
                   className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${costChargedTo === opt.value ? "bg-primary-600 text-white border-primary-600" : "bg-white text-gray-600 border-gray-300 hover:border-primary-400"}`}>
@@ -880,6 +991,19 @@ export default function LotsPage() {
               <input type="date" value={costForm.costDate} onChange={e => setCostForm(f => ({ ...f, costDate: e.target.value }))} className="input-field" />
             </div>
           </div>
+          {(costForm.costType === "freight" || nonFreightCostCurrency === "AFN") && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {costForm.costType === "freight" ? "Costing Exchange Rate (USD→PKR) *" : "Costing Exchange Rate (AFN→PKR) *"}
+              </label>
+              <input type="number" value={costForm.exchangeRate}
+                onChange={e => setCostForm(f => ({ ...f, exchangeRate: e.target.value }))}
+                className="input-field" placeholder="e.g. 280" min="0.01" step="0.01" />
+              {Number(costForm.amount) > 0 && (
+                <p className="mt-1 text-xs text-gray-500">≈ PKR {formatNumber(Math.round(Number(costForm.amount) * (Number(costForm.exchangeRate) || 0)))}</p>
+              )}
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
             <textarea value={costForm.notes} onChange={e => setCostForm(f => ({ ...f, notes: e.target.value }))} className="input-field" rows={2} />
