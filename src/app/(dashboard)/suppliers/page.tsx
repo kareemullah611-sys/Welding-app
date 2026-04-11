@@ -393,7 +393,7 @@ export default function SuppliersPage() {
         </>}
       </Modal>
 
-      <Modal open={showPaymentCreate} onClose={() => setShowPaymentCreate(false)} title={t("record_payment_to_company")} size="lg">
+      <Modal open={showPaymentCreate} onClose={() => setShowPaymentCreate(false)} title={t("record_payment")} size="lg">
         {error && <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{error}</div>}
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
