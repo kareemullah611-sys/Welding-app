@@ -424,15 +424,7 @@ export default function DashboardPage() {
         </div>
 
         {quickAction && (
-          <div className="fixed inset-0 z-50 bg-black/70">
-            <button
-              type="button"
-              onClick={() => setQuickAction(null)}
-              className="absolute right-5 top-5 z-10 rounded-full bg-black/55 px-3 py-2 text-sm font-medium text-white hover:bg-black/70"
-              aria-label="Close quick form"
-            >
-              ×
-            </button>
+          <div className="fixed inset-0 z-50">
             <iframe
               src={quickAction.src}
               title="Dashboard quick form"
