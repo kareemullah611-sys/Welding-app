@@ -28,6 +28,11 @@ export async function getBankGLAccountId(bankAccountId: number, db: DbClient = p
   const label = bank ? `${bank.bankName} ${bank.accountNumber}` : `Bank #${bankAccountId}`;
   return getOrCreateAccount(`1050-BANK${bankAccountId}`, `Bank - ${label}`, "asset", undefined, db);
 }
+export async function getSuperAdminBankGLAccountId(bankAccountId: number, db: DbClient = prisma): Promise<number> {
+  const bank = await db.superAdminBankAccount.findUnique({ where: { id: bankAccountId }, select: { bankName: true, accountNumber: true } });
+  const label = bank ? `${bank.bankName} ${bank.accountNumber || ""}`.trim() : `SA Bank #${bankAccountId}`;
+  return getOrCreateAccount(`1050-SABANK${bankAccountId}`, `Super Admin Bank - ${label}`, "asset", undefined, db);
+}
 
 export async function getCustomerAccountId(customerId: number, db: DbClient = prisma): Promise<number> {
   const customer = await db.customer.findUnique({ where: { id: customerId }, select: { name: true } });
@@ -176,6 +181,7 @@ export async function journalLotCost(c: {
   cityId?: number;
   shippingLineId?: number;
   bankAccountId?: number | null;
+  superAdminBankAccountId?: number | null;
   intermediaryId?: number | null;
   paidFromCash?: boolean;
 }, db: DbClient = prisma) {
@@ -184,6 +190,7 @@ export async function journalLotCost(c: {
   if (c.shippingLineId) { creditAccId = await getShippingLineAccountId(c.shippingLineId, db); }
   else if (c.agentId) { creditAccId = await getAgentAccountId(c.agentId, db); }
   else if (c.intermediaryId) { creditAccId = await getIntermediaryAccountId(c.intermediaryId); }
+  else if (c.superAdminBankAccountId) { creditAccId = await getSuperAdminBankGLAccountId(c.superAdminBankAccountId, db); }
   else if (c.bankAccountId) { creditAccId = await getBankGLAccountId(c.bankAccountId, db); }
   else if (c.paidFromCash && c.cityId) { creditAccId = await getCashAccountId(c.cityId, db); }
   else if (c.paidFromCash) { creditAccId = await getOrCreateAccount("1001-GENERAL", "Cash in Hand - General", "asset", undefined, db); }

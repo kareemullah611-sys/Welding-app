@@ -36,6 +36,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
         agentId: existing.agentId || undefined,
         shippingLineId: (existing as any).shippingLineId || undefined,
         bankAccountId: (existing as any).bankAccountId || null,
+        superAdminBankAccountId: (existing as any).superAdminBankAccountId || null,
         intermediaryId: (existing as any).intermediaryId || null,
         paidFromCash: (existing as any).paidFromCash === true,
       });

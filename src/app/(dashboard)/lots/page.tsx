@@ -176,7 +176,7 @@ export default function LotsPage() {
     if (user?.role === "super_admin") {
       if (!shippingLines.length) apiCall("/api/v1/shipping-lines").then(r => { if (r.success) setShippingLines(r.data as any[]); });
       if (!agents.length) apiCall("/api/v1/agents", { params: { limit: 100 } }).then(r => { if (r.success) setAgents(r.data as any[]); });
-      if (!bankAccounts.length) apiCall("/api/v1/bank-accounts").then(r => { if (r.success) setBankAccounts(r.data as any[]); });
+      if (!bankAccounts.length) apiCall("/api/v1/bank-accounts", { params: { scope: "super_admin" } }).then(r => { if (r.success) setBankAccounts(r.data as any[]); });
       if (!intermediaries.length) apiCall("/api/v1/intermediaries").then(r => { if (r.success) setIntermediaries(r.data as any[]); });
     }
     const r = await apiCall(`/api/v1/lots/${lot.id}`);
@@ -405,7 +405,8 @@ export default function LotsPage() {
         agentId:          costChargedTo === "agent" && costAgentId > 0 ? costAgentId : null,
         shippingLineId:   costChargedTo === "shipping_line" && costShippingLineId > 0 ? costShippingLineId : null,
         paidFromCash:     costChargedTo === "cash",
-        bankAccountId:    costChargedTo === "bank" ? costBankAccountId : null,
+        superAdminBankAccountId: costChargedTo === "bank" ? costBankAccountId : null,
+        bankAccountId:    null,
         intermediaryId:   costChargedTo === "intermediary" ? costIntermediaryId : null,
       },
     });
@@ -1350,7 +1351,7 @@ export default function LotsPage() {
                 <option value={0}>Select Bank Account</option>
                 {bankAccounts.filter((b: any) => b.isActive !== false).map((b: any) => (
                   <option key={b.id} value={b.id}>
-                    {b.cityName ? `${b.cityName} · ` : ""}{b.bankName}{b.accountNumber ? ` (${b.accountNumber})` : ""}
+                    {b.bankName}{b.accountNumber ? ` (${b.accountNumber})` : ""}{b.currency?.code ? ` · ${b.currency.code}` : ""}
                   </option>
                 ))}
               </select>

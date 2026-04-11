@@ -48,6 +48,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     const agentId = body.agentId ? Number(body.agentId) : null;
     const shippingLineId = body.shippingLineId ? Number(body.shippingLineId) : null;
     const bankAccountId = body.bankAccountId ? Number(body.bankAccountId) : null;
+    const superAdminBankAccountId = body.superAdminBankAccountId ? Number(body.superAdminBankAccountId) : null;
     const intermediaryId = body.intermediaryId ? Number(body.intermediaryId) : null;
     const paidFromCash = body.paidFromCash === true;
     const requestedCurrency = String(body.currencyCode || "").toUpperCase();
@@ -85,14 +86,19 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
 
     if (isFreight) {
       if (!shippingLineId) return validationError("Shipping line is required for freight");
-      if (agentId || bankAccountId || intermediaryId || paidFromCash) {
+      if (agentId || bankAccountId || superAdminBankAccountId || intermediaryId || paidFromCash) {
         return validationError("Freight must be charged to a shipping line only");
       }
       const shippingLine = await prisma.shippingLine.findUnique({ where: { id: shippingLineId }, select: { id: true, isActive: true } });
       if (!shippingLine?.isActive) return errorResponse("NOT_FOUND", "Shipping line not found", 404);
     } else {
       if (shippingLineId) return validationError("Shipping line can only be used for freight costs");
-      const sourceCount = Number(agentId ? 1 : 0) + Number(bankAccountId ? 1 : 0) + Number(intermediaryId ? 1 : 0) + Number(paidFromCash ? 1 : 0);
+      const sourceCount =
+        Number(agentId ? 1 : 0) +
+        Number(bankAccountId ? 1 : 0) +
+        Number(superAdminBankAccountId ? 1 : 0) +
+        Number(intermediaryId ? 1 : 0) +
+        Number(paidFromCash ? 1 : 0);
       if (sourceCount > 1) return validationError("Choose exactly one debit channel: cash, bank, intermediary, or agent");
       if (sourceCount === 0) return validationError("Please choose a debit channel for this cost");
       if (agentId) {
@@ -109,6 +115,14 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
           return errorResponse(source.code, source.message, source.status || 400);
         }
       }
+      if (superAdminBankAccountId) {
+        const account = await prisma.superAdminBankAccount.findUnique({
+          where: { id: superAdminBankAccountId },
+          select: { id: true, isActive: true },
+        });
+        if (!account) return errorResponse("NOT_FOUND", "Super admin bank account not found", 404);
+        if (!account.isActive) return validationError("Selected super admin bank account is inactive");
+      }
     }
 
     const cost = await prisma.$transaction(async (tx) => {
@@ -122,6 +136,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
           agentId,
           shippingLineId,
           bankAccountId,
+          superAdminBankAccountId,
           intermediaryId,
           paidFromCash,
           notes: body.notes || null, createdBy: user.userId,
@@ -139,6 +154,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         agentId: agentId || undefined,
         shippingLineId: shippingLineId || undefined,
         bankAccountId,
+        superAdminBankAccountId,
         intermediaryId,
         paidFromCash,
       }, tx);

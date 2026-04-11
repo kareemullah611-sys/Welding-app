@@ -240,6 +240,7 @@ export const createLotCostSchema = z.object({
   agentId: z.number().int().optional().nullable(),
   shippingLineId: z.number().int().optional().nullable(),
   bankAccountId: z.number().int().positive().optional().nullable(),
+  superAdminBankAccountId: z.number().int().positive().optional().nullable(),
   intermediaryId: z.number().int().positive().optional().nullable(),
   paidFromCash: z.boolean().optional(),
   notes: z.string().optional(),

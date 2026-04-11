@@ -51,10 +51,12 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           notes: true,
           paidFromCash: true,
           bankAccountId: true,
+          superAdminBankAccountId: true,
           intermediaryId: true,
           agentId: true,
           shippingLineId: true,
           bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+          superAdminBankAccount: { select: { id: true, bankName: true, accountNumber: true } },
           intermediary: { select: { id: true, name: true } },
           agent: { select: { id: true, name: true } },
           shippingLine: { select: { id: true, name: true } },
@@ -161,6 +163,9 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       } else if (c.intermediaryId) {
         debitChannel = "intermediary";
         debitChannelLabel = `Intermediary: ${c.intermediary?.name || `#${c.intermediaryId}`}`;
+      } else if (c.superAdminBankAccountId) {
+        debitChannel = "super_admin_bank";
+        debitChannelLabel = `Super Admin Bank: ${c.superAdminBankAccount?.bankName || `#${c.superAdminBankAccountId}`}${c.superAdminBankAccount?.accountNumber ? ` (${c.superAdminBankAccount.accountNumber})` : ""}`;
       } else if (c.bankAccountId) {
         debitChannel = "bank";
         debitChannelLabel = `Bank: ${c.bankAccount?.bankName || `#${c.bankAccountId}`}${c.bankAccount?.accountNumber ? ` (${c.bankAccount.accountNumber})` : ""}`;
