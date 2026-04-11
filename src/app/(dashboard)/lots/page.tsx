@@ -6,6 +6,8 @@ import { PageHeader, DataTable, Modal, StatsCard, StatusBadge, formatNumber, for
 import { useLang } from "@/lib/lang";
 import { Pencil, Package, CheckCircle, RotateCcw, Trash2, Warehouse } from "lucide-react";
 
+type LotDetailTab = "overview" | "purchases" | "costs" | "sales";
+
 export default function LotsPage() {
   const { user } = useAuth();
   const { t } = useLang();
@@ -31,6 +33,7 @@ export default function LotsPage() {
   const [showDetail,    setShowDetail]    = useState(false);
   const [selectedLot,   setSelectedLot]   = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [activeDetailTab, setActiveDetailTab] = useState<LotDetailTab>("overview");
 
   // Distribute
   const [showDistribute,    setShowDistribute]    = useState(false);
@@ -164,6 +167,7 @@ export default function LotsPage() {
   // ════════════════════════════════════════════
   const openDetail = async (lot: any) => {
     setSelectedLot(lot); setShowDetail(true); setDetailLoading(true); setFormError("");
+    setActiveDetailTab("overview");
     // Pre-fetch shipping lines for super admin cost form
     if (user?.role === "super_admin" && !shippingLines.length) {
       apiCall("/api/v1/shipping-lines").then(r => { if (r.success) setShippingLines(r.data as any[]); });
@@ -176,6 +180,144 @@ export default function LotsPage() {
       setPkrRateInput(d.pkrExchangeRate ? String(d.pkrExchangeRate) : "");
     } else { setFormError(r.error || "Failed to load"); }
     setDetailLoading(false);
+  };
+
+  const exportLotCsv = () => {
+    if (!selectedLot?.id) return;
+    const esc = (value: any) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const lines: string[] = [];
+
+    lines.push("Section,Field,Value");
+    lines.push(`Overview,Lot Number,${esc(selectedLot.lotNumber)}`);
+    lines.push(`Overview,Lot Date,${esc(selectedLot.lotDate)}`);
+    lines.push(`Overview,Country,${esc(selectedLot.country?.name || "")}`);
+    lines.push(`Overview,Status,${esc(selectedLot.status)}`);
+    lines.push(`Summary,Total Sales,${esc(Number(selectedLot.summary?.totalSales || 0).toLocaleString("en-US"))}`);
+    lines.push(`Summary,Payments Received,${esc(Number(selectedLot.summary?.totalPayments || 0).toLocaleString("en-US"))}`);
+    lines.push(`Summary,Outstanding,${esc(Number(selectedLot.summary?.outstanding || 0).toLocaleString("en-US"))}`);
+    lines.push(`Summary,Expenses,${esc(Number(selectedLot.summary?.totalExpenses || 0).toLocaleString("en-US"))}`);
+    lines.push("");
+
+    lines.push("Purchases,Supplier,Product,Weight/Carton,Qty(MT),USD/MT,Amount USD,Cartons");
+    for (const p of selectedLot.purchaseItems || []) {
+      lines.push([
+        "Purchase",
+        esc(p.supplierName),
+        esc(p.productName),
+        esc(p.weightPerCartonKg ?? ""),
+        esc(p.qtyMt),
+        esc(p.unitPriceUsdPerMt),
+        esc(p.totalPriceUsd),
+        esc(p.weightPerCartonKg ? Math.round((Number(p.qtyMt) * 1000) / Number(p.weightPerCartonKg)) : ""),
+      ].join(","));
+    }
+    lines.push("");
+
+    lines.push("Costs,Type,Description,Amount,Currency,Exchange Rate,PKR Equivalent");
+    for (const c of selectedLot.costSummary?.costBreakdown || []) {
+      const pkr = Math.round(lotCostToPkr(c, Number(selectedLot.pkrExchangeRate || pkrRateInput || 0)));
+      lines.push([
+        "Cost",
+        esc(c.costType),
+        esc(c.description),
+        esc(c.amount),
+        esc(c.currencyCode),
+        esc(c.exchangeRate ?? ""),
+        esc(pkr),
+      ].join(","));
+    }
+    lines.push("");
+
+    lines.push("Sales,Date,Voucher,Customer,Items,Total Amount");
+    for (const s of selectedLot.recentSales || []) {
+      lines.push([
+        "Sale",
+        esc(s.saleDate),
+        esc(s.voucherNo),
+        esc(s.customer?.name || ""),
+        esc((s.items || []).map((it: any) => `${it.product?.name} (${Number(it.qty || 0)})`).join("; ")),
+        esc(Number(s.totalAmount || 0).toLocaleString("en-US")),
+      ].join(","));
+    }
+
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `lot_snapshot_${selectedLot.lotNumber || selectedLot.id}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportLotPdf = () => {
+    if (!selectedLot?.id) return;
+    const w = window.open("", "_blank", "noopener,noreferrer,width=1100,height=900");
+    if (!w) return;
+
+    const rows = (selectedLot.recentSales || []).map((s: any) => `
+      <tr>
+        <td>${s.saleDate || ""}</td>
+        <td>${s.voucherNo || ""}</td>
+        <td>${s.customer?.name || ""}</td>
+        <td style="text-align:right;">${Number(s.totalAmount || 0).toLocaleString("en-US")}</td>
+      </tr>
+    `).join("");
+
+    const costRows = (selectedLot.costSummary?.costBreakdown || []).map((c: any) => `
+      <tr>
+        <td>${c.costType || ""}</td>
+        <td>${c.description || ""}</td>
+        <td style="text-align:right;">${c.currencyCode || ""} ${Number(c.amount || 0).toLocaleString("en-US")}</td>
+      </tr>
+    `).join("");
+
+    w.document.write(`
+      <html>
+        <head>
+          <title>Lot Snapshot ${selectedLot.lotNumber || selectedLot.id}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 24px; color: #222; }
+            h1, h2 { margin: 0 0 10px 0; }
+            .meta { margin: 0 0 16px 0; font-size: 13px; color: #555; }
+            .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 18px; }
+            .card { border: 1px solid #ddd; border-radius: 8px; padding: 10px; }
+            .label { font-size: 11px; color: #777; text-transform: uppercase; letter-spacing: .08em; }
+            .value { font-size: 15px; font-weight: 700; margin-top: 4px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 8px; margin-bottom: 20px; }
+            th, td { border: 1px solid #e4e4e4; padding: 7px; font-size: 12px; text-align: left; }
+            th { background: #f6f6f6; text-transform: uppercase; font-size: 10px; letter-spacing: .07em; color: #666; }
+          </style>
+        </head>
+        <body>
+          <h1>Lot Snapshot</h1>
+          <p class="meta">Lot ${selectedLot.lotNumber || selectedLot.id} · ${selectedLot.country?.name || ""} · ${selectedLot.lotDate || ""}</p>
+
+          <div class="grid">
+            <div class="card"><div class="label">Total Sales</div><div class="value">${Number(selectedLot.summary?.totalSales || 0).toLocaleString("en-US")}</div></div>
+            <div class="card"><div class="label">Payments</div><div class="value">${Number(selectedLot.summary?.totalPayments || 0).toLocaleString("en-US")}</div></div>
+            <div class="card"><div class="label">Outstanding</div><div class="value">${Number(selectedLot.summary?.outstanding || 0).toLocaleString("en-US")}</div></div>
+            <div class="card"><div class="label">Remaining Cartons</div><div class="value">${Number(selectedLot.stockSummary?.remainingCartons || 0).toLocaleString("en-US")}</div></div>
+          </div>
+
+          <h2>Sales</h2>
+          <table>
+            <thead><tr><th>Date</th><th>Voucher</th><th>Customer</th><th style="text-align:right;">Amount</th></tr></thead>
+            <tbody>${rows || `<tr><td colspan="4">No sales</td></tr>`}</tbody>
+          </table>
+
+          <h2>Costs</h2>
+          <table>
+            <thead><tr><th>Type</th><th>Description</th><th style="text-align:right;">Amount</th></tr></thead>
+            <tbody>${costRows || `<tr><td colspan="3">No costs</td></tr>`}</tbody>
+          </table>
+        </body>
+      </html>
+    `);
+    w.document.close();
+    w.focus();
+    w.print();
   };
 
   const savePkrRate = async () => {
@@ -667,6 +809,17 @@ export default function LotsPage() {
           : selectedLot?.id ? (
           <div className="space-y-5">
             <div className="rounded-2xl border border-[#e9dccb] bg-[linear-gradient(135deg,rgba(255,248,239,0.95),rgba(245,233,219,0.84))] p-4 shadow-[0_22px_50px_-42px_rgba(51,42,33,0.38)]">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8f7963]">Lot Snapshot</p>
+                <div className="flex items-center gap-2">
+                  <button onClick={exportLotCsv} className="rounded-lg border border-[#d8c7b3] bg-white/80 px-3 py-1.5 text-xs font-medium text-[#5d4a3a] hover:bg-white">
+                    Export CSV
+                  </button>
+                  <button onClick={exportLotPdf} className="rounded-lg border border-[#d8c7b3] bg-white/80 px-3 py-1.5 text-xs font-medium text-[#5d4a3a] hover:bg-white">
+                    Export PDF
+                  </button>
+                </div>
+              </div>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.16em] text-[#8f7963]">{t("lot")}</p>
@@ -696,6 +849,30 @@ export default function LotsPage() {
               )}
             </div>
 
+            <div className="flex flex-wrap gap-2 border-b border-[#eadfce] pb-3">
+              {([
+                { key: "overview", label: "Overview" },
+                { key: "purchases", label: "Purchases" },
+                { key: "costs", label: "Costs" },
+                { key: "sales", label: "Sales" },
+              ] as { key: LotDetailTab; label: string }[]).map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setActiveDetailTab(tab.key)}
+                  className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                    activeDetailTab === tab.key
+                      ? "bg-[#5d4a3a] text-white"
+                      : "border border-[#dccfbe] bg-white text-[#695544] hover:bg-[#fbf4ea]"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {activeDetailTab === "overview" && (
+              <>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <StatsCard title={t("total_sales")} value={formatNumber(selectedLot.summary?.totalSales || 0)} icon="S" color="green" />
               <StatsCard title={t("payments_received")} value={formatNumber(selectedLot.summary?.totalPayments || 0)} icon="P" color="blue" />
@@ -739,7 +916,11 @@ export default function LotsPage() {
                 </div>
               </div>
             )}
+              </>
+            )}
 
+            {activeDetailTab === "purchases" && (
+              <>
             {(selectedLot.purchaseItems?.length > 0) && (
               <div className="card">
                 <h4 className="mb-3 text-sm font-semibold text-gray-700">Purchase Invoice</h4>
@@ -794,7 +975,14 @@ export default function LotsPage() {
                 </div>
               </div>
             )}
+            {(selectedLot.purchaseItems?.length || 0) === 0 && (
+              <div className="card text-sm text-gray-500">No purchase lines available for this lot.</div>
+            )}
+              </>
+            )}
 
+            {activeDetailTab === "costs" && (
+              <>
             {user?.role === "super_admin" && (() => {
               const rate = selectedLot.pkrExchangeRate || Number(pkrRateInput) || 0;
               const purchaseUsd = selectedLot.costSummary?.totalPurchaseUsd || 0;
@@ -932,7 +1120,13 @@ export default function LotsPage() {
                 ) : <p className="text-sm text-gray-400">No additional costs recorded</p>}
               </div>
             )}
+            {user?.role !== "super_admin" && (
+              <div className="card text-sm text-gray-500">Cost details are available for super admin only.</div>
+            )}
+              </>
+            )}
 
+            {activeDetailTab === "sales" && (
             <div className="card">
               <div className="mb-3 flex items-center justify-between">
                 <h4 className="text-sm font-semibold text-gray-700">{t("sales")}</h4>
@@ -974,6 +1168,30 @@ export default function LotsPage() {
                   </table>
                 </div>
               ) : <p className="text-sm text-gray-400">{t("no_data")}</p>}
+            </div>
+            )}
+
+            <div className="card">
+              <div className="mb-3 flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-gray-700">Audit Timeline</h4>
+                <span className="text-xs text-gray-400">{(selectedLot.auditTimeline || []).length} events</span>
+              </div>
+              {(selectedLot.auditTimeline || []).length > 0 ? (
+                <div className="space-y-2">
+                  {(selectedLot.auditTimeline || []).map((entry: any) => (
+                    <div key={entry.id} className="rounded-lg border border-[#efe3d4] bg-[#fdf9f3] px-3 py-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm font-medium text-gray-800">{entry.title}</p>
+                        <p className="text-[11px] text-gray-400">{formatDate(entry.createdAt)} · {new Date(entry.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
+                      </div>
+                      <p className="mt-0.5 text-xs text-gray-600">{entry.detail}</p>
+                      <p className="mt-1 text-[11px] text-gray-400">by {entry.actorName}{entry.cityName ? ` · ${entry.cityName}` : ""}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400">No audit activity available yet.</p>
+              )}
             </div>
           </div>
         ) : <p className="text-gray-400 py-4">{formError || t("no_data")}</p>}

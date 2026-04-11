@@ -54,6 +54,44 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       });
     } catch (e) {}
 
+    const lotCostIds = lotCosts.map((c: any) => Number(c.id));
+    const lotPurchaseIds = lotPurchases.map((p: any) => Number(p.id));
+
+    const [lotAuditLogs, lotCostAuditLogs, lotPurchaseAuditLogs, lotAssignmentAuditLogs] = await Promise.all([
+      prisma.auditLog.findMany({
+        where: { entityType: "lots", entityId: id },
+        include: { user: { select: { id: true, fullName: true } }, city: { select: { id: true, name: true } } },
+        orderBy: { createdAt: "desc" },
+        take: 60,
+      }),
+      lotCostIds.length > 0
+        ? prisma.auditLog.findMany({
+            where: { entityType: "lot_costs", entityId: { in: lotCostIds } },
+            include: { user: { select: { id: true, fullName: true } }, city: { select: { id: true, name: true } } },
+            orderBy: { createdAt: "desc" },
+            take: 60,
+          })
+        : Promise.resolve([] as any[]),
+      prisma.auditLog.findMany({
+        where: {
+          entityType: "lot_purchases",
+          OR: [
+            { entityId: id }, // bulk-create entry logs using lot id
+            ...(lotPurchaseIds.length > 0 ? [{ entityId: { in: lotPurchaseIds } }] : []),
+          ],
+        },
+        include: { user: { select: { id: true, fullName: true } }, city: { select: { id: true, name: true } } },
+        orderBy: { createdAt: "desc" },
+        take: 60,
+      }),
+      prisma.auditLog.findMany({
+        where: { entityType: "lot_city_godown_allocations", entityId: id },
+        include: { user: { select: { id: true, fullName: true } }, city: { select: { id: true, name: true } } },
+        orderBy: { createdAt: "desc" },
+        take: 60,
+      }),
+    ]);
+
     const totalSales = sales.reduce((s: number, x: any) => s + Number(x.totalAmount), 0);
     const totalPayments = payments.reduce((s: number, x: any) => s + Number(x.amount), 0);
     const totalExpenses = expenses.reduce((s: number, x: any) => s + Number(x.amount), 0);
@@ -94,6 +132,59 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       lotExpensesByCurrency[code] = (lotExpensesByCurrency[code] || 0) + Number(e.amount);
     }
 
+    const describeAuditLog = (log: any): { title: string; detail: string } => {
+      const newValues = (log.newValues || {}) as any;
+      const oldValues = (log.oldValues || {}) as any;
+
+      if (log.entityType === "lots") {
+        if (log.action === "create") return { title: "Lot created", detail: `Lot #${newValues?.lotNumber || lot.lotNumber}` };
+        if (newValues?.action === "distribute") return { title: "City distribution updated", detail: "Lot quantities were distributed across cities." };
+        if (newValues?.action === "reopen") return { title: "Lot reopened", detail: "Lot status changed from completed to ongoing." };
+        if (newValues?.status === "completed") return { title: "Lot completed", detail: "Lot status changed to completed." };
+        if (log.action === "update") return { title: "Lot details updated", detail: "Lot metadata was edited." };
+        if (log.action === "delete") return { title: "Lot deleted", detail: "Lot and related data were removed." };
+      }
+
+      if (log.entityType === "lot_costs") {
+        const amount = Number(newValues?.amount || oldValues?.amount || 0);
+        const currency = String(newValues?.currencyCode || oldValues?.currencyCode || "").toUpperCase();
+        const description = String(newValues?.description || oldValues?.description || "Lot cost");
+        if (log.action === "create") return { title: "Cost added", detail: `${description} · ${currency} ${amount.toLocaleString("en-US")}` };
+        if (log.action === "update") return { title: "Cost edited", detail: `${description} updated` };
+        if (log.action === "delete") return { title: "Cost removed", detail: `${description} deleted` };
+      }
+
+      if (log.entityType === "lot_purchases") {
+        if (log.action === "create") return { title: "Purchase lines added", detail: "Purchase invoice lines were recorded." };
+        if (log.action === "update") return { title: "Purchase line edited", detail: "Quantity/price values were updated." };
+        if (log.action === "delete") return { title: "Purchase line removed", detail: "A purchase line was deleted." };
+      }
+
+      if (log.entityType === "lot_city_godown_allocations") {
+        return { title: "Godown assignments updated", detail: "City distribution quantities were assigned to godowns." };
+      }
+
+      return { title: `${String(log.entityType || "record").replaceAll("_", " ")} ${log.action}`, detail: "Operational update recorded." };
+    };
+
+    const auditTimeline = [...lotAuditLogs, ...lotCostAuditLogs, ...lotPurchaseAuditLogs, ...lotAssignmentAuditLogs]
+      .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 80)
+      .map((log: any) => {
+        const { title, detail } = describeAuditLog(log);
+        return {
+          id: log.id,
+          createdAt: log.createdAt.toISOString(),
+          action: log.action,
+          entityType: log.entityType,
+          entityId: log.entityId,
+          title,
+          detail,
+          actorName: log.user?.fullName || "System",
+          cityName: log.city?.name || null,
+        };
+      });
+
     return successResponse({
       id: lot.id, lotNumber: lot.lotNumber, lotDate: lot.lotDate.toISOString().split("T")[0],
       status: lot.status, notes: lot.notes,
@@ -126,6 +217,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       recentPayments: payments.map((p: any) => ({ ...p, amount: Number(p.amount), paymentDate: p.paymentDate.toISOString().split("T")[0] })),
       expenses: expenses.map((e: any) => ({ ...e, amount: Number(e.amount), expenseDate: e.expenseDate.toISOString().split("T")[0] })),
       hajiTransfers: hajiTransfers.map((h: any) => ({ ...h, amount: Number(h.amount), transferDate: h.transferDate.toISOString().split("T")[0] })),
+      auditTimeline,
     });
   } catch (error: any) {
     console.error("Lot detail error:", error?.message || error);
