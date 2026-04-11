@@ -333,8 +333,8 @@ export default function SalesPage() {
             )}
           </div>
         )},
-        { key: "items", label: t("product"), render: (s: any) => <div className="text-xs">{s.items?.map((i: any, idx: number) => <div key={idx}>{i.productName}</div>)}</div> },
-        { key: "cartons", label: t("cartons"), render: (s: any) => <div className="text-xs">{s.items?.map((i: any, idx: number) => <div key={idx} className="font-medium">{i.qty}</div>)}</div> },
+        { key: "items", label: t("product"), className: "px-2", render: (s: any) => <div className="text-xs">{s.items?.map((i: any, idx: number) => <div key={idx}>{i.productName}</div>)}</div> },
+        { key: "cartons", label: t("cartons"), className: "px-2 w-20", render: (s: any) => <div className="text-xs">{s.items?.map((i: any, idx: number) => <div key={idx} className="font-medium">{i.qty}</div>)}</div> },
         { key: "ratePerCarton", label: "Per Carton", render: (s: any) => (
           <div className="text-xs">
             {s.items?.map((i: any, idx: number) => (
@@ -343,7 +343,7 @@ export default function SalesPage() {
               </div>
             ))}
           </div>
-        )},
+        ), className: "px-2 w-28" },
         { key: "totalAmount", label: t("amount"), render: (s: any) => <span className="font-medium">{s.currency?.symbol} {formatCurrency(s.totalAmount, "").trim()}</span> },
         { key: "godown", label: t("godown"), render: (s: any) => (
           <span className="flex flex-col">

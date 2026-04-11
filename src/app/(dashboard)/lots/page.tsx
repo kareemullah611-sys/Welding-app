@@ -887,19 +887,6 @@ export default function LotsPage() {
                 </table>
               ) : <p className="text-gray-400 text-sm">{t("no_data")}</p>}
             </div>
-            <div className="card"><h4 className="text-sm font-semibold mb-2 text-gray-600">{t("payments")} ({(selectedLot.recentPayments || []).length})</h4>
-              {(selectedLot.recentPayments || []).length > 0 ? (
-                <table className="w-full text-sm">
-                  <thead><tr className="text-left text-xs text-gray-400 border-b"><th className="pb-1">{t("date")}</th><th className="pb-1">{t("customer")}</th><th className="pb-1">{t("detail")}</th><th className="pb-1 text-right">{t("amount")}</th></tr></thead>
-                  <tbody>{(selectedLot.recentPayments || []).map((p: any) => (
-                    <tr key={p.id} className="border-b border-gray-50">
-                      <td className="py-1">{formatDate(p.paymentDate)}</td><td className="py-1">{p.customer?.name}</td><td className="py-1 text-xs">{p.detail || "-"}</td>
-                      <td className="py-1 text-right font-medium text-blue-700">{Number(p.amount).toLocaleString("en-US")}</td>
-                    </tr>
-                  ))}</tbody>
-                </table>
-              ) : <p className="text-gray-400 text-sm">{t("no_data")}</p>}
-            </div>
           </div>
         ) : <p className="text-gray-400 py-4">{formError || t("no_data")}</p>}
       </Modal>
