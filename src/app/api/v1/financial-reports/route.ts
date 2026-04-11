@@ -164,17 +164,76 @@ async function cashPosition(cityId?: number) {
     _sum: { debit: true, credit: true },
   });
 
+  // Supplier/company payments are stored in USD but may be settled from PKR bank ledgers.
+  // For bank-position reporting, normalize those bank movements to PKR when a conversion exists.
+  const bankLedgerAccountIdByBankId = new Map<number, number>();
+  for (const account of allAccounts) {
+    if (!account.code.startsWith("1050-BANK")) continue;
+    const match = account.code.match(/^1050-BANK(\d+)$/);
+    if (!match) continue;
+    bankLedgerAccountIdByBankId.set(Number(match[1]), account.id);
+  }
+
+  const supplierPaymentsFromBank = await prisma.supplierPayment.findMany({
+    where: {
+      bankAccountId: { not: null },
+      ...(cityId ? { bankAccount: { cityId } } : {}),
+    },
+    select: {
+      bankAccountId: true,
+      amountUsd: true,
+      amountLocal: true,
+      exchangeRate: true,
+    },
+  });
+
   const cashPositions: any[] = [];
   const bankPositions: any[] = [];
   const intermediaryPositions: any[] = [];
 
+  const balanceByAccountCurrency = new Map<string, number>();
+  const pushBalance = (accountId: number, currencyCode: string, delta: number) => {
+    const key = `${accountId}:${currencyCode}`;
+    balanceByAccountCurrency.set(key, (balanceByAccountCurrency.get(key) || 0) + delta);
+  };
+
   for (const g of groups) {
-    const acc = accountMap[g.accountId];
-    if (!acc) continue;
     const balance = Number(g._sum.debit || 0) - Number(g._sum.credit || 0);
     if (Math.abs(balance) < 0.01) continue;
+    pushBalance(g.accountId, g.currencyCode, balance);
+  }
 
-    const entry = { account: acc.name, cityId: acc.cityId ?? null, currency: g.currencyCode, balance: r2(balance) };
+  for (const payment of supplierPaymentsFromBank) {
+    const bankId = Number(payment.bankAccountId || 0);
+    const bankLedgerAccountId = bankLedgerAccountIdByBankId.get(bankId);
+    if (!bankLedgerAccountId) continue;
+
+    const amountUsd = Number(payment.amountUsd || 0);
+    const amountLocal = Number(payment.amountLocal || 0);
+    const exchangeRate = Number(payment.exchangeRate || 0);
+    const amountPkr = amountLocal > 0
+      ? amountLocal
+      : (exchangeRate > 0 ? amountUsd * exchangeRate : 0);
+
+    if (amountUsd > 0) {
+      // Reverse the USD bank movement posted by legacy supplier-payment journals.
+      pushBalance(bankLedgerAccountId, "USD", amountUsd);
+    }
+    if (amountPkr > 0) {
+      // Apply converted PKR outflow on the same bank ledger.
+      pushBalance(bankLedgerAccountId, "PKR", -amountPkr);
+    }
+  }
+
+  for (const [key, value] of balanceByAccountCurrency.entries()) {
+    const [accountIdStr, currencyCode] = key.split(":");
+    const accountId = Number(accountIdStr);
+    const acc = accountMap[accountId];
+    if (!acc) continue;
+    const balance = value;
+    if (Math.abs(balance) < 0.01) continue;
+
+    const entry = { account: acc.name, cityId: acc.cityId ?? null, currency: currencyCode, balance: r2(balance) };
     if (acc.code.startsWith("1001-") || acc.code.startsWith("1002-")) cashPositions.push(entry);
     else if (acc.code.startsWith("1050")) bankPositions.push(entry);
     else if (acc.code.startsWith("1060-")) intermediaryPositions.push(entry);

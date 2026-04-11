@@ -5,6 +5,11 @@ import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { createSupplierPaymentSchema } from "@/lib/validations";
 import { successResponse, validationError, errorResponse, serverError, paginatedResponse, getPaginationParams } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { validatePaymentSource } from "@/lib/payment-source-validation";
+
+function round2(value: number) {
+  return Math.round(value * 100) / 100;
+}
 
 export const GET = withSuperAdmin(async (request: NextRequest, context, user: JWTPayload) => {
   try {
@@ -28,6 +33,8 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
       amountUsd: Number(p.amountUsd), exchangeRate: p.exchangeRate ? Number(p.exchangeRate) : null,
       amountLocal: p.amountLocal ? Number(p.amountLocal) : null,
       paymentMethod: p.paymentMethod, reference: p.reference, notes: p.notes,
+      bankAccountId: p.bankAccountId ?? null,
+      intermediaryId: p.intermediaryId ?? null,
     })), total, page, limit);
   } catch (error) { return serverError(); }
 });
@@ -38,18 +45,35 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     const parsed = createSupplierPaymentSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid data", parsed.error.errors);
 
+    const source = await validatePaymentSource({
+      bankAccountId: parsed.data.bankAccountId,
+      intermediaryId: parsed.data.intermediaryId,
+      requireSelection: true,
+    });
+    if (!source.ok) {
+      return errorResponse(source.code, source.message, source.status || 400);
+    }
+
     const supplier = await prisma.supplier.findUnique({ where: { id: parsed.data.supplierId } });
     if (!supplier) return errorResponse("NOT_FOUND", "Supplier not found", 404);
+
+    const exchangeRate = parsed.data.exchangeRate ? Number(parsed.data.exchangeRate) : null;
+    if (source.bankAccountId && (!exchangeRate || !Number.isFinite(exchangeRate) || exchangeRate <= 0)) {
+      return validationError("Exchange rate is required when paying from a bank account");
+    }
+    const computedLocal = source.bankAccountId && exchangeRate
+      ? round2(Number(parsed.data.amountUsd) * exchangeRate)
+      : (parsed.data.amountLocal ? Number(parsed.data.amountLocal) : null);
 
     const payment = await prisma.supplierPayment.create({
       data: {
         supplierId: parsed.data.supplierId, lotId: parsed.data.lotId || null,
         paymentDate: new Date(parsed.data.paymentDate), amountUsd: parsed.data.amountUsd,
-        exchangeRate: parsed.data.exchangeRate || null, amountLocal: parsed.data.amountLocal || null,
+        exchangeRate, amountLocal: computedLocal,
         paymentMethod: parsed.data.paymentMethod as any, reference: parsed.data.reference,
         notes: parsed.data.notes, createdBy: user.userId,
-        bankAccountId: parsed.data.bankAccountId || null,
-        intermediaryId: parsed.data.intermediaryId || null,
+        bankAccountId: source.bankAccountId,
+        intermediaryId: source.intermediaryId,
       },
     });
 
@@ -59,8 +83,8 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       await journalSupplierPaid({
         id: payment.id, supplierId: parsed.data.supplierId, amountUsd: parsed.data.amountUsd,
         paymentDate: payment.paymentDate, createdBy: user.userId,
-        bankAccountId: parsed.data.bankAccountId,
-        intermediaryId: parsed.data.intermediaryId || null,
+        bankAccountId: source.bankAccountId,
+        intermediaryId: source.intermediaryId,
       });
     } catch (je) { console.error("Journal (supplier pay):", je); }
 

@@ -131,7 +131,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const currencies = await prisma.currency.findMany({ select: { id: true, code: true } });
     const currencyCodeById = Object.fromEntries(currencies.map((currency) => [currency.id, currency.code]));
 
-    const [paymentsIn, deposits, depositedCheques, expenses, hajiTransfers] = await Promise.all([
+    const [paymentsIn, deposits, depositedCheques, expenses, hajiTransfers, supplierPayments] = await Promise.all([
       prisma.payment.groupBy({
         by: ["bankAccountId", "currencyId"],
         where: {
@@ -167,6 +167,18 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         where: { bankAccountId: { not: null }, sourceType: "bank_transfer", ...(cityId ? { cityId } : {}) } as any,
         _sum: { amount: true },
       }),
+      prisma.supplierPayment.findMany({
+        where: {
+          bankAccountId: { not: null },
+          ...(cityId ? { bankAccount: { cityId } } : {}),
+        },
+        select: {
+          bankAccountId: true,
+          amountLocal: true,
+          amountUsd: true,
+          exchangeRate: true,
+        },
+      }),
     ]);
     const balanceByAccount = new Map<number, Record<string, number>>();
     const addBalance = (accountId: number | null, currencyId: number, amount: number) => {
@@ -176,11 +188,32 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       pot[key] = Math.round(((pot[key] || 0) + amount) * 100) / 100;
       balanceByAccount.set(accountId, pot);
     };
+    const addBalanceByCode = (accountId: number | null, currencyCode: string, amount: number) => {
+      if (!accountId || !amount) return;
+      const key = String(currencyCode || "").toUpperCase() || "PKR";
+      const pot = balanceByAccount.get(accountId) || {};
+      pot[key] = Math.round(((pot[key] || 0) + amount) * 100) / 100;
+      balanceByAccount.set(accountId, pot);
+    };
     for (const row of paymentsIn) addBalance(row.bankAccountId, row.currencyId, Number(row._sum.amount || 0));
     for (const row of deposits) addBalance(row.bankAccountId, row.currencyId, Number(row._sum.cashAmount || 0));
     for (const row of depositedCheques) addBalance(row.bankAccountId, row.currencyId, Number(row._sum.amount || 0));
     for (const row of expenses) addBalance(row.bankAccountId, row.currencyId, -Number(row._sum.amount || 0));
     for (const row of hajiTransfers) addBalance(row.bankAccountId, row.currencyId, -Number(row._sum.amount || 0));
+    for (const row of supplierPayments) {
+      const amountLocal = Number(row.amountLocal || 0);
+      const amountUsd = Number(row.amountUsd || 0);
+      const exchangeRate = Number(row.exchangeRate || 0);
+      const amountPkr = amountLocal > 0
+        ? amountLocal
+        : (exchangeRate > 0 ? amountUsd * exchangeRate : 0);
+      if (amountPkr > 0) {
+        addBalanceByCode(row.bankAccountId, "PKR", -amountPkr);
+      } else if (amountUsd > 0) {
+        // Legacy fallback where local conversion was not stored.
+        addBalanceByCode(row.bankAccountId, "USD", -amountUsd);
+      }
+    }
 
     const accounts = await prisma.bankAccount.findMany({
       where,

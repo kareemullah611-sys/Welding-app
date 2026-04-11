@@ -50,6 +50,16 @@ export default function SupplierPaymentsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    if (form.paidVia !== "bank") return;
+    const amountUsd = Number(form.amountUsd || 0);
+    const exchangeRate = Number(form.exchangeRate || 0);
+    const computedLocal = amountUsd > 0 && exchangeRate > 0
+      ? Math.round(amountUsd * exchangeRate * 100) / 100
+      : 0;
+    setForm((prev) => (prev.amountLocal === computedLocal ? prev : { ...prev, amountLocal: computedLocal }));
+  }, [form.amountUsd, form.exchangeRate, form.paidVia]);
+
   const load = useCallback(async () => {
     setLoading(true);
     const payParams: any = { page, limit: 20 };
@@ -135,6 +145,10 @@ export default function SupplierPaymentsPage() {
       setError("Please select a bank account");
       return;
     }
+    if (form.paidVia === "bank" && !(form.exchangeRate > 0)) {
+      setError("Exchange rate is required for bank payments");
+      return;
+    }
     if (form.paidVia === "intermediary" && !form.intermediaryId) {
       setError("Please select an intermediary");
       return;
@@ -150,8 +164,13 @@ export default function SupplierPaymentsPage() {
     };
     if (form.lotId) body.lotId = form.lotId;
     if (form.exchangeRate) body.exchangeRate = form.exchangeRate;
-    if (form.amountLocal) body.amountLocal = form.amountLocal;
-    if (form.paidVia === "bank") body.bankAccountId = form.bankAccountId;
+    if (form.paidVia === "bank") {
+      body.bankAccountId = form.bankAccountId;
+      body.exchangeRate = form.exchangeRate;
+      body.amountLocal = form.amountLocal;
+    } else if (form.amountLocal) {
+      body.amountLocal = form.amountLocal;
+    }
     if (form.paidVia === "intermediary") body.intermediaryId = form.intermediaryId;
     const r = await apiCall("/api/v1/supplier-payments", { method: "POST", body });
     setSubmitting(false);
@@ -179,6 +198,10 @@ export default function SupplierPaymentsPage() {
   };
 
   const handleEdit = async () => {
+    if (form.paidVia === "bank" && !(form.exchangeRate > 0)) {
+      setError("Exchange rate is required for bank payments");
+      return;
+    }
     setSubmitting(true);
     const r = await apiCall(`/api/v1/supplier-payments/${selected.id}`, {
       method: "PUT",
@@ -248,8 +271,24 @@ export default function SupplierPaymentsPage() {
             <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("method")} *</label><select value={form.paymentMethod} onChange={e => setForm(f => ({ ...f, paymentMethod: e.target.value }))} className="select-field">{METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}</select></div>
           </div>
           <div className="grid grid-cols-3 gap-3">
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("exchange_rate")}</label><input type="number" step="0.01" value={form.exchangeRate || ""} onChange={e => setForm(f => ({ ...f, exchangeRate: parseFloat(e.target.value) || 0 }))} className="input-field" placeholder="USD → Local" /></div>
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("local_amount")}</label><input type="number" step="0.01" value={form.amountLocal || ""} onChange={e => setForm(f => ({ ...f, amountLocal: parseFloat(e.target.value) || 0 }))} className="input-field" placeholder="Auto or manual" /></div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t("exchange_rate")} {form.paidVia === "bank" ? "*" : ""}
+              </label>
+              <input type="number" step="0.01" value={form.exchangeRate || ""} onChange={e => setForm(f => ({ ...f, exchangeRate: parseFloat(e.target.value) || 0 }))} className="input-field" placeholder="USD → PKR" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t("local_amount")}</label>
+              <input
+                type="number"
+                step="0.01"
+                value={form.amountLocal || ""}
+                onChange={e => setForm(f => ({ ...f, amountLocal: parseFloat(e.target.value) || 0 }))}
+                className="input-field"
+                placeholder={form.paidVia === "bank" ? "Auto from USD × rate" : "Auto or manual"}
+                readOnly={form.paidVia === "bank"}
+              />
+            </div>
             <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("reference")}</label><input value={form.reference} onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} className="input-field" placeholder="TT/Bank ref" /></div>
           </div>
           <div>

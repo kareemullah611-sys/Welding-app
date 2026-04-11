@@ -261,6 +261,19 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       _sum: { amount: true },
     });
 
+    const supplierPaymentsFromBank = await prisma.supplierPayment.findMany({
+      where: {
+        bankAccountId: { not: null },
+        bankAccount: { cityId },
+      },
+      select: {
+        bankAccountId: true,
+        amountLocal: true,
+        amountUsd: true,
+        exchangeRate: true,
+      },
+    });
+
     // Ensure all new currency IDs are resolved
     const newIds = [
       ...bankPaymentsRaw.map((r) => r.currencyId),
@@ -305,9 +318,32 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       }))
     );
 
+    const supplierBankOutByCurrency: Record<string, number> = {};
+    const supplierBankOutByAccount = new Map<number, Record<string, number>>();
+    for (const payment of supplierPaymentsFromBank) {
+      const amountLocal = Number(payment.amountLocal || 0);
+      const amountUsd = Number(payment.amountUsd || 0);
+      const exchangeRate = Number(payment.exchangeRate || 0);
+      const amountPkr = amountLocal > 0
+        ? amountLocal
+        : (exchangeRate > 0 ? amountUsd * exchangeRate : 0);
+      const currencyCode = amountPkr > 0 ? "PKR" : "USD";
+      const amountOut = amountPkr > 0 ? amountPkr : amountUsd;
+      if (!amountOut) continue;
+
+      supplierBankOutByCurrency[currencyCode] = (supplierBankOutByCurrency[currencyCode] || 0) + amountOut;
+
+      const accountId = Number(payment.bankAccountId || 0);
+      if (accountId > 0) {
+        const accountPot = supplierBankOutByAccount.get(accountId) || {};
+        accountPot[currencyCode] = (accountPot[currencyCode] || 0) + amountOut;
+        supplierBankOutByAccount.set(accountId, accountPot);
+      }
+    }
+
     // bankBalance = bankPaymentsIn + depositCashIn + depositedChequesIn - hajiOut - expensesOut
     let bankBalance = addMap(addMap(addMap(bankPaymentsIn, depositCashOut), depositedChequesIn), {});
-    bankBalance = subtractMap(subtractMap(bankBalance, hajiFromBankOut), expenseBankOut);
+    bankBalance = subtractMap(subtractMap(subtractMap(bankBalance, hajiFromBankOut), expenseBankOut), supplierBankOutByCurrency);
 
     // ----------------------------------------------------------------
     // 4. Per-account bank breakdown
@@ -443,8 +479,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       );
 
       const acctBalance = subtractMap(
-        subtractMap(addMap(addMap(acctBankPaymentsIn, acctDepositsIn), acctChequesIn), acctHajiOut),
-        acctExpensesOut
+        subtractMap(
+          subtractMap(addMap(addMap(acctBankPaymentsIn, acctDepositsIn), acctChequesIn), acctHajiOut),
+          acctExpensesOut
+        ),
+        supplierBankOutByAccount.get(acct.id) || {}
       );
 
       perAccountBalances.push({
