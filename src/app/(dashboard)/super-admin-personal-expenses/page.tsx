@@ -26,7 +26,7 @@ export default function SuperAdminPersonalExpensesPage() {
     if (!isSA) return;
     setLoading(true);
     const [accountsRes, expensesRes] = await Promise.all([
-      apiCall("/api/v1/bank-accounts"),
+      apiCall("/api/v1/bank-accounts", { params: { scope: "super_admin" } }),
       apiCall("/api/v1/super-admin-personal-expenses", { params: { page, limit: 20 } }),
     ]);
     if (accountsRes.success) setAccounts(accountsRes.data as any[]);

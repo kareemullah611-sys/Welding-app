@@ -23,10 +23,12 @@ export default function BankAccountsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const r = await apiCall("/api/v1/bank-accounts");
+    const r = await apiCall("/api/v1/bank-accounts", {
+      params: isSA ? { scope: "super_admin" } : undefined,
+    });
     if (r.success) setAccounts(r.data as any[]);
     setLoading(false);
-  }, []);
+  }, [isSA]);
 
   useEffect(() => { load(); }, [load]);
 

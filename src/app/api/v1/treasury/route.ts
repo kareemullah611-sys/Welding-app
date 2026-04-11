@@ -261,10 +261,15 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       _sum: { amount: true },
     });
 
+    const cityBankAccounts = await prisma.bankAccount.findMany({
+      where: { cityId },
+      select: { id: true },
+    });
+    const cityBankAccountIds = cityBankAccounts.map((account) => account.id);
+
     const supplierPaymentsFromBank = await prisma.supplierPayment.findMany({
       where: {
-        bankAccountId: { not: null },
-        bankAccount: { cityId },
+        bankAccountId: cityBankAccountIds.length > 0 ? { in: cityBankAccountIds } : { in: [-1] },
       },
       select: {
         bankAccountId: true,

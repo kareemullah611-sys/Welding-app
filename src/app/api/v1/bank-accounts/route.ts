@@ -66,67 +66,17 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       );
     }
 
-    if (user.role === "super_admin") {
-      const [incomingHajiPayments, expenses] = await Promise.all([
-        prisma.payment.groupBy({
-          by: ["superAdminBankAccountId", "currencyId"],
-          where: {
-            superAdminBankAccountId: { not: null },
-            destination: "haji",
-            status: "active",
-          },
-          _sum: { amount: true },
-        }),
-        prisma.superAdminPersonalExpense.groupBy({
-          by: ["bankAccountId"],
-          where: { deletedAt: null },
-          _sum: { amount: true },
-        }),
-      ]);
-      const incomingMap = new Map<string, number>();
-      for (const row of incomingHajiPayments) incomingMap.set(`${row.superAdminBankAccountId}:${row.currencyId}`, Number(row._sum.amount || 0));
-      const expenseMap = new Map<number, number>();
-      for (const row of expenses) expenseMap.set(row.bankAccountId, Number(row._sum.amount || 0));
-
-      const accounts = await prisma.superAdminBankAccount.findMany({
-        include: {
-          currency: true,
-          _count: {
-            select: {
-              expenses: { where: { deletedAt: null } },
-            },
-          },
-        },
-        orderBy: [{ isActive: "desc" }, { createdAt: "desc" }],
-      });
-
-      return successResponse(
-        accounts.map((a) => ({
-          id: a.id,
-          cityId: null,
-          cityName: "Super Admin",
-          bankName: a.bankName,
-          accountNumber: a.accountNumber,
-          currencyId: a.currencyId,
-          currency: a.currency,
-          isActive: a.isActive,
-          createdAt: a.createdAt.toISOString(),
-          _count: {
-            deposits: 0,
-            hajiTransfers: 0,
-            expenses: a._count.expenses,
-          },
-          runningBalance: Math.round((((incomingMap.get(`${a.id}:${a.currencyId}`) || 0) - (expenseMap.get(a.id) || 0)) * 100)) / 100,
-          accountScope: "super_admin",
-        }))
-      );
-    }
-
     const requestedCityId = searchParams.get("cityId") ? parseInt(searchParams.get("cityId")!) : undefined;
     const cityId = getCityScope(user, requestedCityId);
 
     const where: any = {};
     if (cityId) where.cityId = cityId;
+
+    const scopedBankAccounts = await prisma.bankAccount.findMany({
+      where,
+      select: { id: true },
+    });
+    const scopedBankAccountIds = scopedBankAccounts.map((account) => account.id);
 
     const currencies = await prisma.currency.findMany({ select: { id: true, code: true } });
     const currencyCodeById = Object.fromEntries(currencies.map((currency) => [currency.id, currency.code]));
@@ -169,8 +119,9 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       }),
       prisma.supplierPayment.findMany({
         where: {
-          bankAccountId: { not: null },
-          ...(cityId ? { bankAccount: { cityId } } : {}),
+          bankAccountId: cityId
+            ? { in: scopedBankAccountIds.length > 0 ? scopedBankAccountIds : [-1] }
+            : { not: null },
         },
         select: {
           bankAccountId: true,

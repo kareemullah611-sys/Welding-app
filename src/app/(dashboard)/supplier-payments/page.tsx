@@ -300,7 +300,11 @@ export default function SupplierPaymentsPage() {
             {form.paidVia === "bank" ? (
               <select value={form.bankAccountId} onChange={e => setForm(f => ({ ...f, bankAccountId: parseInt(e.target.value) }))} className="select-field">
                 <option value={0}>{t("select")}</option>
-                {bankAccounts.filter((b: any) => b.isActive !== false).map((b: any) => <option key={b.id} value={b.id}>{b.bankName} - {b.accountTitle}</option>)}
+                {bankAccounts.filter((b: any) => b.isActive !== false).map((b: any) => (
+                  <option key={b.id} value={b.id}>
+                    {b.bankName}{b.accountNumber ? ` - ${b.accountNumber}` : ""}
+                  </option>
+                ))}
               </select>
             ) : (
               <select value={form.intermediaryId} onChange={e => setForm(f => ({ ...f, intermediaryId: parseInt(e.target.value) }))} className="select-field">

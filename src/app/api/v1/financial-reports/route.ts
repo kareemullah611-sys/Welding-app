@@ -174,10 +174,19 @@ async function cashPosition(cityId?: number) {
     bankLedgerAccountIdByBankId.set(Number(match[1]), account.id);
   }
 
+  const scopedBankAccounts = cityId
+    ? await prisma.bankAccount.findMany({
+        where: { cityId },
+        select: { id: true },
+      })
+    : [];
+  const scopedBankAccountIds = scopedBankAccounts.map((account) => account.id);
+
   const supplierPaymentsFromBank = await prisma.supplierPayment.findMany({
     where: {
-      bankAccountId: { not: null },
-      ...(cityId ? { bankAccount: { cityId } } : {}),
+      bankAccountId: cityId
+        ? (scopedBankAccountIds.length > 0 ? { in: scopedBankAccountIds } : { in: [-1] })
+        : { not: null },
     },
     select: {
       bankAccountId: true,
