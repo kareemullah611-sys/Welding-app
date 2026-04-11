@@ -10,7 +10,14 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, use
     const supplier = await prisma.supplier.findUnique({ where: { id },
       include: {
         lotPurchases: { include: { lot: { select: { id: true, lotNumber: true, lotDate: true } }, product: { select: { id: true, name: true } } }, orderBy: { createdAt: "desc" } },
-        supplierPayments: { include: { lot: { select: { id: true, lotNumber: true } } }, orderBy: { paymentDate: "desc" } },
+        supplierPayments: {
+          include: {
+            lot: { select: { id: true, lotNumber: true } },
+            bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+            intermediary: { select: { id: true, name: true } },
+          },
+          orderBy: { paymentDate: "desc" },
+        },
       },
     });
     if (!supplier) return errorResponse("NOT_FOUND", "Supplier not found", 404);
@@ -31,6 +38,12 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, use
         id: p.id, lotNumber: p.lot?.lotNumber || "General", paymentDate: p.paymentDate.toISOString().split("T")[0],
         amountUsd: Number(p.amountUsd), exchangeRate: p.exchangeRate ? Number(p.exchangeRate) : null,
         amountLocal: p.amountLocal ? Number(p.amountLocal) : null, paymentMethod: p.paymentMethod, reference: p.reference,
+        lotId: p.lotId || null,
+        bankAccountId: p.bankAccountId || null,
+        intermediaryId: p.intermediaryId || null,
+        bankAccountName: p.bankAccount ? `${p.bankAccount.bankName}${p.bankAccount.accountNumber ? ` (${p.bankAccount.accountNumber})` : ""}` : null,
+        intermediaryName: p.intermediary?.name || null,
+        notes: p.notes || "",
       })),
       ledger: buildSupplierLedger(supplier),
     });

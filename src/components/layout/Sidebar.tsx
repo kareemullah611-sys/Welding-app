@@ -48,7 +48,6 @@ const superAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
     items: [
       { label: "Lots",             key: "lots",             href: "/lots",             icon: Package,     roles: ["super_admin"] },
       { label: "Suppliers",        key: "suppliers",        href: "/suppliers",        icon: Factory,     roles: ["super_admin"] },
-      { label: "Company Payments", key: "company_payments", href: "/supplier-payments",icon: Banknote,    roles: ["super_admin"] },
       { label: "Shipping Lines",   key: "shipping_lines",   href: "/shipping-lines",   icon: Landmark,    roles: ["super_admin"] },
       { label: "Clearing Agents",  key: "agents",           href: "/agents",           icon: Handshake,   roles: ["super_admin"] },
       { label: "Intermediaries",   key: "intermediaries",   href: "/intermediaries",   icon: ArrowLeftRight, roles: ["super_admin"] },

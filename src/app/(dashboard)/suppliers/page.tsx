@@ -1,27 +1,52 @@
 "use client";
 import React, { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, DataTable, Modal, StatsCard, formatNumber } from "@/components/ui";
+import { PageHeader, DataTable, Modal, StatsCard, formatDate, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 
 export default function SuppliersPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const router = useRouter();
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showLedger, setShowLedger] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showPaymentCreate, setShowPaymentCreate] = useState(false);
+  const [showPaymentEdit, setShowPaymentEdit] = useState(false);
   const [selected, setSelected] = useState<any>(null);
+  const [selectedPayment, setSelectedPayment] = useState<any>(null);
   const [ledgerData, setLedgerData] = useState<any>(null);
+  const [lots, setLots] = useState<any[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
+  const [intermediaries, setIntermediaries] = useState<any[]>([]);
   const [form, setForm] = useState({ name: "", country: "", contact: "", notes: "" });
+  const [paymentForm, setPaymentForm] = useState({
+    lotId: 0,
+    paymentDate: new Date().toISOString().split("T")[0],
+    amountUsd: 0,
+    exchangeRate: 0,
+    amountLocal: 0,
+    paymentMethod: "bank_transfer",
+    paidVia: "bank",
+    bankAccountId: 0,
+    intermediaryId: 0,
+    reference: "",
+    notes: "",
+  });
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
+
+  const METHODS = [
+    { value: "bank_transfer", label: t("bank_transfer") },
+    { value: "tt", label: t("tt_payment") },
+    { value: "lc", label: t("lc_payment") },
+    { value: "cash", label: t("cash") },
+    { value: "other", label: t("other") },
+  ];
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -72,8 +97,154 @@ export default function SuppliersPage() {
     setSelected(s);
     setShowLedger(true);
     setLedgerData(null);
-    const r = await apiCall(`/api/v1/suppliers/${s.id}`);
+    const [r, lotR, bankR, intR] = await Promise.all([
+      apiCall(`/api/v1/suppliers/${s.id}`),
+      apiCall("/api/v1/lots", { params: { limit: 100 } }),
+      apiCall("/api/v1/bank-accounts"),
+      apiCall("/api/v1/intermediaries"),
+    ]);
     if (r.success) setLedgerData(r.data);
+    if (lotR.success) setLots(lotR.data as any[]);
+    if (bankR.success) setBankAccounts(bankR.data as any[]);
+    if (intR.success) setIntermediaries(intR.data as any[]);
+  };
+
+  useEffect(() => {
+    if (paymentForm.paidVia !== "bank") return;
+    const amountUsd = Number(paymentForm.amountUsd || 0);
+    const exchangeRate = Number(paymentForm.exchangeRate || 0);
+    const computedLocal = amountUsd > 0 && exchangeRate > 0
+      ? Math.round(amountUsd * exchangeRate * 100) / 100
+      : 0;
+    setPaymentForm((prev) => (prev.amountLocal === computedLocal ? prev : { ...prev, amountLocal: computedLocal }));
+  }, [paymentForm.amountUsd, paymentForm.exchangeRate, paymentForm.paidVia]);
+
+  const refreshLedger = useCallback(async () => {
+    if (!selected?.id) return;
+    const r = await apiCall(`/api/v1/suppliers/${selected.id}`);
+    if (r.success) setLedgerData(r.data);
+    load();
+  }, [selected?.id, load]);
+
+  const openPaymentCreate = () => {
+    setPaymentForm({
+      lotId: 0,
+      paymentDate: new Date().toISOString().split("T")[0],
+      amountUsd: 0,
+      exchangeRate: 0,
+      amountLocal: 0,
+      paymentMethod: "bank_transfer",
+      paidVia: "bank",
+      bankAccountId: 0,
+      intermediaryId: 0,
+      reference: "",
+      notes: "",
+    });
+    setError("");
+    setShowPaymentCreate(true);
+  };
+
+  const openPaymentEdit = (payment: any) => {
+    setSelectedPayment(payment);
+    setPaymentForm({
+      lotId: payment.lotId || 0,
+      paymentDate: payment.paymentDate,
+      amountUsd: payment.amountUsd || 0,
+      exchangeRate: payment.exchangeRate || 0,
+      amountLocal: payment.amountLocal || 0,
+      paymentMethod: payment.paymentMethod || "bank_transfer",
+      paidVia: payment.intermediaryId ? "intermediary" : "bank",
+      bankAccountId: payment.bankAccountId || 0,
+      intermediaryId: payment.intermediaryId || 0,
+      reference: payment.reference || "",
+      notes: payment.notes || "",
+    });
+    setError("");
+    setShowPaymentEdit(true);
+  };
+
+  const handlePaymentCreate = async () => {
+    if (!selected?.id || !(paymentForm.amountUsd > 0)) {
+      setError("Supplier and amount are required");
+      return;
+    }
+    if (paymentForm.paidVia === "bank" && !paymentForm.bankAccountId) {
+      setError("Please select a bank account");
+      return;
+    }
+    if (paymentForm.paidVia === "bank" && !(paymentForm.exchangeRate > 0)) {
+      setError("Exchange rate is required for bank payments");
+      return;
+    }
+    if (paymentForm.paidVia === "intermediary" && !paymentForm.intermediaryId) {
+      setError("Please select an intermediary");
+      return;
+    }
+
+    setSubmitting(true);
+    const body: any = {
+      supplierId: selected.id,
+      paymentDate: paymentForm.paymentDate,
+      amountUsd: paymentForm.amountUsd,
+      paymentMethod: paymentForm.paymentMethod,
+      reference: paymentForm.reference || undefined,
+      notes: paymentForm.notes || undefined,
+    };
+    if (paymentForm.lotId) body.lotId = paymentForm.lotId;
+    if (paymentForm.paidVia === "bank") {
+      body.bankAccountId = paymentForm.bankAccountId;
+      body.exchangeRate = paymentForm.exchangeRate;
+      body.amountLocal = paymentForm.amountLocal;
+    } else {
+      if (paymentForm.exchangeRate > 0) body.exchangeRate = paymentForm.exchangeRate;
+      if (paymentForm.amountLocal > 0) body.amountLocal = paymentForm.amountLocal;
+      body.intermediaryId = paymentForm.intermediaryId;
+    }
+
+    const r = await apiCall("/api/v1/supplier-payments", { method: "POST", body });
+    setSubmitting(false);
+    if (r.success) {
+      setShowPaymentCreate(false);
+      await refreshLedger();
+    } else {
+      setError(r.error || "Failed");
+    }
+  };
+
+  const handlePaymentEdit = async () => {
+    if (!selectedPayment?.id) return;
+    if (paymentForm.paidVia === "bank" && !(paymentForm.exchangeRate > 0)) {
+      setError("Exchange rate is required for bank payments");
+      return;
+    }
+    setSubmitting(true);
+    const r = await apiCall(`/api/v1/supplier-payments/${selectedPayment.id}`, {
+      method: "PUT",
+      body: {
+        amountUsd: paymentForm.amountUsd,
+        exchangeRate: paymentForm.exchangeRate || null,
+        amountLocal: paymentForm.amountLocal || null,
+        reference: paymentForm.reference,
+        notes: paymentForm.notes,
+      },
+    });
+    setSubmitting(false);
+    if (r.success) {
+      setShowPaymentEdit(false);
+      await refreshLedger();
+    } else {
+      setError(r.error || "Failed");
+    }
+  };
+
+  const handlePaymentDelete = async (payment: any) => {
+    if (!confirm(`${t("confirm_delete_payment")} $${Number(payment.amountUsd || 0).toLocaleString("en-US")}`)) return;
+    const r = await apiCall(`/api/v1/supplier-payments/${payment.id}`, { method: "DELETE" });
+    if (r.success) {
+      await refreshLedger();
+    } else {
+      alert(r.error || "Failed");
+    }
   };
 
   const isSuperAdmin = user?.role === "super_admin";
@@ -187,15 +358,30 @@ export default function SuppliersPage() {
           </div>
           <div className="flex items-center justify-between mb-2">
             <h4 className="text-sm font-semibold text-gray-500">{t("ledger")}</h4>
-            {isSuperAdmin && selected && (
-              <button
-                onClick={() => router.push(`/supplier-payments?supplier_id=${selected.id}&create=1`)}
-                className="text-xs text-primary-600 hover:underline font-medium"
-              >
-                + Record Payment
+            {isSuperAdmin && (
+              <button onClick={openPaymentCreate} className="text-xs text-primary-600 hover:underline font-medium">
+                + {t("record_payment")}
               </button>
             )}
           </div>
+          <DataTable columns={[
+            { key: "paymentDate", label: t("date"), render: (p: any) => formatDate(p.paymentDate) },
+            { key: "lotNumber", label: t("lot") },
+            { key: "amountUsd", label: t("amount_usd"), render: (p: any) => <span className="font-medium text-green-700">${Number(p.amountUsd || 0).toLocaleString("en-US")}</span> },
+            { key: "paymentMethod", label: t("method"), render: (p: any) => METHODS.find((m) => m.value === p.paymentMethod)?.label || p.paymentMethod },
+            { key: "channel", label: "Channel", render: (p: any) => p.intermediaryName ? `Intermediary · ${p.intermediaryName}` : (p.bankAccountName ? `Bank · ${p.bankAccountName}` : "—") },
+            { key: "reference", label: t("reference"), render: (p: any) => p.reference || "-" },
+            ...(isSuperAdmin ? [{
+              key: "actions", label: "",
+              render: (p: any) => (
+                <div className="flex gap-2">
+                  <button onClick={() => openPaymentEdit(p)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button>
+                  <button onClick={() => handlePaymentDelete(p)} className="text-xs text-red-600 hover:underline">{t("delete")}</button>
+                </div>
+              ),
+            }] : []),
+          ]} data={ledgerData.payments || []} loading={false} />
+          <div className="my-3 border-t border-gray-100" />
           <DataTable columns={[
             { key: "date", label: t("date") },
             { key: "type", label: t("type"), render: (e: any) => <span className={`text-xs px-1.5 py-0.5 rounded ${e.type === "purchase" ? "bg-blue-50 text-blue-700" : "bg-green-50 text-green-700"}`}>{e.type}</span> },
@@ -205,6 +391,74 @@ export default function SuppliersPage() {
             { key: "balance", label: t("balance"), render: (e: any) => <span className="font-medium">${e.balance.toLocaleString("en-US")}</span> },
           ]} data={ledgerData.ledger || []} loading={false} />
         </>}
+      </Modal>
+
+      <Modal open={showPaymentCreate} onClose={() => setShowPaymentCreate(false)} title={t("record_payment_to_company")} size="lg">
+        {error && <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{error}</div>}
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">{t("supplier")}</label>
+              <input value={selected?.name || ""} className="input-field bg-gray-50 text-gray-500" disabled />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">{t("lot_optional")}</label>
+              <select value={paymentForm.lotId} onChange={(e) => setPaymentForm((f) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
+                <option value={0}>{t("general_not_linked")}</option>
+                {lots.map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("date")} *</label><input type="date" value={paymentForm.paymentDate} onChange={(e) => setPaymentForm((f) => ({ ...f, paymentDate: e.target.value }))} className="input-field" /></div>
+            <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("amount_usd")} *</label><input type="number" step="0.01" value={paymentForm.amountUsd || ""} onChange={(e) => setPaymentForm((f) => ({ ...f, amountUsd: parseFloat(e.target.value) || 0 }))} className="input-field" /></div>
+            <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("method")} *</label><select value={paymentForm.paymentMethod} onChange={(e) => setPaymentForm((f) => ({ ...f, paymentMethod: e.target.value }))} className="select-field">{METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}</select></div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("exchange_rate")} {paymentForm.paidVia === "bank" ? "*" : ""}</label><input type="number" step="0.01" value={paymentForm.exchangeRate || ""} onChange={(e) => setPaymentForm((f) => ({ ...f, exchangeRate: parseFloat(e.target.value) || 0 }))} className="input-field" /></div>
+            <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("local_amount")}</label><input type="number" step="0.01" value={paymentForm.amountLocal || ""} onChange={(e) => setPaymentForm((f) => ({ ...f, amountLocal: parseFloat(e.target.value) || 0 }))} className="input-field" readOnly={paymentForm.paidVia === "bank"} /></div>
+            <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("reference")}</label><input value={paymentForm.reference} onChange={(e) => setPaymentForm((f) => ({ ...f, reference: e.target.value }))} className="input-field" /></div>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Paid Via *</label>
+            <div className="mb-2 flex gap-2">
+              <button type="button" onClick={() => setPaymentForm((f) => ({ ...f, paidVia: "bank", intermediaryId: 0 }))} className={`rounded border px-3 py-1 text-sm ${paymentForm.paidVia === "bank" ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 bg-white text-gray-600"}`}>Bank Account</button>
+              <button type="button" onClick={() => setPaymentForm((f) => ({ ...f, paidVia: "intermediary", bankAccountId: 0 }))} className={`rounded border px-3 py-1 text-sm ${paymentForm.paidVia === "intermediary" ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 bg-white text-gray-600"}`}>Intermediary</button>
+            </div>
+            {paymentForm.paidVia === "bank" ? (
+              <select value={paymentForm.bankAccountId} onChange={(e) => setPaymentForm((f) => ({ ...f, bankAccountId: parseInt(e.target.value) }))} className="select-field">
+                <option value={0}>{t("select")}</option>
+                {bankAccounts.filter((b: any) => b.isActive !== false).map((b: any) => <option key={b.id} value={b.id}>{b.bankName}{b.accountNumber ? ` - ${b.accountNumber}` : ""}</option>)}
+              </select>
+            ) : (
+              <select value={paymentForm.intermediaryId} onChange={(e) => setPaymentForm((f) => ({ ...f, intermediaryId: parseInt(e.target.value) }))} className="select-field">
+                <option value={0}>{t("select")}</option>
+                {intermediaries.filter((i: any) => i.isActive !== false).map((i: any) => <option key={i.id} value={i.id}>{i.name}</option>)}
+              </select>
+            )}
+          </div>
+          <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("notes")}</label><input value={paymentForm.notes} onChange={(e) => setPaymentForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" /></div>
+        </div>
+        <div className="mt-4 flex justify-end gap-3 border-t pt-4">
+          <button onClick={() => setShowPaymentCreate(false)} className="btn-secondary text-sm">{t("cancel")}</button>
+          <button onClick={handlePaymentCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("record")}</button>
+        </div>
+      </Modal>
+
+      <Modal open={showPaymentEdit} onClose={() => setShowPaymentEdit(false)} title={t("edit_payment")} size="md">
+        {error && <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{error}</div>}
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("amount_usd")}</label><input type="number" step="0.01" value={paymentForm.amountUsd || ""} onChange={(e) => setPaymentForm((f) => ({ ...f, amountUsd: parseFloat(e.target.value) || 0 }))} className="input-field" /></div>
+            <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("exchange_rate")}</label><input type="number" step="0.01" value={paymentForm.exchangeRate || ""} onChange={(e) => setPaymentForm((f) => ({ ...f, exchangeRate: parseFloat(e.target.value) || 0 }))} className="input-field" /></div>
+          </div>
+          <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("reference")}</label><input value={paymentForm.reference} onChange={(e) => setPaymentForm((f) => ({ ...f, reference: e.target.value }))} className="input-field" /></div>
+          <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("notes")}</label><input value={paymentForm.notes} onChange={(e) => setPaymentForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" /></div>
+        </div>
+        <div className="mt-4 flex justify-end gap-3 border-t pt-4">
+          <button onClick={() => setShowPaymentEdit(false)} className="btn-secondary text-sm">{t("cancel")}</button>
+          <button onClick={handlePaymentEdit} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button>
+        </div>
       </Modal>
     </div>
   );
