@@ -5,7 +5,6 @@ import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
-import { getActionMenuDirection } from "@/lib/action-menu";
 
 
 const SOURCE_CONFIG: Record<string, { label: string; color: string; icon: string }> = {
@@ -91,10 +90,15 @@ export default function HajiTransfersPage() {
   }, [prefillHandled, searchParams, user?.role]);
 
   useEffect(() => {
-    const handleClick = () => setOpenActionId(null);
-    document.addEventListener("click", handleClick);
-    return () => document.removeEventListener("click", handleClick);
-  }, []);
+    if (!openActionId) return;
+    const handleOutside = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-action-menu-root='true']")) return;
+      setOpenActionId(null);
+    };
+    document.addEventListener("pointerdown", handleOutside, true);
+    return () => document.removeEventListener("pointerdown", handleOutside, true);
+  }, [openActionId]);
 
   // Group totals by transferredTo person
   const personTotals = items.reduce((acc: Record<string, Record<string, number>>, tr: any) => {
@@ -293,7 +297,7 @@ export default function HajiTransfersPage() {
         {
           key: "actions", label: "",
           render: (tr: any) => (
-                <div className="relative" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+                <div className="relative" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} data-action-menu-root="true">
               {(user?.role === "city_admin" || user?.role === "super_admin") && tr.recordType !== "customer_payment" && (
                 <>
                   <button
@@ -301,7 +305,7 @@ export default function HajiTransfersPage() {
                     onPointerDown={(event) => { event.stopPropagation(); }}
                     onClick={(event) => {
                       event.stopPropagation();
-                      setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
+                      setActionMenuDirection("down");
                       setOpenActionId((current) => current === tr.id ? null : tr.id);
                     }}
                     className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
@@ -309,7 +313,7 @@ export default function HajiTransfersPage() {
                     ⋯
                   </button>
                   {openActionId === tr.id && (
-                    <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}>
+                    <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
                       <button onClick={() => { setOpenActionId(null); openEdit(tr); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
                       <button onClick={() => { setOpenActionId(null); handleDelete(tr); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("delete")}</button>
                     </div>

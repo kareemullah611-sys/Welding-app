@@ -5,7 +5,6 @@ import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, StatsCard, StatusBadge, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { Pencil, Package, CheckCircle, RotateCcw, Trash2, Warehouse } from "lucide-react";
-import { getActionMenuDirection } from "@/lib/action-menu";
 
 type LotDetailTab = "overview" | "purchases" | "costs" | "sales";
 
@@ -111,6 +110,17 @@ export default function LotsPage() {
     setLoading(false);
   }, [page]);
   useEffect(() => { loadLots(); }, [loadLots]);
+
+  useEffect(() => {
+    if (!openActionId) return;
+    const handleOutside = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-action-menu-root='true']")) return;
+      setOpenActionId(null);
+    };
+    document.addEventListener("pointerdown", handleOutside, true);
+    return () => document.removeEventListener("pointerdown", handleOutside, true);
+  }, [openActionId]);
 
   // ════════════════════════════════════════════
   // CREATE
@@ -682,7 +692,7 @@ export default function LotsPage() {
     {
       key: "actions", label: t("actions"),
       render: (l: any) => (
-        <div className="relative" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
+        <div className="relative" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} data-action-menu-root="true">
           {user?.role === "super_admin" && (
             <>
               <button
@@ -690,7 +700,7 @@ export default function LotsPage() {
                 onPointerDown={(event) => { event.stopPropagation(); }}
                 onClick={(event) => {
                   event.stopPropagation();
-                  setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
+                  setActionMenuDirection("down");
                   setOpenActionId((current) => current === l.id ? null : l.id);
                 }}
                 className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
@@ -722,7 +732,7 @@ export default function LotsPage() {
   ];
 
   return (
-    <div onClick={() => setOpenActionId(null)}>
+    <div>
       <PageHeader title={t("lots")} subtitle={`${total} ${t("lots").toLowerCase()}`}
         action={user?.role === "super_admin" ? <button onClick={openCreate} className="btn-primary text-sm">{"+ " + t("new_lot")}</button> : undefined} />
       <DataTable columns={columns} data={lots} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />

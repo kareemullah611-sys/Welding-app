@@ -4,7 +4,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { DataTable, Modal, PageHeader, formatDate, formatNumber } from "@/components/ui";
 import Link from "next/link";
-import { getActionMenuDirection } from "@/lib/action-menu";
 
 export default function SuperAdminPersonalExpensesPage() {
   const { user } = useAuth();
@@ -41,6 +40,17 @@ export default function SuperAdminPersonalExpensesPage() {
   }, [isSA, page]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!openActionId) return;
+    const handleOutside = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-action-menu-root='true']")) return;
+      setOpenActionId(null);
+    };
+    document.addEventListener("pointerdown", handleOutside, true);
+    return () => document.removeEventListener("pointerdown", handleOutside, true);
+  }, [openActionId]);
 
   if (!isSA) {
     return <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">Only super admin can access this module.</div>;
@@ -103,7 +113,7 @@ export default function SuperAdminPersonalExpensesPage() {
   };
 
   return (
-    <div onClick={() => setOpenActionId(null)}>
+    <div>
       <PageHeader
         title="Super Admin Personal Expenses"
         subtitle="Record personal expenses from super admin bank accounts"
@@ -151,13 +161,13 @@ export default function SuperAdminPersonalExpensesPage() {
             { key: "notes", label: "Notes", render: (e: any) => e.notes || "—" },
             {
               key: "actions", label: "", render: (e: any) => (
-                <div className="relative" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
+                <div className="relative" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} data-action-menu-root="true">
                   <button
                     type="button"
                     onPointerDown={(event) => { event.stopPropagation(); }}
                     onClick={(event) => {
                       event.stopPropagation();
-                      setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
+                      setActionMenuDirection("down");
                       setOpenActionId((current) => current === e.id ? null : e.id);
                     }}
                     className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"

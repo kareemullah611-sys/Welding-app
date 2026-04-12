@@ -4,7 +4,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, StatsCard, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
-import { getActionMenuDirection } from "@/lib/action-menu";
 
 export default function SuppliersPage() {
   const { user } = useAuth();
@@ -274,7 +273,7 @@ export default function SuppliersPage() {
   const isSuperAdmin = user?.role === "super_admin";
 
   return (
-    <div onClick={() => setOpenActionId(null)}>
+    <div>
       <PageHeader
         title={t("suppliers")}
         subtitle={t("payments_to_supplier_subtitle")}
@@ -309,7 +308,7 @@ export default function SuppliersPage() {
                   onPointerDown={(event) => { event.stopPropagation(); }}
                   onClick={(event) => {
                     event.stopPropagation();
-                    setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
+                    setActionMenuDirection("down");
                     const actionKey = `supplier-${s.id}`;
                     setOpenActionId((current) => current === actionKey ? null : actionKey);
                   }}
@@ -424,7 +423,7 @@ export default function SuppliersPage() {
                       onPointerDown={(event) => { event.stopPropagation(); }}
                       onClick={(event) => {
                         event.stopPropagation();
-                        setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
+                        setActionMenuDirection("down");
                         const actionKey = `supplier-payment-${payment.id}`;
                         setOpenActionId((current) => current === actionKey ? null : actionKey);
                       }}

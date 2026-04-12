@@ -4,7 +4,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal } from "@/components/ui";
 import { useLang } from "@/lib/lang";
-import { getActionMenuDirection } from "@/lib/action-menu";
 
 export default function GodownsPage() {
   const { user } = useAuth();
@@ -30,10 +29,15 @@ export default function GodownsPage() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    const handleClick = () => setOpenActionId(null);
-    document.addEventListener("click", handleClick);
-    return () => document.removeEventListener("click", handleClick);
-  }, []);
+    if (!openActionId) return;
+    const handleOutside = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-action-menu-root='true']")) return;
+      setOpenActionId(null);
+    };
+    document.addEventListener("pointerdown", handleOutside, true);
+    return () => document.removeEventListener("pointerdown", handleOutside, true);
+  }, [openActionId]);
 
   const openCreate = async () => {
     if (user?.role === "super_admin") { const cityRes = await apiCall("/api/v1/cities"); if (cityRes.success) setCities(cityRes.data as any[]); }
@@ -73,13 +77,13 @@ export default function GodownsPage() {
         { key: "countryName", label: t("country") },
         { key: "isActive", label: t("status"), render: (g: any) => <span className={g.isActive ? "badge-active" : "badge-cancelled"}>{g.isActive ? t("active") : t("inactive")}</span> },
         { key: "actions", label: "", render: (g: any) => (
-          <div className="relative" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+          <div className="relative" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} data-action-menu-root="true">
             <button
               type="button"
               onPointerDown={(event) => { event.stopPropagation(); }}
               onClick={(event) => {
                 event.stopPropagation();
-                setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
+                setActionMenuDirection("down");
                 setOpenActionId((current) => current === g.id ? null : g.id);
               }}
               className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
@@ -87,7 +91,7 @@ export default function GodownsPage() {
               ⋯
             </button>
             {openActionId === g.id && (
-              <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}>
+              <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
                 <button onClick={() => { setOpenActionId(null); openEdit(g); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
                 {g.isActive ? (
                   <button onClick={() => { setOpenActionId(null); handleDeactivate(g); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("deactivate")}</button>

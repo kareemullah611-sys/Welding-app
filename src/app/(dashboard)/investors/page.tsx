@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { apiCall } from "@/hooks/useApi";
 import { formatNumber } from "@/components/ui";
 import { ChevronRight, Users, Search, Plus } from "lucide-react";
-import { getActionMenuDirection } from "@/lib/action-menu";
 
 type Investor = { id: number; name: string; relationship?: string; phone?: string; accounts: any[] };
 
@@ -51,6 +50,17 @@ export default function InvestorsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!openActionId) return;
+    const handleOutside = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-action-menu-root='true']")) return;
+      setOpenActionId(null);
+    };
+    document.addEventListener("pointerdown", handleOutside, true);
+    return () => document.removeEventListener("pointerdown", handleOutside, true);
+  }, [openActionId]);
 
   const openCreate = () => {
     setCreateForm({
@@ -116,7 +126,7 @@ export default function InvestorsPage() {
   );
 
   return (
-    <div className="space-y-4 max-w-2xl mx-auto" onClick={() => setOpenActionId(null)}>
+    <div className="space-y-4 max-w-2xl mx-auto">
       <div className="pb-3 border-b border-gray-100 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Investors</h1>
         <button
@@ -177,13 +187,13 @@ export default function InvestorsPage() {
                   <p className="text-sm font-bold text-emerald-700">{sym} {formatNumber(capital)}</p>
                   <p className="text-[10px] text-gray-400 uppercase tracking-wide">Capital</p>
                 </div>
-                <div className="relative flex-shrink-0" onClick={e => e.stopPropagation()}>
+                <div className="relative flex-shrink-0" onClick={e => e.stopPropagation()} data-action-menu-root="true">
                   <button
                     type="button"
                     onPointerDown={(event) => { event.stopPropagation(); }}
                     onClick={(event) => {
                       event.stopPropagation();
-                      setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
+                      setActionMenuDirection("down");
                       setOpenActionId((current) => current === inv.id ? null : inv.id);
                     }}
                     className="rounded-lg px-2 py-1 text-lg leading-none text-gray-500 hover:bg-gray-100"

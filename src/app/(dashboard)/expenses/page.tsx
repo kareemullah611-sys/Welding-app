@@ -6,7 +6,6 @@ import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
-import { getActionMenuDirection } from "@/lib/action-menu";
 
 export default function ExpensesPage() {
   const { user } = useAuth();
@@ -85,10 +84,15 @@ export default function ExpensesPage() {
   }, [lastSyncResult, load]);
 
   useEffect(() => {
-    const handleClick = () => setOpenActionId(null);
-    document.addEventListener("click", handleClick);
-    return () => document.removeEventListener("click", handleClick);
-  }, []);
+    if (!openActionId) return;
+    const handleOutside = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-action-menu-root='true']")) return;
+      setOpenActionId(null);
+    };
+    document.addEventListener("pointerdown", handleOutside, true);
+    return () => document.removeEventListener("pointerdown", handleOutside, true);
+  }, [openActionId]);
 
   const openCreate = async () => {
     const requests: Promise<any>[] = [
@@ -225,13 +229,13 @@ export default function ExpensesPage() {
           render: (e: any) => e._pending
             ? <span className="text-xs text-gray-400 italic">syncing…</span>
             : (
-            <div className="relative" onClick={(evt) => evt.stopPropagation()} onMouseDown={(evt) => evt.stopPropagation()}>
+            <div className="relative" onClick={(evt) => evt.stopPropagation()} onMouseDown={(evt) => evt.stopPropagation()} data-action-menu-root="true">
               <button
                 type="button"
                 onPointerDown={(event) => { event.stopPropagation(); }}
                 onClick={(event) => {
                   event.stopPropagation();
-                  setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
+                  setActionMenuDirection("down");
                   setOpenActionId((current) => current === e.id ? null : e.id);
                 }}
                 className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
@@ -239,7 +243,7 @@ export default function ExpensesPage() {
                 ⋯
               </button>
               {openActionId === e.id && (
-                <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}>
+                <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
                   <button onClick={() => { setOpenActionId(null); openEdit(e); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
                   <button onClick={() => { setOpenActionId(null); handleDelete(e); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("delete")}</button>
                 </div>

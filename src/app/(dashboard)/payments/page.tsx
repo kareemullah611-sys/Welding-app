@@ -7,7 +7,6 @@ import { PageHeader, DataTable, Modal, StatusBadge, formatDate } from "@/compone
 import CustomerSearch from "@/components/CustomerSearch";
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
-import { getActionMenuDirection } from "@/lib/action-menu";
 
 
 const TYPE_CONFIG: Record<string, { label: string; color: string; amountColor: string }> = {
@@ -128,16 +127,21 @@ export default function PaymentsPage() {
   useEffect(() => { setPage(1); }, [typeFilter]);
   useEffect(() => { load(); }, [load]);
 
-  useEffect(() => {
-    const handleClick = () => setOpenActionId(null);
-    document.addEventListener("click", handleClick);
-    return () => document.removeEventListener("click", handleClick);
-  }, []);
-
   // Reload from server after queued entries sync
   useEffect(() => {
     if (lastSyncResult && lastSyncResult.synced > 0) load();
   }, [lastSyncResult, load]);
+
+  useEffect(() => {
+    if (!openActionId) return;
+    const handleOutside = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-action-menu-root='true']")) return;
+      setOpenActionId(null);
+    };
+    document.addEventListener("pointerdown", handleOutside, true);
+    return () => document.removeEventListener("pointerdown", handleOutside, true);
+  }, [openActionId]);
 
   const loadHelpers = async () => {
     const [lR, ciR, cityBanksR, superAdminBanksR] = await Promise.all([
@@ -516,13 +520,13 @@ export default function PaymentsPage() {
         // Pending (offline) rows have no server ID — disable all mutating actions
         if (item._pending) return <span className="text-xs text-gray-400 italic">syncing…</span>;
         return (
-          <div className="relative" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+          <div className="relative" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} data-action-menu-root="true">
             <button
               type="button"
               onPointerDown={(event) => { event.stopPropagation(); }}
               onClick={(event) => {
                 event.stopPropagation();
-                setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
+                setActionMenuDirection("down");
                 const actionKey = getActionKey(item);
                 setOpenActionId((current) => current === actionKey ? null : actionKey);
               }}
@@ -532,7 +536,7 @@ export default function PaymentsPage() {
               ⋯
             </button>
             {openActionId === getActionKey(item) && (
-              <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}>
+              <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
                 <button onClick={() => { setOpenActionId(null); openEdit(item); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
                 {item.type === "payment" && item.status === "active" && (
                   <button onClick={() => { setOpenActionId(null); handleDelete(item); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("cancel")}</button>

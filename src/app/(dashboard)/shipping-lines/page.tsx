@@ -3,7 +3,6 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, StatsCard, formatNumber, formatDate } from "@/components/ui";
-import { getActionMenuDirection } from "@/lib/action-menu";
 
 export default function ShippingLinesPage() {
   const { user } = useAuth();
@@ -42,6 +41,17 @@ export default function ShippingLinesPage() {
     setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!openActionId) return;
+    const handleOutside = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-action-menu-root='true']")) return;
+      setOpenActionId(null);
+    };
+    document.addEventListener("pointerdown", handleOutside, true);
+    return () => document.removeEventListener("pointerdown", handleOutside, true);
+  }, [openActionId]);
 
   const openCreate = () => { setCreateForm({ name: "", contact: "", notes: "" }); setError(""); setShowCreate(true); };
 
@@ -129,13 +139,13 @@ export default function ShippingLinesPage() {
     {
       key: "actions", label: "",
       render: (sl: any) => (
-        <div className="relative" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
+        <div className="relative" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} data-action-menu-root="true">
           <button
             type="button"
             onPointerDown={(event) => { event.stopPropagation(); }}
             onClick={(event) => {
               event.stopPropagation();
-              setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
+              setActionMenuDirection("down");
               setOpenActionId((current) => current === sl.id ? null : sl.id);
             }}
             className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
@@ -156,7 +166,7 @@ export default function ShippingLinesPage() {
   ];
 
   return (
-    <div onClick={() => setOpenActionId(null)}>
+    <div>
       <PageHeader title="Shipping Lines" subtitle="Professional freight ledger and settlement records (USD)"
         action={<button onClick={openCreate} className="btn-primary text-sm">+ Add Shipping Line</button>} />
 

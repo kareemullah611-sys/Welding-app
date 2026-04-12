@@ -3,7 +3,6 @@ import React, { useEffect, useState, useCallback } from "react";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, StatsCard, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
-import { getActionMenuDirection } from "@/lib/action-menu";
 
 const TYPES = [
   { value: "customs", label: "Customs Agent" },
@@ -40,6 +39,17 @@ export default function AgentsPage() {
     setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!openActionId) return;
+    const handleOutside = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-action-menu-root='true']")) return;
+      setOpenActionId(null);
+    };
+    document.addEventListener("pointerdown", handleOutside, true);
+    return () => document.removeEventListener("pointerdown", handleOutside, true);
+  }, [openActionId]);
 
   const handleCreate = async () => {
     if (!form.name) { setError(t("name") + " required"); return; }
@@ -81,7 +91,7 @@ export default function AgentsPage() {
   };
 
   return (
-    <div onClick={() => setOpenActionId(null)}>
+    <div>
       <PageHeader title={t("agents")} subtitle={t("agents_subtitle")} action={<button onClick={() => { setForm({ name: "", agentType: "customs", cityId: 0, phone: "" }); setShowCreate(true); setError(""); }} className="btn-primary text-sm">+ {t("new_agent")}</button>} />
       <DataTable columns={[
         { key: "name", label: t("name"), render: (a: any) => <button onClick={() => openLedger(a)} className="font-medium text-primary-600 hover:underline">{a.name}</button> },
@@ -90,13 +100,13 @@ export default function AgentsPage() {
         { key: "balance", label: t("balance_owed"), render: (a: any) => <div>{Object.entries(a.balance || {}).map(([cc, bal]: [string, any]) => <div key={cc} className={`text-sm font-medium ${bal > 0 ? "text-red-600" : "text-green-600"}`}>{cc} {bal.toLocaleString("en-US")}</div>)}</div> },
         {
           key: "actions", label: "", render: (a: any) => (
-            <div className="relative" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
+            <div className="relative" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} data-action-menu-root="true">
               <button
                 type="button"
                 onPointerDown={(event) => { event.stopPropagation(); }}
                 onClick={(event) => {
                   event.stopPropagation();
-                  setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
+                  setActionMenuDirection("down");
                   setOpenActionId((current) => current === a.id ? null : a.id);
                 }}
                 className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
