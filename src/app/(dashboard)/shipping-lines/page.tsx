@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, StatsCard, formatNumber, formatDate } from "@/components/ui";
+import { getActionMenuDirection } from "@/lib/action-menu";
 
 export default function ShippingLinesPage() {
   const { user } = useAuth();
@@ -28,6 +29,8 @@ export default function ShippingLinesPage() {
   const [payForm, setPayForm] = useState({ paymentDate: new Date().toISOString().split("T")[0], amountUsd: "", exchangeRate: "", reference: "", notes: "", paidFrom: "bank", bankAccountId: "", intermediaryId: "" });
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
   const [intermediaries, setIntermediaries] = useState<any[]>([]);
+  const [openActionId, setOpenActionId] = useState<number | null>(null);
+  const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -123,17 +126,36 @@ export default function ShippingLinesPage() {
         </div>
       );
     }},
-    { key: "actions", label: "Actions", render: (sl: any) => (
-      <div className="flex items-center gap-1 flex-wrap">
-        <button onClick={() => openLedger(sl)} className="px-2 py-1 text-xs rounded bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200">Open Ledger</button>
-        <button onClick={() => openAddPayment(sl)} className="px-2 py-1 text-xs rounded bg-green-50 text-green-700 hover:bg-green-100 border border-green-200">+ Record Settlement</button>
-        <button onClick={() => openEdit(sl)} className="px-2 py-1 text-xs rounded bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200">Edit</button>
-      </div>
-    )},
+    {
+      key: "actions", label: "",
+      render: (sl: any) => (
+        <div className="relative" onClick={(event) => event.stopPropagation()}>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
+              setOpenActionId((current) => current === sl.id ? null : sl.id);
+            }}
+            className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
+            aria-label="Open actions"
+          >
+            ⋯
+          </button>
+          {openActionId === sl.id && (
+            <div className={`absolute right-0 z-50 w-44 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}>
+              <button onClick={() => { setOpenActionId(null); openLedger(sl); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">Open Ledger</button>
+              <button onClick={() => { setOpenActionId(null); openAddPayment(sl); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-green-700 hover:bg-green-50">Record Settlement</button>
+              <button onClick={() => { setOpenActionId(null); openEdit(sl); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-gray-700 hover:bg-gray-50">Edit</button>
+            </div>
+          )}
+        </div>
+      ),
+    },
   ];
 
   return (
-    <div>
+    <div onClick={() => setOpenActionId(null)}>
       <PageHeader title="Shipping Lines" subtitle="Professional freight ledger and settlement records (USD)"
         action={<button onClick={openCreate} className="btn-primary text-sm">+ Add Shipping Line</button>} />
 

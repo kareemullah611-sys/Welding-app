@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { DataTable, Modal, PageHeader, formatDate, formatNumber } from "@/components/ui";
 import Link from "next/link";
+import { getActionMenuDirection } from "@/lib/action-menu";
 
 export default function SuperAdminPersonalExpensesPage() {
   const { user } = useAuth();
@@ -16,11 +17,12 @@ export default function SuperAdminPersonalExpensesPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [showExpense, setShowExpense] = useState(false);
-  const [showEditExpense, setShowEditExpense] = useState(false);
   const [editingExpense, setEditingExpense] = useState<any>(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [expenseForm, setExpenseForm] = useState<any>({ expenseDate: new Date().toISOString().split("T")[0], detail: "", amount: 0, notes: "", bankAccountId: 0 });
+  const [openActionId, setOpenActionId] = useState<number | null>(null);
+  const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
 
   const load = useCallback(async () => {
     if (!isSA) return;
@@ -67,7 +69,7 @@ export default function SuperAdminPersonalExpensesPage() {
       bankAccountId: expense.bankAccountId,
     });
     setError("");
-    setShowEditExpense(true);
+    setShowExpense(true);
   };
 
   const saveExpense = async (editing = false) => {
@@ -87,7 +89,7 @@ export default function SuperAdminPersonalExpensesPage() {
     setSubmitting(false);
     if (result.success) {
       setShowExpense(false);
-      setShowEditExpense(false);
+      setEditingExpense(null);
       load();
     } else {
       setError(result.error || "Failed");
@@ -101,7 +103,7 @@ export default function SuperAdminPersonalExpensesPage() {
   };
 
   return (
-    <div>
+    <div onClick={() => setOpenActionId(null)}>
       <PageHeader
         title="Super Admin Personal Expenses"
         subtitle="Record personal expenses from super admin bank accounts"
@@ -149,9 +151,25 @@ export default function SuperAdminPersonalExpensesPage() {
             { key: "notes", label: "Notes", render: (e: any) => e.notes || "—" },
             {
               key: "actions", label: "", render: (e: any) => (
-                <div className="flex gap-2">
-                  <button onClick={() => openEditExpense(e)} className="text-xs text-primary-600 hover:underline">Edit</button>
-                  <button onClick={() => deleteExpense(e)} className="text-xs text-red-600 hover:underline">Delete</button>
+                <div className="relative" onClick={(event) => event.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
+                      setOpenActionId((current) => current === e.id ? null : e.id);
+                    }}
+                    className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
+                    aria-label="Open actions"
+                  >
+                    ⋯
+                  </button>
+                  {openActionId === e.id && (
+                    <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}>
+                      <button onClick={() => { setOpenActionId(null); openEditExpense(e); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">Edit</button>
+                      <button onClick={() => { setOpenActionId(null); deleteExpense(e); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">Delete</button>
+                    </div>
+                  )}
                 </div>
               ),
             },
@@ -162,7 +180,12 @@ export default function SuperAdminPersonalExpensesPage() {
         />
       </div>
 
-      <Modal open={showExpense} onClose={() => setShowExpense(false)} title="Record Personal Expense" size="md">
+      <Modal
+        open={showExpense}
+        onClose={() => { setShowExpense(false); setEditingExpense(null); }}
+        title={editingExpense ? "Edit Personal Expense" : "Record Personal Expense"}
+        size="md"
+      >
         {error && <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{error}</div>}
         <div className="space-y-3">
           <div>
@@ -183,8 +206,8 @@ export default function SuperAdminPersonalExpensesPage() {
           </div>
         </div>
         <div className="mt-4 flex justify-end gap-3 border-t pt-4">
-          <button onClick={() => setShowEditExpense(false)} className="btn-secondary text-sm">Cancel</button>
-          <button onClick={() => saveExpense(true)} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : "Save"}</button>
+          <button onClick={() => { setShowExpense(false); setEditingExpense(null); }} className="btn-secondary text-sm">Cancel</button>
+          <button onClick={() => saveExpense(Boolean(editingExpense))} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : "Save"}</button>
         </div>
       </Modal>
     </div>

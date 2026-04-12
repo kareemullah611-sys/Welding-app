@@ -5,6 +5,7 @@ import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, StatsCard, StatusBadge, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { Pencil, Package, CheckCircle, RotateCcw, Trash2, Warehouse } from "lucide-react";
+import { getActionMenuDirection } from "@/lib/action-menu";
 
 type LotDetailTab = "overview" | "purchases" | "costs" | "sales";
 
@@ -76,6 +77,8 @@ export default function LotsPage() {
   // Common
   const [submitting, setSubmitting] = useState(false);
   const [formError,  setFormError]  = useState("");
+  const [openActionId, setOpenActionId] = useState<number | null>(null);
+  const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
   const selectedLotCountryCode = String(selectedLot?.country?.code || selectedLot?.countryCode || "").toUpperCase();
   const nonFreightCostCurrency = selectedLotCountryCode === "AFG" ? "AFN" : "PKR";
 
@@ -676,24 +679,49 @@ export default function LotsPage() {
       );
     }},
     { key: "status",  label: t("status"),  render: (l: any) => <StatusBadge status={l.status} /> },
-    { key: "actions", label: t("actions"), render: (l: any) => (
-      <div className="flex items-center gap-1 flex-wrap">
-        {user?.role === "super_admin" && <>
-          <button onClick={() => openEditLot(l)} title={t("edit")} className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"><Pencil size={13} /></button>
-          <button onClick={() => openDistribute(l)} title={t("distribute")} className="p-1.5 rounded-md hover:bg-blue-50 text-blue-500 hover:text-blue-700 transition-colors"><Package size={13} /></button>
-          {l.status === "ongoing"   && <button onClick={() => handleComplete(l)} title={t("confirm")} className="p-1.5 rounded-md hover:bg-green-50 text-green-500 hover:text-green-700 transition-colors"><CheckCircle size={13} /></button>}
-          {l.status === "completed" && <button onClick={() => handleReopen(l)}  title={t("reactivate")} className="p-1.5 rounded-md hover:bg-orange-50 text-orange-400 hover:text-orange-600 transition-colors"><RotateCcw size={13} /></button>}
-          <button onClick={() => handleDeleteLot(l)} title={t("delete")} className="p-1.5 rounded-md hover:bg-red-50 text-red-400 hover:text-red-600 transition-colors"><Trash2 size={13} /></button>
-        </>}
-        {user?.role === "city_admin" && (
-          <span className="text-xs text-gray-400 italic">Use Inventory page to assign godowns</span>
-        )}
-      </div>
-    )},
+    {
+      key: "actions", label: t("actions"),
+      render: (l: any) => (
+        <div className="relative" onClick={(event) => event.stopPropagation()}>
+          {user?.role === "super_admin" && (
+            <>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
+                  setOpenActionId((current) => current === l.id ? null : l.id);
+                }}
+                className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
+                aria-label="Open actions"
+              >
+                ⋯
+              </button>
+              {openActionId === l.id && (
+                <div className={`absolute right-0 z-50 w-44 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}>
+                  <button onClick={() => { setOpenActionId(null); openEditLot(l); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">Edit Lot</button>
+                  <button onClick={() => { setOpenActionId(null); openDistribute(l); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-blue-700 hover:bg-blue-50">Distribute</button>
+                  {l.status === "ongoing" && (
+                    <button onClick={() => { setOpenActionId(null); handleComplete(l); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-green-700 hover:bg-green-50">Complete</button>
+                  )}
+                  {l.status === "completed" && (
+                    <button onClick={() => { setOpenActionId(null); handleReopen(l); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-amber-700 hover:bg-amber-50">Reopen</button>
+                  )}
+                  <button onClick={() => { setOpenActionId(null); handleDeleteLot(l); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">Delete</button>
+                </div>
+              )}
+            </>
+          )}
+          {user?.role === "city_admin" && (
+            <span className="text-xs text-gray-400 italic">Use Inventory page to assign godowns</span>
+          )}
+        </div>
+      ),
+    },
   ];
 
   return (
-    <div>
+    <div onClick={() => setOpenActionId(null)}>
       <PageHeader title={t("lots")} subtitle={`${total} ${t("lots").toLowerCase()}`}
         action={user?.role === "super_admin" ? <button onClick={openCreate} className="btn-primary text-sm">{"+ " + t("new_lot")}</button> : undefined} />
       <DataTable columns={columns} data={lots} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />

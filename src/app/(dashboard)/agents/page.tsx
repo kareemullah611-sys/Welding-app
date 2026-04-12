@@ -3,6 +3,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, StatsCard, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { getActionMenuDirection } from "@/lib/action-menu";
 
 const TYPES = [
   { value: "customs", label: "Customs Agent" },
@@ -27,6 +28,8 @@ export default function AgentsPage() {
   const [intermediaries, setIntermediaries] = useState<any[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [openActionId, setOpenActionId] = useState<number | null>(null);
+  const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
   const filteredBankAccounts = bankAccounts.filter((b: any) => !payForm.cityId || b.cityId === payForm.cityId);
 
   const load = useCallback(async () => {
@@ -78,14 +81,37 @@ export default function AgentsPage() {
   };
 
   return (
-    <div>
+    <div onClick={() => setOpenActionId(null)}>
       <PageHeader title={t("agents")} subtitle={t("agents_subtitle")} action={<button onClick={() => { setForm({ name: "", agentType: "customs", cityId: 0, phone: "" }); setShowCreate(true); setError(""); }} className="btn-primary text-sm">+ {t("new_agent")}</button>} />
       <DataTable columns={[
         { key: "name", label: t("name"), render: (a: any) => <button onClick={() => openLedger(a)} className="font-medium text-primary-600 hover:underline">{a.name}</button> },
         { key: "agentType", label: t("type"), render: (a: any) => <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100">{TYPES.find(ty => ty.value === a.agentType)?.label || a.agentType}</span> },
         { key: "city", label: t("city"), render: (a: any) => a.city?.name || "-" },
         { key: "balance", label: t("balance_owed"), render: (a: any) => <div>{Object.entries(a.balance || {}).map(([cc, bal]: [string, any]) => <div key={cc} className={`text-sm font-medium ${bal > 0 ? "text-red-600" : "text-green-600"}`}>{cc} {bal.toLocaleString("en-US")}</div>)}</div> },
-        { key: "actions", label: "", render: (a: any) => <button onClick={() => openPayment(a)} className="text-xs text-green-600 hover:underline">{t("pay_agent")}</button> },
+        {
+          key: "actions", label: "", render: (a: any) => (
+            <div className="relative" onClick={(event) => event.stopPropagation()}>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
+                  setOpenActionId((current) => current === a.id ? null : a.id);
+                }}
+                className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
+                aria-label="Open actions"
+              >
+                ⋯
+              </button>
+              {openActionId === a.id && (
+                <div className={`absolute right-0 z-50 w-44 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}>
+                  <button onClick={() => { setOpenActionId(null); openLedger(a); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">Open Ledger</button>
+                  <button onClick={() => { setOpenActionId(null); openPayment(a); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-green-700 hover:bg-green-50">{t("pay_agent")}</button>
+                </div>
+              )}
+            </div>
+          ),
+        },
       ]} data={agents} loading={loading} />
 
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t("new_agent")} size="md">

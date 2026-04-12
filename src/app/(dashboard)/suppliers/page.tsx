@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, StatsCard, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { getActionMenuDirection } from "@/lib/action-menu";
 
 export default function SuppliersPage() {
   const { user } = useAuth();
@@ -39,6 +40,29 @@ export default function SuppliersPage() {
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
+  const [openActionId, setOpenActionId] = useState<string | null>(null);
+  const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
+
+  useEffect(() => {
+    if (!openActionId) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-action-menu-root='true']")) return;
+      setOpenActionId(null);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpenActionId(null);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("keydown", handleEscape, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("keydown", handleEscape, true);
+    };
+  }, [openActionId]);
 
   const METHODS = [
     { value: "bank_transfer", label: t("bank_transfer") },
@@ -250,7 +274,7 @@ export default function SuppliersPage() {
   const isSuperAdmin = user?.role === "super_admin";
 
   return (
-    <div>
+    <div onClick={() => setOpenActionId(null)}>
       <PageHeader
         title={t("suppliers")}
         subtitle={t("payments_to_supplier_subtitle")}
@@ -279,19 +303,36 @@ export default function SuppliersPage() {
           ...(isSuperAdmin ? [{
             key: "actions", label: "",
             render: (s: any) => (
-              <div className="flex items-center gap-3">
+              <div className="relative" onClick={(event) => event.stopPropagation()} data-action-menu-root="true">
                 <button
-                  onClick={() => openEdit(s)}
-                  className="text-xs text-primary-600 hover:underline font-medium"
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
+                    const actionKey = `supplier-${s.id}`;
+                    setOpenActionId((current) => current === actionKey ? null : actionKey);
+                  }}
+                  className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
+                  aria-label="Open actions"
                 >
-                  {t("edit")}
+                  ⋯
                 </button>
-                <button
-                  onClick={() => openDelete(s)}
-                  className="text-xs text-red-500 hover:underline font-medium"
-                >
-                  {t("delete")}
-                </button>
+                {openActionId === `supplier-${s.id}` && (
+                  <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
+                    <button
+                      onClick={() => { setOpenActionId(null); openEdit(s); }}
+                      className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50"
+                    >
+                      {t("edit")}
+                    </button>
+                    <button
+                      onClick={() => { setOpenActionId(null); openDelete(s); }}
+                      className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50"
+                    >
+                      {t("delete")}
+                    </button>
+                  </div>
+                )}
               </div>
             ),
           }] : []),
@@ -378,9 +419,26 @@ export default function SuppliersPage() {
                 const payment = (ledgerData?.payments || []).find((p: any) => p.id === e.sourceId);
                 if (!payment) return null;
                 return (
-                  <div className="flex gap-2">
-                    <button onClick={() => openPaymentEdit(payment)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button>
-                    <button onClick={() => handlePaymentDelete(payment)} className="text-xs text-red-600 hover:underline">{t("delete")}</button>
+                  <div className="relative" onClick={(event) => event.stopPropagation()} data-action-menu-root="true">
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
+                        const actionKey = `supplier-payment-${payment.id}`;
+                        setOpenActionId((current) => current === actionKey ? null : actionKey);
+                      }}
+                      className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
+                      aria-label="Open actions"
+                    >
+                      ⋯
+                    </button>
+                    {openActionId === `supplier-payment-${payment.id}` && (
+                      <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
+                        <button onClick={() => { setOpenActionId(null); openPaymentEdit(payment); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
+                        <button onClick={() => { setOpenActionId(null); handlePaymentDelete(payment); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("delete")}</button>
+                      </div>
+                    )}
                   </div>
                 );
               },

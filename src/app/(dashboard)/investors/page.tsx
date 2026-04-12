@@ -4,7 +4,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
 import { apiCall } from "@/hooks/useApi";
 import { formatNumber } from "@/components/ui";
-import { ChevronRight, Users, Search, Pencil, Trash2, Plus } from "lucide-react";
+import { ChevronRight, Users, Search, Plus } from "lucide-react";
+import { getActionMenuDirection } from "@/lib/action-menu";
 
 type Investor = { id: number; name: string; relationship?: string; phone?: string; accounts: any[] };
 
@@ -35,6 +36,8 @@ export default function InvestorsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Investor | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [openActionId, setOpenActionId] = useState<number | null>(null);
+  const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
 
   useEffect(() => {
     if (user && user.role !== "super_admin") router.replace("/dashboard");
@@ -70,8 +73,7 @@ export default function InvestorsPage() {
     load();
   };
 
-  const openEdit = (inv: Investor, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const openEdit = (inv: Investor) => {
     setEditTarget(inv);
     setEditForm({ name: inv.name, relationship: inv.relationship ?? "", phone: inv.phone ?? "" });
     setEditError("");
@@ -90,8 +92,7 @@ export default function InvestorsPage() {
     load();
   };
 
-  const openDelete = (inv: Investor, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const openDelete = (inv: Investor) => {
     setDeleteTarget(inv);
     setDeleteError("");
   };
@@ -115,7 +116,7 @@ export default function InvestorsPage() {
   );
 
   return (
-    <div className="space-y-4 max-w-2xl mx-auto">
+    <div className="space-y-4 max-w-2xl mx-auto" onClick={() => setOpenActionId(null)}>
       <div className="pb-3 border-b border-gray-100 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Investors</h1>
         <button
@@ -176,13 +177,25 @@ export default function InvestorsPage() {
                   <p className="text-sm font-bold text-emerald-700">{sym} {formatNumber(capital)}</p>
                   <p className="text-[10px] text-gray-400 uppercase tracking-wide">Capital</p>
                 </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" onClick={e => e.stopPropagation()}>
-                  <button onClick={e => openEdit(inv, e)} className="p-1.5 rounded-lg hover:bg-violet-50 transition-colors">
-                    <Pencil size={13} className="text-violet-400" />
+                <div className="relative flex-shrink-0" onClick={e => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
+                      setOpenActionId((current) => current === inv.id ? null : inv.id);
+                    }}
+                    className="rounded-lg px-2 py-1 text-lg leading-none text-gray-500 hover:bg-gray-100"
+                    aria-label="Open actions"
+                  >
+                    ⋯
                   </button>
-                  <button onClick={e => openDelete(inv, e)} className="p-1.5 rounded-lg hover:bg-red-50 transition-colors">
-                    <Trash2 size={13} className="text-red-400" />
-                  </button>
+                  {openActionId === inv.id && (
+                    <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}>
+                      <button onClick={() => { setOpenActionId(null); openEdit(inv); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">Edit</button>
+                      <button onClick={() => { setOpenActionId(null); openDelete(inv); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">Delete</button>
+                    </div>
+                  )}
                 </div>
                 <ChevronRight size={16} className="text-gray-300 flex-shrink-0" />
               </div>
