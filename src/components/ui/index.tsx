@@ -22,6 +22,42 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { X } from "lucide-react";
 
+const MODAL_FOCUSABLE_SELECTOR = [
+  "input:not([type='hidden']):not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "button:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
+
+const SUBMIT_LABEL_REGEX = /(save|create|record|submit|apply|approve|send|confirm|delete|reset|complete|reopen|correct)/i;
+
+function isVisibleFocusable(el: HTMLElement) {
+  return !el.hasAttribute("disabled") && el.tabIndex !== -1 && el.getClientRects().length > 0;
+}
+
+function getModalFocusableElements(container: HTMLElement) {
+  return Array.from(container.querySelectorAll<HTMLElement>(MODAL_FOCUSABLE_SELECTOR))
+    .filter(isVisibleFocusable);
+}
+
+function moveModalFocus(container: HTMLElement, direction: 1 | -1) {
+  const focusables = getModalFocusableElements(container);
+  if (!focusables.length) return;
+  const current = document.activeElement as HTMLElement | null;
+  const currentIndex = current ? focusables.indexOf(current) : -1;
+  const start = currentIndex >= 0 ? currentIndex : (direction === 1 ? -1 : 0);
+  const nextIndex = (start + direction + focusables.length) % focusables.length;
+  focusables[nextIndex].focus();
+}
+
+function isSubmitLikeButton(el: HTMLElement) {
+  if (!(el instanceof HTMLButtonElement) || el.disabled) return false;
+  if (el.dataset.formSubmit === "true") return true;
+  if (typeof el.className === "string" && el.className.includes("btn-primary")) return true;
+  return SUBMIT_LABEL_REGEX.test((el.textContent || "").trim());
+}
+
 // ============================================================
 // PAGE HEADER
 // ============================================================
@@ -268,6 +304,50 @@ export function Modal({
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
+  const handleFormKeyNav = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const container = event.currentTarget;
+    const target = event.target as HTMLElement;
+
+    if (event.key === "Enter" && event.shiftKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      moveModalFocus(container, -1);
+      return;
+    }
+
+    if (event.key === "Enter") {
+      if (isSubmitLikeButton(target)) {
+        event.preventDefault();
+        event.stopPropagation();
+        (target as HTMLButtonElement).click();
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    if (event.key === "Tab") {
+      event.preventDefault();
+      event.stopPropagation();
+      moveModalFocus(container, event.shiftKey ? -1 : 1);
+      return;
+    }
+
+    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+      event.preventDefault();
+      event.stopPropagation();
+      moveModalFocus(container, 1);
+      return;
+    }
+
+    if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+      event.preventDefault();
+      event.stopPropagation();
+      moveModalFocus(container, -1);
+    }
+  };
+
   const sizes = {
     sm: "max-w-md",
     md: "max-w-lg",
@@ -290,7 +370,7 @@ export function Modal({
               </button>
             </div>
           )}
-          <div className={cn("overflow-y-auto overscroll-contain flex-1", bodyClassName || "p-4 sm:p-6")}>{children}</div>
+          <div onKeyDownCapture={handleFormKeyNav} className={cn("overflow-y-auto overscroll-contain flex-1", bodyClassName || "p-4 sm:p-6")}>{children}</div>
         </div>
       </div>
     );
@@ -304,7 +384,7 @@ export function Modal({
             <DialogTitle asChild><div className="text-base font-semibold text-gray-900">{title}</div></DialogTitle>
           </DialogHeader>
         )}
-        <div className={cn("overflow-y-auto max-h-[75vh]", hideHeader ? "" : "px-6 py-5", bodyClassName)}>{children}</div>
+        <div onKeyDownCapture={handleFormKeyNav} className={cn("overflow-y-auto max-h-[75vh]", hideHeader ? "" : "px-6 py-5", bodyClassName)}>{children}</div>
       </DialogContent>
     </Dialog>
   );
