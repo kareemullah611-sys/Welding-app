@@ -5,6 +5,14 @@ import { successResponse, errorResponse } from "@/lib/api-response";
 import { journalIntermediaryDeposit, reverseJournalEntries } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 
+function parsePositiveAmount(value: unknown): number | null {
+  const normalized = String(value ?? "").replace(/,/g, "").trim();
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
 export const PUT = withSuperAdmin(async (request: NextRequest, context: any, user: JWTPayload) => {
   const id = parseInt(context.params.id);
   const body = await request.json();
@@ -18,13 +26,20 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
   const currency = await prisma.currency.findUnique({ where: { id: currencyId } });
   if (!currency) return errorResponse("VALIDATION", "Invalid currency", 400);
 
+  let nextAmount: number | undefined;
+  if (body.amount !== undefined) {
+    const parsedAmount = parsePositiveAmount(body.amount);
+    if (!parsedAmount) return errorResponse("VALIDATION", "amount must be > 0", 400);
+    nextAmount = parsedAmount;
+  }
+
   await reverseJournalEntries(`INTDEP-${id}`, user.userId);
 
   const updated = await prisma.intermediaryDeposit.update({
     where: { id },
     data: {
       depositDate: body.depositDate ? new Date(body.depositDate) : undefined,
-      amount: body.amount ? Number(body.amount) : undefined,
+      amount: nextAmount,
       currencyId,
       sourceType: body.sourceType || undefined,
       cityId: body.cityId !== undefined ? (body.cityId ? Number(body.cityId) : null) : undefined,

@@ -14,6 +14,14 @@ const EMPTY_DEPOSIT = {
   notes: "",
 };
 
+function parseAmountInput(raw: string): number | null {
+  const normalized = String(raw || "").replace(/,/g, "").trim();
+  if (!normalized) return null;
+  const value = Number(normalized);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return value;
+}
+
 export default function IntermediariesPage() {
   const { user } = useAuth();
   const [intermediaries, setIntermediary] = useState<any[]>([]);
@@ -86,14 +94,19 @@ export default function IntermediariesPage() {
   };
 
   const handleDeposit = async () => {
-    if (!depositForm.amount || !depositForm.currencyId) {
-      setDepositError("Amount and currency are required");
+    const parsedAmount = parseAmountInput(depositForm.amount);
+    if (!parsedAmount) {
+      setDepositError("Enter a valid amount greater than 0");
+      return;
+    }
+    if (!depositForm.currencyId) {
+      setDepositError("Currency is required");
       return;
     }
     setDepositSubmitting(true);
     const body: any = {
       depositDate: depositForm.depositDate,
-      amount: Number(depositForm.amount),
+      amount: parsedAmount,
       currencyId: Number(depositForm.currencyId),
       sourceType: depositForm.sourceType,
       notes: depositForm.notes || null,
@@ -129,10 +142,15 @@ export default function IntermediariesPage() {
 
   const handleEditDeposit = async () => {
     if (!editDepositId) return;
+    const parsedAmount = parseAmountInput(editDepositForm.amount);
+    if (!parsedAmount) {
+      setEditDepositError("Enter a valid amount greater than 0");
+      return;
+    }
     setEditDepositSubmitting(true);
     const body: any = {
       depositDate: editDepositForm.depositDate,
-      amount: Number(editDepositForm.amount),
+      amount: parsedAmount,
       sourceType: editDepositForm.sourceType,
       notes: editDepositForm.notes || null,
     };
@@ -244,7 +262,14 @@ export default function IntermediariesPage() {
         </div>
         <div>
           <label className={labelCls}>Amount</label>
-          <input type="number" step="0.01" value={f.amount} onChange={e => setF({ ...f, amount: e.target.value })} className={inputCls} placeholder="0.00" />
+          <input
+            type="text"
+            inputMode="decimal"
+            value={f.amount}
+            onChange={e => setF({ ...f, amount: e.target.value })}
+            className={inputCls}
+            placeholder="0.00"
+          />
         </div>
       </div>
       <div>

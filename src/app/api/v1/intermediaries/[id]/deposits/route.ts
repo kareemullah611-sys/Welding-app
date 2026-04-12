@@ -5,12 +5,21 @@ import { successResponse, errorResponse } from "@/lib/api-response";
 import { journalIntermediaryDeposit } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 
+function parsePositiveAmount(value: unknown): number | null {
+  const normalized = String(value ?? "").replace(/,/g, "").trim();
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
 export const POST = withSuperAdmin(async (request: NextRequest, context: any, user: JWTPayload) => {
   const intermediaryId = parseInt(context.params.id);
   const body = await request.json();
 
   if (!body.depositDate) return errorResponse("VALIDATION", "depositDate required", 400);
-  if (!body.amount || Number(body.amount) <= 0) return errorResponse("VALIDATION", "amount must be > 0", 400);
+  const amount = parsePositiveAmount(body.amount);
+  if (!amount) return errorResponse("VALIDATION", "amount must be > 0", 400);
   if (!body.currencyId) return errorResponse("VALIDATION", "currencyId required", 400);
 
   const currency = await prisma.currency.findUnique({ where: { id: Number(body.currencyId) } });
@@ -38,7 +47,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
     data: {
       intermediaryId,
       depositDate: new Date(body.depositDate),
-      amount: Number(body.amount),
+      amount,
       currencyId: Number(body.currencyId),
       sourceType: sourceType as any,
       cityId,
