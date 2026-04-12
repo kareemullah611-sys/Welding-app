@@ -12,20 +12,24 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     const existing = await prisma.lotCost.findUnique({ where: { id } });
     if (!existing) return errorResponse("NOT_FOUND", "Lot cost not found", 404);
 
-    // Reverse old journal entry
-    try { await reverseJournalEntries(`COST-${id}`, user.userId); } catch (je) { console.error("Reverse journal (lot cost):", je); }
+    const nextAmount = body.amount !== undefined ? Number(body.amount) : Number(existing.amount);
+    if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+      return errorResponse("VALIDATION_ERROR", "Amount must be greater than 0", 400);
+    }
 
-    const updated = await prisma.lotCost.update({
-      where: { id },
-      data: {
-        description: body.description ?? existing.description,
-        amount: body.amount ?? existing.amount,
-        exchangeRate: body.exchangeRate ?? existing.exchangeRate,
-        notes: body.notes ?? existing.notes,
-      },
-    });
-    // Create new journal entry with updated values
-    try {
+    await prisma.$transaction(async (tx) => {
+      await reverseJournalEntries(`COST-${id}`, user.userId, tx);
+
+      const updated = await tx.lotCost.update({
+        where: { id },
+        data: {
+          description: body.description ?? existing.description,
+          amount: nextAmount,
+          exchangeRate: body.exchangeRate ?? existing.exchangeRate,
+          notes: body.notes ?? existing.notes,
+        },
+      });
+
       await journalLotCost({
         id,
         lotId: existing.lotId,
@@ -39,12 +43,13 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
         superAdminBankAccountId: (existing as any).superAdminBankAccountId || null,
         intermediaryId: (existing as any).intermediaryId || null,
         paidFromCash: (existing as any).paidFromCash === true,
-      });
-    } catch (je) { console.error("Re-journal (lot cost):", je); }
+      }, tx);
 
-    await createAuditLog(user.userId, null, "lot_costs", id, "update",
-      { amount: Number(existing.amount), description: existing.description },
-      { amount: Number(updated.amount), description: updated.description }, getClientIP(request));
+      await createAuditLog(user.userId, null, "lot_costs", id, "update",
+        { amount: Number(existing.amount), description: existing.description },
+        { amount: Number(updated.amount), description: updated.description }, getClientIP(request), tx);
+    });
+
     return successResponse({ id }, "Cost updated");
   } catch (error) { return serverError(); }
 });
@@ -55,13 +60,14 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
     const existing = await prisma.lotCost.findUnique({ where: { id } });
     if (!existing) return errorResponse("NOT_FOUND", "Lot cost not found", 404);
 
-    // Reverse journal entry
-    try { await reverseJournalEntries(`COST-${id}`, user.userId); } catch (je) { console.error("Reverse journal (lot cost delete):", je); }
+    await prisma.$transaction(async (tx) => {
+      await reverseJournalEntries(`COST-${id}`, user.userId, tx);
+      await tx.lotCost.delete({ where: { id } });
+      await createAuditLog(user.userId, null, "lot_costs", id, "delete",
+        { amount: Number(existing.amount), costType: existing.costType, lotId: existing.lotId },
+        undefined, getClientIP(request), tx);
+    });
 
-    await prisma.lotCost.delete({ where: { id } });
-    await createAuditLog(user.userId, null, "lot_costs", id, "delete",
-      { amount: Number(existing.amount), costType: existing.costType, lotId: existing.lotId },
-      undefined, getClientIP(request));
     return successResponse({ id }, "Cost deleted");
   } catch (error) { return serverError(); }
 });

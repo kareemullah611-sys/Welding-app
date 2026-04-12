@@ -38,29 +38,32 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
           : (existing.amountLocal ? Number(existing.amountLocal) : null)
       );
 
-    try { await reverseJournalEntries(`SUPPPAY-${id}`, user.userId); } catch (je) { console.error("Reverse journal (supplier payment):", je); }
+    await prisma.$transaction(async (tx) => {
+      await reverseJournalEntries(`SUPPPAY-${id}`, user.userId, tx);
 
-    const updated = await prisma.supplierPayment.update({
-      where: { id },
-      data: {
-        amountUsd: nextAmountUsd,
-        exchangeRate: parsedExchangeRate,
-        amountLocal: nextAmountLocal,
-        reference: body.reference ?? existing.reference,
-        notes: body.notes ?? existing.notes,
-      },
-    });
-    try {
+      const payment = await tx.supplierPayment.update({
+        where: { id },
+        data: {
+          amountUsd: nextAmountUsd,
+          exchangeRate: parsedExchangeRate,
+          amountLocal: nextAmountLocal,
+          reference: body.reference ?? existing.reference,
+          notes: body.notes ?? existing.notes,
+        },
+      });
+
       await journalSupplierPaid({
-        id, supplierId: existing.supplierId, amountUsd: Number(updated.amountUsd),
-        paymentDate: updated.paymentDate, createdBy: user.userId,
+        id, supplierId: existing.supplierId, amountUsd: Number(payment.amountUsd),
+        paymentDate: payment.paymentDate, createdBy: user.userId,
         bankAccountId: (existing as any).bankAccountId || null,
         intermediaryId: (existing as any).intermediaryId || null,
-      });
-    } catch (je) { console.error("Re-journal (supplier payment):", je); }
+      }, tx);
 
-    await createAuditLog(user.userId, null, "supplier_payments", id, "update",
-      { amountUsd: Number(existing.amountUsd) }, { amountUsd: Number(updated.amountUsd) }, getClientIP(request));
+      await createAuditLog(user.userId, null, "supplier_payments", id, "update",
+        { amountUsd: Number(existing.amountUsd) }, { amountUsd: Number(payment.amountUsd) }, getClientIP(request), tx);
+
+    });
+
     return successResponse({ id }, "Payment updated");
   } catch (error) { return serverError(); }
 });
@@ -71,11 +74,13 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
     const existing = await prisma.supplierPayment.findUnique({ where: { id } });
     if (!existing) return errorResponse("NOT_FOUND", "Supplier payment not found", 404);
 
-    try { await reverseJournalEntries(`SUPPPAY-${id}`, user.userId); } catch (je) { console.error("Reverse journal (supplier payment delete):", je); }
+    await prisma.$transaction(async (tx) => {
+      await reverseJournalEntries(`SUPPPAY-${id}`, user.userId, tx);
+      await tx.supplierPayment.delete({ where: { id } });
+      await createAuditLog(user.userId, null, "supplier_payments", id, "delete",
+        { amountUsd: Number(existing.amountUsd), supplierId: existing.supplierId }, undefined, getClientIP(request), tx);
+    });
 
-    await prisma.supplierPayment.delete({ where: { id } });
-    await createAuditLog(user.userId, null, "supplier_payments", id, "delete",
-      { amountUsd: Number(existing.amountUsd), supplierId: existing.supplierId }, undefined, getClientIP(request));
     return successResponse({ id }, "Payment deleted");
   } catch (error) { return serverError(); }
 });

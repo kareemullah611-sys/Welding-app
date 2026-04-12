@@ -231,7 +231,18 @@ export const createLotPurchaseSchema = z.object({
 // ============================================================
 export const createLotCostSchema = z.object({
   lotId: z.number().int().positive(),
-  costType: z.enum(["purchase_price", "freight", "customs_duty", "port_charges", "transport", "loading_unloading", "insurance", "other"]),
+  costType: z.enum([
+    "purchase_price",
+    "freight",
+    "customs_duty",
+    "customs_agent",
+    "clearing_agent",
+    "port_charges",
+    "transport",
+    "loading_unloading",
+    "insurance",
+    "other",
+  ]),
   description: z.string().min(1).max(500),
   amount: z.number().positive(),
   currencyCode: z.string().max(10).default("USD"),

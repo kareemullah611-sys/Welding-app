@@ -11,24 +11,34 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     const lot = await prisma.lot.findUnique({ where: { id }, include: { country: true, creator: { select: { id: true, fullName: true } } } }) as any;
     if (!lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
 
+    if (user.role === "city_admin") {
+      if (!user.cityId || !user.countryId || lot.countryId !== user.countryId) {
+        return errorResponse("FORBIDDEN", "Lot not in your city scope", 403);
+      }
+      const cityDistributionCount = await prisma.lotCityDistribution.count({
+        where: { lotId: id, cityId: user.cityId },
+      });
+      if (cityDistributionCount === 0) {
+        return errorResponse("FORBIDDEN", "Lot not in your city", 403);
+      }
+    }
+
     // Separate safe queries
     let lotProducts: any[] = [];
     try { lotProducts = await prisma.lotProduct.findMany({ where: { lotId: id }, include: { product: true } }); } catch (e) {}
 
     let distributions: any[] = [];
     try {
-      const dists = await prisma.lotCityDistribution.findMany({ where: { lotId: id }, include: { city: true, product: true, godownAllocations: { include: { godown: true } } } });
+      const dists = await prisma.lotCityDistribution.findMany({
+        where: { lotId: id, ...(user.role === "city_admin" ? { cityId: user.cityId! } : {}) },
+        include: { city: true, product: true, godownAllocations: { include: { godown: true } } },
+      });
       distributions = dists.map((d: any) => ({
         cityId: d.cityId, cityName: d.city.name, productId: d.productId, productName: d.product.name,
         allocatedQty: Number(d.allocatedQty),
         godownAllocations: d.godownAllocations.map((ga: any) => ({ godownId: ga.godownId, godownName: ga.godown.name, qty: Number(ga.qty) })),
       }));
     } catch (e) {}
-
-    if (user.role === "city_admin") {
-      const hasCity = distributions.some((d: any) => d.cityId === user.cityId);
-      if (!hasCity && distributions.length > 0) return errorResponse("FORBIDDEN", "Lot not in your city", 403);
-    }
 
     let sales: any[] = [], payments: any[] = [], expenses: any[] = [], hajiTransfers: any[] = [];
     try { sales = await prisma.sale.findMany({ where: { lotId: id, status: "active" }, select: { id: true, voucherNo: true, totalAmount: true, saleDate: true, customer: { select: { name: true } }, items: { select: { qty: true, amount: true, product: { select: { id: true, name: true } } } } }, orderBy: { saleDate: "desc" }, take: 100 }); } catch (e) {}

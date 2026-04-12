@@ -3,7 +3,7 @@ import prisma from "@/lib/prisma";
 import { journalLotCost } from "@/lib/accounting";
 import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { createLotCostSchema } from "@/lib/validations";
-import { successResponse, validationError, errorResponse, serverError, getPaginationParams } from "@/lib/api-response";
+import { successResponse, validationError, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { validatePaymentSource } from "@/lib/payment-source-validation";
 
@@ -30,28 +30,28 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
 export const POST = withSuperAdmin(async (request: NextRequest, context, user: JWTPayload) => {
   try {
     const body = await request.json();
-    if (!body.lotId || !body.costType || !body.description || !body.amount) {
-      return validationError("Lot, type, description, and amount required");
-    }
+    const parsed = createLotCostSchema.safeParse(body);
+    if (!parsed.success) return validationError("Invalid lot cost data", parsed.error.errors);
+    const input = parsed.data;
 
-    const amount = Number(body.amount);
+    const amount = Number(input.amount);
     if (!Number.isFinite(amount) || amount <= 0) return validationError("Amount must be greater than 0");
 
     const lot = await prisma.lot.findUnique({
-      where: { id: body.lotId },
+      where: { id: input.lotId },
       include: { country: { select: { code: true, name: true } } },
     });
     if (!lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
 
-    const costType = String(body.costType || "");
+    const costType = String(input.costType || "");
     const isFreight = costType === "freight";
-    const agentId = body.agentId ? Number(body.agentId) : null;
-    const shippingLineId = body.shippingLineId ? Number(body.shippingLineId) : null;
-    const bankAccountId = body.bankAccountId ? Number(body.bankAccountId) : null;
-    const superAdminBankAccountId = body.superAdminBankAccountId ? Number(body.superAdminBankAccountId) : null;
-    const intermediaryId = body.intermediaryId ? Number(body.intermediaryId) : null;
-    const paidFromCash = body.paidFromCash === true;
-    const requestedCurrency = String(body.currencyCode || "").toUpperCase();
+    const agentId = input.agentId ? Number(input.agentId) : null;
+    const shippingLineId = input.shippingLineId ? Number(input.shippingLineId) : null;
+    const bankAccountId = input.bankAccountId ? Number(input.bankAccountId) : null;
+    const superAdminBankAccountId = input.superAdminBankAccountId ? Number(input.superAdminBankAccountId) : null;
+    const intermediaryId = input.intermediaryId ? Number(input.intermediaryId) : null;
+    const paidFromCash = input.paidFromCash === true;
+    const requestedCurrency = String(input.currencyCode || "").toUpperCase();
     const lotCountryCode = String(lot.country?.code || "").toUpperCase();
     const nonFreightCurrency = lotCountryCode === "AFG" ? "AFN" : "PKR";
 
@@ -66,7 +66,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       if (requestedCurrency && requestedCurrency !== "USD") {
         return validationError("Freight must be recorded in USD");
       }
-      const parsedRate = Number(body.exchangeRate);
+      const parsedRate = Number(input.exchangeRate);
       if (!Number.isFinite(parsedRate) || parsedRate <= 0) {
         return validationError("Costing exchange rate is required for freight");
       }
@@ -76,7 +76,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         return validationError(`Only freight can be USD. Non-freight costs for ${lot.country?.name || "this lot"} must be in ${nonFreightCurrency}`);
       }
       if (nonFreightCurrency === "AFN") {
-        const afnToPkrRate = Number(body.exchangeRate);
+        const afnToPkrRate = Number(input.exchangeRate);
         if (!Number.isFinite(afnToPkrRate) || afnToPkrRate <= 0) {
           return validationError("AFN→PKR exchange rate is required for Afghanistan non-freight costs");
         }
@@ -128,26 +128,26 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     const cost = await prisma.$transaction(async (tx) => {
       const createdCost = await tx.lotCost.create({
         data: {
-          lotId: body.lotId, costType: body.costType as any,
-          description: body.description, amount,
+          lotId: input.lotId, costType: input.costType as any,
+          description: input.description, amount,
           currencyCode,
           exchangeRate,
-          costDate: body.costDate ? new Date(body.costDate) : null,
+          costDate: input.costDate ? new Date(input.costDate) : null,
           agentId,
           shippingLineId,
           bankAccountId,
           superAdminBankAccountId,
           intermediaryId,
           paidFromCash,
-          notes: body.notes || null, createdBy: user.userId,
+          notes: input.notes || null, createdBy: user.userId,
         },
       });
 
-      await createAuditLog(user.userId, null, "lot_costs", createdCost.id, "create", undefined, body, getClientIP(request), tx);
+      await createAuditLog(user.userId, null, "lot_costs", createdCost.id, "create", undefined, input, getClientIP(request), tx);
       await journalLotCost({
         id: createdCost.id,
-        lotId: body.lotId,
-        costType: body.costType,
+        lotId: input.lotId,
+        costType: input.costType,
         amount,
         currencyCode,
         createdBy: user.userId,

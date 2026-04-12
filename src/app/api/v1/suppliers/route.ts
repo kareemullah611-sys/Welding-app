@@ -10,13 +10,19 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
     const { page, limit, skip } = getPaginationParams(request.nextUrl.searchParams);
     const [suppliers, total] = await Promise.all([
       prisma.supplier.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, skip, take: limit,
-        include: { _count: { select: { lotPurchases: true, supplierPayments: true } } },
+        include: {
+          lotPurchases: { select: { totalPriceUsd: true } },
+          supplierPayments: { select: { amountUsd: true } },
+        },
       }),
       prisma.supplier.count({ where: { isActive: true } }),
     ]);
     const formatted = suppliers.map((s) => ({
       id: s.id, name: s.name, country: s.country, contact: s.contact, notes: s.notes, isActive: s.isActive,
-      totalPurchases: s._count.lotPurchases, totalPayments: s._count.supplierPayments,
+      totalPurchases: s.lotPurchases.reduce((sum, p) => sum + Number(p.totalPriceUsd || 0), 0),
+      totalPayments: s.supplierPayments.reduce((sum, p) => sum + Number(p.amountUsd || 0), 0),
+      purchasesCount: s.lotPurchases.length,
+      paymentsCount: s.supplierPayments.length,
     }));
     return paginatedResponse(formatted, total, page, limit);
   } catch (error) { console.error("List suppliers error:", error); return serverError(); }

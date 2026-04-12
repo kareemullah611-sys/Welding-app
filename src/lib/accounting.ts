@@ -154,19 +154,22 @@ export async function journalLotPurchase(p: { id: number; supplierId: number; lo
 }
 
 // SUPPLIER PAID
-export async function journalSupplierPaid(p: { id: number; supplierId: number; amountUsd: number; paymentDate: Date; createdBy: number; bankAccountId?: number | null; intermediaryId?: number | null; }) {
+export async function journalSupplierPaid(
+  p: { id: number; supplierId: number; amountUsd: number; paymentDate: Date; createdBy: number; bankAccountId?: number | null; intermediaryId?: number | null; },
+  db: DbClient = prisma
+) {
   let creditAccId: number;
   if (p.intermediaryId) {
-    creditAccId = await getIntermediaryAccountId(p.intermediaryId);
+    creditAccId = await getIntermediaryAccountId(p.intermediaryId, db);
   } else if (p.bankAccountId) {
-    creditAccId = await getBankGLAccountId(p.bankAccountId);
+    creditAccId = await getBankGLAccountId(p.bankAccountId, db);
   } else {
-    creditAccId = await getBankAccountId();
+    creditAccId = await getBankAccountId(db);
   }
   await createJournalEntries(`SUPPPAY-${p.id}`, [
-    { accountId: await getSupplierAccountId(p.supplierId), debit: p.amountUsd, credit: 0, description: `Payment to supplier` },
+    { accountId: await getSupplierAccountId(p.supplierId, db), debit: p.amountUsd, credit: 0, description: `Payment to supplier` },
     { accountId: creditAccId, debit: 0, credit: p.amountUsd, description: p.intermediaryId ? `Through intermediary` : `Bank to supplier` },
-  ], { currencyCode: "USD", entityType: "supplier_payment", entityId: p.id, entryDate: p.paymentDate, createdBy: p.createdBy });
+  ], { currencyCode: "USD", entityType: "supplier_payment", entityId: p.id, entryDate: p.paymentDate, createdBy: p.createdBy }, db);
 }
 
 // LOT COST (customs, freight, transport - on agent credit or cash)
@@ -189,7 +192,7 @@ export async function journalLotCost(c: {
   let creditAccId: number;
   if (c.shippingLineId) { creditAccId = await getShippingLineAccountId(c.shippingLineId, db); }
   else if (c.agentId) { creditAccId = await getAgentAccountId(c.agentId, db); }
-  else if (c.intermediaryId) { creditAccId = await getIntermediaryAccountId(c.intermediaryId); }
+  else if (c.intermediaryId) { creditAccId = await getIntermediaryAccountId(c.intermediaryId, db); }
   else if (c.superAdminBankAccountId) { creditAccId = await getSuperAdminBankGLAccountId(c.superAdminBankAccountId, db); }
   else if (c.bankAccountId) { creditAccId = await getBankGLAccountId(c.bankAccountId, db); }
   else if (c.paidFromCash && c.cityId) { creditAccId = await getCashAccountId(c.cityId, db); }
@@ -265,9 +268,9 @@ export async function journalHajiTransfer(h: { id: number; cityId: number; amoun
 }
 
 // INTERMEDIARY (HAWALA) ACCOUNT
-export async function getIntermediaryAccountId(intermediaryId: number): Promise<number> {
-  const party = await prisma.intermediary.findUnique({ where: { id: intermediaryId }, select: { name: true } });
-  return getOrCreateAccount(`1060-H${intermediaryId}`, `Intermediary - ${party?.name || intermediaryId}`, "asset");
+export async function getIntermediaryAccountId(intermediaryId: number, db: DbClient = prisma): Promise<number> {
+  const party = await db.intermediary.findUnique({ where: { id: intermediaryId }, select: { name: true } });
+  return getOrCreateAccount(`1060-H${intermediaryId}`, `Intermediary - ${party?.name || intermediaryId}`, "asset", undefined, db);
 }
 
 // INTERMEDIARY DEPOSIT — money sent TO the intermediary
@@ -343,11 +346,11 @@ export async function journalSaleCOGS(params: {
 }
 
 // REVERSE (for cancellations)
-export async function reverseJournalEntries(transactionId: string, createdBy: number) {
-  const entries = await prisma.journalEntry.findMany({ where: { transactionId } });
+export async function reverseJournalEntries(transactionId: string, createdBy: number, db: DbClient = prisma) {
+  const entries = await db.journalEntry.findMany({ where: { transactionId } });
   if (entries.length === 0) return;
   const now = new Date();
-  await prisma.journalEntry.createMany({
+  await db.journalEntry.createMany({
     data: entries.map((e) => ({
       transactionId: `REV-${transactionId}`, accountId: e.accountId,
       debit: Number(e.credit), credit: Number(e.debit),

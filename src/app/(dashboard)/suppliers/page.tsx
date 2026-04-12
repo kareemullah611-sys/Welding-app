@@ -253,7 +253,7 @@ export default function SuppliersPage() {
     <div>
       <PageHeader
         title={t("suppliers")}
-        subtitle={t("company_accounts_subtitle")}
+        subtitle={t("payments_to_supplier_subtitle")}
         action={
           <button
             onClick={() => { setForm({ name: "", country: "", contact: "", notes: "" }); setShowCreate(true); setError(""); }}
@@ -274,8 +274,8 @@ export default function SuppliersPage() {
             ),
           },
           { key: "country", label: t("country"), render: (s: any) => s.country || "-" },
-          { key: "totalPurchases", label: t("purchases") },
-          { key: "totalPayments", label: t("payments") },
+          { key: "totalPurchases", label: t("purchases"), render: (s: any) => `$${formatNumber(Number(s.totalPurchases || 0))}` },
+          { key: "totalPayments", label: t("payments"), render: (s: any) => `$${formatNumber(Number(s.totalPayments || 0))}` },
           ...(isSuperAdmin ? [{
             key: "actions", label: "",
             render: (s: any) => (
