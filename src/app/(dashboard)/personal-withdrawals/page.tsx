@@ -80,6 +80,12 @@ export default function PersonalWithdrawalsPage() {
     setStatusFilter(user?.role === "super_admin" ? "pending" : "all");
   }, [user?.role]);
 
+  useEffect(() => {
+    const handleClick = () => setOpenActionId(null);
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, []);
+
   const formatPot = (pot: Record<string, number> | undefined) => {
     if (!pot) return "0";
     const entries = Object.entries(pot).filter(([, v]) => Number(v) !== 0);
@@ -156,7 +162,7 @@ export default function PersonalWithdrawalsPage() {
   }, {});
 
   return (
-    <div onClick={() => setOpenActionId(null)}>
+    <div>
       {!isEmbed && <PageHeader
         title={t("personal_withdrawals")}
         subtitle={`${total} ${t("records").toLowerCase()}`}

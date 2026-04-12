@@ -29,6 +29,12 @@ export default function GodownsPage() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    const handleClick = () => setOpenActionId(null);
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, []);
+
   const openCreate = async () => {
     if (user?.role === "super_admin") { const cityRes = await apiCall("/api/v1/cities"); if (cityRes.success) setCities(cityRes.data as any[]); }
     setForm({ name: "", cityId: user?.cityId || 0 }); setShowCreate(true); setFormError("");
@@ -59,7 +65,7 @@ export default function GodownsPage() {
   };
 
   return (
-    <div onClick={() => setOpenActionId(null)}>
+    <div>
       <PageHeader title={t("godowns")} subtitle={`${godowns.length} ${t("godowns").toLowerCase()}`} action={<button onClick={openCreate} className="btn-primary text-sm">+ {t("new_godown")}</button>} />
       <DataTable columns={[
         { key: "name", label: t("godown_name"), render: (g: any) => <span className="font-medium">{g.name}</span> },

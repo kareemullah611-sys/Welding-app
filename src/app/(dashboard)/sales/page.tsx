@@ -101,6 +101,12 @@ export default function SalesPage() {
     if (lastSyncResult && lastSyncResult.synced > 0) loadSales();
   }, [lastSyncResult, loadSales]);
 
+  useEffect(() => {
+    const handleClick = () => setOpenActionId(null);
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, []);
+
   const loadDropdowns = async () => {
     const [custRes, gdRes, prodRes, lotRes, cityRes] = await Promise.all([
       Promise.resolve({ success: true, data: [] }), // customers loaded on-demand via CustomerSearch
@@ -302,7 +308,7 @@ export default function SalesPage() {
   };
 
   return (
-    <div onClick={() => setOpenActionId(null)}>
+    <div>
       {!isEmbed && <PageHeader title={t("sales")} subtitle={`${total} ${t("records").toLowerCase()}`} />}
       {!isEmbed && (
       <>

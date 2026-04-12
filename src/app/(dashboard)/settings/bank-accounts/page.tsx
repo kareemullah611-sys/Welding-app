@@ -35,6 +35,12 @@ export default function BankAccountsPage() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
+    const handleClick = () => setOpenActionId(null);
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, []);
+
+  useEffect(() => {
     if (isSA) {
       apiCall("/api/v1/currencies").then(r => {
         if (r.success) setCurrencies(r.data as any[]);
@@ -158,7 +164,7 @@ export default function BankAccountsPage() {
   ];
 
   return (
-    <div onClick={() => setOpenActionId(null)}>
+    <div>
       <PageHeader
         title={t("bank_accounts")}
         subtitle={isSA ? "Manage super admin bank accounts" : "Manage bank accounts for your city"}

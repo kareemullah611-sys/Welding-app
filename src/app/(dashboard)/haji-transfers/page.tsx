@@ -90,6 +90,12 @@ export default function HajiTransfersPage() {
     window.history.replaceState({}, "", isEmbed ? "/haji-transfers?embed=1" : "/haji-transfers");
   }, [prefillHandled, searchParams, user?.role]);
 
+  useEffect(() => {
+    const handleClick = () => setOpenActionId(null);
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, []);
+
   // Group totals by transferredTo person
   const personTotals = items.reduce((acc: Record<string, Record<string, number>>, tr: any) => {
     const name = tr.transferredTo || "—";
@@ -220,7 +226,7 @@ export default function HajiTransfersPage() {
   const getSourceType = (tr: any) => tr.sourceType || (tr.transferType === "direct" ? "bank_transfer" : "cash_office");
 
   return (
-    <div onClick={() => setOpenActionId(null)}>
+    <div>
       {!isEmbed && <PageHeader
         title={t("haji_transfers")}
         subtitle={`${total} ${t("records").toLowerCase()}`}

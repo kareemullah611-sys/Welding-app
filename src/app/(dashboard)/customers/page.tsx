@@ -53,6 +53,12 @@ export default function CustomersPage() {
     window.history.replaceState({}, "", isEmbed ? "/customers?embed=1" : "/customers");
   }, [prefillHandled, searchParams, user?.role]);
 
+  useEffect(() => {
+    const handleClick = () => setOpenActionId(null);
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, []);
+
   const openCreate = () => { setForm({ name: "", phone: "", address: "", cityId: user?.cityId || 0 }); setShowCreate(true); setFormError(""); };
   const handleCreate = async () => {
     if (!form.name.trim()) { setFormError("Name required"); return; }
@@ -99,7 +105,7 @@ export default function CustomersPage() {
   };
 
   return (
-    <div onClick={() => setOpenActionId(null)}>
+    <div>
       {!isEmbed && <PageHeader title={t("customers")} subtitle={`${total} ${t("customers").toLowerCase()}`} />}
       {!isEmbed && <DataTable columns={[
         { key: "name", label: t("name"), render: (c: any) => (

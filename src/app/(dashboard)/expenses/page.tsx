@@ -84,6 +84,12 @@ export default function ExpensesPage() {
     if (lastSyncResult && lastSyncResult.synced > 0) load();
   }, [lastSyncResult, load]);
 
+  useEffect(() => {
+    const handleClick = () => setOpenActionId(null);
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, []);
+
   const openCreate = async () => {
     const requests: Promise<any>[] = [
       apiCall("/api/v1/lots", { params: { limit: 100, status: "ongoing" } }),
@@ -192,7 +198,7 @@ export default function ExpensesPage() {
   };
 
   return (
-    <div onClick={() => setOpenActionId(null)}>
+    <div>
       {!isEmbed && <PageHeader
         title={t("expenses")}
         subtitle={`${total} ${t("records").toLowerCase()}`}

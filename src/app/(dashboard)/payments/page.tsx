@@ -128,6 +128,12 @@ export default function PaymentsPage() {
   useEffect(() => { setPage(1); }, [typeFilter]);
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    const handleClick = () => setOpenActionId(null);
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, []);
+
   // Reload from server after queued entries sync
   useEffect(() => {
     if (lastSyncResult && lastSyncResult.synced > 0) load();
@@ -563,7 +569,7 @@ export default function PaymentsPage() {
   const showSuperAdminBankAccountSelect = needsBankAccountSelection && form.destination === "haji";
 
   return (
-    <div onClick={() => setOpenActionId(null)}>
+    <div>
       {!isEmbed && <PageHeader
         title={t("payments")}
         subtitle={`${total} ${t("records").toLowerCase()}`}
