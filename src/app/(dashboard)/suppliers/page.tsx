@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, DataTable, Modal, StatsCard, formatDate, formatNumber } from "@/components/ui";
+import { PageHeader, DataTable, Modal, StatsCard, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 
 export default function SuppliersPage() {
@@ -365,30 +365,26 @@ export default function SuppliersPage() {
             )}
           </div>
           <DataTable columns={[
-            { key: "paymentDate", label: t("date"), render: (p: any) => formatDate(p.paymentDate) },
-            { key: "lotNumber", label: t("lot") },
-            { key: "amountUsd", label: t("amount_usd"), render: (p: any) => <span className="font-medium text-green-700">${Number(p.amountUsd || 0).toLocaleString("en-US")}</span> },
-            { key: "paymentMethod", label: t("method"), render: (p: any) => METHODS.find((m) => m.value === p.paymentMethod)?.label || p.paymentMethod },
-            { key: "channel", label: "Channel", render: (p: any) => p.intermediaryName ? `Intermediary · ${p.intermediaryName}` : (p.bankAccountName ? `Bank · ${p.bankAccountName}` : "—") },
-            { key: "reference", label: t("reference"), render: (p: any) => p.reference || "-" },
-            ...(isSuperAdmin ? [{
-              key: "actions", label: "",
-              render: (p: any) => (
-                <div className="flex gap-2">
-                  <button onClick={() => openPaymentEdit(p)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button>
-                  <button onClick={() => handlePaymentDelete(p)} className="text-xs text-red-600 hover:underline">{t("delete")}</button>
-                </div>
-              ),
-            }] : []),
-          ]} data={ledgerData.payments || []} loading={false} />
-          <div className="my-3 border-t border-gray-100" />
-          <DataTable columns={[
             { key: "date", label: t("date") },
             { key: "type", label: t("type"), render: (e: any) => <span className={`text-xs px-1.5 py-0.5 rounded ${e.type === "purchase" ? "bg-blue-50 text-blue-700" : "bg-green-50 text-green-700"}`}>{e.type}</span> },
             { key: "description", label: t("description") },
             { key: "debit", label: t("debit_usd"), render: (e: any) => e.debit ? <span className="text-red-600">${e.debit.toLocaleString("en-US")}</span> : "" },
             { key: "credit", label: t("credit_usd"), render: (e: any) => e.credit ? <span className="text-green-600">${e.credit.toLocaleString("en-US")}</span> : "" },
             { key: "balance", label: t("balance"), render: (e: any) => <span className="font-medium">${e.balance.toLocaleString("en-US")}</span> },
+            ...(isSuperAdmin ? [{
+              key: "actions", label: "",
+              render: (e: any) => {
+                if (e.type !== "payment") return null;
+                const payment = (ledgerData?.payments || []).find((p: any) => p.id === e.sourceId);
+                if (!payment) return null;
+                return (
+                  <div className="flex gap-2">
+                    <button onClick={() => openPaymentEdit(payment)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button>
+                    <button onClick={() => handlePaymentDelete(payment)} className="text-xs text-red-600 hover:underline">{t("delete")}</button>
+                  </div>
+                );
+              },
+            }] : []),
           ]} data={ledgerData.ledger || []} loading={false} />
         </>}
       </Modal>

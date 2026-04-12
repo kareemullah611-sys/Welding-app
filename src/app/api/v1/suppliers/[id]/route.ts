@@ -53,10 +53,24 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, use
 function buildSupplierLedger(supplier: any) {
   const entries: any[] = [];
   for (const p of supplier.lotPurchases) {
-    entries.push({ date: p.lot.lotDate, type: "purchase", description: `${p.product.name} × ${Number(p.qty)} (Lot ${p.lot.lotNumber})`, debit: Number(p.totalPriceUsd), credit: 0 });
+    entries.push({
+      date: p.lot.lotDate,
+      type: "purchase",
+      description: `${p.product.name} × ${Number(p.qty)} (Lot ${p.lot.lotNumber})`,
+      debit: Number(p.totalPriceUsd),
+      credit: 0,
+      sourceId: p.id,
+    });
   }
   for (const p of supplier.supplierPayments) {
-    entries.push({ date: p.paymentDate, type: "payment", description: `Payment ${p.paymentMethod} ${p.reference || ""}`.trim() + (p.lot ? ` (Lot ${p.lot.lotNumber})` : ""), debit: 0, credit: Number(p.amountUsd) });
+    entries.push({
+      date: p.paymentDate,
+      type: "payment",
+      description: `Payment ${p.paymentMethod} ${p.reference || ""}`.trim() + (p.lot ? ` (Lot ${p.lot.lotNumber})` : ""),
+      debit: 0,
+      credit: Number(p.amountUsd),
+      sourceId: p.id,
+    });
   }
   entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   let balance = 0;
