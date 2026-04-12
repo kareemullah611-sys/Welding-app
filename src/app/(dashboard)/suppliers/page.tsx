@@ -303,9 +303,10 @@ export default function SuppliersPage() {
           ...(isSuperAdmin ? [{
             key: "actions", label: "",
             render: (s: any) => (
-              <div className="relative" onClick={(event) => event.stopPropagation()} data-action-menu-root="true">
+              <div className="relative" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} data-action-menu-root="true">
                 <button
                   type="button"
+                  onPointerDown={(event) => { event.stopPropagation(); }}
                   onClick={(event) => {
                     event.stopPropagation();
                     setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
@@ -417,9 +418,10 @@ export default function SuppliersPage() {
                 const payment = (ledgerData?.payments || []).find((p: any) => p.id === e.sourceId);
                 if (!payment) return null;
                 return (
-                  <div className="relative" onClick={(event) => event.stopPropagation()} data-action-menu-root="true">
+                  <div className="relative" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} data-action-menu-root="true">
                     <button
                       type="button"
+                      onPointerDown={(event) => { event.stopPropagation(); }}
                       onClick={(event) => {
                         event.stopPropagation();
                         setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));

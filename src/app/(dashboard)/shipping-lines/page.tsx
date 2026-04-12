@@ -129,9 +129,10 @@ export default function ShippingLinesPage() {
     {
       key: "actions", label: "",
       render: (sl: any) => (
-        <div className="relative" onClick={(event) => event.stopPropagation()}>
+        <div className="relative" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
           <button
             type="button"
+            onPointerDown={(event) => { event.stopPropagation(); }}
             onClick={(event) => {
               event.stopPropagation();
               setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));

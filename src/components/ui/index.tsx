@@ -307,6 +307,9 @@ export function Modal({
   const handleFormKeyNav = (event: React.KeyboardEvent<HTMLDivElement>) => {
     const container = event.currentTarget;
     const target = event.target as HTMLElement;
+    const hasLocalNav = Boolean(target.closest("[data-modal-nav='local']"));
+
+    if (hasLocalNav) return;
 
     if (event.key === "Enter" && event.shiftKey) {
       event.preventDefault();
@@ -324,6 +327,17 @@ export function Modal({
       }
       event.preventDefault();
       event.stopPropagation();
+      const focusables = getModalFocusableElements(container);
+      const currentIndex = focusables.indexOf(target);
+      const isLastField = currentIndex >= 0 && currentIndex === focusables.length - 1;
+      if (isLastField) {
+        const submitButton = focusables.find(isSubmitLikeButton);
+        if (submitButton) {
+          (submitButton as HTMLButtonElement).click();
+          return;
+        }
+      }
+      moveModalFocus(container, 1);
       return;
     }
 

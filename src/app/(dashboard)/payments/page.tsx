@@ -516,9 +516,10 @@ export default function PaymentsPage() {
         // Pending (offline) rows have no server ID — disable all mutating actions
         if (item._pending) return <span className="text-xs text-gray-400 italic">syncing…</span>;
         return (
-          <div className="relative" onClick={(e) => e.stopPropagation()}>
+          <div className="relative" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
             <button
               type="button"
+              onPointerDown={(event) => { event.stopPropagation(); }}
               onClick={(event) => {
                 event.stopPropagation();
                 setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));

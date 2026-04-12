@@ -134,9 +134,10 @@ export default function CustomersPage() {
           return <span>-</span>;
         }},
         { key: "actions", label: "", render: (c: any) => (
-          <div className="relative" onClick={(e) => e.stopPropagation()}>
+          <div className="relative" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
             <button
               type="button"
+              onPointerDown={(event) => { event.stopPropagation(); }}
               onClick={(event) => {
                 event.stopPropagation();
                 setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));

@@ -180,6 +180,7 @@ export default function InvestorsPage() {
                 <div className="relative flex-shrink-0" onClick={e => e.stopPropagation()}>
                   <button
                     type="button"
+                    onPointerDown={(event) => { event.stopPropagation(); }}
                     onClick={(event) => {
                       event.stopPropagation();
                       setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));

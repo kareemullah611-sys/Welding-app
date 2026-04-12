@@ -138,9 +138,10 @@ export default function BankAccountsPage() {
     {
       key: "actions", label: "",
       render: (acc: any) => (
-        <div className="relative" onClick={(e) => e.stopPropagation()}>
+        <div className="relative" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
           <button
             type="button"
+            onPointerDown={(event) => { event.stopPropagation(); }}
             onClick={(event) => {
               event.stopPropagation();
               setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));

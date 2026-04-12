@@ -17,6 +17,7 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
   const [selectedName, setSelectedName] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
 
   // When value is cleared from outside (form reset), clear internal state
   useEffect(() => {
@@ -42,15 +43,51 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
     setLoading(true);
     const r = await apiCall("/api/v1/customers", { params: { search: q, limit: 10, is_active: "true" } });
     setLoading(false);
-    if (r.success) { setResults(r.data as any[]); setOpen(true); }
+    if (r.success) {
+      const list = r.data as any[];
+      setResults(list);
+      setActiveIndex(list.length > 0 ? 1 : 0);
+      setOpen(true);
+    }
   }, []);
 
   const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const q = e.target.value;
     setQuery(q);
-    if (!q) { onChange(0, ""); setSelectedName(""); setResults([]); setOpen(false); return; }
+    if (!q) { onChange(0, ""); setSelectedName(""); setResults([]); setOpen(false); setActiveIndex(0); return; }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => search(q), 250);
+  };
+
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const optionsCount = 1 + results.length; // walk-in + search results
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setOpen(true);
+      setActiveIndex((prev) => (prev + 1 + optionsCount) % optionsCount);
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setOpen(true);
+      setActiveIndex((prev) => (prev - 1 + optionsCount) % optionsCount);
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (!open) return;
+      if (activeIndex <= 0) {
+        selectWalkin();
+      } else {
+        const picked = results[activeIndex - 1];
+        if (picked) select(picked);
+      }
+      return;
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setOpen(false);
+    }
   };
 
   const select = (c: any) => {
@@ -88,10 +125,12 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
           type="text"
           value={query}
           onChange={handleInput}
+          onKeyDown={handleInputKeyDown}
           onFocus={() => { setOpen(true); }}
           placeholder={placeholder}
           className="input-field w-full"
           autoComplete="off"
+          data-modal-nav="local"
         />
       )}
 
@@ -102,7 +141,7 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
           <button
             type="button"
             onMouseDown={(e) => { e.preventDefault(); selectWalkin(); }}
-            className="w-full text-left px-3 py-2 text-sm hover:bg-orange-50 flex items-center gap-2 border-b border-gray-100"
+            className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 border-b border-gray-100 ${activeIndex === 0 ? "bg-orange-50" : "hover:bg-orange-50"}`}
           >
             <span className="text-orange-500">🚶</span>
             <span className="font-medium text-orange-700">{WALKIN_NAME}</span>
@@ -114,12 +153,12 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
           {!query && !loading && (
             <div className="px-3 py-2 text-xs text-gray-400">Type to search customers…</div>
           )}
-          {results.map((c) => (
+          {results.map((c, idx) => (
             <button
               key={c.id}
               type="button"
               onMouseDown={(e) => { e.preventDefault(); select(c); }}
-              className="w-full text-left px-3 py-2 text-sm hover:bg-primary-50 flex flex-col"
+              className={`w-full text-left px-3 py-2 text-sm flex flex-col ${activeIndex === idx + 1 ? "bg-primary-50" : "hover:bg-primary-50"}`}
             >
               <span className="font-medium text-gray-800">{c.name}</span>
               {c.phone && <span className="text-xs text-gray-400">{c.phone}</span>}

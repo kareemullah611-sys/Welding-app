@@ -90,9 +90,10 @@ export default function AgentsPage() {
         { key: "balance", label: t("balance_owed"), render: (a: any) => <div>{Object.entries(a.balance || {}).map(([cc, bal]: [string, any]) => <div key={cc} className={`text-sm font-medium ${bal > 0 ? "text-red-600" : "text-green-600"}`}>{cc} {bal.toLocaleString("en-US")}</div>)}</div> },
         {
           key: "actions", label: "", render: (a: any) => (
-            <div className="relative" onClick={(event) => event.stopPropagation()}>
+            <div className="relative" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
               <button
                 type="button"
+                onPointerDown={(event) => { event.stopPropagation(); }}
                 onClick={(event) => {
                   event.stopPropagation();
                   setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));

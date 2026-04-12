@@ -682,11 +682,12 @@ export default function LotsPage() {
     {
       key: "actions", label: t("actions"),
       render: (l: any) => (
-        <div className="relative" onClick={(event) => event.stopPropagation()}>
+        <div className="relative" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
           {user?.role === "super_admin" && (
             <>
               <button
                 type="button"
+                onPointerDown={(event) => { event.stopPropagation(); }}
                 onClick={(event) => {
                   event.stopPropagation();
                   setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));

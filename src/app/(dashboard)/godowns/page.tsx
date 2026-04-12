@@ -73,9 +73,10 @@ export default function GodownsPage() {
         { key: "countryName", label: t("country") },
         { key: "isActive", label: t("status"), render: (g: any) => <span className={g.isActive ? "badge-active" : "badge-cancelled"}>{g.isActive ? t("active") : t("inactive")}</span> },
         { key: "actions", label: "", render: (g: any) => (
-          <div className="relative" onClick={(e) => e.stopPropagation()}>
+          <div className="relative" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
             <button
               type="button"
+              onPointerDown={(event) => { event.stopPropagation(); }}
               onClick={(event) => {
                 event.stopPropagation();
                 setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));

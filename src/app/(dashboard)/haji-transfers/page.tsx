@@ -293,11 +293,12 @@ export default function HajiTransfersPage() {
         {
           key: "actions", label: "",
           render: (tr: any) => (
-            <div className="relative" onClick={(e) => e.stopPropagation()}>
+                <div className="relative" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
               {(user?.role === "city_admin" || user?.role === "super_admin") && tr.recordType !== "customer_payment" && (
                 <>
                   <button
                     type="button"
+                    onPointerDown={(event) => { event.stopPropagation(); }}
                     onClick={(event) => {
                       event.stopPropagation();
                       setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));

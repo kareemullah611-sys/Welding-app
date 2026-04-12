@@ -151,9 +151,10 @@ export default function SuperAdminPersonalExpensesPage() {
             { key: "notes", label: "Notes", render: (e: any) => e.notes || "—" },
             {
               key: "actions", label: "", render: (e: any) => (
-                <div className="relative" onClick={(event) => event.stopPropagation()}>
+                <div className="relative" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
                   <button
                     type="button"
+                    onPointerDown={(event) => { event.stopPropagation(); }}
                     onClick={(event) => {
                       event.stopPropagation();
                       setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
