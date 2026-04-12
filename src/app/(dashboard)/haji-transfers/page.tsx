@@ -294,7 +294,7 @@ export default function HajiTransfersPage() {
           key: "actions", label: "",
           render: (tr: any) => (
             <div className="relative" onClick={(e) => e.stopPropagation()}>
-              {user?.role === "city_admin" && tr.recordType !== "customer_payment" && (
+              {(user?.role === "city_admin" || user?.role === "super_admin") && tr.recordType !== "customer_payment" && (
                 <>
                   <button
                     type="button"
