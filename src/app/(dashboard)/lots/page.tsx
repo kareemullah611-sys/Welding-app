@@ -878,7 +878,6 @@ export default function LotsPage() {
         </div>
 
         <div className="flex justify-end gap-3 pt-4 mt-2 border-t">
-          <button onClick={() => setShowCreate(false)} className="btn-secondary text-sm">{t("cancel")}</button>
           <button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">
             {submitting ? "Creating…" : t("create")}
           </button>
@@ -1423,7 +1422,6 @@ export default function LotsPage() {
           </div>
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={() => setShowAddCost(false)} className="btn-secondary text-sm">Cancel</button>
           <button onClick={handleAddCost} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : "Add Cost"}</button>
         </div>
       </Modal>
@@ -1459,7 +1457,6 @@ export default function LotsPage() {
           )}
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={() => setShowEditPurchase(false)} className="btn-secondary text-sm">Cancel</button>
           <button onClick={handleEditPurchase} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : "Save"}</button>
         </div>
       </Modal>
@@ -1556,7 +1553,6 @@ export default function LotsPage() {
             })()}
           </div>
           <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-            <button onClick={() => setShowDistribute(false)} className="btn-secondary text-sm">{t("cancel")}</button>
             <button onClick={handleDistribute} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save_distribution")}</button>
           </div>
         </>}
@@ -1617,7 +1613,6 @@ export default function LotsPage() {
           );
         })() : <p className="text-sm text-gray-400">{t("no_godowns")}</p>}
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={() => setShowGodownAlloc(false)} className="btn-secondary text-sm">{t("cancel")}</button>
           <button onClick={handleGodownAlloc} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button>
         </div>
       </Modal>
@@ -1666,7 +1661,6 @@ export default function LotsPage() {
           </div>
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={() => setShowEditLot(false)} className="btn-secondary text-sm">{t("cancel")}</button>
           <button onClick={handleEditLot} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button>
         </div>
       </Modal>

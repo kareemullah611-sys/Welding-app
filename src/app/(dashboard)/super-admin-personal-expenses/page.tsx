@@ -206,7 +206,6 @@ export default function SuperAdminPersonalExpensesPage() {
           </div>
         </div>
         <div className="mt-4 flex justify-end gap-3 border-t pt-4">
-          <button onClick={() => { setShowExpense(false); setEditingExpense(null); }} className="btn-secondary text-sm">Cancel</button>
           <button onClick={() => saveExpense(Boolean(editingExpense))} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : "Save"}</button>
         </div>
       </Modal>

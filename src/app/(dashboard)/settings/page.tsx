@@ -128,20 +128,20 @@ function UsersTab() {
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("role")}</label><select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))} className="select-field"><option value="city_admin">{t("city_admin")}</option><option value="super_admin">{t("super_admin")}</option></select></div>
           {form.role === "city_admin" && <div className="col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">{t("city")} *</label><select value={form.cityId} onChange={(e) => setForm((f) => ({ ...f, cityId: parseInt(e.target.value) }))} className="select-field"><option value={0}>Select</option>{cities.map((c: any) => <option key={c.id} value={c.id}>{c.name} ({c.countryName})</option>)}</select></div>}
         </div>
-        <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={() => setShowCreate(false)} className="btn-secondary text-sm">{t("cancel")}</button><button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("create")}</button></div>
+        <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("create")}</button></div>
       </Modal>
 
       <Modal open={showEdit} onClose={() => setShowEdit(false)} title={`${t("edit")}: ${selected?.fullName || ""}`} size="md">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("full_name")}</label><input value={form.fullName} onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))} className="input-field" /></div>
-        <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={() => setShowEdit(false)} className="btn-secondary text-sm">{t("cancel")}</button><button onClick={handleEdit} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button></div>
+        <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={handleEdit} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button></div>
       </Modal>
 
       <Modal open={showResetPw} onClose={() => setShowResetPw(false)} title={`${t("reset_password")}: ${selected?.fullName || ""}`} size="sm">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <p className="text-sm text-gray-500 mb-3">{t("username")}: <strong>{selected?.username}</strong></p>
         <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("password")} *</label><input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="input-field" placeholder="Min 8 chars, upper + lower + number" /></div>
-        <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={() => setShowResetPw(false)} className="btn-secondary text-sm">{t("cancel")}</button><button onClick={handleResetPw} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("reset_password")}</button></div>
+        <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={handleResetPw} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("reset_password")}</button></div>
       </Modal>
     </>
   );
@@ -201,11 +201,11 @@ function ProductsTab() {
       ]} data={products} loading={loading} />
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t("new_product")} size="sm">
         <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("name")} *</label><input value={name} onChange={(e) => setName(e.target.value)} className="input-field" /></div>
-        <div className="flex justify-end gap-3 pt-4 mt-4"><button onClick={() => setShowCreate(false)} className="btn-secondary text-sm">{t("cancel")}</button><button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("create")}</button></div>
+        <div className="flex justify-end gap-3 pt-4 mt-4"><button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("create")}</button></div>
       </Modal>
       <Modal open={showEdit} onClose={() => setShowEdit(false)} title={`${t("edit")}: ${selected?.name || ""}`} size="sm">
         <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("name")}</label><input value={name} onChange={(e) => setName(e.target.value)} className="input-field" /></div>
-        <div className="flex justify-end gap-3 pt-4 mt-4"><button onClick={() => setShowEdit(false)} className="btn-secondary text-sm">{t("cancel")}</button><button onClick={handleEdit} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button></div>
+        <div className="flex justify-end gap-3 pt-4 mt-4"><button onClick={handleEdit} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button></div>
       </Modal>
     </>
   );

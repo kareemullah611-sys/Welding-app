@@ -350,7 +350,6 @@ export default function SuppliersPage() {
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label><input value={form.notes} onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} className="input-field" /></div>
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={() => setShowCreate(false)} className="btn-secondary text-sm">{t("cancel")}</button>
           <button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("create")}</button>
         </div>
       </Modal>
@@ -364,7 +363,6 @@ export default function SuppliersPage() {
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label><input value={form.notes} onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} className="input-field" /></div>
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={() => setShowEdit(false)} className="btn-secondary text-sm">{t("cancel")}</button>
           <button onClick={handleEdit} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button>
         </div>
       </Modal>
@@ -494,7 +492,6 @@ export default function SuppliersPage() {
           <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("notes")}</label><input value={paymentForm.notes} onChange={(e) => setPaymentForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" /></div>
         </div>
         <div className="mt-4 flex justify-end gap-3 border-t pt-4">
-          <button onClick={() => setShowPaymentCreate(false)} className="btn-secondary text-sm">{t("cancel")}</button>
           <button onClick={handlePaymentCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("record")}</button>
         </div>
       </Modal>
@@ -510,7 +507,6 @@ export default function SuppliersPage() {
           <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("notes")}</label><input value={paymentForm.notes} onChange={(e) => setPaymentForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" /></div>
         </div>
         <div className="mt-4 flex justify-end gap-3 border-t pt-4">
-          <button onClick={() => setShowPaymentEdit(false)} className="btn-secondary text-sm">{t("cancel")}</button>
           <button onClick={handlePaymentEdit} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button>
         </div>
       </Modal>

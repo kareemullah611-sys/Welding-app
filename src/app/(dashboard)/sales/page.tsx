@@ -584,7 +584,6 @@ export default function SalesPage() {
         </div>
 
         <div className="flex justify-end gap-3 pt-4 border-t">
-          <button onClick={() => { setShowCreate(false); setShortConfirmed(false); setFormError(""); }} className="btn-secondary text-sm">{t("cancel")}</button>
           <button onClick={handleSubmit} disabled={submitting} className={`text-sm font-medium px-4 py-2 rounded-lg transition-colors ${shortConfirmed ? "bg-amber-500 hover:bg-amber-600 text-white" : "btn-primary"}`}>{submitting ? "..." : shortConfirmed ? "⚠ Confirm Short Sale" : t("new_sale")}</button>
         </div>
       </Modal>
@@ -597,7 +596,6 @@ export default function SalesPage() {
           <textarea value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} className="input-field" rows={3} />
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={() => setShowCancel(false)} className="btn-secondary text-sm">{t("back")}</button>
           <button onClick={handleCancel} disabled={submitting} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm">{submitting ? "..." : t("cancel_sale")}</button>
         </div>
       </Modal>
@@ -620,7 +618,6 @@ export default function SalesPage() {
           </div>
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={() => setShowDiscount(false)} className="btn-secondary text-sm">{t("cancel")}</button>
           <button onClick={handleDiscount} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("apply_discount")}</button>
         </div>
       </Modal>
@@ -641,7 +638,6 @@ export default function SalesPage() {
         </div>
         <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("cancel_reason")} *</label><input value={correctReason} onChange={e => setCorrectReason(e.target.value)} className="input-field" /></div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={() => setShowCorrect(false)} className="btn-secondary text-sm">{t("cancel")}</button>
           <button onClick={handleCorrect} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("correct_sale")}</button>
         </div>
       </Modal>
@@ -667,7 +663,6 @@ export default function SalesPage() {
           </div>
           {hardDeleteError && <p className="text-sm text-red-600">{hardDeleteError}</p>}
           <div className="flex justify-end gap-3 pt-2 border-t">
-            <button onClick={() => setShowHardDelete(false)} className="btn-secondary text-sm">{t("cancel")}</button>
             <button onClick={handleHardDelete} disabled={hardDeleteSubmitting} className="bg-red-700 hover:bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-semibold">
               {hardDeleteSubmitting ? "..." : t("hard_delete")}
             </button>

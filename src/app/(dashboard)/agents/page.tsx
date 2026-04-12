@@ -124,7 +124,7 @@ export default function AgentsPage() {
           </div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("phone")}</label><input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} className="input-field" /></div>
         </div>
-        <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={() => setShowCreate(false)} className="btn-secondary text-sm">{t("cancel")}</button><button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("create")}</button></div>
+        <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("create")}</button></div>
       </Modal>
 
       <Modal open={showLedger} onClose={() => setShowLedger(false)} title={`Agent Ledger: ${selected?.name || ""}`} size="lg">
@@ -183,7 +183,7 @@ export default function AgentsPage() {
           </div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">Reference</label><input value={payForm.reference} onChange={e => setPayForm(f => ({ ...f, reference: e.target.value }))} className="input-field" placeholder="Receipt / instrument reference" /></div>
         </div>
-        <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={() => setShowPayment(false)} className="btn-secondary text-sm">{t("cancel")}</button><button onClick={handlePayment} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : "Record Settlement"}</button></div>
+        <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={handlePayment} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : "Record Settlement"}</button></div>
       </Modal>
     </div>
   );

@@ -185,7 +185,6 @@ export default function ShippingLinesPage() {
             <textarea value={createForm.notes} onChange={e => setCreateForm(f => ({ ...f, notes: e.target.value }))} className="input-field" rows={2} /></div>
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={() => setShowCreate(false)} className="btn-secondary text-sm">Cancel</button>
           <button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : "Create"}</button>
         </div>
       </Modal>
@@ -202,7 +201,6 @@ export default function ShippingLinesPage() {
             <textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} className="input-field" rows={2} /></div>
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={() => setShowEdit(false)} className="btn-secondary text-sm">Cancel</button>
           <button onClick={handleEdit} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : "Save"}</button>
         </div>
       </Modal>
@@ -264,7 +262,6 @@ export default function ShippingLinesPage() {
             <textarea value={payForm.notes} onChange={e => setPayForm(f => ({ ...f, notes: e.target.value }))} className="input-field" rows={2} /></div>
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={() => setShowPayment(false)} className="btn-secondary text-sm">Cancel</button>
           <button onClick={handleAddPayment} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : "Record Settlement"}</button>
         </div>
       </Modal>

@@ -273,7 +273,6 @@ export default function BankDepositsPage() {
           </div>
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={() => setShowCreate(false)} className="btn-secondary text-sm">{t("cancel")}</button>
           <button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button>
         </div>
       </Modal>

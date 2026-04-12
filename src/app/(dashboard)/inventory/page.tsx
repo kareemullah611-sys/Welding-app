@@ -559,7 +559,6 @@ export default function InventoryPage() {
           </div>
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={() => setShowApprove(false)} className="btn-secondary text-sm">{t("cancel")}</button>
           <button onClick={handleApprove} disabled={submitting} className="btn-primary text-sm">
             {submitting ? "..." : t("approve_receive")}
           </button>
@@ -642,7 +641,6 @@ export default function InventoryPage() {
               </div>
             </div>
             <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-              <button onClick={() => setShowInterGodownTransfer(false)} className="btn-secondary text-sm">{t("cancel")}</button>
               <button onClick={handleInterGodownTransfer} disabled={transferSubmitting} className="btn-primary text-sm">
                 {transferSubmitting ? "..." : "Transfer Stock"}
               </button>
@@ -706,7 +704,6 @@ export default function InventoryPage() {
           );
         })() : <p className="text-sm text-gray-400">{t("no_godowns")}</p>}
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={() => setShowGodownAlloc(false)} className="btn-secondary text-sm">{t("cancel")}</button>
           <button onClick={handleGodownAlloc} disabled={godownSubmitting} className="btn-primary text-sm">{godownSubmitting ? "..." : t("save")}</button>
         </div>
       </Modal>

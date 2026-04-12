@@ -128,7 +128,7 @@ export default function CityTransfersPage() {
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label><input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} className="input-field" /></div>
         </div>
         <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700">📦 {t("send_goods_note")}</div>
-        <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={() => setShowSend(false)} className="btn-secondary text-sm">{t("cancel")}</button><button onClick={handleSend} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("send")}</button></div>
+        <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={handleSend} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("send")}</button></div>
       </Modal>
 
       {/* Approve Modal */}
@@ -139,7 +139,7 @@ export default function CityTransfersPage() {
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("store_in_godown")} *</label><select value={approveForm.toGodownId} onChange={e => setApproveForm(f => ({ ...f, toGodownId: parseInt(e.target.value) }))} className="select-field"><option value={0}>{t("select_godown")}</option>{myGodowns.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}</select></div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label><input value={approveForm.approvalNotes} onChange={e => setApproveForm(f => ({ ...f, approvalNotes: e.target.value }))} className="input-field" /></div>
         </div>
-        <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={() => setShowApprove(false)} className="btn-secondary text-sm">{t("cancel")}</button><button onClick={handleApprove} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("approve_receive")}</button></div>
+        <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={handleApprove} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("approve_receive")}</button></div>
       </Modal>
     </div>
   );

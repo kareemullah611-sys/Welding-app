@@ -478,7 +478,6 @@ export default function HajiTransfersPage() {
 
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={() => setShowCreate(false)} className="btn-secondary text-sm">{t("cancel")}</button>
           <button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("record")}</button>
         </div>
       </Modal>
@@ -507,7 +506,6 @@ export default function HajiTransfersPage() {
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label><input value={form.notes} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" /></div>
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={() => setShowEdit(false)} className="btn-secondary text-sm">{t("cancel")}</button>
           <button onClick={handleEdit} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button>
         </div>
       </Modal>
