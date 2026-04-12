@@ -5,6 +5,7 @@ import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
+import { getActionMenuDirection } from "@/lib/action-menu";
 
 export default function CustomersPage() {
   const { user } = useAuth();
@@ -29,6 +30,7 @@ export default function CustomersPage() {
   const [hardDeletePassword, setHardDeletePassword] = useState("");
   const [hardDeleteError, setHardDeleteError] = useState("");
   const [openActionId, setOpenActionId] = useState<number | null>(null);
+  const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
   const [prefillHandled, setPrefillHandled] = useState(false);
   const closeEmbed = useCallback(() => {
     if (typeof window !== "undefined" && window.parent !== window) {
@@ -131,6 +133,7 @@ export default function CustomersPage() {
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
+                setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
                 setOpenActionId((current) => current === c.id ? null : c.id);
               }}
               className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
@@ -138,7 +141,7 @@ export default function CustomersPage() {
               ⋯
             </button>
             {openActionId === c.id && (
-              <div className="absolute right-0 z-10 mt-1 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg">
+              <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}>
                 {c.isActive && (
                   <button onClick={() => { setOpenActionId(null); openEdit(c); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
                 )}

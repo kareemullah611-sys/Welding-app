@@ -1369,7 +1369,7 @@ export default function LotsPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Amount * ({costForm.currencyCode})</label>
               <input type="number" value={costForm.amount} onChange={e => setCostForm(f => ({ ...f, amount: e.target.value }))}
-                className="input-field" placeholder="0.00" min="0.01" step="0.01" />
+                className="input-field" placeholder="0.00" min="0.01" step="0.01" onWheel={e => e.currentTarget.blur()} />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>

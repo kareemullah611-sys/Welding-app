@@ -128,7 +128,7 @@ export function DataTable<T extends Record<string, any>>({
   if (loading) {
     return (
       <div className="rounded-[1.4rem] border border-white/70 bg-white/85 shadow-[0_26px_70px_-42px_rgba(51,42,33,0.35)] backdrop-blur-xl">
-        <div className="overflow-x-auto overflow-y-visible">
+        <div className="overflow-visible">
           <Table>
             <TableHeader>
               <TableRow className="bg-[#f8f1e7] hover:bg-[#f8f1e7]">
@@ -158,7 +158,7 @@ export function DataTable<T extends Record<string, any>>({
 
   return (
     <div className="rounded-[1.4rem] border border-white/70 bg-white/85 shadow-[0_26px_70px_-42px_rgba(51,42,33,0.35)] backdrop-blur-xl">
-      <div className="overflow-x-auto overflow-y-visible">
+      <div className="overflow-visible">
         <Table>
           <TableHeader>
             <TableRow className="border-b border-[#efe2d3] bg-[#faf3ea]/90 hover:bg-[#faf3ea]/90">

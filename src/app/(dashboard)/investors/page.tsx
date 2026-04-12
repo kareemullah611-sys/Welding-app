@@ -224,7 +224,7 @@ export default function InvestorsPage() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">Initial Deposit <span className="text-gray-300 font-normal">(optional)</span></label>
-                <input type="number" step="0.01" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400" value={createForm.initialDeposit} onChange={e => setCreateForm(p => ({ ...p, initialDeposit: e.target.value }))} placeholder="0" />
+                <input type="number" step="0.01" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400" value={createForm.initialDeposit} onChange={e => setCreateForm(p => ({ ...p, initialDeposit: e.target.value }))} placeholder="0" onWheel={e => e.currentTarget.blur()} />
               </div>
             </div>
 

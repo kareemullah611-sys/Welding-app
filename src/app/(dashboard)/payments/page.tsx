@@ -7,6 +7,7 @@ import { PageHeader, DataTable, Modal, StatusBadge, formatDate } from "@/compone
 import CustomerSearch from "@/components/CustomerSearch";
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
+import { getActionMenuDirection } from "@/lib/action-menu";
 
 
 const TYPE_CONFIG: Record<string, { label: string; color: string; amountColor: string }> = {
@@ -82,6 +83,7 @@ export default function PaymentsPage() {
   // Voucher duplicate warning
   const [voucherWarning, setVoucherWarning] = useState<{ matches: any[] } | null>(null);
   const [openActionId, setOpenActionId] = useState<string | null>(null);
+  const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
 
   // ── Batch payment queue ──────────────────────────────────────────────────
   const [paymentQueue, setPaymentQueue] = useState<Array<{ tempId: string; customerName: string; voucherNo: string; amount: number; currencySymbol: string; detail: string; date: string; body: any }>>([]);
@@ -513,6 +515,7 @@ export default function PaymentsPage() {
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
+                setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
                 const actionKey = getActionKey(item);
                 setOpenActionId((current) => current === actionKey ? null : actionKey);
               }}
@@ -522,7 +525,7 @@ export default function PaymentsPage() {
               ⋯
             </button>
             {openActionId === getActionKey(item) && (
-              <div className="absolute right-0 z-10 mt-1 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg">
+              <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}>
                 <button onClick={() => { setOpenActionId(null); openEdit(item); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
                 {item.type === "payment" && item.status === "active" && (
                   <button onClick={() => { setOpenActionId(null); handleDelete(item); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("cancel")}</button>
@@ -645,7 +648,8 @@ export default function PaymentsPage() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
             <input type="number" min="0.01" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field"
-              onKeyDown={e => { if (e.key === "Enter") { if (createType === "payment") addToQueue(); else handleCreate(); } }} />
+              onKeyDown={e => { if (e.key === "Enter") { if (createType === "payment") addToQueue(); else handleCreate(); } }}
+              onWheel={e => e.currentTarget.blur()} />
           </div>
 
           {createType === "payment" && (
@@ -853,7 +857,7 @@ export default function PaymentsPage() {
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("detail")}</label><input value={form.detail || ""} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" /></div>
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")}</label><input type="number" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" /></div>
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")}</label><input type="number" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} /></div>
           {createType === "haji_transfer" && (
             <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("type")}</label><select value={form.transferType || "from_in_hand"} onChange={e => setForm((f: any) => ({ ...f, transferType: e.target.value }))} className="select-field"><option value="from_in_hand">{t("from_in_hand")}</option><option value="direct">{t("direct_transfer")}</option></select></div>
           )}

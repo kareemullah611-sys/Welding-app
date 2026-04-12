@@ -118,7 +118,7 @@ export default function AgentsPage() {
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label><input type="number" value={payForm.amount || ""} onChange={e => setPayForm(f => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" /></div>
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label><input type="number" value={payForm.amount || ""} onChange={e => setPayForm(f => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} /></div>
             <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label><select value={payForm.currencyCode} onChange={e => setPayForm(f => ({ ...f, currencyCode: e.target.value }))} className="select-field"><option value="PKR">PKR</option><option value="USD">USD</option><option value="AFN">AFN</option></select></div>
           </div>
           <div className="grid grid-cols-2 gap-3">

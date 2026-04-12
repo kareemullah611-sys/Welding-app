@@ -5,6 +5,7 @@ import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
+import { getActionMenuDirection } from "@/lib/action-menu";
 
 
 const SOURCE_CONFIG: Record<string, { label: string; color: string; icon: string }> = {
@@ -50,6 +51,7 @@ export default function HajiTransfersPage() {
   const [filterTo, setFilterTo] = useState("");
   const [showSummary, setShowSummary] = useState(true);
   const [openActionId, setOpenActionId] = useState<number | null>(null);
+  const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
   const [prefillHandled, setPrefillHandled] = useState(false);
   const closeEmbed = useCallback(() => {
     if (typeof window !== "undefined" && window.parent !== window) {
@@ -292,6 +294,7 @@ export default function HajiTransfersPage() {
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation();
+                      setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
                       setOpenActionId((current) => current === tr.id ? null : tr.id);
                     }}
                     className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
@@ -299,7 +302,7 @@ export default function HajiTransfersPage() {
                     ⋯
                   </button>
                   {openActionId === tr.id && (
-                    <div className="absolute right-0 z-10 mt-1 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg">
+                    <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}>
                       <button onClick={() => { setOpenActionId(null); openEdit(tr); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
                       <button onClick={() => { setOpenActionId(null); handleDelete(tr); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("delete")}</button>
                     </div>
@@ -444,6 +447,7 @@ export default function HajiTransfersPage() {
                   : ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
                 className="input-field"
                 readOnly={form.sourceType === "cheque"}
+                onWheel={e => e.currentTarget.blur()}
               />
             </div>
             <div>
@@ -492,7 +496,7 @@ export default function HajiTransfersPage() {
           </div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("detail")}</label><input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" /></div>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")}</label><input type="number" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" /></div>
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")}</label><input type="number" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} /></div>
           </div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label><input value={form.notes} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" /></div>
         </div>

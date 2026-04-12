@@ -22,6 +22,90 @@ function parseAmountInput(raw: string): number | null {
   return value;
 }
 
+function DepositFormFields({
+  f,
+  setF,
+  selectedName,
+  bankAccounts,
+  cities,
+  currencies,
+  inputCls,
+  labelCls,
+}: {
+  f: typeof EMPTY_DEPOSIT;
+  setF: React.Dispatch<React.SetStateAction<typeof EMPTY_DEPOSIT>>;
+  selectedName?: string;
+  bankAccounts: any[];
+  cities: any[];
+  currencies: any[];
+  inputCls: string;
+  labelCls: string;
+}) {
+  return (
+    <>
+      <div className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800 font-medium">
+        <span>{f.sourceType === "bank_account" ? `🏦 ${bankAccounts.find((b) => String(b.id) === f.bankAccountId)?.bankName || "Bank Account"}` : `🏙️ ${cities.find((c) => String(c.id) === f.cityId)?.name || "City Cash"}`}</span>
+        <span className="text-blue-400 text-lg">→</span>
+        <span>👤 {selectedName || "Intermediary"}</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={labelCls}>Date</label>
+          <input type="date" value={f.depositDate} onChange={e => setF(prev => ({ ...prev, depositDate: e.target.value }))} className={inputCls} />
+        </div>
+        <div>
+          <label className={labelCls}>Amount</label>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={f.amount}
+            onChange={e => setF(prev => ({ ...prev, amount: e.target.value }))}
+            className={inputCls}
+            placeholder="0.00"
+          />
+        </div>
+      </div>
+      <div>
+        <label className={labelCls}>Currency</label>
+        <select value={f.currencyId} onChange={e => setF(prev => ({ ...prev, currencyId: e.target.value }))} className={inputCls}>
+          <option value="">Select currency</option>
+          {currencies.map(c => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
+        </select>
+      </div>
+      <div>
+        <label className={labelCls}>Sending From</label>
+        <select value={f.sourceType} onChange={e => setF(prev => ({ ...prev, sourceType: e.target.value, cityId: "", bankAccountId: "" }))} className={inputCls}>
+          <option value="bank_account">Bank Account</option>
+          <option value="city_cash">City Cash</option>
+        </select>
+      </div>
+      {f.sourceType === "bank_account" && (
+        <div>
+          <label className={labelCls}>Bank Account</label>
+          <select value={f.bankAccountId} onChange={e => setF(prev => ({ ...prev, bankAccountId: e.target.value }))} className={inputCls}>
+            <option value="">Select bank</option>
+            {bankAccounts.filter((b: any) => b.isActive).map((b: any) => <option key={b.id} value={b.id}>{b.bankName} {b.accountNumber || ""}</option>)}
+          </select>
+        </div>
+      )}
+      {f.sourceType === "city_cash" && (
+        <div>
+          <label className={labelCls}>City</label>
+          <select value={f.cityId} onChange={e => setF(prev => ({ ...prev, cityId: e.target.value }))} className={inputCls}>
+            <option value="">Select city</option>
+            {cities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+      )}
+      <div>
+        <label className={labelCls}>Notes</label>
+        <input type="text" value={f.notes} onChange={e => setF(prev => ({ ...prev, notes: e.target.value }))} className={inputCls} />
+      </div>
+    </>
+  );
+}
+
 export default function IntermediariesPage() {
   const { user } = useAuth();
   const [intermediaries, setIntermediary] = useState<any[]>([]);
@@ -246,71 +330,6 @@ export default function IntermediariesPage() {
   const inputCls = "w-full border rounded px-3 py-2 text-sm bg-white dark:bg-gray-800 dark:border-gray-600";
   const labelCls = "block text-sm font-medium mb-1";
 
-  const DepositFormFields = ({ f, setF }: { f: typeof EMPTY_DEPOSIT; setF: (v: any) => void }) => (
-    <>
-      {/* Direction banner */}
-      <div className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800 font-medium">
-        <span>{f.sourceType === "bank_account" ? `🏦 ${bankAccounts.find(b => String(b.id) === f.bankAccountId)?.bankName || "Bank Account"}` : `🏙️ ${cities.find(c => String(c.id) === f.cityId)?.name || "City Cash"}`}</span>
-        <span className="text-blue-400 text-lg">→</span>
-        <span>👤 {selected?.name || "Intermediary"}</span>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={labelCls}>Date</label>
-          <input type="date" value={f.depositDate} onChange={e => setF({ ...f, depositDate: e.target.value })} className={inputCls} />
-        </div>
-        <div>
-          <label className={labelCls}>Amount</label>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={f.amount}
-            onChange={e => setF({ ...f, amount: e.target.value })}
-            className={inputCls}
-            placeholder="0.00"
-          />
-        </div>
-      </div>
-      <div>
-        <label className={labelCls}>Currency</label>
-        <select value={f.currencyId} onChange={e => setF({ ...f, currencyId: e.target.value })} className={inputCls}>
-          <option value="">Select currency</option>
-          {currencies.map(c => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
-        </select>
-      </div>
-      <div>
-        <label className={labelCls}>Sending From</label>
-        <select value={f.sourceType} onChange={e => setF({ ...f, sourceType: e.target.value, cityId: "", bankAccountId: "" })} className={inputCls}>
-          <option value="bank_account">Bank Account</option>
-          <option value="city_cash">City Cash</option>
-        </select>
-      </div>
-      {f.sourceType === "bank_account" && (
-        <div>
-          <label className={labelCls}>Bank Account</label>
-          <select value={f.bankAccountId} onChange={e => setF({ ...f, bankAccountId: e.target.value })} className={inputCls}>
-            <option value="">Select bank</option>
-            {bankAccounts.filter((b: any) => b.isActive).map((b: any) => <option key={b.id} value={b.id}>{b.bankName} {b.accountNumber || ""}</option>)}
-          </select>
-        </div>
-      )}
-      {f.sourceType === "city_cash" && (
-        <div>
-          <label className={labelCls}>City</label>
-          <select value={f.cityId} onChange={e => setF({ ...f, cityId: e.target.value })} className={inputCls}>
-            <option value="">Select city</option>
-            {cities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
-      )}
-      <div>
-        <label className={labelCls}>Notes</label>
-        <input type="text" value={f.notes} onChange={e => setF({ ...f, notes: e.target.value })} className={inputCls} />
-      </div>
-    </>
-  );
-
   return (
     <div className="p-4 space-y-4">
       <PageHeader
@@ -425,7 +444,16 @@ export default function IntermediariesPage() {
       {/* Record Deposit */}
       <Modal open={showDeposit} onClose={() => setShowDeposit(false)} title={`Record Deposit Entry — ${selected?.name || "Intermediary"}`}>
         <div className="space-y-3">
-          <DepositFormFields f={depositForm} setF={setDepositForm} />
+          <DepositFormFields
+            f={depositForm}
+            setF={setDepositForm}
+            selectedName={selected?.name}
+            bankAccounts={bankAccounts}
+            cities={cities}
+            currencies={currencies}
+            inputCls={inputCls}
+            labelCls={labelCls}
+          />
           {depositError && <p className="text-red-500 text-sm">{depositError}</p>}
           <button onClick={handleDeposit} disabled={depositSubmitting} className="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700 disabled:opacity-50">
             {depositSubmitting ? "Saving..." : "Record Deposit Entry"}
@@ -436,7 +464,16 @@ export default function IntermediariesPage() {
       {/* Edit Deposit */}
       <Modal open={showEditDeposit} onClose={() => setShowEditDeposit(false)} title="Edit Deposit">
         <div className="space-y-3">
-          <DepositFormFields f={editDepositForm} setF={setEditDepositForm} />
+          <DepositFormFields
+            f={editDepositForm}
+            setF={setEditDepositForm}
+            selectedName={selected?.name}
+            bankAccounts={bankAccounts}
+            cities={cities}
+            currencies={currencies}
+            inputCls={inputCls}
+            labelCls={labelCls}
+          />
           {editDepositError && <p className="text-red-500 text-sm">{editDepositError}</p>}
           <button onClick={handleEditDeposit} disabled={editDepositSubmitting} className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50">
             {editDepositSubmitting ? "Saving..." : "Save Changes"}

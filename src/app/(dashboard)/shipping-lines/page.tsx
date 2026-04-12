@@ -193,12 +193,12 @@ export default function ShippingLinesPage() {
             <div><label className="block text-sm font-medium text-gray-700 mb-1">Date *</label>
               <input type="date" value={payForm.paymentDate} onChange={e => setPayForm(f => ({ ...f, paymentDate: e.target.value }))} className="input-field" /></div>
             <div><label className="block text-sm font-medium text-gray-700 mb-1">Amount USD *</label>
-              <input type="number" value={payForm.amountUsd} onChange={e => setPayForm(f => ({ ...f, amountUsd: e.target.value }))} className="input-field" placeholder="0.00" min="0.01" step="0.01" /></div>
+              <input type="number" value={payForm.amountUsd} onChange={e => setPayForm(f => ({ ...f, amountUsd: e.target.value }))} className="input-field" placeholder="0.00" min="0.01" step="0.01" onWheel={e => e.currentTarget.blur()} /></div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Settlement Exchange Rate</label>
-              <input type="number" value={payForm.exchangeRate} onChange={e => setPayForm(f => ({ ...f, exchangeRate: e.target.value }))} className="input-field" placeholder="e.g. 278.50" min="0.01" step="0.01" />
+              <input type="number" value={payForm.exchangeRate} onChange={e => setPayForm(f => ({ ...f, exchangeRate: e.target.value }))} className="input-field" placeholder="e.g. 278.50" min="0.01" step="0.01" onWheel={e => e.currentTarget.blur()} />
             </div>
             <div className="flex flex-col justify-end">
               {payForm.amountUsd && payForm.exchangeRate && (

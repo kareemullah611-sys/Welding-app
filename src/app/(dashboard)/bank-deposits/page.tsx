@@ -216,7 +216,7 @@ export default function BankDepositsPage() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("cash_amount")} <span className="text-gray-400 font-normal">(0 if cheques only)</span></label>
-            <input type="number" min="0" value={form.cashAmount || ""} onChange={e => setForm((f: any) => ({ ...f, cashAmount: parseFloat(e.target.value) || 0 }))} className="input-field" placeholder="0" />
+            <input type="number" min="0" value={form.cashAmount || ""} onChange={e => setForm((f: any) => ({ ...f, cashAmount: parseFloat(e.target.value) || 0 }))} className="input-field" placeholder="0" onWheel={e => e.currentTarget.blur()} />
           </div>
 
           {/* Cheque selection */}

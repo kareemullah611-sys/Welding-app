@@ -407,12 +407,12 @@ export default function SuppliersPage() {
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("date")} *</label><input type="date" value={paymentForm.paymentDate} onChange={(e) => setPaymentForm((f) => ({ ...f, paymentDate: e.target.value }))} className="input-field" /></div>
-            <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("amount_usd")} *</label><input type="number" step="0.01" value={paymentForm.amountUsd || ""} onChange={(e) => setPaymentForm((f) => ({ ...f, amountUsd: parseFloat(e.target.value) || 0 }))} className="input-field" /></div>
+            <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("amount_usd")} *</label><input type="number" step="0.01" value={paymentForm.amountUsd || ""} onChange={(e) => setPaymentForm((f) => ({ ...f, amountUsd: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} /></div>
             <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("method")} *</label><select value={paymentForm.paymentMethod} onChange={(e) => setPaymentForm((f) => ({ ...f, paymentMethod: e.target.value }))} className="select-field">{METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}</select></div>
           </div>
           <div className="grid grid-cols-3 gap-3">
-            <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("exchange_rate")} {paymentForm.paidVia === "bank" ? "*" : ""}</label><input type="number" step="0.01" value={paymentForm.exchangeRate || ""} onChange={(e) => setPaymentForm((f) => ({ ...f, exchangeRate: parseFloat(e.target.value) || 0 }))} className="input-field" /></div>
-            <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("local_amount")}</label><input type="number" step="0.01" value={paymentForm.amountLocal || ""} onChange={(e) => setPaymentForm((f) => ({ ...f, amountLocal: parseFloat(e.target.value) || 0 }))} className="input-field" readOnly={paymentForm.paidVia === "bank"} /></div>
+            <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("exchange_rate")} {paymentForm.paidVia === "bank" ? "*" : ""}</label><input type="number" step="0.01" value={paymentForm.exchangeRate || ""} onChange={(e) => setPaymentForm((f) => ({ ...f, exchangeRate: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} /></div>
+            <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("local_amount")}</label><input type="number" step="0.01" value={paymentForm.amountLocal || ""} onChange={(e) => setPaymentForm((f) => ({ ...f, amountLocal: parseFloat(e.target.value) || 0 }))} className="input-field" readOnly={paymentForm.paidVia === "bank"} onWheel={e => e.currentTarget.blur()} /></div>
             <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("reference")}</label><input value={paymentForm.reference} onChange={(e) => setPaymentForm((f) => ({ ...f, reference: e.target.value }))} className="input-field" /></div>
           </div>
           <div>
@@ -445,8 +445,8 @@ export default function SuppliersPage() {
         {error && <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{error}</div>}
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("amount_usd")}</label><input type="number" step="0.01" value={paymentForm.amountUsd || ""} onChange={(e) => setPaymentForm((f) => ({ ...f, amountUsd: parseFloat(e.target.value) || 0 }))} className="input-field" /></div>
-            <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("exchange_rate")}</label><input type="number" step="0.01" value={paymentForm.exchangeRate || ""} onChange={(e) => setPaymentForm((f) => ({ ...f, exchangeRate: parseFloat(e.target.value) || 0 }))} className="input-field" /></div>
+            <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("amount_usd")}</label><input type="number" step="0.01" value={paymentForm.amountUsd || ""} onChange={(e) => setPaymentForm((f) => ({ ...f, amountUsd: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} /></div>
+            <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("exchange_rate")}</label><input type="number" step="0.01" value={paymentForm.exchangeRate || ""} onChange={(e) => setPaymentForm((f) => ({ ...f, exchangeRate: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} /></div>
           </div>
           <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("reference")}</label><input value={paymentForm.reference} onChange={(e) => setPaymentForm((f) => ({ ...f, reference: e.target.value }))} className="input-field" /></div>
           <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("notes")}</label><input value={paymentForm.notes} onChange={(e) => setPaymentForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" /></div>

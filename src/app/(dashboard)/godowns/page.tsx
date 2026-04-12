@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { getActionMenuDirection } from "@/lib/action-menu";
 
 export default function GodownsPage() {
   const { user } = useAuth();
@@ -18,6 +19,7 @@ export default function GodownsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [openActionId, setOpenActionId] = useState<number | null>(null);
+  const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -70,6 +72,7 @@ export default function GodownsPage() {
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
+                setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
                 setOpenActionId((current) => current === g.id ? null : g.id);
               }}
               className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
@@ -77,7 +80,7 @@ export default function GodownsPage() {
               ⋯
             </button>
             {openActionId === g.id && (
-              <div className="absolute right-0 z-10 mt-1 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg">
+              <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}>
                 <button onClick={() => { setOpenActionId(null); openEdit(g); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
                 {g.isActive ? (
                   <button onClick={() => { setOpenActionId(null); handleDeactivate(g); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("deactivate")}</button>

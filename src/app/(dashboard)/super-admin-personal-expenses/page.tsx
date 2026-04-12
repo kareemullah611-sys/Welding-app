@@ -174,39 +174,8 @@ export default function SuperAdminPersonalExpensesPage() {
             <input className="input-field" value={expenseForm.detail} onChange={(e) => setExpenseForm((f: any) => ({ ...f, detail: e.target.value }))} />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Amount *</label>
-            <input type="number" className="input-field" value={expenseForm.amount || ""} onChange={(e) => setExpenseForm((f: any) => ({ ...f, amount: Number(e.target.value) || 0 }))} />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Bank Account *</label>
-            <select className="select-field" value={expenseForm.bankAccountId} onChange={(e) => setExpenseForm((f: any) => ({ ...f, bankAccountId: Number(e.target.value) }))}>
-              <option value={0}>Select bank account…</option>
-              {accounts.filter((a) => a.isActive).map((a) => (
-                <option key={a.id} value={a.id}>{a.bankName}{a.accountNumber ? ` (${a.accountNumber})` : ""} · {a.currency?.code}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Notes</label>
-            <input className="input-field" value={expenseForm.notes} onChange={(e) => setExpenseForm((f: any) => ({ ...f, notes: e.target.value }))} />
-          </div>
-        </div>
-        <div className="mt-4 flex justify-end gap-3 border-t pt-4">
-          <button onClick={() => setShowExpense(false)} className="btn-secondary text-sm">Cancel</button>
-          <button onClick={() => saveExpense(false)} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : "Record Expense"}</button>
-        </div>
-      </Modal>
-
-      <Modal open={showEditExpense} onClose={() => setShowEditExpense(false)} title={`Edit — ${editingExpense?.detail || "Expense"}`} size="sm">
-        {error && <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{error}</div>}
-        <div className="space-y-3">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Detail *</label>
-            <input className="input-field" value={expenseForm.detail} onChange={(e) => setExpenseForm((f: any) => ({ ...f, detail: e.target.value }))} />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Amount *</label>
-            <input type="number" className="input-field" value={expenseForm.amount || ""} onChange={(e) => setExpenseForm((f: any) => ({ ...f, amount: Number(e.target.value) || 0 }))} />
+            <label className="mb-1 block text-sm font-medium text-gray-700">Amount</label>
+            <input type="number" className="input-field" value={expenseForm.amount || ""} onChange={(e) => setExpenseForm((f: any) => ({ ...f, amount: Number(e.target.value) || 0 }))} onWheel={e => e.currentTarget.blur()} />
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">Notes</label>

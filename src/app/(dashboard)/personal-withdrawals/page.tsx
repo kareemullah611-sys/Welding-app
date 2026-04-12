@@ -5,6 +5,7 @@ import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
+import { getActionMenuDirection } from "@/lib/action-menu";
 
 export default function PersonalWithdrawalsPage() {
   const { user } = useAuth();
@@ -31,6 +32,7 @@ export default function PersonalWithdrawalsPage() {
   const [formError, setFormError] = useState("");
   const [approvingId, setApprovingId] = useState<number | null>(null);
   const [openActionId, setOpenActionId] = useState<number | null>(null);
+  const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
   const [prefillHandled, setPrefillHandled] = useState(false);
   const closeEmbed = useCallback(() => {
     if (typeof window !== "undefined" && window.parent !== window) {
@@ -259,6 +261,7 @@ export default function PersonalWithdrawalsPage() {
                   type="button"
                   onClick={(event) => {
                     event.stopPropagation();
+                    setActionMenuDirection(getActionMenuDirection(event.currentTarget as HTMLElement));
                     setOpenActionId((current) => current === w.id ? null : w.id);
                   }}
                   className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
@@ -266,7 +269,7 @@ export default function PersonalWithdrawalsPage() {
                   ⋯
                 </button>
                 {openActionId === w.id && (
-                  <div className="absolute right-0 z-10 mt-1 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg">
+                  <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}>
                     {!w.approvedAt && (
                       <>
                         <button
@@ -331,7 +334,7 @@ export default function PersonalWithdrawalsPage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
-            <input type="number" value={form.amount || ""} onChange={(e) => setForm((f) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" readOnly={form.sourceType === "cheque" && !!form.chequePaymentId} />
+            <input type="number" value={form.amount || ""} onChange={(e) => setForm((f) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" readOnly={form.sourceType === "cheque" && !!form.chequePaymentId} onWheel={e => e.currentTarget.blur()} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Source of Funds</label>
@@ -408,7 +411,7 @@ export default function PersonalWithdrawalsPage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")}</label>
-            <input type="number" value={form.amount || ""} onChange={(e) => setForm((f) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" readOnly={form.sourceType === "cheque"} />
+            <input type="number" value={form.amount || ""} onChange={(e) => setForm((f) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" readOnly={form.sourceType === "cheque"} onWheel={e => e.currentTarget.blur()} />
           </div>
           <div className="p-2 bg-gray-50 border rounded text-xs text-gray-600">
             Source: <strong>{selected?.sourceType === "cheque" ? "🧾 Cheque in Hand" : "💵 Cash from Office"}</strong> (cannot change after creation)

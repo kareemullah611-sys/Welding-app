@@ -629,6 +629,7 @@ export default function InventoryPage() {
                   value={transferForm.qty || ""}
                   onChange={e => setTransferForm((f) => ({ ...f, qty: parseFloat(e.target.value) || 0 }))}
                   className="input-field"
+                  onWheel={e => e.currentTarget.blur()}
                 />
               </div>
               <div>
