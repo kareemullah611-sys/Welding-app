@@ -67,6 +67,7 @@ enum HajiSourceType {
 enum IntermediarySourceType {
   city_cash
   bank_account
+  super_admin_bank_account
 }
 
 enum ExpensePaidFrom {
@@ -880,6 +881,7 @@ model SuperAdminBankAccount {
   expenses SuperAdminPersonalExpense[]
   lotCosts LotCost[]
   incomingHajiPayments Payment[] @relation("PaymentSuperAdminBankAccount")
+  intermediaryDeposits IntermediaryDeposit[]
 
   @@index([currencyId])
   @@index([createdBy])
@@ -1450,6 +1452,7 @@ model IntermediaryDeposit {
   sourceType     IntermediarySourceType @map("source_type")
   cityId         Int?                   @map("city_id")         // if city_cash
   bankAccountId  Int?                   @map("bank_account_id") // if bank_account
+  superAdminBankAccountId Int?          @map("super_admin_bank_account_id") // if super_admin_bank_account
   notes          String?                @db.Text
   createdBy      Int                    @map("created_by")
   createdAt      DateTime               @default(now()) @map("created_at")
@@ -1459,10 +1462,12 @@ model IntermediaryDeposit {
   currency     Currency     @relation(fields: [currencyId], references: [id])
   city         City?        @relation(fields: [cityId], references: [id])
   bankAccount  BankAccount? @relation(fields: [bankAccountId], references: [id])
+  superAdminBankAccount SuperAdminBankAccount? @relation(fields: [superAdminBankAccountId], references: [id])
   creator      User         @relation(fields: [createdBy], references: [id])
 
   @@index([intermediaryId])
   @@index([depositDate])
+  @@index([superAdminBankAccountId])
   @@map("intermediary_deposits")
 }
 

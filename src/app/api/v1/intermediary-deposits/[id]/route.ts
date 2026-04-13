@@ -33,8 +33,22 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     nextAmount = parsedAmount;
   }
 
-  if (body.cityId !== undefined || body.bankAccountId !== undefined || body.sourceType === "city_cash") {
-    return errorResponse("VALIDATION", "Super admin cannot debit city cash or city bank accounts from intermediary deposits", 400);
+  if (body.cityId !== undefined || body.bankAccountId !== undefined || body.sourceType === "city_cash" || body.sourceType === "bank_account") {
+    return errorResponse("VALIDATION", "Use only super admin bank accounts for intermediary deposits", 400);
+  }
+
+  const nextSuperAdminBankAccountId = body.superAdminBankAccountId !== undefined
+    ? Number(body.superAdminBankAccountId || 0)
+    : Number(existing.superAdminBankAccountId || 0);
+  if (!nextSuperAdminBankAccountId) return errorResponse("VALIDATION", "Super admin bank account is required", 400);
+  const superAdminBankAccount = await prisma.superAdminBankAccount.findUnique({
+    where: { id: nextSuperAdminBankAccountId },
+    select: { id: true, isActive: true, currencyId: true },
+  });
+  if (!superAdminBankAccount) return errorResponse("NOT_FOUND", "Super admin bank account not found", 404);
+  if (!superAdminBankAccount.isActive) return errorResponse("VALIDATION", "Selected super admin bank account is inactive", 400);
+  if (superAdminBankAccount.currencyId !== currencyId) {
+    return errorResponse("VALIDATION", "Deposit currency must match selected super admin bank account currency", 400);
   }
 
   await reverseJournalEntries(`INTDEP-${id}`, user.userId);
@@ -45,9 +59,10 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
       depositDate: body.depositDate ? new Date(body.depositDate) : undefined,
       amount: nextAmount,
       currencyId,
-      sourceType: "bank_account",
+      sourceType: "super_admin_bank_account",
       cityId: null,
       bankAccountId: null,
+      superAdminBankAccountId: nextSuperAdminBankAccountId,
       notes: body.notes !== undefined ? body.notes || null : undefined,
     },
   });
@@ -57,7 +72,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     amount: Number(updated.amount), currencyCode: currency.code,
     depositDate: updated.depositDate, createdBy: user.userId,
     sourceType: updated.sourceType,
-    cityId: updated.cityId, bankAccountId: updated.bankAccountId,
+    cityId: updated.cityId, bankAccountId: updated.bankAccountId, superAdminBankAccountId: updated.superAdminBankAccountId,
   });
 
   return successResponse(updated, "Updated");

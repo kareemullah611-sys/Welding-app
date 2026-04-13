@@ -8,6 +8,7 @@ const EMPTY_DEPOSIT = {
   depositDate: new Date().toISOString().split("T")[0],
   amount: "",
   currencyId: "",
+  superAdminBankAccountId: "",
   notes: "",
 };
 
@@ -58,6 +59,7 @@ function DepositFormFields({
   setF,
   selectedName,
   currencies,
+  superAdminBankAccounts,
   inputCls,
   labelCls,
 }: {
@@ -65,13 +67,14 @@ function DepositFormFields({
   setF: React.Dispatch<React.SetStateAction<typeof EMPTY_DEPOSIT>>;
   selectedName?: string;
   currencies: any[];
+  superAdminBankAccounts: any[];
   inputCls: string;
   labelCls: string;
 }) {
   return (
     <>
       <div className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800 font-medium">
-        <span>🧾 Super Admin Treasury</span>
+        <span>🏦 {superAdminBankAccounts.find((b: any) => String(b.id) === f.superAdminBankAccountId)?.bankName || "Super Admin Bank"}</span>
         <span className="text-blue-400 text-lg">→</span>
         <span>👤 {selectedName || "Intermediary"}</span>
       </div>
@@ -98,6 +101,19 @@ function DepositFormFields({
         <select value={f.currencyId} onChange={e => setF(prev => ({ ...prev, currencyId: e.target.value }))} className={inputCls}>
           <option value="">Select currency</option>
           {currencies.map(c => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
+        </select>
+      </div>
+      <div>
+        <label className={labelCls}>Super Admin Bank Account</label>
+        <select value={f.superAdminBankAccountId} onChange={e => setF(prev => ({ ...prev, superAdminBankAccountId: e.target.value }))} className={inputCls}>
+          <option value="">Select bank account</option>
+          {superAdminBankAccounts
+            .filter((b: any) => b.isActive && (!f.currencyId || String(b.currencyId) === String(f.currencyId)))
+            .map((b: any) => (
+              <option key={b.id} value={b.id}>
+                {b.bankName}{b.accountNumber ? ` - ${b.accountNumber}` : ""} ({b.currency?.code || ""})
+              </option>
+            ))}
         </select>
       </div>
       <div>
@@ -151,6 +167,7 @@ export default function IntermediariesPage() {
 
   // ref data
   const [currencies, setCurrencies] = useState<any[]>([]);
+  const [superAdminBankAccounts, setSuperAdminBankAccounts] = useState<any[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -161,8 +178,9 @@ export default function IntermediariesPage() {
   useEffect(() => { load(); }, [load]);
 
   const loadRefData = async () => {
-    const [c] = await Promise.all([
+    const [c, saBanks] = await Promise.all([
       apiCall("/api/v1/currencies"),
+      apiCall("/api/v1/bank-accounts", { params: { scope: "super_admin" } }),
     ]);
     if (c.success) {
       const loadedCurrencies = c.data as any[];
@@ -177,6 +195,7 @@ export default function IntermediariesPage() {
         }));
       }
     }
+    if (saBanks.success) setSuperAdminBankAccounts(saBanks.data as any[]);
   };
 
   const openLedger = async (item: any) => {
@@ -208,11 +227,16 @@ export default function IntermediariesPage() {
       setDepositError("Currency is required");
       return;
     }
+    if (!depositForm.superAdminBankAccountId) {
+      setDepositError("Super admin bank account is required");
+      return;
+    }
     setDepositSubmitting(true);
     const body: any = {
       depositDate: depositForm.depositDate,
       amount: parsedAmount,
       currencyId: Number(depositForm.currencyId),
+      superAdminBankAccountId: Number(depositForm.superAdminBankAccountId),
       notes: depositForm.notes || null,
     };
 
@@ -232,8 +256,9 @@ export default function IntermediariesPage() {
     setEditDepositForm({
       depositDate: entry.date?.split("T")[0] || "",
       amount: String(entry.debit),
-      currencyId: "",
-      notes: "",
+      currencyId: String(entry.currencyId || ""),
+      superAdminBankAccountId: String(entry.superAdminBankAccountId || ""),
+      notes: String(entry.notes || ""),
     });
     setEditDepositError("");
     setShowEditDeposit(true);
@@ -246,6 +271,10 @@ export default function IntermediariesPage() {
       setEditDepositError("Enter a valid amount greater than 0");
       return;
     }
+    if (!editDepositForm.superAdminBankAccountId) {
+      setEditDepositError("Super admin bank account is required");
+      return;
+    }
     setEditDepositSubmitting(true);
     const body: any = {
       depositDate: editDepositForm.depositDate,
@@ -253,6 +282,7 @@ export default function IntermediariesPage() {
       notes: editDepositForm.notes || null,
     };
     if (editDepositForm.currencyId) body.currencyId = Number(editDepositForm.currencyId);
+    if (editDepositForm.superAdminBankAccountId) body.superAdminBankAccountId = Number(editDepositForm.superAdminBankAccountId);
 
     const r = await apiCall(`/api/v1/intermediary-deposits/${editDepositId}`, { method: "PUT", body });
     setEditDepositSubmitting(false);
@@ -782,6 +812,7 @@ export default function IntermediariesPage() {
             setF={setDepositForm}
             selectedName={selected?.name}
             currencies={currencies}
+            superAdminBankAccounts={superAdminBankAccounts}
             inputCls={inputCls}
             labelCls={labelCls}
           />
@@ -800,6 +831,7 @@ export default function IntermediariesPage() {
             setF={setEditDepositForm}
             selectedName={selected?.name}
             currencies={currencies}
+            superAdminBankAccounts={superAdminBankAccounts}
             inputCls={inputCls}
             labelCls={labelCls}
           />

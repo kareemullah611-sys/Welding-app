@@ -12,7 +12,7 @@ export const GET = withAuth(async (_request: NextRequest, context: any, _user: J
   const [deposits, payments, exchanges] = await Promise.all([
     prisma.intermediaryDeposit.findMany({
       where: { intermediaryId: id },
-      include: { currency: true, city: true, bankAccount: true, creator: { select: { fullName: true } } },
+      include: { currency: true, city: true, bankAccount: true, superAdminBankAccount: true, creator: { select: { fullName: true } } },
       orderBy: { depositDate: "asc" },
     }),
     prisma.supplierPayment.findMany({
@@ -36,13 +36,21 @@ export const GET = withAuth(async (_request: NextRequest, context: any, _user: J
   type LedgerEntry = {
     date: Date; type: "deposit" | "payment" | "exchange_out" | "exchange_in"; id: number;
     description: string; currencyCode: string; debit: number; credit: number;
+    sourceType?: string;
+    currencyId?: number;
+    superAdminBankAccountId?: number | null;
+    notes?: string | null;
   };
 
   const entries: LedgerEntry[] = [
     ...deposits.map((d) => ({
       date: d.depositDate, type: "deposit" as const, id: d.id,
-      description: `Deposit${d.city ? ` (${d.city.name})` : ""}${d.bankAccount ? ` via ${d.bankAccount.bankName}` : ""}${d.notes ? ` — ${d.notes}` : ""}`,
+      description: `Deposit${d.city ? ` (${d.city.name})` : ""}${d.bankAccount ? ` via ${d.bankAccount.bankName}` : ""}${d.superAdminBankAccount ? ` via ${d.superAdminBankAccount.bankName}` : ""}${d.notes ? ` — ${d.notes}` : ""}`,
       currencyCode: d.currency.code, debit: Number(d.amount), credit: 0,
+      sourceType: d.sourceType,
+      currencyId: d.currencyId,
+      superAdminBankAccountId: d.superAdminBankAccountId,
+      notes: d.notes,
     })),
     ...payments.map((p) => ({
       date: p.paymentDate, type: "payment" as const, id: p.id,

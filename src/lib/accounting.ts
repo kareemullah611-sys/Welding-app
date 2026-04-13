@@ -284,10 +284,12 @@ export async function getIntermediaryFxClearingAccountId(intermediaryId: number,
 export async function journalIntermediaryDeposit(d: {
   id: number; intermediaryId: number; amount: number; currencyCode: string;
   depositDate: Date; createdBy: number;
-  sourceType: string; cityId?: number | null; bankAccountId?: number | null;
+  sourceType: string; cityId?: number | null; bankAccountId?: number | null; superAdminBankAccountId?: number | null;
 }) {
   let creditAccId: number;
-  if (d.sourceType === "bank_account" && d.bankAccountId) {
+  if (d.sourceType === "super_admin_bank_account" && d.superAdminBankAccountId) {
+    creditAccId = await getSuperAdminBankGLAccountId(d.superAdminBankAccountId);
+  } else if (d.sourceType === "bank_account" && d.bankAccountId) {
     creditAccId = await getBankGLAccountId(d.bankAccountId);
   } else if (d.cityId) {
     creditAccId = await getCashAccountId(d.cityId);

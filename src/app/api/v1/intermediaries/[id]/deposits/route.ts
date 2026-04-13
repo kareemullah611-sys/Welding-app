@@ -25,11 +25,25 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
   const currency = await prisma.currency.findUnique({ where: { id: Number(body.currencyId) } });
   if (!currency) return errorResponse("VALIDATION", "Invalid currency", 400);
 
-  // Super admin must not debit city cash/bank through intermediary deposits.
-  if (body.cityId || body.bankAccountId || body.sourceType === "city_cash") {
-    return errorResponse("VALIDATION", "Super admin cannot debit city cash or city bank accounts from intermediary deposits", 400);
+  // Super admin can debit only super-admin owned bank accounts (not city cash/banks).
+  if (body.cityId || body.bankAccountId || body.sourceType === "city_cash" || body.sourceType === "bank_account") {
+    return errorResponse("VALIDATION", "Use only super admin bank accounts for intermediary deposits", 400);
   }
-  const sourceType: string = "bank_account";
+  const superAdminBankAccountId = Number(body.superAdminBankAccountId || 0);
+  if (!superAdminBankAccountId) {
+    return errorResponse("VALIDATION", "Super admin bank account is required", 400);
+  }
+  const superAdminBankAccount = await prisma.superAdminBankAccount.findUnique({
+    where: { id: superAdminBankAccountId },
+    select: { id: true, isActive: true, currencyId: true },
+  });
+  if (!superAdminBankAccount) return errorResponse("NOT_FOUND", "Super admin bank account not found", 404);
+  if (!superAdminBankAccount.isActive) return errorResponse("VALIDATION", "Selected super admin bank account is inactive", 400);
+  if (superAdminBankAccount.currencyId !== Number(body.currencyId)) {
+    return errorResponse("VALIDATION", "Deposit currency must match selected super admin bank account currency", 400);
+  }
+
+  const sourceType: string = "super_admin_bank_account";
   const cityId: number | null = null;
   const bankAccountId: number | null = null;
 
@@ -42,6 +56,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
       sourceType: sourceType as any,
       cityId,
       bankAccountId,
+      superAdminBankAccountId,
       notes: body.notes || null,
       createdBy: user.userId,
     },
@@ -51,7 +66,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
     id: deposit.id, intermediaryId,
     amount: Number(deposit.amount), currencyCode: currency.code,
     depositDate: deposit.depositDate, createdBy: user.userId,
-    sourceType, cityId, bankAccountId,
+    sourceType, cityId, bankAccountId, superAdminBankAccountId,
   });
 
   return successResponse(deposit, "Deposit recorded", 201);
