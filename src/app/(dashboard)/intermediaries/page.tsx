@@ -8,9 +8,6 @@ const EMPTY_DEPOSIT = {
   depositDate: new Date().toISOString().split("T")[0],
   amount: "",
   currencyId: "",
-  sourceType: "bank_account",
-  cityId: "",
-  bankAccountId: "",
   notes: "",
 };
 
@@ -60,8 +57,6 @@ function DepositFormFields({
   f,
   setF,
   selectedName,
-  bankAccounts,
-  cities,
   currencies,
   inputCls,
   labelCls,
@@ -69,8 +64,6 @@ function DepositFormFields({
   f: typeof EMPTY_DEPOSIT;
   setF: React.Dispatch<React.SetStateAction<typeof EMPTY_DEPOSIT>>;
   selectedName?: string;
-  bankAccounts: any[];
-  cities: any[];
   currencies: any[];
   inputCls: string;
   labelCls: string;
@@ -78,7 +71,7 @@ function DepositFormFields({
   return (
     <>
       <div className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800 font-medium">
-        <span>{f.sourceType === "bank_account" ? `🏦 ${bankAccounts.find((b) => String(b.id) === f.bankAccountId)?.bankName || "Bank Account"}` : `🏙️ ${cities.find((c) => String(c.id) === f.cityId)?.name || "City Cash"}`}</span>
+        <span>🧾 Super Admin Treasury</span>
         <span className="text-blue-400 text-lg">→</span>
         <span>👤 {selectedName || "Intermediary"}</span>
       </div>
@@ -107,31 +100,6 @@ function DepositFormFields({
           {currencies.map(c => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
         </select>
       </div>
-      <div>
-        <label className={labelCls}>Sending From</label>
-        <select value={f.sourceType} onChange={e => setF(prev => ({ ...prev, sourceType: e.target.value, cityId: "", bankAccountId: "" }))} className={inputCls}>
-          <option value="bank_account">Bank Account</option>
-          <option value="city_cash">City Cash</option>
-        </select>
-      </div>
-      {f.sourceType === "bank_account" && (
-        <div>
-          <label className={labelCls}>Bank Account</label>
-          <select value={f.bankAccountId} onChange={e => setF(prev => ({ ...prev, bankAccountId: e.target.value }))} className={inputCls}>
-            <option value="">Select bank</option>
-            {bankAccounts.filter((b: any) => b.isActive).map((b: any) => <option key={b.id} value={b.id}>{b.bankName} {b.accountNumber || ""}</option>)}
-          </select>
-        </div>
-      )}
-      {f.sourceType === "city_cash" && (
-        <div>
-          <label className={labelCls}>City</label>
-          <select value={f.cityId} onChange={e => setF(prev => ({ ...prev, cityId: e.target.value }))} className={inputCls}>
-            <option value="">Select city</option>
-            {cities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
-      )}
       <div>
         <label className={labelCls}>Notes</label>
         <input type="text" value={f.notes} onChange={e => setF(prev => ({ ...prev, notes: e.target.value }))} className={inputCls} />
@@ -183,8 +151,6 @@ export default function IntermediariesPage() {
 
   // ref data
   const [currencies, setCurrencies] = useState<any[]>([]);
-  const [cities, setCities] = useState<any[]>([]);
-  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -195,10 +161,8 @@ export default function IntermediariesPage() {
   useEffect(() => { load(); }, [load]);
 
   const loadRefData = async () => {
-    const [c, ci, b] = await Promise.all([
+    const [c] = await Promise.all([
       apiCall("/api/v1/currencies"),
-      apiCall("/api/v1/cities", { params: { limit: 100 } }),
-      apiCall("/api/v1/bank-accounts", { params: { limit: 100 } }),
     ]);
     if (c.success) {
       const loadedCurrencies = c.data as any[];
@@ -213,8 +177,6 @@ export default function IntermediariesPage() {
         }));
       }
     }
-    if (ci.success) setCities((ci.data as any).items || ci.data as any[]);
-    if (b.success) setBankAccounts((b.data as any).items || b.data as any[]);
   };
 
   const openLedger = async (item: any) => {
@@ -251,11 +213,8 @@ export default function IntermediariesPage() {
       depositDate: depositForm.depositDate,
       amount: parsedAmount,
       currencyId: Number(depositForm.currencyId),
-      sourceType: depositForm.sourceType,
       notes: depositForm.notes || null,
     };
-    if (depositForm.sourceType === "city_cash" && depositForm.cityId) body.cityId = Number(depositForm.cityId);
-    if (depositForm.sourceType === "bank_account" && depositForm.bankAccountId) body.bankAccountId = Number(depositForm.bankAccountId);
 
     const r = await apiCall(`/api/v1/intermediaries/${selected.id}/deposits`, { method: "POST", body });
     setDepositSubmitting(false);
@@ -274,9 +233,6 @@ export default function IntermediariesPage() {
       depositDate: entry.date?.split("T")[0] || "",
       amount: String(entry.debit),
       currencyId: "",
-      sourceType: entry.description?.includes("via") ? "bank_account" : "city_cash",
-      cityId: "",
-      bankAccountId: "",
       notes: "",
     });
     setEditDepositError("");
@@ -294,12 +250,9 @@ export default function IntermediariesPage() {
     const body: any = {
       depositDate: editDepositForm.depositDate,
       amount: parsedAmount,
-      sourceType: editDepositForm.sourceType,
       notes: editDepositForm.notes || null,
     };
     if (editDepositForm.currencyId) body.currencyId = Number(editDepositForm.currencyId);
-    if (editDepositForm.sourceType === "city_cash" && editDepositForm.cityId) body.cityId = Number(editDepositForm.cityId);
-    if (editDepositForm.sourceType === "bank_account" && editDepositForm.bankAccountId) body.bankAccountId = Number(editDepositForm.bankAccountId);
 
     const r = await apiCall(`/api/v1/intermediary-deposits/${editDepositId}`, { method: "PUT", body });
     setEditDepositSubmitting(false);
@@ -828,8 +781,6 @@ export default function IntermediariesPage() {
             f={depositForm}
             setF={setDepositForm}
             selectedName={selected?.name}
-            bankAccounts={bankAccounts}
-            cities={cities}
             currencies={currencies}
             inputCls={inputCls}
             labelCls={labelCls}
@@ -848,8 +799,6 @@ export default function IntermediariesPage() {
             f={editDepositForm}
             setF={setEditDepositForm}
             selectedName={selected?.name}
-            bankAccounts={bankAccounts}
-            cities={cities}
             currencies={currencies}
             inputCls={inputCls}
             labelCls={labelCls}

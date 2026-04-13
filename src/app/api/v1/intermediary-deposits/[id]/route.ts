@@ -33,6 +33,10 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     nextAmount = parsedAmount;
   }
 
+  if (body.cityId !== undefined || body.bankAccountId !== undefined || body.sourceType === "city_cash") {
+    return errorResponse("VALIDATION", "Super admin cannot debit city cash or city bank accounts from intermediary deposits", 400);
+  }
+
   await reverseJournalEntries(`INTDEP-${id}`, user.userId);
 
   const updated = await prisma.intermediaryDeposit.update({
@@ -41,9 +45,9 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
       depositDate: body.depositDate ? new Date(body.depositDate) : undefined,
       amount: nextAmount,
       currencyId,
-      sourceType: body.sourceType || undefined,
-      cityId: body.cityId !== undefined ? (body.cityId ? Number(body.cityId) : null) : undefined,
-      bankAccountId: body.bankAccountId !== undefined ? (body.bankAccountId ? Number(body.bankAccountId) : null) : undefined,
+      sourceType: "bank_account",
+      cityId: null,
+      bankAccountId: null,
       notes: body.notes !== undefined ? body.notes || null : undefined,
     },
   });

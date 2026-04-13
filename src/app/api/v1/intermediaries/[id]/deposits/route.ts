@@ -25,23 +25,13 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
   const currency = await prisma.currency.findUnique({ where: { id: Number(body.currencyId) } });
   if (!currency) return errorResponse("VALIDATION", "Invalid currency", 400);
 
-  // Super admin chooses source: bank account or any city's cash
-  let sourceType: string = body.sourceType || "bank_account";
-  let cityId: number | null = null;
-  let bankAccountId: number | null = null;
-  if (sourceType === "city_cash" && body.cityId) {
-    const city = await prisma.city.findUnique({ where: { id: Number(body.cityId) }, select: { id: true, isActive: true } });
-    if (!city || !city.isActive) return errorResponse("VALIDATION", "Invalid or inactive city", 400);
-    cityId = city.id;
+  // Super admin must not debit city cash/bank through intermediary deposits.
+  if (body.cityId || body.bankAccountId || body.sourceType === "city_cash") {
+    return errorResponse("VALIDATION", "Super admin cannot debit city cash or city bank accounts from intermediary deposits", 400);
   }
-  if (sourceType === "bank_account" && body.bankAccountId) {
-    const ba = await prisma.bankAccount.findUnique({ where: { id: Number(body.bankAccountId) }, select: { id: true, isActive: true } });
-    if (!ba) return errorResponse("NOT_FOUND", "Bank account not found", 404);
-    if (!ba.isActive) return errorResponse("VALIDATION", "Selected bank account is inactive", 400);
-    bankAccountId = ba.id;
-  }
-  if (sourceType === "bank_account" && !bankAccountId) return errorResponse("VALIDATION", "Bank account is required", 400);
-  if (sourceType === "city_cash" && !cityId) return errorResponse("VALIDATION", "City is required", 400);
+  const sourceType: string = "bank_account";
+  const cityId: number | null = null;
+  const bankAccountId: number | null = null;
 
   const deposit = await prisma.intermediaryDeposit.create({
     data: {
