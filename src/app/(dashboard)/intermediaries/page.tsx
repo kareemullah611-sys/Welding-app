@@ -14,12 +14,28 @@ const EMPTY_DEPOSIT = {
   notes: "",
 };
 
+const EMPTY_EXCHANGE = {
+  exchangeDate: new Date().toISOString().split("T")[0],
+  fromCurrencyId: "",
+  fromAmount: "",
+  toCurrencyId: "",
+  exchangeRate: "",
+  notes: "",
+};
+
 function parseAmountInput(raw: string): number | null {
   const normalized = String(raw || "").replace(/,/g, "").trim();
   if (!normalized) return null;
   const value = Number(normalized);
   if (!Number.isFinite(value) || value <= 0) return null;
   return value;
+}
+
+function calculateToAmount(fromAmount: string, exchangeRate: string): number {
+  const from = parseAmountInput(fromAmount);
+  const rate = parseAmountInput(exchangeRate);
+  if (!from || !rate) return 0;
+  return Math.round(from * rate * 100) / 100;
 }
 
 function DepositFormFields({
@@ -137,6 +153,16 @@ export default function IntermediariesPage() {
   const [editDepositSubmitting, setEditDepositSubmitting] = useState(false);
   const [editDepositError, setEditDepositError] = useState("");
 
+  // exchange
+  const [exchangeForm, setExchangeForm] = useState({ ...EMPTY_EXCHANGE });
+  const [exchangeSubmitting, setExchangeSubmitting] = useState(false);
+  const [exchangeError, setExchangeError] = useState("");
+  const [showEditExchange, setShowEditExchange] = useState(false);
+  const [editExchangeId, setEditExchangeId] = useState<number | null>(null);
+  const [editExchangeForm, setEditExchangeForm] = useState({ ...EMPTY_EXCHANGE });
+  const [editExchangeSubmitting, setEditExchangeSubmitting] = useState(false);
+  const [editExchangeError, setEditExchangeError] = useState("");
+
   // ref data
   const [currencies, setCurrencies] = useState<any[]>([]);
   const [cities, setCities] = useState<any[]>([]);
@@ -156,15 +182,28 @@ export default function IntermediariesPage() {
       apiCall("/api/v1/cities", { params: { limit: 100 } }),
       apiCall("/api/v1/bank-accounts", { params: { limit: 100 } }),
     ]);
-    if (c.success) setCurrencies(c.data as any[]);
+    if (c.success) {
+      const loadedCurrencies = c.data as any[];
+      setCurrencies(loadedCurrencies);
+      if (loadedCurrencies.length >= 2) {
+        setExchangeForm((prev) => ({
+          ...prev,
+          fromCurrencyId: prev.fromCurrencyId || String(loadedCurrencies[0].id),
+          toCurrencyId: prev.toCurrencyId || String(loadedCurrencies[1].id),
+        }));
+      }
+    }
     if (ci.success) setCities((ci.data as any).items || ci.data as any[]);
     if (b.success) setBankAccounts((b.data as any).items || b.data as any[]);
   };
 
   const openLedger = async (item: any) => {
+    await loadRefData();
     setSelected(item);
     setShowLedger(true);
     setLedgerLoading(true);
+    setExchangeForm({ ...EMPTY_EXCHANGE });
+    setExchangeError("");
     const r = await apiCall(`/api/v1/intermediaries/${item.id}`);
     if (r.success) setLedger(r.data);
     setLedgerLoading(false);
@@ -255,6 +294,115 @@ export default function IntermediariesPage() {
   const handleDeleteDeposit = async (id: number) => {
     if (!confirm("Delete this deposit? The journal entry will be reversed.")) return;
     await apiCall(`/api/v1/intermediary-deposits/${id}`, { method: "DELETE" });
+    openLedger(selected);
+  };
+
+  const handleExchange = async () => {
+    if (!selected?.id) return;
+    const fromAmount = parseAmountInput(exchangeForm.fromAmount);
+    const exchangeRate = parseAmountInput(exchangeForm.exchangeRate);
+    if (!exchangeForm.fromCurrencyId || !exchangeForm.toCurrencyId) {
+      setExchangeError("Select both currencies");
+      return;
+    }
+    if (exchangeForm.fromCurrencyId === exchangeForm.toCurrencyId) {
+      setExchangeError("From and To currencies must be different");
+      return;
+    }
+    if (!fromAmount) {
+      setExchangeError("Enter a valid from amount");
+      return;
+    }
+    if (!exchangeRate) {
+      setExchangeError("Enter a valid exchange rate");
+      return;
+    }
+    setExchangeSubmitting(true);
+    const r = await apiCall(`/api/v1/intermediaries/${selected.id}/exchanges`, {
+      method: "POST",
+      body: {
+        exchangeDate: exchangeForm.exchangeDate,
+        fromCurrencyId: Number(exchangeForm.fromCurrencyId),
+        fromAmount,
+        toCurrencyId: Number(exchangeForm.toCurrencyId),
+        exchangeRate,
+        notes: exchangeForm.notes || null,
+      },
+    });
+    setExchangeSubmitting(false);
+    if (r.success) {
+      setExchangeForm({ ...EMPTY_EXCHANGE });
+      setExchangeError("");
+      openLedger(selected);
+    } else {
+      setExchangeError(r.error || "Failed to execute exchange");
+    }
+  };
+
+  const openEditExchange = async (exchange: any) => {
+    await loadRefData();
+    setEditExchangeId(exchange.id);
+    setEditExchangeForm({
+      exchangeDate: String(exchange.exchangeDate || "").split("T")[0] || new Date().toISOString().split("T")[0],
+      fromCurrencyId: String(exchange.fromCurrencyId || ""),
+      fromAmount: String(exchange.fromAmount || ""),
+      toCurrencyId: String(exchange.toCurrencyId || ""),
+      exchangeRate: String(exchange.exchangeRate || ""),
+      notes: exchange.notes || "",
+    });
+    setEditExchangeError("");
+    setShowEditExchange(true);
+  };
+
+  const handleEditExchange = async () => {
+    if (!editExchangeId) return;
+    const fromAmount = parseAmountInput(editExchangeForm.fromAmount);
+    const exchangeRate = parseAmountInput(editExchangeForm.exchangeRate);
+    if (!editExchangeForm.fromCurrencyId || !editExchangeForm.toCurrencyId) {
+      setEditExchangeError("Select both currencies");
+      return;
+    }
+    if (editExchangeForm.fromCurrencyId === editExchangeForm.toCurrencyId) {
+      setEditExchangeError("From and To currencies must be different");
+      return;
+    }
+    if (!fromAmount) {
+      setEditExchangeError("Enter a valid from amount");
+      return;
+    }
+    if (!exchangeRate) {
+      setEditExchangeError("Enter a valid exchange rate");
+      return;
+    }
+    setEditExchangeSubmitting(true);
+    const r = await apiCall(`/api/v1/intermediary-exchanges/${editExchangeId}`, {
+      method: "PUT",
+      body: {
+        exchangeDate: editExchangeForm.exchangeDate,
+        fromCurrencyId: Number(editExchangeForm.fromCurrencyId),
+        fromAmount,
+        toCurrencyId: Number(editExchangeForm.toCurrencyId),
+        exchangeRate,
+        notes: editExchangeForm.notes || null,
+      },
+    });
+    setEditExchangeSubmitting(false);
+    if (r.success) {
+      setShowEditExchange(false);
+      setEditExchangeId(null);
+      openLedger(selected);
+    } else {
+      setEditExchangeError(r.error || "Failed to update exchange");
+    }
+  };
+
+  const handleDeleteExchange = async (exchangeId: number) => {
+    if (!confirm("Delete this exchange? The journal entries will be reversed.")) return;
+    const r = await apiCall(`/api/v1/intermediary-exchanges/${exchangeId}`, { method: "DELETE" });
+    if (!r.success) {
+      setExchangeError(r.error || "Failed to delete exchange");
+      return;
+    }
     openLedger(selected);
   };
 
@@ -382,16 +530,159 @@ export default function IntermediariesPage() {
           ) : ledger ? (
             <>
               {/* Balances */}
-              {ledger.balances && Object.keys(ledger.balances).length > 0 && (
-                <div className="flex gap-4 flex-wrap">
-                  {Object.entries(ledger.balances).map(([cur, bal]) => (
-                    <div key={cur} className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded px-4 py-2">
-                      <p className="text-xs text-gray-500">Closing Balance ({cur})</p>
-                      <p className="text-lg font-bold text-blue-700 dark:text-blue-300">{formatNumber(bal as number)} {cur}</p>
-                    </div>
-                  ))}
+              <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4">
+                <h4 className="mb-3 text-sm font-semibold text-blue-900">Currency Balances (Active Only)</h4>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {Array.from(
+                    new Set([
+                      "AED",
+                      "PKR",
+                      "USD",
+                      ...Object.keys(ledger.balances || {}),
+                    ])
+                  ).map((cur) => {
+                    const balance = Number(ledger.balances?.[cur] || 0);
+                    return (
+                      <div key={cur} className="rounded-lg border border-blue-100 bg-white p-3">
+                        <p className="text-xs font-medium text-gray-500">{cur} Balance</p>
+                        <p className={`mt-1 text-lg font-bold ${balance < 0 ? "text-red-600" : "text-blue-700"}`}>
+                          {formatNumber(balance)} {cur}
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
-              )}
+              </div>
+
+              {/* Exchange Form */}
+              <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-4">
+                <h4 className="mb-3 text-sm font-semibold text-amber-900">Currency Exchange</h4>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+                  <div>
+                    <label className={labelCls}>Date</label>
+                    <input
+                      type="date"
+                      value={exchangeForm.exchangeDate}
+                      onChange={e => setExchangeForm(prev => ({ ...prev, exchangeDate: e.target.value }))}
+                      className={inputCls}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls}>From Currency</label>
+                    <select
+                      value={exchangeForm.fromCurrencyId}
+                      onChange={e => setExchangeForm(prev => ({ ...prev, fromCurrencyId: e.target.value }))}
+                      className={inputCls}
+                    >
+                      <option value="">Select</option>
+                      {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={labelCls}>From Amount</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={exchangeForm.fromAmount}
+                      onChange={e => setExchangeForm(prev => ({ ...prev, fromAmount: e.target.value }))}
+                      className={inputCls}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls}>To Currency</label>
+                    <select
+                      value={exchangeForm.toCurrencyId}
+                      onChange={e => setExchangeForm(prev => ({ ...prev, toCurrencyId: e.target.value }))}
+                      className={inputCls}
+                    >
+                      <option value="">Select</option>
+                      {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={labelCls}>Exchange Rate</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={exchangeForm.exchangeRate}
+                      onChange={e => setExchangeForm(prev => ({ ...prev, exchangeRate: e.target.value }))}
+                      className={inputCls}
+                      placeholder="e.g. 278.5"
+                    />
+                  </div>
+                </div>
+                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <div>
+                    <label className={labelCls}>To Amount (Calculated)</label>
+                    <input
+                      type="text"
+                      value={calculateToAmount(exchangeForm.fromAmount, exchangeForm.exchangeRate).toLocaleString("en-US")}
+                      className={inputCls}
+                      readOnly
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className={labelCls}>Notes</label>
+                    <input
+                      type="text"
+                      value={exchangeForm.notes}
+                      onChange={e => setExchangeForm(prev => ({ ...prev, notes: e.target.value }))}
+                      className={inputCls}
+                      placeholder="Optional note"
+                    />
+                  </div>
+                </div>
+                {exchangeError && <p className="mt-2 text-sm text-red-600">{exchangeError}</p>}
+                <div className="mt-3">
+                  <button
+                    onClick={handleExchange}
+                    disabled={exchangeSubmitting}
+                    className="rounded bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                  >
+                    {exchangeSubmitting ? "Executing..." : "Execute Exchange"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Exchange History */}
+              <div className="rounded-xl border border-gray-200 bg-white p-4">
+                <h4 className="mb-3 text-sm font-semibold text-gray-800">Recent Exchanges</h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-sm">
+                    <thead>
+                      <tr className="bg-gray-50">
+                        <th className="border px-3 py-2 text-left">Date</th>
+                        <th className="border px-3 py-2 text-left">From</th>
+                        <th className="border px-3 py-2 text-left">To</th>
+                        <th className="border px-3 py-2 text-left">Rate</th>
+                        <th className="border px-3 py-2 text-left">Notes</th>
+                        <th className="border px-3 py-2 text-center">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(ledger.exchangeHistory || []).length === 0 && (
+                        <tr><td className="border px-3 py-3 text-center text-gray-400" colSpan={6}>No exchanges recorded</td></tr>
+                      )}
+                      {(ledger.exchangeHistory || []).map((exchange: any) => (
+                        <tr key={exchange.id}>
+                          <td className="border px-3 py-2">{String(exchange.exchangeDate).split("T")[0]}</td>
+                          <td className="border px-3 py-2">{formatNumber(Number(exchange.fromAmount || 0))} {exchange.fromCurrencyCode}</td>
+                          <td className="border px-3 py-2">{formatNumber(Number(exchange.toAmount || 0))} {exchange.toCurrencyCode}</td>
+                          <td className="border px-3 py-2">1 {exchange.fromCurrencyCode} = {Number(exchange.exchangeRate || 0).toLocaleString("en-US")} {exchange.toCurrencyCode}</td>
+                          <td className="border px-3 py-2">{exchange.notes || "-"}</td>
+                          <td className="border px-3 py-2 text-center">
+                            <div className="flex justify-center gap-3">
+                              <button onClick={() => openEditExchange(exchange)} className="text-xs text-blue-600 hover:underline">Edit</button>
+                              <button onClick={() => handleDeleteExchange(exchange.id)} className="text-xs text-red-600 hover:underline">Delete</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
 
               {/* Ledger Table */}
               <div className="overflow-x-auto">
@@ -412,7 +703,13 @@ export default function IntermediariesPage() {
                       <tr><td colSpan={isSA ? 7 : 6} className="text-center py-4 text-gray-400">No ledger entries</td></tr>
                     )}
                     {ledger.ledger?.map((entry: any, i: number) => (
-                      <tr key={i} className={entry.type === "deposit" ? "bg-green-50 dark:bg-green-900/10" : "bg-red-50 dark:bg-red-900/10"}>
+                      <tr key={i} className={
+                        entry.type === "deposit"
+                          ? "bg-green-50 dark:bg-green-900/10"
+                          : entry.type === "payment" || entry.type === "exchange_out"
+                          ? "bg-red-50 dark:bg-red-900/10"
+                          : "bg-blue-50 dark:bg-blue-900/10"
+                      }>
                         <td className="border px-3 py-2">{entry.date?.split("T")[0]}</td>
                         <td className="border px-3 py-2">{entry.description}</td>
                         <td className="border px-3 py-2">{entry.currencyCode}</td>
@@ -477,6 +774,56 @@ export default function IntermediariesPage() {
           {editDepositError && <p className="text-red-500 text-sm">{editDepositError}</p>}
           <button onClick={handleEditDeposit} disabled={editDepositSubmitting} className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50">
             {editDepositSubmitting ? "Saving..." : "Save Changes"}
+          </button>
+        </div>
+      </Modal>
+
+      {/* Edit Exchange */}
+      <Modal open={showEditExchange} onClose={() => setShowEditExchange(false)} title="Edit Currency Exchange">
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>Date</label>
+              <input type="date" value={editExchangeForm.exchangeDate} onChange={e => setEditExchangeForm(prev => ({ ...prev, exchangeDate: e.target.value }))} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Exchange Rate</label>
+              <input type="text" inputMode="decimal" value={editExchangeForm.exchangeRate} onChange={e => setEditExchangeForm(prev => ({ ...prev, exchangeRate: e.target.value }))} className={inputCls} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>From Currency</label>
+              <select value={editExchangeForm.fromCurrencyId} onChange={e => setEditExchangeForm(prev => ({ ...prev, fromCurrencyId: e.target.value }))} className={inputCls}>
+                <option value="">Select</option>
+                {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>To Currency</label>
+              <select value={editExchangeForm.toCurrencyId} onChange={e => setEditExchangeForm(prev => ({ ...prev, toCurrencyId: e.target.value }))} className={inputCls}>
+                <option value="">Select</option>
+                {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>From Amount</label>
+              <input type="text" inputMode="decimal" value={editExchangeForm.fromAmount} onChange={e => setEditExchangeForm(prev => ({ ...prev, fromAmount: e.target.value }))} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>To Amount (Calculated)</label>
+              <input type="text" value={calculateToAmount(editExchangeForm.fromAmount, editExchangeForm.exchangeRate).toLocaleString("en-US")} className={inputCls} readOnly />
+            </div>
+          </div>
+          <div>
+            <label className={labelCls}>Notes</label>
+            <input type="text" value={editExchangeForm.notes} onChange={e => setEditExchangeForm(prev => ({ ...prev, notes: e.target.value }))} className={inputCls} />
+          </div>
+          {editExchangeError && <p className="text-sm text-red-600">{editExchangeError}</p>}
+          <button onClick={handleEditExchange} disabled={editExchangeSubmitting} className="w-full rounded bg-blue-600 py-2 text-white hover:bg-blue-700 disabled:opacity-50">
+            {editExchangeSubmitting ? "Saving..." : "Save Exchange"}
           </button>
         </div>
       </Modal>

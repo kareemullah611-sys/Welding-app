@@ -9,7 +9,7 @@ export const GET = withAuth(async (_request: NextRequest, context: any, _user: J
   const intermediary = await prisma.intermediary.findUnique({ where: { id } });
   if (!intermediary) return errorResponse("NOT_FOUND", "Not found", 404);
 
-  const [deposits, payments] = await Promise.all([
+  const [deposits, payments, exchanges] = await Promise.all([
     prisma.intermediaryDeposit.findMany({
       where: { intermediaryId: id },
       include: { currency: true, city: true, bankAccount: true, creator: { select: { fullName: true } } },
@@ -20,10 +20,19 @@ export const GET = withAuth(async (_request: NextRequest, context: any, _user: J
       include: { supplier: true, creator: { select: { fullName: true } } },
       orderBy: { paymentDate: "asc" },
     }),
+    prisma.intermediaryExchange.findMany({
+      where: { intermediaryId: id, isActive: true },
+      include: {
+        fromCurrency: true,
+        toCurrency: true,
+        creator: { select: { fullName: true } },
+      },
+      orderBy: { exchangeDate: "asc" },
+    }),
   ]);
 
   type LedgerEntry = {
-    date: Date; type: "deposit" | "payment"; id: number;
+    date: Date; type: "deposit" | "payment" | "exchange_out" | "exchange_in"; id: number;
     description: string; currencyCode: string; debit: number; credit: number;
   };
 
@@ -38,6 +47,26 @@ export const GET = withAuth(async (_request: NextRequest, context: any, _user: J
       description: `Supplier payment — ${p.supplier.name}${p.notes ? ` — ${p.notes}` : ""}`,
       currencyCode: "USD", debit: 0, credit: Number(p.amountUsd),
     })),
+    ...exchanges.flatMap((e) => ([
+      {
+        date: e.exchangeDate,
+        type: "exchange_out" as const,
+        id: e.id,
+        description: `FX ${e.fromCurrency.code} → ${e.toCurrency.code} @ ${Number(e.exchangeRate).toLocaleString("en-US", { maximumFractionDigits: 6 })}${e.notes ? ` — ${e.notes}` : ""}`,
+        currencyCode: e.fromCurrency.code,
+        debit: 0,
+        credit: Number(e.fromAmount),
+      },
+      {
+        date: e.exchangeDate,
+        type: "exchange_in" as const,
+        id: e.id,
+        description: `FX ${e.fromCurrency.code} → ${e.toCurrency.code} @ ${Number(e.exchangeRate).toLocaleString("en-US", { maximumFractionDigits: 6 })}${e.notes ? ` — ${e.notes}` : ""}`,
+        currencyCode: e.toCurrency.code,
+        debit: Number(e.toAmount),
+        credit: 0,
+      },
+    ])),
   ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
   const balances: Record<string, number> = {};
@@ -46,7 +75,21 @@ export const GET = withAuth(async (_request: NextRequest, context: any, _user: J
     return { ...e, balance: balances[e.currencyCode] };
   });
 
-  return successResponse({ intermediary, ledger, balances });
+  const exchangeHistory = exchanges.map((e) => ({
+    id: e.id,
+    exchangeDate: e.exchangeDate,
+    fromCurrencyId: e.fromCurrencyId,
+    fromCurrencyCode: e.fromCurrency.code,
+    fromAmount: Number(e.fromAmount),
+    toCurrencyId: e.toCurrencyId,
+    toCurrencyCode: e.toCurrency.code,
+    toAmount: Number(e.toAmount),
+    exchangeRate: Number(e.exchangeRate),
+    notes: e.notes || null,
+    createdByName: e.creator?.fullName || null,
+  }));
+
+  return successResponse({ intermediary, ledger, balances, exchangeHistory });
 });
 
 export const PUT = withSuperAdmin(async (request: NextRequest, context: any, _user: JWTPayload) => {

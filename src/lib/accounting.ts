@@ -273,6 +273,11 @@ export async function getIntermediaryAccountId(intermediaryId: number, db: DbCli
   return getOrCreateAccount(`1060-H${intermediaryId}`, `Intermediary - ${party?.name || intermediaryId}`, "asset", undefined, db);
 }
 
+export async function getIntermediaryFxClearingAccountId(intermediaryId: number, db: DbClient = prisma): Promise<number> {
+  const party = await db.intermediary.findUnique({ where: { id: intermediaryId }, select: { name: true } });
+  return getOrCreateAccount(`1061-HFX${intermediaryId}`, `Intermediary FX Clearing - ${party?.name || intermediaryId}`, "asset", undefined, db);
+}
+
 // INTERMEDIARY DEPOSIT — money sent TO the intermediary
 // city_cash:    DR Intermediary Asset | CR Cash in Hand (city)
 // bank_account: DR Intermediary Asset | CR Bank GL
@@ -293,6 +298,45 @@ export async function journalIntermediaryDeposit(d: {
     { accountId: await getIntermediaryAccountId(d.intermediaryId), debit: d.amount, credit: 0, description: `Deposit to intermediary #${d.intermediaryId}` },
     { accountId: creditAccId, debit: 0, credit: d.amount, description: `Deposit to intermediary #${d.intermediaryId}` },
   ], { currencyCode: d.currencyCode, entityType: "intermediary_deposit", entityId: d.id, cityId: d.cityId, entryDate: d.depositDate, createdBy: d.createdBy });
+}
+
+// INTERMEDIARY FX EXCHANGE
+// OUT leg (from currency): DR FX clearing | CR Intermediary
+// IN leg (to currency):    DR Intermediary | CR FX clearing
+export async function journalIntermediaryExchange(e: {
+  id: number;
+  intermediaryId: number;
+  exchangeDate: Date;
+  fromCurrencyCode: string;
+  fromAmount: number;
+  toCurrencyCode: string;
+  toAmount: number;
+  createdBy: number;
+}) {
+  const intermediaryAccountId = await getIntermediaryAccountId(e.intermediaryId);
+  const fxClearingAccountId = await getIntermediaryFxClearingAccountId(e.intermediaryId);
+
+  await createJournalEntries(`INTFX-OUT-${e.id}`, [
+    { accountId: fxClearingAccountId, debit: e.fromAmount, credit: 0, description: `FX OUT #${e.id}` },
+    { accountId: intermediaryAccountId, debit: 0, credit: e.fromAmount, description: `FX OUT #${e.id}` },
+  ], {
+    currencyCode: e.fromCurrencyCode,
+    entityType: "intermediary_exchange",
+    entityId: e.id,
+    entryDate: e.exchangeDate,
+    createdBy: e.createdBy,
+  });
+
+  await createJournalEntries(`INTFX-IN-${e.id}`, [
+    { accountId: intermediaryAccountId, debit: e.toAmount, credit: 0, description: `FX IN #${e.id}` },
+    { accountId: fxClearingAccountId, debit: 0, credit: e.toAmount, description: `FX IN #${e.id}` },
+  ], {
+    currencyCode: e.toCurrencyCode,
+    entityType: "intermediary_exchange",
+    entityId: e.id,
+    entryDate: e.exchangeDate,
+    createdBy: e.createdBy,
+  });
 }
 
 // SHIPPING LINE PAID
