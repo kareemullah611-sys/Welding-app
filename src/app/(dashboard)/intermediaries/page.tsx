@@ -16,6 +16,8 @@ const EMPTY_DEPOSIT = {
 
 const EMPTY_EXCHANGE = {
   exchangeDate: new Date().toISOString().split("T")[0],
+  baseCurrencyId: "",
+  quoteCurrencyId: "",
   fromCurrencyId: "",
   fromAmount: "",
   toCurrencyId: "",
@@ -31,11 +33,27 @@ function parseAmountInput(raw: string): number | null {
   return value;
 }
 
-function calculateToAmount(fromAmount: string, exchangeRate: string): number {
+function calculateToAmount(
+  fromAmount: string,
+  exchangeRate: string,
+  baseCurrencyId: string,
+  quoteCurrencyId: string,
+  fromCurrencyId: string,
+  toCurrencyId: string,
+): { toAmount: number; operation: "multiply" | "divide" | null; isPairValid: boolean } {
   const from = parseAmountInput(fromAmount);
   const rate = parseAmountInput(exchangeRate);
-  if (!from || !rate) return 0;
-  return Math.round((from / rate) * 100) / 100;
+  if (!from || !rate || !baseCurrencyId || !quoteCurrencyId || !fromCurrencyId || !toCurrencyId) {
+    return { toAmount: 0, operation: null, isPairValid: true };
+  }
+
+  if (fromCurrencyId === baseCurrencyId && toCurrencyId === quoteCurrencyId) {
+    return { toAmount: Math.round((from * rate) * 100) / 100, operation: "multiply", isPairValid: true };
+  }
+  if (fromCurrencyId === quoteCurrencyId && toCurrencyId === baseCurrencyId) {
+    return { toAmount: Math.round((from / rate) * 100) / 100, operation: "divide", isPairValid: true };
+  }
+  return { toAmount: 0, operation: null, isPairValid: false };
 }
 
 function DepositFormFields({
@@ -188,6 +206,8 @@ export default function IntermediariesPage() {
       if (loadedCurrencies.length >= 2) {
         setExchangeForm((prev) => ({
           ...prev,
+          baseCurrencyId: prev.baseCurrencyId || String(loadedCurrencies[0].id),
+          quoteCurrencyId: prev.quoteCurrencyId || String(loadedCurrencies[1].id),
           fromCurrencyId: prev.fromCurrencyId || String(loadedCurrencies[0].id),
           toCurrencyId: prev.toCurrencyId || String(loadedCurrencies[1].id),
         }));
@@ -198,12 +218,12 @@ export default function IntermediariesPage() {
   };
 
   const openLedger = async (item: any) => {
+    setExchangeForm({ ...EMPTY_EXCHANGE });
+    setExchangeError("");
     await loadRefData();
     setSelected(item);
     setShowLedger(true);
     setLedgerLoading(true);
-    setExchangeForm({ ...EMPTY_EXCHANGE });
-    setExchangeError("");
     const r = await apiCall(`/api/v1/intermediaries/${item.id}`);
     if (r.success) setLedger(r.data);
     setLedgerLoading(false);
@@ -301,6 +321,14 @@ export default function IntermediariesPage() {
     if (!selected?.id) return;
     const fromAmount = parseAmountInput(exchangeForm.fromAmount);
     const exchangeRate = parseAmountInput(exchangeForm.exchangeRate);
+    if (!exchangeForm.baseCurrencyId || !exchangeForm.quoteCurrencyId) {
+      setExchangeError("Select base and quote currencies for the rate");
+      return;
+    }
+    if (exchangeForm.baseCurrencyId === exchangeForm.quoteCurrencyId) {
+      setExchangeError("Base and quote currencies must be different");
+      return;
+    }
     if (!exchangeForm.fromCurrencyId || !exchangeForm.toCurrencyId) {
       setExchangeError("Select both currencies");
       return;
@@ -317,11 +345,25 @@ export default function IntermediariesPage() {
       setExchangeError("Enter a valid exchange rate");
       return;
     }
+    const exchangeCalc = calculateToAmount(
+      exchangeForm.fromAmount,
+      exchangeForm.exchangeRate,
+      exchangeForm.baseCurrencyId,
+      exchangeForm.quoteCurrencyId,
+      exchangeForm.fromCurrencyId,
+      exchangeForm.toCurrencyId,
+    );
+    if (!exchangeCalc.isPairValid) {
+      setExchangeError("From/To must match selected base/quote pair");
+      return;
+    }
     setExchangeSubmitting(true);
     const r = await apiCall(`/api/v1/intermediaries/${selected.id}/exchanges`, {
       method: "POST",
       body: {
         exchangeDate: exchangeForm.exchangeDate,
+        baseCurrencyId: Number(exchangeForm.baseCurrencyId),
+        quoteCurrencyId: Number(exchangeForm.quoteCurrencyId),
         fromCurrencyId: Number(exchangeForm.fromCurrencyId),
         fromAmount,
         toCurrencyId: Number(exchangeForm.toCurrencyId),
@@ -344,6 +386,8 @@ export default function IntermediariesPage() {
     setEditExchangeId(exchange.id);
     setEditExchangeForm({
       exchangeDate: String(exchange.exchangeDate || "").split("T")[0] || new Date().toISOString().split("T")[0],
+      baseCurrencyId: String(exchange.baseCurrencyId || exchange.fromCurrencyId || ""),
+      quoteCurrencyId: String(exchange.quoteCurrencyId || exchange.toCurrencyId || ""),
       fromCurrencyId: String(exchange.fromCurrencyId || ""),
       fromAmount: String(exchange.fromAmount || ""),
       toCurrencyId: String(exchange.toCurrencyId || ""),
@@ -358,6 +402,14 @@ export default function IntermediariesPage() {
     if (!editExchangeId) return;
     const fromAmount = parseAmountInput(editExchangeForm.fromAmount);
     const exchangeRate = parseAmountInput(editExchangeForm.exchangeRate);
+    if (!editExchangeForm.baseCurrencyId || !editExchangeForm.quoteCurrencyId) {
+      setEditExchangeError("Select base and quote currencies for the rate");
+      return;
+    }
+    if (editExchangeForm.baseCurrencyId === editExchangeForm.quoteCurrencyId) {
+      setEditExchangeError("Base and quote currencies must be different");
+      return;
+    }
     if (!editExchangeForm.fromCurrencyId || !editExchangeForm.toCurrencyId) {
       setEditExchangeError("Select both currencies");
       return;
@@ -374,11 +426,25 @@ export default function IntermediariesPage() {
       setEditExchangeError("Enter a valid exchange rate");
       return;
     }
+    const exchangeCalc = calculateToAmount(
+      editExchangeForm.fromAmount,
+      editExchangeForm.exchangeRate,
+      editExchangeForm.baseCurrencyId,
+      editExchangeForm.quoteCurrencyId,
+      editExchangeForm.fromCurrencyId,
+      editExchangeForm.toCurrencyId,
+    );
+    if (!exchangeCalc.isPairValid) {
+      setEditExchangeError("From/To must match selected base/quote pair");
+      return;
+    }
     setEditExchangeSubmitting(true);
     const r = await apiCall(`/api/v1/intermediary-exchanges/${editExchangeId}`, {
       method: "PUT",
       body: {
         exchangeDate: editExchangeForm.exchangeDate,
+        baseCurrencyId: Number(editExchangeForm.baseCurrencyId),
+        quoteCurrencyId: Number(editExchangeForm.quoteCurrencyId),
         fromCurrencyId: Number(editExchangeForm.fromCurrencyId),
         fromAmount,
         toCurrencyId: Number(editExchangeForm.toCurrencyId),
@@ -477,6 +543,26 @@ export default function IntermediariesPage() {
 
   const inputCls = "w-full border rounded px-3 py-2 text-sm bg-white dark:bg-gray-800 dark:border-gray-600";
   const labelCls = "block text-sm font-medium mb-1";
+  const currencyCodeById = useCallback((id: string) => {
+    if (!id) return "";
+    return currencies.find((c: any) => String(c.id) === String(id))?.code || "";
+  }, [currencies]);
+  const exchangePreview = calculateToAmount(
+    exchangeForm.fromAmount,
+    exchangeForm.exchangeRate,
+    exchangeForm.baseCurrencyId,
+    exchangeForm.quoteCurrencyId,
+    exchangeForm.fromCurrencyId,
+    exchangeForm.toCurrencyId,
+  );
+  const editExchangePreview = calculateToAmount(
+    editExchangeForm.fromAmount,
+    editExchangeForm.exchangeRate,
+    editExchangeForm.baseCurrencyId,
+    editExchangeForm.quoteCurrencyId,
+    editExchangeForm.fromCurrencyId,
+    editExchangeForm.toCurrencyId,
+  );
 
   return (
     <div className="p-4 space-y-4">
@@ -557,7 +643,43 @@ export default function IntermediariesPage() {
               {/* Exchange Form */}
               <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-4">
                 <h4 className="mb-3 text-sm font-semibold text-amber-900">Currency Exchange</h4>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                  <div>
+                    <label className={labelCls}>Base Currency</label>
+                    <select
+                      value={exchangeForm.baseCurrencyId}
+                      onChange={e => setExchangeForm(prev => ({ ...prev, baseCurrencyId: e.target.value }))}
+                      className={inputCls}
+                    >
+                      <option value="">Select</option>
+                      {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={labelCls}>Quote Currency</label>
+                    <select
+                      value={exchangeForm.quoteCurrencyId}
+                      onChange={e => setExchangeForm(prev => ({ ...prev, quoteCurrencyId: e.target.value }))}
+                      className={inputCls}
+                    >
+                      <option value="">Select</option>
+                      {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={labelCls}>Exchange Rate</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={exchangeForm.exchangeRate}
+                      onChange={e => setExchangeForm(prev => ({ ...prev, exchangeRate: e.target.value }))}
+                      className={inputCls}
+                      placeholder="e.g. 4"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      1 {currencyCodeById(exchangeForm.baseCurrencyId) || "Base"} = {exchangeForm.exchangeRate || "X"} {currencyCodeById(exchangeForm.quoteCurrencyId) || "Quote"}
+                    </p>
+                  </div>
                   <div>
                     <label className={labelCls}>Date</label>
                     <input
@@ -567,6 +689,8 @@ export default function IntermediariesPage() {
                       className={inputCls}
                     />
                   </div>
+                </div>
+                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
                   <div>
                     <label className={labelCls}>From Currency</label>
                     <select
@@ -600,28 +724,25 @@ export default function IntermediariesPage() {
                       {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
                     </select>
                   </div>
-                  <div>
-                    <label className={labelCls}>Exchange Rate</label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={exchangeForm.exchangeRate}
-                      onChange={e => setExchangeForm(prev => ({ ...prev, exchangeRate: e.target.value }))}
-                      className={inputCls}
-                      placeholder="e.g. 278.5"
-                    />
-                    <p className="mt-1 text-xs text-gray-500">To Amount = Amount ÷ Exchange Rate</p>
-                  </div>
                 </div>
                 <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
                   <div>
                     <label className={labelCls}>To Amount (Calculated)</label>
                     <input
                       type="text"
-                      value={calculateToAmount(exchangeForm.fromAmount, exchangeForm.exchangeRate).toLocaleString("en-US")}
+                      value={exchangePreview.toAmount.toLocaleString("en-US")}
                       className={inputCls}
                       readOnly
                     />
+                    <p className="mt-1 text-xs text-gray-500">
+                      {exchangePreview.isPairValid
+                        ? exchangePreview.operation === "multiply"
+                          ? "Applied: multiply (base -> quote)"
+                          : exchangePreview.operation === "divide"
+                          ? "Applied: divide (quote -> base)"
+                          : "Select currencies to preview"
+                        : "From/To must match selected base and quote currencies"}
+                    </p>
                   </div>
                   <div className="md:col-span-2">
                     <label className={labelCls}>Notes</label>
@@ -751,6 +872,25 @@ export default function IntermediariesPage() {
             <div>
               <label className={labelCls}>Exchange Rate</label>
               <input type="text" inputMode="decimal" value={editExchangeForm.exchangeRate} onChange={e => setEditExchangeForm(prev => ({ ...prev, exchangeRate: e.target.value }))} className={inputCls} />
+              <p className="mt-1 text-xs text-gray-500">
+                1 {currencyCodeById(editExchangeForm.baseCurrencyId) || "Base"} = {editExchangeForm.exchangeRate || "X"} {currencyCodeById(editExchangeForm.quoteCurrencyId) || "Quote"}
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>Base Currency</label>
+              <select value={editExchangeForm.baseCurrencyId} onChange={e => setEditExchangeForm(prev => ({ ...prev, baseCurrencyId: e.target.value }))} className={inputCls}>
+                <option value="">Select</option>
+                {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Quote Currency</label>
+              <select value={editExchangeForm.quoteCurrencyId} onChange={e => setEditExchangeForm(prev => ({ ...prev, quoteCurrencyId: e.target.value }))} className={inputCls}>
+                <option value="">Select</option>
+                {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
+              </select>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -771,12 +911,21 @@ export default function IntermediariesPage() {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={labelCls}>From Amount</label>
+              <label className={labelCls}>Amount</label>
               <input type="text" inputMode="decimal" value={editExchangeForm.fromAmount} onChange={e => setEditExchangeForm(prev => ({ ...prev, fromAmount: e.target.value }))} className={inputCls} />
             </div>
             <div>
               <label className={labelCls}>To Amount (Calculated)</label>
-              <input type="text" value={calculateToAmount(editExchangeForm.fromAmount, editExchangeForm.exchangeRate).toLocaleString("en-US")} className={inputCls} readOnly />
+              <input type="text" value={editExchangePreview.toAmount.toLocaleString("en-US")} className={inputCls} readOnly />
+              <p className="mt-1 text-xs text-gray-500">
+                {editExchangePreview.isPairValid
+                  ? editExchangePreview.operation === "multiply"
+                    ? "Applied: multiply (base -> quote)"
+                    : editExchangePreview.operation === "divide"
+                    ? "Applied: divide (quote -> base)"
+                    : "Select currencies to preview"
+                  : "From/To must match selected base and quote currencies"}
+              </p>
             </div>
           </div>
           <div>

@@ -153,6 +153,8 @@ model Currency {
   intermediaryDeposits   IntermediaryDeposit[]
   intermediaryExchangeFrom IntermediaryExchange[] @relation("IntermediaryExchangeFromCurrency")
   intermediaryExchangeTo   IntermediaryExchange[] @relation("IntermediaryExchangeToCurrency")
+  intermediaryExchangeBase IntermediaryExchange[] @relation("IntermediaryExchangeBaseCurrency")
+  intermediaryExchangeQuote IntermediaryExchange[] @relation("IntermediaryExchangeQuoteCurrency")
   superAdminBankAccounts SuperAdminBankAccount[]
 
   @@map("currencies")
@@ -1468,6 +1470,8 @@ model IntermediaryExchange {
   id             Int      @id @default(autoincrement())
   intermediaryId Int      @map("intermediary_id")
   exchangeDate   DateTime @map("exchange_date") @db.Date
+  baseCurrencyId Int?     @map("base_currency_id")
+  quoteCurrencyId Int?    @map("quote_currency_id")
   fromCurrencyId Int      @map("from_currency_id")
   fromAmount     Decimal  @map("from_amount") @db.Decimal(15, 2)
   toCurrencyId   Int      @map("to_currency_id")
@@ -1482,6 +1486,8 @@ model IntermediaryExchange {
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   intermediary Intermediary @relation(fields: [intermediaryId], references: [id])
+  baseCurrency Currency? @relation("IntermediaryExchangeBaseCurrency", fields: [baseCurrencyId], references: [id])
+  quoteCurrency Currency? @relation("IntermediaryExchangeQuoteCurrency", fields: [quoteCurrencyId], references: [id])
   fromCurrency Currency @relation("IntermediaryExchangeFromCurrency", fields: [fromCurrencyId], references: [id])
   toCurrency   Currency @relation("IntermediaryExchangeToCurrency", fields: [toCurrencyId], references: [id])
   creator      User     @relation("IntermediaryExchangeCreatedBy", fields: [createdBy], references: [id])
@@ -1489,6 +1495,8 @@ model IntermediaryExchange {
 
   @@index([intermediaryId, isActive])
   @@index([exchangeDate])
+  @@index([baseCurrencyId])
+  @@index([quoteCurrencyId])
   @@index([fromCurrencyId])
   @@index([toCurrencyId])
   @@map("intermediary_exchanges")

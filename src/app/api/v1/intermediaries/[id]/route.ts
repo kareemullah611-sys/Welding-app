@@ -23,6 +23,8 @@ export const GET = withAuth(async (_request: NextRequest, context: any, _user: J
     prisma.intermediaryExchange.findMany({
       where: { intermediaryId: id, isActive: true },
       include: {
+        baseCurrency: true,
+        quoteCurrency: true,
         fromCurrency: true,
         toCurrency: true,
         creator: { select: { fullName: true } },
@@ -52,7 +54,7 @@ export const GET = withAuth(async (_request: NextRequest, context: any, _user: J
         date: e.exchangeDate,
         type: "exchange_out" as const,
         id: e.id,
-        description: `FX ${e.fromCurrency.code} → ${e.toCurrency.code} @ ${Number(e.exchangeRate).toLocaleString("en-US", { maximumFractionDigits: 6 })}${e.notes ? ` — ${e.notes}` : ""}`,
+        description: `FX ${e.fromCurrency.code} → ${e.toCurrency.code} (1 ${(e.baseCurrency?.code || e.fromCurrency.code)} = ${Number(e.exchangeRate).toLocaleString("en-US", { maximumFractionDigits: 6 })} ${(e.quoteCurrency?.code || e.toCurrency.code)})${e.notes ? ` — ${e.notes}` : ""}`,
         currencyCode: e.fromCurrency.code,
         debit: 0,
         credit: Number(e.fromAmount),
@@ -61,7 +63,7 @@ export const GET = withAuth(async (_request: NextRequest, context: any, _user: J
         date: e.exchangeDate,
         type: "exchange_in" as const,
         id: e.id,
-        description: `FX ${e.fromCurrency.code} → ${e.toCurrency.code} @ ${Number(e.exchangeRate).toLocaleString("en-US", { maximumFractionDigits: 6 })}${e.notes ? ` — ${e.notes}` : ""}`,
+        description: `FX ${e.fromCurrency.code} → ${e.toCurrency.code} (1 ${(e.baseCurrency?.code || e.fromCurrency.code)} = ${Number(e.exchangeRate).toLocaleString("en-US", { maximumFractionDigits: 6 })} ${(e.quoteCurrency?.code || e.toCurrency.code)})${e.notes ? ` — ${e.notes}` : ""}`,
         currencyCode: e.toCurrency.code,
         debit: Number(e.toAmount),
         credit: 0,
@@ -78,6 +80,10 @@ export const GET = withAuth(async (_request: NextRequest, context: any, _user: J
   const exchangeHistory = exchanges.map((e) => ({
     id: e.id,
     exchangeDate: e.exchangeDate,
+    baseCurrencyId: e.baseCurrencyId ?? e.fromCurrencyId,
+    baseCurrencyCode: e.baseCurrency?.code || e.fromCurrency.code,
+    quoteCurrencyId: e.quoteCurrencyId ?? e.toCurrencyId,
+    quoteCurrencyCode: e.quoteCurrency?.code || e.toCurrency.code,
     fromCurrencyId: e.fromCurrencyId,
     fromCurrencyCode: e.fromCurrency.code,
     fromAmount: Number(e.fromAmount),
