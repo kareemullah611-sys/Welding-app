@@ -35,7 +35,7 @@ function calculateToAmount(fromAmount: string, exchangeRate: string): number {
   const from = parseAmountInput(fromAmount);
   const rate = parseAmountInput(exchangeRate);
   if (!from || !rate) return 0;
-  return Math.round(from * rate * 100) / 100;
+  return Math.round((from / rate) * 100) / 100;
 }
 
 function DepositFormFields({
@@ -579,7 +579,7 @@ export default function IntermediariesPage() {
                     </select>
                   </div>
                   <div>
-                    <label className={labelCls}>From Amount</label>
+                    <label className={labelCls}>Amount</label>
                     <input
                       type="text"
                       inputMode="decimal"
@@ -610,6 +610,7 @@ export default function IntermediariesPage() {
                       className={inputCls}
                       placeholder="e.g. 278.5"
                     />
+                    <p className="mt-1 text-xs text-gray-500">To Amount = Amount ÷ Exchange Rate</p>
                   </div>
                 </div>
                 <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -642,45 +643,6 @@ export default function IntermediariesPage() {
                   >
                     {exchangeSubmitting ? "Executing..." : "Execute Exchange"}
                   </button>
-                </div>
-              </div>
-
-              {/* Exchange History */}
-              <div className="rounded-xl border border-gray-200 bg-white p-4">
-                <h4 className="mb-3 text-sm font-semibold text-gray-800">Recent Exchanges</h4>
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-sm">
-                    <thead>
-                      <tr className="bg-gray-50">
-                        <th className="border px-3 py-2 text-left">Date</th>
-                        <th className="border px-3 py-2 text-left">From</th>
-                        <th className="border px-3 py-2 text-left">To</th>
-                        <th className="border px-3 py-2 text-left">Rate</th>
-                        <th className="border px-3 py-2 text-left">Notes</th>
-                        <th className="border px-3 py-2 text-center">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(ledger.exchangeHistory || []).length === 0 && (
-                        <tr><td className="border px-3 py-3 text-center text-gray-400" colSpan={6}>No exchanges recorded</td></tr>
-                      )}
-                      {(ledger.exchangeHistory || []).map((exchange: any) => (
-                        <tr key={exchange.id}>
-                          <td className="border px-3 py-2">{String(exchange.exchangeDate).split("T")[0]}</td>
-                          <td className="border px-3 py-2">{formatNumber(Number(exchange.fromAmount || 0))} {exchange.fromCurrencyCode}</td>
-                          <td className="border px-3 py-2">{formatNumber(Number(exchange.toAmount || 0))} {exchange.toCurrencyCode}</td>
-                          <td className="border px-3 py-2">1 {exchange.fromCurrencyCode} = {Number(exchange.exchangeRate || 0).toLocaleString("en-US")} {exchange.toCurrencyCode}</td>
-                          <td className="border px-3 py-2">{exchange.notes || "-"}</td>
-                          <td className="border px-3 py-2 text-center">
-                            <div className="flex justify-center gap-3">
-                              <button onClick={() => openEditExchange(exchange)} className="text-xs text-blue-600 hover:underline">Edit</button>
-                              <button onClick={() => handleDeleteExchange(exchange.id)} className="text-xs text-red-600 hover:underline">Delete</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
                 </div>
               </div>
 

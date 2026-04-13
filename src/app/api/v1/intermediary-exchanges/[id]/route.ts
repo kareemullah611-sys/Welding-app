@@ -46,7 +46,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     return errorResponse("VALIDATION", `Insufficient ${fromCurrency.code} balance. Available: ${available.toLocaleString("en-US")}`, 400);
   }
 
-  const toAmount = Math.round(fromAmount * exchangeRate * 100) / 100;
+  const toAmount = Math.round((fromAmount / exchangeRate) * 100) / 100;
   if (!(toAmount > 0)) return errorResponse("VALIDATION", "Calculated toAmount must be > 0", 400);
 
   await reverseJournalEntries(`INTFX-OUT-${id}`, user.userId);
