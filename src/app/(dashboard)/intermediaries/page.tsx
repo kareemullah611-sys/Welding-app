@@ -72,55 +72,71 @@ function DepositFormFields({
   labelCls: string;
 }) {
   return (
-    <>
-      <div className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800 font-medium">
-        <span>🏦 {superAdminBankAccounts.find((b: any) => String(b.id) === f.superAdminBankAccountId)?.bankName || "Super Admin Bank"}</span>
-        <span className="text-blue-400 text-lg">→</span>
-        <span>👤 {selectedName || "Intermediary"}</span>
+    <div className="space-y-4">
+      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Transfer Route</p>
+        <div className="mt-2 flex items-center gap-2 text-sm font-medium text-slate-700">
+          <span>🏦 {superAdminBankAccounts.find((b: any) => String(b.id) === f.superAdminBankAccountId)?.bankName || "Select Super Admin Bank"}</span>
+          <span className="text-slate-400 text-lg">→</span>
+          <span>👤 {selectedName || "Intermediary"}</span>
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={labelCls}>Date</label>
-          <input type="date" value={f.depositDate} onChange={e => setF(prev => ({ ...prev, depositDate: e.target.value }))} className={inputCls} />
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Transaction Details</p>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div>
+            <label className={labelCls}>Date</label>
+            <input type="date" value={f.depositDate} onChange={e => setF(prev => ({ ...prev, depositDate: e.target.value }))} className={inputCls} />
+          </div>
+          <div>
+            <label className={labelCls}>Amount</label>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={f.amount}
+              onChange={e => setF(prev => ({ ...prev, amount: e.target.value }))}
+              className={inputCls}
+              placeholder="0.00"
+            />
+          </div>
         </div>
-        <div>
-          <label className={labelCls}>Amount</label>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={f.amount}
-            onChange={e => setF(prev => ({ ...prev, amount: e.target.value }))}
-            className={inputCls}
-            placeholder="0.00"
-          />
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Funding Source</p>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div>
+            <label className={labelCls}>Currency</label>
+            <select value={f.currencyId} onChange={e => setF(prev => ({ ...prev, currencyId: e.target.value, superAdminBankAccountId: "" }))} className={inputCls}>
+              <option value="">Select currency</option>
+              {currencies.map(c => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Super Admin Bank Account</label>
+            <select value={f.superAdminBankAccountId} onChange={e => setF(prev => ({ ...prev, superAdminBankAccountId: e.target.value }))} className={inputCls}>
+              <option value="">Select bank account</option>
+              {superAdminBankAccounts
+                .filter((b: any) => b.isActive && (!f.currencyId || String(b.currencyId) === String(f.currencyId)))
+                .map((b: any) => (
+                  <option key={b.id} value={b.id}>
+                    {b.bankName}{b.accountNumber ? ` - ${b.accountNumber}` : ""} ({b.currency?.code || ""})
+                  </option>
+                ))}
+            </select>
+          </div>
         </div>
       </div>
-      <div>
-        <label className={labelCls}>Currency</label>
-        <select value={f.currencyId} onChange={e => setF(prev => ({ ...prev, currencyId: e.target.value }))} className={inputCls}>
-          <option value="">Select currency</option>
-          {currencies.map(c => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
-        </select>
+
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Remarks</p>
+        <div>
+          <label className={labelCls}>Notes</label>
+          <input type="text" value={f.notes} onChange={e => setF(prev => ({ ...prev, notes: e.target.value }))} className={inputCls} placeholder="Optional internal note" />
+        </div>
       </div>
-      <div>
-        <label className={labelCls}>Super Admin Bank Account</label>
-        <select value={f.superAdminBankAccountId} onChange={e => setF(prev => ({ ...prev, superAdminBankAccountId: e.target.value }))} className={inputCls}>
-          <option value="">Select bank account</option>
-          {superAdminBankAccounts
-            .filter((b: any) => b.isActive && (!f.currencyId || String(b.currencyId) === String(f.currencyId)))
-            .map((b: any) => (
-              <option key={b.id} value={b.id}>
-                {b.bankName}{b.accountNumber ? ` - ${b.accountNumber}` : ""} ({b.currency?.code || ""})
-              </option>
-            ))}
-        </select>
-      </div>
-      <div>
-        <label className={labelCls}>Notes</label>
-        <input type="text" value={f.notes} onChange={e => setF(prev => ({ ...prev, notes: e.target.value }))} className={inputCls} />
-      </div>
-    </>
+    </div>
   );
 }
 
@@ -524,8 +540,8 @@ export default function IntermediariesPage() {
     },
   ];
 
-  const inputCls = "w-full border rounded px-3 py-2 text-sm bg-white dark:bg-gray-800 dark:border-gray-600";
-  const labelCls = "block text-sm font-medium mb-1";
+  const inputCls = "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white text-slate-800 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200";
+  const labelCls = "mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-slate-600";
   const currencyCodeById = useCallback((id: string) => {
     if (!id) return "";
     return currencies.find((c: any) => String(c.id) === String(id))?.code || "";
@@ -563,25 +579,39 @@ export default function IntermediariesPage() {
 
       {/* Create */}
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Add Intermediary">
-        <div className="space-y-3">
-          <div><label className={labelCls}>Name</label><input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className={inputCls} /></div>
-          <div><label className={labelCls}>Notes</label><textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} className={inputCls} rows={2} /></div>
+        <div className="space-y-4">
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Profile</p>
+            <div className="space-y-3">
+              <div><label className={labelCls}>Intermediary Name</label><input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className={inputCls} placeholder="Enter legal/business name" /></div>
+              <div><label className={labelCls}>Notes</label><textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} className={inputCls} rows={3} placeholder="Optional remarks, terms, or references" /></div>
+            </div>
+          </div>
           {formError && <p className="text-red-500 text-sm">{formError}</p>}
-          <button onClick={handleCreate} disabled={submitting} className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50">
-            {submitting ? "Saving..." : "Save"}
-          </button>
+          <div className="flex justify-end border-t border-slate-200 pt-3">
+            <button onClick={handleCreate} disabled={submitting} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+              {submitting ? "Saving..." : "Save"}
+            </button>
+          </div>
         </div>
       </Modal>
 
       {/* Edit */}
       <Modal open={showEdit} onClose={() => setShowEdit(false)} title="Edit Intermediary">
-        <div className="space-y-3">
-          <div><label className={labelCls}>Name</label><input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className={inputCls} /></div>
-          <div><label className={labelCls}>Notes</label><textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} className={inputCls} rows={2} /></div>
+        <div className="space-y-4">
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Profile</p>
+            <div className="space-y-3">
+              <div><label className={labelCls}>Intermediary Name</label><input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className={inputCls} placeholder="Enter legal/business name" /></div>
+              <div><label className={labelCls}>Notes</label><textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} className={inputCls} rows={3} placeholder="Optional remarks, terms, or references" /></div>
+            </div>
+          </div>
           {formError && <p className="text-red-500 text-sm">{formError}</p>}
-          <button onClick={handleEdit} disabled={submitting} className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50">
-            {submitting ? "Saving..." : "Save"}
-          </button>
+          <div className="flex justify-end border-t border-slate-200 pt-3">
+            <button onClick={handleEdit} disabled={submitting} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+              {submitting ? "Saving..." : "Save"}
+            </button>
+          </div>
         </div>
       </Modal>
 
@@ -806,7 +836,7 @@ export default function IntermediariesPage() {
 
       {/* Record Deposit */}
       <Modal open={showDeposit} onClose={() => setShowDeposit(false)} title={`Record Deposit Entry — ${selected?.name || "Intermediary"}`}>
-        <div className="space-y-3">
+        <div className="space-y-4">
           <DepositFormFields
             f={depositForm}
             setF={setDepositForm}
@@ -817,15 +847,17 @@ export default function IntermediariesPage() {
             labelCls={labelCls}
           />
           {depositError && <p className="text-red-500 text-sm">{depositError}</p>}
-          <button onClick={handleDeposit} disabled={depositSubmitting} className="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700 disabled:opacity-50">
-            {depositSubmitting ? "Saving..." : "Record Deposit Entry"}
-          </button>
+          <div className="flex justify-end border-t border-slate-200 pt-3">
+            <button onClick={handleDeposit} disabled={depositSubmitting} className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50">
+              {depositSubmitting ? "Saving..." : "Record Deposit Entry"}
+            </button>
+          </div>
         </div>
       </Modal>
 
       {/* Edit Deposit */}
       <Modal open={showEditDeposit} onClose={() => setShowEditDeposit(false)} title="Edit Deposit">
-        <div className="space-y-3">
+        <div className="space-y-4">
           <DepositFormFields
             f={editDepositForm}
             setF={setEditDepositForm}
@@ -836,9 +868,11 @@ export default function IntermediariesPage() {
             labelCls={labelCls}
           />
           {editDepositError && <p className="text-red-500 text-sm">{editDepositError}</p>}
-          <button onClick={handleEditDeposit} disabled={editDepositSubmitting} className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50">
-            {editDepositSubmitting ? "Saving..." : "Save Changes"}
-          </button>
+          <div className="flex justify-end border-t border-slate-200 pt-3">
+            <button onClick={handleEditDeposit} disabled={editDepositSubmitting} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+              {editDepositSubmitting ? "Saving..." : "Save Changes"}
+            </button>
+          </div>
         </div>
       </Modal>
 
