@@ -368,23 +368,40 @@ export function Modal({
     lg: "max-w-2xl",
     xl: "max-w-6xl",
   };
+  const inlineSizes = {
+    sm: "max-w-2xl",
+    md: "max-w-4xl",
+    lg: "max-w-5xl",
+    xl: "max-w-6xl",
+  };
 
   if (!mounted) return null;
   if (!open) return null;
 
   if (inline) {
     return (
-      <div className="h-[100dvh] w-full overflow-y-auto overscroll-contain p-2 sm:p-4">
-        <div className={cn("relative mx-auto w-full bg-white rounded-xl sm:rounded-2xl shadow-2xl min-h-[calc(100dvh-1rem)] sm:min-h-0 sm:max-h-[calc(100dvh-2rem)] flex flex-col", sizes[size])}>
+      <div className="h-[100dvh] w-full overflow-y-auto overscroll-contain p-2 sm:p-4 md:p-5">
+        <div className={cn(
+          "relative mx-auto flex w-full flex-col overflow-hidden rounded-[1.45rem] border border-[#eadfce] bg-[linear-gradient(180deg,#fffdf8_0%,#fff9f2_100%)] shadow-[0_30px_90px_-42px_rgba(49,34,22,0.42)] min-h-[calc(100dvh-1rem)] sm:min-h-0 sm:max-h-[calc(100dvh-2rem)]",
+          inlineSizes[size]
+        )}>
           {!hideHeader && (
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
-              <h2 className="text-base font-semibold text-gray-900">{title}</h2>
-              <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 transition-colors">
-                <X className="w-5 h-5 text-gray-500" />
+            <div className="flex flex-shrink-0 items-center justify-between border-b border-[#e7dcc9] px-5 py-3.5 sm:px-6">
+              <h2 className="text-[1.03rem] font-semibold tracking-tight text-[#2e2216]">{title}</h2>
+              <button onClick={onClose} className="rounded-md p-1.5 text-[#7e6c59] transition-colors hover:bg-[#f0e5d6] hover:text-[#2e2216]">
+                <X className="h-5 w-5" />
               </button>
             </div>
           )}
-          <div onKeyDownCapture={handleFormKeyNav} className={cn("overflow-y-auto overscroll-contain flex-1", bodyClassName || "p-4 sm:p-6")}>{children}</div>
+          <div
+            onKeyDownCapture={handleFormKeyNav}
+            className={cn(
+              "flex-1 overflow-y-auto overscroll-contain",
+              bodyClassName || "p-4 sm:p-6 md:p-7"
+            )}
+          >
+            {children}
+          </div>
         </div>
       </div>
     );

@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, DataTable, Modal, formatNumber } from "@/components/ui";
+import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 
 const EMPTY_DEPOSIT = {
   depositDate: new Date().toISOString().split("T")[0],
@@ -44,7 +44,6 @@ function calculateToAmount(
   if (!from || !rate || !baseCurrencyId || !quoteCurrencyId || !fromCurrencyId || !toCurrencyId) {
     return { toAmount: 0, operation: null, isPairValid: true };
   }
-
   if (fromCurrencyId === baseCurrencyId && toCurrencyId === quoteCurrencyId) {
     return { toAmount: Math.round((from * rate) * 100) / 100, operation: "multiply", isPairValid: true };
   }
@@ -54,98 +53,11 @@ function calculateToAmount(
   return { toAmount: 0, operation: null, isPairValid: false };
 }
 
-function DepositFormFields({
-  f,
-  setF,
-  selectedName,
-  currencies,
-  superAdminBankAccounts,
-  inputCls,
-  labelCls,
-}: {
-  f: typeof EMPTY_DEPOSIT;
-  setF: React.Dispatch<React.SetStateAction<typeof EMPTY_DEPOSIT>>;
-  selectedName?: string;
-  currencies: any[];
-  superAdminBankAccounts: any[];
-  inputCls: string;
-  labelCls: string;
-}) {
-  return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Transfer Route</p>
-        <div className="mt-2 flex items-center gap-2 text-sm font-medium text-slate-700">
-          <span>🏦 {superAdminBankAccounts.find((b: any) => String(b.id) === f.superAdminBankAccountId)?.bankName || "Select Super Admin Bank"}</span>
-          <span className="text-slate-400 text-lg">→</span>
-          <span>👤 {selectedName || "Intermediary"}</span>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Transaction Details</p>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div>
-            <label className={labelCls}>Date</label>
-            <input type="date" value={f.depositDate} onChange={e => setF(prev => ({ ...prev, depositDate: e.target.value }))} className={inputCls} />
-          </div>
-          <div>
-            <label className={labelCls}>Amount</label>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={f.amount}
-              onChange={e => setF(prev => ({ ...prev, amount: e.target.value }))}
-              className={inputCls}
-              placeholder="0.00"
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Funding Source</p>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div>
-            <label className={labelCls}>Currency</label>
-            <select value={f.currencyId} onChange={e => setF(prev => ({ ...prev, currencyId: e.target.value, superAdminBankAccountId: "" }))} className={inputCls}>
-              <option value="">Select currency</option>
-              {currencies.map(c => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className={labelCls}>Super Admin Bank Account</label>
-            <select value={f.superAdminBankAccountId} onChange={e => setF(prev => ({ ...prev, superAdminBankAccountId: e.target.value }))} className={inputCls}>
-              <option value="">Select bank account</option>
-              {superAdminBankAccounts
-                .filter((b: any) => b.isActive && (!f.currencyId || String(b.currencyId) === String(f.currencyId)))
-                .map((b: any) => (
-                  <option key={b.id} value={b.id}>
-                    {b.bankName}{b.accountNumber ? ` - ${b.accountNumber}` : ""} ({b.currency?.code || ""})
-                  </option>
-                ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Remarks</p>
-        <div>
-          <label className={labelCls}>Notes</label>
-          <input type="text" value={f.notes} onChange={e => setF(prev => ({ ...prev, notes: e.target.value }))} className={inputCls} placeholder="Optional internal note" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function IntermediariesPage() {
   const { user } = useAuth();
-  const [intermediaries, setIntermediary] = useState<any[]>([]);
+  const [intermediaries, setIntermediaries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // create / edit intermediary
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [selected, setSelected] = useState<any>(null);
@@ -153,25 +65,21 @@ export default function IntermediariesPage() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
 
-  // ledger
   const [showLedger, setShowLedger] = useState(false);
   const [ledger, setLedger] = useState<any>(null);
   const [ledgerLoading, setLedgerLoading] = useState(false);
 
-  // deposit
   const [showDeposit, setShowDeposit] = useState(false);
   const [depositForm, setDepositForm] = useState({ ...EMPTY_DEPOSIT });
   const [depositSubmitting, setDepositSubmitting] = useState(false);
   const [depositError, setDepositError] = useState("");
 
-  // edit deposit
   const [showEditDeposit, setShowEditDeposit] = useState(false);
   const [editDepositId, setEditDepositId] = useState<number | null>(null);
   const [editDepositForm, setEditDepositForm] = useState({ ...EMPTY_DEPOSIT });
   const [editDepositSubmitting, setEditDepositSubmitting] = useState(false);
   const [editDepositError, setEditDepositError] = useState("");
 
-  // exchange
   const [exchangeForm, setExchangeForm] = useState({ ...EMPTY_EXCHANGE });
   const [exchangeSubmitting, setExchangeSubmitting] = useState(false);
   const [exchangeError, setExchangeError] = useState("");
@@ -181,14 +89,13 @@ export default function IntermediariesPage() {
   const [editExchangeSubmitting, setEditExchangeSubmitting] = useState(false);
   const [editExchangeError, setEditExchangeError] = useState("");
 
-  // ref data
   const [currencies, setCurrencies] = useState<any[]>([]);
   const [superAdminBankAccounts, setSuperAdminBankAccounts] = useState<any[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     const r = await apiCall("/api/v1/intermediaries");
-    if (r.success) setIntermediary(r.data as any[]);
+    if (r.success) setIntermediaries(r.data as any[]);
     setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -226,27 +133,11 @@ export default function IntermediariesPage() {
     setLedgerLoading(false);
   };
 
-  const openDeposit = async () => {
-    await loadRefData();
-    setDepositForm({ ...EMPTY_DEPOSIT });
-    setDepositError("");
-    setShowDeposit(true);
-  };
-
   const handleDeposit = async () => {
     const parsedAmount = parseAmountInput(depositForm.amount);
-    if (!parsedAmount) {
-      setDepositError("Enter a valid amount greater than 0");
-      return;
-    }
-    if (!depositForm.currencyId) {
-      setDepositError("Currency is required");
-      return;
-    }
-    if (!depositForm.superAdminBankAccountId) {
-      setDepositError("Super admin bank account is required");
-      return;
-    }
+    if (!parsedAmount) { setDepositError("Enter a valid amount greater than 0"); return; }
+    if (!depositForm.currencyId) { setDepositError("Currency is required"); return; }
+    if (!depositForm.superAdminBankAccountId) { setDepositError("Super admin bank account is required"); return; }
     setDepositSubmitting(true);
     const body: any = {
       depositDate: depositForm.depositDate,
@@ -255,15 +146,9 @@ export default function IntermediariesPage() {
       superAdminBankAccountId: Number(depositForm.superAdminBankAccountId),
       notes: depositForm.notes || null,
     };
-
     const r = await apiCall(`/api/v1/intermediaries/${selected.id}/deposits`, { method: "POST", body });
     setDepositSubmitting(false);
-    if (r.success) {
-      setShowDeposit(false);
-      openLedger(selected);
-    } else {
-      setDepositError(r.error || "Failed");
-    }
+    if (r.success) { setShowDeposit(false); openLedger(selected); } else { setDepositError(r.error || "Failed"); }
   };
 
   const openEditDeposit = async (entry: any) => {
@@ -283,14 +168,8 @@ export default function IntermediariesPage() {
   const handleEditDeposit = async () => {
     if (!editDepositId) return;
     const parsedAmount = parseAmountInput(editDepositForm.amount);
-    if (!parsedAmount) {
-      setEditDepositError("Enter a valid amount greater than 0");
-      return;
-    }
-    if (!editDepositForm.superAdminBankAccountId) {
-      setEditDepositError("Super admin bank account is required");
-      return;
-    }
+    if (!parsedAmount) { setEditDepositError("Enter a valid amount greater than 0"); return; }
+    if (!editDepositForm.superAdminBankAccountId) { setEditDepositError("Super admin bank account is required"); return; }
     setEditDepositSubmitting(true);
     const body: any = {
       depositDate: editDepositForm.depositDate,
@@ -299,15 +178,9 @@ export default function IntermediariesPage() {
     };
     if (editDepositForm.currencyId) body.currencyId = Number(editDepositForm.currencyId);
     if (editDepositForm.superAdminBankAccountId) body.superAdminBankAccountId = Number(editDepositForm.superAdminBankAccountId);
-
     const r = await apiCall(`/api/v1/intermediary-deposits/${editDepositId}`, { method: "PUT", body });
     setEditDepositSubmitting(false);
-    if (r.success) {
-      setShowEditDeposit(false);
-      openLedger(selected);
-    } else {
-      setEditDepositError(r.error || "Failed");
-    }
+    if (r.success) { setShowEditDeposit(false); openLedger(selected); } else { setEditDepositError(r.error || "Failed"); }
   };
 
   const handleDeleteDeposit = async (id: number) => {
@@ -320,42 +193,14 @@ export default function IntermediariesPage() {
     if (!selected?.id) return;
     const fromAmount = parseAmountInput(exchangeForm.fromAmount);
     const exchangeRate = parseAmountInput(exchangeForm.exchangeRate);
-    if (!exchangeForm.baseCurrencyId || !exchangeForm.quoteCurrencyId) {
-      setExchangeError("Select base and quote currencies for the rate");
-      return;
-    }
-    if (exchangeForm.baseCurrencyId === exchangeForm.quoteCurrencyId) {
-      setExchangeError("Base and quote currencies must be different");
-      return;
-    }
-    if (!exchangeForm.fromCurrencyId || !exchangeForm.toCurrencyId) {
-      setExchangeError("Select both currencies");
-      return;
-    }
-    if (exchangeForm.fromCurrencyId === exchangeForm.toCurrencyId) {
-      setExchangeError("From and To currencies must be different");
-      return;
-    }
-    if (!fromAmount) {
-      setExchangeError("Enter a valid from amount");
-      return;
-    }
-    if (!exchangeRate) {
-      setExchangeError("Enter a valid exchange rate");
-      return;
-    }
-    const exchangeCalc = calculateToAmount(
-      exchangeForm.fromAmount,
-      exchangeForm.exchangeRate,
-      exchangeForm.baseCurrencyId,
-      exchangeForm.quoteCurrencyId,
-      exchangeForm.fromCurrencyId,
-      exchangeForm.toCurrencyId,
-    );
-    if (!exchangeCalc.isPairValid) {
-      setExchangeError("From/To must match selected base/quote pair");
-      return;
-    }
+    if (!exchangeForm.baseCurrencyId || !exchangeForm.quoteCurrencyId) { setExchangeError("Select base and quote currencies for the rate"); return; }
+    if (exchangeForm.baseCurrencyId === exchangeForm.quoteCurrencyId) { setExchangeError("Base and quote currencies must be different"); return; }
+    if (!exchangeForm.fromCurrencyId || !exchangeForm.toCurrencyId) { setExchangeError("Select both currencies"); return; }
+    if (exchangeForm.fromCurrencyId === exchangeForm.toCurrencyId) { setExchangeError("From and To currencies must be different"); return; }
+    if (!fromAmount) { setExchangeError("Enter a valid from amount"); return; }
+    if (!exchangeRate) { setExchangeError("Enter a valid exchange rate"); return; }
+    const exchangeCalc = calculateToAmount(exchangeForm.fromAmount, exchangeForm.exchangeRate, exchangeForm.baseCurrencyId, exchangeForm.quoteCurrencyId, exchangeForm.fromCurrencyId, exchangeForm.toCurrencyId);
+    if (!exchangeCalc.isPairValid) { setExchangeError("From/To must match selected base/quote pair"); return; }
     setExchangeSubmitting(true);
     const r = await apiCall(`/api/v1/intermediaries/${selected.id}/exchanges`, {
       method: "POST",
@@ -371,13 +216,7 @@ export default function IntermediariesPage() {
       },
     });
     setExchangeSubmitting(false);
-    if (r.success) {
-      setExchangeForm({ ...EMPTY_EXCHANGE });
-      setExchangeError("");
-      openLedger(selected);
-    } else {
-      setExchangeError(r.error || "Failed to execute exchange");
-    }
+    if (r.success) { setExchangeForm({ ...EMPTY_EXCHANGE }); setExchangeError(""); openLedger(selected); } else { setExchangeError(r.error || "Failed to execute exchange"); }
   };
 
   const openEditExchange = async (exchange: any) => {
@@ -401,42 +240,14 @@ export default function IntermediariesPage() {
     if (!editExchangeId) return;
     const fromAmount = parseAmountInput(editExchangeForm.fromAmount);
     const exchangeRate = parseAmountInput(editExchangeForm.exchangeRate);
-    if (!editExchangeForm.baseCurrencyId || !editExchangeForm.quoteCurrencyId) {
-      setEditExchangeError("Select base and quote currencies for the rate");
-      return;
-    }
-    if (editExchangeForm.baseCurrencyId === editExchangeForm.quoteCurrencyId) {
-      setEditExchangeError("Base and quote currencies must be different");
-      return;
-    }
-    if (!editExchangeForm.fromCurrencyId || !editExchangeForm.toCurrencyId) {
-      setEditExchangeError("Select both currencies");
-      return;
-    }
-    if (editExchangeForm.fromCurrencyId === editExchangeForm.toCurrencyId) {
-      setEditExchangeError("From and To currencies must be different");
-      return;
-    }
-    if (!fromAmount) {
-      setEditExchangeError("Enter a valid from amount");
-      return;
-    }
-    if (!exchangeRate) {
-      setEditExchangeError("Enter a valid exchange rate");
-      return;
-    }
-    const exchangeCalc = calculateToAmount(
-      editExchangeForm.fromAmount,
-      editExchangeForm.exchangeRate,
-      editExchangeForm.baseCurrencyId,
-      editExchangeForm.quoteCurrencyId,
-      editExchangeForm.fromCurrencyId,
-      editExchangeForm.toCurrencyId,
-    );
-    if (!exchangeCalc.isPairValid) {
-      setEditExchangeError("From/To must match selected base/quote pair");
-      return;
-    }
+    if (!editExchangeForm.baseCurrencyId || !editExchangeForm.quoteCurrencyId) { setEditExchangeError("Select base and quote currencies for the rate"); return; }
+    if (editExchangeForm.baseCurrencyId === editExchangeForm.quoteCurrencyId) { setEditExchangeError("Base and quote currencies must be different"); return; }
+    if (!editExchangeForm.fromCurrencyId || !editExchangeForm.toCurrencyId) { setEditExchangeError("Select both currencies"); return; }
+    if (editExchangeForm.fromCurrencyId === editExchangeForm.toCurrencyId) { setEditExchangeError("From and To currencies must be different"); return; }
+    if (!fromAmount) { setEditExchangeError("Enter a valid from amount"); return; }
+    if (!exchangeRate) { setEditExchangeError("Enter a valid exchange rate"); return; }
+    const exchangeCalc = calculateToAmount(editExchangeForm.fromAmount, editExchangeForm.exchangeRate, editExchangeForm.baseCurrencyId, editExchangeForm.quoteCurrencyId, editExchangeForm.fromCurrencyId, editExchangeForm.toCurrencyId);
+    if (!exchangeCalc.isPairValid) { setEditExchangeError("From/To must match selected base/quote pair"); return; }
     setEditExchangeSubmitting(true);
     const r = await apiCall(`/api/v1/intermediary-exchanges/${editExchangeId}`, {
       method: "PUT",
@@ -452,22 +263,13 @@ export default function IntermediariesPage() {
       },
     });
     setEditExchangeSubmitting(false);
-    if (r.success) {
-      setShowEditExchange(false);
-      setEditExchangeId(null);
-      openLedger(selected);
-    } else {
-      setEditExchangeError(r.error || "Failed to update exchange");
-    }
+    if (r.success) { setShowEditExchange(false); setEditExchangeId(null); openLedger(selected); } else { setEditExchangeError(r.error || "Failed to update exchange"); }
   };
 
   const handleDeleteExchange = async (exchangeId: number) => {
     if (!confirm("Delete this exchange? The journal entries will be reversed.")) return;
     const r = await apiCall(`/api/v1/intermediary-exchanges/${exchangeId}`, { method: "DELETE" });
-    if (!r.success) {
-      setExchangeError(r.error || "Failed to delete exchange");
-      return;
-    }
+    if (!r.success) { setExchangeError(r.error || "Failed to delete exchange"); return; }
     openLedger(selected);
   };
 
@@ -496,461 +298,390 @@ export default function IntermediariesPage() {
   const handleToggleActive = async (item: any) => {
     const action = item.isActive ? "deactivate" : "reactivate";
     if (!confirm(`Do you want to ${action} intermediary "${item.name}"?`)) return;
-    const r = await apiCall(`/api/v1/intermediaries/${item.id}`, {
-      method: "PUT",
-      body: { isActive: !item.isActive },
-    });
-    if (!r.success) {
-      setFormError(r.error || "Failed");
-      return;
-    }
-    if (selected?.id === item.id) {
-      setSelected((prev: any) => prev ? { ...prev, isActive: !item.isActive } : prev);
-    }
+    const r = await apiCall(`/api/v1/intermediaries/${item.id}`, { method: "PUT", body: { isActive: !item.isActive } });
+    if (!r.success) { setFormError(r.error || "Failed"); return; }
+    if (selected?.id === item.id) { setSelected((prev: any) => prev ? { ...prev, isActive: !item.isActive } : prev); }
     load();
   };
 
   const isSA = user?.role === "super_admin";
-  if (!isSA) return <div className="p-8 text-gray-400">Access restricted to Super Admin.</div>;
+  if (!isSA) return <div className="p-8 text-center text-gray-400">Access restricted to Super Admin.</div>;
 
   const columns = [
     {
       key: "name", label: "Name",
       render: (row: any) => (
         <div className="flex items-center gap-2">
-          <span>{row.name}</span>
-          {!row.isActive && <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-medium">Inactive</span>}
+          <span className="font-medium">{row.name}</span>
+          {!row.isActive && <span className="badge-cancelled text-xs">Inactive</span>}
         </div>
       ),
     },
-    { key: "notes", label: "Notes", render: (row: any) => row.notes || "-" },
+    { key: "notes", label: "Notes", render: (row: any) => <span className="text-gray-500 text-sm">{row.notes || "—"}</span> },
     {
-      key: "actions", label: "Actions",
+      key: "actions", label: "",
       render: (row: any) => (
-        <div className="flex gap-2">
-          <button onClick={() => openLedger(row)} className="text-blue-600 hover:underline text-sm">Ledger</button>
-          {isSA && <button onClick={() => openEdit(row)} className="text-yellow-600 hover:underline text-sm">Edit</button>}
-          {isSA && (
-            <button onClick={() => handleToggleActive(row)} className={`hover:underline text-sm ${row.isActive ? "text-red-600" : "text-green-600"}`}>
-              {row.isActive ? "Deactivate" : "Reactivate"}
-            </button>
-          )}
+        <div className="flex items-center gap-3">
+          <button onClick={() => openLedger(row)} className="text-primary-600 hover:underline text-sm font-medium">Ledger</button>
+          <button onClick={() => openEdit(row)} className="text-amber-600 hover:underline text-sm">Edit</button>
+          <button onClick={() => handleToggleActive(row)} className={`hover:underline text-sm ${row.isActive ? "text-red-600" : "text-green-600"}`}>
+            {row.isActive ? "Deactivate" : "Reactivate"}
+          </button>
         </div>
       ),
     },
   ];
 
-  const inputCls = "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white text-slate-800 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200";
-  const labelCls = "mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-slate-600";
   const currencyCodeById = useCallback((id: string) => {
     if (!id) return "";
     return currencies.find((c: any) => String(c.id) === String(id))?.code || "";
   }, [currencies]);
-  const exchangePreview = calculateToAmount(
-    exchangeForm.fromAmount,
-    exchangeForm.exchangeRate,
-    exchangeForm.baseCurrencyId,
-    exchangeForm.quoteCurrencyId,
-    exchangeForm.fromCurrencyId,
-    exchangeForm.toCurrencyId,
-  );
-  const editExchangePreview = calculateToAmount(
-    editExchangeForm.fromAmount,
-    editExchangeForm.exchangeRate,
-    editExchangeForm.baseCurrencyId,
-    editExchangeForm.quoteCurrencyId,
-    editExchangeForm.fromCurrencyId,
-    editExchangeForm.toCurrencyId,
-  );
+
+  const exchangePreview = calculateToAmount(exchangeForm.fromAmount, exchangeForm.exchangeRate, exchangeForm.baseCurrencyId, exchangeForm.quoteCurrencyId, exchangeForm.fromCurrencyId, exchangeForm.toCurrencyId);
+  const editExchangePreview = calculateToAmount(editExchangeForm.fromAmount, editExchangeForm.exchangeRate, editExchangeForm.baseCurrencyId, editExchangeForm.quoteCurrencyId, editExchangeForm.fromCurrencyId, editExchangeForm.toCurrencyId);
 
   return (
-    <div className="p-4 space-y-4">
+    <div>
       <PageHeader
         title="Intermediaries"
-        subtitle="Professional intermediary ledger and settlement records"
-        action={isSA ? (
-          <button onClick={() => { setForm({ name: "", notes: "" }); setFormError(""); setShowCreate(true); }} className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">
+        subtitle={`${intermediaries.length} intermediary accounts`}
+        action={isSA && (
+          <button onClick={() => { setForm({ name: "", notes: "" }); setFormError(""); setShowCreate(true); }} className="btn-primary text-sm">
             + Add Intermediary
           </button>
-        ) : undefined}
+        )}
       />
 
       <DataTable columns={columns} data={intermediaries} loading={loading} />
 
-      {/* Create */}
-      <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Add Intermediary">
+      <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Add Intermediary" size="md">
         <div className="space-y-4">
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Profile</p>
-            <div className="space-y-3">
-              <div><label className={labelCls}>Intermediary Name</label><input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className={inputCls} placeholder="Enter legal/business name" /></div>
-              <div><label className={labelCls}>Notes</label><textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} className={inputCls} rows={3} placeholder="Optional remarks, terms, or references" /></div>
-            </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Name *</label>
+            <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="input-field" placeholder="Enter intermediary name" />
           </div>
-          {formError && <p className="text-red-500 text-sm">{formError}</p>}
-          <div className="flex justify-end border-t border-slate-200 pt-3">
-            <button onClick={handleCreate} disabled={submitting} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
-              {submitting ? "Saving..." : "Save"}
-            </button>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Notes</label>
+            <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} className="input-field" rows={3} placeholder="Optional remarks" />
+          </div>
+          {formError && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{formError}</div>}
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <button onClick={() => setShowCreate(false)} className="btn-secondary text-sm">Cancel</button>
+            <button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "Saving..." : "Save"}</button>
           </div>
         </div>
       </Modal>
 
-      {/* Edit */}
-      <Modal open={showEdit} onClose={() => setShowEdit(false)} title="Edit Intermediary">
+      <Modal open={showEdit} onClose={() => setShowEdit(false)} title="Edit Intermediary" size="md">
         <div className="space-y-4">
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Profile</p>
-            <div className="space-y-3">
-              <div><label className={labelCls}>Intermediary Name</label><input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className={inputCls} placeholder="Enter legal/business name" /></div>
-              <div><label className={labelCls}>Notes</label><textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} className={inputCls} rows={3} placeholder="Optional remarks, terms, or references" /></div>
-            </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Name *</label>
+            <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="input-field" />
           </div>
-          {formError && <p className="text-red-500 text-sm">{formError}</p>}
-          <div className="flex justify-end border-t border-slate-200 pt-3">
-            <button onClick={handleEdit} disabled={submitting} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
-              {submitting ? "Saving..." : "Save"}
-            </button>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Notes</label>
+            <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} className="input-field" rows={3} />
+          </div>
+          {formError && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{formError}</div>}
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <button onClick={() => setShowEdit(false)} className="btn-secondary text-sm">Cancel</button>
+            <button onClick={handleEdit} disabled={submitting} className="btn-primary text-sm">{submitting ? "Saving..." : "Save"}</button>
           </div>
         </div>
       </Modal>
 
-      {/* Ledger */}
-      <Modal open={showLedger} onClose={() => setShowLedger(false)} title={`Intermediary Ledger — ${selected?.name}`} size="xl">
-        <div className="space-y-4">
-          {isSA && (
-              <button onClick={openDeposit} className="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700">
-                + Record Deposit Entry
-              </button>
-          )}
+      <Modal open={showLedger} onClose={() => setShowLedger(false)} title={`Ledger — ${selected?.name}`} size="xl">
+        <div className="space-y-5">
+          <div className="flex items-center justify-between">
+            <button onClick={openDeposit} className="btn-primary text-sm">
+              + Record Deposit
+            </button>
+          </div>
 
           {ledgerLoading ? (
-            <p className="text-center text-gray-500 py-8">Loading...</p>
+            <div className="flex justify-center py-12">
+              <div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
+            </div>
           ) : ledger ? (
             <>
-              {/* Balances */}
-              <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-4">
-                <h4 className="mb-3 text-sm font-semibold text-blue-900">Currency Balances (Active Only)</h4>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  {Array.from(
-                    new Set([
-                      "AED",
-                      "PKR",
-                      "USD",
-                      ...Object.keys(ledger.balances || {}),
-                    ])
-                  ).map((cur) => {
-                    const balance = Number(ledger.balances?.[cur] || 0);
-                    return (
-                      <div key={cur} className="rounded-lg border border-blue-100 bg-white p-3">
-                        <p className="text-xs font-medium text-gray-500">{cur} Balance</p>
-                        <p className={`mt-1 text-lg font-bold ${balance < 0 ? "text-red-600" : "text-blue-700"}`}>
-                          {formatNumber(balance)} {cur}
-                        </p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                {Object.entries(ledger.balances || {}).map(([code, amount]) => {
+                  const bal = Number(amount || 0);
+                  return (
+                    <div key={code} className={`rounded-xl border p-3 ${bal >= 0 ? "bg-emerald-50/60 border-emerald-200" : "bg-red-50/60 border-red-200"}`}>
+                      <div className="flex items-center justify-between">
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded ${bal >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>{code}</span>
                       </div>
-                    );
-                  })}
-                </div>
+                      <p className={`mt-2 text-lg font-bold tabular-nums ${bal >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                        {formatNumber(bal)}
+                      </p>
+                    </div>
+                  );
+                })}
               </div>
 
-              {/* Exchange Form */}
-              <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-4">
-                <h4 className="mb-3 text-sm font-semibold text-amber-900">Currency Exchange</h4>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+              <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4">
+                <h3 className="text-sm font-semibold text-amber-900 mb-3">Currency Exchange</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
                   <div>
-                    <label className={labelCls}>Base Currency</label>
-                    <select
-                      value={exchangeForm.baseCurrencyId}
-                      onChange={e => setExchangeForm(prev => ({ ...prev, baseCurrencyId: e.target.value }))}
-                      className={inputCls}
-                    >
+                    <label className="mb-1 block text-xs font-medium text-gray-600">Base Currency</label>
+                    <select value={exchangeForm.baseCurrencyId} onChange={e => setExchangeForm(prev => ({ ...prev, baseCurrencyId: e.target.value }))} className="select-field text-sm">
                       <option value="">Select</option>
                       {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className={labelCls}>Quote Currency</label>
-                    <select
-                      value={exchangeForm.quoteCurrencyId}
-                      onChange={e => setExchangeForm(prev => ({ ...prev, quoteCurrencyId: e.target.value }))}
-                      className={inputCls}
-                    >
+                    <label className="mb-1 block text-xs font-medium text-gray-600">Quote Currency</label>
+                    <select value={exchangeForm.quoteCurrencyId} onChange={e => setExchangeForm(prev => ({ ...prev, quoteCurrencyId: e.target.value }))} className="select-field text-sm">
                       <option value="">Select</option>
                       {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className={labelCls}>Exchange Rate</label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={exchangeForm.exchangeRate}
-                      onChange={e => setExchangeForm(prev => ({ ...prev, exchangeRate: e.target.value }))}
-                      className={inputCls}
-                      placeholder="e.g. 4"
-                    />
-                    <p className="mt-1 text-xs text-gray-500">
-                      1 {currencyCodeById(exchangeForm.baseCurrencyId) || "Base"} = {exchangeForm.exchangeRate || "X"} {currencyCodeById(exchangeForm.quoteCurrencyId) || "Quote"}
-                    </p>
+                    <label className="mb-1 block text-xs font-medium text-gray-600">Exchange Rate</label>
+                    <input type="text" inputMode="decimal" value={exchangeForm.exchangeRate} onChange={e => setExchangeForm(prev => ({ ...prev, exchangeRate: e.target.value }))} className="input-field text-sm" placeholder="0.00" />
                   </div>
                   <div>
-                    <label className={labelCls}>Date</label>
-                    <input
-                      type="date"
-                      value={exchangeForm.exchangeDate}
-                      onChange={e => setExchangeForm(prev => ({ ...prev, exchangeDate: e.target.value }))}
-                      className={inputCls}
-                    />
+                    <label className="mb-1 block text-xs font-medium text-gray-600">Date</label>
+                    <input type="date" value={exchangeForm.exchangeDate} onChange={e => setExchangeForm(prev => ({ ...prev, exchangeDate: e.target.value }))} className="input-field text-sm" />
                   </div>
                 </div>
-                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="grid grid-cols-3 gap-3 mb-3">
                   <div>
-                    <label className={labelCls}>From Currency</label>
-                    <select
-                      value={exchangeForm.fromCurrencyId}
-                      onChange={e => setExchangeForm(prev => ({ ...prev, fromCurrencyId: e.target.value }))}
-                      className={inputCls}
-                    >
+                    <label className="mb-1 block text-xs font-medium text-gray-600">From Currency</label>
+                    <select value={exchangeForm.fromCurrencyId} onChange={e => setExchangeForm(prev => ({ ...prev, fromCurrencyId: e.target.value }))} className="select-field text-sm">
                       <option value="">Select</option>
                       {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className={labelCls}>Amount</label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={exchangeForm.fromAmount}
-                      onChange={e => setExchangeForm(prev => ({ ...prev, fromAmount: e.target.value }))}
-                      className={inputCls}
-                      placeholder="0.00"
-                    />
+                    <label className="mb-1 block text-xs font-medium text-gray-600">Amount</label>
+                    <input type="text" inputMode="decimal" value={exchangeForm.fromAmount} onChange={e => setExchangeForm(prev => ({ ...prev, fromAmount: e.target.value }))} className="input-field text-sm" placeholder="0.00" />
                   </div>
                   <div>
-                    <label className={labelCls}>To Currency</label>
-                    <select
-                      value={exchangeForm.toCurrencyId}
-                      onChange={e => setExchangeForm(prev => ({ ...prev, toCurrencyId: e.target.value }))}
-                      className={inputCls}
-                    >
+                    <label className="mb-1 block text-xs font-medium text-gray-600">To Currency</label>
+                    <select value={exchangeForm.toCurrencyId} onChange={e => setExchangeForm(prev => ({ ...prev, toCurrencyId: e.target.value }))} className="select-field text-sm">
                       <option value="">Select</option>
                       {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
                     </select>
                   </div>
                 </div>
-                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="grid grid-cols-2 gap-3 mb-3">
                   <div>
-                    <label className={labelCls}>To Amount (Calculated)</label>
-                    <input
-                      type="text"
-                      value={exchangePreview.toAmount.toLocaleString("en-US")}
-                      className={inputCls}
-                      readOnly
-                    />
-                    <p className="mt-1 text-xs text-gray-500">
-                      {exchangePreview.isPairValid
-                        ? exchangePreview.operation === "multiply"
-                          ? "Applied: multiply (base -> quote)"
-                          : exchangePreview.operation === "divide"
-                          ? "Applied: divide (quote -> base)"
-                          : "Select currencies to preview"
-                        : "From/To must match selected base and quote currencies"}
-                    </p>
+                    <label className="mb-1 block text-xs font-medium text-gray-600">To Amount (Calculated)</label>
+                    <input type="text" value={exchangePreview.toAmount.toLocaleString("en-US")} className="input-field text-sm bg-amber-50" readOnly />
                   </div>
-                  <div className="md:col-span-2">
-                    <label className={labelCls}>Notes</label>
-                    <input
-                      type="text"
-                      value={exchangeForm.notes}
-                      onChange={e => setExchangeForm(prev => ({ ...prev, notes: e.target.value }))}
-                      className={inputCls}
-                      placeholder="Optional note"
-                    />
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600">Notes</label>
+                    <input type="text" value={exchangeForm.notes} onChange={e => setExchangeForm(prev => ({ ...prev, notes: e.target.value }))} className="input-field text-sm" placeholder="Optional note" />
                   </div>
                 </div>
-                {exchangeError && <p className="mt-2 text-sm text-red-600">{exchangeError}</p>}
-                <div className="mt-3">
-                  <button
-                    onClick={handleExchange}
-                    disabled={exchangeSubmitting}
-                    className="rounded bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
-                  >
-                    {exchangeSubmitting ? "Executing..." : "Execute Exchange"}
-                  </button>
-                </div>
+                {exchangeError && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">{exchangeError}</div>}
+                <button onClick={handleExchange} disabled={exchangeSubmitting} className="bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-50">
+                  {exchangeSubmitting ? "Executing..." : "Execute Exchange"}
+                </button>
               </div>
 
-              {/* Ledger Table */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm border-collapse">
-                  <thead>
-                    <tr className="bg-gray-50 dark:bg-gray-800">
-                      <th className="border px-3 py-2 text-left">Date</th>
-                      <th className="border px-3 py-2 text-left">Particulars</th>
-                      <th className="border px-3 py-2 text-left">Ccy</th>
-                      <th className="border px-3 py-2 text-right">Debit</th>
-                      <th className="border px-3 py-2 text-right">Credit</th>
-                      <th className="border px-3 py-2 text-right">Closing Balance</th>
-                      {isSA && <th className="border px-3 py-2">Actions</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ledger.ledger?.length === 0 && (
-                      <tr><td colSpan={isSA ? 7 : 6} className="text-center py-4 text-gray-400">No ledger entries</td></tr>
-                    )}
-                    {ledger.ledger?.map((entry: any, i: number) => (
-                      <tr key={i} className={
-                        entry.type === "deposit"
-                          ? "bg-green-50 dark:bg-green-900/10"
-                          : entry.type === "payment" || entry.type === "exchange_out"
-                          ? "bg-red-50 dark:bg-red-900/10"
-                          : "bg-blue-50 dark:bg-blue-900/10"
-                      }>
-                        <td className="border px-3 py-2">{entry.date?.split("T")[0]}</td>
-                        <td className="border px-3 py-2">{entry.description}</td>
-                        <td className="border px-3 py-2">{entry.currencyCode}</td>
-                        <td className="border px-3 py-2 text-right text-green-700">{entry.debit > 0 ? formatNumber(entry.debit) : ""}</td>
-                        <td className="border px-3 py-2 text-right text-red-700">{entry.credit > 0 ? formatNumber(entry.credit) : ""}</td>
-                        <td className="border px-3 py-2 text-right font-medium">{formatNumber(entry.balance)}</td>
-                        {isSA && (
-                          <td className="border px-3 py-2 text-center">
+              <div className="rounded-xl border border-gray-200 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-[#f8f1e7]">
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Particulars</th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-16">Ccy</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider w-28">Debit</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider w-28">Credit</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider w-28">Balance</th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-20">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(!ledger.ledger || ledger.ledger.length === 0) && (
+                        <tr><td colSpan={7} className="text-center py-8 text-gray-400">No ledger entries</td></tr>
+                      )}
+                      {ledger.ledger?.map((entry: any, i: number) => (
+                        <tr key={i} className={`border-t border-[#f3e8db] ${entry.type === "deposit" ? "bg-emerald-50/40" : entry.type === "payment" || entry.type === "exchange_out" ? "bg-red-50/40" : "bg-blue-50/40"}`}>
+                          <td className="px-4 py-2.5 whitespace-nowrap text-gray-600">{formatDate(entry.date)}</td>
+                          <td className="px-4 py-2.5 text-gray-800 max-w-xs truncate">{entry.description}</td>
+                          <td className="px-4 py-2.5 text-center">
+                            <span className="text-xs font-semibold bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{entry.currencyCode}</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-medium text-green-700 tabular-nums">{entry.debit > 0 ? formatNumber(entry.debit) : "—"}</td>
+                          <td className="px-4 py-2.5 text-right font-medium text-red-700 tabular-nums">{entry.credit > 0 ? formatNumber(entry.credit) : "—"}</td>
+                          <td className="px-4 py-2.5 text-right font-bold tabular-nums text-gray-800">{formatNumber(entry.balance)}</td>
+                          <td className="px-4 py-2.5 text-center">
                             {entry.type === "deposit" && (
-                              <div className="flex gap-2 justify-center">
-                                <button onClick={() => openEditDeposit(entry)} className="text-yellow-600 hover:underline text-xs">Edit</button>
-                                <button onClick={() => handleDeleteDeposit(entry.id)} className="text-red-600 hover:underline text-xs">Delete</button>
+                              <div className="flex items-center justify-center gap-2">
+                                <button onClick={() => openEditDeposit(entry)} className="text-amber-600 hover:underline text-xs">Edit</button>
+                                <button onClick={() => handleDeleteDeposit(entry.id)} className="text-red-600 hover:underline text-xs">Del</button>
                               </div>
                             )}
                           </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </>
           ) : (
-            <p className="text-center text-gray-400 py-4">No data</p>
+            <div className="text-center py-12 text-gray-400">No data available</div>
           )}
         </div>
       </Modal>
 
-      {/* Record Deposit */}
-      <Modal open={showDeposit} onClose={() => setShowDeposit(false)} title={`Record Deposit Entry — ${selected?.name || "Intermediary"}`}>
+      <Modal open={showDeposit} onClose={() => setShowDeposit(false)} title={`Record Deposit — ${selected?.name || "Intermediary"}`} size="md">
         <div className="space-y-4">
-          <DepositFormFields
-            f={depositForm}
-            setF={setDepositForm}
-            selectedName={selected?.name}
-            currencies={currencies}
-            superAdminBankAccounts={superAdminBankAccounts}
-            inputCls={inputCls}
-            labelCls={labelCls}
-          />
-          {depositError && <p className="text-red-500 text-sm">{depositError}</p>}
-          <div className="flex justify-end border-t border-slate-200 pt-3">
-            <button onClick={handleDeposit} disabled={depositSubmitting} className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50">
-              {depositSubmitting ? "Saving..." : "Record Deposit Entry"}
-            </button>
+          <div className="rounded-xl border border-gray-200 bg-gray-50/50 p-4">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Transfer Route</p>
+            <p className="text-sm text-gray-700">
+              <span className="font-medium">🏦 {superAdminBankAccounts.find((b: any) => String(b.id) === depositForm.superAdminBankAccountId)?.bankName || "Select Bank"}</span>
+              <span className="text-gray-400 mx-2">→</span>
+              <span className="font-medium">👤 {selected?.name}</span>
+            </p>
           </div>
-        </div>
-      </Modal>
-
-      {/* Edit Deposit */}
-      <Modal open={showEditDeposit} onClose={() => setShowEditDeposit(false)} title="Edit Deposit">
-        <div className="space-y-4">
-          <DepositFormFields
-            f={editDepositForm}
-            setF={setEditDepositForm}
-            selectedName={selected?.name}
-            currencies={currencies}
-            superAdminBankAccounts={superAdminBankAccounts}
-            inputCls={inputCls}
-            labelCls={labelCls}
-          />
-          {editDepositError && <p className="text-red-500 text-sm">{editDepositError}</p>}
-          <div className="flex justify-end border-t border-slate-200 pt-3">
-            <button onClick={handleEditDeposit} disabled={editDepositSubmitting} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
-              {editDepositSubmitting ? "Saving..." : "Save Changes"}
-            </button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Edit Exchange */}
-      <Modal open={showEditExchange} onClose={() => setShowEditExchange(false)} title="Edit Currency Exchange">
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className={labelCls}>Date</label>
-              <input type="date" value={editExchangeForm.exchangeDate} onChange={e => setEditExchangeForm(prev => ({ ...prev, exchangeDate: e.target.value }))} className={inputCls} />
+              <label className="mb-1 block text-sm font-medium text-gray-700">Date</label>
+              <input type="date" value={depositForm.depositDate} onChange={e => setDepositForm(prev => ({ ...prev, depositDate: e.target.value }))} className="input-field" />
             </div>
             <div>
-              <label className={labelCls}>Exchange Rate</label>
-              <input type="text" inputMode="decimal" value={editExchangeForm.exchangeRate} onChange={e => setEditExchangeForm(prev => ({ ...prev, exchangeRate: e.target.value }))} className={inputCls} />
-              <p className="mt-1 text-xs text-gray-500">
-                1 {currencyCodeById(editExchangeForm.baseCurrencyId) || "Base"} = {editExchangeForm.exchangeRate || "X"} {currencyCodeById(editExchangeForm.quoteCurrencyId) || "Quote"}
-              </p>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelCls}>Base Currency</label>
-              <select value={editExchangeForm.baseCurrencyId} onChange={e => setEditExchangeForm(prev => ({ ...prev, baseCurrencyId: e.target.value }))} className={inputCls}>
-                <option value="">Select</option>
-                {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>Quote Currency</label>
-              <select value={editExchangeForm.quoteCurrencyId} onChange={e => setEditExchangeForm(prev => ({ ...prev, quoteCurrencyId: e.target.value }))} className={inputCls}>
-                <option value="">Select</option>
-                {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelCls}>From Currency</label>
-              <select value={editExchangeForm.fromCurrencyId} onChange={e => setEditExchangeForm(prev => ({ ...prev, fromCurrencyId: e.target.value }))} className={inputCls}>
-                <option value="">Select</option>
-                {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>To Currency</label>
-              <select value={editExchangeForm.toCurrencyId} onChange={e => setEditExchangeForm(prev => ({ ...prev, toCurrencyId: e.target.value }))} className={inputCls}>
-                <option value="">Select</option>
-                {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelCls}>Amount</label>
-              <input type="text" inputMode="decimal" value={editExchangeForm.fromAmount} onChange={e => setEditExchangeForm(prev => ({ ...prev, fromAmount: e.target.value }))} className={inputCls} />
-            </div>
-            <div>
-              <label className={labelCls}>To Amount (Calculated)</label>
-              <input type="text" value={editExchangePreview.toAmount.toLocaleString("en-US")} className={inputCls} readOnly />
-              <p className="mt-1 text-xs text-gray-500">
-                {editExchangePreview.isPairValid
-                  ? editExchangePreview.operation === "multiply"
-                    ? "Applied: multiply (base -> quote)"
-                    : editExchangePreview.operation === "divide"
-                    ? "Applied: divide (quote -> base)"
-                    : "Select currencies to preview"
-                  : "From/To must match selected base and quote currencies"}
-              </p>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Amount</label>
+              <input type="text" inputMode="decimal" value={depositForm.amount} onChange={e => setDepositForm(prev => ({ ...prev, amount: e.target.value }))} className="input-field" placeholder="0.00" />
             </div>
           </div>
           <div>
-            <label className={labelCls}>Notes</label>
-            <input type="text" value={editExchangeForm.notes} onChange={e => setEditExchangeForm(prev => ({ ...prev, notes: e.target.value }))} className={inputCls} />
+            <label className="mb-1 block text-sm font-medium text-gray-700">Currency</label>
+            <select value={depositForm.currencyId} onChange={e => setDepositForm(prev => ({ ...prev, currencyId: e.target.value, superAdminBankAccountId: "" }))} className="select-field">
+              <option value="">Select currency</option>
+              {currencies.map(c => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
+            </select>
           </div>
-          {editExchangeError && <p className="text-sm text-red-600">{editExchangeError}</p>}
-          <button onClick={handleEditExchange} disabled={editExchangeSubmitting} className="w-full rounded bg-blue-600 py-2 text-white hover:bg-blue-700 disabled:opacity-50">
-            {editExchangeSubmitting ? "Saving..." : "Save Exchange"}
-          </button>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Bank Account</label>
+            <select value={depositForm.superAdminBankAccountId} onChange={e => setDepositForm(prev => ({ ...prev, superAdminBankAccountId: e.target.value }))} className="select-field">
+              <option value="">Select bank account</option>
+              {superAdminBankAccounts.filter((b: any) => b.isActive && (!depositForm.currencyId || String(b.currencyId) === String(depositForm.currencyId))).map((b: any) => (
+                <option key={b.id} value={b.id}>{b.bankName}{b.accountNumber ? ` - ${b.accountNumber}` : ""}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Notes</label>
+            <input type="text" value={depositForm.notes} onChange={e => setDepositForm(prev => ({ ...prev, notes: e.target.value }))} className="input-field" placeholder="Optional note" />
+          </div>
+          {depositError && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{depositError}</div>}
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <button onClick={() => setShowDeposit(false)} className="btn-secondary text-sm">Cancel</button>
+            <button onClick={handleDeposit} disabled={depositSubmitting} className="btn-primary text-sm">{depositSubmitting ? "Saving..." : "Record Deposit"}</button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={showEditDeposit} onClose={() => setShowEditDeposit(false)} title="Edit Deposit" size="md">
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Date</label>
+              <input type="date" value={editDepositForm.depositDate} onChange={e => setEditDepositForm(prev => ({ ...prev, depositDate: e.target.value }))} className="input-field" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Amount</label>
+              <input type="text" inputMode="decimal" value={editDepositForm.amount} onChange={e => setEditDepositForm(prev => ({ ...prev, amount: e.target.value }))} className="input-field" placeholder="0.00" />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Currency</label>
+            <select value={editDepositForm.currencyId} onChange={e => setEditDepositForm(prev => ({ ...prev, currencyId: e.target.value, superAdminBankAccountId: "" }))} className="select-field">
+              <option value="">Select currency</option>
+              {currencies.map(c => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Bank Account</label>
+            <select value={editDepositForm.superAdminBankAccountId} onChange={e => setEditDepositForm(prev => ({ ...prev, superAdminBankAccountId: e.target.value }))} className="select-field">
+              <option value="">Select bank account</option>
+              {superAdminBankAccounts.filter((b: any) => b.isActive && (!editDepositForm.currencyId || String(b.currencyId) === String(editDepositForm.currencyId))).map((b: any) => (
+                <option key={b.id} value={b.id}>{b.bankName}{b.accountNumber ? ` - ${b.accountNumber}` : ""}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Notes</label>
+            <input type="text" value={editDepositForm.notes} onChange={e => setEditDepositForm(prev => ({ ...prev, notes: e.target.value }))} className="input-field" placeholder="Optional note" />
+          </div>
+          {editDepositError && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{editDepositError}</div>}
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <button onClick={() => setShowEditDeposit(false)} className="btn-secondary text-sm">Cancel</button>
+            <button onClick={handleEditDeposit} disabled={editDepositSubmitting} className="btn-primary text-sm">{editDepositSubmitting ? "Saving..." : "Save Changes"}</button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={showEditExchange} onClose={() => setShowEditExchange(false)} title="Edit Exchange" size="md">
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Date</label>
+              <input type="date" value={editExchangeForm.exchangeDate} onChange={e => setEditExchangeForm(prev => ({ ...prev, exchangeDate: e.target.value }))} className="input-field" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Exchange Rate</label>
+              <input type="text" inputMode="decimal" value={editExchangeForm.exchangeRate} onChange={e => setEditExchangeForm(prev => ({ ...prev, exchangeRate: e.target.value }))} className="input-field" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Base Currency</label>
+              <select value={editExchangeForm.baseCurrencyId} onChange={e => setEditExchangeForm(prev => ({ ...prev, baseCurrencyId: e.target.value }))} className="select-field">
+                <option value="">Select</option>
+                {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Quote Currency</label>
+              <select value={editExchangeForm.quoteCurrencyId} onChange={e => setEditExchangeForm(prev => ({ ...prev, quoteCurrencyId: e.target.value }))} className="select-field">
+                <option value="">Select</option>
+                {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">From Currency</label>
+              <select value={editExchangeForm.fromCurrencyId} onChange={e => setEditExchangeForm(prev => ({ ...prev, fromCurrencyId: e.target.value }))} className="select-field">
+                <option value="">Select</option>
+                {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">To Currency</label>
+              <select value={editExchangeForm.toCurrencyId} onChange={e => setEditExchangeForm(prev => ({ ...prev, toCurrencyId: e.target.value }))} className="select-field">
+                <option value="">Select</option>
+                {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Amount</label>
+              <input type="text" inputMode="decimal" value={editExchangeForm.fromAmount} onChange={e => setEditExchangeForm(prev => ({ ...prev, fromAmount: e.target.value }))} className="input-field" placeholder="0.00" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">To Amount</label>
+              <input type="text" value={editExchangePreview.toAmount.toLocaleString("en-US")} className="input-field bg-gray-50" readOnly />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Notes</label>
+            <input type="text" value={editExchangeForm.notes} onChange={e => setEditExchangeForm(prev => ({ ...prev, notes: e.target.value }))} className="input-field" />
+          </div>
+          {editExchangeError && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{editExchangeError}</div>}
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <button onClick={() => setShowEditExchange(false)} className="btn-secondary text-sm">Cancel</button>
+            <button onClick={handleEditExchange} disabled={editExchangeSubmitting} className="btn-primary text-sm">{editExchangeSubmitting ? "Saving..." : "Save Exchange"}</button>
+          </div>
         </div>
       </Modal>
     </div>
