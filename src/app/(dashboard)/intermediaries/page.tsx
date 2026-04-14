@@ -398,8 +398,12 @@ export default function IntermediariesPage() {
       </Modal>
 
       <Modal open={showLedger} onClose={() => setShowLedger(false)} title={`Ledger — ${selected?.name}`} size="xl">
-        <div className="space-y-5">
-          <div className="flex items-center justify-between">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between rounded-xl border border-[#e8dccd] bg-[#fbf6ef]/80 px-3 py-2.5">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#8d755f]">Intermediary Ledger</p>
+              <p className="text-sm font-medium text-[#3a2b1e]">{selected?.name}</p>
+            </div>
             <button onClick={openDeposit} className="btn-primary text-sm">
               + Record Deposit
             </button>
@@ -411,15 +415,15 @@ export default function IntermediariesPage() {
             </div>
           ) : ledger ? (
             <>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
                 {Object.entries(ledger.balances || {}).map(([code, amount]) => {
                   const bal = Number(amount || 0);
                   return (
-                    <div key={code} className={`rounded-xl border p-3 ${bal >= 0 ? "bg-emerald-50/60 border-emerald-200" : "bg-red-50/60 border-red-200"}`}>
+                    <div key={code} className={`rounded-lg border px-3 py-2.5 ${bal >= 0 ? "border-emerald-200 bg-emerald-50/40" : "border-red-200 bg-red-50/40"}`}>
                       <div className="flex items-center justify-between">
-                        <span className={`text-xs font-semibold px-2 py-0.5 rounded ${bal >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>{code}</span>
+                        <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${bal >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>{code}</span>
                       </div>
-                      <p className={`mt-2 text-lg font-bold tabular-nums ${bal >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                      <p className={`mt-1.5 text-base font-bold tabular-nums ${bal >= 0 ? "text-emerald-700" : "text-red-700"}`}>
                         {formatNumber(bal)}
                       </p>
                     </div>
@@ -427,64 +431,64 @@ export default function IntermediariesPage() {
                 })}
               </div>
 
-              <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4">
-                <h3 className="text-sm font-semibold text-amber-900 mb-3">Currency Exchange</h3>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+              <div className="rounded-xl border border-amber-200 bg-amber-50/35 p-3.5">
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-amber-900">Currency Exchange</h3>
+                <div className="mb-2.5 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-600">Base Currency</label>
+                    <label className="mb-1 block text-[11px] font-medium text-gray-600">Base Currency</label>
                     <select value={exchangeForm.baseCurrencyId} onChange={e => setExchangeForm(prev => ({ ...prev, baseCurrencyId: e.target.value }))} className="select-field text-sm">
                       <option value="">Select</option>
                       {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-600">Quote Currency</label>
+                    <label className="mb-1 block text-[11px] font-medium text-gray-600">Quote Currency</label>
                     <select value={exchangeForm.quoteCurrencyId} onChange={e => setExchangeForm(prev => ({ ...prev, quoteCurrencyId: e.target.value }))} className="select-field text-sm">
                       <option value="">Select</option>
                       {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-600">Exchange Rate</label>
+                    <label className="mb-1 block text-[11px] font-medium text-gray-600">Exchange Rate</label>
                     <input type="text" inputMode="decimal" value={exchangeForm.exchangeRate} onChange={e => setExchangeForm(prev => ({ ...prev, exchangeRate: e.target.value }))} className="input-field text-sm" placeholder="0.00" />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-600">Date</label>
+                    <label className="mb-1 block text-[11px] font-medium text-gray-600">Date</label>
                     <input type="date" value={exchangeForm.exchangeDate} onChange={e => setExchangeForm(prev => ({ ...prev, exchangeDate: e.target.value }))} className="input-field text-sm" />
                   </div>
                 </div>
-                <div className="grid grid-cols-3 gap-3 mb-3">
+                <div className="mb-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-600">From Currency</label>
+                    <label className="mb-1 block text-[11px] font-medium text-gray-600">From Currency</label>
                     <select value={exchangeForm.fromCurrencyId} onChange={e => setExchangeForm(prev => ({ ...prev, fromCurrencyId: e.target.value }))} className="select-field text-sm">
                       <option value="">Select</option>
                       {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-600">Amount</label>
+                    <label className="mb-1 block text-[11px] font-medium text-gray-600">Amount</label>
                     <input type="text" inputMode="decimal" value={exchangeForm.fromAmount} onChange={e => setExchangeForm(prev => ({ ...prev, fromAmount: e.target.value }))} className="input-field text-sm" placeholder="0.00" />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-600">To Currency</label>
+                    <label className="mb-1 block text-[11px] font-medium text-gray-600">To Currency</label>
                     <select value={exchangeForm.toCurrencyId} onChange={e => setExchangeForm(prev => ({ ...prev, toCurrencyId: e.target.value }))} className="select-field text-sm">
                       <option value="">Select</option>
                       {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
                     </select>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3 mb-3">
+                <div className="mb-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-600">To Amount (Calculated)</label>
+                    <label className="mb-1 block text-[11px] font-medium text-gray-600">To Amount (Calculated)</label>
                     <input type="text" value={exchangePreview.toAmount.toLocaleString("en-US")} className="input-field text-sm bg-amber-50" readOnly />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-600">Notes</label>
+                    <label className="mb-1 block text-[11px] font-medium text-gray-600">Notes</label>
                     <input type="text" value={exchangeForm.notes} onChange={e => setExchangeForm(prev => ({ ...prev, notes: e.target.value }))} className="input-field text-sm" placeholder="Optional note" />
                   </div>
                 </div>
-                {exchangeError && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">{exchangeError}</div>}
-                <button onClick={handleExchange} disabled={exchangeSubmitting} className="bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-50">
+                {exchangeError && <div className="mb-2.5 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{exchangeError}</div>}
+                <button onClick={handleExchange} disabled={exchangeSubmitting} className="rounded-lg bg-amber-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50">
                   {exchangeSubmitting ? "Executing..." : "Execute Exchange"}
                 </button>
               </div>
@@ -494,34 +498,36 @@ export default function IntermediariesPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-[#f8f1e7]">
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Particulars</th>
-                        <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-16">Ccy</th>
-                        <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider w-28">Debit</th>
-                        <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider w-28">Credit</th>
-                        <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider w-28">Balance</th>
-                        <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider w-20">Actions</th>
+                        <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">Date</th>
+                        <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">Particulars</th>
+                        <th className="w-16 px-2 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wider text-gray-500">Ccy</th>
+                        <th className="w-28 px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-gray-500">Debit</th>
+                        <th className="w-28 px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-gray-500">Credit</th>
+                        <th className="w-32 px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-gray-500">Balance</th>
+                        <th className="w-20 px-2 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wider text-gray-500">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {(!ledger.ledger || ledger.ledger.length === 0) && (
-                        <tr><td colSpan={7} className="text-center py-8 text-gray-400">No ledger entries</td></tr>
+                        <tr><td colSpan={7} className="py-8 text-center text-sm text-gray-400">No ledger entries</td></tr>
                       )}
                       {ledger.ledger?.map((entry: any, i: number) => (
-                        <tr key={i} className={`border-t border-[#f3e8db] ${entry.type === "deposit" ? "bg-emerald-50/40" : entry.type === "payment" || entry.type === "exchange_out" ? "bg-red-50/40" : "bg-blue-50/40"}`}>
-                          <td className="px-4 py-2.5 whitespace-nowrap text-gray-600">{formatDate(entry.date)}</td>
-                          <td className="px-4 py-2.5 text-gray-800 max-w-xs truncate">{entry.description}</td>
-                          <td className="px-4 py-2.5 text-center">
-                            <span className="text-xs font-semibold bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{entry.currencyCode}</span>
+                        <tr key={i} className="border-t border-[#f3e8db] hover:bg-[#fff8ef]">
+                          <td className="whitespace-nowrap px-3 py-2.5 text-xs text-gray-600">{formatDate(entry.date)}</td>
+                          <td className="max-w-xs px-3 py-2.5 text-sm text-gray-800">
+                            <span className="line-clamp-1">{entry.description}</span>
                           </td>
-                          <td className="px-4 py-2.5 text-right font-medium text-green-700 tabular-nums">{entry.debit > 0 ? formatNumber(entry.debit) : "—"}</td>
-                          <td className="px-4 py-2.5 text-right font-medium text-red-700 tabular-nums">{entry.credit > 0 ? formatNumber(entry.credit) : "—"}</td>
-                          <td className="px-4 py-2.5 text-right font-bold tabular-nums text-gray-800">{formatNumber(entry.balance)}</td>
-                          <td className="px-4 py-2.5 text-center">
+                          <td className="px-2 py-2.5 text-center">
+                            <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">{entry.currencyCode}</span>
+                          </td>
+                          <td className="px-3 py-2.5 text-right text-sm font-medium tabular-nums text-green-700">{entry.debit > 0 ? formatNumber(entry.debit) : "—"}</td>
+                          <td className="px-3 py-2.5 text-right text-sm font-medium tabular-nums text-red-700">{entry.credit > 0 ? formatNumber(entry.credit) : "—"}</td>
+                          <td className="px-3 py-2.5 text-right text-sm font-bold tabular-nums text-gray-800">{formatNumber(entry.balance)}</td>
+                          <td className="px-2 py-2.5 text-center">
                             {entry.type === "deposit" && (
-                              <div className="flex items-center justify-center gap-2">
-                                <button onClick={() => openEditDeposit(entry)} className="text-amber-600 hover:underline text-xs">Edit</button>
-                                <button onClick={() => handleDeleteDeposit(entry.id)} className="text-red-600 hover:underline text-xs">Del</button>
+                              <div className="flex items-center justify-center gap-1.5">
+                                <button onClick={() => openEditDeposit(entry)} className="rounded px-1.5 py-0.5 text-xs text-amber-700 hover:bg-amber-100">Edit</button>
+                                <button onClick={() => handleDeleteDeposit(entry.id)} className="rounded px-1.5 py-0.5 text-xs text-red-700 hover:bg-red-100">Del</button>
                               </div>
                             )}
                           </td>

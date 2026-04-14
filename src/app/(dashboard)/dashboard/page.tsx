@@ -442,23 +442,23 @@ export default function DashboardPage() {
           <div className="fixed inset-0 z-[90]">
             <button
               aria-label="Close quick form"
-              className="absolute inset-0 bg-black/45 backdrop-blur-[1px]"
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
               onClick={() => setQuickAction(null)}
             />
-            <div className="relative z-[91] mx-auto flex h-[100dvh] w-full items-center justify-center p-3 sm:p-4 md:p-6">
-              <div className="relative w-full max-w-6xl overflow-hidden rounded-[22px] border border-white/70 bg-[#f8f4ee] shadow-[0_32px_90px_-42px_rgba(36,24,14,0.6)]">
-                <div className="flex items-center justify-between border-b border-[#e3d7c7] px-4 py-3 sm:px-5">
-                  <h2 className="text-base font-semibold text-[#2e2216]">{quickAction.title}</h2>
+            <div className="relative z-[91] mx-auto flex h-[100dvh] w-full items-center justify-center p-2 sm:p-4 md:p-5">
+              <div className="relative w-full max-w-6xl overflow-hidden rounded-[1.45rem] border border-[#eadfce] bg-[linear-gradient(180deg,#fffdf8_0%,#fff9f2_100%)] shadow-[0_30px_90px_-42px_rgba(49,34,22,0.42)]">
+                <div className="flex flex-shrink-0 items-center justify-between border-b border-[#e7dcc9] px-5 py-3.5 sm:px-6">
+                  <h2 className="text-[1.03rem] font-semibold tracking-tight text-[#2e2216]">{quickAction.title}</h2>
                   <button
                     type="button"
                     onClick={() => setQuickAction(null)}
-                    className="rounded-md p-1.5 text-[#7a6a57] transition hover:bg-[#efe5d8] hover:text-[#2e2216]"
+                    className="rounded-md p-1.5 text-[#7e6c59] transition-colors hover:bg-[#f0e5d6] hover:text-[#2e2216]"
                     aria-label="Close"
                   >
                     <X className="h-5 w-5" />
                   </button>
                 </div>
-                <div className="h-[calc(100dvh-8.5rem)] min-h-[460px] overflow-hidden bg-white sm:h-[calc(100dvh-10rem)]">
+                <div className="h-[calc(100dvh-8rem)] min-h-[480px] overflow-hidden bg-white sm:h-[calc(100dvh-9rem)]">
                   <iframe
                     src={quickAction.src}
                     title={`${quickAction.title} form`}
