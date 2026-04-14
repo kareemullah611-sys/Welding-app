@@ -204,6 +204,25 @@ export default function SuperAdminPersonalExpensesPage() {
             <input type="date" className="input-field" value={expenseForm.expenseDate} onChange={(e) => setExpenseForm((f: any) => ({ ...f, expenseDate: e.target.value }))} />
           </div>
           <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Bank Account *</label>
+            <select
+              className="input-field"
+              value={expenseForm.bankAccountId || ""}
+              onChange={(e) => setExpenseForm((f: any) => ({ ...f, bankAccountId: Number(e.target.value) || 0 }))}
+            >
+              <option value="">Select super admin account</option>
+              {accounts
+                .filter((account) => account.isActive)
+                .map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.bankName}
+                    {account.accountNumber ? ` (${account.accountNumber})` : ""}
+                    {account.currency?.code ? ` - ${account.currency.code}` : ""}
+                  </option>
+                ))}
+            </select>
+          </div>
+          <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">Detail *</label>
             <input className="input-field" value={expenseForm.detail} onChange={(e) => setExpenseForm((f: any) => ({ ...f, detail: e.target.value }))} />
           </div>
