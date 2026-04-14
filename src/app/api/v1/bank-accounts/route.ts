@@ -10,7 +10,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const scope = searchParams.get("scope");
 
     if (scope === "super_admin") {
-      const [incomingHajiPayments, expenses] = await Promise.all([
+      const [incomingHajiPayments, expenses, intermediaryDeposits, lotCosts] = await Promise.all([
         prisma.payment.groupBy({
           by: ["superAdminBankAccountId", "currencyId"],
           where: {
@@ -25,11 +25,26 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           where: { deletedAt: null },
           _sum: { amount: true },
         }),
+        prisma.intermediaryDeposit.groupBy({
+          by: ["superAdminBankAccountId", "currencyId"],
+          where: { superAdminBankAccountId: { not: null } },
+          _sum: { amount: true },
+        }),
+        prisma.lotCost.findMany({
+          where: { superAdminBankAccountId: { not: null } },
+          select: {
+            superAdminBankAccountId: true,
+            currencyCode: true,
+            amount: true,
+          },
+        }),
       ]);
       const incomingMap = new Map<string, number>();
       for (const row of incomingHajiPayments) incomingMap.set(`${row.superAdminBankAccountId}:${row.currencyId}`, Number(row._sum.amount || 0));
       const expenseMap = new Map<number, number>();
       for (const row of expenses) expenseMap.set(row.bankAccountId, Number(row._sum.amount || 0));
+      const intermediaryMap = new Map<string, number>();
+      for (const row of intermediaryDeposits) intermediaryMap.set(`${row.superAdminBankAccountId}:${row.currencyId}`, Number(row._sum.amount || 0));
 
       const accounts = await prisma.superAdminBankAccount.findMany({
         where: { isActive: true },
@@ -43,6 +58,17 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         },
         orderBy: [{ isActive: "desc" }, { createdAt: "desc" }],
       });
+
+      const lotCostDebitMap = new Map<string, number>();
+      for (const row of lotCosts) {
+        if (!row.superAdminBankAccountId) continue;
+        const account = accounts.find((a) => a.id === row.superAdminBankAccountId);
+        if (!account) continue;
+        const rowCurrency = String(row.currencyCode || "").toUpperCase();
+        if (rowCurrency !== String(account.currency.code || "").toUpperCase()) continue;
+        const key = `${row.superAdminBankAccountId}:${account.currencyId}`;
+        lotCostDebitMap.set(key, (lotCostDebitMap.get(key) || 0) + Number(row.amount || 0));
+      }
 
       return successResponse(
         accounts.map((a) => ({
@@ -60,7 +86,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
             hajiTransfers: 0,
             expenses: a._count.expenses,
           },
-          runningBalance: Math.round((((incomingMap.get(`${a.id}:${a.currencyId}`) || 0) - (expenseMap.get(a.id) || 0)) * 100)) / 100,
+          runningBalance: Math.round((((incomingMap.get(`${a.id}:${a.currencyId}`) || 0) - (expenseMap.get(a.id) || 0) - (intermediaryMap.get(`${a.id}:${a.currencyId}`) || 0) - (lotCostDebitMap.get(`${a.id}:${a.currencyId}`) || 0)) * 100)) / 100,
           accountScope: "super_admin",
         }))
       );
@@ -81,7 +107,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const currencies = await prisma.currency.findMany({ select: { id: true, code: true } });
     const currencyCodeById = Object.fromEntries(currencies.map((currency) => [currency.id, currency.code]));
 
-    const [paymentsIn, deposits, depositedCheques, expenses, hajiTransfers, supplierPayments] = await Promise.all([
+    const [paymentsIn, deposits, depositedCheques, expenses, hajiTransfers, supplierPayments, shippingLinePayments, agentPayments, lotCosts, intermediaryDeposits] = await Promise.all([
       prisma.payment.groupBy({
         by: ["bankAccountId", "currencyId"],
         where: {
@@ -130,6 +156,55 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           exchangeRate: true,
         },
       }),
+      prisma.shippingLinePayment.findMany({
+        where: {
+          bankAccountId: cityId
+            ? { in: scopedBankAccountIds.length > 0 ? scopedBankAccountIds : [-1] }
+            : { not: null },
+        },
+        select: {
+          bankAccountId: true,
+          amountPkr: true,
+          amountUsd: true,
+          exchangeRate: true,
+        },
+      }),
+      prisma.agentPayment.findMany({
+        where: {
+          bankAccountId: cityId
+            ? { in: scopedBankAccountIds.length > 0 ? scopedBankAccountIds : [-1] }
+            : { not: null },
+        },
+        select: {
+          bankAccountId: true,
+          amount: true,
+          currencyCode: true,
+        },
+      }),
+      prisma.lotCost.findMany({
+        where: {
+          bankAccountId: cityId
+            ? { in: scopedBankAccountIds.length > 0 ? scopedBankAccountIds : [-1] }
+            : { not: null },
+        },
+        select: {
+          bankAccountId: true,
+          amount: true,
+          currencyCode: true,
+        },
+      }),
+      prisma.intermediaryDeposit.findMany({
+        where: {
+          bankAccountId: cityId
+            ? { in: scopedBankAccountIds.length > 0 ? scopedBankAccountIds : [-1] }
+            : { not: null },
+        },
+        select: {
+          bankAccountId: true,
+          amount: true,
+          currencyId: true,
+        },
+      }),
     ]);
     const balanceByAccount = new Map<number, Record<string, number>>();
     const addBalance = (accountId: number | null, currencyId: number, amount: number) => {
@@ -165,6 +240,16 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         addBalanceByCode(row.bankAccountId, "USD", -amountUsd);
       }
     }
+    for (const row of shippingLinePayments) {
+      const amountPkr = Number(row.amountPkr || 0) > 0
+        ? Number(row.amountPkr || 0)
+        : (Number(row.exchangeRate || 0) > 0 ? Number(row.amountUsd || 0) * Number(row.exchangeRate || 0) : 0);
+      if (amountPkr > 0) addBalanceByCode(row.bankAccountId, "PKR", -amountPkr);
+      else if (Number(row.amountUsd || 0) > 0) addBalanceByCode(row.bankAccountId, "USD", -Number(row.amountUsd || 0));
+    }
+    for (const row of agentPayments) addBalanceByCode(row.bankAccountId, row.currencyCode, -Number(row.amount || 0));
+    for (const row of lotCosts) addBalanceByCode(row.bankAccountId, row.currencyCode, -Number(row.amount || 0));
+    for (const row of intermediaryDeposits) addBalance(row.bankAccountId, row.currencyId, -Number(row.amount || 0));
 
     const accounts = await prisma.bankAccount.findMany({
       where,

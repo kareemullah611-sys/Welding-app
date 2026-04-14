@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, DataTable, Modal } from "@/components/ui";
+import { PageHeader, DataTable, Modal, formatDate, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 
 export default function BankAccountsPage() {
@@ -21,6 +21,11 @@ export default function BankAccountsPage() {
   const [error, setError] = useState("");
   const [openActionId, setOpenActionId] = useState<number | null>(null);
   const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
+  const [showLedger, setShowLedger] = useState(false);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [ledgerRows, setLedgerRows] = useState<any[]>([]);
+  const [ledgerBalanceByCurrency, setLedgerBalanceByCurrency] = useState<Record<string, number>>({});
+  const [ledgerAccount, setLedgerAccount] = useState<any>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -95,6 +100,23 @@ export default function BankAccountsPage() {
     load();
   };
 
+  const openLedger = async (acc: any) => {
+    setLedgerAccount(acc);
+    setLedgerLoading(true);
+    setShowLedger(true);
+    const r = await apiCall(`/api/v1/bank-accounts/${acc.id}`, { params: { view: "ledger" } });
+    if (r.success) {
+      const payload: any = r.data || {};
+      setLedgerRows(payload.ledger || []);
+      setLedgerBalanceByCurrency(payload.balanceByCurrency || {});
+    } else {
+      setLedgerRows([]);
+      setLedgerBalanceByCurrency({});
+      setError(r.error || "Failed to load ledger");
+    }
+    setLedgerLoading(false);
+  };
+
   const columns: any[] = [
     ...(isSA ? [{
       key: "currency", label: "Currency",
@@ -157,6 +179,7 @@ export default function BankAccountsPage() {
           </button>
           {openActionId === acc.id && (
             <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
+              <button onClick={() => { setOpenActionId(null); openLedger(acc); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-gray-700 hover:bg-gray-50">Ledger</button>
               <button onClick={() => { setOpenActionId(null); openEdit(acc); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
               <button onClick={() => { setOpenActionId(null); toggleActive(acc); }} className={`w-full rounded-lg px-3 py-2 text-left text-xs hover:bg-gray-50 ${acc.isActive ? "text-gray-600" : "text-green-700 hover:bg-green-50"}`}>
                 {acc.isActive ? t("deactivate") : t("reactivate")}
@@ -245,6 +268,62 @@ export default function BankAccountsPage() {
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
           <button onClick={handleEdit} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button>
+        </div>
+      </Modal>
+
+      <Modal open={showLedger} onClose={() => setShowLedger(false)} title={`Ledger — ${ledgerAccount?.bankName || ""}`} size="xl">
+        <div className="space-y-4">
+          <div className="rounded-xl border border-[#e8dccd] bg-[#fbf6ef]/80 p-3">
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              {Object.keys(ledgerBalanceByCurrency || {}).length > 0 ? (
+                Object.entries(ledgerBalanceByCurrency).map(([code, amount]) => (
+                  <span key={code} className="rounded-lg border border-[#e5d7c4] bg-white px-2.5 py-1 font-medium text-[#3c2d20]">
+                    {code} {formatNumber(Number(amount || 0))}
+                  </span>
+                ))
+              ) : (
+                <span className="text-gray-500">No balance</span>
+              )}
+            </div>
+          </div>
+          <div className="rounded-xl border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-[#f8f1e7]">
+                    <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">Date</th>
+                    <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">Type</th>
+                    <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">Detail</th>
+                    <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">Ref</th>
+                    <th className="px-2 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wider text-gray-500">Ccy</th>
+                    <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-gray-500">Credit</th>
+                    <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-gray-500">Debit</th>
+                    <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-gray-500">Running</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ledgerLoading && (
+                    <tr><td colSpan={8} className="py-10 text-center text-gray-500">Loading ledger…</td></tr>
+                  )}
+                  {!ledgerLoading && ledgerRows.length === 0 && (
+                    <tr><td colSpan={8} className="py-10 text-center text-gray-400">No ledger entries</td></tr>
+                  )}
+                  {!ledgerLoading && ledgerRows.map((row: any) => (
+                    <tr key={row.key} className="border-t border-[#f3e8db]">
+                      <td className="px-3 py-2.5 whitespace-nowrap text-xs text-gray-600">{formatDate(row.date)}</td>
+                      <td className="px-3 py-2.5 text-xs font-medium text-gray-700">{row.type}</td>
+                      <td className="px-3 py-2.5 text-sm text-gray-800">{row.detail}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-500">{row.reference || "—"}</td>
+                      <td className="px-2 py-2.5 text-center"><span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">{row.currencyCode}</span></td>
+                      <td className="px-3 py-2.5 text-right text-sm font-medium text-emerald-700 tabular-nums">{row.credit > 0 ? formatNumber(row.credit) : "—"}</td>
+                      <td className="px-3 py-2.5 text-right text-sm font-medium text-rose-700 tabular-nums">{row.debit > 0 ? formatNumber(row.debit) : "—"}</td>
+                      <td className="px-3 py-2.5 text-right text-sm font-semibold text-gray-800 tabular-nums">{formatNumber(row.runningBalance || 0)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </Modal>
     </div>
