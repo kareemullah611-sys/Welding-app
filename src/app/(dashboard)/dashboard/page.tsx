@@ -445,8 +445,8 @@ export default function DashboardPage() {
               className="absolute inset-0 bg-black/40 backdrop-blur-sm"
               onClick={() => setQuickAction(null)}
             />
-            <div className="relative z-[91] mx-auto flex h-[100dvh] w-full items-center justify-center p-2 sm:p-4 md:p-5">
-              <div className="relative w-full max-w-6xl overflow-hidden rounded-[1.45rem] border border-[#eadfce] bg-[linear-gradient(180deg,#fffdf8_0%,#fff9f2_100%)] shadow-[0_30px_90px_-42px_rgba(49,34,22,0.42)]">
+            <div className="relative z-[91] mx-auto flex h-[100dvh] w-full items-center justify-center p-4 sm:p-5 md:p-7">
+              <div className="relative w-full max-w-[1080px] overflow-hidden rounded-[1.45rem] border border-[#eadfce] bg-[linear-gradient(180deg,#fffdf8_0%,#fff9f2_100%)] shadow-[0_30px_90px_-42px_rgba(49,34,22,0.42)]">
                 <div className="flex flex-shrink-0 items-center justify-between border-b border-[#e7dcc9] px-5 py-3.5 sm:px-6">
                   <h2 className="text-[1.03rem] font-semibold tracking-tight text-[#2e2216]">{quickAction.title}</h2>
                   <button
@@ -458,7 +458,7 @@ export default function DashboardPage() {
                     <X className="h-5 w-5" />
                   </button>
                 </div>
-                <div className="h-[calc(100dvh-8rem)] min-h-[480px] overflow-hidden bg-white sm:h-[calc(100dvh-9rem)]">
+                <div className="h-[min(82vh,780px)] min-h-[520px] overflow-hidden bg-white">
                   <iframe
                     src={quickAction.src}
                     title={`${quickAction.title} form`}
