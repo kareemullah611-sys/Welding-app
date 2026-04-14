@@ -19,7 +19,6 @@ import {
   ChevronRight,
   AlertCircle,
   CheckCircle2,
-  X
 } from "lucide-react";
 
 const QuickActionCard = ({ 
@@ -60,7 +59,12 @@ const QuickActionCard = ({
   );
   
   if (src) {
-    return <button onClick={onClick} className="w-full text-left">{content}</button>;
+    if (onClick) return <button onClick={onClick} className="w-full text-left">{content}</button>;
+    return (
+      <Link href={src} className="block">
+        {content}
+      </Link>
+    );
   }
   return content;
 };
@@ -135,7 +139,6 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [selectedCountry, setSelectedCountry] = useState<string>("");
   const [showOperationalDetails, setShowOperationalDetails] = useState(true);
-  const [quickAction, setQuickAction] = useState<{ title: string; src: string } | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -153,29 +156,6 @@ export default function DashboardPage() {
     };
     load();
   }, [user?.role]);
-
-  useEffect(() => {
-    const onMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
-      if (event.data?.type === "dashboard-quick-close") setQuickAction(null);
-    };
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, []);
-
-  useEffect(() => {
-    if (!quickAction) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setQuickAction(null);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [quickAction]);
 
   if (loading) {
     return (
@@ -211,30 +191,26 @@ export default function DashboardPage() {
           <QuickActionCard 
             icon={ShoppingCart} 
             title="New Sale" 
-            src="/sales?create=1&embed=1" 
+            src="/sales?create=1"
             color="blue"
-            onClick={() => setQuickAction({ title: "New Sale", src: "/sales?create=1&embed=1" })}
           />
           <QuickActionCard 
             icon={Banknote} 
             title="Receive Payment" 
-            src="/payments?create=payment&embed=1"
+            src="/payments?create=payment"
             color="green"
-            onClick={() => setQuickAction({ title: "Receive Payment", src: "/payments?create=payment&embed=1" })}
           />
           <QuickActionCard 
             icon={Receipt} 
             title="Record Expense" 
-            src="/expenses?create=1&embed=1"
+            src="/expenses?create=1"
             color="red"
-            onClick={() => setQuickAction({ title: "Record Expense", src: "/expenses?create=1&embed=1" })}
           />
           <QuickActionCard 
             icon={Wallet} 
             title="Withdrawal" 
-            src="/personal-withdrawals?create=1&embed=1"
+            src="/personal-withdrawals?create=1"
             color="purple"
-            onClick={() => setQuickAction({ title: "Personal Withdrawal", src: "/personal-withdrawals?create=1&embed=1" })}
           />
         </div>
 
@@ -243,16 +219,14 @@ export default function DashboardPage() {
           <QuickActionCard 
             icon={ArrowRightLeft} 
             title="Haji Transfer" 
-            src="/haji-transfers?create=1&embed=1"
+            src="/haji-transfers?create=1"
             color="orange"
-            onClick={() => setQuickAction({ title: "Haji Transfer", src: "/haji-transfers?create=1&embed=1" })}
           />
           <QuickActionCard 
             icon={Users} 
             title="New Customer" 
-            src="/customers?create=1&embed=1"
+            src="/customers?create=1"
             color="teal"
-            onClick={() => setQuickAction({ title: "New Customer", src: "/customers?create=1&embed=1" })}
           />
           <Link href="/inventory" className="sm:col-span-2 lg:col-span-4">
             <QuickActionCard icon={Package} title="Move Stock" color="amber" />
@@ -437,29 +411,6 @@ export default function DashboardPage() {
             {showOperationalDetails ? 'Hide details' : 'Show more details'}
           </button>
         </div>
-
-        {quickAction && (
-          <div className="fixed inset-0 z-[90]">
-            <button
-              aria-label="Close quick form"
-              className="absolute inset-0 bg-black/45 backdrop-blur-[1px]"
-              onClick={() => setQuickAction(null)}
-            />
-            <button
-              type="button"
-              onClick={() => setQuickAction(null)}
-              className="absolute right-5 top-5 z-[92] rounded-md bg-white/85 p-1.5 text-[#7e6c59] shadow-sm ring-1 ring-[#e8dbc9] transition-colors hover:bg-[#f7efe3] hover:text-[#2e2216]"
-              aria-label="Close"
-            >
-              <X className="h-5 w-5" />
-            </button>
-            <iframe
-              src={quickAction.src}
-              title={`${quickAction.title} form`}
-              className="relative z-[91] h-[100dvh] w-full border-0 bg-transparent"
-            />
-          </div>
-        )}
       </div>
     );
   }
