@@ -48,6 +48,8 @@ export default function PaymentsPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
   // Type filter for the list
   const [typeFilter, setTypeFilter] = useState("all");
@@ -100,6 +102,8 @@ export default function PaymentsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     const params: any = { page, limit: 20 };
+    if (fromDate) params.from_date = fromDate;
+    if (toDate) params.to_date = toDate;
     if (isSuperAdmin) {
       params.type = "payment";
       params.destination = "haji";
@@ -113,7 +117,7 @@ export default function PaymentsPage() {
       setTotal((r.pagination as any)?.total || 0);
     }
     setLoading(false);
-  }, [isSuperAdmin, typeFilter, page]);
+  }, [isSuperAdmin, typeFilter, page, fromDate, toDate]);
 
   const refreshToLatestPayments = useCallback(() => {
     if (page !== 1 || typeFilter !== "all") {
@@ -125,6 +129,7 @@ export default function PaymentsPage() {
   }, [load, page, typeFilter]);
 
   useEffect(() => { setPage(1); }, [typeFilter]);
+  useEffect(() => { setPage(1); }, [fromDate, toDate]);
   useEffect(() => { load(); }, [load]);
 
   // Reload from server after queued entries sync
@@ -394,10 +399,10 @@ export default function PaymentsPage() {
       key: "date", label: t("date"),
       render: (item: any) => <span className="whitespace-nowrap text-sm">{formatDate(item.date)}</span>,
     },
-    {
+    ...(!isSuperAdmin ? [{
       key: "type", label: "Type",
       render: (item: any) => <TypeBadge type={item.type} />,
-    },
+    }] : []),
     {
       key: "person", label: "Name",
       render: (item: any) => item.person ? (
@@ -576,8 +581,8 @@ export default function PaymentsPage() {
   return (
     <div>
       {!isEmbed && <PageHeader
-        title={t("payments")}
-        subtitle={`${total} ${t("records").toLowerCase()}`}
+        title={isSuperAdmin ? "Payments" : t("payments")}
+        subtitle={isSuperAdmin ? `City settlements received by super admin · ${total} ${t("records").toLowerCase()}` : `${total} ${t("records").toLowerCase()}`}
         action={
           <div className="flex items-center gap-3">
             {/* Type filter */}
@@ -594,10 +599,38 @@ export default function PaymentsPage() {
                 <option value="withdrawal">Withdrawals</option>
               </select>
             )}
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="input-field w-auto text-xs"
+            />
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="input-field w-auto text-xs"
+            />
+            {(fromDate || toDate) && (
+              <button
+                type="button"
+                onClick={() => { setFromDate(""); setToDate(""); }}
+                className="btn-secondary text-xs"
+              >
+                Clear
+              </button>
+            )}
 
           </div>
         }
       />}
+
+      {!isEmbed && isSuperAdmin && (
+        <div className="mb-4 rounded-xl border border-[#e8dccd] bg-[#fbf6ef]/80 px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#8d755f]">Super Admin Settlements</p>
+          <p className="mt-1 text-sm text-[#3a2b1e]">This module is the single source for city-admin payments routed to super admin (no separate haji transfer module needed).</p>
+        </div>
+      )}
 
       {!isEmbed && queueSaved && (
         <div className="fixed bottom-6 right-6 z-50 bg-green-600 text-white text-sm font-medium px-5 py-3 rounded-2xl shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4">

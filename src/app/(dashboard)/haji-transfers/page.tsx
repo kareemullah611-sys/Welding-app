@@ -5,6 +5,7 @@ import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 
 
 const SOURCE_CONFIG: Record<string, { label: string; color: string; icon: string }> = {
@@ -228,6 +229,28 @@ export default function HajiTransfersPage() {
   };
 
   const getSourceType = (tr: any) => tr.sourceType || (tr.transferType === "direct" ? "bank_transfer" : "cash_office");
+
+  if (user?.role === "super_admin" && !isEmbed) {
+    return (
+      <div>
+        <PageHeader
+          title={t("haji_transfers")}
+          subtitle="Consolidated under Payments for super admin operations"
+        />
+        <div className="rounded-xl border border-[#e8dccd] bg-[#fbf6ef]/80 p-5">
+          <p className="text-sm font-semibold text-[#3a2b1e]">Use Payments as the single settlement module</p>
+          <p className="mt-1 text-sm text-[#6d5a47]">
+            Super admin incoming settlements from city admins are managed in Payments. This keeps one clean workflow and avoids duplicate modules.
+          </p>
+          <div className="mt-4">
+            <Link href="/payments" className="btn-primary text-sm">
+              Open Payments
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
