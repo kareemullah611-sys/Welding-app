@@ -117,6 +117,94 @@ export default function BankAccountsPage() {
     setLedgerLoading(false);
   };
 
+  const escCsv = (value: any) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+  const escHtml = (value: any) =>
+    String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+
+  const exportLedgerCsv = () => {
+    if (!ledgerAccount) return;
+    const lines: string[] = [];
+    lines.push(`Bank Ledger,${escCsv(ledgerAccount.bankName)}`);
+    lines.push(`Generated,${escCsv(new Date().toISOString().split("T")[0])}`);
+    lines.push("");
+    lines.push("Date,Type,Detail,Ref,Credit,Debit,Running");
+    for (const row of ledgerRows || []) {
+      lines.push([
+        escCsv(formatDate(row.date)),
+        escCsv(row.type),
+        escCsv(row.detail),
+        escCsv(row.reference || ""),
+        escCsv(row.credit > 0 ? row.credit : ""),
+        escCsv(row.debit > 0 ? row.debit : ""),
+        escCsv(row.runningBalance ?? ""),
+      ].join(","));
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `bank_ledger_${String(ledgerAccount.bankName || "account").replace(/\s+/g, "_").toLowerCase()}_${new Date().toISOString().split("T")[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportLedgerPdf = () => {
+    if (!ledgerAccount) return;
+    const balances = Object.entries(ledgerBalanceByCurrency || {})
+      .map(([code, amt]) => `${code} ${formatNumber(Number(amt || 0))}`)
+      .join(" · ");
+    const rowsHtml = (ledgerRows || []).map((row: any) => `
+      <tr>
+        <td>${escHtml(formatDate(row.date))}</td>
+        <td>${escHtml(row.type)}</td>
+        <td>${escHtml(row.detail)}</td>
+        <td>${escHtml(row.reference || "")}</td>
+        <td style="text-align:right;">${row.credit > 0 ? escHtml(formatNumber(row.credit)) : "—"}</td>
+        <td style="text-align:right;">${row.debit > 0 ? escHtml(formatNumber(row.debit)) : "—"}</td>
+        <td style="text-align:right;">${escHtml(formatNumber(row.runningBalance || 0))}</td>
+      </tr>
+    `).join("");
+    const html = `
+      <html><head><title>Bank Ledger</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 24px; color: #222; }
+        h1 { margin: 0 0 8px 0; font-size: 20px; }
+        .meta { margin: 0 0 14px 0; color: #555; font-size: 12px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        th, td { border: 1px solid #e2e2e2; padding: 7px; font-size: 12px; text-align: left; }
+        th { background: #f6f6f6; text-transform: uppercase; font-size: 10px; letter-spacing: .06em; color: #666; }
+      </style></head><body>
+        <h1>Bank Ledger - ${escHtml(ledgerAccount.bankName || "")}</h1>
+        <p class="meta">Generated: ${escHtml(new Date().toISOString().split("T")[0])}<br/>Balance: ${escHtml(balances || "0")}</p>
+        <table>
+          <thead><tr><th>Date</th><th>Type</th><th>Detail</th><th>Ref</th><th style="text-align:right;">Credit</th><th style="text-align:right;">Debit</th><th style="text-align:right;">Running</th></tr></thead>
+          <tbody>${rowsHtml || `<tr><td colspan="7">No ledger entries</td></tr>`}</tbody>
+        </table>
+      </body></html>
+    `;
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    document.body.appendChild(iframe);
+    const doc = iframe.contentWindow?.document;
+    if (!doc) { document.body.removeChild(iframe); return; }
+    doc.open(); doc.write(html); doc.close();
+    setTimeout(() => {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+      setTimeout(() => { if (document.body.contains(iframe)) document.body.removeChild(iframe); }, 2000);
+    }, 200);
+  };
+
   const columns: any[] = [
     ...(isSA ? [{
       key: "currency", label: "Currency",
@@ -274,7 +362,8 @@ export default function BankAccountsPage() {
       <Modal open={showLedger} onClose={() => setShowLedger(false)} title={`Ledger — ${ledgerAccount?.bankName || ""}`} size="xl">
         <div className="space-y-4">
           <div className="rounded-xl border border-[#e8dccd] bg-[#fbf6ef]/80 p-3">
-            <div className="flex flex-wrap items-center gap-3 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3 text-sm">
               {Object.keys(ledgerBalanceByCurrency || {}).length > 0 ? (
                 Object.entries(ledgerBalanceByCurrency).map(([code, amount]) => (
                   <span key={code} className="rounded-lg border border-[#e5d7c4] bg-white px-2.5 py-1 font-medium text-[#3c2d20]">
@@ -284,6 +373,11 @@ export default function BankAccountsPage() {
               ) : (
                 <span className="text-gray-500">No balance</span>
               )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={exportLedgerCsv} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100">Export CSV</button>
+                <button onClick={exportLedgerPdf} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100">Export PDF</button>
+              </div>
             </div>
           </div>
           <div className="rounded-xl border border-gray-200 overflow-hidden">
@@ -295,7 +389,6 @@ export default function BankAccountsPage() {
                     <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">Type</th>
                     <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">Detail</th>
                     <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">Ref</th>
-                    <th className="px-2 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wider text-gray-500">Ccy</th>
                     <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-gray-500">Credit</th>
                     <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-gray-500">Debit</th>
                     <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-gray-500">Running</th>
@@ -303,10 +396,10 @@ export default function BankAccountsPage() {
                 </thead>
                 <tbody>
                   {ledgerLoading && (
-                    <tr><td colSpan={8} className="py-10 text-center text-gray-500">Loading ledger…</td></tr>
+                    <tr><td colSpan={7} className="py-10 text-center text-gray-500">Loading ledger…</td></tr>
                   )}
                   {!ledgerLoading && ledgerRows.length === 0 && (
-                    <tr><td colSpan={8} className="py-10 text-center text-gray-400">No ledger entries</td></tr>
+                    <tr><td colSpan={7} className="py-10 text-center text-gray-400">No ledger entries</td></tr>
                   )}
                   {!ledgerLoading && ledgerRows.map((row: any) => (
                     <tr key={row.key} className="border-t border-[#f3e8db]">
@@ -314,7 +407,6 @@ export default function BankAccountsPage() {
                       <td className="px-3 py-2.5 text-xs font-medium text-gray-700">{row.type}</td>
                       <td className="px-3 py-2.5 text-sm text-gray-800">{row.detail}</td>
                       <td className="px-3 py-2.5 text-xs text-gray-500">{row.reference || "—"}</td>
-                      <td className="px-2 py-2.5 text-center"><span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">{row.currencyCode}</span></td>
                       <td className="px-3 py-2.5 text-right text-sm font-medium text-emerald-700 tabular-nums">{row.credit > 0 ? formatNumber(row.credit) : "—"}</td>
                       <td className="px-3 py-2.5 text-right text-sm font-medium text-rose-700 tabular-nums">{row.debit > 0 ? formatNumber(row.debit) : "—"}</td>
                       <td className="px-3 py-2.5 text-right text-sm font-semibold text-gray-800 tabular-nums">{formatNumber(row.runningBalance || 0)}</td>

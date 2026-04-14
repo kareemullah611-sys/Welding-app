@@ -311,6 +311,90 @@ export default function IntermediariesPage() {
     load();
   };
 
+  const escCsv = (value: any) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+  const escHtml = (value: any) =>
+    String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+
+  const exportIntermediaryLedgerCsv = () => {
+    if (!selected || !ledger?.ledger) return;
+    const lines: string[] = [];
+    lines.push(`Intermediary Ledger,${escCsv(selected.name || "")}`);
+    lines.push(`Generated,${escCsv(new Date().toISOString().split("T")[0])}`);
+    lines.push("");
+    lines.push("Date,Particulars,Debit,Credit,Running Balance");
+    for (const entry of ledger.ledger || []) {
+      lines.push([
+        escCsv(formatDate(entry.date)),
+        escCsv(entry.description || ""),
+        escCsv(entry.debit > 0 ? entry.debit : ""),
+        escCsv(entry.credit > 0 ? entry.credit : ""),
+        escCsv(entry.balance ?? ""),
+      ].join(","));
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `intermediary_ledger_${String(selected.name || "ledger").replace(/\s+/g, "_").toLowerCase()}_${new Date().toISOString().split("T")[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportIntermediaryLedgerPdf = () => {
+    if (!selected || !ledger?.ledger) return;
+    const balanceSummary = Object.entries(ledger?.balances || {})
+      .map(([code, value]) => `${code} ${formatNumber(Number(value || 0))}`)
+      .join(" · ");
+    const rowsHtml = (ledger.ledger || []).map((entry: any) => `
+      <tr>
+        <td>${escHtml(formatDate(entry.date))}</td>
+        <td>${escHtml(entry.description || "")}</td>
+        <td style="text-align:right;">${entry.debit > 0 ? escHtml(formatNumber(entry.debit)) : "—"}</td>
+        <td style="text-align:right;">${entry.credit > 0 ? escHtml(formatNumber(entry.credit)) : "—"}</td>
+        <td style="text-align:right;">${escHtml(formatNumber(entry.balance || 0))}</td>
+      </tr>
+    `).join("");
+    const html = `
+      <html><head><title>Intermediary Ledger</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 24px; color: #222; }
+        h1 { margin: 0 0 8px 0; font-size: 20px; }
+        .meta { margin: 0 0 14px 0; color: #555; font-size: 12px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        th, td { border: 1px solid #e2e2e2; padding: 7px; font-size: 12px; text-align: left; }
+        th { background: #f6f6f6; text-transform: uppercase; font-size: 10px; letter-spacing: .06em; color: #666; }
+      </style></head><body>
+        <h1>Intermediary Ledger - ${escHtml(selected.name || "")}</h1>
+        <p class="meta">Generated: ${escHtml(new Date().toISOString().split("T")[0])}<br/>Balance: ${escHtml(balanceSummary || "0")}</p>
+        <table>
+          <thead><tr><th>Date</th><th>Particulars</th><th style="text-align:right;">Debit</th><th style="text-align:right;">Credit</th><th style="text-align:right;">Running</th></tr></thead>
+          <tbody>${rowsHtml || `<tr><td colspan="5">No ledger entries</td></tr>`}</tbody>
+        </table>
+      </body></html>
+    `;
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    document.body.appendChild(iframe);
+    const doc = iframe.contentWindow?.document;
+    if (!doc) { document.body.removeChild(iframe); return; }
+    doc.open(); doc.write(html); doc.close();
+    setTimeout(() => {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+      setTimeout(() => { if (document.body.contains(iframe)) document.body.removeChild(iframe); }, 2000);
+    }, 200);
+  };
+
   const isSA = user?.role === "super_admin";
   if (!isSA) return <div className="p-8 text-center text-gray-400">Access restricted to Super Admin.</div>;
 
@@ -404,9 +488,13 @@ export default function IntermediariesPage() {
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#8d755f]">Intermediary Ledger</p>
               <p className="text-sm font-medium text-[#3a2b1e]">{selected?.name}</p>
             </div>
-            <button onClick={openDeposit} className="btn-primary text-sm">
-              + Record Deposit
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={exportIntermediaryLedgerCsv} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100">Export CSV</button>
+              <button onClick={exportIntermediaryLedgerPdf} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100">Export PDF</button>
+              <button onClick={openDeposit} className="btn-primary text-sm">
+                + Record Deposit
+              </button>
+            </div>
           </div>
 
           {ledgerLoading ? (
