@@ -133,6 +133,13 @@ export default function IntermediariesPage() {
     setLedgerLoading(false);
   };
 
+  const openDeposit = async () => {
+    await loadRefData();
+    setDepositForm({ ...EMPTY_DEPOSIT });
+    setDepositError("");
+    setShowDeposit(true);
+  };
+
   const handleDeposit = async () => {
     const parsedAmount = parseAmountInput(depositForm.amount);
     if (!parsedAmount) { setDepositError("Enter a valid amount greater than 0"); return; }
