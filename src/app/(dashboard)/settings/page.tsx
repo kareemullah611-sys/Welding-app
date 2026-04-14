@@ -11,6 +11,7 @@ export default function SettingsPage() {
   const { user } = useAuth();
   const { t } = useLang();
   const [tab, setTab] = useState<Tab>("users");
+  if (user?.role === "city_admin") return <CityAdminSettingsCard />;
   if (user?.role !== "super_admin") return <div><PageHeader title={t("settings")} /><div className="card text-center py-12 text-gray-400">{t("super_admin_only")}</div></div>;
 
   const tabLabels: Record<Tab, string> = {
@@ -38,6 +39,137 @@ export default function SettingsPage() {
   );
 }
 
+function CityAdminSettingsCard() {
+  const { t } = useLang();
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const handleChangePassword = async () => {
+    setError("");
+    setSuccess("");
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setError("All password fields are required.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("New password and confirm password must match.");
+      return;
+    }
+    if (newPassword.length < 8) {
+      setError("New password must be at least 8 characters.");
+      return;
+    }
+    if (!/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      setError("New password must include uppercase, lowercase, and number.");
+      return;
+    }
+
+    setSubmitting(true);
+    const result = await apiCall("/api/v1/auth/change-password", {
+      method: "PUT",
+      body: { currentPassword, newPassword },
+    });
+    setSubmitting(false);
+
+    if (!result.success) {
+      setError(result.error || "Failed to update password.");
+      return;
+    }
+
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setSuccess("Password changed successfully.");
+  };
+
+  return (
+    <div>
+      <PageHeader title={t("settings")} subtitle="Security settings" />
+      <div className="card max-w-2xl">
+        <h2 className="text-lg font-semibold text-gray-900">Change Password</h2>
+        <p className="mt-1 text-sm text-gray-500">Update your login password for this city admin account.</p>
+
+        {error && <div className="mt-4 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{error}</div>}
+        {success && <div className="mt-4 rounded border border-green-200 bg-green-50 p-2 text-sm text-green-700">{success}</div>}
+
+        <div className="mt-4 space-y-3">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Current Password *</label>
+            <div className="relative">
+              <input
+                type={showCurrentPassword ? "text" : "password"}
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                className="input-field pr-20"
+              />
+              <button
+                type="button"
+                onClick={() => setShowCurrentPassword((v) => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100"
+              >
+                {showCurrentPassword ? "Hide" : "Show"}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">New Password *</label>
+            <div className="relative">
+              <input
+                type={showNewPassword ? "text" : "password"}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className="input-field pr-20"
+                placeholder="Min 8 chars, upper + lower + number"
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewPassword((v) => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100"
+              >
+                {showNewPassword ? "Hide" : "Show"}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Confirm New Password *</label>
+            <div className="relative">
+              <input
+                type={showConfirmPassword ? "text" : "password"}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="input-field pr-20"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword((v) => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100"
+              >
+                {showConfirmPassword ? "Hide" : "Show"}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 flex justify-end border-t pt-4">
+          <button onClick={handleChangePassword} disabled={submitting} className="btn-primary text-sm">
+            {submitting ? "..." : "Update Password"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function UsersTab() {
   const { user } = useAuth();
   const { t } = useLang();
@@ -50,13 +182,22 @@ function UsersTab() {
   const [cities, setCities] = useState<any[]>([]);
   const [form, setForm] = useState({ username: "", password: "", fullName: "", role: "city_admin", cityId: 0 });
   const [newPassword, setNewPassword] = useState("");
+  const [showCreatePassword, setShowCreatePassword] = useState(false);
+  const [showResetPassword, setShowResetPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   const load = async () => { setLoading(true); const r = await apiCall("/api/v1/users", { params: { limit: 100 } }); if (r.success) setUsers(r.data as any[]); setLoading(false); };
   useEffect(() => { load(); }, []);
 
-  const openCreate = async () => { const c = await apiCall("/api/v1/cities"); if (c.success) setCities(c.data as any[]); setForm({ username: "", password: "", fullName: "", role: "city_admin", cityId: 0 }); setShowCreate(true); setError(""); };
+  const openCreate = async () => {
+    const c = await apiCall("/api/v1/cities");
+    if (c.success) setCities(c.data as any[]);
+    setForm({ username: "", password: "", fullName: "", role: "city_admin", cityId: 0 });
+    setShowCreate(true);
+    setShowCreatePassword(false);
+    setError("");
+  };
   const handleCreate = async () => {
     if (!form.username || !form.password || !form.fullName) { setError("Fill all fields"); return; }
     if (form.role === "city_admin" && !form.cityId) { setError("Select a city for city admin"); return; }
@@ -74,7 +215,13 @@ function UsersTab() {
     if (r.success) { setShowEdit(false); load(); } else { setError(r.error || "Failed"); }
   };
 
-  const openResetPw = (u: any) => { setSelected(u); setNewPassword(""); setShowResetPw(true); setError(""); };
+  const openResetPw = (u: any) => {
+    setSelected(u);
+    setNewPassword("");
+    setShowResetPassword(false);
+    setShowResetPw(true);
+    setError("");
+  };
   const handleResetPw = async () => {
     if (!newPassword || newPassword.length < 8) { setError("Min 8 characters required"); return; }
     if (!/[A-Z]/.test(newPassword)) { setError("Must include at least one uppercase letter"); return; }
@@ -124,7 +271,26 @@ function UsersTab() {
         <div className="grid grid-cols-2 gap-4">
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("full_name")} *</label><input value={form.fullName} onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))} className="input-field" /></div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("username")} *</label><input value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} className="input-field" /></div>
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("password")} *</label><input type="password" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} className="input-field" /></div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t("password")} *</label>
+            <div className="relative">
+              <input
+                type={form.role === "city_admin" && showCreatePassword ? "text" : "password"}
+                value={form.password}
+                onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                className="input-field pr-20"
+              />
+              {form.role === "city_admin" && (
+                <button
+                  type="button"
+                  onClick={() => setShowCreatePassword((v) => !v)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100"
+                >
+                  {showCreatePassword ? "Hide" : "Show"}
+                </button>
+              )}
+            </div>
+          </div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("role")}</label><select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))} className="select-field"><option value="city_admin">{t("city_admin")}</option><option value="super_admin">{t("super_admin")}</option></select></div>
           {form.role === "city_admin" && <div className="col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">{t("city")} *</label><select value={form.cityId} onChange={(e) => setForm((f) => ({ ...f, cityId: parseInt(e.target.value) }))} className="select-field"><option value={0}>Select</option>{cities.map((c: any) => <option key={c.id} value={c.id}>{c.name} ({c.countryName})</option>)}</select></div>}
         </div>
@@ -140,7 +306,27 @@ function UsersTab() {
       <Modal open={showResetPw} onClose={() => setShowResetPw(false)} title={`${t("reset_password")}: ${selected?.fullName || ""}`} size="sm">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <p className="text-sm text-gray-500 mb-3">{t("username")}: <strong>{selected?.username}</strong></p>
-        <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("password")} *</label><input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="input-field" placeholder="Min 8 chars, upper + lower + number" /></div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">{t("password")} *</label>
+          <div className="relative">
+            <input
+              type={selected?.role === "city_admin" && showResetPassword ? "text" : "password"}
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              className="input-field pr-20"
+              placeholder="Min 8 chars, upper + lower + number"
+            />
+            {selected?.role === "city_admin" && (
+              <button
+                type="button"
+                onClick={() => setShowResetPassword((v) => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100"
+              >
+                {showResetPassword ? "Hide" : "Show"}
+              </button>
+            )}
+          </div>
+        </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={handleResetPw} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("reset_password")}</button></div>
       </Modal>
     </>

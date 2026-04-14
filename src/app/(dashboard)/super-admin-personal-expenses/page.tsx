@@ -53,7 +53,7 @@ export default function SuperAdminPersonalExpensesPage() {
   }, [openActionId]);
 
   if (!isSA) {
-    return <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">Only super admin can access this module.</div>;
+    return <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">Access restricted.</div>;
   }
 
   const openNewExpense = () => {
@@ -115,17 +115,17 @@ export default function SuperAdminPersonalExpensesPage() {
   return (
     <div>
       <PageHeader
-        title="Super Admin Personal Expenses"
+        title="Personal Expenses"
         subtitle="Record personal expenses from super admin bank accounts"
         action={
           <div className="flex gap-2">
-            <button onClick={openNewExpense} className="btn-primary text-sm">+ Personal Expense</button>
+            <button onClick={openNewExpense} className="btn-primary text-sm">+ New Expense</button>
           </div>
         }
       />
 
       <div className="mb-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-4 text-sm text-blue-900">
-        This module is separate from city expenses. It is only for super admin personal spending and only deducts from super admin bank accounts.
+        This module is separate from city expenses. It is only for personal spending and only deducts from super admin bank accounts.
       </div>
 
       <div className="grid gap-4 md:grid-cols-3 mb-6">
@@ -144,7 +144,7 @@ export default function SuperAdminPersonalExpensesPage() {
       </div>
 
       <div className="mb-6 rounded-2xl border border-amber-100 bg-amber-50/70 p-4 text-sm text-amber-900">
-        Manage super admin bank accounts from{" "}
+        Manage bank accounts from{" "}
         <Link href="/settings/bank-accounts" className="font-semibold underline underline-offset-2">
           Bank Accounts
         </Link>.
@@ -210,7 +210,7 @@ export default function SuperAdminPersonalExpensesPage() {
               value={expenseForm.bankAccountId || ""}
               onChange={(e) => setExpenseForm((f: any) => ({ ...f, bankAccountId: Number(e.target.value) || 0 }))}
             >
-              <option value="">Select super admin account</option>
+              <option value="">Select account</option>
               {accounts
                 .filter((account) => account.isActive)
                 .map((account) => (
