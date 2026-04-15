@@ -61,7 +61,7 @@ export default function LotsPage() {
   const [shippingLines,   setShippingLines]   = useState<any[]>([]);
   const [bankAccounts,    setBankAccounts]    = useState<any[]>([]);
   const [intermediaries,  setIntermediaries]  = useState<any[]>([]);
-  const [costChargedTo,   setCostChargedTo]   = useState<"shipping_line" | "agent" | "cash" | "bank" | "intermediary">("cash");
+  const [costChargedTo,   setCostChargedTo]   = useState<"shipping_line" | "agent" | "bank" | "intermediary">("bank");
   const [costAgentId,     setCostAgentId]     = useState<number>(0);
   const [costShippingLineId, setCostShippingLineId] = useState<number>(0);
   const [costBankAccountId, setCostBankAccountId] = useState<number>(0);
@@ -417,7 +417,7 @@ export default function LotsPage() {
         notes:            costForm.notes || null,
         agentId:          costChargedTo === "agent" && costAgentId > 0 ? costAgentId : null,
         shippingLineId:   costChargedTo === "shipping_line" && costShippingLineId > 0 ? costShippingLineId : null,
-        paidFromCash:     costChargedTo === "cash",
+        paidFromCash:     false,
         superAdminBankAccountId: costChargedTo === "bank" ? costBankAccountId : null,
         bankAccountId:    null,
         intermediaryId:   costChargedTo === "intermediary" ? costIntermediaryId : null,
@@ -1304,7 +1304,7 @@ export default function LotsPage() {
                     ? (f.exchangeRate || String(selectedLot?.pkrExchangeRate || ""))
                     : (currency === "AFN" ? (f.exchangeRate || String(latestAfnRate || "")) : ""),
                 }));
-                setCostChargedTo(type === "freight" ? "shipping_line" : "cash");
+                setCostChargedTo(type === "freight" ? "shipping_line" : "bank");
                 if (type !== "freight") setCostShippingLineId(0);
                 if (type === "freight") setCostAgentId(0);
                 if (type === "freight") { setCostBankAccountId(0); setCostIntermediaryId(0); }
@@ -1337,7 +1337,6 @@ export default function LotsPage() {
               {(costForm.costType === "freight"
                 ? [{ value: "shipping_line", label: "Shipping Line" }]
                 : [
-                  { value: "cash", label: "Cash / Direct" },
                   { value: "bank", label: "Bank Account" },
                   { value: "intermediary", label: "Intermediary" },
                   { value: "agent", label: "Agent" },

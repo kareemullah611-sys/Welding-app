@@ -55,6 +55,10 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     const lotCountryCode = String(lot.country?.code || "").toUpperCase();
     const nonFreightCurrency = lotCountryCode === "AFG" ? "AFN" : "PKR";
 
+    if (paidFromCash) {
+      return validationError("Cash / Direct debit channel is no longer allowed for lot costs. Use a bank account instead.");
+    }
+
     // Business rule:
     // - Freight is entered in USD and must carry a costing exchange rate (USD→PKR)
     // - Non-freight follows lot country:
@@ -86,7 +90,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
 
     if (isFreight) {
       if (!shippingLineId) return validationError("Shipping line is required for freight");
-      if (agentId || bankAccountId || superAdminBankAccountId || intermediaryId || paidFromCash) {
+      if (agentId || bankAccountId || superAdminBankAccountId || intermediaryId) {
         return validationError("Freight must be charged to a shipping line only");
       }
       const shippingLine = await prisma.shippingLine.findUnique({ where: { id: shippingLineId }, select: { id: true, isActive: true } });
@@ -97,9 +101,8 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         Number(agentId ? 1 : 0) +
         Number(bankAccountId ? 1 : 0) +
         Number(superAdminBankAccountId ? 1 : 0) +
-        Number(intermediaryId ? 1 : 0) +
-        Number(paidFromCash ? 1 : 0);
-      if (sourceCount > 1) return validationError("Choose exactly one debit channel: cash, bank, intermediary, or agent");
+        Number(intermediaryId ? 1 : 0);
+      if (sourceCount > 1) return validationError("Choose exactly one debit channel: bank, intermediary, or agent");
       if (sourceCount === 0) return validationError("Please choose a debit channel for this cost");
       if (agentId) {
         const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { id: true, isActive: true } });
