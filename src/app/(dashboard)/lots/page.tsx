@@ -1277,28 +1277,6 @@ export default function LotsPage() {
             </div>
             )}
 
-            <div className="card">
-              <div className="mb-3 flex items-center justify-between">
-                <h4 className="text-sm font-semibold text-gray-700">Audit Timeline</h4>
-                <span className="text-xs text-gray-400">{(selectedLot.auditTimeline || []).length} events</span>
-              </div>
-              {(selectedLot.auditTimeline || []).length > 0 ? (
-                <div className="space-y-2">
-                  {(selectedLot.auditTimeline || []).map((entry: any) => (
-                    <div key={entry.id} className="rounded-lg border border-[#efe3d4] bg-[#fdf9f3] px-3 py-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-sm font-medium text-gray-800">{entry.title}</p>
-                        <p className="text-[11px] text-gray-400">{formatDate(entry.createdAt)} · {new Date(entry.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
-                      </div>
-                      <p className="mt-0.5 text-xs text-gray-600">{entry.detail}</p>
-                      <p className="mt-1 text-[11px] text-gray-400">by {entry.actorName}{entry.cityName ? ` · ${entry.cityName}` : ""}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-gray-400">No audit activity available yet.</p>
-              )}
-            </div>
           </div>
         ) : <p className="text-gray-400 py-4">{formError || t("no_data")}</p>}
       </Modal>
