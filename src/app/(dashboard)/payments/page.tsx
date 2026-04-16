@@ -625,13 +625,6 @@ export default function PaymentsPage() {
         }
       />}
 
-      {!isEmbed && isSuperAdmin && (
-        <div className="mb-4 rounded-xl border border-[#e8dccd] bg-[#fbf6ef]/80 px-4 py-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#8d755f]">Super Admin Settlements</p>
-          <p className="mt-1 text-sm text-[#3a2b1e]">This module is the single source for city-admin payments routed to super admin (no separate haji transfer module needed).</p>
-        </div>
-      )}
-
       {!isEmbed && queueSaved && (
         <div className="fixed bottom-6 right-6 z-50 bg-green-600 text-white text-sm font-medium px-5 py-3 rounded-2xl shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4">
           ✓ All payments saved successfully!
