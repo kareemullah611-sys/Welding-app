@@ -107,7 +107,7 @@ export default function SuperAdminPersonalExpensesPage() {
   };
 
   const deleteExpense = async (expense: any) => {
-    if (!confirm(`Delete personal expense "${expense.detail}"?`)) return;
+    if (!confirm(`Delete home expense "${expense.detail}"?`)) return;
     await apiCall(`/api/v1/super-admin-personal-expenses/${expense.id}`, { method: "DELETE" });
     load();
   };
@@ -115,8 +115,8 @@ export default function SuperAdminPersonalExpensesPage() {
   return (
     <div>
       <PageHeader
-        title="Personal Expenses"
-        subtitle="Record personal expenses from super admin bank accounts"
+        title="Home Expenses"
+        subtitle="Record home expenses from super admin bank accounts"
         action={
           <div className="flex gap-2">
             <button onClick={openNewExpense} className="btn-primary text-sm">+ New Expense</button>
@@ -125,7 +125,7 @@ export default function SuperAdminPersonalExpensesPage() {
       />
 
       <div className="mb-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-4 text-sm text-blue-900">
-        This module is separate from city expenses. It is only for personal spending and only deducts from super admin bank accounts.
+        This module is separate from city expenses. It is only for home spending and only deducts from super admin bank accounts.
       </div>
 
       <div className="grid gap-4 md:grid-cols-3 mb-6">
@@ -151,7 +151,7 @@ export default function SuperAdminPersonalExpensesPage() {
       </div>
 
       <div>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.16em] text-gray-500">Personal Expense History</h2>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.16em] text-gray-500">Home Expense History</h2>
         <DataTable
           columns={[
             { key: "expenseDate", label: "Date", render: (e: any) => formatDate(e.expenseDate) },
@@ -194,7 +194,7 @@ export default function SuperAdminPersonalExpensesPage() {
       <Modal
         open={showExpense}
         onClose={() => { setShowExpense(false); setEditingExpense(null); }}
-        title={editingExpense ? "Edit Personal Expense" : "Record Personal Expense"}
+        title={editingExpense ? "Edit Home Expense" : "Record Home Expense"}
         size="md"
       >
         {error && <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{error}</div>}
