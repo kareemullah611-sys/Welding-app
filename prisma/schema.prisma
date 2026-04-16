@@ -1083,6 +1083,7 @@ model Supplier {
 
   lotPurchases     LotPurchase[]
   supplierPayments SupplierPayment[]
+  lotCosts         LotCost[]
 
   @@map("suppliers")
 }
@@ -1129,6 +1130,7 @@ model LotCost {
   currencyCode String      @default("USD") @map("currency_code") @db.VarChar(10)
   exchangeRate Decimal?    @map("exchange_rate") @db.Decimal(12, 4)
   costDate     DateTime?   @map("cost_date") @db.Date
+  supplierId     Int?        @map("supplier_id")      // liability charged to supplier
   agentId        Int?        @map("agent_id")         // customs / transport agent
   shippingLineId Int?        @map("shipping_line_id")  // for freight costs
   bankAccountId  Int?        @map("bank_account_id")   // for direct bank payment
@@ -1141,6 +1143,7 @@ model LotCost {
   updatedAt    DateTime    @updatedAt @map("updated_at")
 
   lot          Lot          @relation(fields: [lotId], references: [id])
+  supplier     Supplier?    @relation(fields: [supplierId], references: [id])
   agent        Agent?       @relation(fields: [agentId], references: [id])
   shippingLine ShippingLine? @relation(fields: [shippingLineId], references: [id])
   bankAccount  BankAccount?  @relation(fields: [bankAccountId], references: [id])
@@ -1150,6 +1153,7 @@ model LotCost {
 
   @@index([lotId])
   @@index([costType])
+  @@index([supplierId])
   @@index([agentId])
   @@index([bankAccountId])
   @@index([superAdminBankAccountId])

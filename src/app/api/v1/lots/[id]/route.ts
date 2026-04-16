@@ -60,15 +60,17 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           costDate: true,
           notes: true,
           paidFromCash: true,
+          supplierId: true,
           bankAccountId: true,
           superAdminBankAccountId: true,
           intermediaryId: true,
           agentId: true,
           shippingLineId: true,
+          supplier: { select: { id: true, name: true } },
           bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
           superAdminBankAccount: { select: { id: true, bankName: true, accountNumber: true } },
           intermediary: { select: { id: true, name: true } },
-          agent: { select: { id: true, name: true } },
+          agent: { select: { id: true, name: true, agentType: true } },
           shippingLine: { select: { id: true, name: true } },
         },
       });
@@ -167,9 +169,13 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       if (c.shippingLineId) {
         debitChannel = "shipping_line";
         debitChannelLabel = `Shipping Line: ${c.shippingLine?.name || `#${c.shippingLineId}`}`;
+      } else if (c.supplierId) {
+        debitChannel = "supplier";
+        debitChannelLabel = `Supplier: ${c.supplier?.name || `#${c.supplierId}`}`;
       } else if (c.agentId) {
-        debitChannel = "agent";
-        debitChannelLabel = `Agent: ${c.agent?.name || `#${c.agentId}`}`;
+        const isCustomAgent = String(c.agent?.agentType || "").toLowerCase() === "customs";
+        debitChannel = isCustomAgent ? "custom_agent" : "clearing_agent";
+        debitChannelLabel = `${isCustomAgent ? "Custom Agent" : "Clearing Agent"}: ${c.agent?.name || `#${c.agentId}`}`;
       } else if (c.intermediaryId) {
         debitChannel = "intermediary";
         debitChannelLabel = `Intermediary: ${c.intermediary?.name || `#${c.intermediaryId}`}`;

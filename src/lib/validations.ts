@@ -248,6 +248,7 @@ export const createLotCostSchema = z.object({
   currencyCode: z.string().max(10).default("USD"),
   exchangeRate: z.number().positive().optional(),
   costDate: z.string().optional(),
+  supplierId: z.number().int().positive().optional().nullable(),
   agentId: z.number().int().optional().nullable(),
   shippingLineId: z.number().int().optional().nullable(),
   bankAccountId: z.number().int().positive().optional().nullable(),

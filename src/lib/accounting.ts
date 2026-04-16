@@ -180,6 +180,7 @@ export async function journalLotCost(c: {
   amount: number;
   currencyCode: string;
   createdBy: number;
+  supplierId?: number;
   agentId?: number;
   cityId?: number;
   shippingLineId?: number;
@@ -191,6 +192,7 @@ export async function journalLotCost(c: {
   const expAccId = await getExpenseAccountId(c.costType, db);
   let creditAccId: number;
   if (c.shippingLineId) { creditAccId = await getShippingLineAccountId(c.shippingLineId, db); }
+  else if (c.supplierId) { creditAccId = await getSupplierAccountId(c.supplierId, db); }
   else if (c.agentId) { creditAccId = await getAgentAccountId(c.agentId, db); }
   else if (c.intermediaryId) { creditAccId = await getIntermediaryAccountId(c.intermediaryId, db); }
   else if (c.superAdminBankAccountId) { creditAccId = await getSuperAdminBankGLAccountId(c.superAdminBankAccountId, db); }

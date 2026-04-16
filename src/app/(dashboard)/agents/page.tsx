@@ -3,6 +3,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, StatsCard, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { useSearchParams } from "next/navigation";
 
 const TYPES = [
   { value: "customs", label: "Customs Agent" },
@@ -13,6 +14,7 @@ const TYPES = [
 
 export default function AgentsPage() {
   const { t } = useLang();
+  const searchParams = useSearchParams();
   const [agents, setAgents] = useState<any[]>([]);
   const [cities, setCities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,6 +32,17 @@ export default function AgentsPage() {
   const [openActionId, setOpenActionId] = useState<number | null>(null);
   const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
   const filteredBankAccounts = bankAccounts.filter((b: any) => !payForm.cityId || b.cityId === payForm.cityId);
+  const agentTypeFilter = String(searchParams.get("agentType") || "").toLowerCase();
+  const showOnlyCustomAgents = agentTypeFilter === "customs";
+  const showOnlyClearingAgents = agentTypeFilter === "clearing";
+  const visibleAgents = agents.filter((agent: any) => {
+    const type = String(agent.agentType || "").toLowerCase();
+    if (showOnlyCustomAgents) return type === "customs";
+    if (showOnlyClearingAgents) return type !== "customs";
+    return true;
+  });
+  const pageTitle = showOnlyCustomAgents ? "Custom Agents" : showOnlyClearingAgents ? "Clearing Agents" : t("agents");
+  const pageSubtitle = showOnlyCustomAgents ? "Custom-agent liabilities and settlements" : t("agents_subtitle");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -92,7 +105,7 @@ export default function AgentsPage() {
 
   return (
     <div>
-      <PageHeader title={t("agents")} subtitle={t("agents_subtitle")} action={<button onClick={() => { setForm({ name: "", agentType: "customs", cityId: 0, phone: "" }); setShowCreate(true); setError(""); }} className="btn-primary text-sm">+ {t("new_agent")}</button>} />
+      <PageHeader title={pageTitle} subtitle={pageSubtitle} action={<button onClick={() => { setForm({ name: "", agentType: showOnlyClearingAgents ? "transport" : "customs", cityId: 0, phone: "" }); setShowCreate(true); setError(""); }} className="btn-primary text-sm">+ {t("new_agent")}</button>} />
       <DataTable columns={[
         { key: "name", label: t("name"), render: (a: any) => <button onClick={() => openLedger(a)} className="font-medium text-primary-600 hover:underline">{a.name}</button> },
         { key: "agentType", label: t("type"), render: (a: any) => <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100">{TYPES.find(ty => ty.value === a.agentType)?.label || a.agentType}</span> },
@@ -123,14 +136,24 @@ export default function AgentsPage() {
             </div>
           ),
         },
-      ]} data={agents} loading={loading} />
+      ]} data={visibleAgents} loading={loading} />
 
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t("new_agent")} size="md">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("name")} *</label><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="input-field" /></div>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("type")}</label><select value={form.agentType} onChange={e => setForm(f => ({ ...f, agentType: e.target.value }))} className="select-field">{TYPES.filter(ty => ty.value !== "freight").map(ty => <option key={ty.value} value={ty.value}>{ty.label}</option>)}</select></div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t("type")}</label>
+              <select value={form.agentType} onChange={e => setForm(f => ({ ...f, agentType: e.target.value }))} className="select-field">
+                {TYPES.filter((ty) => {
+                  if (ty.value === "freight") return false;
+                  if (showOnlyCustomAgents) return ty.value === "customs";
+                  if (showOnlyClearingAgents) return ty.value !== "customs";
+                  return true;
+                }).map(ty => <option key={ty.value} value={ty.value}>{ty.label}</option>)}
+              </select>
+            </div>
             <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("city_port")}</label><select value={form.cityId} onChange={e => setForm(f => ({ ...f, cityId: parseInt(e.target.value) }))} className="select-field"><option value={0}>None</option>{cities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
           </div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("phone")}</label><input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} className="input-field" /></div>

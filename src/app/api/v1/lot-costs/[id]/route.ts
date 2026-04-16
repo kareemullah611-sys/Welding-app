@@ -37,6 +37,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
         amount: Number(updated.amount),
         currencyCode: updated.currencyCode,
         createdBy: user.userId,
+        supplierId: (existing as any).supplierId || undefined,
         agentId: existing.agentId || undefined,
         shippingLineId: (existing as any).shippingLineId || undefined,
         bankAccountId: (existing as any).bankAccountId || null,

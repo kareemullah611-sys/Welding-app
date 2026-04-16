@@ -45,6 +45,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
 
     const costType = String(input.costType || "");
     const isFreight = costType === "freight";
+    const supplierId = input.supplierId ? Number(input.supplierId) : null;
     const agentId = input.agentId ? Number(input.agentId) : null;
     const shippingLineId = input.shippingLineId ? Number(input.shippingLineId) : null;
     const bankAccountId = input.bankAccountId ? Number(input.bankAccountId) : null;
@@ -90,7 +91,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
 
     if (isFreight) {
       if (!shippingLineId) return validationError("Shipping line is required for freight");
-      if (agentId || bankAccountId || superAdminBankAccountId || intermediaryId) {
+      if (supplierId || agentId || bankAccountId || superAdminBankAccountId || intermediaryId) {
         return validationError("Freight must be charged to a shipping line only");
       }
       const shippingLine = await prisma.shippingLine.findUnique({ where: { id: shippingLineId }, select: { id: true, isActive: true } });
@@ -98,12 +99,18 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     } else {
       if (shippingLineId) return validationError("Shipping line can only be used for freight costs");
       const sourceCount =
+        Number(supplierId ? 1 : 0) +
         Number(agentId ? 1 : 0) +
         Number(bankAccountId ? 1 : 0) +
         Number(superAdminBankAccountId ? 1 : 0) +
         Number(intermediaryId ? 1 : 0);
-      if (sourceCount > 1) return validationError("Choose exactly one debit channel: bank, intermediary, or agent");
+      if (sourceCount > 1) return validationError("Choose exactly one debit channel: supplier, bank, intermediary, or agent");
       if (sourceCount === 0) return validationError("Please choose a debit channel for this cost");
+      if (supplierId) {
+        const supplier = await prisma.supplier.findUnique({ where: { id: supplierId }, select: { id: true, isActive: true } });
+        if (!supplier) return errorResponse("NOT_FOUND", "Supplier not found", 404);
+        if (!supplier.isActive) return validationError("Selected supplier is inactive");
+      }
       if (agentId) {
         const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { id: true, isActive: true } });
         if (!agent?.isActive) return errorResponse("NOT_FOUND", "Agent not found", 404);
@@ -136,6 +143,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
           currencyCode,
           exchangeRate,
           costDate: input.costDate ? new Date(input.costDate) : null,
+          supplierId,
           agentId,
           shippingLineId,
           bankAccountId,
@@ -154,6 +162,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         amount,
         currencyCode,
         createdBy: user.userId,
+        supplierId: supplierId || undefined,
         agentId: agentId || undefined,
         shippingLineId: shippingLineId || undefined,
         bankAccountId,

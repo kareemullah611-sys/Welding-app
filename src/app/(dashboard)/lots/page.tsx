@@ -61,8 +61,10 @@ export default function LotsPage() {
   const [shippingLines,   setShippingLines]   = useState<any[]>([]);
   const [bankAccounts,    setBankAccounts]    = useState<any[]>([]);
   const [intermediaries,  setIntermediaries]  = useState<any[]>([]);
-  const [costChargedTo,   setCostChargedTo]   = useState<"shipping_line" | "agent" | "bank" | "intermediary">("bank");
-  const [costAgentId,     setCostAgentId]     = useState<number>(0);
+  const [costChargedTo,   setCostChargedTo]   = useState<"shipping_line" | "bank" | "intermediary" | "supplier" | "clearing_agent" | "custom_agent">("bank");
+  const [costClearingAgentId, setCostClearingAgentId] = useState<number>(0);
+  const [costCustomAgentId, setCostCustomAgentId] = useState<number>(0);
+  const [costSupplierId, setCostSupplierId] = useState<number>(0);
   const [costShippingLineId, setCostShippingLineId] = useState<number>(0);
   const [costBankAccountId, setCostBankAccountId] = useState<number>(0);
   const [costIntermediaryId, setCostIntermediaryId] = useState<number>(0);
@@ -189,6 +191,7 @@ export default function LotsPage() {
     if (user?.role === "super_admin") {
       if (!shippingLines.length) apiCall("/api/v1/shipping-lines").then(r => { if (r.success) setShippingLines(r.data as any[]); });
       if (!agents.length) apiCall("/api/v1/agents", { params: { limit: 100 } }).then(r => { if (r.success) setAgents(r.data as any[]); });
+      if (!suppliers.length) apiCall("/api/v1/suppliers", { params: { limit: 100 } }).then(r => { if (r.success) setSuppliers(r.data as any[]); });
       if (!bankAccounts.length) apiCall("/api/v1/bank-accounts", { params: { scope: "super_admin" } }).then(r => { if (r.success) setBankAccounts(r.data as any[]); });
       if (!intermediaries.length) apiCall("/api/v1/intermediaries").then(r => { if (r.success) setIntermediaries(r.data as any[]); });
     }
@@ -386,8 +389,16 @@ export default function LotsPage() {
       return;
     }
     if (!isFreight) {
-      if (costChargedTo === "agent" && costAgentId <= 0) {
-        setFormError("Please select an agent");
+      if (costChargedTo === "supplier" && costSupplierId <= 0) {
+        setFormError("Please select a supplier");
+        return;
+      }
+      if (costChargedTo === "clearing_agent" && costClearingAgentId <= 0) {
+        setFormError("Please select a clearing agent");
+        return;
+      }
+      if (costChargedTo === "custom_agent" && costCustomAgentId <= 0) {
+        setFormError("Please select a custom agent");
         return;
       }
       if (costChargedTo === "bank" && costBankAccountId <= 0) {
@@ -415,7 +426,12 @@ export default function LotsPage() {
         exchangeRate:     isFreight || isAfgNonFreight ? Number(costForm.exchangeRate) : null,
         costDate:         costForm.costDate,
         notes:            costForm.notes || null,
-        agentId:          costChargedTo === "agent" && costAgentId > 0 ? costAgentId : null,
+        supplierId:       costChargedTo === "supplier" && costSupplierId > 0 ? costSupplierId : null,
+        agentId:          costChargedTo === "clearing_agent"
+          ? (costClearingAgentId > 0 ? costClearingAgentId : null)
+          : costChargedTo === "custom_agent"
+          ? (costCustomAgentId > 0 ? costCustomAgentId : null)
+          : null,
         shippingLineId:   costChargedTo === "shipping_line" && costShippingLineId > 0 ? costShippingLineId : null,
         paidFromCash:     false,
         superAdminBankAccountId: costChargedTo === "bank" ? costBankAccountId : null,
@@ -1166,7 +1182,9 @@ export default function LotsPage() {
                       setCostForm({ costType: "freight", description: "", amount: "", currencyCode: "USD", exchangeRate: String(selectedLot?.pkrExchangeRate || ""), costDate: new Date().toISOString().split("T")[0], notes: "" });
                       setFormError("");
                       setCostChargedTo("shipping_line");
-                      setCostAgentId(0);
+                      setCostSupplierId(0);
+                      setCostClearingAgentId(0);
+                      setCostCustomAgentId(0);
                       setCostShippingLineId(0);
                       setCostBankAccountId(0);
                       setCostIntermediaryId(0);
@@ -1304,9 +1322,17 @@ export default function LotsPage() {
                     ? (f.exchangeRate || String(selectedLot?.pkrExchangeRate || ""))
                     : (currency === "AFN" ? (f.exchangeRate || String(latestAfnRate || "")) : ""),
                 }));
-                setCostChargedTo(type === "freight" ? "shipping_line" : "bank");
+                setCostChargedTo(
+                  type === "freight"
+                    ? "shipping_line"
+                    : type === "customs_agent"
+                    ? "custom_agent"
+                    : type === "clearing_agent"
+                    ? "clearing_agent"
+                    : "bank"
+                );
                 if (type !== "freight") setCostShippingLineId(0);
-                if (type === "freight") setCostAgentId(0);
+                if (type === "freight") { setCostClearingAgentId(0); setCostCustomAgentId(0); setCostSupplierId(0); }
                 if (type === "freight") { setCostBankAccountId(0); setCostIntermediaryId(0); }
               }} className="select-field">
                 <option value="freight">Freight (USD)</option>
@@ -1338,8 +1364,10 @@ export default function LotsPage() {
                 ? [{ value: "shipping_line", label: "Shipping Line" }]
                 : [
                   { value: "bank", label: "Bank Account" },
+                  { value: "supplier", label: "Suppliers" },
+                  { value: "clearing_agent", label: "Clearing Agents" },
+                  { value: "custom_agent", label: "Custom Agents" },
                   { value: "intermediary", label: "Intermediary" },
-                  { value: "agent", label: "Agent" },
                 ]
               ).map(opt => (
                 <button key={opt.value} type="button"
@@ -1355,10 +1383,22 @@ export default function LotsPage() {
                 {shippingLines.map((sl: any) => <option key={sl.id} value={sl.id}>{sl.name}</option>)}
               </select>
             )}
-            {costChargedTo === "agent" && (
-              <select value={costAgentId} onChange={e => setCostAgentId(Number(e.target.value))} className="select-field">
-                <option value={0}>Select Agent</option>
-                {agents.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            {costChargedTo === "supplier" && (
+              <select value={costSupplierId} onChange={e => setCostSupplierId(Number(e.target.value))} className="select-field">
+                <option value={0}>Select Supplier</option>
+                {suppliers.filter((s: any) => s.isActive !== false).map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            )}
+            {costChargedTo === "clearing_agent" && (
+              <select value={costClearingAgentId} onChange={e => setCostClearingAgentId(Number(e.target.value))} className="select-field">
+                <option value={0}>Select Clearing Agent</option>
+                {agents.filter((a: any) => String(a.agentType || "").toLowerCase() !== "customs").map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            )}
+            {costChargedTo === "custom_agent" && (
+              <select value={costCustomAgentId} onChange={e => setCostCustomAgentId(Number(e.target.value))} className="select-field">
+                <option value={0}>Select Custom Agent</option>
+                {agents.filter((a: any) => String(a.agentType || "").toLowerCase() === "customs").map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
             )}
             {costChargedTo === "bank" && (

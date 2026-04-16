@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { LangSwitcher, useLang } from "@/lib/lang";
 import { apiCall } from "@/hooks/useApi";
@@ -47,11 +47,17 @@ const superAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
     label: "Procurement",
     items: [
       { label: "Lots",             key: "lots",             href: "/lots",             icon: Package,     roles: ["super_admin"] },
-      { label: "Suppliers",        key: "suppliers",        href: "/suppliers",        icon: Factory,     roles: ["super_admin"] },
-      { label: "Shipping Lines",   key: "shipping_lines",   href: "/shipping-lines",   icon: Landmark,    roles: ["super_admin"] },
-      { label: "Clearing Agents",  key: "agents",           href: "/agents",           icon: Handshake,   roles: ["super_admin"] },
-      { label: "Intermediaries",   key: "intermediaries",   href: "/intermediaries",   icon: ArrowLeftRight, roles: ["super_admin"] },
       { label: "Investors",        key: "investors",        href: "/investors",        icon: PiggyBank,   roles: ["super_admin"] },
+    ],
+  },
+  {
+    label: "Liabilities",
+    items: [
+      { label: "Suppliers",       key: "suppliers",      href: "/suppliers",                    icon: Factory,       roles: ["super_admin"] },
+      { label: "Shipping Line",   key: "shipping_lines", href: "/shipping-lines",               icon: Landmark,      roles: ["super_admin"] },
+      { label: "Clearing Agents", key: "agents",         href: "/agents?agentType=clearing",   icon: Handshake,     roles: ["super_admin"] },
+      { label: "Intermediaries",  key: "intermediaries", href: "/intermediaries",               icon: ArrowLeftRight, roles: ["super_admin"] },
+      { label: "Custom Agents",   key: "custom_agents",  href: "/agents?agentType=customs",    icon: Handshake,     roles: ["super_admin"] },
     ],
   },
   {
@@ -162,6 +168,7 @@ function UserAvatar({ name, size = "md" }: { name: string; size?: "sm" | "md" })
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 export default function Sidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { user, logout } = useAuth();
   const { t, dir } = useLang();
   const { collapsed, setCollapsed } = useSidebar();
@@ -195,10 +202,17 @@ export default function Sidebar() {
     }))
     .filter((g) => g.items.length > 0);
 
+  const currentQuery = searchParams.toString();
+  const currentRoute = currentQuery ? `${pathname}?${currentQuery}` : pathname;
+  const isHrefActive = (href: string) => {
+    if (href.includes("?")) return currentRoute === href;
+    return pathname === href || pathname.startsWith(href + "/");
+  };
+
   const activeHref =
     filteredGroups
       .flatMap((group) => group.items.map((item) => item.href))
-      .filter((href) => pathname === href || pathname.startsWith(href + "/"))
+      .filter((href) => isHrefActive(href))
       .sort((a, b) => b.length - a.length)[0] || null;
 
   const navContent = (
