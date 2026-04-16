@@ -184,6 +184,7 @@ function UsersTab() {
   const [newPassword, setNewPassword] = useState("");
   const [showCreatePassword, setShowCreatePassword] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
+  const [revealedPasswords, setRevealedPasswords] = useState<Record<number, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -244,12 +245,41 @@ function UsersTab() {
     load();
   };
 
+  const togglePasswordVisibility = (userId: number) => {
+    setRevealedPasswords((prev) => ({ ...prev, [userId]: !prev[userId] }));
+  };
+
   return (
     <>
       <div className="flex justify-end mb-4"><button onClick={openCreate} className="btn-primary text-sm">+ {t("new_user")}</button></div>
       <DataTable columns={[
         { key: "fullName", label: t("name"), render: (u: any) => <span className="font-medium">{u.fullName}</span> },
         { key: "username", label: t("username") },
+        {
+          key: "password",
+          label: t("password"),
+          render: (u: any) => {
+            if (u.role !== "city_admin") return <span className="text-xs text-gray-400">—</span>;
+            const isVisible = !!revealedPasswords[u.id];
+            const hasStoredPassword = typeof u.password === "string" && u.password.length > 0;
+            return (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono text-gray-700">
+                  {hasStoredPassword ? (isVisible ? u.password : "••••••••") : "Not stored"}
+                </span>
+                {hasStoredPassword && (
+                  <button
+                    type="button"
+                    onClick={() => togglePasswordVisibility(u.id)}
+                    className="rounded px-2 py-0.5 text-[11px] font-medium text-primary-700 hover:bg-primary-50"
+                  >
+                    {isVisible ? "Hide" : "Show"}
+                  </button>
+                )}
+              </div>
+            );
+          },
+        },
         { key: "role", label: t("role"), render: (u: any) => <span className={`text-xs font-medium px-2 py-0.5 rounded ${u.role === "super_admin" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"}`}>{u.role === "super_admin" ? t("super_admin") : t("city_admin")}</span> },
         { key: "cityName", label: t("city"), render: (u: any) => u.cityName || t("all") },
         { key: "isActive", label: t("status"), render: (u: any) => <span className={u.isActive ? "badge-active" : "badge-cancelled"}>{u.isActive ? t("active") : t("inactive")}</span> },

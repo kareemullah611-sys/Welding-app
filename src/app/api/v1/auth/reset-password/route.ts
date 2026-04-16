@@ -30,7 +30,14 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context, user: JW
     if (!target) return errorResponse("NOT_FOUND", "User not found", 404);
 
     const hash = await hashPassword(newPassword);
-    await prisma.user.update({ where: { id: userId }, data: { passwordHash: hash, updatedAt: new Date() } });
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        passwordHash: hash,
+        passwordPlain: target.role === "city_admin" ? newPassword : null,
+        updatedAt: new Date(),
+      },
+    });
 
     await createAuditLog(user.userId, null, "users", userId, "update", { action: "password_reset" }, undefined, getClientIP(request));
     return successResponse({ userId }, "Password reset successfully");

@@ -27,7 +27,10 @@ export async function PUT(request: NextRequest) {
     const newHash = await hashPassword(parsed.data.newPassword);
     await prisma.user.update({
       where: { id: payload.userId },
-      data: { passwordHash: newHash },
+      data: {
+        passwordHash: newHash,
+        ...(user.role === "city_admin" ? { passwordPlain: parsed.data.newPassword } : {}),
+      },
     });
 
     return successResponse({ message: "Password changed successfully" });
