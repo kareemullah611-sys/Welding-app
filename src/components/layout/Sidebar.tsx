@@ -195,6 +195,12 @@ export default function Sidebar() {
     }))
     .filter((g) => g.items.length > 0);
 
+  const activeHref =
+    filteredGroups
+      .flatMap((group) => group.items.map((item) => item.href))
+      .filter((href) => pathname === href || pathname.startsWith(href + "/"))
+      .sort((a, b) => b.length - a.length)[0] || null;
+
   const navContent = (
     <div className="flex flex-col h-full">
       {/* ── Logo ── */}
@@ -233,14 +239,7 @@ export default function Sidebar() {
             )}
 
             {/* Items */}
-            {(() => {
-              const activeHref =
-                group.items
-                  .map((it) => it.href)
-                  .filter((href) => pathname === href || pathname.startsWith(href + "/"))
-                  .sort((a, b) => b.length - a.length)[0] || null;
-
-              return group.items.map((item) => {
+            {group.items.map((item) => {
               const Icon = item.icon;
               const isActive = item.href === activeHref;
               return (
@@ -296,8 +295,7 @@ export default function Sidebar() {
                   )}
                 </Link>
               );
-              });
-            })()}
+            })}
           </div>
         ))}
       </nav>
