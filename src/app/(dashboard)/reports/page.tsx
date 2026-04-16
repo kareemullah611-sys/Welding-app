@@ -71,7 +71,7 @@ export default function ReportsPage() {
           ...(filters.date_to ? { date_to: filters.date_to } : {}),
         },
       });
-      if (result.success) { const d = result.data as any; setData(d.ledger || []); setSummary({ balance: d.balance, balanceByCurrency: d.balanceByCurrency, name: d.name, isActive: d.isActive }); }
+      if (result.success) { const d = result.data as any; setData(d.ledger || []); setSummary({ balance: d.balance, balanceByCurrency: d.balanceByCurrency, name: d.name, isActive: d.isActive, countryCode: d.countryCode || null }); }
     } else {
       const urls: Record<string, string> = { sales: "/api/v1/sales", payments: "/api/v1/payments", expenses: "/api/v1/expenses", haji_settlement: "/api/v1/haji-transfers", discount_history: "/api/v1/discounts" };
       const result = await apiCall(urls[reportType], { params });
@@ -106,8 +106,8 @@ export default function ReportsPage() {
     payments: [{ key: "paymentDate", label: t("date"), render: (p: any) => formatDate(p.paymentDate) }, { key: "customer", label: t("customer"), render: (p: any) => p.customer?.name }, { key: "detail", label: "Particulars" }, { key: "amount", label: t("amount"), render: (p: any) => <span className="font-medium">{p.amount?.toLocaleString("en-US")}</span> }, { key: "paymentMethod", label: "Instrument" }, { key: "destination", label: "Applied To", render: (p: any) => p.destination === "haji" ? "Haji Account" : "Cash Office" }],
     expenses: [{ key: "expenseDate", label: t("date"), render: (e: any) => formatDate(e.expenseDate) }, { key: "detail", label: "Particulars" }, { key: "amount", label: t("amount"), render: (e: any) => <span className="text-red-600 font-medium">{e.amount?.toLocaleString("en-US")}</span> }],
     haji_settlement: [{ key: "transferDate", label: t("date"), render: (tr: any) => formatDate(tr.transferDate) }, { key: "detail", label: "Particulars" }, { key: "amount", label: t("amount"), render: (tr: any) => <span className="text-orange-600 font-medium">{tr.amount?.toLocaleString("en-US")}</span> }, { key: "transferType", label: "Transfer Category" }],
-    customer_ledger: [{ key: "date", label: t("date"), render: (e: any) => formatDate(e.date) }, { key: "type", label: "Entry Type", render: (e: any) => <span className={`text-xs px-1.5 py-0.5 rounded ${e.type === "sale" ? "bg-blue-50 text-blue-700" : "bg-green-50 text-green-700"}`}>{e.type === "sale" ? "Sales Invoice" : "Receipt"}</span> }, { key: "currency", label: t("currency"), render: (e: any) => <span className="text-xs font-semibold text-gray-500">{e.currency}</span> }, { key: "detail", label: "Particulars" }, { key: "debit", label: "Debit", render: (e: any) => e.debit ? <span className="text-red-600">{e.debit.toLocaleString("en-US")}</span> : "" }, { key: "credit", label: "Credit", render: (e: any) => e.credit ? <span className="text-green-600">{e.credit.toLocaleString("en-US")}</span> : "" }, { key: "balance", label: "Closing Balance", render: (e: any) => { const b = e.balance; return <span className="font-medium">{(typeof b === "number" && !isNaN(b)) ? b.toLocaleString("en-US") : "-"}</span>; } }],
-    city_ledger: [{ key: "date", label: t("date"), render: (e: any) => formatDate(e.date) }, { key: "type", label: "Entry Type", render: (e: any) => <span className={`text-xs px-1.5 py-0.5 rounded ${e.type === "sale" ? "bg-blue-50 text-blue-700" : e.type === "payment" ? "bg-green-50 text-green-700" : e.type === "expense" ? "bg-red-50 text-red-700" : "bg-orange-50 text-orange-700"}`}>{e.category || e.type}</span> }, { key: "description", label: "Particulars", className: "max-w-xs truncate" }, { key: "currency", label: t("currency"), render: (e: any) => <span className="text-xs font-semibold text-gray-500">{e.currency}</span> }, { key: "debit", label: "Debit", render: (e: any) => (e.debit && !isNaN(e.debit)) ? <span className="text-red-600">{Number(e.debit).toLocaleString("en-US")}</span> : "" }, { key: "credit", label: "Credit", render: (e: any) => (e.credit && !isNaN(e.credit)) ? <span className="text-green-600">{Number(e.credit).toLocaleString("en-US")}</span> : "" }, { key: "runningCashInHand", label: "Closing Cash Position", render: (e: any) => <span className="font-medium">{(e.runningCashInHand != null && !isNaN(e.runningCashInHand)) ? Number(e.runningCashInHand).toLocaleString("en-US") : "—"}</span> }],
+    customer_ledger: [{ key: "date", label: t("date"), render: (e: any) => formatDate(e.date) }, { key: "type", label: "Entry Type", render: (e: any) => <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${e.type === "sale" ? "border-blue-200 bg-blue-50 text-blue-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>{e.type === "sale" ? "Sales" : "Receipt"}</span> }, { key: "detail", label: "Particulars" }, { key: "perCartonPrice", label: "Per Crt Price", render: (e: any) => <span className="text-xs font-semibold text-slate-700">{e.perCartonPrice || "-"}</span> }, { key: "currency", label: t("currency"), render: (e: any) => <span className="text-xs font-semibold text-gray-500">{e.currency}</span> }, { key: "debit", label: "Debit", render: (e: any) => e.debit ? <span className="text-red-700 font-semibold">{e.debit.toLocaleString("en-US")}</span> : "" }, { key: "credit", label: "Credit", render: (e: any) => e.credit ? <span className="text-emerald-800 font-semibold">{e.credit.toLocaleString("en-US")}</span> : "" }, { key: "balance", label: "Closing Balance", render: (e: any) => { const b = e.balance; return <span className="font-semibold text-slate-800">{(typeof b === "number" && !isNaN(b)) ? b.toLocaleString("en-US") : "-"}</span>; } }],
+    city_ledger: [{ key: "date", label: t("date"), render: (e: any) => formatDate(e.date) }, { key: "type", label: "Entry Type", render: (e: any) => <span className={`text-xs px-1.5 py-0.5 rounded ${e.type === "sale" ? "bg-blue-50 text-blue-700" : e.type === "payment" ? "bg-green-50 text-green-700" : e.type === "expense" ? "bg-red-50 text-red-700" : "bg-orange-50 text-orange-700"}`}>{e.category || e.type}</span> }, { key: "description", label: "Particulars", className: "max-w-xs truncate" }, { key: "currency", label: t("currency"), render: (e: any) => <span className="text-xs font-semibold text-gray-500">{e.currency}</span> }, { key: "debit", label: "Debit", render: (e: any) => (e.debit && !isNaN(e.debit)) ? <span className="text-red-700 font-semibold">{Number(e.debit).toLocaleString("en-US")}</span> : "" }, { key: "credit", label: "Credit", render: (e: any) => (e.credit && !isNaN(e.credit)) ? <span className="text-emerald-800 font-semibold">{Number(e.credit).toLocaleString("en-US")}</span> : "" }, { key: "runningCashInHand", label: "Closing Cash Position", render: (e: any) => <span className="font-medium">{(e.runningCashInHand != null && !isNaN(e.runningCashInHand)) ? Number(e.runningCashInHand).toLocaleString("en-US") : "—"}</span> }],
     discount_history: [
       { key: "discountDate", label: t("date"), render: (d: any) => formatDate(d.discountDate) },
       { key: "customer",     label: t("customer"),    render: (d: any) => d.customer?.name },
@@ -125,13 +125,16 @@ export default function ReportsPage() {
     haji_settlement: t("haji_settlement"), customer_ledger: t("customer_ledger"),
     city_ledger: t("city_ledger"), discount_history: t("discount_history"),
   };
+  const isPakistanCustomerLedger = reportType === "customer_ledger" && String(summary?.countryCode || "").toUpperCase() === "PK";
+  const activeColumns = (cols[reportType] || cols.sales).filter((col) => !(reportType === "customer_ledger" && isPakistanCustomerLedger && col.key === "currency"));
 
   return (
     <div>
       {/* Print-only header — hidden on screen, shown in PDF */}
       {data.length > 0 && (
         <div className="print-only mb-4 pb-3 border-b border-gray-300">
-          <h1 className="text-lg font-bold text-gray-900">{reportLabels[reportType]}</h1>
+          <h1 className="text-lg font-bold text-gray-900">MRF Hardware Operations Suite</h1>
+          <p className="text-sm font-semibold text-gray-700">{reportLabels[reportType]}</p>
           <p className="text-xs text-gray-500 mt-0.5">
             {filters.date_from && filters.date_to
               ? `${filters.date_from} — ${filters.date_to}`
@@ -140,7 +143,8 @@ export default function ReportsPage() {
               : filters.date_to
               ? `Until ${filters.date_to}`
               : "All dates"}
-            {" · "}Printed {new Date().toLocaleDateString()}
+            {reportType === "customer_ledger" && summary?.name ? ` · Customer: ${summary.name}` : ""}
+            {" · "}Generated {new Date().toLocaleString()}
           </p>
         </div>
       )}
@@ -184,7 +188,7 @@ export default function ReportsPage() {
         <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("from")}</label><input type="date" value={filters.date_from} onChange={(e) => setFilters((f) => ({ ...f, date_from: e.target.value }))} className="input-field w-auto" /></div>
         <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("to")}</label><input type="date" value={filters.date_to} onChange={(e) => setFilters((f) => ({ ...f, date_to: e.target.value }))} className="input-field w-auto" /></div>
         <button onClick={runReport} disabled={loading} className="btn-primary text-sm">{loading ? t("loading") : t("generate")}</button>
-        {data.length > 0 && <><button onClick={exportCSV} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm">📥 {t("csv")}</button><button onClick={() => window.print()} className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm">🖨️ {t("print")}</button></>}
+        {data.length > 0 && <><button onClick={exportCSV} className="bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2 rounded-lg text-sm font-medium">Export CSV</button><button onClick={() => window.print()} className="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium">Export PDF</button></>}
       </div></div>
       {summary && <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         {reportType === "city_ledger" ? <>
@@ -198,7 +202,7 @@ export default function ReportsPage() {
           ? <><StatsCard title={t("discounts_given")} value={formatNumber(summary.count)} icon="🏷️" color="yellow" />{Object.entries(summary.totalByCurrency || {}).map(([cc, amt]: [string, any]) => <StatsCard key={cc} title={`${t("total")} (${cc})`} value={`${cc} ${formatNumber(amt)}`} icon="💸" color="red" />)}</>
           : <><StatsCard title="Entries" value={formatNumber(summary.count)} icon="📄" color="blue" /><StatsCard title={t("total")} value={formatNumber(summary.total)} icon="💰" color="green" />{summary.haji !== undefined && <StatsCard title="Transferred to Haji" value={formatNumber(summary.haji)} icon="↗️" color="yellow" />}{summary.inHand !== undefined && <StatsCard title="Cash Office Retention" value={formatNumber(summary.inHand)} icon="💰" color="green" />}</>}
       </div>}
-      {data.length > 0 && <DataTable columns={cols[reportType] || cols.sales} data={data} loading={loading} />}
+      {data.length > 0 && <DataTable columns={activeColumns} data={data} loading={loading} />}
     </div>
   );
 }

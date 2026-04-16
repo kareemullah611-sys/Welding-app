@@ -233,10 +233,16 @@ export default function Sidebar() {
             )}
 
             {/* Items */}
-            {group.items.map((item) => {
+            {(() => {
+              const activeHref =
+                group.items
+                  .map((it) => it.href)
+                  .filter((href) => pathname === href || pathname.startsWith(href + "/"))
+                  .sort((a, b) => b.length - a.length)[0] || null;
+
+              return group.items.map((item) => {
               const Icon = item.icon;
-              const isActive =
-                pathname === item.href || pathname.startsWith(item.href + "/");
+              const isActive = item.href === activeHref;
               return (
                 <Link
                   key={item.href}
@@ -285,7 +291,8 @@ export default function Sidebar() {
                   )}
                 </Link>
               );
-            })}
+              });
+            })()}
           </div>
         ))}
       </nav>

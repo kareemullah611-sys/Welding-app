@@ -3,7 +3,38 @@ import prisma from "@/lib/prisma";
 import { withAuth, getCityScope } from "@/lib/middleware";
 import { JWTPayload } from "@/lib/auth";
 
-    // GET /api/v1/reports/export?type=sales|payments|expenses|ledger|haji_transfers|customer_ledger
+const csvCell = (value: unknown) => {
+  if (value === null || value === undefined) return "";
+  const raw = String(value);
+  const escaped = raw.replace(/"/g, "\"\"");
+  return /[",\n]/.test(escaped) ? `"${escaped}"` : escaped;
+};
+
+const csvRow = (values: unknown[]) => values.map(csvCell).join(",");
+
+const fmtAmount = (value: number | string) => {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric)) return "0";
+  return Math.round(numeric * 100) / 100;
+};
+
+const formatPerCartonRate = (rates: number[]) => {
+  if (!rates.length) return "-";
+  const uniqueRates = Array.from(new Set(rates.map((value) => Math.round(value * 100) / 100))).sort((a, b) => a - b);
+  if (uniqueRates.length === 1) return uniqueRates[0].toLocaleString("en-US");
+  const min = uniqueRates[0].toLocaleString("en-US");
+  const max = uniqueRates[uniqueRates.length - 1].toLocaleString("en-US");
+  return `${min} - ${max}`;
+};
+
+const formatStatus = (status: string) =>
+  status
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+
+const formatDate = (date: Date) => date.toISOString().split("T")[0];
+
+// GET /api/v1/reports/export?type=sales|payments|expenses|ledger|haji_transfers|customer_ledger
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
     const searchParams = request.nextUrl.searchParams;
@@ -24,10 +55,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         include: { customer: { select: { name: true } }, currency: true, lot: { select: { lotNumber: true } }, godown: { select: { name: true } }, items: { include: { product: true } }, city: { select: { name: true } } },
         orderBy: { saleDate: "asc" },
       });
-      csvRows.push("Date,Voucher,Customer,City,Godown,Lot,Product,Qty,Rate,Amount,Currency");
+      csvRows.push(csvRow(["Date", "Voucher", "Customer", "City", "Godown", "Lot", "Product", "Qty", "Rate Per Carton", "Amount", "Currency"]));
       for (const s of sales) {
         for (const item of s.items) {
-          csvRows.push(`${s.saleDate.toISOString().split("T")[0]},${s.voucherNo},"${s.customer.name}","${s.city.name}","${s.godown.name}",${s.lot.lotNumber},"${item.product.name}",${Number(item.qty)},${Number(item.ratePerCarton)},${Number(item.amount)},${s.currency.code}`);
+          csvRows.push(csvRow([formatDate(s.saleDate), s.voucherNo, s.customer.name, s.city.name, s.godown.name, s.lot.lotNumber, item.product.name, fmtAmount(Number(item.qty)), fmtAmount(Number(item.ratePerCarton)), fmtAmount(Number(item.amount)), s.currency.code]));
         }
       }
     } else if (type === "payments") {
@@ -39,9 +70,9 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         include: { customer: { select: { name: true } }, currency: true, lot: { select: { lotNumber: true } }, city: { select: { name: true } } },
         orderBy: { paymentDate: "asc" },
       });
-      csvRows.push("Date,Customer,City,Detail,Amount,Currency,Method,Destination,Lot,Voucher");
+      csvRows.push(csvRow(["Date", "Customer", "City", "Particulars", "Amount", "Currency", "Instrument", "Applied To", "Lot", "Reference No."]));
       for (const p of payments) {
-        csvRows.push(`${p.paymentDate.toISOString().split("T")[0]},"${p.customer.name}","${p.city.name}","${p.detail}",${Number(p.amount)},${p.currency.code},${p.paymentMethod},${p.destination},${p.lot.lotNumber},${p.manualVoucherNo || ""}`);
+        csvRows.push(csvRow([formatDate(p.paymentDate), p.customer.name, p.city.name, p.detail, fmtAmount(Number(p.amount)), p.currency.code, p.paymentMethod, p.destination, p.lot.lotNumber, p.manualVoucherNo || ""]));
       }
     } else if (type === "expenses") {
       const df: any = {};
@@ -52,9 +83,9 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         include: { currency: true, lot: { select: { lotNumber: true } }, city: { select: { name: true } } },
         orderBy: { expenseDate: "asc" },
       });
-      csvRows.push("Date,City,Detail,Amount,Currency,Lot,Notes");
+      csvRows.push(csvRow(["Date", "City", "Particulars", "Amount", "Currency", "Lot", "Notes"]));
       for (const e of expenses) {
-        csvRows.push(`${e.expenseDate.toISOString().split("T")[0]},"${e.city.name}","${e.detail}",${Number(e.amount)},${e.currency.code},${e.lot.lotNumber},"${e.notes || ""}"`);
+        csvRows.push(csvRow([formatDate(e.expenseDate), e.city.name, e.detail, fmtAmount(Number(e.amount)), e.currency.code, e.lot.lotNumber, e.notes || ""]));
       }
     } else if (type === "haji_transfers") {
       const df: any = {};
@@ -65,9 +96,9 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         include: { currency: true, lot: { select: { lotNumber: true } } },
         orderBy: { transferDate: "asc" },
       });
-      csvRows.push("Date,Detail,Amount,Currency,Transfer Type,Transferred To,Lot,Notes");
+      csvRows.push(csvRow(["Date", "Particulars", "Amount", "Currency", "Transfer Type", "Transferred To", "Lot", "Notes"]));
       for (const h of transfers) {
-        csvRows.push(`${h.transferDate.toISOString().split("T")[0]},"${h.detail}",${Number(h.amount)},${h.currency.code},${h.transferType},"${h.transferredTo || ""}",${h.lot?.lotNumber || ""},"${h.notes || ""}"`);
+        csvRows.push(csvRow([formatDate(h.transferDate), h.detail, fmtAmount(Number(h.amount)), h.currency.code, h.transferType, h.transferredTo || "", h.lot?.lotNumber || "", h.notes || ""]));
       }
     } else if (type === "customer_ledger") {
       const customerId = searchParams.get("customer_id") ? parseInt(searchParams.get("customer_id")!) : undefined;
@@ -75,10 +106,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
       const customer = await prisma.customer.findUnique({
         where: { id: customerId },
-        include: { city: { select: { id: true, name: true } } },
+        include: { city: { select: { id: true, name: true, country: { select: { code: true } } } } },
       });
       if (!customer) return new Response("Customer not found", { status: 404 });
       if (cityId && customer.cityId !== cityId) return new Response("Customer does not belong to selected city", { status: 403 });
+      const isPakistanCity = customer.city.country?.code === "PK";
 
       const saleDateFilter: any = {};
       if (dateFrom) saleDateFilter.gte = new Date(dateFrom);
@@ -106,6 +138,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           date: s.saleDate,
           voucherNo: s.voucherNo,
           detail: (s.items || []).map((i) => `${i.product.name} x ${Number(i.qty)}`).join(", "),
+          perCartonPrice: formatPerCartonRate((s.items || []).map((i) => Number(i.ratePerCarton)).filter((value) => !Number.isNaN(value))),
           debit: s.status === "active" ? Number(s.totalAmount) : 0,
           credit: 0,
           status: s.status,
@@ -117,6 +150,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           date: p.paymentDate,
           voucherNo: p.manualVoucherNo || "-",
           detail: p.detail,
+          perCartonPrice: "-",
           debit: 0,
           credit: p.status === "active" ? Number(p.amount) : 0,
           status: p.status,
@@ -126,10 +160,23 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       ].sort((a, b) => a.date.getTime() - b.date.getTime());
 
       const runningByCurrency: Record<string, number> = {};
-      csvRows.push("Date,Type,Voucher,Detail,Lot,Debit,Credit,Running Balance,Currency,Status");
+      csvRows.push(csvRow(isPakistanCity
+        ? ["Date", "Entry Type", "Reference No.", "Particulars", "Per Crt Price", "Lot", "Debit", "Credit", "Closing Balance", "Status"]
+        : ["Date", "Entry Type", "Reference No.", "Particulars", "Per Crt Price", "Lot", "Debit", "Credit", "Closing Balance", "Currency", "Status"]));
       for (const t of transactions) {
         runningByCurrency[t.currency] = (runningByCurrency[t.currency] || 0) + t.debit - t.credit;
-        csvRows.push(`${t.date.toISOString().split("T")[0]},${t.type},${t.voucherNo},"${t.detail}","${t.lotNumber}",${t.debit},${t.credit},${Math.round(runningByCurrency[t.currency] * 100) / 100},${t.currency},${t.status}`);
+        const row = [
+          formatDate(t.date),
+          t.type === "sale" ? "Sales" : "Receipt",
+          t.voucherNo,
+          t.detail,
+          t.perCartonPrice,
+          t.lotNumber,
+          fmtAmount(t.debit),
+          fmtAmount(t.credit),
+          fmtAmount(runningByCurrency[t.currency]),
+        ];
+        csvRows.push(csvRow(isPakistanCity ? [...row, formatStatus(t.status)] : [...row, t.currency, formatStatus(t.status)]));
       }
     } else if (type === "ledger") {
       // Full city ledger
@@ -150,11 +197,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       hajiTransfers.forEach((h) => entries.push({ date: h.transferDate, type: "Haji Transfer", desc: `${h.detail} (${h.transferType})`, debit: Number(h.amount), credit: 0, cur: h.currency.code }));
 
       entries.sort((a, b) => a.date.getTime() - b.date.getTime());
-      csvRows.push("Date,Type,Description,Debit,Credit,Currency");
+      csvRows.push(csvRow(["Date", "Entry Type", "Particulars", "Debit", "Credit", "Currency"]));
       let balance = 0;
       for (const e of entries) {
         balance += e.debit - e.credit;
-        csvRows.push(`${e.date.toISOString().split("T")[0]},${e.type},"${e.desc}",${e.debit},${e.credit},${e.cur}`);
+        csvRows.push(csvRow([formatDate(e.date), e.type, e.desc, fmtAmount(e.debit), fmtAmount(e.credit), e.cur]));
       }
     }
 

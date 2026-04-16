@@ -38,19 +38,29 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       }),
     ]);
 
+    const formatPerCartonRate = (rates: number[]) => {
+      if (!rates.length) return "-";
+      const uniqueRates = Array.from(new Set(rates.map((value) => Math.round(value * 100) / 100))).sort((a, b) => a - b);
+      if (uniqueRates.length === 1) return uniqueRates[0].toLocaleString("en-US");
+      const min = uniqueRates[0].toLocaleString("en-US");
+      const max = uniqueRates[uniqueRates.length - 1].toLocaleString("en-US");
+      return `${min} - ${max}`;
+    };
+
     const transactions = [
       ...sales.map((s) => ({
         type: "sale" as const,
         date: s.saleDate.toISOString().split("T")[0],
         voucherNo: s.voucherNo,
         detail: (s.items || []).map((i) => `${i.product.name} × ${Number(i.qty)}`).join(", "),
+        perCartonPrice: formatPerCartonRate((s.items || []).map((i) => Number(i.ratePerCarton)).filter((value) => !Number.isNaN(value))),
         debit: ["active", "marked_short"].includes(s.status) ? Number(s.totalAmount) : 0,
         credit: 0,
         status: s.status,
         currency: s.currency.code,
         lotNumber: s.lot.lotNumber,
       })),
-      ...payments.map((p) => ({ type: "payment" as const, date: p.paymentDate.toISOString().split("T")[0], voucherNo: p.manualVoucherNo || "-", detail: p.detail, debit: 0, credit: p.status === "active" ? Number(p.amount) : 0, status: p.status, currency: p.currency.code, lotNumber: p.lot.lotNumber })),
+      ...payments.map((p) => ({ type: "payment" as const, date: p.paymentDate.toISOString().split("T")[0], voucherNo: p.manualVoucherNo || "-", detail: p.detail, perCartonPrice: "-", debit: 0, credit: p.status === "active" ? Number(p.amount) : 0, status: p.status, currency: p.currency.code, lotNumber: p.lot.lotNumber })),
     ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     // Track running balance separately per currency to avoid mixing USD and AFN
@@ -71,7 +81,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
 
     return successResponse({
       id: customer.id, name: customer.name, phone: customer.phone, address: customer.address,
-      isActive: customer.isActive, city: customer.city.name, country: customer.city.country.name,
+      isActive: customer.isActive, city: customer.city.name, country: customer.city.country.name, countryCode: customer.city.country.code,
       balance, balanceByCurrency, ledger,
     });
   } catch (error) {

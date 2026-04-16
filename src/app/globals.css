@@ -260,10 +260,10 @@ input[type="number"] { -moz-appearance: textfield; }
   table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 11px;
+    font-size: 10.5px;
   }
   thead {
-    background-color: #f1f5f9 !important;
+    background-color: #e5e7eb !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
@@ -271,6 +271,15 @@ input[type="number"] { -moz-appearance: textfield; }
     border: 1px solid #e2e8f0 !important;
     padding: 5px 8px !important;
     text-align: left;
+  }
+  th {
+    font-weight: 700 !important;
+    color: #1f2937 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  td {
+    color: #334155 !important;
   }
 
   /* Stats cards in a row */
