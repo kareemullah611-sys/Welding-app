@@ -35,6 +35,7 @@ export default function AgentsPage() {
   const agentTypeFilter = String(searchParams.get("agentType") || "").toLowerCase();
   const showOnlyCustomAgents = agentTypeFilter === "customs";
   const showOnlyClearingAgents = agentTypeFilter === "clearing";
+  const createAgentLabel = showOnlyCustomAgents ? "New Agent" : t("new_agent");
   const visibleAgents = agents.filter((agent: any) => {
     const type = String(agent.agentType || "").toLowerCase();
     if (showOnlyCustomAgents) return type === "customs";
@@ -105,7 +106,7 @@ export default function AgentsPage() {
 
   return (
     <div>
-      <PageHeader title={pageTitle} subtitle={pageSubtitle} action={<button onClick={() => { setForm({ name: "", agentType: showOnlyClearingAgents ? "transport" : "customs", cityId: 0, phone: "" }); setShowCreate(true); setError(""); }} className="btn-primary text-sm">+ {t("new_agent")}</button>} />
+      <PageHeader title={pageTitle} subtitle={pageSubtitle} action={<button onClick={() => { setForm({ name: "", agentType: showOnlyClearingAgents ? "transport" : "customs", cityId: 0, phone: "" }); setShowCreate(true); setError(""); }} className="btn-primary text-sm">+ {createAgentLabel}</button>} />
       <DataTable columns={[
         { key: "name", label: t("name"), render: (a: any) => <button onClick={() => openLedger(a)} className="font-medium text-primary-600 hover:underline">{a.name}</button> },
         { key: "agentType", label: t("type"), render: (a: any) => <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100">{TYPES.find(ty => ty.value === a.agentType)?.label || a.agentType}</span> },
@@ -138,7 +139,7 @@ export default function AgentsPage() {
         },
       ]} data={visibleAgents} loading={loading} />
 
-      <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t("new_agent")} size="md">
+      <Modal open={showCreate} onClose={() => setShowCreate(false)} title={createAgentLabel} size="md">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("name")} *</label><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="input-field" /></div>
