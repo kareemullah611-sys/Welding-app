@@ -282,7 +282,12 @@ export default function Sidebar() {
                     )}
                   </div>
                   {!collapsed && (
-                    <span className="truncate flex-1 leading-none">{t(item.key)}</span>
+                    <span className="truncate flex-1 leading-none">
+                      {(() => {
+                        const translated = t(item.key);
+                        return translated === item.key ? item.label : translated;
+                      })()}
+                    </span>
                   )}
                   {!collapsed && item.href === "/city-transfers" && pendingTransfers > 0 && (
                     <span className="ml-auto bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none flex-shrink-0">
