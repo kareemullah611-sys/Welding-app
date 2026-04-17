@@ -10,6 +10,21 @@ import { useLang } from "@/lib/lang";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
+function formatInputDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function getCurrentMonthDateRange() {
+  const today = new Date();
+  return {
+    from: formatInputDate(new Date(today.getFullYear(), today.getMonth(), 1)),
+    to: formatInputDate(today),
+  };
+}
+
 export default function SalesPage() {
   const { user } = useAuth();
   const { t } = useLang();
@@ -21,6 +36,7 @@ export default function SalesPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const defaultDateRange = getCurrentMonthDateRange();
   const [showCreate, setShowCreate] = useState(false);
   const [showCancel, setShowCancel] = useState(false);
   const [showDiscount, setShowDiscount] = useState(false);
@@ -28,7 +44,7 @@ export default function SalesPage() {
   const [correctItems, setCorrectItems] = useState<any[]>([]);
   const [correctReason, setCorrectReason] = useState("");
   const [selectedSale, setSelectedSale] = useState<any>(null);
-  const [filters, setFilters] = useState({ status: "", date_from: "", date_to: "" });
+  const [filters, setFilters] = useState({ status: "", date_from: defaultDateRange.from, date_to: defaultDateRange.to, query: "" });
   const [showHardDelete, setShowHardDelete] = useState(false);
   const [hardDeleteTarget, setHardDeleteTarget] = useState<any>(null);
   const [hardDeletePassword, setHardDeletePassword] = useState("");
@@ -72,11 +88,16 @@ export default function SalesPage() {
   const [discountForm, setDiscountForm] = useState({ discountAmount: 0, notes: "", discountDate: new Date().toISOString().split("T")[0] });
 
   const loadSales = useCallback(async () => {
+    if (isEmbed) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     const params: any = { page, limit: 20 };
     if (filters.status) params.status = filters.status;
     if (filters.date_from) params.date_from = filters.date_from;
     if (filters.date_to) params.date_to = filters.date_to;
+    if (filters.query.trim()) params.q = filters.query.trim();
     const result = await apiCall("/api/v1/sales", { params });
     if (result.success) {
       setSales(result.data as any[]);
@@ -84,7 +105,7 @@ export default function SalesPage() {
       setTotal((result.pagination as any)?.total || 0);
     }
     setLoading(false);
-  }, [page, filters]);
+  }, [filters, isEmbed, page]);
 
   useEffect(() => { loadSales(); }, [loadSales]);
   useEffect(() => {
@@ -97,8 +118,34 @@ export default function SalesPage() {
 
   // Reload from server after pending entries sync successfully
   useEffect(() => {
+    if (isEmbed) return;
     if (lastSyncResult && lastSyncResult.synced > 0) loadSales();
-  }, [lastSyncResult, loadSales]);
+  }, [isEmbed, lastSyncResult, loadSales]);
+
+  const setDatePreset = (preset: "today" | "last7" | "month" | "all") => {
+    const today = new Date();
+    if (preset === "all") {
+      setFilters((f) => ({ ...f, date_from: "", date_to: "" }));
+      setPage(1);
+      return;
+    }
+    if (preset === "today") {
+      const value = formatInputDate(today);
+      setFilters((f) => ({ ...f, date_from: value, date_to: value }));
+      setPage(1);
+      return;
+    }
+    if (preset === "last7") {
+      const from = new Date(today);
+      from.setDate(from.getDate() - 6);
+      setFilters((f) => ({ ...f, date_from: formatInputDate(from), date_to: formatInputDate(today) }));
+      setPage(1);
+      return;
+    }
+    const range = getCurrentMonthDateRange();
+    setFilters((f) => ({ ...f, date_from: range.from, date_to: range.to }));
+    setPage(1);
+  };
 
   useEffect(() => {
     if (!openActionId) return;
@@ -327,11 +374,24 @@ export default function SalesPage() {
       )}
 
       <div className="flex flex-wrap gap-3 mb-4">
+        <input
+          type="text"
+          value={filters.query}
+          onChange={(e) => { setFilters((f) => ({ ...f, query: e.target.value })); setPage(1); }}
+          placeholder="Search voucher/customer/product..."
+          className="input-field min-w-[220px] flex-1"
+        />
         <select value={filters.status} onChange={(e) => { setFilters((f) => ({ ...f, status: e.target.value })); setPage(1); }} className="select-field w-auto">
           <option value="">{t("all_statuses")}</option><option value="active">{t("active")}</option><option value="cancelled">{t("cancelled")}</option><option value="marked_short">{t("marked_short")}</option>
         </select>
         <input type="date" value={filters.date_from} onChange={(e) => { setFilters((f) => ({ ...f, date_from: e.target.value })); setPage(1); }} className="input-field w-auto" />
         <input type="date" value={filters.date_to} onChange={(e) => { setFilters((f) => ({ ...f, date_to: e.target.value })); setPage(1); }} className="input-field w-auto" />
+        <div className="flex items-center gap-1">
+          <button type="button" onClick={() => setDatePreset("today")} className="btn-secondary text-xs">Today</button>
+          <button type="button" onClick={() => setDatePreset("last7")} className="btn-secondary text-xs">7D</button>
+          <button type="button" onClick={() => setDatePreset("month")} className="btn-secondary text-xs">Month</button>
+          <button type="button" onClick={() => setDatePreset("all")} className="btn-secondary text-xs">All</button>
+        </div>
       </div>
 
       <DataTable columns={[

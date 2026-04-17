@@ -557,6 +557,8 @@ model Sale {
   @@index([saleDate])
   @@index([status])
   @@index([cityId, voucherNo])
+  @@index([cityId, saleDate])
+  @@index([cityId, status, saleDate])
   @@map("sales")
 }
 
@@ -659,6 +661,10 @@ model Payment {
   @@index([bankAccountId])
   @@index([superAdminBankAccountId])
   @@index([saleId])
+  @@index([cityId, paymentDate])
+  @@index([cityId, status, paymentDate])
+  @@index([cityId, destination, paymentDate])
+  @@index([cityId, manualVoucherNo])
   @@map("payments")
 }
 

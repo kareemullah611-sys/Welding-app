@@ -33,6 +33,21 @@ const DESTINATION_OPTIONS = [
   { value: "haji", label: "Send to Haji", hint: "Counts toward Haji settlement" },
 ];
 
+function formatInputDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function getCurrentMonthDateRange() {
+  const today = new Date();
+  return {
+    from: formatInputDate(new Date(today.getFullYear(), today.getMonth(), 1)),
+    to: formatInputDate(today),
+  };
+}
+
 export default function PaymentsPage() {
   const { user } = useAuth();
   const { t } = useLang();
@@ -48,8 +63,10 @@ export default function PaymentsPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const defaultDateRange = getCurrentMonthDateRange();
+  const [fromDate, setFromDate] = useState(defaultDateRange.from);
+  const [toDate, setToDate] = useState(defaultDateRange.to);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Type filter for the list
   const [typeFilter, setTypeFilter] = useState("all");
@@ -100,10 +117,15 @@ export default function PaymentsPage() {
   const getActionKey = useCallback((item: any) => `${item.type}-${item.id}`, []);
 
   const load = useCallback(async () => {
+    if (isEmbed) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     const params: any = { page, limit: 20 };
     if (fromDate) params.from_date = fromDate;
     if (toDate) params.to_date = toDate;
+    if (searchQuery.trim()) params.q = searchQuery.trim();
     if (isSuperAdmin) {
       params.type = "payment";
       params.destination = "haji";
@@ -117,7 +139,7 @@ export default function PaymentsPage() {
       setTotal((r.pagination as any)?.total || 0);
     }
     setLoading(false);
-  }, [isSuperAdmin, typeFilter, page, fromDate, toDate]);
+  }, [fromDate, isEmbed, isSuperAdmin, page, searchQuery, toDate, typeFilter]);
 
   const refreshToLatestPayments = useCallback(() => {
     if (page !== 1 || typeFilter !== "all") {
@@ -130,12 +152,39 @@ export default function PaymentsPage() {
 
   useEffect(() => { setPage(1); }, [typeFilter]);
   useEffect(() => { setPage(1); }, [fromDate, toDate]);
+  useEffect(() => { setPage(1); }, [searchQuery]);
   useEffect(() => { load(); }, [load]);
 
   // Reload from server after queued entries sync
   useEffect(() => {
+    if (isEmbed) return;
     if (lastSyncResult && lastSyncResult.synced > 0) load();
-  }, [lastSyncResult, load]);
+  }, [isEmbed, lastSyncResult, load]);
+
+  const setDatePreset = (preset: "today" | "last7" | "month" | "all") => {
+    const today = new Date();
+    if (preset === "all") {
+      setFromDate("");
+      setToDate("");
+      return;
+    }
+    if (preset === "today") {
+      const value = formatInputDate(today);
+      setFromDate(value);
+      setToDate(value);
+      return;
+    }
+    if (preset === "last7") {
+      const from = new Date(today);
+      from.setDate(from.getDate() - 6);
+      setFromDate(formatInputDate(from));
+      setToDate(formatInputDate(today));
+      return;
+    }
+    const range = getCurrentMonthDateRange();
+    setFromDate(range.from);
+    setToDate(range.to);
+  };
 
   useEffect(() => {
     if (!openActionId) return;
@@ -584,7 +633,14 @@ export default function PaymentsPage() {
         title={isSuperAdmin ? "Payments" : t("payments")}
         subtitle={isSuperAdmin ? `City settlements received by super admin · ${total} ${t("records").toLowerCase()}` : `${total} ${t("records").toLowerCase()}`}
         action={
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search voucher/customer/detail..."
+              className="input-field min-w-[220px] text-xs"
+            />
             {/* Type filter */}
             {!isSuperAdmin && (
               <select
@@ -611,15 +667,10 @@ export default function PaymentsPage() {
               onChange={(e) => setToDate(e.target.value)}
               className="input-field w-auto text-xs"
             />
-            {(fromDate || toDate) && (
-              <button
-                type="button"
-                onClick={() => { setFromDate(""); setToDate(""); }}
-                className="btn-secondary text-xs"
-              >
-                Clear
-              </button>
-            )}
+            <button type="button" onClick={() => setDatePreset("today")} className="btn-secondary text-xs">Today</button>
+            <button type="button" onClick={() => setDatePreset("last7")} className="btn-secondary text-xs">7D</button>
+            <button type="button" onClick={() => setDatePreset("month")} className="btn-secondary text-xs">Month</button>
+            <button type="button" onClick={() => setDatePreset("all")} className="btn-secondary text-xs">All</button>
 
           </div>
         }

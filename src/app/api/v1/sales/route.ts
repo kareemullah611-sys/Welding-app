@@ -94,6 +94,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const customerId = searchParams.get("customer_id") ? parseInt(searchParams.get("customer_id")!) : undefined;
     const lotId = searchParams.get("lot_id") ? parseInt(searchParams.get("lot_id")!) : undefined;
     const godownId = searchParams.get("godown_id") ? parseInt(searchParams.get("godown_id")!) : undefined;
+    const query = (searchParams.get("q") || "").trim();
     const statusParam = searchParams.get("status");
     // Support comma-separated status values e.g. "active,marked_short"
     const statusValues = statusParam ? statusParam.split(",").map((s) => s.trim()).filter(Boolean) : [];
@@ -107,6 +108,14 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     if (statusValues.length === 1) where.status = statusValues[0];
     else if (statusValues.length > 1) where.status = { in: statusValues };
     if (productId) where.items = { some: { productId } };
+    if (query) {
+      where.OR = [
+        { voucherNo: { startsWith: query, mode: "insensitive" } },
+        { customer: { name: { contains: query, mode: "insensitive" } } },
+        { notes: { contains: query, mode: "insensitive" } },
+        { items: { some: { product: { name: { contains: query, mode: "insensitive" } } } } },
+      ];
+    }
     if (dateFrom || dateTo) {
       where.saleDate = {};
       if (dateFrom) where.saleDate.gte = dateFrom;
@@ -125,7 +134,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           items: { include: { product: { select: { id: true, name: true } } } },
           creator: { select: { id: true, fullName: true } },
         },
-        orderBy: { saleDate: "desc" },
+        orderBy: [{ saleDate: "desc" }, { id: "desc" }],
         skip,
         take: limit,
       }),
