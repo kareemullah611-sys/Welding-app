@@ -7,6 +7,14 @@ import { useLang } from "@/lib/lang";
 
 type ReportType = "sales" | "payments" | "expenses" | "haji_settlement" | "customer_ledger" | "city_ledger" | "discount_history";
 
+const escapeHtml = (value: unknown) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
 export default function ReportsPage() {
   const { user } = useAuth();
   const { t } = useLang();
@@ -101,6 +109,113 @@ export default function ReportsPage() {
     window.open(`/api/v1/reports/export?${p.toString()}`, "_blank");
   };
 
+  const formatReportCell = (type: ReportType, row: any, key: string) => {
+    if (type === "sales") {
+      if (key === "saleDate") return formatDate(row.saleDate);
+      if (key === "customer") return row.customer?.name || "";
+      if (key === "status") return row.status === "marked_short" ? "Short" : "Active";
+      if (key === "totalAmount") return Number(row.totalAmount || 0).toLocaleString("en-US");
+    }
+    if (type === "payments") {
+      if (key === "paymentDate") return formatDate(row.paymentDate);
+      if (key === "customer") return row.customer?.name || "";
+      if (key === "amount") return Number(row.amount || 0).toLocaleString("en-US");
+      if (key === "destination") return row.destination === "haji" ? "Haji Account" : "Cash Office";
+    }
+    if (type === "expenses") {
+      if (key === "expenseDate") return formatDate(row.expenseDate);
+      if (key === "amount") return Number(row.amount || 0).toLocaleString("en-US");
+    }
+    if (type === "haji_settlement") {
+      if (key === "transferDate") return formatDate(row.transferDate);
+      if (key === "amount") return Number(row.amount || 0).toLocaleString("en-US");
+    }
+    if (type === "customer_ledger") {
+      if (key === "date") return formatDate(row.date);
+      if (key === "type") return row.type === "sale" ? "Sales" : "Receipt";
+      if (key === "debit") return row.debit ? Number(row.debit).toLocaleString("en-US") : "";
+      if (key === "credit") return row.credit ? Number(row.credit).toLocaleString("en-US") : "";
+      if (key === "balance") return typeof row.balance === "number" && !isNaN(row.balance) ? Number(row.balance).toLocaleString("en-US") : "-";
+    }
+    if (type === "city_ledger") {
+      if (key === "date") return formatDate(row.date);
+      if (key === "type") return row.category || row.type || "";
+      if (key === "debit") return row.debit ? Number(row.debit).toLocaleString("en-US") : "";
+      if (key === "credit") return row.credit ? Number(row.credit).toLocaleString("en-US") : "";
+      if (key === "runningCashInHand") return row.runningCashInHand != null && !isNaN(row.runningCashInHand) ? Number(row.runningCashInHand).toLocaleString("en-US") : "—";
+    }
+    if (type === "discount_history") {
+      if (key === "discountDate") return formatDate(row.discountDate);
+      if (key === "customer") return row.customer?.name || "";
+      if (key === "saleDate") return formatDate(row.saleDate);
+      if (key === "discountAmount") return `${row.currency?.symbol || ""} ${Number(row.discountAmount || 0).toLocaleString("en-US")}`.trim();
+      if (key === "notes") return row.notes || "-";
+    }
+    return row?.[key] ?? "";
+  };
+
+  const exportPDF = () => {
+    if (!data.length) return;
+    const headers = activeColumns.map((col: any) => ({ key: String(col.key), label: String(col.label) }));
+    const rowsHtml = data.map((row: any) => `
+      <tr>
+        ${headers.map((header) => `<td>${escapeHtml(formatReportCell(reportType, row, header.key))}</td>`).join("")}
+      </tr>
+    `).join("");
+    const reportTitle = reportLabels[reportType];
+    const reportRange = filters.date_from && filters.date_to
+      ? `${filters.date_from} — ${filters.date_to}`
+      : filters.date_from
+      ? `From ${filters.date_from}`
+      : filters.date_to
+      ? `Until ${filters.date_to}`
+      : "All dates";
+    const html = `
+      <html>
+        <head>
+          <title>${escapeHtml(reportTitle)}</title>
+          <style>
+            body { font-family: Arial, sans-serif; color: #222; padding: 24px; }
+            h1 { margin: 0; font-size: 20px; }
+            .meta { margin-top: 6px; color: #666; font-size: 12px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 14px; }
+            th, td { border: 1px solid #e5e7eb; padding: 7px; text-align: left; font-size: 12px; vertical-align: top; }
+            th { background: #f8fafc; text-transform: uppercase; letter-spacing: .06em; font-size: 10px; color: #64748b; }
+          </style>
+        </head>
+        <body>
+          <h1>MRF Hardware Operations Suite</h1>
+          <div class="meta">${escapeHtml(reportTitle)} · ${escapeHtml(reportRange)} · Generated ${escapeHtml(new Date().toLocaleString())}</div>
+          <table>
+            <thead><tr>${headers.map((header) => `<th>${escapeHtml(header.label)}</th>`).join("")}</tr></thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </body>
+      </html>
+    `;
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    document.body.appendChild(iframe);
+    const doc = iframe.contentWindow?.document;
+    if (!doc) {
+      if (document.body.contains(iframe)) document.body.removeChild(iframe);
+      return;
+    }
+    doc.open();
+    doc.write(html);
+    doc.close();
+    setTimeout(() => {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+      setTimeout(() => {
+        if (document.body.contains(iframe)) document.body.removeChild(iframe);
+      }, 2000);
+    }, 200);
+  };
+
   const cols: Record<string, any[]> = {
     sales: [{ key: "saleDate", label: t("date"), render: (s: any) => formatDate(s.saleDate) }, { key: "voucherNo", label: t("voucher") }, { key: "customer", label: t("customer"), render: (s: any) => s.customer?.name }, { key: "status", label: t("status"), render: (s: any) => s.status === "marked_short" ? <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-50 text-yellow-700">⚠️ Short</span> : <span className="text-xs px-1.5 py-0.5 rounded bg-green-50 text-green-700">Active</span> }, { key: "totalAmount", label: t("amount"), render: (s: any) => <span className="font-medium">{s.totalAmount?.toLocaleString("en-US")}</span> }],
     payments: [{ key: "paymentDate", label: t("date"), render: (p: any) => formatDate(p.paymentDate) }, { key: "customer", label: t("customer"), render: (p: any) => p.customer?.name }, { key: "detail", label: "Particulars" }, { key: "amount", label: t("amount"), render: (p: any) => <span className="font-medium">{p.amount?.toLocaleString("en-US")}</span> }, { key: "paymentMethod", label: "Instrument" }, { key: "destination", label: "Applied To", render: (p: any) => p.destination === "haji" ? "Haji Account" : "Cash Office" }],
@@ -188,7 +303,7 @@ export default function ReportsPage() {
         <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("from")}</label><input type="date" value={filters.date_from} onChange={(e) => setFilters((f) => ({ ...f, date_from: e.target.value }))} className="input-field w-auto" /></div>
         <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("to")}</label><input type="date" value={filters.date_to} onChange={(e) => setFilters((f) => ({ ...f, date_to: e.target.value }))} className="input-field w-auto" /></div>
         <button onClick={runReport} disabled={loading} className="btn-primary text-sm">{loading ? t("loading") : t("generate")}</button>
-        {data.length > 0 && <><button onClick={exportCSV} className="bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2 rounded-lg text-sm font-medium">Export CSV</button><button onClick={() => window.print()} className="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium">Export PDF</button></>}
+        {data.length > 0 && <><button onClick={exportCSV} className="bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2 rounded-lg text-sm font-medium">Export CSV</button><button onClick={exportPDF} className="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium">Export PDF</button></>}
       </div></div>
       {summary && <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         {reportType === "city_ledger" ? <>
