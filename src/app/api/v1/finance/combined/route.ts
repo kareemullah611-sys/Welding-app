@@ -20,6 +20,9 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
     const numericSearchText = shouldApplySearch ? normalizedQuery.replace(/,/g, "") : "";
     const numericQuery = numericSearchText ? Number(numericSearchText) : NaN;
     const hasNumericQuery = Number.isFinite(numericQuery);
+    const compactQuery = normalizedQuery.replace(/[\s,]/g, "");
+    const isNumericLikeQuery = shouldApplySearch && /^-?\d*\.?\d+$/.test(compactQuery);
+    const queryDigits = normalizedQuery.replace(/[^\d]/g, "");
     const decimalPlaces = numericSearchText.includes(".") ? (numericSearchText.split(".")[1] || "").length : 0;
     const numericQueryUpper = hasNumericQuery
       ? numericQuery + (decimalPlaces > 0 ? Math.pow(10, -decimalPlaces) : 1)
@@ -60,7 +63,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           ...cityWhere,
           ...dateWhere("paymentDate"),
           ...(destinationFilter ? { destination: destinationFilter } : {}),
-          ...(shouldApplySearch
+          ...(shouldApplySearch && !isNumericLikeQuery
             ? {
                 OR: [
                   { detail: { contains: query, mode: "insensitive" } },
@@ -78,12 +81,6 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
                   ...(paymentMethodQuery ? [{ paymentMethod: paymentMethodQuery as any }] : []),
                   ...(destinationQuery ? [{ destination: destinationQuery as any }] : []),
                   ...(paymentStatusQuery ? [{ status: paymentStatusQuery as any }] : []),
-                  ...(hasNumericQuery
-                    ? [
-                        { amount: { gte: numericQuery, lt: numericQueryUpper } },
-                        { usdEquivalent: { gte: numericQuery, lt: numericQueryUpper } },
-                      ]
-                    : []),
                 ],
               }
             : {}),
@@ -131,7 +128,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           ...cityWhere,
           ...dateWhere("expenseDate"),
           deletedAt: null,
-          ...(shouldApplySearch
+          ...(shouldApplySearch && !isNumericLikeQuery
             ? {
                 OR: [
                   { detail: { contains: query, mode: "insensitive" } },
@@ -139,7 +136,6 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
                   { city: { name: { contains: query, mode: "insensitive" } } },
                   { lot: { lotNumber: { contains: query, mode: "insensitive" } } },
                   { currency: { code: { contains: query, mode: "insensitive" } } },
-                  ...(hasNumericQuery ? [{ amount: { gte: numericQuery, lt: numericQueryUpper } }] : []),
                 ],
               }
             : {}),
@@ -175,7 +171,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         where: {
           ...cityWhere,
           ...dateWhere("transferDate"),
-          ...(shouldApplySearch
+          ...(shouldApplySearch && !isNumericLikeQuery
             ? {
                 OR: [
                   { detail: { contains: query, mode: "insensitive" } },
@@ -185,7 +181,6 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
                   { lot: { lotNumber: { contains: query, mode: "insensitive" } } },
                   { currency: { code: { contains: query, mode: "insensitive" } } },
                   ...(transferTypeQuery ? [{ transferType: transferTypeQuery as any }] : []),
-                  ...(hasNumericQuery ? [{ amount: { gte: numericQuery, lt: numericQueryUpper } }] : []),
                 ],
               }
             : {}),
@@ -221,7 +216,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         where: {
           ...cityWhere,
           ...dateWhere("withdrawalDate"),
-          ...(shouldApplySearch
+          ...(shouldApplySearch && !isNumericLikeQuery
             ? {
                 OR: [
                   { detail: { contains: query, mode: "insensitive" } },
@@ -231,7 +226,6 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
                   { currency: { code: { contains: query, mode: "insensitive" } } },
                   ...(withdrawalStatusQuery === "approved" ? [{ approvedBy: { not: null } }] : []),
                   ...(withdrawalStatusQuery === "pending" ? [{ approvedBy: null }] : []),
-                  ...(hasNumericQuery ? [{ amount: { gte: numericQuery, lt: numericQueryUpper } }] : []),
                 ],
               }
             : {}),
@@ -285,6 +279,8 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
       const includesQuery = (value: unknown) => String(value ?? "").toLowerCase().includes(normalizedQuery);
       const inNumericWindow = (value: number) =>
         Number.isFinite(value) && value >= numericQuery && value < numericQueryUpper;
+      const digitsOnly = (value: unknown) => String(value ?? "").replace(/[^\d]/g, "");
+      const numericContains = (value: unknown) => queryDigits.length >= 2 && digitsOnly(value).includes(queryDigits);
       combined = combined.filter((item) => {
         const searchableFields = [
           item.date,
@@ -318,6 +314,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
             Number(item.runningBalance || 0),
             Number(item.raw?.usdEquivalent || 0),
           ];
+          if (numericFields.some((value) => numericContains(value))) return true;
           return numericFields.some(inNumericWindow);
         }
         return false;
