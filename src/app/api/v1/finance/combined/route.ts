@@ -17,7 +17,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
     const query = (sp.get("q") || "").trim();
     const normalizedQuery = query.toLowerCase();
     const shouldApplySearch = normalizedQuery.length >= 2;
-    const numericSearchText = shouldApplySearch ? normalizedQuery.replace(/,/g, "") : "";
+    const numericSearchText = shouldApplySearch ? normalizedQuery.replace(/[^0-9.]/g, "") : "";
     const numericQuery = numericSearchText ? Number(numericSearchText) : NaN;
     const hasNumericQuery = Number.isFinite(numericQuery);
     const compactQuery = normalizedQuery.replace(/[\s,]/g, "");
@@ -74,6 +74,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
                   { lot: { lotNumber: { contains: query, mode: "insensitive" } } },
                   { city: { name: { contains: query, mode: "insensitive" } } },
                   { currency: { code: { contains: query, mode: "insensitive" } } },
+                  { currency: { symbol: { contains: query, mode: "insensitive" } } },
                   { bankAccount: { bankName: { contains: query, mode: "insensitive" } } },
                   { bankAccount: { accountNumber: { contains: query, mode: "insensitive" } } },
                   { superAdminBankAccount: { bankName: { contains: query, mode: "insensitive" } } },
@@ -81,6 +82,12 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
                   ...(paymentMethodQuery ? [{ paymentMethod: paymentMethodQuery as any }] : []),
                   ...(destinationQuery ? [{ destination: destinationQuery as any }] : []),
                   ...(paymentStatusQuery ? [{ status: paymentStatusQuery as any }] : []),
+                  ...(hasNumericQuery
+                    ? [
+                        { amount: { gte: numericQuery, lt: numericQueryUpper } },
+                        { usdEquivalent: { gte: numericQuery, lt: numericQueryUpper } },
+                      ]
+                    : []),
                 ],
               }
             : {}),
@@ -136,6 +143,8 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
                   { city: { name: { contains: query, mode: "insensitive" } } },
                   { lot: { lotNumber: { contains: query, mode: "insensitive" } } },
                   { currency: { code: { contains: query, mode: "insensitive" } } },
+                  { currency: { symbol: { contains: query, mode: "insensitive" } } },
+                  ...(hasNumericQuery ? [{ amount: { gte: numericQuery, lt: numericQueryUpper } }] : []),
                 ],
               }
             : {}),
@@ -180,7 +189,9 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
                   { city: { name: { contains: query, mode: "insensitive" } } },
                   { lot: { lotNumber: { contains: query, mode: "insensitive" } } },
                   { currency: { code: { contains: query, mode: "insensitive" } } },
+                  { currency: { symbol: { contains: query, mode: "insensitive" } } },
                   ...(transferTypeQuery ? [{ transferType: transferTypeQuery as any }] : []),
+                  ...(hasNumericQuery ? [{ amount: { gte: numericQuery, lt: numericQueryUpper } }] : []),
                 ],
               }
             : {}),
@@ -224,8 +235,10 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
                   { withdrawnBy: { contains: query, mode: "insensitive" } },
                   { city: { name: { contains: query, mode: "insensitive" } } },
                   { currency: { code: { contains: query, mode: "insensitive" } } },
+                  { currency: { symbol: { contains: query, mode: "insensitive" } } },
                   ...(withdrawalStatusQuery === "approved" ? [{ approvedBy: { not: null } }] : []),
                   ...(withdrawalStatusQuery === "pending" ? [{ approvedBy: null }] : []),
+                  ...(hasNumericQuery ? [{ amount: { gte: numericQuery, lt: numericQueryUpper } }] : []),
                 ],
               }
             : {}),
@@ -289,6 +302,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           item.detail,
           item.cityName,
           item.currencyCode,
+          item.currencySymbol,
           item.raw?.manualVoucherNo,
           item.raw?.chequeNumber,
           item.raw?.paymentMethod,
@@ -308,13 +322,13 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           item.raw?.hajiAudit?.confirmed ? "confirmed" : "",
         ];
         if (searchableFields.some(includesQuery)) return true;
+        const numericFields = [
+          Number(item.amount || 0),
+          Number(item.runningBalance || 0),
+          Number(item.raw?.usdEquivalent || 0),
+        ];
+        if (numericFields.some((value) => numericContains(value))) return true;
         if (hasNumericQuery) {
-          const numericFields = [
-            Number(item.amount || 0),
-            Number(item.runningBalance || 0),
-            Number(item.raw?.usdEquivalent || 0),
-          ];
-          if (numericFields.some((value) => numericContains(value))) return true;
           return numericFields.some(inNumericWindow);
         }
         return false;
