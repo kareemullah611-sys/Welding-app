@@ -96,8 +96,13 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const godownId = searchParams.get("godown_id") ? parseInt(searchParams.get("godown_id")!) : undefined;
     const rawQuery = (searchParams.get("q") || "").trim();
     const query = rawQuery.length >= 2 ? rawQuery : "";
-    const numericQuery = query ? Number(query.replace(/,/g, "")) : NaN;
+    const numericSearchText = query ? query.replace(/,/g, "") : "";
+    const numericQuery = numericSearchText ? Number(numericSearchText) : NaN;
     const hasNumericQuery = Number.isFinite(numericQuery);
+    const decimalPlaces = numericSearchText.includes(".") ? (numericSearchText.split(".")[1] || "").length : 0;
+    const numericQueryUpper = hasNumericQuery
+      ? numericQuery + (decimalPlaces > 0 ? Math.pow(10, -decimalPlaces) : 1)
+      : NaN;
     const statusQuery = ["active", "cancelled", "marked_short"].includes(query.toLowerCase())
       ? query.toLowerCase()
       : null;
@@ -129,10 +134,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         { items: { some: { product: { name: { contains: query, mode: "insensitive" } } } } },
         ...(hasNumericQuery
           ? [
-              { totalAmount: numericQuery },
-              { items: { some: { qty: numericQuery } } },
-              { items: { some: { ratePerCarton: numericQuery } } },
-              { items: { some: { amount: numericQuery } } },
+              { totalAmount: { gte: numericQuery, lt: numericQueryUpper } },
+              { items: { some: { qty: { gte: numericQuery, lt: numericQueryUpper } } } },
+              { items: { some: { ratePerCarton: { gte: numericQuery, lt: numericQueryUpper } } } },
+              { items: { some: { amount: { gte: numericQuery, lt: numericQueryUpper } } } },
             ]
           : []),
       ];
