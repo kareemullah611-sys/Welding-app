@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -145,6 +145,11 @@ interface DataTableProps<T> {
   loading?: boolean;
   emptyMessage?: string;
   onRowClick?: (item: T) => void;
+  searchable?: boolean;
+  searchPlaceholder?: string;
+  searchMinChars?: number;
+  searchValue?: string;
+  onSearchChange?: (value: string) => void;
   pagination?: {
     page: number;
     totalPages: number;
@@ -159,8 +164,42 @@ export function DataTable<T extends Record<string, any>>({
   loading,
   emptyMessage = "No data found",
   onRowClick,
+  searchable = true,
+  searchPlaceholder = "Search all columns...",
+  searchMinChars = 2,
+  searchValue,
+  onSearchChange,
   pagination,
 }: DataTableProps<T>) {
+  const [internalSearch, setInternalSearch] = useState("");
+  const minChars = Math.max(1, searchMinChars || 2);
+  const activeSearch = (searchValue ?? internalSearch).trim();
+
+  const normalizeForSearch = (value: unknown): string => {
+    if (value == null) return "";
+    if (typeof value === "string") return value;
+    if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);
+    if (value instanceof Date) return value.toISOString();
+    if (Array.isArray(value)) return value.map(normalizeForSearch).join(" ");
+    if (typeof value === "object") return Object.values(value as Record<string, unknown>).map(normalizeForSearch).join(" ");
+    return "";
+  };
+
+  const filteredData = useMemo(() => {
+    if (!searchable || activeSearch.length < minChars) return data;
+    const needle = activeSearch.toLowerCase();
+    return data.filter((item) => {
+      const byColumns = columns
+        .map((col) => normalizeForSearch(item[col.key]))
+        .join(" ")
+        .toLowerCase();
+      if (byColumns.includes(needle)) return true;
+      const byRow = normalizeForSearch(item).toLowerCase();
+      return byRow.includes(needle);
+    });
+  }, [activeSearch, columns, data, minChars, searchable]);
+
+  const showSearchMeta = searchable && activeSearch.length > 0;
   if (loading) {
     return (
       <div className="rounded-[1.4rem] border border-white/70 bg-white/85 shadow-[0_26px_70px_-42px_rgba(51,42,33,0.35)] backdrop-blur-xl">
@@ -194,6 +233,31 @@ export function DataTable<T extends Record<string, any>>({
 
   return (
     <div className="rounded-[1.4rem] border border-white/70 bg-white/85 shadow-[0_26px_70px_-42px_rgba(51,42,33,0.35)] backdrop-blur-xl">
+      {searchable && (
+        <div className="flex flex-col gap-1 border-b border-[#efe2d3] bg-[#fbf6ef]/80 px-4 py-3">
+          <input
+            type="search"
+            value={searchValue ?? internalSearch}
+            onChange={(e) => {
+              const next = e.target.value;
+              if (onSearchChange) onSearchChange(next);
+              else setInternalSearch(next);
+            }}
+            placeholder={searchPlaceholder}
+            className="input-field h-9 w-full sm:max-w-sm"
+          />
+          {showSearchMeta && activeSearch.length < minChars && (
+            <p className="text-[11px] text-gray-500">
+              Type at least {minChars} characters to filter this list.
+            </p>
+          )}
+          {showSearchMeta && activeSearch.length >= minChars && (
+            <p className="text-[11px] text-gray-500">
+              Showing {filteredData.length} matching record{filteredData.length === 1 ? "" : "s"}.
+            </p>
+          )}
+        </div>
+      )}
       <div className="overflow-visible">
         <Table>
           <TableHeader>
@@ -206,7 +270,7 @@ export function DataTable<T extends Record<string, any>>({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {data.length === 0 ? (
+            {filteredData.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={columns.length} className="py-16 text-center">
                   <div className="flex flex-col items-center gap-2">
@@ -216,7 +280,7 @@ export function DataTable<T extends Record<string, any>>({
                 </TableCell>
               </TableRow>
             ) : (
-              data.map((item, idx) => (
+              filteredData.map((item, idx) => (
                 <TableRow
                   key={idx}
                   onClick={() => onRowClick?.(item)}

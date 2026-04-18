@@ -86,7 +86,7 @@ export default function SearchPage() {
 
       {results?.customers?.length > 0 && (
         <ResultSection title={`👥 ${t("customers")}`} count={results.customers.length}>
-          <DataTable columns={[
+          <DataTable searchable={false} columns={[
             { key: "name", label: t("name"), render: (c: any) => <span className="font-medium">{c.name}</span> },
             { key: "city", label: t("city") },
             { key: "phone", label: t("phone"), render: (c: any) => c.phone || "-" },
@@ -96,7 +96,7 @@ export default function SearchPage() {
 
       {results?.sales?.length > 0 && (
         <ResultSection title={`🧾 ${t("sales")}`} count={results.sales.length}>
-          <DataTable columns={[
+          <DataTable searchable={false} columns={[
             { key: "voucherNo", label: t("voucher"), render: (s: any) => <span className="font-medium">{s.voucherNo}</span> },
             { key: "customer", label: t("customer") },
             { key: "amount", label: t("amount"), render: (s: any) => `${s.currency} ${s.amount.toLocaleString("en-US")}` },
@@ -108,7 +108,7 @@ export default function SearchPage() {
 
       {results?.payments?.length > 0 && (
         <ResultSection title={`💰 ${t("payments")}`} count={results.payments.length}>
-          <DataTable columns={[
+          <DataTable searchable={false} columns={[
             { key: "customer", label: t("customer") },
             { key: "detail", label: t("detail") },
             { key: "amount", label: t("amount"), render: (p: any) => `${p.currency} ${p.amount.toLocaleString("en-US")}` },
@@ -120,7 +120,7 @@ export default function SearchPage() {
 
       {results?.haji_transfers?.length > 0 && (
         <ResultSection title={`↗️ ${t("haji_transfers")}`} count={results.haji_transfers.length}>
-          <DataTable columns={[
+          <DataTable searchable={false} columns={[
             { key: "detail", label: t("detail") },
             { key: "amount", label: t("amount"), render: (h: any) => `${h.currency} ${h.amount.toLocaleString("en-US")}` },
             { key: "date", label: t("date") },
@@ -133,7 +133,7 @@ export default function SearchPage() {
 
       {results?.expenses?.length > 0 && (
         <ResultSection title={`💸 ${t("expenses")}`} count={results.expenses.length}>
-          <DataTable columns={[
+          <DataTable searchable={false} columns={[
             { key: "detail", label: t("detail") },
             { key: "amount", label: t("amount"), render: (e: any) => `${e.currency} ${e.amount.toLocaleString("en-US")}` },
             { key: "date", label: t("date") },
@@ -145,7 +145,7 @@ export default function SearchPage() {
 
       {results?.lots?.length > 0 && (
         <ResultSection title={`📦 ${t("lots")}`} count={results.lots.length}>
-          <DataTable columns={[
+          <DataTable searchable={false} columns={[
             { key: "lotNumber", label: t("lot_num"), render: (l: any) => <span className="font-medium">{l.lotNumber}</span> },
             { key: "country", label: t("country") },
             { key: "date", label: t("date") },
@@ -156,7 +156,7 @@ export default function SearchPage() {
 
       {results?.products?.length > 0 && (
         <ResultSection title={`📋 ${t("products")}`} count={results.products.length}>
-          <DataTable columns={[
+          <DataTable searchable={false} columns={[
             { key: "name", label: t("name"), render: (p: any) => <span className="font-medium">{p.name}</span> },
             { key: "isActive", label: t("active"), render: (p: any) => p.isActive ? "✅" : "❌" },
           ]} data={results.products} loading={false} />

@@ -8,9 +8,16 @@ import { canAccessGodownCity } from "@/lib/godown-access";
 // GET - list transfers (sent + received)
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
-    const { page, limit, skip } = getPaginationParams(request.nextUrl.searchParams);
-    const status = request.nextUrl.searchParams.get("status");
-    const direction = request.nextUrl.searchParams.get("direction");
+    const searchParams = request.nextUrl.searchParams;
+    const { page, limit, skip } = getPaginationParams(searchParams);
+    const status = searchParams.get("status");
+    const direction = searchParams.get("direction");
+    const query = (searchParams.get("q") || "").trim();
+    const normalizedQuery = query.toLowerCase();
+    const shouldApplySearch = normalizedQuery.length >= 2;
+    const numericQuery = Number(normalizedQuery.replace(/,/g, ""));
+    const hasNumericQuery = Number.isFinite(numericQuery);
+    const statusQuery = ["pending", "approved", "rejected"].includes(normalizedQuery) ? normalizedQuery : null;
     const where: any = {};
     if (user.role === "city_admin") {
       if (direction === "incoming") where.toCityId = user.cityId;
@@ -18,6 +25,25 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       else where.OR = [{ fromCityId: user.cityId }, { toCityId: user.cityId }];
     }
     if (status) where.status = status;
+    if (shouldApplySearch) {
+      where.AND = [
+        ...(where.AND || []),
+        {
+          OR: [
+            { notes: { contains: query, mode: "insensitive" } },
+            { approvalNotes: { contains: query, mode: "insensitive" } },
+            ...(statusQuery ? [{ status: statusQuery as any }] : []),
+            { fromCity: { name: { contains: query, mode: "insensitive" } } },
+            { toCity: { name: { contains: query, mode: "insensitive" } } },
+            { fromGodown: { name: { contains: query, mode: "insensitive" } } },
+            { toGodown: { name: { contains: query, mode: "insensitive" } } },
+            { product: { name: { contains: query, mode: "insensitive" } } },
+            { lot: { lotNumber: { contains: query, mode: "insensitive" } } },
+            ...(hasNumericQuery ? [{ qty: numericQuery }, { id: Math.trunc(numericQuery) }] : []),
+          ],
+        },
+      ];
+    }
 
     const [transfers, total] = await Promise.all([
       prisma.cityTransfer.findMany({

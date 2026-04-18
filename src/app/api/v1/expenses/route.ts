@@ -13,6 +13,14 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const { dateFrom, dateTo } = getDateRange(searchParams);
     const cityId = getCityScope(user, searchParams.get("city_id") ? parseInt(searchParams.get("city_id")!) : undefined);
     const lotId = searchParams.get("lot_id") ? parseInt(searchParams.get("lot_id")!) : undefined;
+    const query = (searchParams.get("q") || "").trim();
+    const normalizedQuery = query.toLowerCase();
+    const shouldApplySearch = normalizedQuery.length >= 2;
+    const numericQuery = Number(normalizedQuery.replace(/,/g, ""));
+    const hasNumericQuery = Number.isFinite(numericQuery);
+    const paidFromQuery = ["cash_office", "bank_account", "cheque"].includes(normalizedQuery)
+      ? normalizedQuery
+      : null;
 
     const where: any = {
       deletedAt: null, // exclude soft-deleted expenses
@@ -23,6 +31,19 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       where.expenseDate = {};
       if (dateFrom) where.expenseDate.gte = dateFrom;
       if (dateTo) where.expenseDate.lte = dateTo;
+    }
+    if (shouldApplySearch) {
+      where.OR = [
+        { detail: { contains: query, mode: "insensitive" } },
+        { notes: { contains: query, mode: "insensitive" } },
+        { lot: { lotNumber: { contains: query, mode: "insensitive" } } },
+        { currency: { code: { contains: query, mode: "insensitive" } } },
+        { creator: { fullName: { contains: query, mode: "insensitive" } } },
+        { bankAccount: { bankName: { contains: query, mode: "insensitive" } } },
+        { bankAccount: { accountNumber: { contains: query, mode: "insensitive" } } },
+        ...(paidFromQuery ? [{ paidFrom: paidFromQuery }] : []),
+        ...(hasNumericQuery ? [{ amount: numericQuery }, { id: Math.trunc(numericQuery) }] : []),
+      ];
     }
 
     const [expenses, total] = await Promise.all([

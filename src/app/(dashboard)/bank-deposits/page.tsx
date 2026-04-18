@@ -13,6 +13,7 @@ export default function BankDepositsPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
   const [currencies, setCurrencies] = useState<any[]>([]);
@@ -27,15 +28,19 @@ export default function BankDepositsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const r = await apiCall("/api/v1/bank-deposits", { params: { page, limit: 20 } });
+    const params: any = { page, limit: 20 };
+    const normalizedQuery = searchQuery.trim();
+    if (normalizedQuery.length >= 2) params.q = normalizedQuery;
+    const r = await apiCall("/api/v1/bank-deposits", { params });
     if (r.success) {
       setDeposits(r.data as any[]);
       setTotalPages((r.pagination as any)?.totalPages || 1);
       setTotal((r.pagination as any)?.total || 0);
     }
     setLoading(false);
-  }, [page]);
+  }, [page, searchQuery]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setPage(1); }, [searchQuery]);
 
   const openCreate = async () => {
     const [baRes, cityRes, chRes] = await Promise.all([
@@ -97,6 +102,15 @@ export default function BankDepositsPage() {
           <button onClick={openCreate} className="btn-primary text-sm">+ New Deposit Slip</button>
         ) : undefined}
       />
+      <div className="mb-4">
+        <input
+          type="search"
+          value={searchQuery}
+          onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+          placeholder="Search slips, bank, cheque, notes (min 2 chars)"
+          className="input-field h-9 w-full sm:max-w-md"
+        />
+      </div>
 
       {loading ? (
         <div className="flex items-center justify-center py-12">

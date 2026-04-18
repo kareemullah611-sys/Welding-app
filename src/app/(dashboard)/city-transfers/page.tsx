@@ -13,6 +13,7 @@ export default function CityTransfersPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
   const [showSend, setShowSend] = useState(false);
   const [showApprove, setShowApprove] = useState(false);
   const [selected, setSelected] = useState<any>(null);
@@ -28,11 +29,15 @@ export default function CityTransfersPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const r = await apiCall("/api/v1/city-transfers", { params: { page, limit: 20 } });
+    const params: any = { page, limit: 20 };
+    const normalizedQuery = searchQuery.trim();
+    if (normalizedQuery.length >= 2) params.q = normalizedQuery;
+    const r = await apiCall("/api/v1/city-transfers", { params });
     if (r.success) { setTransfers(r.data as any[]); setTotalPages((r.pagination as any)?.totalPages || 1); setTotal((r.pagination as any)?.total || 0); }
     setLoading(false);
-  }, [page]);
+  }, [page, searchQuery]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setPage(1); }, [searchQuery]);
 
   const openSend = async () => {
     const [cR, gR, pR, lR] = await Promise.all([apiCall("/api/v1/cities", { params: { all: "true" } }), apiCall("/api/v1/godowns", { params: { limit: 100 } }), apiCall("/api/v1/products", { params: { limit: 100 } }), apiCall("/api/v1/lots", { params: { limit: 100 } })]);
@@ -98,7 +103,11 @@ export default function CityTransfersPage() {
         </div>
       )}
 
-      <DataTable columns={[
+      <DataTable
+        searchValue={searchQuery}
+        onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}
+        searchPlaceholder="Search transfers (min 2 chars)"
+        columns={[
         { key: "transferDate", label: t("date"), render: (tr: any) => formatDate(tr.transferDate) },
         { key: "fromCity", label: t("from"), render: (tr: any) => <span>{tr.fromCity?.name} <span className="text-xs text-gray-400">({tr.fromGodown?.name})</span></span> },
         { key: "toCity", label: t("to"), render: (tr: any) => <span>{tr.toCity?.name} {tr.toGodown ? <span className="text-xs text-gray-400">({tr.toGodown.name})</span> : ""}</span> },

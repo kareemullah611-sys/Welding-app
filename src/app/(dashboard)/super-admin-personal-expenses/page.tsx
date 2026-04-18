@@ -15,6 +15,7 @@ export default function SuperAdminPersonalExpensesPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
   const [showExpense, setShowExpense] = useState(false);
   const [editingExpense, setEditingExpense] = useState<any>(null);
   const [error, setError] = useState("");
@@ -26,9 +27,12 @@ export default function SuperAdminPersonalExpensesPage() {
   const load = useCallback(async () => {
     if (!isSA) return;
     setLoading(true);
+    const expenseParams: any = { page, limit: 20 };
+    const normalizedQuery = searchQuery.trim();
+    if (normalizedQuery.length >= 2) expenseParams.q = normalizedQuery;
     const [accountsRes, expensesRes] = await Promise.all([
       apiCall("/api/v1/bank-accounts", { params: { scope: "super_admin" } }),
-      apiCall("/api/v1/super-admin-personal-expenses", { params: { page, limit: 20 } }),
+      apiCall("/api/v1/super-admin-personal-expenses", { params: expenseParams }),
     ]);
     if (accountsRes.success) setAccounts(accountsRes.data as any[]);
     if (expensesRes.success) {
@@ -37,9 +41,10 @@ export default function SuperAdminPersonalExpensesPage() {
       setTotal((expensesRes.pagination as any)?.total || 0);
     }
     setLoading(false);
-  }, [isSA, page]);
+  }, [isSA, page, searchQuery]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setPage(1); }, [searchQuery]);
 
   useEffect(() => {
     if (!openActionId) return;
@@ -153,6 +158,9 @@ export default function SuperAdminPersonalExpensesPage() {
       <div>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.16em] text-gray-500">Home Expense History</h2>
         <DataTable
+          searchValue={searchQuery}
+          onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}
+          searchPlaceholder="Search home expenses (min 2 chars)"
           columns={[
             { key: "expenseDate", label: "Date", render: (e: any) => formatDate(e.expenseDate) },
             { key: "detail", label: "Detail" },

@@ -18,6 +18,7 @@ export default function PersonalWithdrawalsPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [selected, setSelected] = useState<any>(null);
@@ -44,13 +45,16 @@ export default function PersonalWithdrawalsPage() {
     const treasuryRequest = user?.role === "city_admin" ? apiCall("/api/v1/treasury") : Promise.resolve(null);
     const params: any = { page, limit: 20 };
     if (statusFilter !== "all") params.approval_status = statusFilter;
+    const normalizedQuery = searchQuery.trim();
+    if (normalizedQuery.length >= 2) params.q = normalizedQuery;
+    const countParams: any = normalizedQuery.length >= 2 ? { q: normalizedQuery } : {};
     const [result, cashRes, treasuryRes, allCountRes, pendingCountRes, approvedCountRes] = await Promise.all([
       apiCall("/api/v1/personal-withdrawals", { params }),
       apiCall("/api/v1/cash-position"),
       treasuryRequest,
-      apiCall("/api/v1/personal-withdrawals", { params: { page: 1, limit: 1 } }),
-      apiCall("/api/v1/personal-withdrawals", { params: { page: 1, limit: 1, approval_status: "pending" } }),
-      apiCall("/api/v1/personal-withdrawals", { params: { page: 1, limit: 1, approval_status: "approved" } }),
+      apiCall("/api/v1/personal-withdrawals", { params: { page: 1, limit: 1, ...countParams } }),
+      apiCall("/api/v1/personal-withdrawals", { params: { page: 1, limit: 1, approval_status: "pending", ...countParams } }),
+      apiCall("/api/v1/personal-withdrawals", { params: { page: 1, limit: 1, approval_status: "approved", ...countParams } }),
     ]);
     if (result.success) {
       setItems(result.data as any[]);
@@ -65,9 +69,10 @@ export default function PersonalWithdrawalsPage() {
       approved: (approvedCountRes.pagination as any)?.total || 0,
     });
     setLoading(false);
-  }, [page, statusFilter, user?.role]);
+  }, [page, searchQuery, statusFilter, user?.role]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setPage(1); }, [searchQuery]);
   useEffect(() => {
     if (prefillHandled || user?.role !== "city_admin") return;
     if (searchParams.get("create") !== "1") return;
@@ -215,6 +220,9 @@ export default function PersonalWithdrawalsPage() {
       )}
 
       {!isEmbed && <DataTable
+        searchValue={searchQuery}
+        onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}
+        searchPlaceholder="Search withdrawals (min 2 chars)"
         columns={[
           { key: "withdrawalDate", label: t("date"), render: (w: any) => formatDate(w.withdrawalDate) },
           {

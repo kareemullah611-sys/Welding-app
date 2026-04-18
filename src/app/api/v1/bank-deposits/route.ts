@@ -23,6 +23,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     const from = searchParams.get("from");
     const to = searchParams.get("to");
+    const query = (searchParams.get("q") || "").trim();
+    const normalizedQuery = query.toLowerCase();
+    const shouldApplySearch = normalizedQuery.length >= 2;
+    const numericQuery = Number(normalizedQuery.replace(/,/g, ""));
+    const hasNumericQuery = Number.isFinite(numericQuery);
 
     const where: any = {};
     if (cityId) where.cityId = cityId;
@@ -30,6 +35,19 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       where.depositDate = {};
       if (from) where.depositDate.gte = new Date(from);
       if (to) where.depositDate.lte = new Date(to + "T23:59:59.999Z");
+    }
+    if (shouldApplySearch) {
+      where.OR = [
+        { slipNumber: { contains: query, mode: "insensitive" } },
+        { notes: { contains: query, mode: "insensitive" } },
+        { bankAccount: { bankName: { contains: query, mode: "insensitive" } } },
+        { bankAccount: { accountNumber: { contains: query, mode: "insensitive" } } },
+        { currency: { code: { contains: query, mode: "insensitive" } } },
+        { cheques: { some: { chequeNumber: { contains: query, mode: "insensitive" } } } },
+        { cheques: { some: { chequeBank: { contains: query, mode: "insensitive" } } } },
+        { cheques: { some: { customer: { name: { contains: query, mode: "insensitive" } } } } },
+        ...(hasNumericQuery ? [{ cashAmount: numericQuery }, { id: Math.trunc(numericQuery) }] : []),
+      ];
     }
 
     const [deposits, total] = await Promise.all([

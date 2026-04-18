@@ -395,7 +395,7 @@ export default function SalesPage() {
         </div>
       </div>
 
-      <DataTable columns={[
+      <DataTable searchable={false} columns={[
         { key: "voucherNo", label: t("voucher_hash"), render: (s: any) => <span className="font-mono font-medium">{s.voucherNo}</span> },
         { key: "saleDate", label: t("date"), render: (s: any) => formatDate(s.saleDate) },
         { key: "customer", label: t("customer"), render: (s: any) => (

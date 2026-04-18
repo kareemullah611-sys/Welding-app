@@ -19,6 +19,7 @@ export default function ExpensesPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [selected, setSelected] = useState<any>(null);
@@ -47,8 +48,11 @@ export default function ExpensesPage() {
   const load = useCallback(async () => {
     setLoading(true);
     const treasuryRequest = user?.role === "city_admin" ? apiCall("/api/v1/treasury") : Promise.resolve(null);
+    const params: any = { page, limit: 20 };
+    const normalizedQuery = searchQuery.trim();
+    if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     const [result, cashRes, treasuryRes] = await Promise.all([
-      apiCall("/api/v1/expenses", { params: { page, limit: 20 } }),
+      apiCall("/api/v1/expenses", { params }),
       apiCall("/api/v1/cash-position"),
       treasuryRequest,
     ]);
@@ -60,8 +64,9 @@ export default function ExpensesPage() {
     if (cashRes.success) setCashPosition(cashRes.data);
     if (treasuryRes?.success) setTreasury(treasuryRes.data);
     setLoading(false);
-  }, [page, user?.role]);
+  }, [page, searchQuery, user?.role]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setPage(1); }, [searchQuery]);
   useEffect(() => {
     if (prefillHandled || user?.role !== "city_admin") return;
     if (searchParams.get("create") !== "1") return;
@@ -214,7 +219,11 @@ export default function ExpensesPage() {
         </div>
       )}
 
-      {!isEmbed && <DataTable columns={[
+      {!isEmbed && <DataTable
+        searchValue={searchQuery}
+        onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}
+        searchPlaceholder="Search expenses (min 2 chars)"
+        columns={[
         { key: "expenseDate", label: t("date"), render: (e: any) => formatDate(e.expenseDate) },
         { key: "detail", label: t("detail"), className: "max-w-xs" },
         { key: "amount", label: t("amount"), render: (e: any) => <span className="font-medium text-red-600">{e.currency?.symbol} {e.amount.toLocaleString("en-US")}</span> },

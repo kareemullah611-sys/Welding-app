@@ -684,6 +684,7 @@ export default function PaymentsPage() {
       )}
 
       {!isEmbed && <DataTable
+        searchable={false}
         columns={columns}
         data={items}
         loading={loading}

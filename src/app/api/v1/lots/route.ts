@@ -18,7 +18,12 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     const countryId = searchParams.get("country_id") ? parseInt(searchParams.get("country_id")!) : undefined;
     const status = searchParams.get("status") as "ongoing" | "completed" | undefined;
-    const search = searchParams.get("search");
+    const query = (searchParams.get("q") || searchParams.get("search") || "").trim();
+    const normalizedQuery = query.toLowerCase();
+    const shouldApplySearch = normalizedQuery.length >= 2;
+    const numericQuery = Number(normalizedQuery.replace(/,/g, ""));
+    const hasNumericQuery = Number.isFinite(numericQuery);
+    const statusQuery = ["ongoing", "completed"].includes(normalizedQuery) ? normalizedQuery : null;
 
     // Build where clause
     const where: any = {};
@@ -32,7 +37,20 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     }
 
     if (status) where.status = status;
-    if (search) where.lotNumber = { contains: search, mode: "insensitive" };
+    if (shouldApplySearch) {
+      where.OR = [
+        { lotNumber: { contains: query, mode: "insensitive" } },
+        { notes: { contains: query, mode: "insensitive" } },
+        ...(statusQuery ? [{ status: statusQuery as any }] : []),
+        { country: { name: { contains: query, mode: "insensitive" } } },
+        { creator: { fullName: { contains: query, mode: "insensitive" } } },
+        { completer: { fullName: { contains: query, mode: "insensitive" } } },
+        { lotProducts: { some: { product: { name: { contains: query, mode: "insensitive" } } } } },
+        { lotPurchases: { some: { supplier: { name: { contains: query, mode: "insensitive" } } } } },
+        { lotPurchases: { some: { product: { name: { contains: query, mode: "insensitive" } } } } },
+        ...(hasNumericQuery ? [{ id: Math.trunc(numericQuery) }, { pkrExchangeRate: numericQuery }] : []),
+      ];
+    }
     if (dateFrom || dateTo) {
       where.lotDate = {};
       if (dateFrom) where.lotDate.gte = dateFrom;

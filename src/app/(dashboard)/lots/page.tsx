@@ -16,6 +16,7 @@ export default function LotsPage() {
   const [page,       setPage]       = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total,      setTotal]      = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Create
   const [showCreate,  setShowCreate]  = useState(false);
@@ -103,15 +104,19 @@ export default function LotsPage() {
 
   const loadLots = useCallback(async () => {
     setLoading(true);
-    const r = await apiCall("/api/v1/lots", { params: { page, limit: 20 } });
+    const params: any = { page, limit: 20 };
+    const normalizedQuery = searchQuery.trim();
+    if (normalizedQuery.length >= 2) params.q = normalizedQuery;
+    const r = await apiCall("/api/v1/lots", { params });
     if (r.success) {
       setLots(r.data as any[]);
       setTotalPages((r.pagination as any)?.totalPages || 1);
       setTotal((r.pagination as any)?.total || 0);
     }
     setLoading(false);
-  }, [page]);
+  }, [page, searchQuery]);
   useEffect(() => { loadLots(); }, [loadLots]);
+  useEffect(() => { setPage(1); }, [searchQuery]);
 
   useEffect(() => {
     if (!openActionId) return;
@@ -751,7 +756,15 @@ export default function LotsPage() {
     <div>
       <PageHeader title={t("lots")} subtitle={`${total} ${t("lots").toLowerCase()}`}
         action={user?.role === "super_admin" ? <button onClick={openCreate} className="btn-primary text-sm">{"+ " + t("new_lot")}</button> : undefined} />
-      <DataTable columns={columns} data={lots} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />
+      <DataTable
+        searchValue={searchQuery}
+        onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}
+        searchPlaceholder="Search lots (min 2 chars)"
+        columns={columns}
+        data={lots}
+        loading={loading}
+        pagination={{ page, totalPages, total, onPageChange: setPage }}
+      />
 
       {/* ══════════════════════════════════════
           CREATE LOT — Invoice-style form

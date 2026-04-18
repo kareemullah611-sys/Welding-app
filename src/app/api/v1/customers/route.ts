@@ -14,12 +14,24 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const searchParams = request.nextUrl.searchParams;
     const { page, limit, skip } = getPaginationParams(searchParams);
     const cityId = getCityScope(user, searchParams.get("city_id") ? parseInt(searchParams.get("city_id")!) : undefined);
-    const search = searchParams.get("search");
+    const query = (searchParams.get("q") || searchParams.get("search") || "").trim();
+    const normalizedQuery = query.toLowerCase();
+    const shouldApplySearch = normalizedQuery.length >= 2;
+    const numericQuery = Number(normalizedQuery.replace(/,/g, ""));
+    const hasNumericQuery = Number.isFinite(numericQuery);
     const isActive = searchParams.get("is_active");
 
     const where: any = {};
     if (cityId) where.cityId = cityId;
-    if (search) where.name = { contains: search, mode: "insensitive" };
+    if (shouldApplySearch) {
+      where.OR = [
+        { name: { contains: query, mode: "insensitive" } },
+        { phone: { contains: query, mode: "insensitive" } },
+        { address: { contains: query, mode: "insensitive" } },
+        { city: { name: { contains: query, mode: "insensitive" } } },
+        ...(hasNumericQuery ? [{ id: Math.trunc(numericQuery) }] : []),
+      ];
+    }
     if (isActive !== null && isActive !== undefined) where.isActive = isActive === "true";
 
     const [customers, total] = await Promise.all([

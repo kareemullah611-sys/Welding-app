@@ -26,6 +26,7 @@ export default function ChequesPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
   const PAGE_SIZE = 50;
 
   // Bounce modal
@@ -36,7 +37,10 @@ export default function ChequesPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const r = await apiCall("/api/v1/finance/combined", { params: { type: "payment", page, limit: PAGE_SIZE } });
+    const params: any = { type: "payment", page, limit: PAGE_SIZE };
+    const normalizedQuery = searchQuery.trim();
+    if (normalizedQuery.length >= 2) params.q = normalizedQuery;
+    const r = await apiCall("/api/v1/finance/combined", { params });
     if (r.success) {
       // Filter for cheque payments only
       const cheques = (r.data as any[]).filter(
@@ -47,9 +51,10 @@ export default function ChequesPage() {
       setTotal((r.pagination as any)?.total || 0);
     }
     setLoading(false);
-  }, [page]);
+  }, [page, searchQuery]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setPage(1); }, [searchQuery]);
 
   const filtered = tab === "all"
     ? allCheques
@@ -175,6 +180,9 @@ export default function ChequesPage() {
       </div>
 
       <DataTable
+        searchValue={searchQuery}
+        onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}
+        searchPlaceholder="Search cheques (min 2 chars)"
         columns={columns}
         data={filtered}
         loading={loading}

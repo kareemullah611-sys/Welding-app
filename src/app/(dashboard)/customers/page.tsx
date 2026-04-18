@@ -16,6 +16,7 @@ export default function CustomersPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showLedger, setShowLedger] = useState(false);
@@ -39,11 +40,15 @@ export default function CustomersPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const result = await apiCall("/api/v1/customers", { params: { page, limit: 20 } });
+    const params: any = { page, limit: 20 };
+    const normalizedQuery = searchQuery.trim();
+    if (normalizedQuery.length >= 2) params.q = normalizedQuery;
+    const result = await apiCall("/api/v1/customers", { params });
     if (result.success) { setCustomers(result.data as any[]); setTotalPages((result.pagination as any)?.totalPages || 1); setTotal((result.pagination as any)?.total || 0); }
     setLoading(false);
-  }, [page]);
+  }, [page, searchQuery]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setPage(1); }, [searchQuery]);
   useEffect(() => {
     if (prefillHandled || user?.role !== "city_admin") return;
     if (searchParams.get("create") !== "1") return;
@@ -111,7 +116,11 @@ export default function CustomersPage() {
   return (
     <div>
       {!isEmbed && <PageHeader title={t("customers")} subtitle={`${total} ${t("customers").toLowerCase()}`} />}
-      {!isEmbed && <DataTable columns={[
+      {!isEmbed && <DataTable
+        searchValue={searchQuery}
+        onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}
+        searchPlaceholder="Search customers (min 2 chars)"
+        columns={[
         { key: "name", label: t("name"), render: (c: any) => (
           <div className="flex items-center gap-2">
             <button onClick={() => openLedger(c)} className="font-medium text-primary-600 hover:underline">{c.name}</button>

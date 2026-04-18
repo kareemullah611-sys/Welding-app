@@ -14,6 +14,11 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
     const { page, limit, skip } = getPaginationParams(searchParams);
     const { dateFrom, dateTo } = getDateRange(searchParams);
     const bankAccountId = searchParams.get("bank_account_id") ? Number(searchParams.get("bank_account_id")) : undefined;
+    const query = (searchParams.get("q") || "").trim();
+    const normalizedQuery = query.toLowerCase();
+    const shouldApplySearch = normalizedQuery.length >= 2;
+    const numericQuery = Number(normalizedQuery.replace(/,/g, ""));
+    const hasNumericQuery = Number.isFinite(numericQuery);
 
     const where: any = { deletedAt: null };
     if (bankAccountId) where.bankAccountId = bankAccountId;
@@ -21,6 +26,17 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
       where.expenseDate = {};
       if (dateFrom) where.expenseDate.gte = dateFrom;
       if (dateTo) where.expenseDate.lte = dateTo;
+    }
+    if (shouldApplySearch) {
+      where.OR = [
+        { detail: { contains: query, mode: "insensitive" } },
+        { notes: { contains: query, mode: "insensitive" } },
+        { bankAccount: { bankName: { contains: query, mode: "insensitive" } } },
+        { bankAccount: { accountNumber: { contains: query, mode: "insensitive" } } },
+        { bankAccount: { currency: { code: { contains: query, mode: "insensitive" } } } },
+        { creator: { fullName: { contains: query, mode: "insensitive" } } },
+        ...(hasNumericQuery ? [{ amount: numericQuery }, { id: Math.trunc(numericQuery) }] : []),
+      ];
     }
 
     const [expenses, total] = await Promise.all([

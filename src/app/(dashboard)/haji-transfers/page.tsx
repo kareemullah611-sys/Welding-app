@@ -31,6 +31,7 @@ export default function HajiTransfersPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [selected, setSelected] = useState<any>(null);
@@ -77,11 +78,14 @@ export default function HajiTransfersPage() {
     const params: any = { page, limit: 20 };
     if (filterFrom) params.date_from = filterFrom;
     if (filterTo) params.date_to = filterTo;
+    const normalizedQuery = searchQuery.trim();
+    if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     const r = await apiCall("/api/v1/haji-transfers", { params });
     if (r.success) { setItems(r.data as any[]); setTotalPages((r.pagination as any)?.totalPages || 1); setTotal((r.pagination as any)?.total || 0); }
     setLoading(false);
-  }, [page, filterFrom, filterTo]);
+  }, [page, filterFrom, filterTo, searchQuery]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setPage(1); }, [searchQuery]);
   useEffect(() => {
     if (prefillHandled || user?.role !== "city_admin") return;
     if (searchParams.get("create") !== "1") return;
@@ -292,7 +296,11 @@ export default function HajiTransfersPage() {
         </div>
       )}
 
-      {!isEmbed && <DataTable columns={[
+      {!isEmbed && <DataTable
+        searchValue={searchQuery}
+        onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}
+        searchPlaceholder="Search haji transfers (min 2 chars)"
+        columns={[
         { key: "transferDate", label: t("date"), render: (tr: any) => formatDate(tr.transferDate) },
         {
           key: "detail", label: t("detail"),

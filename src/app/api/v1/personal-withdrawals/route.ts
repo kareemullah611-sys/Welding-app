@@ -13,6 +13,14 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const { dateFrom, dateTo } = getDateRange(searchParams);
     const cityId = getCityScope(user, searchParams.get("city_id") ? parseInt(searchParams.get("city_id")!) : undefined);
     const approvalStatus = searchParams.get("approval_status");
+    const query = (searchParams.get("q") || "").trim();
+    const normalizedQuery = query.toLowerCase();
+    const shouldApplySearch = normalizedQuery.length >= 2;
+    const numericQuery = Number(normalizedQuery.replace(/,/g, ""));
+    const hasNumericQuery = Number.isFinite(numericQuery);
+    const queryWantsPending = shouldApplySearch && normalizedQuery === "pending";
+    const queryWantsApproved = shouldApplySearch && normalizedQuery === "approved";
+    const sourceTypeQuery = ["cash_office", "cheque"].includes(normalizedQuery) ? normalizedQuery : null;
 
     const where: any = {};
     if (cityId) where.cityId = cityId;
@@ -22,6 +30,20 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       where.withdrawalDate = {};
       if (dateFrom) where.withdrawalDate.gte = dateFrom;
       if (dateTo) where.withdrawalDate.lte = dateTo;
+    }
+    if (shouldApplySearch) {
+      where.OR = [
+        { detail: { contains: query, mode: "insensitive" } },
+        { notes: { contains: query, mode: "insensitive" } },
+        { withdrawnBy: { contains: query, mode: "insensitive" } },
+        ...(sourceTypeQuery ? [{ sourceType: sourceTypeQuery }] : []),
+        { currency: { code: { contains: query, mode: "insensitive" } } },
+        { creator: { fullName: { contains: query, mode: "insensitive" } } },
+        { approver: { fullName: { contains: query, mode: "insensitive" } } },
+        ...(queryWantsPending ? [{ approvedAt: null }] : []),
+        ...(queryWantsApproved ? [{ approvedAt: { not: null } }] : []),
+        ...(hasNumericQuery ? [{ amount: numericQuery }, { id: Math.trunc(numericQuery) }] : []),
+      ];
     }
 
     const [withdrawals, total] = await Promise.all([

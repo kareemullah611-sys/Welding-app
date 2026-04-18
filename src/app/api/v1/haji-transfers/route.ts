@@ -15,6 +15,14 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const { dateFrom, dateTo } = getDateRange(searchParams);
     const cityId = getCityScope(user, searchParams.get("city_id") ? parseInt(searchParams.get("city_id")!) : undefined);
     const lotId = searchParams.get("lot_id") ? parseInt(searchParams.get("lot_id")!) : undefined;
+    const query = (searchParams.get("q") || "").trim();
+    const normalizedQuery = query.toLowerCase();
+    const shouldApplySearch = normalizedQuery.length >= 2;
+    const numericQuery = Number(normalizedQuery.replace(/,/g, ""));
+    const hasNumericQuery = Number.isFinite(numericQuery);
+    const transferTypeQuery = ["direct", "from_in_hand", "customer_direct"].includes(normalizedQuery) ? normalizedQuery : null;
+    const sourceTypeQuery = ["cash_office", "bank_transfer", "cheque", "mixed_cash_cheque"].includes(normalizedQuery) ? normalizedQuery : null;
+    const paymentMethodQuery = ["cash", "bank_transfer", "cheque", "online"].includes(normalizedQuery) ? normalizedQuery : null;
 
     const where: any = {};
     if (cityId) where.cityId = cityId;
@@ -27,6 +35,45 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     const transferredToFilter = searchParams.get("transferred_to");
     if (transferredToFilter) where.transferredTo = { contains: transferredToFilter, mode: "insensitive" };
+    if (shouldApplySearch) {
+      where.OR = [
+        { detail: { contains: query, mode: "insensitive" } },
+        { notes: { contains: query, mode: "insensitive" } },
+        { transferredTo: { contains: query, mode: "insensitive" } },
+        ...(transferTypeQuery ? [{ transferType: transferTypeQuery as any }] : []),
+        ...(sourceTypeQuery ? [{ sourceType: sourceTypeQuery as any }] : []),
+        { lot: { lotNumber: { contains: query, mode: "insensitive" } } },
+        { currency: { code: { contains: query, mode: "insensitive" } } },
+        ...(hasNumericQuery ? [{ amount: numericQuery }, { id: Math.trunc(numericQuery) }] : []),
+      ];
+    }
+
+    const directPaymentsWhere: any = {
+      ...(cityId ? { cityId } : {}),
+      ...(dateFrom || dateTo
+        ? {
+            paymentDate: {
+              ...(dateFrom ? { gte: dateFrom } : {}),
+              ...(dateTo ? { lte: dateTo } : {}),
+            },
+          }
+        : {}),
+      destination: "haji",
+      status: "active",
+    };
+    if (shouldApplySearch) {
+      directPaymentsWhere.OR = [
+        { detail: { contains: query, mode: "insensitive" } },
+        { notes: { contains: query, mode: "insensitive" } },
+        { manualVoucherNo: { contains: query, mode: "insensitive" } },
+        { chequeNumber: { contains: query, mode: "insensitive" } },
+        ...(paymentMethodQuery ? [{ paymentMethod: paymentMethodQuery as any }] : []),
+        { customer: { name: { contains: query, mode: "insensitive" } } },
+        { lot: { lotNumber: { contains: query, mode: "insensitive" } } },
+        { currency: { code: { contains: query, mode: "insensitive" } } },
+        ...(hasNumericQuery ? [{ amount: numericQuery }, { id: Math.trunc(numericQuery) }] : []),
+      ];
+    }
 
     const [transfers, directPayments, transferCount, directPaymentsCount] = await Promise.all([
       prisma.hajiTransfer.findMany({
@@ -40,17 +87,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         orderBy: { transferDate: "desc" },
       }),
       prisma.payment.findMany({
-        where: {
-          ...(cityId ? { cityId } : {}),
-          ...(dateFrom || dateTo ? {
-            paymentDate: {
-              ...(dateFrom ? { gte: dateFrom } : {}),
-              ...(dateTo ? { lte: dateTo } : {}),
-            },
-          } : {}),
-          destination: "haji",
-          status: "active",
-        },
+        where: directPaymentsWhere,
         include: {
           customer: { select: { id: true, name: true } },
           currency: true,
@@ -59,19 +96,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         orderBy: { paymentDate: "desc" },
       }),
       prisma.hajiTransfer.count({ where }),
-      prisma.payment.count({
-        where: {
-          ...(cityId ? { cityId } : {}),
-          ...(dateFrom || dateTo ? {
-            paymentDate: {
-              ...(dateFrom ? { gte: dateFrom } : {}),
-              ...(dateTo ? { lte: dateTo } : {}),
-            },
-          } : {}),
-          destination: "haji",
-          status: "active",
-        },
-      }),
+      prisma.payment.count({ where: directPaymentsWhere }),
     ]);
 
     const rows = [
