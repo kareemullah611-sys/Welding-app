@@ -15,6 +15,25 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
     const fromDate = sp.get("from_date");
     const toDate = sp.get("to_date");
     const query = (sp.get("q") || "").trim();
+    const normalizedQuery = query.toLowerCase();
+    const shouldApplySearch = normalizedQuery.length >= 2;
+    const numericQuery = shouldApplySearch ? Number(normalizedQuery.replace(/,/g, "")) : NaN;
+    const hasNumericQuery = Number.isFinite(numericQuery);
+    const paymentMethodQuery = ["cash", "bank_transfer", "cheque", "online"].includes(normalizedQuery)
+      ? normalizedQuery
+      : null;
+    const destinationQuery = ["our_account", "haji"].includes(normalizedQuery)
+      ? normalizedQuery
+      : null;
+    const paymentStatusQuery = ["active", "cancelled"].includes(normalizedQuery)
+      ? normalizedQuery
+      : null;
+    const transferTypeQuery = ["direct", "from_in_hand"].includes(normalizedQuery)
+      ? normalizedQuery
+      : null;
+    const withdrawalStatusQuery = normalizedQuery === "approved" || normalizedQuery === "pending"
+      ? normalizedQuery
+      : null;
 
     const cityId = getCityScope(user, undefined);
 
@@ -36,13 +55,25 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           ...cityWhere,
           ...dateWhere("paymentDate"),
           ...(destinationFilter ? { destination: destinationFilter } : {}),
-          ...(query
+          ...(shouldApplySearch
             ? {
                 OR: [
                   { detail: { contains: query, mode: "insensitive" } },
-                  { manualVoucherNo: { startsWith: query, mode: "insensitive" } },
-                  { chequeNumber: { startsWith: query, mode: "insensitive" } },
+                  { notes: { contains: query, mode: "insensitive" } },
+                  { manualVoucherNo: { contains: query, mode: "insensitive" } },
+                  { chequeNumber: { contains: query, mode: "insensitive" } },
                   { customer: { name: { contains: query, mode: "insensitive" } } },
+                  { lot: { lotNumber: { contains: query, mode: "insensitive" } } },
+                  { city: { name: { contains: query, mode: "insensitive" } } },
+                  { currency: { code: { contains: query, mode: "insensitive" } } },
+                  { bankAccount: { bankName: { contains: query, mode: "insensitive" } } },
+                  { bankAccount: { accountNumber: { contains: query, mode: "insensitive" } } },
+                  { superAdminBankAccount: { bankName: { contains: query, mode: "insensitive" } } },
+                  { superAdminBankAccount: { accountNumber: { contains: query, mode: "insensitive" } } },
+                  ...(paymentMethodQuery ? [{ paymentMethod: paymentMethodQuery as any }] : []),
+                  ...(destinationQuery ? [{ destination: destinationQuery as any }] : []),
+                  ...(paymentStatusQuery ? [{ status: paymentStatusQuery as any }] : []),
+                  ...(hasNumericQuery ? [{ amount: numericQuery }, { usdEquivalent: numericQuery }] : []),
                 ],
               }
             : {}),
@@ -90,11 +121,15 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           ...cityWhere,
           ...dateWhere("expenseDate"),
           deletedAt: null,
-          ...(query
+          ...(shouldApplySearch
             ? {
                 OR: [
                   { detail: { contains: query, mode: "insensitive" } },
                   { notes: { contains: query, mode: "insensitive" } },
+                  { city: { name: { contains: query, mode: "insensitive" } } },
+                  { lot: { lotNumber: { contains: query, mode: "insensitive" } } },
+                  { currency: { code: { contains: query, mode: "insensitive" } } },
+                  ...(hasNumericQuery ? [{ amount: numericQuery }] : []),
                 ],
               }
             : {}),
@@ -130,12 +165,17 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         where: {
           ...cityWhere,
           ...dateWhere("transferDate"),
-          ...(query
+          ...(shouldApplySearch
             ? {
                 OR: [
                   { detail: { contains: query, mode: "insensitive" } },
                   { notes: { contains: query, mode: "insensitive" } },
                   { transferredTo: { contains: query, mode: "insensitive" } },
+                  { city: { name: { contains: query, mode: "insensitive" } } },
+                  { lot: { lotNumber: { contains: query, mode: "insensitive" } } },
+                  { currency: { code: { contains: query, mode: "insensitive" } } },
+                  ...(transferTypeQuery ? [{ transferType: transferTypeQuery as any }] : []),
+                  ...(hasNumericQuery ? [{ amount: numericQuery }] : []),
                 ],
               }
             : {}),
@@ -171,12 +211,17 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         where: {
           ...cityWhere,
           ...dateWhere("withdrawalDate"),
-          ...(query
+          ...(shouldApplySearch
             ? {
                 OR: [
                   { detail: { contains: query, mode: "insensitive" } },
                   { notes: { contains: query, mode: "insensitive" } },
                   { withdrawnBy: { contains: query, mode: "insensitive" } },
+                  { city: { name: { contains: query, mode: "insensitive" } } },
+                  { currency: { code: { contains: query, mode: "insensitive" } } },
+                  ...(withdrawalStatusQuery === "approved" ? [{ approvedBy: { not: null } }] : []),
+                  ...(withdrawalStatusQuery === "pending" ? [{ approvedBy: null }] : []),
+                  ...(hasNumericQuery ? [{ amount: numericQuery }] : []),
                 ],
               }
             : {}),
@@ -225,6 +270,47 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         runningBalance: Math.round((runningByCurrency[currencyCode] || 0) * 100) / 100,
       };
     });
+
+    if (shouldApplySearch) {
+      const includesQuery = (value: unknown) => String(value ?? "").toLowerCase().includes(normalizedQuery);
+      combined = combined.filter((item) => {
+        const searchableFields = [
+          item.date,
+          item.type,
+          item.person,
+          item.detail,
+          item.cityName,
+          item.currencyCode,
+          item.raw?.manualVoucherNo,
+          item.raw?.chequeNumber,
+          item.raw?.paymentMethod,
+          item.raw?.destination,
+          item.raw?.status,
+          item.status,
+          item.raw?.chequeStatus,
+          item.raw?.lotNumber,
+          item.raw?.notes,
+          item.raw?.transferType,
+          item.raw?.transferredTo,
+          item.raw?.withdrawnBy,
+          item.raw?.bankAccount?.bankName,
+          item.raw?.bankAccount?.accountNumber,
+          item.raw?.superAdminBankAccount?.bankName,
+          item.raw?.superAdminBankAccount?.accountNumber,
+          item.raw?.hajiAudit?.confirmed ? "confirmed" : "",
+        ];
+        if (searchableFields.some(includesQuery)) return true;
+        if (hasNumericQuery) {
+          const numericFields = [
+            Number(item.amount || 0),
+            Number(item.runningBalance || 0),
+            Number(item.raw?.usdEquivalent || 0),
+          ];
+          return numericFields.some((value) => Number.isFinite(value) && value === numericQuery);
+        }
+        return false;
+      });
+    }
 
     const total = combined.length;
     const skip = (page - 1) * limit;

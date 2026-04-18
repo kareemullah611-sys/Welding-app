@@ -94,7 +94,13 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const customerId = searchParams.get("customer_id") ? parseInt(searchParams.get("customer_id")!) : undefined;
     const lotId = searchParams.get("lot_id") ? parseInt(searchParams.get("lot_id")!) : undefined;
     const godownId = searchParams.get("godown_id") ? parseInt(searchParams.get("godown_id")!) : undefined;
-    const query = (searchParams.get("q") || "").trim();
+    const rawQuery = (searchParams.get("q") || "").trim();
+    const query = rawQuery.length >= 2 ? rawQuery : "";
+    const numericQuery = query ? Number(query.replace(/,/g, "")) : NaN;
+    const hasNumericQuery = Number.isFinite(numericQuery);
+    const statusQuery = ["active", "cancelled", "marked_short"].includes(query.toLowerCase())
+      ? query.toLowerCase()
+      : null;
     const statusParam = searchParams.get("status");
     // Support comma-separated status values e.g. "active,marked_short"
     const statusValues = statusParam ? statusParam.split(",").map((s) => s.trim()).filter(Boolean) : [];
@@ -110,10 +116,25 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     if (productId) where.items = { some: { productId } };
     if (query) {
       where.OR = [
-        { voucherNo: { startsWith: query, mode: "insensitive" } },
+        { voucherNo: { contains: query, mode: "insensitive" } },
         { customer: { name: { contains: query, mode: "insensitive" } } },
+        { lot: { lotNumber: { contains: query, mode: "insensitive" } } },
+        { godown: { name: { contains: query, mode: "insensitive" } } },
+        { godown: { city: { name: { contains: query, mode: "insensitive" } } } },
+        { city: { name: { contains: query, mode: "insensitive" } } },
+        { creator: { fullName: { contains: query, mode: "insensitive" } } },
+        ...(statusQuery ? [{ status: statusQuery as any }] : []),
         { notes: { contains: query, mode: "insensitive" } },
+        { cancellationReason: { contains: query, mode: "insensitive" } },
         { items: { some: { product: { name: { contains: query, mode: "insensitive" } } } } },
+        ...(hasNumericQuery
+          ? [
+              { totalAmount: numericQuery },
+              { items: { some: { qty: numericQuery } } },
+              { items: { some: { ratePerCarton: numericQuery } } },
+              { items: { some: { amount: numericQuery } } },
+            ]
+          : []),
       ];
     }
     if (dateFrom || dateTo) {

@@ -97,7 +97,8 @@ export default function SalesPage() {
     if (filters.status) params.status = filters.status;
     if (filters.date_from) params.date_from = filters.date_from;
     if (filters.date_to) params.date_to = filters.date_to;
-    if (filters.query.trim()) params.q = filters.query.trim();
+    const normalizedQuery = filters.query.trim();
+    if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     const result = await apiCall("/api/v1/sales", { params });
     if (result.success) {
       setSales(result.data as any[]);
@@ -378,7 +379,7 @@ export default function SalesPage() {
           type="text"
           value={filters.query}
           onChange={(e) => { setFilters((f) => ({ ...f, query: e.target.value })); setPage(1); }}
-          placeholder="Search voucher/customer/product..."
+          placeholder="Search all columns (min 2 chars)..."
           className="input-field min-w-[220px] flex-1"
         />
         <select value={filters.status} onChange={(e) => { setFilters((f) => ({ ...f, status: e.target.value })); setPage(1); }} className="select-field w-auto">

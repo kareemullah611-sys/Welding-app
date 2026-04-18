@@ -125,7 +125,8 @@ export default function PaymentsPage() {
     const params: any = { page, limit: 20 };
     if (fromDate) params.from_date = fromDate;
     if (toDate) params.to_date = toDate;
-    if (searchQuery.trim()) params.q = searchQuery.trim();
+    const normalizedQuery = searchQuery.trim();
+    if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     if (isSuperAdmin) {
       params.type = "payment";
       params.destination = "haji";
@@ -638,7 +639,7 @@ export default function PaymentsPage() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search voucher/customer/detail..."
+              placeholder="Search all columns (min 2 chars)..."
               className="input-field min-w-[220px] text-xs"
             />
             {/* Type filter */}
