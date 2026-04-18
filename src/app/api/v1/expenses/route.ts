@@ -16,8 +16,13 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const query = (searchParams.get("q") || "").trim();
     const normalizedQuery = query.toLowerCase();
     const shouldApplySearch = normalizedQuery.length >= 2;
-    const numericQuery = Number(normalizedQuery.replace(/,/g, ""));
+    const numericSearchText = normalizedQuery.replace(/,/g, "");
+    const numericQuery = Number(numericSearchText);
     const hasNumericQuery = Number.isFinite(numericQuery);
+    const decimalPlaces = numericSearchText.includes(".") ? (numericSearchText.split(".")[1] || "").length : 0;
+    const numericQueryUpper = hasNumericQuery
+      ? numericQuery + (decimalPlaces > 0 ? Math.pow(10, -decimalPlaces) : 1)
+      : NaN;
     const paidFromQuery = ["cash_office", "bank_account", "cheque"].includes(normalizedQuery)
       ? normalizedQuery
       : null;
@@ -42,7 +47,12 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         { bankAccount: { bankName: { contains: query, mode: "insensitive" } } },
         { bankAccount: { accountNumber: { contains: query, mode: "insensitive" } } },
         ...(paidFromQuery ? [{ paidFrom: paidFromQuery }] : []),
-        ...(hasNumericQuery ? [{ amount: numericQuery }, { id: Math.trunc(numericQuery) }] : []),
+        ...(hasNumericQuery
+          ? [
+              { amount: { gte: numericQuery, lt: numericQueryUpper } },
+              { id: Math.trunc(numericQuery) },
+            ]
+          : []),
       ];
     }
 

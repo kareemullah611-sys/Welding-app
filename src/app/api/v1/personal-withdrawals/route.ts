@@ -16,8 +16,13 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const query = (searchParams.get("q") || "").trim();
     const normalizedQuery = query.toLowerCase();
     const shouldApplySearch = normalizedQuery.length >= 2;
-    const numericQuery = Number(normalizedQuery.replace(/,/g, ""));
+    const numericSearchText = normalizedQuery.replace(/,/g, "");
+    const numericQuery = Number(numericSearchText);
     const hasNumericQuery = Number.isFinite(numericQuery);
+    const decimalPlaces = numericSearchText.includes(".") ? (numericSearchText.split(".")[1] || "").length : 0;
+    const numericQueryUpper = hasNumericQuery
+      ? numericQuery + (decimalPlaces > 0 ? Math.pow(10, -decimalPlaces) : 1)
+      : NaN;
     const queryWantsPending = shouldApplySearch && normalizedQuery === "pending";
     const queryWantsApproved = shouldApplySearch && normalizedQuery === "approved";
     const sourceTypeQuery = ["cash_office", "cheque"].includes(normalizedQuery) ? normalizedQuery : null;
@@ -42,7 +47,12 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         { approver: { fullName: { contains: query, mode: "insensitive" } } },
         ...(queryWantsPending ? [{ approvedAt: null }] : []),
         ...(queryWantsApproved ? [{ approvedAt: { not: null } }] : []),
-        ...(hasNumericQuery ? [{ amount: numericQuery }, { id: Math.trunc(numericQuery) }] : []),
+        ...(hasNumericQuery
+          ? [
+              { amount: { gte: numericQuery, lt: numericQueryUpper } },
+              { id: Math.trunc(numericQuery) },
+            ]
+          : []),
       ];
     }
 
