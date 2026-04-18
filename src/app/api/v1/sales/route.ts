@@ -96,78 +96,40 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const godownId = searchParams.get("godown_id") ? parseInt(searchParams.get("godown_id")!) : undefined;
     const rawQuery = (searchParams.get("q") || "").trim();
     const query = rawQuery.length >= 2 ? rawQuery : "";
-    const numericSearchText = query ? query.replace(/,/g, "") : "";
+    const normalizedQuery = query.toLowerCase();
+    const compactQuery = normalizedQuery.replace(/[\s,]/g, "");
+    const queryDigits = normalizedQuery.replace(/[^\d]/g, "");
+    const isNumericLikeQuery = query.length >= 2 && /^-?\d*\.?\d+$/.test(compactQuery);
+    const numericSearchText = isNumericLikeQuery ? compactQuery : "";
     const numericQuery = numericSearchText ? Number(numericSearchText) : NaN;
     const hasNumericQuery = Number.isFinite(numericQuery);
     const decimalPlaces = numericSearchText.includes(".") ? (numericSearchText.split(".")[1] || "").length : 0;
     const numericQueryUpper = hasNumericQuery
       ? numericQuery + (decimalPlaces > 0 ? Math.pow(10, -decimalPlaces) : 1)
       : NaN;
-    const statusQuery = ["active", "cancelled", "marked_short"].includes(query.toLowerCase())
-      ? query.toLowerCase()
+    const statusQuery = ["active", "cancelled", "marked_short"].includes(normalizedQuery)
+      ? normalizedQuery
       : null;
     const statusParam = searchParams.get("status");
     // Support comma-separated status values e.g. "active,marked_short"
     const statusValues = statusParam ? statusParam.split(",").map((s) => s.trim()).filter(Boolean) : [];
     const productId = searchParams.get("product_id") ? parseInt(searchParams.get("product_id")!) : undefined;
 
-    const where: any = {};
-    if (cityId) where.cityId = cityId;
-    if (customerId) where.customerId = customerId;
-    if (lotId) where.lotId = lotId;
-    if (godownId) where.godownId = godownId;
-    if (statusValues.length === 1) where.status = statusValues[0];
-    else if (statusValues.length > 1) where.status = { in: statusValues };
-    if (productId) where.items = { some: { productId } };
-    if (query) {
-      where.OR = [
-        { voucherNo: { contains: query, mode: "insensitive" } },
-        { customer: { name: { contains: query, mode: "insensitive" } } },
-        { lot: { lotNumber: { contains: query, mode: "insensitive" } } },
-        { godown: { name: { contains: query, mode: "insensitive" } } },
-        { godown: { city: { name: { contains: query, mode: "insensitive" } } } },
-        { city: { name: { contains: query, mode: "insensitive" } } },
-        { creator: { fullName: { contains: query, mode: "insensitive" } } },
-        ...(statusQuery ? [{ status: statusQuery as any }] : []),
-        { notes: { contains: query, mode: "insensitive" } },
-        { cancellationReason: { contains: query, mode: "insensitive" } },
-        { items: { some: { product: { name: { contains: query, mode: "insensitive" } } } } },
-        ...(hasNumericQuery
-          ? [
-              { totalAmount: { gte: numericQuery, lt: numericQueryUpper } },
-              { items: { some: { qty: { gte: numericQuery, lt: numericQueryUpper } } } },
-              { items: { some: { ratePerCarton: { gte: numericQuery, lt: numericQueryUpper } } } },
-              { items: { some: { amount: { gte: numericQuery, lt: numericQueryUpper } } } },
-            ]
-          : []),
-      ];
-    }
+    const baseWhere: any = {};
+    if (cityId) baseWhere.cityId = cityId;
+    if (customerId) baseWhere.customerId = customerId;
+    if (lotId) baseWhere.lotId = lotId;
+    if (godownId) baseWhere.godownId = godownId;
+    if (statusValues.length === 1) baseWhere.status = statusValues[0];
+    else if (statusValues.length > 1) baseWhere.status = { in: statusValues };
+    if (productId) baseWhere.items = { some: { productId } };
     if (dateFrom || dateTo) {
-      where.saleDate = {};
-      if (dateFrom) where.saleDate.gte = dateFrom;
-      if (dateTo) where.saleDate.lte = dateTo;
+      baseWhere.saleDate = {};
+      if (dateFrom) baseWhere.saleDate.gte = dateFrom;
+      if (dateTo) baseWhere.saleDate.lte = dateTo;
     }
 
-    const [sales, total] = await Promise.all([
-      prisma.sale.findMany({
-        where,
-        include: {
-          customer: { select: { id: true, name: true } },
-          lot: { select: { id: true, lotNumber: true, status: true } },
-          godown: { select: { id: true, name: true, cityId: true, city: { select: { name: true } } } },
-          city: { select: { id: true, name: true } },
-          currency: true,
-          items: { include: { product: { select: { id: true, name: true } } } },
-          creator: { select: { id: true, fullName: true } },
-        },
-        orderBy: [{ saleDate: "desc" }, { id: "desc" }],
-        skip,
-        take: limit,
-      }),
-      prisma.sale.count({ where }),
-    ]);
-
-    const formatted = sales.map((s) => ({
+    const formatSale = (s: any) => ({
       id: s.id,
       cityId: s.cityId,
       cityName: (s as any).city?.name ?? null,
@@ -182,7 +144,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       lot: { id: s.lot.id, lotNumber: s.lot.lotNumber, status: s.lot.status },
       godown: { ...s.godown, crossCity: s.godown.cityId !== s.cityId, sourceCityName: s.godown.city?.name },
       currency: { id: s.currency.id, code: s.currency.code, symbol: s.currency.symbol },
-      items: s.items.map((i) => ({
+      items: s.items.map((i: any) => ({
         id: i.id,
         productId: i.productId,
         productName: i.product.name,
@@ -191,9 +153,83 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         amount: Number(i.amount),
       })),
       createdBy: s.creator,
-    }));
+    });
 
-    return paginatedResponse(formatted, total, page, limit);
+    // Fast path: no search query -> fully DB paginated
+    if (!query) {
+      const [sales, total] = await Promise.all([
+        prisma.sale.findMany({
+          where: baseWhere,
+          include: {
+            customer: { select: { id: true, name: true } },
+            lot: { select: { id: true, lotNumber: true, status: true } },
+            godown: { select: { id: true, name: true, cityId: true, city: { select: { name: true } } } },
+            city: { select: { id: true, name: true } },
+            currency: true,
+            items: { include: { product: { select: { id: true, name: true } } } },
+            creator: { select: { id: true, fullName: true } },
+          },
+          orderBy: [{ saleDate: "desc" }, { id: "desc" }],
+          skip,
+          take: limit,
+        }),
+        prisma.sale.count({ where: baseWhere }),
+      ]);
+      return paginatedResponse(sales.map(formatSale), total, page, limit);
+    }
+
+    // Search path: load candidates under active filters, then apply full multi-column match including partial numeric digits
+    const candidates = await prisma.sale.findMany({
+      where: baseWhere,
+      include: {
+        customer: { select: { id: true, name: true } },
+        lot: { select: { id: true, lotNumber: true, status: true } },
+        godown: { select: { id: true, name: true, cityId: true, city: { select: { name: true } } } },
+        city: { select: { id: true, name: true } },
+        currency: true,
+        items: { include: { product: { select: { id: true, name: true } } } },
+        creator: { select: { id: true, fullName: true } },
+      },
+      orderBy: [{ saleDate: "desc" }, { id: "desc" }],
+    });
+
+    const includesQuery = (value: unknown) => String(value ?? "").toLowerCase().includes(normalizedQuery);
+    const digitsOnly = (value: unknown) => String(value ?? "").replace(/[^\d]/g, "");
+    const numericContains = (value: unknown) => queryDigits.length >= 2 && digitsOnly(value).includes(queryDigits);
+    const inNumericWindow = (value: number) =>
+      Number.isFinite(value) && value >= numericQuery && value < numericQueryUpper;
+
+    const filtered = candidates.filter((s) => {
+      const textFields = [
+        s.voucherNo,
+        s.customer?.name,
+        s.lot?.lotNumber,
+        s.godown?.name,
+        s.godown?.city?.name,
+        s.city?.name,
+        s.creator?.fullName,
+        s.status,
+        s.notes,
+        s.cancellationReason,
+        s.currency?.code,
+        s.currency?.symbol,
+        ...s.items.map((i: any) => i.product?.name),
+      ];
+      if (textFields.some(includesQuery)) return true;
+      if (statusQuery && s.status === statusQuery) return true;
+
+      const numericFields = [
+        Number(s.totalAmount || 0),
+        ...s.items.flatMap((i: any) => [Number(i.qty || 0), Number(i.ratePerCarton || 0), Number(i.amount || 0)]),
+      ];
+      if (numericFields.some((value) => numericContains(value))) return true;
+      if (hasNumericQuery && numericFields.some(inNumericWindow)) return true;
+      return false;
+    });
+
+    const total = filtered.length;
+    const pageItems = filtered.slice(skip, skip + limit);
+    return paginatedResponse(pageItems.map(formatSale), total, page, limit);
   } catch (error) {
     console.error("List sales error:", error);
     return serverError();
