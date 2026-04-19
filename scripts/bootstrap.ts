@@ -1,10 +1,53 @@
 import { execSync } from "node:child_process";
+import { readdirSync, statSync } from "node:fs";
+import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
 function run(cmd: string) {
   execSync(cmd, { stdio: "inherit" });
+}
+
+function listMigrationDirectories(): string[] {
+  const migrationsDir = path.join(process.cwd(), "prisma", "migrations");
+  const entries = readdirSync(migrationsDir);
+  return entries
+    .filter((name) => name !== "migration_lock.toml")
+    .filter((name) => statSync(path.join(migrationsDir, name)).isDirectory())
+    .sort();
+}
+
+function errorToText(error: unknown): string {
+  const e = error as any;
+  const stderr = Buffer.isBuffer(e?.stderr) ? e.stderr.toString("utf8") : String(e?.stderr || "");
+  const stdout = Buffer.isBuffer(e?.stdout) ? e.stdout.toString("utf8") : String(e?.stdout || "");
+  return `${e?.message || ""}\n${stderr}\n${stdout}`;
+}
+
+function isPrismaP3005(error: unknown): boolean {
+  const text = errorToText(error);
+  return /P3005/i.test(text) || /schema is not empty/i.test(text);
+}
+
+function deployMigrationsWithBaselineFallback() {
+  try {
+    run("npx prisma migrate deploy");
+    return;
+  } catch (error) {
+    if (!isPrismaP3005(error)) throw error;
+  }
+
+  const migrations = listMigrationDirectories();
+  if (!migrations.length) {
+    throw new Error("Cannot baseline existing database: no local migrations found.");
+  }
+
+  console.log("Detected non-empty database without baseline (P3005). Marking migrations as applied...");
+  for (const migration of migrations) {
+    run(`npx prisma migrate resolve --applied ${migration}`);
+  }
+  run("npx prisma migrate deploy");
 }
 
 async function main() {
@@ -18,9 +61,9 @@ async function main() {
   if (mode === "db_push") {
     run("npx prisma db push");
   } else if (mode === "migrate") {
-    run("npx prisma migrate deploy");
+    deployMigrationsWithBaselineFallback();
   } else if (isProduction) {
-    run("npx prisma migrate deploy");
+    deployMigrationsWithBaselineFallback();
   } else {
     run("npx prisma db push");
   }
