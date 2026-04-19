@@ -44,42 +44,53 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
       ? `Withdrawal approved: ${withdrawal.withdrawnBy} — ${withdrawal.detail}`
       : `Withdrawal approved: ${withdrawal.detail}`;
 
-    // Create HajiTransfer as an administrative link — no journal fired here.
-    // The WDRAW-{withdrawalId} journal already captured cash leaving (DR Owner Withdrawals / CR Cash).
-    // Creating another HAJI journal would double-credit cash for the same physical event.
-    const hajiTransfer = await prisma.hajiTransfer.create({
-      data: {
-        cityId: withdrawal.cityId,
-        lotId: lot.id,
-        transferDate: new Date(),
-        amount: withdrawal.amount,
-        currencyId: withdrawal.currencyId,
-        detail,
-        transferType: (withdrawal as any).sourceType === "cheque" ? "direct" : "from_in_hand",
-        sourceType: (withdrawal as any).sourceType === "cheque" ? "cheque" : "cash_office",
-        ...(withdrawal as any).chequePaymentId ? { chequePaymentId: (withdrawal as any).chequePaymentId } : {},
-        notes: withdrawal.notes,
-        createdBy: user.userId,
-      },
-    });
+    const now = new Date();
+    const hajiTransfer = await prisma.$transaction(async (tx) => {
+      // Create HajiTransfer as an administrative link — no journal fired here.
+      // The WDRAW-{withdrawalId} journal already captured cash leaving (DR Owner Withdrawals / CR Cash).
+      // Creating another HAJI journal would double-credit cash for the same physical event.
+      const createdTransfer = await tx.hajiTransfer.create({
+        data: {
+          cityId: withdrawal.cityId,
+          lotId: lot.id,
+          transferDate: now,
+          amount: withdrawal.amount,
+          currencyId: withdrawal.currencyId,
+          detail,
+          transferType: (withdrawal as any).sourceType === "cheque" ? "direct" : "from_in_hand",
+          sourceType: (withdrawal as any).sourceType === "cheque" ? "cheque" : "cash_office",
+          ...(withdrawal as any).chequePaymentId ? { chequePaymentId: (withdrawal as any).chequePaymentId } : {},
+          notes: withdrawal.notes,
+          createdBy: user.userId,
+        },
+      });
 
-    // Mark withdrawal as approved and link to haji transfer
-    await prisma.personalWithdrawal.update({
-      where: { id },
-      data: {
-        approvedBy: user.userId,
-        approvedAt: new Date(),
-        hajiTransferId: hajiTransfer.id,
-      },
-    });
+      // Concurrency-safe approval: only one approver can claim this withdrawal.
+      const approved = await tx.personalWithdrawal.updateMany({
+        where: { id, approvedAt: null },
+        data: {
+          approvedBy: user.userId,
+          approvedAt: now,
+          hajiTransferId: createdTransfer.id,
+        },
+      });
+      if (approved.count !== 1) {
+        throw new Error("ALREADY_APPROVED");
+      }
 
-    await createAuditLog(user.userId, withdrawal.cityId, "personal_withdrawals", id, "update",
-      { approvedBy: null }, { approvedBy: user.userId, hajiTransferId: hajiTransfer.id },
-      getClientIP(request)
-    );
+      await createAuditLog(user.userId, withdrawal.cityId, "personal_withdrawals", id, "update",
+        { approvedBy: null }, { approvedBy: user.userId, hajiTransferId: createdTransfer.id },
+        getClientIP(request),
+        tx
+      );
+      return createdTransfer;
+    });
 
     return successResponse({ hajiTransferId: hajiTransfer.id }, "Withdrawal approved and haji transfer created");
   } catch (error) {
+    if ((error as any)?.message === "ALREADY_APPROVED") {
+      return errorResponse("CONFLICT", "Already approved", 409);
+    }
     console.error("Approve withdrawal error:", error);
     return serverError();
   }

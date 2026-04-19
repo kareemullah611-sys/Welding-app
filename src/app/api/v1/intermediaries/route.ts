@@ -1,12 +1,12 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { withAuth, withSuperAdmin } from "@/lib/middleware";
+import { withSuperAdmin } from "@/lib/middleware";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 
-export const GET = withAuth(async (_request: NextRequest, _context: any, user: JWTPayload) => {
+export const GET = withSuperAdmin(async (_request: NextRequest, _context: any, _user: JWTPayload) => {
   const intermediaries = await prisma.intermediary.findMany({
-    where: user.role === "super_admin" ? {} : { isActive: true },
+    where: {},
     orderBy: { name: "asc" },
   });
   return successResponse(intermediaries);

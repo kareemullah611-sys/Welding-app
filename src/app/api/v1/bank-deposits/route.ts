@@ -273,6 +273,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           data: {
             chequeStatus: "deposited_to_bank",
             bankDepositId: deposit.id,
+            bankAccountId: parsedBankAccountId,
           },
         });
         if (result.count !== chequePaymentIds.length) {

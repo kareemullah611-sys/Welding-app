@@ -63,33 +63,36 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
 
   if (!(toAmount > 0)) return errorResponse("VALIDATION", "Calculated toAmount must be > 0", 400);
 
-  await reverseJournalEntries(`INTFX-OUT-${id}`, user.userId);
-  await reverseJournalEntries(`INTFX-IN-${id}`, user.userId);
+  const updated = await prisma.$transaction(async (tx) => {
+    await reverseJournalEntries(`INTFX-OUT-${id}`, user.userId, tx);
+    await reverseJournalEntries(`INTFX-IN-${id}`, user.userId, tx);
 
-  const updated = await prisma.intermediaryExchange.update({
-    where: { id },
-    data: {
-      exchangeDate: body.exchangeDate ? new Date(body.exchangeDate) : undefined,
-      baseCurrencyId,
-      quoteCurrencyId,
-      fromCurrencyId,
-      fromAmount,
-      toCurrencyId,
-      toAmount,
-      exchangeRate,
-      notes: body.notes !== undefined ? body.notes || null : undefined,
-    },
-  });
+    const next = await tx.intermediaryExchange.update({
+      where: { id },
+      data: {
+        exchangeDate: body.exchangeDate ? new Date(body.exchangeDate) : undefined,
+        baseCurrencyId,
+        quoteCurrencyId,
+        fromCurrencyId,
+        fromAmount,
+        toCurrencyId,
+        toAmount,
+        exchangeRate,
+        notes: body.notes !== undefined ? body.notes || null : undefined,
+      },
+    });
 
-  await journalIntermediaryExchange({
-    id: updated.id,
-    intermediaryId: updated.intermediaryId,
-    exchangeDate: updated.exchangeDate,
-    fromCurrencyCode: fromCurrency.code,
-    fromAmount: Number(updated.fromAmount),
-    toCurrencyCode: toCurrency.code,
-    toAmount: Number(updated.toAmount),
-    createdBy: user.userId,
+    await journalIntermediaryExchange({
+      id: next.id,
+      intermediaryId: next.intermediaryId,
+      exchangeDate: next.exchangeDate,
+      fromCurrencyCode: fromCurrency.code,
+      fromAmount: Number(next.fromAmount),
+      toCurrencyCode: toCurrency.code,
+      toAmount: Number(next.toAmount),
+      createdBy: user.userId,
+    });
+    return next;
   });
 
   return successResponse(updated, "Exchange updated");
@@ -102,16 +105,18 @@ export const DELETE = withSuperAdmin(async (_request: NextRequest, context: any,
   const existing = await prisma.intermediaryExchange.findUnique({ where: { id } });
   if (!existing || !existing.isActive) return errorResponse("NOT_FOUND", "Exchange not found", 404);
 
-  await reverseJournalEntries(`INTFX-OUT-${id}`, user.userId);
-  await reverseJournalEntries(`INTFX-IN-${id}`, user.userId);
+  await prisma.$transaction(async (tx) => {
+    await reverseJournalEntries(`INTFX-OUT-${id}`, user.userId, tx);
+    await reverseJournalEntries(`INTFX-IN-${id}`, user.userId, tx);
 
-  await prisma.intermediaryExchange.update({
-    where: { id },
-    data: {
-      isActive: false,
-      deletedAt: new Date(),
-      deletedBy: user.userId,
-    },
+    await tx.intermediaryExchange.update({
+      where: { id },
+      data: {
+        isActive: false,
+        deletedAt: new Date(),
+        deletedBy: user.userId,
+      },
+    });
   });
 
   return successResponse({ id }, "Exchange deleted");

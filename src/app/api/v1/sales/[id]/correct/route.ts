@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
-import { reverseJournalEntries, journalSaleCreated, journalSaleCOGS } from "@/lib/accounting";
+import { journalSaleCreated, journalSaleCOGS } from "@/lib/accounting";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 
@@ -129,13 +129,22 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     }));
     const totalAmount = roundMoney(newItemData.reduce((sum: number, i: { amount: number }) => sum + i.amount, 0));
 
-    // Reverse journals before mutation
-    try { await reverseJournalEntries(`SALE-${saleId}`, user.userId); } catch (_) {}
-    try { await reverseJournalEntries(`COGS-${saleId}`, user.userId); } catch (_) {}
-
-    // Fix P3: Wrap delete + create + sale update in one transaction so a failure cannot
-    // leave the sale with no items or a stale total while journals are already reversed.
     await prisma.$transaction(async (tx) => {
+      // Deterministically replace sale journals on correction to avoid cumulative
+      // reverse/repost drift when a sale is corrected multiple times.
+      await tx.journalEntry.deleteMany({
+        where: {
+          transactionId: {
+            in: [
+              `SALE-${saleId}`,
+              `REV-SALE-${saleId}`,
+              `COGS-${saleId}`,
+              `REV-COGS-${saleId}`,
+            ],
+          },
+        },
+      });
+
       await tx.saleItem.deleteMany({ where: { saleId } });
       await tx.saleItem.createMany({ data: newItemData });
       await tx.sale.update({
@@ -145,29 +154,26 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           notes: `${sale.notes || ""}\n[CORRECTION: ${reason}]`.trim(),
         },
       });
-    });
 
-    // Re-create journal entries with corrected total
-    try {
       await journalSaleCreated({
         id: saleId, customerId: sale.customerId, cityId: sale.cityId,
         lotId: sale.lotId!, totalAmount, currencyCode: (sale as any).currency?.code || "PKR",
         saleDate: sale.saleDate, createdBy: user.userId,
-      });
-    } catch (_) {}
-    try {
+      }, tx);
+
       const totalQtySold = newItemData.reduce((s: number, i: { qty: number }) => s + i.qty, 0);
       await journalSaleCOGS({
         saleId, lotId: sale.lotId!, totalQtySold,
         saleDate: sale.saleDate, cityId: sale.cityId, createdBy: user.userId,
-      });
-    } catch (_) {}
+      }, tx);
 
-    await createAuditLog(user.userId, sale.cityId, "sales", saleId, "update",
-      { items: oldItems, totalAmount: Number(sale.totalAmount) },
-      { items: newItemData.map(({ saleId: _s, ...rest }: any) => rest), totalAmount, reason, action: "correction" },
-      getClientIP(request)
-    );
+      await createAuditLog(user.userId, sale.cityId, "sales", saleId, "update",
+        { items: oldItems, totalAmount: Number(sale.totalAmount) },
+        { items: newItemData.map(({ saleId: _s, ...rest }: any) => rest), totalAmount, reason, action: "correction" },
+        getClientIP(request),
+        tx
+      );
+    });
 
     return successResponse({ saleId, totalAmount }, "Sale corrected successfully");
   } catch (error) {

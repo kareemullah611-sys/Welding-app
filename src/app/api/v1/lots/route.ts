@@ -78,12 +78,12 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       prisma.lot.count({ where }),
     ]);
 
-    // Sold cartons summary per lot (active sales only)
+    // Sold cartons summary per lot (active + marked_short both consume stock)
     const soldByLotId: Record<number, number> = {};
     const lotIds = lots.map((l) => l.id);
     if (lotIds.length > 0) {
       const lotSales = await prisma.sale.findMany({
-        where: { lotId: { in: lotIds }, status: "active" },
+        where: { lotId: { in: lotIds }, status: { in: ["active", "marked_short"] } },
         select: { lotId: true, items: { select: { qty: true } } },
       });
       for (const sale of lotSales) {
@@ -205,63 +205,63 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       }
     }
 
-    // Create lot
-    const lot = await prisma.lot.create({
-      data: { countryId, lotNumber, lotDate: new Date(lotDate), notes, createdBy: user.userId },
-    });
-
-    // Add LotProduct records (one per unique product, qty in cartons)
-    for (const [productId, totalQty] of Object.entries(productCartons)) {
-      await prisma.lotProduct.create({
-        data: { lotId: lot.id, productId: Number(productId), totalQty },
+    const lotFull = await prisma.$transaction(async (tx) => {
+      const lot = await tx.lot.create({
+        data: { countryId, lotNumber, lotDate: new Date(lotDate), notes, createdBy: user.userId },
       });
-    }
 
-    // Add LotPurchase records (one per invoice line item)
-    for (const item of purchaseItems) {
-      const totalPriceUsd = round2(item.qtyMt * item.unitPriceUsdPerMt);
-      const purchase = await prisma.lotPurchase.create({
-        data: {
-          lotId: lot.id,
-          supplierId: item.supplierId,
-          productId: item.productId,
-          qty: item.qtyMt,
-          weightPerCartonKg: item.weightPerCartonKg,
-          unitPriceUsd: item.unitPriceUsdPerMt,
-          totalPriceUsd,
-          createdBy: user.userId,
-        },
-      });
-      try {
-        await journalLotPurchase({ id: purchase.id, supplierId: item.supplierId, lotId: lot.id, totalUsd: totalPriceUsd, createdBy: user.userId });
-      } catch (je) { console.error("Journal (lot purchase):", je); }
-    }
-
-    // Add distributions if provided
-    if (distributions && distributions.length > 0) {
-      for (const d of distributions) {
-        await prisma.lotCityDistribution.create({
-          data: { lotId: lot.id, cityId: d.cityId, productId: d.productId, allocatedQty: d.allocatedQty },
+      for (const [productId, totalQty] of Object.entries(productCartons)) {
+        await tx.lotProduct.create({
+          data: { lotId: lot.id, productId: Number(productId), totalQty },
         });
       }
-    }
 
-    // Refetch with full includes
-    const lotFull = await prisma.lot.findUnique({
-      where: { id: lot.id },
-      include: {
-        country: true,
-        lotProducts: { include: { product: true } },
-        lotPurchases: { include: { supplier: { select: { id: true, name: true } }, product: { select: { id: true, name: true } } } },
-        lotCityDistributions: { include: { city: true, product: true } },
-        creator: { select: { id: true, fullName: true } },
-      },
+      for (const item of purchaseItems) {
+        const totalPriceUsd = round2(item.qtyMt * item.unitPriceUsdPerMt);
+        const purchase = await tx.lotPurchase.create({
+          data: {
+            lotId: lot.id,
+            supplierId: item.supplierId,
+            productId: item.productId,
+            qty: item.qtyMt,
+            weightPerCartonKg: item.weightPerCartonKg,
+            unitPriceUsd: item.unitPriceUsdPerMt,
+            totalPriceUsd,
+            createdBy: user.userId,
+          },
+        });
+        await journalLotPurchase(
+          { id: purchase.id, supplierId: item.supplierId, lotId: lot.id, totalUsd: totalPriceUsd, createdBy: user.userId },
+          tx
+        );
+      }
+
+      if (distributions && distributions.length > 0) {
+        for (const d of distributions) {
+          await tx.lotCityDistribution.create({
+            data: { lotId: lot.id, cityId: d.cityId, productId: d.productId, allocatedQty: d.allocatedQty },
+          });
+        }
+      }
+
+      const createdLot = await tx.lot.findUnique({
+        where: { id: lot.id },
+        include: {
+          country: true,
+          lotProducts: { include: { product: true } },
+          lotPurchases: { include: { supplier: { select: { id: true, name: true } }, product: { select: { id: true, name: true } } } },
+          lotCityDistributions: { include: { city: true, product: true } },
+          creator: { select: { id: true, fullName: true } },
+        },
+      });
+      if (!createdLot) throw new Error("LOT_CREATE_FETCH_FAILED");
+
+      await createAuditLog(user.userId, null, "lots", createdLot.id, "create", undefined, {
+        lotNumber, countryId, purchaseItems, distributions,
+      }, getClientIP(request), tx);
+
+      return createdLot;
     });
-    if (!lotFull) return serverError();
-
-    await createAuditLog(user.userId, null, "lots", lotFull.id, "create", undefined, {
-      lotNumber, countryId, purchaseItems, distributions,
-    }, getClientIP(request));
 
     const totalUsd = lotFull.lotPurchases.reduce((s, p) => s + Number(p.totalPriceUsd), 0);
 

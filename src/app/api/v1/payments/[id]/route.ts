@@ -172,35 +172,48 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       ...(payment.notes ? { notes: payment.notes } : {}),
     };
 
-    const updated = await prisma.payment.update({
-      where: { id },
-      data: {
-        detail: body.detail || payment.detail,
-        amount: body.amount || payment.amount,
-        notes: body.notes !== undefined ? body.notes : payment.notes,
-        updatedAt: new Date(),
-      },
-    });
+    const updated = await prisma.$transaction(async (tx) => {
+      const next = await tx.payment.update({
+        where: { id },
+        data: {
+          detail: body.detail || payment.detail,
+          amount: body.amount || payment.amount,
+          notes: body.notes !== undefined ? body.notes : payment.notes,
+          updatedAt: new Date(),
+        },
+      });
 
-    // If amount changed, reverse old journal and re-create with updated amount
-    if (amountChanged) {
-      try {
-        await reverseJournalEntries(`PAY-${id}`, user.userId);
+      if (amountChanged) {
+        await tx.journalEntry.deleteMany({
+          where: {
+            transactionId: {
+              in: [`PAY-${id}`, `REV-PAY-${id}`],
+            },
+          },
+        });
         const isCheque = (payment as any).paymentMethod === "cheque" && (payment as any).destination === "our_account";
         const journalFn = isCheque ? journalChequeReceived : journalPaymentReceived;
         await journalFn({
-          id, customerId: payment.customerId, cityId: payment.cityId, lotId: payment.lotId,
-          amount: Number(updated.amount), currencyCode: payment.currency.code,
-          paymentDate: payment.paymentDate, createdBy: user.userId,
-        });
-      } catch (je) { console.error("Journal re-entry error (payment edit):", je); }
-    }
+          id,
+          customerId: payment.customerId,
+          cityId: payment.cityId,
+          lotId: payment.lotId,
+          amount: Number(next.amount),
+          currencyCode: payment.currency.code,
+          paymentDate: payment.paymentDate,
+          createdBy: user.userId,
+        }, tx);
+      }
 
-    await createAuditLog(user.userId, payment.cityId, "payments", id, "update", old, {
-      detail: updated.detail,
-      amount: `${sym} ${Number(updated.amount).toLocaleString("en-US")}`,
-      ...(updated.notes ? { notes: updated.notes } : {}),
-    }, getClientIP(request));
+      await createAuditLog(user.userId, payment.cityId, "payments", id, "update", old, {
+        detail: next.detail,
+        amount: `${sym} ${Number(next.amount).toLocaleString("en-US")}`,
+        ...(next.notes ? { notes: next.notes } : {}),
+      }, getClientIP(request), tx);
+
+      return next;
+    });
+
     return successResponse({ id }, "Payment updated");
   } catch (error) {
     return serverError();

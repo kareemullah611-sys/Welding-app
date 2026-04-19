@@ -16,41 +16,49 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       return errorResponse("VALIDATION_ERROR", "Cannot change the amount of a withdrawal that was funded by a cheque");
     }
 
-    const amountChanged = body.amount !== undefined && Number(body.amount) !== Number(w.amount);
+    await prisma.$transaction(async (tx) => {
+      await tx.journalEntry.deleteMany({
+        where: {
+          transactionId: {
+            in: [`WDRAW-${id}`, `REV-WDRAW-${id}`],
+          },
+        },
+      });
 
-    // Reverse old WDRAW journal when amount changes so the GL stays correct
-    if (amountChanged) {
-      try { await reverseJournalEntries(`WDRAW-${id}`, user.userId); } catch (je) { console.error("Reverse journal (withdrawal edit):", je); }
-    }
+      const updated = await tx.personalWithdrawal.update({
+        where: { id },
+        data: {
+          amount: body.amount || w.amount,
+          detail: body.detail || w.detail,
+          withdrawnBy: body.withdrawnBy !== undefined ? body.withdrawnBy : w.withdrawnBy,
+          notes: body.notes !== undefined ? body.notes : w.notes,
+          updatedAt: new Date(),
+        },
+      });
 
-    const updated = await prisma.personalWithdrawal.update({
-      where: { id },
-      data: {
-        amount: body.amount || w.amount,
-        detail: body.detail || w.detail,
-        withdrawnBy: body.withdrawnBy !== undefined ? body.withdrawnBy : w.withdrawnBy,
-        notes: body.notes !== undefined ? body.notes : w.notes,
-        updatedAt: new Date(),
-      },
+      await journalWithdrawal({
+        id,
+        cityId: w.cityId,
+        amount: Number(updated.amount),
+        currencyCode: w.currency.code,
+        date: w.withdrawalDate,
+        createdBy: user.userId,
+        sourceType: (w as any).sourceType ?? "cash_office",
+      }, tx);
+
+      await createAuditLog(
+        user.userId,
+        w.cityId,
+        "personal_withdrawals",
+        id,
+        "update",
+        { amount: Number(w.amount), withdrawnBy: w.withdrawnBy, detail: w.detail, notes: w.notes },
+        { amount: Number(updated.amount), withdrawnBy: updated.withdrawnBy, detail: updated.detail, notes: updated.notes },
+        getClientIP(request),
+        tx
+      );
     });
 
-    // Re-journal with new amount
-    if (amountChanged) {
-      try {
-        await journalWithdrawal({ id, cityId: w.cityId, amount: Number(updated.amount), currencyCode: w.currency.code, date: w.withdrawalDate, createdBy: user.userId, sourceType: (w as any).sourceType ?? "cash_office" });
-      } catch (je) { console.error("Re-journal (withdrawal edit):", je); }
-    }
-
-    await createAuditLog(
-      user.userId,
-      w.cityId,
-      "personal_withdrawals",
-      id,
-      "update",
-      { amount: Number(w.amount), withdrawnBy: w.withdrawnBy, detail: w.detail, notes: w.notes },
-      { amount: Number(updated.amount), withdrawnBy: updated.withdrawnBy, detail: updated.detail, notes: updated.notes },
-      getClientIP(request)
-    );
     return successResponse({ id }, "Updated");
   } catch (error) { return serverError(); }
 });
@@ -62,30 +70,29 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
     if (!w) return errorResponse("NOT_FOUND", "Not found", 404);
     if (user.role === "city_admin" && w.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
 
-    // Reverse the WDRAW journal (cash was credited on create, must be reversed on delete)
-    try { await reverseJournalEntries(`WDRAW-${id}`, user.userId); } catch (je) { console.error("Reverse journal (withdrawal delete):", je); }
+    await prisma.$transaction(async (tx) => {
+      // Reverse the WDRAW journal (cash was credited on create, must be reversed on delete)
+      await reverseJournalEntries(`WDRAW-${id}`, user.userId, tx);
 
-    if ((w as any).chequePaymentId) {
-      try {
-        await prisma.payment.update({
+      if ((w as any).chequePaymentId) {
+        await tx.payment.update({
           where: { id: (w as any).chequePaymentId },
           data: { chequeStatus: "in_hand" } as any,
         });
-      } catch (je) { console.error("Restore cheque status (withdrawal delete):", je); }
-    }
+      }
 
-    // If this withdrawal was approved and linked to a haji transfer, also reverse that
-    // haji transfer's journal and delete the record so no orphan exists.
-    // Note: the approve route no longer creates a HAJI journal, so this reversal is
-    // a no-op for new records — it only cleans up legacy data where HAJI was journaled.
-    const hajiTransferId = (w as any).hajiTransferId;
-    if (hajiTransferId) {
-      try { await reverseJournalEntries(`HAJI-${hajiTransferId}`, user.userId); } catch (_) {}
-      try { await prisma.hajiTransfer.delete({ where: { id: hajiTransferId } }); } catch (je) { console.error("Delete linked haji transfer (withdrawal delete):", je); }
-    }
+      // If this withdrawal was approved and linked to a haji transfer, also reverse that
+      // haji transfer's journal and delete the record so no orphan exists.
+      const hajiTransferId = (w as any).hajiTransferId;
+      if (hajiTransferId) {
+        await reverseJournalEntries(`HAJI-${hajiTransferId}`, user.userId, tx);
+        await tx.hajiTransfer.delete({ where: { id: hajiTransferId } });
+      }
 
-    await prisma.personalWithdrawal.delete({ where: { id } });
-    await createAuditLog(user.userId, w.cityId, "personal_withdrawals", id, "delete", undefined, undefined, getClientIP(request));
+      await tx.personalWithdrawal.delete({ where: { id } });
+      await createAuditLog(user.userId, w.cityId, "personal_withdrawals", id, "delete", undefined, undefined, getClientIP(request), tx);
+    });
+
     return successResponse({ id }, "Deleted");
   } catch (error) { return serverError(); }
 });

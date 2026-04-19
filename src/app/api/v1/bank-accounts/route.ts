@@ -123,15 +123,24 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         where: cityId ? { cityId } : {},
         _sum: { cashAmount: true },
       }),
-      prisma.payment.groupBy({
-        by: ["bankAccountId", "currencyId"],
+      prisma.payment.findMany({
         where: {
           bankDepositId: { not: null },
-          bankAccountId: { not: null },
+          paymentMethod: "cheque",
           status: "active",
           ...(cityId ? { cityId } : {}),
         },
-        _sum: { amount: true },
+        select: {
+          bankAccountId: true,
+          bankDepositId: true,
+          currencyId: true,
+          amount: true,
+          bankDeposit: {
+            select: {
+              bankAccountId: true,
+            },
+          },
+        },
       }),
       prisma.expense.groupBy({
         by: ["bankAccountId", "currencyId"],
@@ -223,7 +232,17 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     };
     for (const row of paymentsIn) addBalance(row.bankAccountId, row.currencyId, Number(row._sum.amount || 0));
     for (const row of deposits) addBalance(row.bankAccountId, row.currencyId, Number(row._sum.cashAmount || 0));
-    for (const row of depositedCheques) addBalance(row.bankAccountId, row.currencyId, Number(row._sum.amount || 0));
+    const depositedChequeTotals = new Map<string, number>();
+    for (const row of depositedCheques) {
+      const effectiveBankAccountId = row.bankAccountId ?? row.bankDeposit?.bankAccountId ?? null;
+      if (!effectiveBankAccountId) continue;
+      const key = `${effectiveBankAccountId}:${row.currencyId}`;
+      depositedChequeTotals.set(key, (depositedChequeTotals.get(key) || 0) + Number(row.amount || 0));
+    }
+    for (const [key, total] of depositedChequeTotals.entries()) {
+      const [accountIdStr, currencyIdStr] = key.split(":");
+      addBalance(Number(accountIdStr), Number(currencyIdStr), total);
+    }
     for (const row of expenses) addBalance(row.bankAccountId, row.currencyId, -Number(row._sum.amount || 0));
     for (const row of hajiTransfers) addBalance(row.bankAccountId, row.currencyId, -Number(row._sum.amount || 0));
     for (const row of supplierPayments) {

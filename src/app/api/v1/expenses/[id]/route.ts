@@ -38,23 +38,52 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 
     const old = { amount: Number(expense.amount), detail: expense.detail };
 
-    try { await reverseJournalEntries(`EXP-${id}`, user.userId); } catch (je) { console.error("Reverse journal (expense):", je); }
+    await prisma.$transaction(async (tx) => {
+      await tx.journalEntry.deleteMany({
+        where: {
+          transactionId: {
+            in: [`EXP-${id}`, `REV-EXP-${id}`],
+          },
+        },
+      });
 
-    const updated = await prisma.expense.update({
-      where: { id },
-      data: {
-        amount: body.amount || expense.amount,
-        detail: body.detail || expense.detail,
-        notes: body.notes !== undefined ? body.notes : expense.notes,
-        updatedAt: new Date(),
-      },
+      const next = await tx.expense.update({
+        where: { id },
+        data: {
+          amount: body.amount || expense.amount,
+          detail: body.detail || expense.detail,
+          notes: body.notes !== undefined ? body.notes : expense.notes,
+          updatedAt: new Date(),
+        },
+      });
+
+      await journalExpenseCreated({
+        id,
+        cityId: expense.cityId,
+        lotId: expense.lotId!,
+        amount: Number(next.amount),
+        currencyCode: expense.currency.code,
+        detail: next.detail,
+        expenseDate: expense.expenseDate,
+        createdBy: user.userId,
+        paidFrom: (expense as any).paidFrom ?? "cash_office",
+        bankAccountId: (expense as any).bankAccountId ?? null,
+      }, tx);
+
+      await createAuditLog(
+        user.userId,
+        expense.cityId,
+        "expenses",
+        id,
+        "update",
+        old,
+        { amount: Number(next.amount), detail: next.detail },
+        getClientIP(request),
+        tx
+      );
+
     });
 
-    try {
-      await journalExpenseCreated({ id, cityId: expense.cityId, lotId: expense.lotId!, amount: Number(updated.amount), currencyCode: expense.currency.code, detail: updated.detail, expenseDate: expense.expenseDate, createdBy: user.userId, paidFrom: (expense as any).paidFrom ?? "cash_office", bankAccountId: (expense as any).bankAccountId ?? null });
-    } catch (je) { console.error("Re-journal (expense):", je); }
-
-    await createAuditLog(user.userId, expense.cityId, "expenses", id, "update", old, { amount: Number(updated.amount), detail: updated.detail }, getClientIP(request));
     return successResponse({ id }, "Expense updated");
   } catch (error) { return serverError(); }
 });
@@ -66,21 +95,31 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
     if (!expense || expense.deletedAt !== null) return errorResponse("NOT_FOUND", "Expense not found", 404);
     if (user.role === "city_admin" && expense.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
 
-    try { await reverseJournalEntries(`EXP-${id}`, user.userId); } catch (je) { console.error("Reverse journal (expense delete):", je); }
+    await prisma.$transaction(async (tx) => {
+      await reverseJournalEntries(`EXP-${id}`, user.userId, tx);
 
-    if ((expense as any).chequePaymentId) {
-      try {
-        await prisma.payment.update({
+      if ((expense as any).chequePaymentId) {
+        await tx.payment.update({
           where: { id: (expense as any).chequePaymentId },
           data: { chequeStatus: "in_hand" } as any,
         });
-      } catch (je) { console.error("Restore cheque status (expense delete):", je); }
-    }
+      }
 
-    await prisma.expense.update({ where: { id }, data: { deletedAt: new Date() } });
+      await tx.expense.update({ where: { id }, data: { deletedAt: new Date() } });
 
-    await createAuditLog(user.userId, expense.cityId, "expenses", id, "delete",
-      { amount: Number(expense.amount), detail: expense.detail }, undefined, getClientIP(request));
+      await createAuditLog(
+        user.userId,
+        expense.cityId,
+        "expenses",
+        id,
+        "delete",
+        { amount: Number(expense.amount), detail: expense.detail },
+        undefined,
+        getClientIP(request),
+        tx
+      );
+    });
+
     return successResponse({ id }, "Expense deleted");
   } catch (error) { return serverError(); }
 });

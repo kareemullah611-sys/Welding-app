@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { withAuth, withSuperAdmin } from "@/lib/middleware";
+import { withSuperAdmin } from "@/lib/middleware";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 
-export const GET = withAuth(async (_request: NextRequest, context: any, _user: JWTPayload) => {
+export const GET = withSuperAdmin(async (_request: NextRequest, context: any, _user: JWTPayload) => {
   const id = parseInt(context.params.id);
   const intermediary = await prisma.intermediary.findUnique({ where: { id } });
   if (!intermediary) return errorResponse("NOT_FOUND", "Not found", 404);

@@ -20,24 +20,50 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     }
     const forcedTransferredTo = city?.country?.name === "Pakistan" ? PAKISTAN_HAJI_TARGET : (body.transferredTo !== undefined ? body.transferredTo : h.transferredTo);
 
-    try { await reverseJournalEntries(`HAJI-${id}`, user.userId); } catch (je) { console.error("Reverse journal (haji):", je); }
+    await prisma.$transaction(async (tx) => {
+      await tx.journalEntry.deleteMany({
+        where: {
+          transactionId: {
+            in: [`HAJI-${id}`, `REV-HAJI-${id}`],
+          },
+        },
+      });
 
-    const updated = await prisma.hajiTransfer.update({
-      where: { id },
-      data: {
-        amount: body.amount || h.amount,
-        detail: body.detail || h.detail,
-        transferredTo: forcedTransferredTo,
-        notes: body.notes !== undefined ? body.notes : h.notes,
-        updatedAt: new Date(),
-      },
+      const updated = await tx.hajiTransfer.update({
+        where: { id },
+        data: {
+          amount: body.amount || h.amount,
+          detail: body.detail || h.detail,
+          transferredTo: forcedTransferredTo,
+          notes: body.notes !== undefined ? body.notes : h.notes,
+          updatedAt: new Date(),
+        },
+      });
+
+      await journalHajiTransfer({
+        id,
+        cityId: h.cityId,
+        amount: Number(updated.amount),
+        currencyCode: h.currency.code,
+        date: h.transferDate,
+        createdBy: user.userId,
+        sourceType: (h as any).sourceType ?? null,
+        bankAccountId: (h as any).bankAccountId ?? null,
+      }, tx);
+
+      await createAuditLog(
+        user.userId,
+        h.cityId,
+        "haji_transfers",
+        id,
+        "update",
+        { amount: Number(h.amount) },
+        { amount: Number(updated.amount) },
+        getClientIP(request),
+        tx
+      );
     });
 
-    try {
-      await journalHajiTransfer({ id, cityId: h.cityId, amount: Number(updated.amount), currencyCode: h.currency.code, date: h.transferDate, createdBy: user.userId, sourceType: (h as any).sourceType ?? null, bankAccountId: (h as any).bankAccountId ?? null });
-    } catch (je) { console.error("Re-journal (haji):", je); }
-
-    await createAuditLog(user.userId, h.cityId, "haji_transfers", id, "update", { amount: Number(h.amount) }, { amount: Number(updated.amount) }, getClientIP(request));
     return successResponse({ id }, "Updated");
   } catch (error) { return serverError(); }
 });
@@ -49,20 +75,20 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
     if (!h) return errorResponse("NOT_FOUND", "Not found", 404);
     if (user.role === "city_admin" && h.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
 
-    try { await reverseJournalEntries(`HAJI-${id}`, user.userId); } catch (je) { console.error("Reverse journal (haji delete):", je); }
+    await prisma.$transaction(async (tx) => {
+      await reverseJournalEntries(`HAJI-${id}`, user.userId, tx);
 
-    // Fix: if this transfer was sourced from a cheque, restore chequeStatus → "in_hand"
-    // so the cheque can be deposited or used again. Without this the cheque is permanently
-    // stuck in "sent_to_haji" with no transfer to show for it.
-    const chequePaymentId = (h as any).chequePaymentId;
-    if (chequePaymentId) {
-      try {
-        await prisma.payment.update({ where: { id: chequePaymentId }, data: { chequeStatus: "in_hand" } as any });
-      } catch (je) { console.error("Restore cheque status (haji delete):", je); }
-    }
+      // If this transfer was sourced from a cheque, restore chequeStatus → "in_hand"
+      // so the cheque can be deposited or used again.
+      const chequePaymentId = (h as any).chequePaymentId;
+      if (chequePaymentId) {
+        await tx.payment.update({ where: { id: chequePaymentId }, data: { chequeStatus: "in_hand" } as any });
+      }
 
-    await prisma.hajiTransfer.delete({ where: { id } });
-    await createAuditLog(user.userId, h.cityId, "haji_transfers", id, "delete", undefined, undefined, getClientIP(request));
+      await tx.hajiTransfer.delete({ where: { id } });
+      await createAuditLog(user.userId, h.cityId, "haji_transfers", id, "delete", undefined, undefined, getClientIP(request), tx);
+    });
+
     return successResponse({ id }, "Deleted");
   } catch (error) { return serverError(); }
 });

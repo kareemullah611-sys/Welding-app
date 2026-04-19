@@ -188,7 +188,15 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           orderBy: [{ depositDate: "asc" }, { createdAt: "asc" }],
         }),
         prisma.payment.findMany({
-          where: { bankAccountId: id, bankDepositId: { not: null }, status: "active" },
+          where: {
+            bankDepositId: { not: null },
+            paymentMethod: "cheque",
+            status: "active",
+            OR: [
+              { bankAccountId: id },
+              { bankDeposit: { bankAccountId: id } },
+            ],
+          },
           select: { id: true, paymentDate: true, createdAt: true, amount: true, chequeNumber: true, currencyId: true },
           orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
         }),
