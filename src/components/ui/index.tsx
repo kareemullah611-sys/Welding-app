@@ -200,36 +200,6 @@ export function DataTable<T extends Record<string, any>>({
   }, [activeSearch, columns, data, minChars, searchable]);
 
   const showSearchMeta = searchable && activeSearch.length > 0;
-  if (loading) {
-    return (
-      <div className="rounded-[1.4rem] border border-white/70 bg-white/85 shadow-[0_26px_70px_-42px_rgba(51,42,33,0.35)] backdrop-blur-xl">
-        <div className="overflow-visible">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-[#f8f1e7] hover:bg-[#f8f1e7]">
-                {columns.map((col) => (
-                  <TableHead key={col.key} className={cn("text-xs font-semibold text-gray-500 uppercase tracking-wider", col.className)}>
-                    {col.label}
-                  </TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {Array.from({ length: 6 }).map((_, i) => (
-                <TableRow key={i} className="hover:bg-transparent">
-                  {columns.map((col) => (
-                    <TableCell key={col.key}>
-                      <Skeleton className="h-4 w-3/4 rounded" />
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="rounded-[1.4rem] border border-white/70 bg-white/85 shadow-[0_26px_70px_-42px_rgba(51,42,33,0.35)] backdrop-blur-xl">
@@ -270,7 +240,17 @@ export function DataTable<T extends Record<string, any>>({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredData.length === 0 ? (
+            {loading ? (
+              Array.from({ length: 6 }).map((_, i) => (
+                <TableRow key={i} className="hover:bg-transparent">
+                  {columns.map((col) => (
+                    <TableCell key={col.key}>
+                      <Skeleton className="h-4 w-3/4 rounded" />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : filteredData.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={columns.length} className="py-16 text-center">
                   <div className="flex flex-col items-center gap-2">
