@@ -9,6 +9,10 @@ function run(cmd: string) {
   execSync(cmd, { stdio: "inherit" });
 }
 
+function runCapture(cmd: string) {
+  execSync(cmd, { stdio: "pipe" });
+}
+
 function listMigrationDirectories(): string[] {
   const migrationsDir = path.join(process.cwd(), "prisma", "migrations");
   const entries = readdirSync(migrationsDir);
@@ -30,9 +34,14 @@ function isPrismaP3005(error: unknown): boolean {
   return /P3005/i.test(text) || /schema is not empty/i.test(text);
 }
 
+function isAlreadyAppliedMigration(error: unknown): boolean {
+  const text = errorToText(error);
+  return /P3008/i.test(text) || /already recorded as applied/i.test(text);
+}
+
 function deployMigrationsWithBaselineFallback() {
   try {
-    run("npx prisma migrate deploy");
+    runCapture("npx prisma migrate deploy");
     return;
   } catch (error) {
     if (!isPrismaP3005(error)) throw error;
@@ -45,7 +54,11 @@ function deployMigrationsWithBaselineFallback() {
 
   console.log("Detected non-empty database without baseline (P3005). Marking migrations as applied...");
   for (const migration of migrations) {
-    run(`npx prisma migrate resolve --applied ${migration}`);
+    try {
+      runCapture(`npx prisma migrate resolve --applied ${migration}`);
+    } catch (error) {
+      if (!isAlreadyAppliedMigration(error)) throw error;
+    }
   }
   run("npx prisma migrate deploy");
 }
