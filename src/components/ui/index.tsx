@@ -173,10 +173,18 @@ export function DataTable<T extends Record<string, any>>({
   pagination,
 }: DataTableProps<T>) {
   const [internalSearch, setInternalSearch] = useState("");
+  const [selectedSearchColumn, setSelectedSearchColumn] = useState("__all__");
+  const [activeMatchIndex, setActiveMatchIndex] = useState(-1);
   const pathname = usePathname();
   const restoredSearchRef = useRef(false);
+  const restoredColumnRef = useRef(false);
+  const rowRefs = useRef<Array<HTMLTableRowElement | null>>([]);
   const minChars = Math.max(1, searchMinChars || 2);
   const activeSearch = (searchValue ?? internalSearch).trim();
+  const searchableColumns = useMemo(
+    () => columns.filter((col) => Boolean(col.label) && col.key !== "actions"),
+    [columns]
+  );
   const searchStorageKey = useMemo(() => {
     const normalizedPlaceholder = String(searchPlaceholder || "search")
       .toLowerCase()
@@ -184,9 +192,11 @@ export function DataTable<T extends Record<string, any>>({
       .replace(/^_+|_+$/g, "");
     return `datatable:search:${pathname}:${normalizedPlaceholder || "search"}`;
   }, [pathname, searchPlaceholder]);
+  const columnStorageKey = useMemo(() => `${searchStorageKey}:column`, [searchStorageKey]);
 
   useEffect(() => {
     restoredSearchRef.current = false;
+    restoredColumnRef.current = false;
   }, [searchStorageKey]);
 
   useEffect(() => {
@@ -212,6 +222,21 @@ export function DataTable<T extends Record<string, any>>({
     window.sessionStorage.removeItem(searchStorageKey);
   }, [internalSearch, searchStorageKey, searchable, searchValue]);
 
+  useEffect(() => {
+    if (!searchable || restoredColumnRef.current || typeof window === "undefined") return;
+    const storedColumn = window.sessionStorage.getItem(columnStorageKey);
+    if (!storedColumn) return;
+    if (storedColumn === "__all__" || searchableColumns.some((col) => col.key === storedColumn)) {
+      setSelectedSearchColumn(storedColumn);
+    }
+    restoredColumnRef.current = true;
+  }, [columnStorageKey, searchable, searchableColumns]);
+
+  useEffect(() => {
+    if (!searchable || typeof window === "undefined") return;
+    window.sessionStorage.setItem(columnStorageKey, selectedSearchColumn);
+  }, [columnStorageKey, searchable, selectedSearchColumn]);
+
   const normalizeForSearch = (value: unknown): string => {
     if (value == null) return "";
     if (typeof value === "string") return value;
@@ -226,6 +251,9 @@ export function DataTable<T extends Record<string, any>>({
     if (!searchable || activeSearch.length < minChars) return data;
     const needle = activeSearch.toLowerCase();
     return data.filter((item) => {
+      if (selectedSearchColumn !== "__all__") {
+        return normalizeForSearch(item[selectedSearchColumn]).toLowerCase().includes(needle);
+      }
       const byColumns = columns
         .map((col) => normalizeForSearch(item[col.key]))
         .join(" ")
@@ -234,7 +262,20 @@ export function DataTable<T extends Record<string, any>>({
       const byRow = normalizeForSearch(item).toLowerCase();
       return byRow.includes(needle);
     });
-  }, [activeSearch, columns, data, minChars, searchable]);
+  }, [activeSearch, columns, data, minChars, searchable, selectedSearchColumn]);
+
+  useEffect(() => {
+    if (!activeSearch || activeSearch.length < minChars || filteredData.length === 0) {
+      setActiveMatchIndex(-1);
+      return;
+    }
+    setActiveMatchIndex((current) => (current >= 0 && current < filteredData.length ? current : 0));
+  }, [activeSearch, filteredData.length, minChars]);
+
+  useEffect(() => {
+    if (activeMatchIndex < 0) return;
+    rowRefs.current[activeMatchIndex]?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [activeMatchIndex]);
 
   const showSearchMeta = searchable && activeSearch.length > 0;
 
@@ -242,17 +283,47 @@ export function DataTable<T extends Record<string, any>>({
     <div className="rounded-[1.4rem] border border-white/70 bg-white/85 shadow-[0_26px_70px_-42px_rgba(51,42,33,0.35)] backdrop-blur-xl">
       {searchable && (
         <div className="flex flex-col gap-1 border-b border-[#efe2d3] bg-[#fbf6ef]/80 px-4 py-3">
-          <input
-            type="search"
-            value={searchValue ?? internalSearch}
-            onChange={(e) => {
-              const next = e.target.value;
-              if (onSearchChange) onSearchChange(next);
-              else setInternalSearch(next);
-            }}
-            placeholder={searchPlaceholder}
-            className="input-field h-9 w-full sm:max-w-sm"
-          />
+          <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center">
+            <input
+              type="search"
+              value={searchValue ?? internalSearch}
+              onChange={(e) => {
+                const next = e.target.value;
+                if (onSearchChange) onSearchChange(next);
+                else setInternalSearch(next);
+              }}
+              onKeyDown={(event) => {
+                if (!["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
+                if (activeSearch.length < minChars || filteredData.length === 0) return;
+                event.preventDefault();
+                setActiveMatchIndex((current) => {
+                  const start = current >= 0 ? current : 0;
+                  if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+                    return (start + 1) % filteredData.length;
+                  }
+                  return (start - 1 + filteredData.length) % filteredData.length;
+                });
+              }}
+              placeholder={searchPlaceholder}
+              className="input-field h-9 w-full sm:max-w-sm"
+            />
+            <select
+              value={selectedSearchColumn}
+              onChange={(event) => {
+                setSelectedSearchColumn(event.target.value);
+                setActiveMatchIndex(-1);
+              }}
+              className="input-field h-9 w-full text-sm sm:w-56"
+              aria-label="Search specific column"
+            >
+              <option value="__all__">All Columns</option>
+              {searchableColumns.map((col) => (
+                <option key={col.key} value={col.key}>
+                  {col.label}
+                </option>
+              ))}
+            </select>
+          </div>
           {showSearchMeta && activeSearch.length < minChars && (
             <p className="text-[11px] text-gray-500">
               Type at least {minChars} characters to filter this list.
@@ -260,7 +331,8 @@ export function DataTable<T extends Record<string, any>>({
           )}
           {showSearchMeta && activeSearch.length >= minChars && (
             <p className="text-[11px] text-gray-500">
-              Showing {filteredData.length} matching record{filteredData.length === 1 ? "" : "s"}.
+              Showing {filteredData.length} matching record{filteredData.length === 1 ? "" : "s"}
+              {activeMatchIndex >= 0 ? ` · Selected ${activeMatchIndex + 1}/${filteredData.length}` : ""}.
             </p>
           )}
         </div>
@@ -300,9 +372,11 @@ export function DataTable<T extends Record<string, any>>({
               filteredData.map((item, idx) => (
                 <TableRow
                   key={idx}
+                  ref={(node) => { rowRefs.current[idx] = node; }}
                   onClick={() => onRowClick?.(item)}
                   className={cn(
                     "border-b border-[#f3e8db] transition-colors",
+                    activeMatchIndex === idx && "bg-[#eef4ff] shadow-[inset_3px_0_0_0_#3b82f6]",
                     onRowClick ? "cursor-pointer hover:bg-[#fff4ea]" : "hover:bg-[#fcf6ef]"
                   )}
                 >
