@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { usePathname } from "next/navigation";
 import {
   Dialog,
   DialogContent,
@@ -172,8 +173,44 @@ export function DataTable<T extends Record<string, any>>({
   pagination,
 }: DataTableProps<T>) {
   const [internalSearch, setInternalSearch] = useState("");
+  const pathname = usePathname();
+  const restoredSearchRef = useRef(false);
   const minChars = Math.max(1, searchMinChars || 2);
   const activeSearch = (searchValue ?? internalSearch).trim();
+  const searchStorageKey = useMemo(() => {
+    const normalizedPlaceholder = String(searchPlaceholder || "search")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    return `datatable:search:${pathname}:${normalizedPlaceholder || "search"}`;
+  }, [pathname, searchPlaceholder]);
+
+  useEffect(() => {
+    restoredSearchRef.current = false;
+  }, [searchStorageKey]);
+
+  useEffect(() => {
+    if (!searchable || restoredSearchRef.current || typeof window === "undefined") return;
+    const stored = window.sessionStorage.getItem(searchStorageKey);
+    if (!stored) return;
+
+    restoredSearchRef.current = true;
+    if (onSearchChange) {
+      if ((searchValue ?? "") !== stored) onSearchChange(stored);
+      return;
+    }
+    setInternalSearch(stored);
+  }, [onSearchChange, searchStorageKey, searchable, searchValue]);
+
+  useEffect(() => {
+    if (!searchable || typeof window === "undefined") return;
+    const currentSearch = searchValue ?? internalSearch;
+    if (currentSearch) {
+      window.sessionStorage.setItem(searchStorageKey, currentSearch);
+      return;
+    }
+    window.sessionStorage.removeItem(searchStorageKey);
+  }, [internalSearch, searchStorageKey, searchable, searchValue]);
 
   const normalizeForSearch = (value: unknown): string => {
     if (value == null) return "";
