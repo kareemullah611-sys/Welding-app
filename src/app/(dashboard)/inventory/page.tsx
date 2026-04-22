@@ -34,6 +34,7 @@ export default function InventoryPage() {
   const [godownList, setGodownList] = useState<any[]>([]);
   const [productList, setProductList] = useState<any[]>([]);
   const [showAssignedRows, setShowAssignedRows] = useState(false);
+  const [superAdminSummaryView, setSuperAdminSummaryView] = useState<"country" | "city">("country");
 
   // Inter-godown transfer
   const [showInterGodownTransfer, setShowInterGodownTransfer] = useState(false);
@@ -248,21 +249,31 @@ export default function InventoryPage() {
     );
   }
 
-  const inventorySummaryRows = [
-    { type: "overall", name: "Grand Total", cityName: "-", qty: Number(data.grandTotalQty || 0) },
-    ...((data.productsSummary || []).map((p: any) => ({
-      type: "product",
-      name: p.productName,
-      cityName: "All Godowns",
-      qty: Number(p.totalQty || 0),
-    }))),
-    ...((data.godownsSummary || []).map((g: any) => ({
-      type: "godown",
-      name: g.godownName,
-      cityName: g.cityName,
-      qty: Number(g.totalQty || 0),
-    }))),
-  ];
+  const inventorySummaryRows = user?.role === "super_admin"
+    ? [
+        { type: "overall", name: "Grand Total", scopeName: "-", qty: Number(data.grandTotalQty || 0) },
+        ...((superAdminSummaryView === "country" ? (data.countrySummary || []) : (data.citySummary || [])).map((entry: any) => ({
+          type: superAdminSummaryView,
+          name: superAdminSummaryView === "country" ? entry.countryName : entry.cityName,
+          scopeName: superAdminSummaryView === "country" ? "All Cities" : (entry.countryName || "-"),
+          qty: Number(entry.totalQty || 0),
+        }))),
+      ]
+    : [
+        { type: "overall", name: "Grand Total", scopeName: "-", qty: Number(data.grandTotalQty || 0) },
+        ...((data.productsSummary || []).map((p: any) => ({
+          type: "product",
+          name: p.productName,
+          scopeName: "All Godowns",
+          qty: Number(p.totalQty || 0),
+        }))),
+        ...((data.godownsSummary || []).map((g: any) => ({
+          type: "godown",
+          name: g.godownName,
+          scopeName: g.cityName,
+          qty: Number(g.totalQty || 0),
+        }))),
+      ];
 
   const lotAssignmentRows: { lot: any; dist: any; assigned: number; remaining: number; isDone: boolean; hasExistingAllocations: boolean }[] = [];
   for (const lot of lots) {
@@ -345,7 +356,19 @@ export default function InventoryPage() {
       )}
 
       <div className="card mb-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Inventory Summary</h2>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold text-gray-900">Inventory Summary</h2>
+          {user?.role === "super_admin" && (
+            <select
+              value={superAdminSummaryView}
+              onChange={(e) => setSuperAdminSummaryView((e.target.value as "country" | "city") || "country")}
+              className="select-field h-9 w-44 text-sm"
+            >
+              <option value="country">Country-wise</option>
+              <option value="city">City-wise</option>
+            </select>
+          )}
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
@@ -365,13 +388,17 @@ export default function InventoryPage() {
                           ? "bg-primary-50 text-primary-700"
                           : row.type === "product"
                             ? "bg-gray-100 text-gray-700"
+                            : row.type === "country"
+                              ? "bg-indigo-50 text-indigo-700"
+                              : row.type === "city"
+                                ? "bg-cyan-50 text-cyan-700"
                             : "bg-blue-50 text-blue-700"
                       }`}>
-                        {row.type === "overall" ? "Overall" : row.type === "product" ? "Product" : "Godown"}
+                        {row.type === "overall" ? "Overall" : row.type === "product" ? "Product" : row.type === "country" ? "Country" : row.type === "city" ? "City" : "Godown"}
                       </span>
                     </td>
                     <td className="px-3 py-2 font-medium text-gray-800">{row.name}</td>
-                    <td className="px-3 py-2 text-gray-500">{row.cityName}</td>
+                    <td className="px-3 py-2 text-gray-500">{row.scopeName}</td>
                     <td className="px-3 py-2 text-right font-semibold text-gray-900">{formatNumber(row.qty)}</td>
                   </tr>
                 ))}

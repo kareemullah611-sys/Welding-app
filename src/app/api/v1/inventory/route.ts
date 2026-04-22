@@ -41,10 +41,12 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       )
       SELECT
         g.id as godown_id, g.name as godown_name, c.id as city_id, c.name as city_name,
+        co.id as country_id, co.name as country_name,
         p.id as product_id, p.name as product_name,
         (COALESCE(r.qty, 0) - COALESCE(s.qty, 0) - COALESCE(tout.qty, 0) + COALESCE(tin.qty, 0)) as qty
       FROM godowns g
       JOIN cities c ON c.id = g.city_id
+      JOIN countries co ON co.id = c.country_id
       CROSS JOIN products p
       LEFT JOIN received r ON r.godown_id = g.id AND r.product_id = p.id
       LEFT JOIN sold s ON s.godown_id = g.id AND s.product_id = p.id
@@ -56,6 +58,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     `;
 
     const productTotals: Record<string, any> = {};
+    const countryTotals: Record<string, any> = {};
+    const cityTotals: Record<string, any> = {};
     const godownTotals: Record<string, any> = {};
     const detailed: Record<string, any> = {};
     let grandTotal = 0;
@@ -68,16 +72,24 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       if (!productTotals[row.product_id]) productTotals[row.product_id] = { productId: row.product_id, productName: row.product_name, totalQty: 0 };
       productTotals[row.product_id].totalQty += qty;
 
+      if (!countryTotals[row.country_id]) countryTotals[row.country_id] = { countryId: row.country_id, countryName: row.country_name, totalQty: 0 };
+      countryTotals[row.country_id].totalQty += qty;
+
+      if (!cityTotals[row.city_id]) cityTotals[row.city_id] = { cityId: row.city_id, cityName: row.city_name, countryName: row.country_name, totalQty: 0 };
+      cityTotals[row.city_id].totalQty += qty;
+
       if (!godownTotals[row.godown_id]) godownTotals[row.godown_id] = { godownId: row.godown_id, godownName: row.godown_name, cityName: row.city_name, totalQty: 0 };
       godownTotals[row.godown_id].totalQty += qty;
 
-      if (!detailed[row.godown_id]) detailed[row.godown_id] = { godownId: row.godown_id, godownName: row.godown_name, cityId: row.city_id, cityName: row.city_name, totalQty: 0, products: [] };
+      if (!detailed[row.godown_id]) detailed[row.godown_id] = { godownId: row.godown_id, godownName: row.godown_name, cityId: row.city_id, cityName: row.city_name, countryId: row.country_id, countryName: row.country_name, totalQty: 0, products: [] };
       detailed[row.godown_id].totalQty += qty;
       detailed[row.godown_id].products.push({ productId: row.product_id, productName: row.product_name, qty: Math.round(qty * 100) / 100 });
     }
 
     return successResponse({
       grandTotalQty: Math.round(grandTotal * 100) / 100,
+      countrySummary: Object.values(countryTotals).map((c: any) => ({ ...c, totalQty: Math.round(c.totalQty * 100) / 100 })),
+      citySummary: Object.values(cityTotals).map((c: any) => ({ ...c, totalQty: Math.round(c.totalQty * 100) / 100 })),
       productsSummary: Object.values(productTotals).map((p: any) => ({ ...p, totalQty: Math.round(p.totalQty * 100) / 100 })),
       godownsSummary: Object.values(godownTotals).map((g: any) => ({ ...g, totalQty: Math.round(g.totalQty * 100) / 100 })),
       detailed: Object.values(detailed),
