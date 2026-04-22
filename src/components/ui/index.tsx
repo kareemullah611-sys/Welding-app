@@ -157,6 +157,8 @@ interface DataTableProps<T> {
     total: number;
     onPageChange: (page: number) => void;
   };
+  stripedRows?: boolean;
+  rowClassName?: (item: T, index: number) => string;
 }
 
 export function DataTable<T extends Record<string, any>>({
@@ -171,6 +173,8 @@ export function DataTable<T extends Record<string, any>>({
   searchValue,
   onSearchChange,
   pagination,
+  stripedRows = false,
+  rowClassName,
 }: DataTableProps<T>) {
   const [internalSearch, setInternalSearch] = useState("");
   const [selectedSearchColumn, setSelectedSearchColumn] = useState("__all__");
@@ -376,8 +380,10 @@ export function DataTable<T extends Record<string, any>>({
                   onClick={() => onRowClick?.(item)}
                   className={cn(
                     "border-b border-[#f3e8db] transition-colors",
+                    stripedRows && idx % 2 === 1 && "bg-[#fbf8f3]",
                     activeMatchIndex === idx && "bg-[#eef4ff] shadow-[inset_3px_0_0_0_#3b82f6]",
                     onRowClick ? "cursor-pointer hover:bg-[#fff4ea]" : "hover:bg-[#fcf6ef]"
+                    ,rowClassName?.(item, idx)
                   )}
                 >
                   {columns.map((col) => {
