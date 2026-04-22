@@ -396,12 +396,63 @@ export default function SuppliersPage() {
             <StatsCard title={t("balance_owed")} value={`$${formatNumber(ledgerData.balanceOwed)}`} icon={ledgerData.balanceOwed > 0 ? "⚠️" : "✅"} color={ledgerData.balanceOwed > 0 ? "red" : "green"} />
           </div>
           <div className="flex items-center justify-between mb-2">
-            <h4 className="text-sm font-semibold text-gray-500">{t("ledger")}</h4>
+            <h4 className="text-sm font-semibold text-gray-500">Supplier Statement (Lot-wise)</h4>
             {isSuperAdmin && (
               <button onClick={openPaymentCreate} className="text-xs text-primary-600 hover:underline font-medium">
                 + {t("record_payment")}
               </button>
             )}
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-[#e8dbc9]">
+            <table className="min-w-[1180px] w-full text-xs">
+              <thead>
+                <tr className="bg-[#f1e7da] text-[#5d4a37]">
+                  <th className="px-2 py-2 text-left font-semibold uppercase tracking-wide">#</th>
+                  <th className="px-2 py-2 text-left font-semibold uppercase tracking-wide">Invoice</th>
+                  <th className="px-2 py-2 text-left font-semibold uppercase tracking-wide">Country</th>
+                  <th className="px-2 py-2 text-left font-semibold uppercase tracking-wide">Order Details</th>
+                  <th className="px-2 py-2 text-right font-semibold uppercase tracking-wide">Qty (Tons)</th>
+                  <th className="px-2 py-2 text-right font-semibold uppercase tracking-wide">Amount (USD)</th>
+                  <th className="px-2 py-2 text-right font-semibold uppercase tracking-wide">Deposit</th>
+                  <th className="px-2 py-2 text-right font-semibold uppercase tracking-wide">Remaining</th>
+                  <th className="px-2 py-2 text-right font-semibold uppercase tracking-wide">Running Balance</th>
+                  <th className="px-2 py-2 text-left font-semibold uppercase tracking-wide">Status</th>
+                  <th className="px-2 py-2 text-left font-semibold uppercase tracking-wide">Receipts</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(ledgerData.statement || []).length === 0 && (
+                  <tr>
+                    <td colSpan={11} className="px-3 py-8 text-center text-sm text-gray-400">No lot statement entries</td>
+                  </tr>
+                )}
+                {(ledgerData.statement || []).map((row: any, i: number) => (
+                  <tr key={row.lotId} className={`${i % 2 === 1 ? "bg-[#fcf8f2]" : "bg-white"} border-t border-[#efe3d4]`}>
+                    <td className="px-2 py-2 align-top text-gray-700">{row.itemNo}</td>
+                    <td className="px-2 py-2 align-top font-semibold text-gray-800">{row.invoiceNumber}</td>
+                    <td className="px-2 py-2 align-top text-gray-700">{row.marketCountry || "-"}</td>
+                    <td className="px-2 py-2 align-top text-gray-700">{row.orderDetails || "-"}</td>
+                    <td className="px-2 py-2 align-top text-right tabular-nums text-gray-700">{Number(row.quantityTons || 0).toLocaleString("en-US")}</td>
+                    <td className="px-2 py-2 align-top text-right tabular-nums font-medium text-gray-800">${Number(row.amountUsd || 0).toLocaleString("en-US")}</td>
+                    <td className="px-2 py-2 align-top text-right tabular-nums font-medium text-[#166534]">${Number(row.depositUsd || 0).toLocaleString("en-US")}</td>
+                    <td className={`px-2 py-2 align-top text-right tabular-nums font-semibold ${Number(row.lotBalanceUsd || 0) > 0 ? "bg-red-600 text-white" : "text-[#166534]"}`}>
+                      ${Number(row.lotBalanceUsd || 0).toLocaleString("en-US")}
+                    </td>
+                    <td className="px-2 py-2 align-top text-right tabular-nums font-semibold text-[#7c2d12]">${Number(row.runningBalanceUsd || 0).toLocaleString("en-US")}</td>
+                    <td className="px-2 py-2 align-top">
+                      {row.status === "settled"
+                        ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-800">Settled</span>
+                        : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Pending</span>}
+                    </td>
+                    <td className="px-2 py-2 align-top text-gray-600">{row.receiptNotes || "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-4 flex items-center justify-between">
+            <h4 className="text-sm font-semibold text-gray-500">{t("ledger")} (Chronological)</h4>
           </div>
           <DataTable columns={[
             { key: "date", label: t("date") },
