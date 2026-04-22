@@ -271,7 +271,6 @@ export default function BankAccountsPage() {
           </button>
           {openActionId === acc.id && (
             <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
-              <button onClick={() => { setOpenActionId(null); openLedger(acc); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-gray-700 hover:bg-gray-50">Ledger</button>
               <button onClick={() => { setOpenActionId(null); openEdit(acc); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
               <button onClick={() => { setOpenActionId(null); toggleActive(acc); }} className={`w-full rounded-lg px-3 py-2 text-left text-xs hover:bg-gray-50 ${acc.isActive ? "text-gray-600" : "text-green-700 hover:bg-green-50"}`}>
                 {acc.isActive ? t("deactivate") : t("reactivate")}
@@ -291,7 +290,12 @@ export default function BankAccountsPage() {
         action={<button onClick={openCreate} className="btn-primary text-sm">+ {t("new_bank_account")}</button>}
       />
 
-      <DataTable columns={columns} data={accounts} loading={loading} />
+      <DataTable
+        columns={columns}
+        data={accounts}
+        loading={loading}
+        onRowClick={openLedger}
+      />
 
       {/* CREATE MODAL */}
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t("new_bank_account")} size="sm">
