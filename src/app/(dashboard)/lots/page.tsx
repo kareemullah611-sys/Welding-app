@@ -5,6 +5,7 @@ import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, StatsCard, StatusBadge, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { Pencil, Package, CheckCircle, RotateCcw, Trash2, Warehouse } from "lucide-react";
+import * as XLSX from "xlsx";
 
 type LotDetailTab = "overview" | "purchases" | "costs" | "sales";
 
@@ -209,69 +210,72 @@ export default function LotsPage() {
     setDetailLoading(false);
   };
 
-  const exportLotCsv = () => {
+  const exportLotXlsx = () => {
     if (!selectedLot?.id) return;
-    const esc = (value: any) => `"${String(value ?? "").replace(/"/g, '""')}"`;
-    const lines: string[] = [];
+    const rows: any[][] = [];
 
-    lines.push("Section,Field,Value");
-    lines.push(`Overview,Lot Number,${esc(selectedLot.lotNumber)}`);
-    lines.push(`Overview,Lot Date,${esc(selectedLot.lotDate)}`);
-    lines.push(`Overview,Country,${esc(selectedLot.country?.name || "")}`);
-    lines.push(`Overview,Status,${esc(selectedLot.status)}`);
-    lines.push(`Summary,Total Sales,${esc(Number(selectedLot.summary?.totalSales || 0).toLocaleString("en-US"))}`);
-    lines.push(`Summary,Payments Received,${esc(Number(selectedLot.summary?.totalPayments || 0).toLocaleString("en-US"))}`);
-    lines.push(`Summary,Outstanding,${esc(Number(selectedLot.summary?.outstanding || 0).toLocaleString("en-US"))}`);
-    lines.push(`Summary,Expenses,${esc(Number(selectedLot.summary?.totalExpenses || 0).toLocaleString("en-US"))}`);
-    lines.push("");
+    rows.push(["Section", "Field", "Value"]);
+    rows.push(["Overview", "Lot Number", selectedLot.lotNumber]);
+    rows.push(["Overview", "Lot Date", selectedLot.lotDate]);
+    rows.push(["Overview", "Country", selectedLot.country?.name || ""]);
+    rows.push(["Overview", "Status", selectedLot.status]);
+    rows.push(["Summary", "Total Sales", Number(selectedLot.summary?.totalSales || 0).toLocaleString("en-US")]);
+    rows.push(["Summary", "Payments Received", Number(selectedLot.summary?.totalPayments || 0).toLocaleString("en-US")]);
+    rows.push(["Summary", "Outstanding", Number(selectedLot.summary?.outstanding || 0).toLocaleString("en-US")]);
+    rows.push(["Summary", "Expenses", Number(selectedLot.summary?.totalExpenses || 0).toLocaleString("en-US")]);
+    rows.push([]);
 
-    lines.push("Purchases,Supplier,Product,Weight/Carton,Qty(MT),USD/MT,Amount USD,Cartons");
+    rows.push(["Purchases", "Supplier", "Product", "Weight/Carton", "Qty(MT)", "USD/MT", "Amount USD", "Cartons"]);
     for (const p of selectedLot.purchaseItems || []) {
-      lines.push([
+      rows.push([
         "Purchase",
-        esc(p.supplierName),
-        esc(p.productName),
-        esc(p.weightPerCartonKg ?? ""),
-        esc(p.qtyMt),
-        esc(p.unitPriceUsdPerMt),
-        esc(p.totalPriceUsd),
-        esc(p.weightPerCartonKg ? Math.round((Number(p.qtyMt) * 1000) / Number(p.weightPerCartonKg)) : ""),
-      ].join(","));
+        p.supplierName,
+        p.productName,
+        p.weightPerCartonKg ?? "",
+        p.qtyMt,
+        p.unitPriceUsdPerMt,
+        p.totalPriceUsd,
+        p.weightPerCartonKg ? Math.round((Number(p.qtyMt) * 1000) / Number(p.weightPerCartonKg)) : "",
+      ]);
     }
-    lines.push("");
+    rows.push([]);
 
-    lines.push("Costs,Type,Description,Amount,Currency,Exchange Rate,PKR Equivalent");
+    rows.push(["Costs", "Type", "Description", "Amount", "Currency", "Exchange Rate", "PKR Equivalent"]);
     for (const c of selectedLot.costSummary?.costBreakdown || []) {
       const pkr = Math.round(lotCostToPkr(c, Number(selectedLot.pkrExchangeRate || pkrRateInput || 0)));
-      lines.push([
+      rows.push([
         "Cost",
-        esc(c.costType),
-        esc(c.description),
-        esc(c.amount),
-        esc(c.currencyCode),
-        esc(c.exchangeRate ?? ""),
-        esc(pkr),
-      ].join(","));
+        c.costType,
+        c.description,
+        c.amount,
+        c.currencyCode,
+        c.exchangeRate ?? "",
+        pkr,
+      ]);
     }
-    lines.push("");
+    rows.push([]);
 
-    lines.push("Sales,Date,Voucher,Customer,Items,Total Amount");
+    rows.push(["Sales", "Date", "Voucher", "Customer", "Items", "Total Amount"]);
     for (const s of selectedLot.recentSales || []) {
-      lines.push([
+      rows.push([
         "Sale",
-        esc(s.saleDate),
-        esc(s.voucherNo),
-        esc(s.customer?.name || ""),
-        esc((s.items || []).map((it: any) => `${it.product?.name} (${Number(it.qty || 0)})`).join("; ")),
-        esc(Number(s.totalAmount || 0).toLocaleString("en-US")),
-      ].join(","));
+        s.saleDate,
+        s.voucherNo,
+        s.customer?.name || "",
+        (s.items || []).map((it: any) => `${it.product?.name} (${Number(it.qty || 0)})`).join("; "),
+        Number(s.totalAmount || 0).toLocaleString("en-US"),
+      ]);
     }
 
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const sheet = XLSX.utils.aoa_to_sheet(rows);
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, "Lot Snapshot");
+    const wbout = XLSX.write(book, { bookType: "xlsx", type: "array" });
+    const blob = new Blob([wbout], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `lot_snapshot_${selectedLot.lotNumber || selectedLot.id}.csv`;
+    a.download = `lot_snapshot_${selectedLot.lotNumber || selectedLot.id}.xlsx`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -936,8 +940,8 @@ export default function LotsPage() {
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8f7963]">Lot Snapshot</p>
                 <div className="flex items-center gap-2">
-                  <button onClick={exportLotCsv} className="rounded-lg border border-[#d8c7b3] bg-white/80 px-3 py-1.5 text-xs font-medium text-[#5d4a3a] hover:bg-white">
-                    Export CSV
+                  <button onClick={exportLotXlsx} className="rounded-lg border border-[#d8c7b3] bg-white/80 px-3 py-1.5 text-xs font-medium text-[#5d4a3a] hover:bg-white">
+                    Export XLSX
                   </button>
                   <button onClick={exportLotPdf} className="rounded-lg border border-[#d8c7b3] bg-white/80 px-3 py-1.5 text-xs font-medium text-[#5d4a3a] hover:bg-white">
                     Export PDF

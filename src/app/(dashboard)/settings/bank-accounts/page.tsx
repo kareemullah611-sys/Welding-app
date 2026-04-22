@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatDate, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import * as XLSX from "xlsx";
 
 export default function BankAccountsPage() {
   const { user } = useAuth();
@@ -117,7 +118,6 @@ export default function BankAccountsPage() {
     setLedgerLoading(false);
   };
 
-  const escCsv = (value: any) => `"${String(value ?? "").replace(/"/g, '""')}"`;
   const escHtml = (value: any) =>
     String(value ?? "")
       .replace(/&/g, "&amp;")
@@ -126,29 +126,33 @@ export default function BankAccountsPage() {
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
 
-  const exportLedgerCsv = () => {
+  const exportLedgerXlsx = () => {
     if (!ledgerAccount) return;
-    const lines: string[] = [];
-    lines.push(`Bank Ledger,${escCsv(ledgerAccount.bankName)}`);
-    lines.push(`Generated,${escCsv(new Date().toISOString().split("T")[0])}`);
-    lines.push("");
-    lines.push("Date,Type,Detail,Ref,Credit,Debit,Running");
+    const rows: any[][] = [];
+    rows.push(["Bank Ledger", ledgerAccount.bankName || ""]);
+    rows.push(["Generated", new Date().toISOString().split("T")[0]]);
+    rows.push([]);
+    rows.push(["Date", "Type", "Detail", "Ref", "Credit", "Debit", "Running"]);
     for (const row of ledgerRows || []) {
-      lines.push([
-        escCsv(formatDate(row.date)),
-        escCsv(row.type),
-        escCsv(row.detail),
-        escCsv(row.reference || ""),
-        escCsv(row.credit > 0 ? row.credit : ""),
-        escCsv(row.debit > 0 ? row.debit : ""),
-        escCsv(row.runningBalance ?? ""),
-      ].join(","));
+      rows.push([
+        formatDate(row.date),
+        row.type,
+        row.detail,
+        row.reference || "",
+        row.credit > 0 ? row.credit : "",
+        row.debit > 0 ? row.debit : "",
+        row.runningBalance ?? "",
+      ]);
     }
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const sheet = XLSX.utils.aoa_to_sheet(rows);
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, "Bank Ledger");
+    const wbout = XLSX.write(book, { bookType: "xlsx", type: "array" });
+    const blob = new Blob([wbout], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `bank_ledger_${String(ledgerAccount.bankName || "account").replace(/\s+/g, "_").toLowerCase()}_${new Date().toISOString().split("T")[0]}.csv`;
+    a.download = `bank_ledger_${String(ledgerAccount.bankName || "account").replace(/\s+/g, "_").toLowerCase()}_${new Date().toISOString().split("T")[0]}.xlsx`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -375,7 +379,7 @@ export default function BankAccountsPage() {
               )}
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={exportLedgerCsv} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100">Export CSV</button>
+                <button onClick={exportLedgerXlsx} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100">Export XLSX</button>
                 <button onClick={exportLedgerPdf} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100">Export PDF</button>
               </div>
             </div>

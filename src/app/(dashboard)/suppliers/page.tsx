@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, StatsCard, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import * as XLSX from "xlsx";
 
 export default function SuppliersPage() {
   const { user } = useAuth();
@@ -148,6 +149,62 @@ export default function SuppliersPage() {
     if (r.success) setLedgerData(r.data);
     load();
   }, [selected?.id, load]);
+
+  const exportSupplierLedgerXlsx = () => {
+    if (!selected || !ledgerData) return;
+
+    const statementRows: any[][] = [];
+    statementRows.push(["Supplier Ledger", selected.name || ""]);
+    statementRows.push(["Generated", new Date().toISOString().split("T")[0]]);
+    statementRows.push([]);
+    statementRows.push(["Lot-wise Statement"]);
+    statementRows.push(["#", "Invoice", "Country", "Order Details", "Qty (Tons)", "Amount (USD)", "Deposit (USD)", "Remaining (USD)", "Running Balance (USD)", "Status", "Receipts"]);
+    for (const row of ledgerData.statement || []) {
+      statementRows.push([
+        row.itemNo,
+        row.invoiceNumber || "",
+        row.marketCountry || "",
+        row.orderDetails || "",
+        Number(row.quantityTons || 0),
+        Number(row.amountUsd || 0),
+        Number(row.depositUsd || 0),
+        Number(row.lotBalanceUsd || 0),
+        Number(row.runningBalanceUsd || 0),
+        row.status === "settled" ? "Settled" : "Pending",
+        row.receiptNotes || "",
+      ]);
+    }
+
+    const chronologicalRows: any[][] = [];
+    chronologicalRows.push(["Date", "Type", "Description", "Debit (USD)", "Credit (USD)", "Balance (USD)"]);
+    for (const entry of ledgerData.ledger || []) {
+      chronologicalRows.push([
+        entry.date ? String(entry.date).split("T")[0] : "",
+        entry.type || "",
+        entry.description || "",
+        entry.debit || 0,
+        entry.credit || 0,
+        entry.balance || 0,
+      ]);
+    }
+
+    const workbook = XLSX.utils.book_new();
+    const statementSheet = XLSX.utils.aoa_to_sheet(statementRows);
+    const chronologicalSheet = XLSX.utils.aoa_to_sheet(chronologicalRows);
+    XLSX.utils.book_append_sheet(workbook, statementSheet, "Statement");
+    XLSX.utils.book_append_sheet(workbook, chronologicalSheet, "Chronological");
+
+    const wbout = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+    const blob = new Blob([wbout], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `supplier_ledger_${String(selected.name || "ledger").replace(/\s+/g, "_").toLowerCase()}_${new Date().toISOString().split("T")[0]}.xlsx`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
 
   const openPaymentCreate = () => {
     setPaymentForm({
@@ -397,11 +454,16 @@ export default function SuppliersPage() {
           </div>
           <div className="flex items-center justify-between mb-2">
             <h4 className="text-sm font-semibold text-gray-500">Supplier Statement (Lot-wise)</h4>
-            {isSuperAdmin && (
-              <button onClick={openPaymentCreate} className="text-xs text-primary-600 hover:underline font-medium">
-                + {t("record_payment")}
+            <div className="flex items-center gap-3">
+              <button onClick={exportSupplierLedgerXlsx} className="text-xs text-emerald-700 hover:underline font-medium">
+                Export XLSX
               </button>
-            )}
+              {isSuperAdmin && (
+                <button onClick={openPaymentCreate} className="text-xs text-primary-600 hover:underline font-medium">
+                  + {t("record_payment")}
+                </button>
+              )}
+            </div>
           </div>
           <div className="overflow-x-auto rounded-xl border border-[#e8dbc9]">
             <table className="min-w-[1180px] w-full text-xs">

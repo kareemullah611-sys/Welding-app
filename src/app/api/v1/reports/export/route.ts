@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, getCityScope } from "@/lib/middleware";
 import { JWTPayload } from "@/lib/auth";
+import * as XLSX from "xlsx";
 
 const csvCell = (value: unknown) => {
   if (value === null || value === undefined) return "";
@@ -17,6 +18,13 @@ const fmtAmount = (value: number | string) => {
   if (!Number.isFinite(numeric)) return "0";
   return Math.round(numeric * 100) / 100;
 };
+const fmtAmountCsv = (value: number | string) => {
+  const numeric = fmtAmount(value);
+  return Number(numeric).toLocaleString("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+};
 
 const formatPerCartonRate = (rates: number[]) => {
   if (!rates.length) return "-";
@@ -31,6 +39,13 @@ const formatStatus = (status: string) =>
   status
     .replace(/_/g, " ")
     .replace(/\b\w/g, (char) => char.toUpperCase());
+const formatLabel = (value: unknown) =>
+  String(value ?? "")
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+const cleanText = (value: unknown) => String(value ?? "").replace(/\s+/g, " ").trim();
 
 const formatDate = (date: Date) => date.toISOString().split("T")[0];
 
@@ -43,10 +58,21 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const dateFrom = searchParams.get("date_from");
     const dateTo = searchParams.get("date_to");
     const cityFilter = cityId ? { cityId } : {};
+    const city = cityId
+      ? await prisma.city.findUnique({ where: { id: cityId }, select: { name: true } })
+      : null;
 
     let csvRows: string[] = [];
+    const appendMeta = (title: string) => {
+      csvRows.push(csvRow([title]));
+      csvRows.push(csvRow(["Generated On", new Date().toISOString().replace("T", " ").slice(0, 19)]));
+      csvRows.push(csvRow(["Date Range", dateFrom || "All", dateTo || "All"]));
+      csvRows.push(csvRow(["City", city?.name || "All Cities"]));
+      csvRows.push("");
+    };
 
     if (type === "sales") {
+      appendMeta("Sales Report");
       const df: any = {};
       if (dateFrom) df.gte = new Date(dateFrom);
       if (dateTo) df.lte = new Date(dateTo);
@@ -55,13 +81,26 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         include: { customer: { select: { name: true } }, currency: true, lot: { select: { lotNumber: true } }, godown: { select: { name: true } }, items: { include: { product: true } }, city: { select: { name: true } } },
         orderBy: { saleDate: "asc" },
       });
-      csvRows.push(csvRow(["Date", "Voucher", "Customer", "City", "Godown", "Lot", "Product", "Qty", "Rate Per Carton", "Amount", "Currency"]));
+      csvRows.push(csvRow(["Date", "Voucher No.", "Customer Name", "City", "Godown", "Lot", "Product", "Quantity", "Per Carton Price", "Amount", "Currency"]));
       for (const s of sales) {
         for (const item of s.items) {
-          csvRows.push(csvRow([formatDate(s.saleDate), s.voucherNo, s.customer.name, s.city.name, s.godown.name, s.lot.lotNumber, item.product.name, fmtAmount(Number(item.qty)), fmtAmount(Number(item.ratePerCarton)), fmtAmount(Number(item.amount)), s.currency.code]));
+          csvRows.push(csvRow([
+            formatDate(s.saleDate),
+            s.voucherNo,
+            cleanText(s.customer.name),
+            cleanText(s.city.name),
+            cleanText(s.godown.name),
+            cleanText(s.lot.lotNumber),
+            cleanText(item.product.name),
+            fmtAmountCsv(Number(item.qty)),
+            fmtAmountCsv(Number(item.ratePerCarton)),
+            fmtAmountCsv(Number(item.amount)),
+            s.currency.code,
+          ]));
         }
       }
     } else if (type === "payments") {
+      appendMeta("Payments Report");
       const df: any = {};
       if (dateFrom) df.gte = new Date(dateFrom);
       if (dateTo) df.lte = new Date(dateTo);
@@ -70,11 +109,23 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         include: { customer: { select: { name: true } }, currency: true, lot: { select: { lotNumber: true } }, city: { select: { name: true } } },
         orderBy: { paymentDate: "asc" },
       });
-      csvRows.push(csvRow(["Date", "Customer", "City", "Particulars", "Amount", "Currency", "Instrument", "Applied To", "Lot", "Reference No."]));
+      csvRows.push(csvRow(["Date", "Customer Name", "City", "Particulars", "Amount", "Currency", "Payment Method", "Destination", "Lot", "Reference No."]));
       for (const p of payments) {
-        csvRows.push(csvRow([formatDate(p.paymentDate), p.customer.name, p.city.name, p.detail, fmtAmount(Number(p.amount)), p.currency.code, p.paymentMethod, p.destination, p.lot.lotNumber, p.manualVoucherNo || ""]));
+        csvRows.push(csvRow([
+          formatDate(p.paymentDate),
+          cleanText(p.customer.name),
+          cleanText(p.city.name),
+          cleanText(p.detail),
+          fmtAmountCsv(Number(p.amount)),
+          p.currency.code,
+          formatLabel(p.paymentMethod),
+          formatLabel(p.destination),
+          cleanText(p.lot.lotNumber),
+          cleanText(p.manualVoucherNo || ""),
+        ]));
       }
     } else if (type === "expenses") {
+      appendMeta("Expenses Report");
       const df: any = {};
       if (dateFrom) df.gte = new Date(dateFrom);
       if (dateTo) df.lte = new Date(dateTo);
@@ -85,9 +136,18 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       });
       csvRows.push(csvRow(["Date", "City", "Particulars", "Amount", "Currency", "Lot", "Notes"]));
       for (const e of expenses) {
-        csvRows.push(csvRow([formatDate(e.expenseDate), e.city.name, e.detail, fmtAmount(Number(e.amount)), e.currency.code, e.lot.lotNumber, e.notes || ""]));
+        csvRows.push(csvRow([
+          formatDate(e.expenseDate),
+          cleanText(e.city.name),
+          cleanText(e.detail),
+          fmtAmountCsv(Number(e.amount)),
+          e.currency.code,
+          cleanText(e.lot.lotNumber),
+          cleanText(e.notes || ""),
+        ]));
       }
     } else if (type === "haji_transfers") {
+      appendMeta("Haji Transfers Report");
       const df: any = {};
       if (dateFrom) df.gte = new Date(dateFrom);
       if (dateTo) df.lte = new Date(dateTo);
@@ -98,9 +158,19 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       });
       csvRows.push(csvRow(["Date", "Particulars", "Amount", "Currency", "Transfer Type", "Transferred To", "Lot", "Notes"]));
       for (const h of transfers) {
-        csvRows.push(csvRow([formatDate(h.transferDate), h.detail, fmtAmount(Number(h.amount)), h.currency.code, h.transferType, h.transferredTo || "", h.lot?.lotNumber || "", h.notes || ""]));
+        csvRows.push(csvRow([
+          formatDate(h.transferDate),
+          cleanText(h.detail),
+          fmtAmountCsv(Number(h.amount)),
+          h.currency.code,
+          formatLabel(h.transferType),
+          cleanText(h.transferredTo || ""),
+          cleanText(h.lot?.lotNumber || ""),
+          cleanText(h.notes || ""),
+        ]));
       }
     } else if (type === "customer_ledger") {
+      appendMeta("Customer Ledger Report");
       const customerId = searchParams.get("customer_id") ? parseInt(searchParams.get("customer_id")!) : undefined;
       if (!customerId) return new Response("customer_id required for customer ledger export", { status: 400 });
 
@@ -111,6 +181,9 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       if (!customer) return new Response("Customer not found", { status: 404 });
       if (cityId && customer.cityId !== cityId) return new Response("Customer does not belong to selected city", { status: 403 });
       const isPakistanCity = customer.city.country?.code === "PK";
+      csvRows.push(csvRow(["Customer Name", cleanText(customer.name)]));
+      csvRows.push(csvRow(["City", cleanText(customer.city.name)]));
+      csvRows.push("");
 
       const saleDateFilter: any = {};
       if (dateFrom) saleDateFilter.gte = new Date(dateFrom);
@@ -169,16 +242,17 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           formatDate(t.date),
           t.type === "sale" ? "Sales" : "Receipt",
           t.voucherNo,
-          t.detail,
+          cleanText(t.detail),
           t.perCartonPrice,
           t.lotNumber,
-          fmtAmount(t.debit),
-          fmtAmount(t.credit),
-          fmtAmount(runningByCurrency[t.currency]),
+          fmtAmountCsv(t.debit),
+          fmtAmountCsv(t.credit),
+          fmtAmountCsv(runningByCurrency[t.currency]),
         ];
         csvRows.push(csvRow(isPakistanCity ? [...row, formatStatus(t.status)] : [...row, t.currency, formatStatus(t.status)]));
       }
     } else if (type === "ledger") {
+      appendMeta("City Ledger Report");
       // Full city ledger
       if (!cityId) return new Response("city_id required for ledger export", { status: 400 });
       const [sales, payments, expenses, withdrawals, hajiTransfers] = await Promise.all([
@@ -201,15 +275,21 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       let balance = 0;
       for (const e of entries) {
         balance += e.debit - e.credit;
-        csvRows.push(csvRow([formatDate(e.date), e.type, e.desc, fmtAmount(e.debit), fmtAmount(e.credit), e.cur]));
+        csvRows.push(csvRow([formatDate(e.date), e.type, cleanText(e.desc), fmtAmountCsv(e.debit), fmtAmountCsv(e.credit), e.cur]));
       }
     }
 
     const csv = csvRows.join("\n");
-    return new Response(csv, {
+    const workbook = XLSX.read(csv, { type: "string" });
+    const sheetName = workbook.SheetNames[0] || "Report";
+    const sheet = workbook.Sheets[sheetName];
+    const finalBook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(finalBook, sheet, sheetName);
+    const xlsxBuffer = XLSX.write(finalBook, { type: "buffer", bookType: "xlsx" });
+    return new Response(xlsxBuffer, {
       headers: {
-        "Content-Type": "text/csv",
-        "Content-Disposition": `attachment; filename="${type}_report_${new Date().toISOString().split("T")[0]}.csv"`,
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="${type}_report_${new Date().toISOString().split("T")[0]}.xlsx"`,
       },
     });
   } catch (error) {

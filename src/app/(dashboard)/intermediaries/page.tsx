@@ -3,6 +3,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
+import * as XLSX from "xlsx";
 
 const EMPTY_DEPOSIT = {
   depositDate: new Date().toISOString().split("T")[0],
@@ -311,7 +312,6 @@ export default function IntermediariesPage() {
     load();
   };
 
-  const escCsv = (value: any) => `"${String(value ?? "").replace(/"/g, '""')}"`;
   const escHtml = (value: any) =>
     String(value ?? "")
       .replace(/&/g, "&amp;")
@@ -320,27 +320,31 @@ export default function IntermediariesPage() {
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
 
-  const exportIntermediaryLedgerCsv = () => {
+  const exportIntermediaryLedgerXlsx = () => {
     if (!selected || !ledger?.ledger) return;
-    const lines: string[] = [];
-    lines.push(`Intermediary Ledger,${escCsv(selected.name || "")}`);
-    lines.push(`Generated,${escCsv(new Date().toISOString().split("T")[0])}`);
-    lines.push("");
-    lines.push("Date,Particulars,Debit,Credit,Running Balance");
+    const rows: any[][] = [];
+    rows.push(["Intermediary Ledger", selected.name || ""]);
+    rows.push(["Generated", new Date().toISOString().split("T")[0]]);
+    rows.push([]);
+    rows.push(["Date", "Particulars", "Debit", "Credit", "Running Balance"]);
     for (const entry of ledger.ledger || []) {
-      lines.push([
-        escCsv(formatDate(entry.date)),
-        escCsv(entry.description || ""),
-        escCsv(entry.debit > 0 ? entry.debit : ""),
-        escCsv(entry.credit > 0 ? entry.credit : ""),
-        escCsv(entry.balance ?? ""),
-      ].join(","));
+      rows.push([
+        formatDate(entry.date),
+        entry.description || "",
+        entry.debit > 0 ? entry.debit : "",
+        entry.credit > 0 ? entry.credit : "",
+        entry.balance ?? "",
+      ]);
     }
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const sheet = XLSX.utils.aoa_to_sheet(rows);
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, "Intermediary Ledger");
+    const wbout = XLSX.write(book, { bookType: "xlsx", type: "array" });
+    const blob = new Blob([wbout], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `intermediary_ledger_${String(selected.name || "ledger").replace(/\s+/g, "_").toLowerCase()}_${new Date().toISOString().split("T")[0]}.csv`;
+    a.download = `intermediary_ledger_${String(selected.name || "ledger").replace(/\s+/g, "_").toLowerCase()}_${new Date().toISOString().split("T")[0]}.xlsx`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -489,7 +493,7 @@ export default function IntermediariesPage() {
               <p className="text-sm font-medium text-[#3a2b1e]">{selected?.name}</p>
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={exportIntermediaryLedgerCsv} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100">Export CSV</button>
+              <button onClick={exportIntermediaryLedgerXlsx} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100">Export XLSX</button>
               <button onClick={exportIntermediaryLedgerPdf} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100">Export PDF</button>
               <button onClick={openDeposit} className="btn-primary text-sm">
                 + Record Deposit

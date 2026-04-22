@@ -94,7 +94,7 @@ export default function ReportsPage() {
     setLoading(false);
   };
 
-  const exportCSV = () => {
+  const exportXlsx = () => {
     const tp = reportType === "city_ledger"
       ? "ledger"
       : reportType === "customer_ledger"
@@ -108,6 +108,7 @@ export default function ReportsPage() {
     if (filters.city_id) p.set("city_id", filters.city_id);
     else if (user?.cityId) p.set("city_id", String(user.cityId));
     if (reportType === "customer_ledger" && filters.customer_id) p.set("customer_id", filters.customer_id);
+    p.set("format", "xlsx");
     window.open(`/api/v1/reports/export?${p.toString()}`, "_blank");
   };
 
@@ -321,7 +322,7 @@ export default function ReportsPage() {
         <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("from")}</label><input type="date" value={filters.date_from} onChange={(e) => setFilters((f) => ({ ...f, date_from: e.target.value }))} className="input-field w-auto" /></div>
         <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("to")}</label><input type="date" value={filters.date_to} onChange={(e) => setFilters((f) => ({ ...f, date_to: e.target.value }))} className="input-field w-auto" /></div>
         <button onClick={runReport} disabled={loading} className="btn-primary text-sm">{loading ? t("loading") : t("generate")}</button>
-        {data.length > 0 && <><button onClick={exportCSV} className="bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2 rounded-lg text-sm font-medium">Export CSV</button><button onClick={exportPDF} className="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium">Export PDF</button></>}
+        {data.length > 0 && <><button onClick={exportXlsx} className="bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2 rounded-lg text-sm font-medium">Export XLSX</button><button onClick={exportPDF} className="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium">Export PDF</button></>}
       </div></div>
       {summary && <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         {reportType === "city_ledger" ? <>
