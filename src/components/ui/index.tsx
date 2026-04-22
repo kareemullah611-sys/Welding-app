@@ -149,6 +149,7 @@ interface DataTableProps<T> {
   searchable?: boolean;
   searchPlaceholder?: string;
   searchMinChars?: number;
+  searchColumnKeys?: string[];
   searchValue?: string;
   onSearchChange?: (value: string) => void;
   pagination?: {
@@ -170,6 +171,7 @@ export function DataTable<T extends Record<string, any>>({
   searchable = true,
   searchPlaceholder = "Search all columns...",
   searchMinChars = 2,
+  searchColumnKeys,
   searchValue,
   onSearchChange,
   pagination,
@@ -185,10 +187,20 @@ export function DataTable<T extends Record<string, any>>({
   const rowRefs = useRef<Array<HTMLTableRowElement | null>>([]);
   const minChars = Math.max(1, searchMinChars || 2);
   const activeSearch = (searchValue ?? internalSearch).trim();
-  const searchableColumns = useMemo(
-    () => columns.filter((col) => Boolean(col.label) && col.key !== "actions"),
-    [columns]
-  );
+  const searchableColumns = useMemo(() => {
+    const allowed = new Set(searchColumnKeys || []);
+    const hasAllowList = allowed.size > 0;
+    return columns.filter((col) => {
+      if (!col.label || col.key === "actions") return false;
+      if (!hasAllowList) {
+        const key = String(col.key || "").toLowerCase();
+        if (key === "status" || key.endsWith("status")) return false;
+        if (key === "date" || key.endsWith("date")) return false;
+        return true;
+      }
+      return allowed.has(col.key);
+    });
+  }, [columns, searchColumnKeys]);
   const searchStorageKey = useMemo(() => {
     const normalizedPlaceholder = String(searchPlaceholder || "search")
       .toLowerCase()
@@ -258,15 +270,14 @@ export function DataTable<T extends Record<string, any>>({
       if (selectedSearchColumn !== "__all__") {
         return normalizeForSearch(item[selectedSearchColumn]).toLowerCase().includes(needle);
       }
-      const byColumns = columns
+      const byColumns = searchableColumns
         .map((col) => normalizeForSearch(item[col.key]))
         .join(" ")
         .toLowerCase();
       if (byColumns.includes(needle)) return true;
-      const byRow = normalizeForSearch(item).toLowerCase();
-      return byRow.includes(needle);
+      return false;
     });
-  }, [activeSearch, columns, data, minChars, searchable, selectedSearchColumn]);
+  }, [activeSearch, data, minChars, searchable, searchableColumns, selectedSearchColumn]);
 
   useEffect(() => {
     if (!activeSearch || activeSearch.length < minChars || filteredData.length === 0) {
@@ -310,6 +321,17 @@ export function DataTable<T extends Record<string, any>>({
       cursor = matchAt + needle.length;
     }
     return <>{nodes}</>;
+  };
+  const highlightSearchNode = (node: React.ReactNode): React.ReactNode => {
+    if (!searchable || activeSearch.length < minChars) return node;
+    if (node == null || typeof node === "boolean") return node;
+    if (typeof node === "string" || typeof node === "number") return highlightSearchText(node);
+    if (Array.isArray(node)) return node.map((child, index) => <React.Fragment key={index}>{highlightSearchNode(child)}</React.Fragment>);
+    if (!React.isValidElement(node)) return node;
+
+    const childProps = (node.props as { children?: React.ReactNode }) || {};
+    if (typeof childProps.children === "undefined") return node;
+    return React.cloneElement(node, undefined, highlightSearchNode(childProps.children));
   };
 
   return (
@@ -419,9 +441,16 @@ export function DataTable<T extends Record<string, any>>({
                     const displayValue = isDate ? formatDate(item[col.key]) : item[col.key];
                     return (
                       <TableCell key={col.key} className={cn("text-sm text-gray-700 py-3", isDate && "whitespace-nowrap", col.className)}>
-                        {col.render
-                          ? col.render(item)
-                          : highlightSearchText(displayValue)}
+                        {(() => {
+                          const renderedValue = col.render ? col.render(item) : displayValue;
+                          const shouldHighlight =
+                            col.key !== "actions" &&
+                            activeSearch.length >= minChars &&
+                            (selectedSearchColumn === "__all__" || selectedSearchColumn === col.key);
+                          return shouldHighlight
+                            ? highlightSearchNode(renderedValue)
+                            : renderedValue;
+                        })()}
                       </TableCell>
                     );
                   })}
