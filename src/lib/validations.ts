@@ -178,7 +178,7 @@ export const createWithdrawalSchema = z.object({
   amount: z.number().positive(),
   currencyId: z.number().int().positive(),
   detail: z.string().min(1).max(500),
-  withdrawnBy: z.string().max(100).optional(),
+  withdrawnBy: z.string().trim().min(1).max(100),
   notes: z.string().optional(),
 });
 

@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
@@ -30,6 +30,10 @@ export default function PersonalWithdrawalsPage() {
   const [form, setForm] = useState({ withdrawalDate: new Date().toISOString().split("T")[0], amount: 0, detail: "", withdrawnBy: "", notes: "", currencyId: 0, sourceType: "cash_office", chequePaymentId: 0 });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [withdraweeSearch, setWithdraweeSearch] = useState("");
+  const [withdraweeOptions, setWithdraweeOptions] = useState<string[]>([]);
+  const [showWithdraweeMenu, setShowWithdraweeMenu] = useState(false);
+  const withdraweeMenuRef = useRef<HTMLDivElement | null>(null);
   const [approvingId, setApprovingId] = useState<number | null>(null);
   const [openActionId, setOpenActionId] = useState<number | null>(null);
   const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
@@ -38,6 +42,15 @@ export default function PersonalWithdrawalsPage() {
     if (typeof window !== "undefined" && window.parent !== window) {
       window.parent.postMessage({ type: "dashboard-quick-close" }, window.location.origin);
     }
+  }, []);
+
+  const normalizeWithdraweeName = (value: string) => value.trim().replace(/\s+/g, " ");
+
+  const selectWithdrawee = useCallback((name: string) => {
+    const normalized = normalizeWithdraweeName(name);
+    setForm((f) => ({ ...f, withdrawnBy: normalized }));
+    setWithdraweeSearch(normalized);
+    setShowWithdraweeMenu(false);
   }, []);
 
   const load = useCallback(async () => {
@@ -95,6 +108,17 @@ export default function PersonalWithdrawalsPage() {
     return () => document.removeEventListener("pointerdown", handleOutside, true);
   }, [openActionId]);
 
+  useEffect(() => {
+    if (!showWithdraweeMenu) return;
+    const handleOutside = (event: MouseEvent) => {
+      if (withdraweeMenuRef.current && !withdraweeMenuRef.current.contains(event.target as Node)) {
+        setShowWithdraweeMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [showWithdraweeMenu]);
+
   const formatPot = (pot: Record<string, number> | undefined) => {
     if (!pot) return "0";
     const entries = Object.entries(pot).filter(([, v]) => Number(v) !== 0);
@@ -105,27 +129,36 @@ export default function PersonalWithdrawalsPage() {
 
   const openCreate = async () => {
     const requests: Promise<any>[] = [apiCall("/api/v1/cities")];
+    requests.push(apiCall("/api/v1/personal-withdrawals/names"));
     if (!isAfghanistanCity) {
       requests.push(apiCall("/api/v1/payments", {
         params: { all: 1, status: "active", payment_method: "cheque", destination: "our_account", cheque_status: "in_hand" },
       }));
     }
-    const [cityRes, chequeRes] = await Promise.all(requests);
+    const [cityRes, nameRes, chequeRes] = await Promise.all(requests);
     if (cityRes.success && user?.cityId) {
       const city = (cityRes.data as any[]).find((c: any) => c.id === user.cityId);
       if (city?.currencies?.length) { setCurrencies(city.currencies); setForm((f) => ({ ...f, currencyId: city.currencies[0].id })); }
     }
+    if (nameRes?.success) setWithdraweeOptions((nameRes.data as string[]) || []);
+    else setWithdraweeOptions([]);
     if (!isAfghanistanCity && chequeRes?.success) setInHandCheques(chequeRes.data as any[]);
     else setInHandCheques([]);
     setForm((f) => ({ ...f, withdrawalDate: new Date().toISOString().split("T")[0], amount: 0, detail: "", withdrawnBy: "", notes: "", sourceType: "cash_office", chequePaymentId: 0 }));
+    setWithdraweeSearch("");
+    setShowWithdraweeMenu(false);
     setShowCreate(true); setFormError("");
   };
 
   const handleCreate = async () => {
     if (!form.amount || !form.detail) { setFormError(t("amount") + " " + t("and") + " " + t("detail") + " required"); return; }
+    if (!normalizeWithdraweeName(form.withdrawnBy)) { setFormError("Withdrawn By is required"); return; }
     if (form.sourceType === "cheque" && !form.chequePaymentId) { setFormError("Please select a cheque"); return; }
     setSubmitting(true);
-    const result = await apiCall("/api/v1/personal-withdrawals", { method: "POST", body: form });
+    const result = await apiCall("/api/v1/personal-withdrawals", {
+      method: "POST",
+      body: { ...form, withdrawnBy: normalizeWithdraweeName(form.withdrawnBy) },
+    });
     setSubmitting(false);
     if (result.success) { setShowCreate(false); if (isEmbed) closeEmbed(); load(); } else { setFormError(result.error || "Failed"); }
   };
@@ -169,6 +202,19 @@ export default function PersonalWithdrawalsPage() {
     acc[name] = (acc[name] || 0) + Number(w.amount);
     return acc;
   }, {});
+  const normalizedWithdraweeSearch = normalizeWithdraweeName(withdraweeSearch).toLowerCase();
+  const filteredWithdrawees = withdraweeOptions
+    .filter((name) => name.toLowerCase().includes(normalizedWithdraweeSearch))
+    .slice(0, 8);
+  const canAddWithdrawee =
+    normalizedWithdraweeSearch.length > 0 &&
+    !withdraweeOptions.some((name) => name.toLowerCase() === normalizedWithdraweeSearch);
+  const addWithdrawee = () => {
+    const normalized = normalizeWithdraweeName(withdraweeSearch);
+    if (!normalized) return;
+    setWithdraweeOptions((prev) => [normalized, ...prev.filter((name) => name.toLowerCase() !== normalized.toLowerCase())]);
+    selectWithdrawee(normalized);
+  };
 
   return (
     <div>
@@ -332,16 +378,59 @@ export default function PersonalWithdrawalsPage() {
       <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={t("record_withdrawal")} size="md" inline={isEmbed}>
         {formError && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{formError}</div>}
         <div className="space-y-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Withdrawn By <span className="text-gray-400 font-normal">(optional)</span>
-            </label>
+          <div className="relative" ref={withdraweeMenuRef}>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Withdrawn By *</label>
             <input
-              value={form.withdrawnBy}
-              onChange={(e) => setForm((f) => ({ ...f, withdrawnBy: e.target.value }))}
+              value={withdraweeSearch}
+              onChange={(e) => {
+                setWithdraweeSearch(e.target.value);
+                setForm((f) => ({ ...f, withdrawnBy: "" }));
+                setShowWithdraweeMenu(true);
+              }}
+              onFocus={() => setShowWithdraweeMenu(true)}
               className="input-field"
-              placeholder="e.g. Ali, Rehman"
+              placeholder="Search existing names"
             />
+            {showWithdraweeMenu && (
+              <div className="absolute z-50 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg">
+                <div className="max-h-48 overflow-y-auto py-1">
+                  {filteredWithdrawees.map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        setWithdraweeSearch(name);
+                        selectWithdrawee(name);
+                      }}
+                      className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50"
+                    >
+                      {name}
+                    </button>
+                  ))}
+                  {canAddWithdrawee && (
+                    <button
+                      type="button"
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        addWithdrawee();
+                      }}
+                      className="w-full border-t border-gray-100 px-3 py-2 text-left text-sm font-medium text-primary-700 hover:bg-primary-50"
+                    >
+                      + Add "{normalizeWithdraweeName(withdraweeSearch)}"
+                    </button>
+                  )}
+                  {!filteredWithdrawees.length && !canAddWithdrawee && (
+                    <div className="px-3 py-2 text-xs text-gray-500">No matching name found</div>
+                  )}
+                </div>
+              </div>
+            )}
+            {form.withdrawnBy && (
+              <p className="mt-1 text-xs text-gray-500">
+                Selected: <span className="font-medium text-gray-700">{form.withdrawnBy}</span>
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
