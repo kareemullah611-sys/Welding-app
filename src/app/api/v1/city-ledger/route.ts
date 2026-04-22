@@ -32,7 +32,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     };
 
     // Fetch all financial transactions for this city
-    const [sales, payments, expenses, withdrawals, hajiTransfers] = await Promise.all([
+    const [sales, payments, expenses, withdrawals, hajiTransfers, bankDeposits] = await Promise.all([
       prisma.sale.findMany({
         where: { cityId, status: { in: ["active", "marked_short"] }, ...dateFilter("saleDate") },
         include: { customer: { select: { name: true } }, currency: true, lot: { select: { lotNumber: true } } },
@@ -57,6 +57,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         where: { cityId, ...dateFilter("transferDate") },
         include: { currency: true, lot: { select: { lotNumber: true } } },
         orderBy: { transferDate: "asc" },
+      }),
+      prisma.bankDeposit.findMany({
+        where: { cityId, ...dateFilter("depositDate") },
+        include: { currency: true, bankAccount: { select: { bankName: true } }, cheques: { select: { id: true, amount: true } } },
+        orderBy: { depositDate: "asc" },
       }),
     ]);
 
@@ -122,6 +127,25 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       });
     }
 
+    for (const b of bankDeposits) {
+      const cashAmount = Number(b.cashAmount || 0);
+      const isCashMovement = cashAmount !== 0;
+      if (!isCashMovement) continue;
+      const abs = Math.abs(cashAmount);
+      entries.push({
+        date: b.depositDate.toISOString().split("T")[0],
+        type: "bank_cash_transfer",
+        category: cashAmount > 0 ? "Cash to Bank" : "Bank to Cash",
+        description: `${cashAmount > 0 ? "Cash deposited to" : "Cash withdrawn from"} ${b.bankAccount?.bankName || "bank account"}`,
+        debit: cashAmount > 0 ? abs : 0,
+        credit: cashAmount < 0 ? abs : 0,
+        currency: b.currency.code,
+        lot: null,
+        account: cashAmount > 0 ? "Bank" : "Cash In Hand",
+        counterAccount: cashAmount > 0 ? "Cash In Hand" : "Bank",
+      });
+    }
+
     // Sort by date
     entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
@@ -144,6 +168,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       if (e.type === "withdrawal") { cashByCurr[cc] -= e.debit; }
       if (e.type === "haji_transfer" && e.transferType === "from_in_hand") { cashByCurr[cc] -= e.debit; hajiOwedByCurr[cc] -= e.debit; }
       if (e.type === "haji_transfer" && e.transferType === "direct") { hajiOwedByCurr[cc] -= e.debit; }
+      if (e.type === "bank_cash_transfer" && e.category === "Cash to Bank") { cashByCurr[cc] -= e.debit; }
+      if (e.type === "bank_cash_transfer" && e.category === "Bank to Cash") { cashByCurr[cc] += e.credit; }
 
       e.runningCashInHand = r2(cashByCurr[cc]);
       e.runningReceivables = r2(receivablesByCurr[cc]);
@@ -161,6 +187,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     for (const x of expenses) { const cc = x.currency.code; summaryExpenses[cc] = r2((summaryExpenses[cc] || 0) + Number(x.amount)); }
     for (const x of withdrawals) { const cc = x.currency.code; summaryWithdrawals[cc] = r2((summaryWithdrawals[cc] || 0) + Number(x.amount)); }
     for (const x of hajiTransfers) { const cc = x.currency.code; summaryHaji[cc] = r2((summaryHaji[cc] || 0) + Number(x.amount)); }
+    const summaryBankCashTransfers: Record<string, number> = {};
+    for (const x of bankDeposits) {
+      const cc = x.currency.code;
+      summaryBankCashTransfers[cc] = r2((summaryBankCashTransfers[cc] || 0) + Number(x.cashAmount || 0));
+    }
 
     return successResponse({
       entries,
@@ -173,6 +204,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         totalExpensesByCurrency: summaryExpenses,
         totalWithdrawalsByCurrency: summaryWithdrawals,
         totalHajiTransfersByCurrency: summaryHaji,
+        totalBankCashTransfersByCurrency: summaryBankCashTransfers,
       },
     });
   } catch (error) {

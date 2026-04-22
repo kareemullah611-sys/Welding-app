@@ -19,7 +19,9 @@ export default function BankDepositsPage() {
   const [currencies, setCurrencies] = useState<any[]>([]);
   const [inHandCheques, setInHandCheques] = useState<any[]>([]);
   const [form, setForm] = useState<any>({
+    transferType: "cheque_to_bank",
     bankAccountId: 0, depositDate: new Date().toISOString().split("T")[0],
+    destinationBankAccountId: 0,
     slipNumber: "", cashAmount: 0, currencyId: 0, notes: "", chequePaymentIds: [] as number[],
   });
   const [submitting, setSubmitting] = useState(false);
@@ -60,8 +62,15 @@ export default function BankDepositsPage() {
     }
     if (chRes.success) setInHandCheques(chRes.data as any[]);
     setForm((f: any) => ({
-      ...f, bankAccountId: 0, depositDate: new Date().toISOString().split("T")[0],
-      slipNumber: "", cashAmount: 0, notes: "", chequePaymentIds: [],
+      ...f,
+      transferType: "cheque_to_bank",
+      bankAccountId: 0,
+      destinationBankAccountId: 0,
+      depositDate: new Date().toISOString().split("T")[0],
+      slipNumber: "",
+      cashAmount: 0,
+      notes: "",
+      chequePaymentIds: [],
     }));
     setShowCreate(true); setError("");
   };
@@ -77,18 +86,26 @@ export default function BankDepositsPage() {
 
   const selectedCheques = inHandCheques.filter((c: any) => form.chequePaymentIds.includes(c.id));
   const chequesTotal = selectedCheques.reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
-  const depositTotal = Number(form.cashAmount || 0) + chequesTotal;
+  const transferPreviewAmount = form.transferType === "cheque_to_cash"
+    ? chequesTotal
+    : Number(form.cashAmount || 0);
 
   const handleCreate = async () => {
     if (!form.bankAccountId) { setError("Please select a bank account"); return; }
     if (!form.depositDate) { setError("Please select a deposit date"); return; }
     if (!form.currencyId) { setError("Please select a currency"); return; }
-    if (form.cashAmount <= 0 && form.chequePaymentIds.length === 0) {
-      setError("Please enter a cash amount or select at least one cheque");
-      return;
-    }
+    if (form.transferType === "bank_to_cash" && !(Number(form.cashAmount || 0) > 0)) { setError("Please enter a transfer amount"); return; }
+    if (form.transferType === "bank_to_bank" && !(Number(form.cashAmount || 0) > 0)) { setError("Please enter a transfer amount"); return; }
+    if (form.transferType === "bank_to_bank" && !form.destinationBankAccountId) { setError("Please select destination bank account"); return; }
+    if (form.transferType === "bank_to_bank" && Number(form.destinationBankAccountId) === Number(form.bankAccountId)) { setError("Source and destination bank account must be different"); return; }
+    if (form.transferType === "cheque_to_cash" && form.chequePaymentIds.length === 0) { setError("Please select at least one cheque"); return; }
+    if (form.transferType === "cheque_to_bank" && Number(form.cashAmount || 0) <= 0 && form.chequePaymentIds.length === 0) { setError("Please enter a cash amount or select at least one cheque"); return; }
     setSubmitting(true);
-    const r = await apiCall("/api/v1/bank-deposits", { method: "POST", body: { ...form } });
+    const body = {
+      ...form,
+      cashAmount: form.transferType === "cheque_to_cash" ? chequesTotal : Number(form.cashAmount || 0),
+    };
+    const r = await apiCall("/api/v1/bank-deposits", { method: "POST", body });
     setSubmitting(false);
     if (r.success) { setShowCreate(false); load(); } else { setError(r.error || "Failed"); }
   };
@@ -132,17 +149,21 @@ export default function BankDepositsPage() {
                 <div className="flex items-center justify-between px-4 py-3">
                   <div className="flex items-center gap-4">
                     <div>
-                      <p className="text-sm font-semibold text-gray-900">🏦 {d.bankAccount?.bankName || "—"}</p>
+                      <p className="text-sm font-semibold text-gray-900">{d.bankAccount?.bankName || "—"}</p>
                       <p className="text-xs text-gray-500 mt-0.5">{formatDate(d.depositDate)}{d.slipNumber ? ` · Slip #${d.slipNumber}` : ""}</p>
+                      <p className="text-[11px] text-gray-500 mt-0.5">{(d.transferType || "cheque_to_bank").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="text-right">
                       {Number(d.cashAmount) > 0 && (
-                        <p className="text-xs text-gray-500">💵 Cash: <span className="font-medium">{d.currency?.symbol} {Number(d.cashAmount).toLocaleString("en-US")}</span></p>
+                        <p className="text-xs text-gray-500">Cash: <span className="font-medium">{d.currency?.symbol} {Number(d.cashAmount).toLocaleString("en-US")}</span></p>
+                      )}
+                      {Number(d.cashAmount) < 0 && (
+                        <p className="text-xs text-gray-500">Bank Out: <span className="font-medium">{d.currency?.symbol} {Math.abs(Number(d.cashAmount)).toLocaleString("en-US")}</span></p>
                       )}
                       {d.cheques?.length > 0 && (
-                        <p className="text-xs text-gray-500">🧾 {d.cheques.length} cheque{d.cheques.length !== 1 ? "s" : ""}: <span className="font-medium">{d.currency?.symbol} {chequeSum.toLocaleString("en-US")}</span></p>
+                        <p className="text-xs text-gray-500">{d.cheques.length} cheque{d.cheques.length !== 1 ? "s" : ""}: <span className="font-medium">{d.currency?.symbol} {chequeSum.toLocaleString("en-US")}</span></p>
                       )}
                       <p className="text-sm font-bold text-blue-700 mt-0.5">Total: {d.currency?.symbol} {depTotal.toLocaleString("en-US")}</p>
                     </div>
@@ -198,7 +219,26 @@ export default function BankDepositsPage() {
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("bank_account")} *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Transfer Type *</label>
+              <select
+                value={form.transferType}
+                onChange={(e) => setForm((f: any) => ({
+                  ...f,
+                  transferType: e.target.value,
+                  chequePaymentIds: [],
+                  destinationBankAccountId: 0,
+                  cashAmount: 0,
+                }))}
+                className="select-field"
+              >
+                <option value="cheque_to_bank">Cheque In Hand → Bank</option>
+                <option value="bank_to_cash">Bank → Cash in Office</option>
+                <option value="cheque_to_cash">Cheque In Hand → Cash in Office</option>
+                <option value="bank_to_bank">Bank A → Bank B</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{form.transferType === "bank_to_bank" ? "Source Bank Account *" : `${t("bank_account")} *`}</label>
               {bankAccounts.length === 0 ? (
                 <div className="p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-700">{t("no_bank_accounts")}</div>
               ) : (
@@ -213,6 +253,16 @@ export default function BankDepositsPage() {
               <input type="date" value={form.depositDate} onChange={e => setForm((f: any) => ({ ...f, depositDate: e.target.value }))} className="input-field" />
             </div>
           </div>
+
+          {form.transferType === "bank_to_bank" && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Destination Bank Account *</label>
+              <select value={form.destinationBankAccountId} onChange={e => setForm((f: any) => ({ ...f, destinationBankAccountId: parseInt(e.target.value) }))} className="select-field">
+                <option value={0}>— Select —</option>
+                {bankAccounts.map((b: any) => <option key={b.id} value={b.id}>{b.bankName}{b.accountNumber ? ` (${b.accountNumber})` : ""}</option>)}
+              </select>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -229,11 +279,23 @@ export default function BankDepositsPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("cash_amount")} <span className="text-gray-400 font-normal">(0 if cheques only)</span></label>
-            <input type="number" min="0" value={form.cashAmount || ""} onChange={e => setForm((f: any) => ({ ...f, cashAmount: parseFloat(e.target.value) || 0 }))} className="input-field" placeholder="0" onWheel={e => e.currentTarget.blur()} />
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {form.transferType === "bank_to_cash" || form.transferType === "bank_to_bank" ? "Transfer Amount *" : `${t("cash_amount")} ${form.transferType === "cheque_to_bank" ? "(0 if cheques only)" : ""}`}
+            </label>
+            <input
+              type="number"
+              min="0"
+              value={form.transferType === "cheque_to_cash" ? chequesTotal || "" : form.cashAmount || ""}
+              onChange={e => setForm((f: any) => ({ ...f, cashAmount: parseFloat(e.target.value) || 0 }))}
+              className="input-field"
+              placeholder="0"
+              readOnly={form.transferType === "cheque_to_cash"}
+              onWheel={e => e.currentTarget.blur()}
+            />
           </div>
 
           {/* Cheque selection */}
+          {(form.transferType === "cheque_to_bank" || form.transferType === "cheque_to_cash") && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("select_cheques")} <span className="text-gray-400 font-normal">(optional)</span></label>
             {inHandCheques.length === 0 ? (
@@ -260,23 +322,26 @@ export default function BankDepositsPage() {
               </div>
             )}
           </div>
+          )}
 
           {/* Total preview */}
-          {depositTotal > 0 && (
+          {transferPreviewAmount > 0 && (
             <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">💵 Cash</span>
-                <span className="font-medium">{Number(form.cashAmount || 0).toLocaleString("en-US")}</span>
-              </div>
+              {form.transferType !== "cheque_to_cash" && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Cash</span>
+                  <span className="font-medium">{Number(form.cashAmount || 0).toLocaleString("en-US")}</span>
+                </div>
+              )}
               {selectedCheques.length > 0 && (
                 <div className="flex justify-between text-sm mt-1">
-                  <span className="text-gray-600">🧾 {selectedCheques.length} cheque{selectedCheques.length !== 1 ? "s" : ""}</span>
+                  <span className="text-gray-600">{selectedCheques.length} cheque{selectedCheques.length !== 1 ? "s" : ""}</span>
                   <span className="font-medium">{chequesTotal.toLocaleString("en-US")}</span>
                 </div>
               )}
               <div className="flex justify-between text-sm font-bold mt-2 pt-2 border-t border-green-300">
-                <span className="text-green-800">{t("total_deposit")}</span>
-                <span className="text-green-800">{depositTotal.toLocaleString("en-US")}</span>
+                <span className="text-green-800">Transfer Total</span>
+                <span className="text-green-800">{transferPreviewAmount.toLocaleString("en-US")}</span>
               </div>
             </div>
           )}

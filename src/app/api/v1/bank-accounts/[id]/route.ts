@@ -184,7 +184,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         }),
         prisma.bankDeposit.findMany({
           where: { bankAccountId: id },
-          select: { id: true, depositDate: true, createdAt: true, cashAmount: true, slipNumber: true, currencyId: true },
+          select: { id: true, depositDate: true, createdAt: true, cashAmount: true, slipNumber: true, notes: true, currencyId: true },
           orderBy: [{ depositDate: "asc" }, { createdAt: "asc" }],
         }),
         prisma.payment.findMany({
@@ -252,16 +252,20 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       });
     }
     for (const d of deposits) {
+      const cash = Number(d.cashAmount || 0);
+      const isWithdrawal = cash < 0;
+      const isB2BOut = String(d.slipNumber || "").includes("[B2B-OUT]") || String(d.notes || "").includes("[B2B-OUT]");
+      const isB2BIn = String(d.slipNumber || "").includes("[B2B-IN]") || String(d.notes || "").includes("[B2B-IN]");
       rows.push({
         key: `dep-${d.id}`,
         date: new Date(d.depositDate),
         createdAt: new Date(d.createdAt),
-        type: "Bank Deposit",
-        detail: "Cash deposited",
+        type: isB2BOut || isB2BIn ? "Bank Transfer" : isWithdrawal ? "Bank Withdrawal" : "Bank Deposit",
+        detail: isB2BOut ? "Transfer to another bank" : isB2BIn ? "Transfer from another bank" : isWithdrawal ? "Cash withdrawn to office" : "Cash deposited",
         reference: d.slipNumber || null,
         currencyCode: toCurrencyCode(d.currencyId, currencyCodeById),
-        credit: Number(d.cashAmount || 0),
-        debit: 0,
+        credit: cash > 0 ? cash : 0,
+        debit: cash < 0 ? Math.abs(cash) : 0,
       });
     }
     for (const c of depositedCheques) {

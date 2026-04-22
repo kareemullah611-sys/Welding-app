@@ -11,6 +11,22 @@ import {
 import { JWTPayload } from "@/lib/auth";
 import { journalBankDeposit } from "@/lib/accounting";
 
+type TreasuryTransferType =
+  | "cheque_to_bank"
+  | "bank_to_cash"
+  | "cheque_to_cash"
+  | "bank_to_bank";
+
+const deriveTransferType = (row: { cashAmount: number; cheques: Array<{ id: number }>; notes?: string | null }): TreasuryTransferType => {
+  const cashAmount = Number(row.cashAmount || 0);
+  const hasCheques = (row.cheques || []).length > 0;
+  const notes = String(row.notes || "");
+  if (notes.includes("[B2B-OUT]") || notes.includes("[B2B-IN]")) return "bank_to_bank";
+  if (hasCheques && cashAmount < 0) return "cheque_to_cash";
+  if (!hasCheques && cashAmount < 0) return "bank_to_cash";
+  return "cheque_to_bank";
+};
+
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
     const searchParams = request.nextUrl.searchParams;
@@ -107,6 +123,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
             customer: c.customer,
           })),
           totalAmount: Number(d.cashAmount) + chequeTotal,
+          transferType: deriveTransferType({ cashAmount: Number(d.cashAmount), cheques: d.cheques, notes: d.notes }),
+          notes: d.notes || null,
           createdAt: d.createdAt.toISOString(),
           creator: { fullName: creatorById[d.createdBy] ?? null },
         };
@@ -123,6 +141,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 export const POST = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
     const body = await request.json();
+    const transferType: TreasuryTransferType = (body.transferType || "cheque_to_bank") as TreasuryTransferType;
 
     // Determine the city for this deposit
     const cityId =
@@ -157,10 +176,10 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       return errorResponse("VALIDATION_ERROR", "depositDate is not a valid date");
     }
 
-    // Validate cashAmount
-    const cashAmount = body.cashAmount !== undefined ? Number(body.cashAmount) : 0;
-    if (isNaN(cashAmount) || cashAmount < 0) {
-      return errorResponse("VALIDATION_ERROR", "cashAmount must be a non-negative number");
+    // Validate transfer amount
+    const transferAmount = body.cashAmount !== undefined ? Number(body.cashAmount) : 0;
+    if (!Number.isFinite(transferAmount)) {
+      return errorResponse("VALIDATION_ERROR", "cashAmount must be a valid number");
     }
 
     const chequePaymentIds: number[] = Array.isArray(body.chequePaymentIds)
@@ -169,12 +188,13 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           .filter((id: number) => !isNaN(id))
       : [];
 
-    // Require at least some value
-    if (cashAmount === 0 && chequePaymentIds.length === 0) {
-      return errorResponse(
-        "VALIDATION_ERROR",
-        "At least cashAmount > 0 or one chequePaymentId must be provided"
-      );
+    if (transferType === "bank_to_cash" || transferType === "bank_to_bank") {
+      if (!(transferAmount > 0)) {
+        return errorResponse("VALIDATION_ERROR", "Amount must be greater than zero");
+      }
+      if (chequePaymentIds.length > 0) {
+        return errorResponse("VALIDATION_ERROR", "Cheques are not allowed for this transfer type");
+      }
     }
 
     // Verify bankAccount belongs to user's city
@@ -248,17 +268,47 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       }
     }
 
+    if (transferType === "cheque_to_bank" && transferAmount <= 0 && chequePaymentIds.length === 0) {
+      return errorResponse("VALIDATION_ERROR", "Enter cash amount or select at least one cheque");
+    }
+    if (transferType === "cheque_to_cash" && chequePaymentIds.length === 0) {
+      return errorResponse("VALIDATION_ERROR", "Select at least one cheque for cheque-to-cash transfer");
+    }
+
+    const destinationBankAccountId = body.destinationBankAccountId ? parseInt(body.destinationBankAccountId) : undefined;
+    if (transferType === "bank_to_bank") {
+      if (!destinationBankAccountId || Number.isNaN(destinationBankAccountId)) {
+        return errorResponse("VALIDATION_ERROR", "destinationBankAccountId is required for bank-to-bank transfer");
+      }
+      if (destinationBankAccountId === parsedBankAccountId) {
+        return errorResponse("VALIDATION_ERROR", "Source and destination bank accounts must be different");
+      }
+      const destinationBank = await prisma.bankAccount.findUnique({ where: { id: destinationBankAccountId } });
+      if (!destinationBank || destinationBank.cityId !== cityId) {
+        return errorResponse("FORBIDDEN", "Destination bank account does not belong to your city", 403);
+      }
+    }
+
+    const chequeTotal = cheques.reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
+    const signedCashAmount =
+      transferType === "bank_to_cash"
+        ? -Math.abs(transferAmount)
+        : transferType === "cheque_to_cash"
+        ? -Math.abs(chequeTotal)
+        : Math.abs(transferAmount || 0);
+
     // Transactionally create deposit and update cheque statuses
     const newDeposit = await prisma.$transaction(async (tx) => {
-      const deposit = await tx.bankDeposit.create({
+      const depositNotesBase = body.notes ? String(body.notes).trim() : null;
+      const sourceDeposit = await tx.bankDeposit.create({
         data: {
           cityId,
           bankAccountId: parsedBankAccountId,
           depositDate: parsedDepositDate,
           slipNumber: body.slipNumber ? String(body.slipNumber).trim() : null,
-          cashAmount,
+          cashAmount: transferType === "bank_to_bank" ? -Math.abs(transferAmount) : signedCashAmount,
           currencyId: parsedCurrencyId,
-          notes: body.notes ? String(body.notes).trim() : null,
+          notes: transferType === "bank_to_bank" ? [depositNotesBase, "[B2B-OUT]"].filter(Boolean).join(" ") : depositNotesBase,
           createdBy: user.userId,
         },
       });
@@ -272,7 +322,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           where: { id: { in: chequePaymentIds }, chequeStatus: "in_hand", status: "active" },
           data: {
             chequeStatus: "deposited_to_bank",
-            bankDepositId: deposit.id,
+            bankDepositId: sourceDeposit.id,
             bankAccountId: parsedBankAccountId,
           },
         });
@@ -281,7 +331,24 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         }
       }
 
-      return deposit;
+      let destinationDepositId: number | null = null;
+      if (transferType === "bank_to_bank" && destinationBankAccountId) {
+        const destinationDeposit = await tx.bankDeposit.create({
+          data: {
+            cityId,
+            bankAccountId: destinationBankAccountId,
+            depositDate: parsedDepositDate,
+            slipNumber: body.slipNumber ? String(body.slipNumber).trim() : null,
+            cashAmount: Math.abs(transferAmount),
+            currencyId: parsedCurrencyId,
+            notes: [depositNotesBase, "[B2B-IN]"].filter(Boolean).join(" "),
+            createdBy: user.userId,
+          },
+        });
+        destinationDepositId = destinationDeposit.id;
+      }
+
+      return { sourceDeposit, destinationDepositId };
     });
 
     // Create journal entries for the deposit (outside transaction — avoids timeout)
@@ -289,15 +356,30 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       const depositCurrency = await prisma.currency.findUnique({ where: { id: parsedCurrencyId }, select: { code: true } });
       const chequeAmounts = cheques.map((c: any) => ({ paymentId: c.id, amount: Number(c.amount) }));
       await journalBankDeposit({
-        id: newDeposit.id, bankAccountId: parsedBankAccountId, cityId,
-        cashAmount, currencyCode: depositCurrency?.code || "PKR",
+        id: newDeposit.sourceDeposit.id, bankAccountId: parsedBankAccountId, cityId,
+        cashAmount: transferType === "bank_to_bank" ? -Math.abs(transferAmount) : signedCashAmount,
+        currencyCode: depositCurrency?.code || "PKR",
         depositDate: parsedDepositDate, createdBy: user.userId, cheques: chequeAmounts,
+        transactionKeySuffix: transferType === "bank_to_bank" ? "B2B-OUT" : undefined,
       });
+      if (transferType === "bank_to_bank" && destinationBankAccountId && newDeposit.destinationDepositId) {
+        await journalBankDeposit({
+          id: newDeposit.destinationDepositId,
+          bankAccountId: destinationBankAccountId,
+          cityId,
+          cashAmount: Math.abs(transferAmount),
+          currencyCode: depositCurrency?.code || "PKR",
+          depositDate: parsedDepositDate,
+          createdBy: user.userId,
+          cheques: [],
+          transactionKeySuffix: "B2B-IN",
+        });
+      }
     } catch (je) { console.error("Journal error (bank deposit):", je); }
 
     // Fetch full details after transaction
     const fullDeposit = await prisma.bankDeposit.findUnique({
-      where: { id: newDeposit.id },
+      where: { id: newDeposit.sourceDeposit.id },
       include: {
         currency: { select: { id: true, code: true, symbol: true } },
         bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
@@ -320,10 +402,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       select: { fullName: true },
     });
 
-    const chequeTotal = fullDeposit.cheques.reduce(
-      (sum: number, c: any) => sum + Number(c.amount),
-      0
-    );
+    const createdChequeTotal = fullDeposit.cheques.reduce((sum: number, c: any) => sum + Number(c.amount), 0);
 
     await createAuditLog(
       user.userId,
@@ -335,9 +414,10 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       {
         bankAccountId: parsedBankAccountId,
         depositDate,
-        cashAmount,
+        cashAmount: transferType === "bank_to_bank" ? -Math.abs(transferAmount) : signedCashAmount,
         chequeCount: chequePaymentIds.length,
-        totalAmount: cashAmount + chequeTotal,
+        transferType,
+        totalAmount: (transferType === "bank_to_bank" ? -Math.abs(transferAmount) : signedCashAmount) + createdChequeTotal,
       },
       getClientIP(request)
     );
@@ -358,7 +438,13 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           chequeBank: c.chequeBank,
           customer: c.customer,
         })),
-        totalAmount: Number(fullDeposit.cashAmount) + chequeTotal,
+        totalAmount: Number(fullDeposit.cashAmount) + createdChequeTotal,
+        transferType: deriveTransferType({
+          cashAmount: Number(fullDeposit.cashAmount),
+          cheques: fullDeposit.cheques,
+          notes: fullDeposit.notes,
+        }),
+        notes: fullDeposit.notes || null,
         createdAt: fullDeposit.createdAt.toISOString(),
         creator: { fullName: creator?.fullName ?? null },
       },
