@@ -282,6 +282,35 @@ export function DataTable<T extends Record<string, any>>({
   }, [activeMatchIndex]);
 
   const showSearchMeta = searchable && activeSearch.length > 0;
+  const highlightSearchText = (value: unknown): React.ReactNode => {
+    const text = value == null ? "" : String(value);
+    if (!searchable || activeSearch.length < minChars || !text) return text;
+
+    const needle = activeSearch.toLowerCase();
+    const haystack = text.toLowerCase();
+    if (!needle || !haystack.includes(needle)) return text;
+
+    const nodes: React.ReactNode[] = [];
+    let cursor = 0;
+    let key = 0;
+    while (cursor < text.length) {
+      const matchAt = haystack.indexOf(needle, cursor);
+      if (matchAt === -1) {
+        nodes.push(<React.Fragment key={`txt-${key++}`}>{text.slice(cursor)}</React.Fragment>);
+        break;
+      }
+      if (matchAt > cursor) {
+        nodes.push(<React.Fragment key={`txt-${key++}`}>{text.slice(cursor, matchAt)}</React.Fragment>);
+      }
+      nodes.push(
+        <mark key={`hit-${key++}`} className="rounded bg-amber-100 px-0.5 text-inherit">
+          {text.slice(matchAt, matchAt + needle.length)}
+        </mark>
+      );
+      cursor = matchAt + needle.length;
+    }
+    return <>{nodes}</>;
+  };
 
   return (
     <div className="rounded-[1.4rem] border border-white/70 bg-white/85 shadow-[0_26px_70px_-42px_rgba(51,42,33,0.35)] backdrop-blur-xl">
@@ -381,20 +410,18 @@ export function DataTable<T extends Record<string, any>>({
                   className={cn(
                     "border-b border-[#f3e8db] transition-colors",
                     stripedRows && idx % 2 === 1 && "bg-[#fbf8f3]",
-                    activeMatchIndex === idx && "bg-[#eef4ff] shadow-[inset_3px_0_0_0_#3b82f6]",
                     onRowClick ? "cursor-pointer hover:bg-[#fff4ea]" : "hover:bg-[#fcf6ef]"
                     ,rowClassName?.(item, idx)
                   )}
                 >
                   {columns.map((col) => {
                     const isDate = !col.render && col.key.toLowerCase().includes("date") && typeof item[col.key] === "string" && item[col.key]?.match(/^\d{4}-\d{2}-\d{2}/);
+                    const displayValue = isDate ? formatDate(item[col.key]) : item[col.key];
                     return (
                       <TableCell key={col.key} className={cn("text-sm text-gray-700 py-3", isDate && "whitespace-nowrap", col.className)}>
                         {col.render
                           ? col.render(item)
-                          : isDate
-                          ? formatDate(item[col.key])
-                          : item[col.key]}
+                          : highlightSearchText(displayValue)}
                       </TableCell>
                     );
                   })}

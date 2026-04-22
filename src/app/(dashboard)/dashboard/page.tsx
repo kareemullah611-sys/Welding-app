@@ -440,20 +440,31 @@ export default function DashboardPage() {
           <div className="fixed inset-0 z-[90]">
             <button
               aria-label="Close quick form"
-              className="absolute inset-0 bg-black/50 backdrop-blur-[2px]"
+              className="absolute inset-0 bg-black/55 backdrop-blur-sm"
               onClick={() => setQuickAction(null)}
             />
-            <div className="relative z-[91] mx-auto flex h-[100dvh] w-full items-center justify-center p-2 sm:p-5 md:p-8">
-              <div className="relative w-full max-w-[1120px] overflow-hidden rounded-[1.55rem] border border-[#e5d8c7] bg-[linear-gradient(180deg,#fffdf9_0%,#fff8ef_100%)] p-3 shadow-[0_40px_120px_-50px_rgba(36,24,14,0.6)] sm:p-4">
+            <div className="relative z-[91] mx-auto flex h-[100dvh] w-full items-center justify-center p-2 sm:p-4">
+              <div className="relative flex w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-white/70 bg-white shadow-[0_40px_120px_-52px_rgba(36,24,14,0.58)]">
+                <div className="flex items-center justify-between border-b border-[#efe2d3] px-5 py-3">
+                  <h2 className="text-base font-semibold text-[#2d2116]">{quickAction.title}</h2>
+                  <button
+                    type="button"
+                    onClick={() => setQuickAction(null)}
+                    className="rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                    aria-label="Close"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
                 <button
                   type="button"
                   onClick={() => setQuickAction(null)}
-                  className="absolute right-4 top-4 z-[92] rounded-md bg-white/85 p-1.5 text-[#7e6c59] shadow-sm ring-1 ring-[#e8dbc9] transition-colors hover:bg-[#f7efe3] hover:text-[#2e2216]"
+                  className="sr-only"
                   aria-label="Close"
                 >
                   <X className="h-5 w-5" />
                 </button>
-                <div className="h-[min(86vh,860px)] min-h-[560px] overflow-hidden rounded-[1.15rem] border border-[#e9decd] bg-white">
+                <div className="h-[min(84vh,880px)] min-h-[560px] overflow-hidden bg-white">
                   <iframe
                     src={quickAction.src}
                     title={`${quickAction.title} form`}
