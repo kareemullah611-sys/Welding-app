@@ -8,13 +8,13 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 
-const SOURCE_CONFIG: Record<string, { label: string; color: string; icon: string }> = {
-  cash_office:    { label: "Cash from Office", icon: "💵", color: "bg-green-50 text-green-700" },
-  cheque:         { label: "Cheque",            icon: "🧾", color: "bg-blue-50 text-blue-700"  },
-  bank_transfer:  { label: "Bank Transfer",     icon: "🏦", color: "bg-purple-50 text-purple-700" },
+const SOURCE_CONFIG: Record<string, { label: string; color: string; icon?: string }> = {
+  cash_office:    { label: "Cash from Office", color: "bg-green-50 text-green-700" },
+  cheque:         { label: "Cheque", color: "bg-blue-50 text-blue-700"  },
+  bank_transfer:  { label: "Bank Transfer", color: "bg-purple-50 text-purple-700" },
   // legacy
-  from_in_hand:   { label: "Cash from Office", icon: "💵", color: "bg-green-50 text-green-700" },
-  direct:         { label: "Bank Transfer",     icon: "🏦", color: "bg-purple-50 text-purple-700" },
+  from_in_hand:   { label: "Cash from Office", color: "bg-green-50 text-green-700" },
+  direct:         { label: "Bank Transfer", color: "bg-purple-50 text-purple-700" },
 };
 
 const PAKISTAN_HAJI_TARGET = "Super Admin Account";
@@ -321,7 +321,7 @@ export default function HajiTransfersPage() {
             }
             const st = getSourceType(tr);
             const cfg = SOURCE_CONFIG[st] || SOURCE_CONFIG.cash_office;
-            return <span className={`text-xs px-2 py-0.5 rounded font-medium ${cfg.color}`}>{cfg.icon} {cfg.label}</span>;
+            return <span className={`text-xs px-2 py-0.5 rounded font-medium ${cfg.color}`}>{cfg.label}</span>;
           },
         },
         { key: "lotNumber", label: t("lot"), render: (tr: any) => tr.lot?.lotNumber || tr.lotNumber || "-" },
@@ -369,7 +369,7 @@ export default function HajiTransfersPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("source_of_funds")} *</label>
               {isAfghanistanCity ? (
                 <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
-                  💵 Cash from Office only for Afghanistan city operations
+                  Cash from Office only for Afghanistan city operations
                 </div>
               ) : (
                 <select
@@ -385,10 +385,10 @@ export default function HajiTransfersPage() {
                   }))}
                   className="select-field"
                 >
-                  <option value="cash_office">💵 {t("cash_from_office")}</option>
-                  <option value="cheque">🧾 {t("cheque")}</option>
-                  <option value="mixed_cash_cheque">💵 + 🧾 Cash + Cheques</option>
-                  <option value="bank_transfer">🏦 {t("bank_transfer")}</option>
+                  <option value="cash_office">{t("cash_from_office")}</option>
+                  <option value="cheque">{t("cheque")}</option>
+                  <option value="mixed_cash_cheque">Cash + Cheques</option>
+                  <option value="bank_transfer">{t("bank_transfer")}</option>
                 </select>
               )}
             </div>
@@ -523,7 +523,7 @@ export default function HajiTransfersPage() {
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
           <div className="p-2 bg-gray-50 border rounded text-xs text-gray-600">
-            {t("source_of_funds")}: <strong>{SOURCE_CONFIG[form.sourceType]?.icon} {SOURCE_CONFIG[form.sourceType]?.label || form.sourceType}</strong> (cannot change after creation)
+            {t("source_of_funds")}: <strong>{SOURCE_CONFIG[form.sourceType]?.label || form.sourceType}</strong> (cannot change after creation)
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Transferred To</label>

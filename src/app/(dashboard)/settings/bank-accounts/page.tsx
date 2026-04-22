@@ -218,7 +218,13 @@ export default function BankAccountsPage() {
       key: "bankName", label: t("bank_name"),
       render: (acc: any) => (
         <div>
-          <span className="font-medium">{acc.bankName}</span>
+          <button
+            type="button"
+            onClick={(event) => { event.stopPropagation(); openLedger(acc); }}
+            className="font-medium text-primary-700 hover:underline"
+          >
+            {acc.bankName}
+          </button>
           {!acc.isActive && <span className="ml-2 text-xs text-gray-400">(inactive)</span>}
         </div>
       ),
@@ -294,7 +300,6 @@ export default function BankAccountsPage() {
         columns={columns}
         data={accounts}
         loading={loading}
-        onRowClick={openLedger}
       />
 
       {/* CREATE MODAL */}
