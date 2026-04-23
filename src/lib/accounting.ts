@@ -130,26 +130,26 @@ export async function journalBankDeposit(d: {
   currencyCode: string; depositDate: Date; createdBy: number;
   cheques: Array<{ paymentId: number; amount: number; }>;
   transactionKeySuffix?: string;
-}) {
-  const bankAccId = await getBankGLAccountId(d.bankAccountId);
+}, db: DbClient = prisma) {
+  const bankAccId = await getBankGLAccountId(d.bankAccountId, db);
   const txKey = d.transactionKeySuffix ? `DEP-${d.id}-${d.transactionKeySuffix}` : `DEP-${d.id}`;
   if (d.cashAmount > 0) {
     await createJournalEntries(`${txKey}-CASH`, [
       { accountId: bankAccId, debit: d.cashAmount, credit: 0, description: `Deposit #${d.id} — cash` },
-      { accountId: await getCashAccountId(d.cityId), debit: 0, credit: d.cashAmount, description: `Deposit #${d.id} — cash` },
-    ], { currencyCode: d.currencyCode, entityType: "bank_deposit", entityId: d.id, cityId: d.cityId, entryDate: d.depositDate, createdBy: d.createdBy });
+      { accountId: await getCashAccountId(d.cityId, db), debit: 0, credit: d.cashAmount, description: `Deposit #${d.id} — cash` },
+    ], { currencyCode: d.currencyCode, entityType: "bank_deposit", entityId: d.id, cityId: d.cityId, entryDate: d.depositDate, createdBy: d.createdBy }, db);
   } else if (d.cashAmount < 0) {
     const withdrawal = Math.abs(d.cashAmount);
     await createJournalEntries(`${txKey}-WITHDRAWAL`, [
-      { accountId: await getCashAccountId(d.cityId), debit: withdrawal, credit: 0, description: `Bank withdrawal #${d.id}` },
+      { accountId: await getCashAccountId(d.cityId, db), debit: withdrawal, credit: 0, description: `Bank withdrawal #${d.id}` },
       { accountId: bankAccId, debit: 0, credit: withdrawal, description: `Bank withdrawal #${d.id}` },
-    ], { currencyCode: d.currencyCode, entityType: "bank_deposit", entityId: d.id, cityId: d.cityId, entryDate: d.depositDate, createdBy: d.createdBy });
+    ], { currencyCode: d.currencyCode, entityType: "bank_deposit", entityId: d.id, cityId: d.cityId, entryDate: d.depositDate, createdBy: d.createdBy }, db);
   }
   for (const cheque of d.cheques) {
     await createJournalEntries(`${txKey}-PAY-${cheque.paymentId}`, [
       { accountId: bankAccId, debit: cheque.amount, credit: 0, description: `Deposit #${d.id} — cheque PAY-${cheque.paymentId}` },
-      { accountId: await getChequesInHandAccountId(d.cityId), debit: 0, credit: cheque.amount, description: `Deposit #${d.id} — cheque PAY-${cheque.paymentId}` },
-    ], { currencyCode: d.currencyCode, entityType: "bank_deposit", entityId: d.id, cityId: d.cityId, entryDate: d.depositDate, createdBy: d.createdBy });
+      { accountId: await getChequesInHandAccountId(d.cityId, db), debit: 0, credit: cheque.amount, description: `Deposit #${d.id} — cheque PAY-${cheque.paymentId}` },
+    ], { currencyCode: d.currencyCode, entityType: "bank_deposit", entityId: d.id, cityId: d.cityId, entryDate: d.depositDate, createdBy: d.createdBy }, db);
   }
 }
 

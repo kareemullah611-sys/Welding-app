@@ -3,7 +3,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
+import { PageHeader, DataTable, Modal, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
 
@@ -23,8 +23,6 @@ export default function ExpensesPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [selected, setSelected] = useState<any>(null);
-  const [cashPosition, setCashPosition] = useState<any>(null);
-  const [treasury, setTreasury] = useState<any>(null);
   const [lots, setLots] = useState<any[]>([]);
   const [currencies, setCurrencies] = useState<any[]>([]);
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
@@ -47,24 +45,17 @@ export default function ExpensesPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const treasuryRequest = user?.role === "city_admin" ? apiCall("/api/v1/treasury") : Promise.resolve(null);
     const params: any = { page, limit: 20 };
     const normalizedQuery = searchQuery.trim();
     if (normalizedQuery.length >= 2) params.q = normalizedQuery;
-    const [result, cashRes, treasuryRes] = await Promise.all([
-      apiCall("/api/v1/expenses", { params }),
-      apiCall("/api/v1/cash-position"),
-      treasuryRequest,
-    ]);
+    const result = await apiCall("/api/v1/expenses", { params });
     if (result.success) {
       setExpenses(result.data as any[]);
       setTotalPages((result.pagination as any)?.totalPages || 1);
       setTotal((result.pagination as any)?.total || 0);
     }
-    if (cashRes.success) setCashPosition(cashRes.data);
-    if (treasuryRes?.success) setTreasury(treasuryRes.data);
     setLoading(false);
-  }, [page, searchQuery, user?.role]);
+  }, [page, searchQuery]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [searchQuery]);
   useEffect(() => {
@@ -74,14 +65,6 @@ export default function ExpensesPage() {
     openCreate();
     window.history.replaceState({}, "", isEmbed ? "/expenses?embed=1" : "/expenses");
   }, [prefillHandled, searchParams, user?.role]);
-
-  const formatPot = (pot: Record<string, number> | undefined) => {
-    if (!pot) return "0";
-    const entries = Object.entries(pot).filter(([, v]) => Number(v) !== 0);
-    if (entries.length === 0) return "0";
-    if (entries.length === 1) return `${entries[0][0]} ${formatNumber(entries[0][1])}`;
-    return entries.map(([cc, amt]) => `${cc} ${formatNumber(amt)}`).join(" · ");
-  };
 
   // Reload after queued entries sync
   useEffect(() => {
@@ -212,12 +195,6 @@ export default function ExpensesPage() {
         title={t("expenses")}
         subtitle={`${total} ${t("records").toLowerCase()}`}
       />}
-
-      {!isEmbed && (treasury || cashPosition) && (
-        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
-          💰 {t("cash_in_office")}: <strong>{treasury ? formatPot(treasury.cashInOffice) : formatNumber(cashPosition?.netCashInHand || 0)}</strong>
-        </div>
-      )}
 
       {!isEmbed && <DataTable
         searchValue={searchQuery}

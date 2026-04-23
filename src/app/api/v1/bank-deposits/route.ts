@@ -16,6 +16,12 @@ type TreasuryTransferType =
   | "bank_to_cash"
   | "cheque_to_cash"
   | "bank_to_bank";
+const VALID_TRANSFER_TYPES: TreasuryTransferType[] = [
+  "cheque_to_bank",
+  "bank_to_cash",
+  "cheque_to_cash",
+  "bank_to_bank",
+];
 
 const deriveTransferType = (row: { cashAmount: number; cheques: Array<{ id: number }>; notes?: string | null }): TreasuryTransferType => {
   const cashAmount = Number(row.cashAmount || 0);
@@ -141,7 +147,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 export const POST = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
     const body = await request.json();
-    const transferType: TreasuryTransferType = (body.transferType || "cheque_to_bank") as TreasuryTransferType;
+    const transferTypeRaw = String(body.transferType || "cheque_to_bank");
+    if (!VALID_TRANSFER_TYPES.includes(transferTypeRaw as TreasuryTransferType)) {
+      return errorResponse("VALIDATION_ERROR", "transferType is invalid");
+    }
+    const transferType = transferTypeRaw as TreasuryTransferType;
 
     // Determine the city for this deposit
     const cityId =
@@ -297,7 +307,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         ? -Math.abs(chequeTotal)
         : Math.abs(transferAmount || 0);
 
-    // Transactionally create deposit and update cheque statuses
+    // Transactionally create deposit + cheque status + journal entries
     const newDeposit = await prisma.$transaction(async (tx) => {
       const depositNotesBase = body.notes ? String(body.notes).trim() : null;
       const sourceDeposit = await tx.bankDeposit.create({
@@ -348,34 +358,55 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         destinationDepositId = destinationDeposit.id;
       }
 
-      return { sourceDeposit, destinationDepositId };
-    });
-
-    // Create journal entries for the deposit (outside transaction — avoids timeout)
-    try {
-      const depositCurrency = await prisma.currency.findUnique({ where: { id: parsedCurrencyId }, select: { code: true } });
-      const chequeAmounts = cheques.map((c: any) => ({ paymentId: c.id, amount: Number(c.amount) }));
-      await journalBankDeposit({
-        id: newDeposit.sourceDeposit.id, bankAccountId: parsedBankAccountId, cityId,
-        cashAmount: transferType === "bank_to_bank" ? -Math.abs(transferAmount) : signedCashAmount,
-        currencyCode: depositCurrency?.code || "PKR",
-        depositDate: parsedDepositDate, createdBy: user.userId, cheques: chequeAmounts,
-        transactionKeySuffix: transferType === "bank_to_bank" ? "B2B-OUT" : undefined,
+      const depositCurrency = await tx.currency.findUnique({
+        where: { id: parsedCurrencyId },
+        select: { code: true },
       });
-      if (transferType === "bank_to_bank" && destinationBankAccountId && newDeposit.destinationDepositId) {
-        await journalBankDeposit({
-          id: newDeposit.destinationDepositId,
-          bankAccountId: destinationBankAccountId,
+      const chequeAmounts = cheques.map((c: any) => ({
+        paymentId: c.id,
+        amount: Number(c.amount),
+      }));
+      await journalBankDeposit(
+        {
+          id: sourceDeposit.id,
+          bankAccountId: parsedBankAccountId,
           cityId,
-          cashAmount: Math.abs(transferAmount),
+          cashAmount:
+            transferType === "bank_to_bank"
+              ? -Math.abs(transferAmount)
+              : signedCashAmount,
           currencyCode: depositCurrency?.code || "PKR",
           depositDate: parsedDepositDate,
           createdBy: user.userId,
-          cheques: [],
-          transactionKeySuffix: "B2B-IN",
-        });
+          cheques: chequeAmounts,
+          transactionKeySuffix:
+            transferType === "bank_to_bank" ? "B2B-OUT" : undefined,
+        },
+        tx
+      );
+      if (
+        transferType === "bank_to_bank" &&
+        destinationBankAccountId &&
+        destinationDepositId
+      ) {
+        await journalBankDeposit(
+          {
+            id: destinationDepositId,
+            bankAccountId: destinationBankAccountId,
+            cityId,
+            cashAmount: Math.abs(transferAmount),
+            currencyCode: depositCurrency?.code || "PKR",
+            depositDate: parsedDepositDate,
+            createdBy: user.userId,
+            cheques: [],
+            transactionKeySuffix: "B2B-IN",
+          },
+          tx
+        );
       }
-    } catch (je) { console.error("Journal error (bank deposit):", je); }
+
+      return { sourceDeposit, destinationDepositId };
+    });
 
     // Fetch full details after transaction
     const fullDeposit = await prisma.bankDeposit.findUnique({

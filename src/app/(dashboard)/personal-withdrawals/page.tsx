@@ -23,8 +23,6 @@ export default function PersonalWithdrawalsPage() {
   const [showEdit, setShowEdit] = useState(false);
   const [selected, setSelected] = useState<any>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "approved">(user?.role === "super_admin" ? "pending" : "all");
-  const [cashPosition, setCashPosition] = useState<any>(null);
-  const [treasury, setTreasury] = useState<any>(null);
   const [currencies, setCurrencies] = useState<any[]>([]);
   const [inHandCheques, setInHandCheques] = useState<any[]>([]);
   const [form, setForm] = useState({ withdrawalDate: new Date().toISOString().split("T")[0], amount: 0, detail: "", withdrawnBy: "", notes: "", currencyId: 0, sourceType: "cash_office", chequePaymentId: 0 });
@@ -55,16 +53,13 @@ export default function PersonalWithdrawalsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const treasuryRequest = user?.role === "city_admin" ? apiCall("/api/v1/treasury") : Promise.resolve(null);
     const params: any = { page, limit: 20 };
     if (statusFilter !== "all") params.approval_status = statusFilter;
     const normalizedQuery = searchQuery.trim();
     if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     const countParams: any = normalizedQuery.length >= 2 ? { q: normalizedQuery } : {};
-    const [result, cashRes, treasuryRes, allCountRes, pendingCountRes, approvedCountRes] = await Promise.all([
+    const [result, allCountRes, pendingCountRes, approvedCountRes] = await Promise.all([
       apiCall("/api/v1/personal-withdrawals", { params }),
-      apiCall("/api/v1/cash-position"),
-      treasuryRequest,
       apiCall("/api/v1/personal-withdrawals", { params: { page: 1, limit: 1, ...countParams } }),
       apiCall("/api/v1/personal-withdrawals", { params: { page: 1, limit: 1, approval_status: "pending", ...countParams } }),
       apiCall("/api/v1/personal-withdrawals", { params: { page: 1, limit: 1, approval_status: "approved", ...countParams } }),
@@ -74,15 +69,13 @@ export default function PersonalWithdrawalsPage() {
       setTotalPages((result.pagination as any)?.totalPages || 1);
       setTotal((result.pagination as any)?.total || 0);
     }
-    if (cashRes.success) setCashPosition(cashRes.data);
-    if (treasuryRes?.success) setTreasury(treasuryRes.data);
     setCounts({
       all: (allCountRes.pagination as any)?.total || 0,
       pending: (pendingCountRes.pagination as any)?.total || 0,
       approved: (approvedCountRes.pagination as any)?.total || 0,
     });
     setLoading(false);
-  }, [page, searchQuery, statusFilter, user?.role]);
+  }, [page, searchQuery, statusFilter]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [searchQuery]);
@@ -118,14 +111,6 @@ export default function PersonalWithdrawalsPage() {
     document.addEventListener("mousedown", handleOutside);
     return () => document.removeEventListener("mousedown", handleOutside);
   }, [showWithdraweeMenu]);
-
-  const formatPot = (pot: Record<string, number> | undefined) => {
-    if (!pot) return "0";
-    const entries = Object.entries(pot).filter(([, v]) => Number(v) !== 0);
-    if (entries.length === 0) return "0";
-    if (entries.length === 1) return `${entries[0][0]} ${formatNumber(entries[0][1])}`;
-    return entries.map(([cc, amt]) => `${cc} ${formatNumber(amt)}`).join(" · ");
-  };
 
   const openCreate = async () => {
     const requests: Promise<any>[] = [apiCall("/api/v1/cities")];
@@ -243,13 +228,6 @@ export default function PersonalWithdrawalsPage() {
           Approved ({counts.approved})
         </button>
       </div>}
-
-      {!isEmbed && (treasury || cashPosition) && (
-        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
-          💰 {t("cash_in_office")}: <strong>{treasury ? formatPot(treasury.cashInOffice) : formatNumber(cashPosition?.netCashInHand || 0)}</strong>
-          {" — "}{t("total_withdrawn")}: <strong>{formatNumber(cashPosition?.outgoing?.personalWithdrawals || 0)}</strong>
-        </div>
-      )}
 
       {/* Pending approvals summary for super admin */}
       {!isEmbed && user?.role === "super_admin" && pendingItems.length > 0 && (

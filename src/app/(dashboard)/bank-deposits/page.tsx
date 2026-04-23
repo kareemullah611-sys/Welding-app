@@ -27,6 +27,12 @@ export default function BankDepositsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const transferTypeLabels: Record<string, string> = {
+    cheque_to_bank: "Cash/Cheque → Bank",
+    bank_to_cash: "Bank → Cash in Office",
+    cheque_to_cash: "Cheque In Hand → Cash in Office",
+    bank_to_bank: "Bank A → Bank B",
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -88,6 +94,8 @@ export default function BankDepositsPage() {
   const chequesTotal = selectedCheques.reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
   const transferPreviewAmount = form.transferType === "cheque_to_cash"
     ? chequesTotal
+    : form.transferType === "cheque_to_bank"
+    ? Number(form.cashAmount || 0) + chequesTotal
     : Number(form.cashAmount || 0);
 
   const handleCreate = async () => {
@@ -151,7 +159,7 @@ export default function BankDepositsPage() {
                     <div>
                       <p className="text-sm font-semibold text-gray-900">{d.bankAccount?.bankName || "—"}</p>
                       <p className="text-xs text-gray-500 mt-0.5">{formatDate(d.depositDate)}{d.slipNumber ? ` · Slip #${d.slipNumber}` : ""}</p>
-                      <p className="text-[11px] text-gray-500 mt-0.5">{(d.transferType || "cheque_to_bank").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</p>
+                      <p className="text-[11px] text-gray-500 mt-0.5">{transferTypeLabels[d.transferType || "cheque_to_bank"] || "Cash/Cheque → Bank"}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
@@ -231,7 +239,7 @@ export default function BankDepositsPage() {
                 }))}
                 className="select-field"
               >
-                <option value="cheque_to_bank">Cheque In Hand → Bank</option>
+                <option value="cheque_to_bank">Cash/Cheque → Bank</option>
                 <option value="bank_to_cash">Bank → Cash in Office</option>
                 <option value="cheque_to_cash">Cheque In Hand → Cash in Office</option>
                 <option value="bank_to_bank">Bank A → Bank B</option>
