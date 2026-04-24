@@ -23,29 +23,30 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     if ((payment as any).chequeStatus === "used_for_expense") return errorResponse("VALIDATION_ERROR", "Cannot cancel a cheque that has already been used for an expense");
     if ((payment as any).chequeStatus === "used_for_withdrawal") return errorResponse("VALIDATION_ERROR", "Cannot cancel a cheque that has already been used for a withdrawal");
 
-    await prisma.payment.update({
-      where: { id },
-      data: {
-        status: "cancelled",
-        chequeStatus: payment.paymentMethod === "cheque" ? null : payment.chequeStatus,
-        cancellationReason: body.reason,
-        cancelledAt: new Date(),
-        cancelledBy: user.userId,
-        updatedAt: new Date(),
-      },
+    await prisma.$transaction(async (tx) => {
+      await tx.payment.update({
+        where: { id },
+        data: {
+          status: "cancelled",
+          chequeStatus: payment.paymentMethod === "cheque" ? null : payment.chequeStatus,
+          cancellationReason: body.reason,
+          cancelledAt: new Date(),
+          cancelledBy: user.userId,
+          updatedAt: new Date(),
+        },
+      });
+
+      await createAuditLog(user.userId, payment.cityId, "payments", id, "cancel", {
+        date: payment.paymentDate.toISOString().split("T")[0],
+        customer: payment.customer.name,
+        detail: payment.detail,
+        amount: `${payment.currency.symbol || payment.currency.code} ${Number(payment.amount).toLocaleString("en-US")}`,
+        ...(payment.destination ? { destination: payment.destination } : {}),
+        ...(payment.notes ? { notes: payment.notes } : {}),
+      }, { reason: body.reason }, getClientIP(request), tx);
+
+      await reverseJournalEntries(`PAY-${id}`, user.userId, tx);
     });
-
-    await createAuditLog(user.userId, payment.cityId, "payments", id, "cancel", {
-      date: payment.paymentDate.toISOString().split("T")[0],
-      customer: payment.customer.name,
-      detail: payment.detail,
-      amount: `${payment.currency.symbol || payment.currency.code} ${Number(payment.amount).toLocaleString("en-US")}`,
-      ...(payment.destination ? { destination: payment.destination } : {}),
-      ...(payment.notes ? { notes: payment.notes } : {}),
-    }, { reason: body.reason }, getClientIP(request));
-
-    // Reverse journal entries so accounting books stay balanced
-    try { await reverseJournalEntries(`PAY-${id}`, user.userId); } catch (je) { console.error("Journal reversal error (payment cancel):", je); }
 
     return successResponse({ id, status: "cancelled" }, "Payment cancelled");
   } catch (error) {

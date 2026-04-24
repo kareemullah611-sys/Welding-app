@@ -47,15 +47,19 @@ async function getFIFOLot(cityId: number, countryId: number): Promise<number | n
 }
 
 // Helper: Check godown stock for a product
-async function getGodownStock(godownId: number, productId: number): Promise<number> {
+async function getGodownStock(
+  godownId: number,
+  productId: number,
+  db: PrismaClient | Prisma.TransactionClient = prisma
+): Promise<number> {
   // Received stock
-  const received = await prisma.lotCityGodownAllocation.aggregate({
+  const received = await db.lotCityGodownAllocation.aggregate({
     where: { godownId, productId },
     _sum: { qty: true },
   });
 
   // Sold stock (active + marked_short — both consume physical stock)
-  const sold = await prisma.saleItem.aggregate({
+  const sold = await db.saleItem.aggregate({
     where: {
       productId,
       sale: { godownId, status: { in: ["active", "marked_short"] } },
@@ -64,13 +68,13 @@ async function getGodownStock(godownId: number, productId: number): Promise<numb
   });
 
   // Transferred out
-  const transferredOut = await prisma.godownTransfer.aggregate({
+  const transferredOut = await db.godownTransfer.aggregate({
     where: { fromGodownId: godownId, productId },
     _sum: { qty: true },
   });
 
   // Transferred in
-  const transferredIn = await prisma.godownTransfer.aggregate({
+  const transferredIn = await db.godownTransfer.aggregate({
     where: { toGodownId: godownId, productId },
     _sum: { qty: true },
   });
@@ -281,6 +285,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     // Validate currency is supported by this city
     const cityCurrency = await prisma.cityCurrency.findFirst({
       where: { cityId, currencyId: currencyId ?? undefined },
+      orderBy: { currencyId: "asc" },
     });
     if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported in your city");
     const resolvedCurrencyId = currencyId ?? cityCurrency.currencyId;
@@ -310,22 +315,37 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       return errorResponse("NOT_FOUND", "One or more products not found or inactive");
     }
 
-    // Check stock availability and flag shortages
-    const stockWarnings: string[] = [];
+    let stockWarnings: string[] = [];
     let hasShortage = false;
-    for (const item of items) {
-      const available = await getGodownStock(godownId, item.productId);
-      if (available < item.qty) {
-        const productName = products.find((p) => p.id === item.productId)?.name || `Product #${item.productId}`;
-        stockWarnings.push(`${productName}: available ${available}, requested ${item.qty}`);
-        hasShortage = true;
-      }
-    }
 
     // Calculate total using integer-rounded arithmetic to avoid floating-point errors
     const totalAmount = roundMoney(items.reduce((sum, i) => sum + roundMoney(i.qty * i.ratePerCarton), 0));
 
     const sale = await prisma.$transaction(async (tx) => {
+      const productIdsToLock = Array.from(new Set(items.map((item) => item.productId)));
+      if (productIdsToLock.length > 0) {
+        await tx.$executeRaw`
+          SELECT id
+          FROM lot_city_godown_allocations
+          WHERE godown_id = ${godownId}
+            AND product_id IN (${Prisma.join(productIdsToLock)})
+          FOR UPDATE
+        `;
+      }
+
+      const txStockWarnings: string[] = [];
+      let txHasShortage = false;
+      for (const item of items) {
+        const available = await getGodownStock(godownId, item.productId, tx);
+        if (available < item.qty) {
+          const productName = products.find((p) => p.id === item.productId)?.name || `Product #${item.productId}`;
+          txStockWarnings.push(`${productName}: available ${available}, requested ${item.qty}`);
+          txHasShortage = true;
+        }
+      }
+      stockWarnings = txStockWarnings;
+      hasShortage = txHasShortage;
+
       const voucherNo = await generateVoucherNo(cityId, tx);
       const createdSale = await tx.sale.create({
         data: {
@@ -338,8 +358,8 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           totalAmount,
           currencyId: resolvedCurrencyId,
           notes,
-          status: hasShortage ? "marked_short" : "active",
-          stockShortFlag: hasShortage,
+          status: txHasShortage ? "marked_short" : "active",
+          stockShortFlag: txHasShortage,
           createdBy: user.userId,
           items: {
             create: items.map((i) => ({

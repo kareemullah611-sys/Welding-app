@@ -362,15 +362,21 @@ export default function PaymentsPage() {
   const saveQueue = async () => {
     if (paymentQueue.length === 0) return;
     setSavingQueue(true);
+    const failed: typeof paymentQueue = [];
     for (const item of paymentQueue) {
-      await apiCall("/api/v1/payments", { method: "POST", body: item.body });
+      const result = await apiCall("/api/v1/payments", { method: "POST", body: item.body });
+      if (!result.success) failed.push(item);
     }
     setSavingQueue(false);
-    setPaymentQueue([]);
-    setQueueSaved(true);
-    setShowCreate(false);
-    if (isEmbed) closeEmbed();
-    setTimeout(() => setQueueSaved(false), 3000);
+    setPaymentQueue(failed);
+    if (failed.length === 0) {
+      setQueueSaved(true);
+      setShowCreate(false);
+      if (isEmbed) closeEmbed();
+      setTimeout(() => setQueueSaved(false), 3000);
+    } else {
+      setError(`${failed.length} queued payment(s) failed. Please review and save again.`);
+    }
     refreshToLatestPayments();
   };
 

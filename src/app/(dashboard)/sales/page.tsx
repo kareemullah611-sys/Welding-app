@@ -294,17 +294,6 @@ export default function SalesPage() {
       if (isEmbed) closeEmbed();
       setShortConfirmed(false);
       setForm({ customerId: 0, godownId: 0, lotId: 0, saleDate: new Date().toISOString().split("T")[0], currencyId: currencies[0]?.id || 0, notes: "", items: [{ productId: 0, qty: 0, ratePerCarton: 0 }] });
-      const isPakistanWalkIn = user?.role === "city_admin" && user?.countryName === "Pakistan" && form.customerId === -1;
-      if (isPakistanWalkIn) {
-        const params = new URLSearchParams({
-          create: "payment",
-          customer_id: "-1",
-          customer_name: "Walk-in Customer",
-          detail: `Walk-in sale payment`,
-        });
-        window.location.href = `/payments?${params.toString()}`;
-        return;
-      }
       setSaleSavedNotice("Sale recorded successfully. Next step: record the customer payment if money was received.");
       setTimeout(() => setSaleSavedNotice(null), 5000);
       loadSales();

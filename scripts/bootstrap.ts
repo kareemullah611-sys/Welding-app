@@ -81,6 +81,16 @@ async function main() {
     run("npx prisma db push");
   }
 
+  // Safety guard: baseline fallback can mark migrations applied without executing SQL.
+  // Enforce critical anti-duplicate cheque index directly.
+  await prisma.$executeRawUnsafe(`
+    CREATE UNIQUE INDEX IF NOT EXISTS "payments_active_cheque_city_unique"
+      ON "payments" ("city_id", "cheque_number")
+      WHERE "status" = 'active'
+        AND "payment_method" = 'cheque'
+        AND "cheque_number" IS NOT NULL
+  `);
+
   const userCount = await prisma.user.count();
   if (userCount === 0) {
     console.log("No users found. Running initial seed...");

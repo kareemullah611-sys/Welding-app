@@ -154,6 +154,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     // Validate currency (fall back to city's first currency if none specified)
     const cityCurrency = await prisma.cityCurrency.findFirst({
       where: { cityId, currencyId: currencyId ?? undefined },
+      orderBy: { currencyId: "asc" },
     });
     if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported in your city");
     const resolvedCurrencyId = currencyId ?? cityCurrency.currencyId;
@@ -206,24 +207,28 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const lot = await prisma.lot.findFirst({
       where: {
         id: lotId,
-        status: "ongoing",
         lotCityDistributions: { some: { cityId } },
       },
     });
-    if (!lot) return errorResponse("VALIDATION_ERROR", "Lot not found, completed, or not distributed to your city");
-
-    // Validate no duplicate active cheque number in this city
-    if (paymentMethod === "cheque" && chequeNumber) {
-      const duplicate = await prisma.payment.findFirst({
-        where: { cityId, status: "active", paymentMethod: "cheque", chequeNumber } as any,
-      });
-      if (duplicate) return errorResponse("CONFLICT", `Cheque number "${chequeNumber}" already exists in an active payment for this city`, 409);
-    }
+    if (!lot) return errorResponse("VALIDATION_ERROR", "Lot not found or not distributed to your city");
 
     // Determine chequeStatus for cheque payments destined to our_account
     const chequeStatus = (paymentMethod === "cheque" && destination === "our_account") ? "in_hand" : undefined;
 
     const payment = await prisma.$transaction(async (tx) => {
+      if (paymentMethod === "cheque" && chequeNumber) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`city-payment-cheque:${cityId}:${chequeNumber}`}))`;
+        const duplicate = await tx.payment.findFirst({
+          where: { cityId, status: "active", paymentMethod: "cheque", chequeNumber } as any,
+        });
+        if (duplicate) {
+          throw Object.assign(
+            new Error(`Cheque number "${chequeNumber}" already exists in an active payment for this city`),
+            { code: "CHEQUE_DUPLICATE" }
+          );
+        }
+      }
+
       const createdPayment = await tx.payment.create({
         data: {
           cityId,
@@ -308,7 +313,10 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     };
 
     return successResponse(responsePayData, "Payment recorded successfully", 201);
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.code === "CHEQUE_DUPLICATE") {
+      return errorResponse("CONFLICT", error.message, 409);
+    }
     console.error("Create payment error:", error);
     return serverError();
   }
