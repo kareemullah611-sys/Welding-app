@@ -6,6 +6,7 @@ import Sidebar, { SidebarContext, useSidebar } from "@/components/layout/Sidebar
 import { LangProvider, useLang } from "@/lib/lang";
 import { cn } from "@/lib/utils";
 import { useSearchParams } from "next/navigation";
+import MRFLoader from "@/components/ui/MRFLoader";
 
 function AppInner({ children }: { children: React.ReactNode }) {
   const { dir } = useLang();
@@ -59,14 +60,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[linear-gradient(180deg,#fff8ef_0%,#f5efe7_45%,#f7f4ef_100%)]">
-        <div className="shell-panel px-8 py-10 text-center">
-          <div className="mx-auto mb-4 h-12 w-12 rounded-full border-4 border-[#eed9c6] border-t-[#a54425] animate-spin" />
-          <p className="text-sm font-medium text-[#745f4c]">Loading workspace...</p>
-        </div>
-      </div>
-    );
+    return <MRFLoader variant="global" visible />;
   }
 
   if (!user) {
