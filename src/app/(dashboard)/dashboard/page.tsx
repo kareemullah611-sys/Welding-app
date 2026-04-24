@@ -188,6 +188,7 @@ export default function DashboardPage() {
 
   // ─── CITY ADMIN DASHBOARD ─────────────────────────────────────────────────
   if (user?.role === "city_admin") {
+    const isAfghanistanCityAdmin = user?.countryName === "Afghanistan";
     const hasTreasury = treasury && (treasury.hasBankAccounts || treasury.cashInOffice || treasury.chequesInHand);
     const formatPot = (pot: Record<string, number> | undefined) => {
       if (!pot) return "0";
@@ -267,7 +268,7 @@ export default function DashboardPage() {
                 icon={Banknote} 
                 color="green" 
               />
-              {(treasury.hasBankAccounts || Object.values(treasury.chequesInHand || {}).some(v => Number(v) > 0)) && (
+              {!isAfghanistanCityAdmin && (treasury.hasBankAccounts || Object.values(treasury.chequesInHand || {}).some(v => Number(v) > 0)) && (
                 <MetricCard 
                   title="Cheques in Hand" 
                   value={formatPot(treasury.chequesInHand)} 
@@ -275,7 +276,7 @@ export default function DashboardPage() {
                   color="yellow" 
                 />
               )}
-              {treasury.hasBankAccounts && (
+              {!isAfghanistanCityAdmin && treasury.hasBankAccounts && (
                 <MetricCard 
                   title="Bank Balance" 
                   value={formatPot(treasury.bankBalance)} 
@@ -343,14 +344,18 @@ export default function DashboardPage() {
                         <span className="text-gray-600">Cash Received</span>
                         <span className="font-semibold text-emerald-700">{formatNumber(cashPosition.incomingToHand?.cash || 0)}</span>
                       </div>
-                      <div className="flex justify-between items-center text-sm">
-                        <span className="text-gray-600">Cheques</span>
-                        <span className="font-semibold text-blue-700">{formatNumber(cashPosition.incomingToHand?.cheque || 0)}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-sm">
-                        <span className="text-gray-600">Bank/Online</span>
-                        <span className="font-semibold text-violet-700">{formatNumber((cashPosition.incomingToHand?.bankTransfer || 0) + (cashPosition.incomingToHand?.online || 0))}</span>
-                      </div>
+                      {!isAfghanistanCityAdmin && (
+                        <div className="flex justify-between items-center text-sm">
+                          <span className="text-gray-600">Cheques</span>
+                          <span className="font-semibold text-blue-700">{formatNumber(cashPosition.incomingToHand?.cheque || 0)}</span>
+                        </div>
+                      )}
+                      {!isAfghanistanCityAdmin && (
+                        <div className="flex justify-between items-center text-sm">
+                          <span className="text-gray-600">Bank/Online</span>
+                          <span className="font-semibold text-violet-700">{formatNumber((cashPosition.incomingToHand?.bankTransfer || 0) + (cashPosition.incomingToHand?.online || 0))}</span>
+                        </div>
+                      )}
                       <div className="flex justify-between items-center text-sm">
                         <span className="text-gray-600">Direct to Haji</span>
                         <span className="font-semibold text-amber-700">{formatNumber(cashPosition.directToHaji || 0)}</span>
