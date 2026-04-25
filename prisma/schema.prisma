@@ -102,6 +102,13 @@ enum LotCostType {
   other
 }
 
+enum OpeningLiabilityType {
+  supplier
+  shipping_line
+  agent
+  intermediary
+}
+
 enum EntityType {
   sale
   payment
@@ -159,6 +166,7 @@ model Currency {
   superAdminBankAccounts SuperAdminBankAccount[]
   openingCashes         OpeningCash[]
   openingCustomerBalances OpeningCustomerBalance[]
+  openingLiabilities    OpeningLiability[]
 
   @@map("currencies")
 }
@@ -265,6 +273,7 @@ model User {
   openingCashes      OpeningCash[]
   openingCustomerBalances OpeningCustomerBalance[]
   openingStocks      OpeningStock[]
+  openingLiabilities OpeningLiability[]
   costsCreated       LotCost[]      @relation("CostCreatedBy")
   supplierPaymentsCreated    SupplierPayment[]    @relation("SupplierPaymentCreatedBy")
   shippingLinePaymentsCreated ShippingLinePayment[] @relation("ShippingLinePaymentCreatedBy")
@@ -1075,6 +1084,7 @@ model Agent {
   account       Account?       @relation(fields: [accountId], references: [id])
   agentPayments AgentPayment[]
   lotCosts      LotCost[]
+  openingLiabilities OpeningLiability[]
 
   @@index([agentType])
   @@index([cityId])
@@ -1165,6 +1175,7 @@ model Supplier {
   lotPurchases     LotPurchase[]
   supplierPayments SupplierPayment[]
   lotCosts         LotCost[]
+  openingLiabilities OpeningLiability[]
 
   @@map("suppliers")
 }
@@ -1292,6 +1303,7 @@ model ShippingLine {
 
   lotCosts LotCost[]
   payments ShippingLinePayment[]
+  openingLiabilities OpeningLiability[]
 
   @@map("shipping_lines")
 }
@@ -1525,6 +1537,7 @@ model Intermediary {
   supplierPayments     SupplierPayment[]
   shippingLinePayments ShippingLinePayment[] @relation("ShippingLinePaymentIntermediary")
   agentPayments        AgentPayment[]        @relation("AgentPaymentIntermediary")
+  openingLiabilities   OpeningLiability[]
 
   @@map("intermediaries")
 }
@@ -1591,6 +1604,37 @@ model IntermediaryExchange {
   @@index([fromCurrencyId])
   @@index([toCurrencyId])
   @@map("intermediary_exchanges")
+}
+
+model OpeningLiability {
+  id                 Int                  @id @default(autoincrement())
+  liabilityType      OpeningLiabilityType @map("liability_type")
+  supplierId         Int?                 @map("supplier_id")
+  shippingLineId     Int?                 @map("shipping_line_id")
+  agentId            Int?                 @map("agent_id")
+  intermediaryId     Int?                 @map("intermediary_id")
+  currencyId         Int                  @map("currency_id")
+  amount             Decimal              @db.Decimal(15, 2)
+  openingDate        DateTime             @map("opening_date") @db.Date
+  notes              String?              @db.Text
+  createdBy          Int                  @map("created_by")
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @updatedAt @map("updated_at")
+
+  supplier           Supplier?            @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  shippingLine       ShippingLine?        @relation(fields: [shippingLineId], references: [id], onDelete: Cascade)
+  agent              Agent?               @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  intermediary       Intermediary?        @relation(fields: [intermediaryId], references: [id], onDelete: Cascade)
+  currency           Currency             @relation(fields: [currencyId], references: [id])
+  creator            User                 @relation(fields: [createdBy], references: [id])
+
+  @@unique([supplierId, currencyId], name: "unique_opening_liability_supplier_currency")
+  @@unique([shippingLineId, currencyId], name: "unique_opening_liability_shipping_line_currency")
+  @@unique([agentId, currencyId], name: "unique_opening_liability_agent_currency")
+  @@unique([intermediaryId, currencyId], name: "unique_opening_liability_intermediary_currency")
+  @@index([liabilityType])
+  @@index([openingDate])
+  @@map("opening_liabilities")
 }
 
 model ProfitAllocation {

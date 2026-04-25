@@ -102,6 +102,7 @@ const superAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
   {
     label: "Settings",
     items: [
+      { label: "Openings",      key: "openings",      href: "/openings",              icon: ClipboardList, roles: ["super_admin"] },
       { label: "Settings",      key: "settings",      href: "/settings",              icon: Settings, roles: ["super_admin"] },
       { label: "Bank Accounts", key: "bank_accounts",  href: "/settings/bank-accounts", icon: Landmark, roles: ["super_admin", "city_admin"] },
     ],
