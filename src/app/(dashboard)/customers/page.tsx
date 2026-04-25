@@ -133,7 +133,7 @@ export default function CustomersPage() {
     }
 
     if (!isOnline) {
-      await enqueue({
+      const queueId = await enqueue({
         url: `/api/v1/customers/${selected.id}`,
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -146,7 +146,7 @@ export default function CustomersPage() {
           entityDetail: form.name.trim() || selected?.name || "Customer",
         },
       });
-      setCustomers((prev) => prev.map((c) => c.id === selected.id ? { ...c, ...form, _pending: true } : c));
+      setCustomers((prev) => prev.map((c) => c.id === selected.id ? { ...c, ...form, _pending: true, _queueId: queueId } : c));
       setShowEdit(false);
       return;
     }
@@ -158,6 +158,23 @@ export default function CustomersPage() {
 
   const handleDelete = async (c: any) => {
     if (!confirm(`${c.name}: ${t("confirm_deactivate_customer")}`)) return;
+    if (!isOnline) {
+      const queueId = await enqueue({
+        url: `/api/v1/customers/${c.id}`,
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive: false }),
+        pathname: "/customers",
+        auditMeta: {
+          action: "update",
+          entityType: "customer",
+          entityLabel: "Customer Deactivate (Pending)",
+          entityDetail: c.name,
+        },
+      });
+      setCustomers((prev) => prev.map((row) => row.id === c.id ? { ...row, isActive: false, _pending: true, _queueId: queueId } : row));
+      return;
+    }
     await apiCall(`/api/v1/customers/${c.id}`, { method: "DELETE" });
     load();
   };
@@ -174,6 +191,23 @@ export default function CustomersPage() {
 
   const handleReactivate = async (c: any) => {
     if (!confirm(`${c.name}: ${t("confirm_reactivate_customer")}`)) return;
+    if (!isOnline) {
+      const queueId = await enqueue({
+        url: `/api/v1/customers/${c.id}`,
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive: true }),
+        pathname: "/customers",
+        auditMeta: {
+          action: "update",
+          entityType: "customer",
+          entityLabel: "Customer Reactivate (Pending)",
+          entityDetail: c.name,
+        },
+      });
+      setCustomers((prev) => prev.map((row) => row.id === c.id ? { ...row, isActive: true, _pending: true, _queueId: queueId } : row));
+      return;
+    }
     await apiCall(`/api/v1/customers/${c.id}`, { method: "PUT", body: { isActive: true } });
     load();
   };

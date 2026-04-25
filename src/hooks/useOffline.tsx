@@ -45,6 +45,8 @@ interface OfflineContextType {
   // Pages call this when offline to queue a write
   enqueue: (item: EnqueueRequest) => Promise<string>;
   updateQueuedItem: (id: string, updates: Partial<Pick<QueuedRequest, "body" | "auditMeta" | "pathname">>) => Promise<boolean>;
+  retryQueuedItem: (id: string) => Promise<boolean>;
+  discardQueuedItem: (id: string) => Promise<boolean>;
   // Stock cache: persists godown stock locally so city admins see correct numbers offline
   cacheGodownStock: (godownId: number, stock: any[]) => Promise<void>;
   getCachedGodownStock: (godownId: number) => Promise<any[] | null>;
@@ -60,6 +62,8 @@ const OfflineContext = createContext<OfflineContextType>({
   queuedItems: [],
   enqueue: async () => "",
   updateQueuedItem: async () => false,
+  retryQueuedItem: async () => false,
+  discardQueuedItem: async () => false,
   cacheGodownStock: async () => {},
   getCachedGodownStock: async () => null,
 });
@@ -193,6 +197,22 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     return true;
   }, [refreshQueueState]);
 
+  const retryQueuedItem = useCallback(async (id: string) => {
+    const existing = await dbGet<QueuedRequest>(QUEUE_STORE, id);
+    if (!existing) return false;
+    await dbPut(QUEUE_STORE, { ...existing, syncStatus: "pending", lastError: null });
+    await refreshQueueState();
+    return true;
+  }, [refreshQueueState]);
+
+  const discardQueuedItem = useCallback(async (id: string) => {
+    const existing = await dbGet<QueuedRequest>(QUEUE_STORE, id);
+    if (!existing) return false;
+    await dbDelete(QUEUE_STORE, id);
+    await refreshQueueState();
+    return true;
+  }, [refreshQueueState]);
+
   // ── Stock cache ──
   const cacheGodownStock = useCallback(async (godownId: number, stock: any[]) => {
     await dbPut(STOCK_STORE, { godownId, stock, cachedAt: Date.now() });
@@ -265,7 +285,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
   return (
     <OfflineContext.Provider value={{
       isOnline, isServiceWorkerReady, queueCount, syncQueue, isSyncing, lastSyncResult, queuedItems,
-      enqueue, updateQueuedItem, cacheGodownStock, getCachedGodownStock,
+      enqueue, updateQueuedItem, retryQueuedItem, discardQueuedItem, cacheGodownStock, getCachedGodownStock,
     }}>
       {children}
     </OfflineContext.Provider>

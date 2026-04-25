@@ -22,6 +22,7 @@ interface ActivityItem {
   syncStatus?: "pending" | "syncing" | "failed" | "conflict" | "synced";
   isLocalQueue?: boolean;
   syncError?: string | null;
+  queueId?: string;
 }
 
 // ─── Detail Panel ─────────────────────────────────────────────────────────────
@@ -192,7 +193,7 @@ function UserAvatar({ name }: { name: string }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function ActivityFeedPage() {
   const { user } = useAuth();
-  const { queuedItems } = useOffline();
+  const { queuedItems, retryQueuedItem, discardQueuedItem, syncQueue } = useOffline();
   const { t } = useLang();
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -202,6 +203,7 @@ export default function ActivityFeedPage() {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [cities, setCities] = useState<{ id: number; name: string }[]>([]);
   const [filterCityId, setFilterCityId] = useState<number | "">("");
+  const [queueActionId, setQueueActionId] = useState<string | null>(null);
 
   useEffect(() => {
     if (user?.role === "super_admin") {
@@ -252,6 +254,7 @@ export default function ActivityFeedPage() {
         syncStatus: entry.syncStatus,
         isLocalQueue: true,
         syncError: entry.lastError || null,
+        queueId: entry.id,
       }))
     : [];
 
@@ -392,6 +395,33 @@ export default function ActivityFeedPage() {
                           >
                             {timeAgo(item.createdAt, t)}
                           </span>
+                          {item.isLocalQueue && item.queueId && (item.syncStatus === "failed" || item.syncStatus === "conflict") && (
+                            <div className="flex justify-end gap-2 pt-0.5">
+                              <button
+                                disabled={queueActionId === item.queueId}
+                                onClick={async () => {
+                                  setQueueActionId(item.queueId!);
+                                  await retryQueuedItem(item.queueId!);
+                                  await syncQueue();
+                                  setQueueActionId(null);
+                                }}
+                                className="text-[11px] text-blue-600 hover:underline disabled:opacity-50"
+                              >
+                                Retry
+                              </button>
+                              <button
+                                disabled={queueActionId === item.queueId}
+                                onClick={async () => {
+                                  setQueueActionId(item.queueId!);
+                                  await discardQueuedItem(item.queueId!);
+                                  setQueueActionId(null);
+                                }}
+                                className="text-[11px] text-red-600 hover:underline disabled:opacity-50"
+                              >
+                                Discard
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>

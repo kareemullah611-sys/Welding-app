@@ -4,10 +4,12 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, Modal, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { useOffline } from "@/hooks/useOffline";
 
 export default function BankDepositsPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const { isOnline, enqueue, lastSyncResult } = useOffline();
   const [deposits, setDeposits] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -48,6 +50,9 @@ export default function BankDepositsPage() {
     setLoading(false);
   }, [page, searchQuery]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (lastSyncResult && lastSyncResult.synced > 0) load();
+  }, [lastSyncResult, load]);
   useEffect(() => { setPage(1); }, [searchQuery]);
 
   const openCreate = async () => {
@@ -108,11 +113,56 @@ export default function BankDepositsPage() {
     if (form.transferType === "bank_to_bank" && Number(form.destinationBankAccountId) === Number(form.bankAccountId)) { setError("Source and destination bank account must be different"); return; }
     if (form.transferType === "cheque_to_cash" && form.chequePaymentIds.length === 0) { setError("Please select at least one cheque"); return; }
     if (form.transferType === "cheque_to_bank" && Number(form.cashAmount || 0) <= 0 && form.chequePaymentIds.length === 0) { setError("Please enter a cash amount or select at least one cheque"); return; }
-    setSubmitting(true);
     const body = {
       ...form,
       cashAmount: form.transferType === "cheque_to_cash" ? chequesTotal : Number(form.cashAmount || 0),
     };
+    if (!isOnline) {
+      await enqueue({
+        url: "/api/v1/bank-deposits",
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        pathname: "/bank-deposits",
+        auditMeta: {
+          action: "create",
+          entityType: "bank_deposit",
+          entityLabel: "Bank Deposit (Pending)",
+          entityDetail: `${transferTypeLabels[form.transferType] || "Transfer"} — ${Number(transferPreviewAmount || 0).toLocaleString("en-US")}`,
+        },
+      });
+
+      const selectedCurrency = currencies.find((c: any) => c.id === body.currencyId) || null;
+      const selectedBank = bankAccounts.find((b: any) => b.id === body.bankAccountId) || null;
+      const selectedDestinationBank = bankAccounts.find((b: any) => b.id === body.destinationBankAccountId) || null;
+      const optimisticCheques = selectedCheques.map((ch: any) => ({
+        id: ch.id,
+        amount: Number(ch.amount || 0),
+        chequeNumber: ch.raw?.chequeNumber || null,
+        chequeBank: ch.raw?.chequeBank || null,
+        customer: { name: ch.person || "Customer" },
+        currency: selectedCurrency,
+      }));
+      setDeposits((prev) => [{
+        id: `pending-${Date.now()}`,
+        _pending: true,
+        transferType: body.transferType,
+        bankAccountId: body.bankAccountId,
+        destinationBankAccountId: body.destinationBankAccountId || null,
+        bankAccount: selectedBank,
+        destinationBankAccount: selectedDestinationBank,
+        depositDate: body.depositDate,
+        slipNumber: body.slipNumber || null,
+        cashAmount: Number(body.cashAmount || 0),
+        currency: selectedCurrency,
+        notes: body.notes || null,
+        cheques: optimisticCheques,
+      }, ...prev]);
+      setShowCreate(false);
+      return;
+    }
+
+    setSubmitting(true);
     const r = await apiCall("/api/v1/bank-deposits", { method: "POST", body });
     setSubmitting(false);
     if (r.success) { setShowCreate(false); load(); } else { setError(r.error || "Failed"); }
@@ -155,13 +205,14 @@ export default function BankDepositsPage() {
             return (
               <div key={d.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                 <div className="flex items-center justify-between px-4 py-3">
-                  <div className="flex items-center gap-4">
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">{d.bankAccount?.bankName || "—"}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{formatDate(d.depositDate)}{d.slipNumber ? ` · Slip #${d.slipNumber}` : ""}</p>
-                      <p className="text-[11px] text-gray-500 mt-0.5">{transferTypeLabels[d.transferType || "cheque_to_bank"] || "Cash/Cheque → Bank"}</p>
-                    </div>
-                  </div>
+              <div className="flex items-center gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">{d.bankAccount?.bankName || "—"}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{formatDate(d.depositDate)}{d.slipNumber ? ` · Slip #${d.slipNumber}` : ""}</p>
+                  <p className="text-[11px] text-gray-500 mt-0.5">{transferTypeLabels[d.transferType || "cheque_to_bank"] || "Cash/Cheque → Bank"}</p>
+                  {d._pending && <p className="text-[11px] text-amber-700 mt-0.5">syncing…</p>}
+                </div>
+              </div>
                   <div className="flex items-center gap-4">
                     <div className="text-right">
                       {Number(d.cashAmount) > 0 && (
