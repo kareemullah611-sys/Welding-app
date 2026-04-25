@@ -1,0 +1,27 @@
+name: Uptime Monitor
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate configuration
+        run: |
+          if [ -z "${HEALTH_URL}" ]; then
+            echo "Missing HEALTH_URL secret. Set HEALTH_URL in GitHub repository secrets."
+            exit 1
+          fi
+        env:
+          HEALTH_URL: ${{ secrets.HEALTH_URL }}
+
+      - name: Call health endpoint
+        run: |
+          response="$(curl -fsS --max-time 15 "${HEALTH_URL}")"
+          echo "Health response: ${response}"
+          RESPONSE="${response}" node -e 'const r=JSON.parse(process.env.RESPONSE||"{}"); if(r.ok!==true||r.db!=="up"){console.error("Health check failed", r); process.exit(1)}'
+        env:
+          HEALTH_URL: ${{ secrets.HEALTH_URL }}

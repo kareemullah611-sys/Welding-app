@@ -17,6 +17,15 @@
   - database round-trip check passed
 - Failure returns HTTP `503`.
 
+GitHub uptime monitor is included:
+- Workflow: `.github/workflows/uptime-monitor.yml`
+- Frequency: every 5 minutes
+- Required secret: `HEALTH_URL` (example: `https://your-app.onrender.com/api/health`)
+
+Enable failure alerts:
+- In GitHub repo settings, enable Actions failure notifications for your email.
+- Add teammates as watchers if they should receive incident alerts.
+
 Recommended monitor setup:
 - Check interval: 1 minute
 - Alert on: 2 consecutive failures

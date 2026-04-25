@@ -190,6 +190,7 @@ Notes:
 - Free Render services can sleep and have cold starts, so this is best for testing, demos, or low-traffic use.
 - Render build gate now uses `npm run verify` and health check path is `/api/health`.
 - Operational runbook: [docs/operations-hardening.md](/Users/kareemullah/Desktop/welding-app/docs/operations-hardening.md)
+- Set GitHub secret `HEALTH_URL` to enable scheduled uptime monitoring (`.github/workflows/uptime-monitor.yml`).
 
 ## Security
 
