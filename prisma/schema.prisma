@@ -157,6 +157,8 @@ model Currency {
   intermediaryExchangeBase IntermediaryExchange[] @relation("IntermediaryExchangeBaseCurrency")
   intermediaryExchangeQuote IntermediaryExchange[] @relation("IntermediaryExchangeQuoteCurrency")
   superAdminBankAccounts SuperAdminBankAccount[]
+  openingCashes         OpeningCash[]
+  openingCustomerBalances OpeningCustomerBalance[]
 
   @@map("currencies")
 }
@@ -194,6 +196,8 @@ model City {
   bankAccounts           BankAccount[]
   bankDeposits           BankDeposit[]
   intermediaryDeposits   IntermediaryDeposit[]
+  openingCashes          OpeningCash[]
+  openingStocks          OpeningStock[]
 
   @@unique([countryId, name])
   @@index([countryId])
@@ -258,6 +262,9 @@ model User {
   lotSettlementOverflows LotSettlementOverflow[]
   notifications      Notification[]
   purchasesCreated   LotPurchase[]  @relation("PurchaseCreatedBy")
+  openingCashes      OpeningCash[]
+  openingCustomerBalances OpeningCustomerBalance[]
+  openingStocks      OpeningStock[]
   costsCreated       LotCost[]      @relation("CostCreatedBy")
   supplierPaymentsCreated    SupplierPayment[]    @relation("SupplierPaymentCreatedBy")
   shippingLinePaymentsCreated ShippingLinePayment[] @relation("ShippingLinePaymentCreatedBy")
@@ -323,6 +330,7 @@ model Product {
   inventoryThresholds  InventoryThreshold[]
   lotPurchases         LotPurchase[]
   cityTransfers        CityTransfer[]
+  openingStocks        OpeningStock[]
 
   @@map("products")
 }
@@ -346,6 +354,7 @@ model Godown {
   lotCityGodownAllocations LotCityGodownAllocation[]
   cityTransfersFrom  CityTransfer[] @relation("TransferFromGodown")
   cityTransfersTo    CityTransfer[] @relation("TransferToGodown")
+  openingStocks      OpeningStock[]
 
   @@unique([cityId, name])
   @@index([cityId])
@@ -395,10 +404,76 @@ model Customer {
   city     City      @relation(fields: [cityId], references: [id])
   sales    Sale[]
   payments Payment[]
+  openingBalances OpeningCustomerBalance[]
 
   @@index([cityId])
   @@index([name])
   @@map("customers")
+}
+
+model OpeningCash {
+  id          Int      @id @default(autoincrement())
+  cityId      Int      @map("city_id")
+  currencyId  Int      @map("currency_id")
+  amount      Decimal  @db.Decimal(15, 2)
+  openingDate DateTime @map("opening_date") @db.Date
+  notes       String?  @db.Text
+  createdBy   Int      @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  city      City     @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  currency  Currency @relation(fields: [currencyId], references: [id])
+  creator   User     @relation(fields: [createdBy], references: [id])
+
+  @@unique([cityId, currencyId], name: "unique_opening_cash_city_currency")
+  @@index([cityId])
+  @@index([openingDate])
+  @@map("opening_cashes")
+}
+
+model OpeningCustomerBalance {
+  id          Int      @id @default(autoincrement())
+  customerId  Int      @map("customer_id")
+  currencyId  Int      @map("currency_id")
+  amount      Decimal  @db.Decimal(15, 2)
+  openingDate DateTime @map("opening_date") @db.Date
+  notes       String?  @db.Text
+  createdBy   Int      @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  currency Currency @relation(fields: [currencyId], references: [id])
+  creator  User     @relation(fields: [createdBy], references: [id])
+
+  @@unique([customerId, currencyId], name: "unique_opening_customer_currency")
+  @@index([customerId])
+  @@index([openingDate])
+  @@map("opening_customer_balances")
+}
+
+model OpeningStock {
+  id          Int      @id @default(autoincrement())
+  cityId      Int      @map("city_id")
+  godownId    Int      @map("godown_id")
+  productId   Int      @map("product_id")
+  qty         Decimal  @db.Decimal(12, 2)
+  openingDate DateTime @map("opening_date") @db.Date
+  notes       String?  @db.Text
+  createdBy   Int      @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  city    City    @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  godown  Godown  @relation(fields: [godownId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+  creator User    @relation(fields: [createdBy], references: [id])
+
+  @@unique([godownId, productId], name: "unique_opening_stock_godown_product")
+  @@index([cityId])
+  @@index([openingDate])
+  @@map("opening_stocks")
 }
 
 // ============================================================

@@ -18,6 +18,13 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         WHERE (${cityId}::int IS NULL OR g.city_id = ${cityId})
         GROUP BY lcga.godown_id, lcd.product_id
       ),
+      opening_stock AS (
+        SELECT os.godown_id, os.product_id, COALESCE(SUM(os.qty), 0) as qty
+        FROM opening_stocks os
+        JOIN godowns g ON g.id = os.godown_id
+        WHERE (${cityId}::int IS NULL OR g.city_id = ${cityId})
+        GROUP BY os.godown_id, os.product_id
+      ),
       sold AS (
         SELECT s.godown_id, si.product_id, COALESCE(SUM(si.qty), 0) as qty
         FROM sale_items si
@@ -43,11 +50,12 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         g.id as godown_id, g.name as godown_name, c.id as city_id, c.name as city_name,
         co.id as country_id, co.name as country_name,
         p.id as product_id, p.name as product_name,
-        (COALESCE(r.qty, 0) - COALESCE(s.qty, 0) - COALESCE(tout.qty, 0) + COALESCE(tin.qty, 0)) as qty
+        (COALESCE(os.qty, 0) + COALESCE(r.qty, 0) - COALESCE(s.qty, 0) - COALESCE(tout.qty, 0) + COALESCE(tin.qty, 0)) as qty
       FROM godowns g
       JOIN cities c ON c.id = g.city_id
       JOIN countries co ON co.id = c.country_id
       CROSS JOIN products p
+      LEFT JOIN opening_stock os ON os.godown_id = g.id AND os.product_id = p.id
       LEFT JOIN received r ON r.godown_id = g.id AND r.product_id = p.id
       LEFT JOIN sold s ON s.godown_id = g.id AND s.product_id = p.id
       LEFT JOIN transferred_out tout ON tout.godown_id = g.id AND tout.product_id = p.id

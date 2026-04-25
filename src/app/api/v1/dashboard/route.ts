@@ -16,7 +16,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const currCode: Record<number, string> = Object.fromEntries(currencies.map((c) => [c.id, c.code]));
 
     // ── Core aggregates (all DB-side, no row scanning in JS) ──────────────────
-    const [salesByC, paymentsByC, hajiByC, wdByC, expByC, cartonsSold] = await Promise.all([
+    const [salesByC, paymentsByC, hajiByC, wdByC, expByC, openingCashByC, openingCustomerByC, cartonsSold] = await Promise.all([
       prisma.sale.groupBy({
         by: ["currencyId"],
         where: { ...cityFilter, status: { in: includedSaleStatuses } },
@@ -42,6 +42,16 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         where: { ...cityFilter, deletedAt: null },
         _sum: { amount: true },
       }),
+      prisma.openingCash.groupBy({
+        by: ["currencyId"],
+        where: cityFilter,
+        _sum: { amount: true },
+      }),
+      prisma.openingCustomerBalance.groupBy({
+        by: ["currencyId"],
+        where: cityId ? { customer: { cityId } } : {},
+        _sum: { amount: true },
+      }),
       prisma.saleItem.aggregate({
         where: { sale: { ...cityFilter, status: { in: includedSaleStatuses } } },
         _sum: { qty: true },
@@ -63,6 +73,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const outstandingByCurrency: Record<string, number> = {};
     for (const cc of Array.from(new Set([...Object.keys(salesByCurrency), ...Object.keys(paymentsByCurrency)]))) {
       outstandingByCurrency[cc] = Math.round(((salesByCurrency[cc] || 0) - (paymentsByCurrency[cc] || 0)) * 100) / 100;
+    }
+    for (const o of openingCustomerByC) {
+      const code = currCode[o.currencyId];
+      outstandingByCurrency[code] = Math.round(((outstandingByCurrency[code] || 0) + Number(o._sum.amount || 0)) * 100) / 100;
     }
 
     // Total haji transfers (used for cash position)
@@ -127,6 +141,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     // ── Cash position (city admin) ────────────────────────────────────────────
     if (user.role === "city_admin") {
       const cashByCurrency: Record<string, number> = {};
+      for (const o of openingCashByC) {
+        const code = currCode[o.currencyId];
+        cashByCurrency[code] = (cashByCurrency[code] || 0) + Number(o._sum.amount || 0);
+      }
 
       // Payments to our_account → cash IN
       for (const p of paymentsByC.filter((p) => p.destination === "our_account")) {
@@ -166,7 +184,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     // ── Cities overview (super admin) ─────────────────────────────────────────
     // Single batch of 6 cross-city groupBy queries instead of N×6 per-city queries
     if (user.role === "super_admin") {
-      const [cities, cSales, cPayments, cExpenses, cHaji, cWd] = await Promise.all([
+      const [cities, cSales, cPayments, cExpenses, cHaji, cWd, cOpeningCash, cOpeningCustomer] = await Promise.all([
         prisma.city.findMany({ where: { isActive: true }, include: { country: true } }),
         prisma.sale.groupBy({
           by: ["cityId", "currencyId"],
@@ -191,7 +209,23 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           by: ["cityId", "currencyId"],
           _sum: { amount: true },
         }),
+        prisma.openingCash.groupBy({
+          by: ["cityId", "currencyId"],
+          _sum: { amount: true },
+        }),
+        prisma.openingCustomerBalance.groupBy({
+          by: ["currencyId", "customerId"],
+          _sum: { amount: true },
+        }),
       ]);
+      const customerCityById = Object.fromEntries(
+        (
+          await prisma.customer.findMany({
+            where: { cityId: { in: cities.map((c) => c.id) } },
+            select: { id: true, cityId: true },
+          })
+        ).map((c) => [c.id, c.cityId])
+      );
 
       // Cartons per city via raw SQL (SaleItem has no direct cityId column)
       const cityCartonsRaw = await prisma.$queryRaw<{ city_id: number; total_qty: bigint }[]>`
@@ -246,6 +280,15 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           cashByCurr[code] = (cashByCurr[code] || 0) - Number(e._sum.amount || 0);
           // Expenses reduce what is owed to Haji
           hajiByCurr[code] = (hajiByCurr[code] || 0) - Number(e._sum.amount || 0);
+        }
+        for (const o of cOpeningCash.filter((o) => o.cityId === cid)) {
+          const code = currCode[o.currencyId];
+          cashByCurr[code] = (cashByCurr[code] || 0) + Number(o._sum.amount || 0);
+        }
+        for (const o of cOpeningCustomer) {
+          if (customerCityById[o.customerId] !== cid) continue;
+          const code = currCode[o.currencyId];
+          outByCurr[code] = (outByCurr[code] || 0) + Number(o._sum.amount || 0);
         }
 
         return {

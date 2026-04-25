@@ -47,7 +47,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     // Compute per-currency balance for each customer (group by customerId + currencyId)
     const customerIds = customers.map((c) => c.id);
-    const [salesAgg, paymentsAgg] = await Promise.all([
+    const [salesAgg, paymentsAgg, openingAgg] = await Promise.all([
       prisma.sale.groupBy({
         by: ["customerId", "currencyId"],
         where: { customerId: { in: customerIds }, status: { not: "cancelled" } },
@@ -58,10 +58,21 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         where: { customerId: { in: customerIds }, status: { not: "cancelled" } },
         _sum: { amount: true },
       }),
+      prisma.openingCustomerBalance.groupBy({
+        by: ["customerId", "currencyId"],
+        where: { customerId: { in: customerIds } },
+        _sum: { amount: true },
+      }),
     ]);
 
     // Fetch currency codes for all referenced currencies
-    const uniqueCurrencyIds = Array.from(new Set([...salesAgg.map((s) => s.currencyId), ...paymentsAgg.map((p) => p.currencyId)]));
+    const uniqueCurrencyIds = Array.from(
+      new Set([
+        ...salesAgg.map((s) => s.currencyId),
+        ...paymentsAgg.map((p) => p.currencyId),
+        ...openingAgg.map((o) => o.currencyId),
+      ])
+    );
     const currencyRows = uniqueCurrencyIds.length > 0
       ? await prisma.currency.findMany({ where: { id: { in: uniqueCurrencyIds } }, select: { id: true, code: true } })
       : [];
@@ -69,6 +80,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     // Build per-customer, per-currency balance map
     const balanceMap: Record<number, Record<string, number>> = {};
+    for (const o of openingAgg) {
+      if (!balanceMap[o.customerId]) balanceMap[o.customerId] = {};
+      const code = currencyCodeMap[o.currencyId] || `CUR${o.currencyId}`;
+      balanceMap[o.customerId][code] = (balanceMap[o.customerId][code] || 0) + Number(o._sum.amount ?? 0);
+    }
     for (const s of salesAgg) {
       if (!balanceMap[s.customerId]) balanceMap[s.customerId] = {};
       const code = currencyCodeMap[s.currencyId] || `CUR${s.currencyId}`;

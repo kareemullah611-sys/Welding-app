@@ -25,7 +25,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     if (dateTo) paymentDateFilter.lte = new Date(dateTo);
 
     // Get ledger
-    const [sales, payments] = await Promise.all([
+    const [sales, payments, openings] = await Promise.all([
       prisma.sale.findMany({
         where: { customerId: id, ...(Object.keys(saleDateFilter).length ? { saleDate: saleDateFilter } : {}) },
         include: { currency: true, items: { include: { product: true } }, lot: { select: { lotNumber: true } } },
@@ -35,6 +35,11 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         where: { customerId: id, ...(Object.keys(paymentDateFilter).length ? { paymentDate: paymentDateFilter } : {}) },
         include: { currency: true, lot: { select: { lotNumber: true } } },
         orderBy: { paymentDate: "asc" },
+      }),
+      prisma.openingCustomerBalance.findMany({
+        where: { customerId: id, ...(Object.keys(saleDateFilter).length ? { openingDate: saleDateFilter } : {}) },
+        include: { currency: true },
+        orderBy: { openingDate: "asc" },
       }),
     ]);
 
@@ -48,6 +53,18 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     };
 
     const transactions = [
+      ...openings.map((o) => ({
+        type: "opening" as const,
+        date: o.openingDate.toISOString().split("T")[0],
+        voucherNo: "OPEN",
+        detail: "Opening customer balance",
+        perCartonPrice: "-",
+        debit: Number(o.amount),
+        credit: 0,
+        status: "active",
+        currency: o.currency.code,
+        lotNumber: "-",
+      })),
       ...sales.map((s) => ({
         type: "sale" as const,
         date: s.saleDate.toISOString().split("T")[0],

@@ -141,6 +141,7 @@ const cityAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
     label: "Reports",
     items: [
       { label: "Reports", key: "reports", href: "/reports", icon: FileText, roles: ["city_admin"] },
+      { label: "Openings", key: "openings", href: "/openings", icon: ClipboardList, roles: ["city_admin"] },
       { label: "Settings", key: "settings", href: "/settings", icon: Settings, roles: ["city_admin"] },
     ],
   },

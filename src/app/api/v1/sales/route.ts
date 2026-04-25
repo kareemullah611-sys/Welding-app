@@ -57,6 +57,10 @@ async function getGodownStock(
     where: { godownId, productId },
     _sum: { qty: true },
   });
+  const opening = await db.openingStock.aggregate({
+    where: { godownId, productId },
+    _sum: { qty: true },
+  });
 
   // Sold stock (active + marked_short — both consume physical stock)
   const sold = await db.saleItem.aggregate({
@@ -79,12 +83,13 @@ async function getGodownStock(
     _sum: { qty: true },
   });
 
+  const opn = Number(opening._sum.qty || 0);
   const rcv = Number(received._sum.qty || 0);
   const sld = Number(sold._sum.qty || 0);
   const out = Number(transferredOut._sum.qty || 0);
   const inn = Number(transferredIn._sum.qty || 0);
 
-  return rcv - sld - out + inn;
+  return opn + rcv - sld - out + inn;
 }
 
 // GET /api/v1/sales - List sales
@@ -475,7 +480,11 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         if (!threshold) continue;
 
         // City stock = total allocated to this city's godowns - total sold in this city
-        const [allocatedAgg, soldAgg, xferOutAgg, xferInAgg] = await Promise.all([
+        const [openingAgg, allocatedAgg, soldAgg, xferOutAgg, xferInAgg] = await Promise.all([
+          prisma.openingStock.aggregate({
+            where: { cityId: cityId!, productId: item.productId },
+            _sum: { qty: true },
+          }),
           prisma.lotCityGodownAllocation.aggregate({
             where: { godown: { cityId: cityId! }, productId: item.productId },
             _sum: { qty: true },
@@ -495,6 +504,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         ]);
 
         const cityStock =
+          Number(openingAgg._sum.qty || 0) +
           Number(allocatedAgg._sum.qty || 0) -
           Number(soldAgg._sum.qty || 0) +
           Number(xferInAgg._sum.qty || 0) -

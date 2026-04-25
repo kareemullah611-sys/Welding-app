@@ -265,6 +265,16 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
       })));
     }
 
+    const openingCashRows = await prisma.openingCash.findMany({
+      where: cityWhere,
+      include: { currency: { select: { code: true } } },
+    });
+    const openingCashByCurrency: Record<string, number> = {};
+    for (const row of openingCashRows) {
+      const code = row.currency.code;
+      openingCashByCurrency[code] = (openingCashByCurrency[code] || 0) + Number(row.amount || 0);
+    }
+
     // Build running treasury balance in chronological order:
     // keep-in-office payments increase it, expenses/withdrawals/haji transfers reduce it.
     combined.sort((a, b) => {
@@ -272,7 +282,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
       return a.id - b.id;
     });
 
-    const runningByCurrency: Record<string, number> = {};
+    const runningByCurrency: Record<string, number> = { ...openingCashByCurrency };
     combined = combined.map((item) => {
       const currencyCode = item.currencyCode || "";
       let delta = 0;

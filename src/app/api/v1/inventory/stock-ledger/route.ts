@@ -19,7 +19,27 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const rows: any[] = await prisma.$queryRaw`
       WITH movements AS (
 
-        -- 1. ALLOCATION IN — stock assigned to a godown from a lot
+        -- 1. OPENING STOCK
+        SELECT
+          os.opening_date                          AS date,
+          'opening'                                AS type,
+          CONCAT('OPEN-', os.id)                   AS reference,
+          os.product_id,
+          p.name                                   AS product_name,
+          os.godown_id,
+          g.name                                   AS godown_name,
+          g.city_id,
+          c.name                                   AS city_name,
+          os.qty                                   AS qty_in,
+          0                                        AS qty_out
+        FROM opening_stocks os
+        JOIN products p ON p.id = os.product_id
+        JOIN godowns g  ON g.id = os.godown_id
+        JOIN cities c   ON c.id = g.city_id
+
+        UNION ALL
+
+        -- 2. ALLOCATION IN — stock assigned to a godown from a lot
         SELECT
           lcga.created_at                          AS date,
           'allocation'                             AS type,
@@ -41,7 +61,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
         UNION ALL
 
-        -- 2. SALE OUT
+        -- 3. SALE OUT
         SELECT
           s.sale_date                              AS date,
           'sale'                                   AS type,
@@ -62,7 +82,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
         UNION ALL
 
-        -- 3. GODOWN TRANSFER OUT (within city)
+        -- 4. GODOWN TRANSFER OUT (within city)
         SELECT
           gt.transfer_date                         AS date,
           'godown_out'                             AS type,
@@ -82,7 +102,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
         UNION ALL
 
-        -- 4. GODOWN TRANSFER IN (within city)
+        -- 5. GODOWN TRANSFER IN (within city)
         SELECT
           gt.transfer_date                         AS date,
           'godown_in'                              AS type,
@@ -102,7 +122,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
         UNION ALL
 
-        -- 5. CITY TRANSFER OUT (approved — deducted from sending godown)
+        -- 6. CITY TRANSFER OUT (approved — deducted from sending godown)
         SELECT
           COALESCE(ct.approved_at, ct.transfer_date) AS date,
           'city_out'                               AS type,
@@ -123,7 +143,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
         UNION ALL
 
-        -- 6. CITY TRANSFER IN (approved — added to receiving godown)
+        -- 7. CITY TRANSFER IN (approved — added to receiving godown)
         SELECT
           COALESCE(ct.approved_at, ct.transfer_date) AS date,
           'city_in'                                AS type,
