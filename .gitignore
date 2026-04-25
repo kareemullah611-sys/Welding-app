@@ -27,3 +27,6 @@ tsconfig.tsbuildinfo
 # misc
 *.log
 test-results
+android/
+ios/
+release/

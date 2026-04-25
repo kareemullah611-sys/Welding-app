@@ -2,6 +2,7 @@
   "name": "welding-app",
   "version": "1.0.0",
   "private": true,
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
@@ -12,9 +13,16 @@
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:seed": "npx tsx prisma/seed.ts",
-    "db:bootstrap": "tsx scripts/bootstrap.ts"
+    "db:bootstrap": "tsx scripts/bootstrap.ts",
+    "package:android:init": "npx cap add android",
+    "package:android:sync": "npx cap sync android",
+    "package:android:open": "npx cap open android",
+    "package:mac:dev": "electron electron/main.cjs",
+    "package:mac:dist": "electron-builder --mac dmg --publish never"
   },
   "dependencies": {
+    "@capacitor/android": "^7.4.3",
+    "@capacitor/core": "^7.4.3",
     "@prisma/client": "^5.15.0",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-slot": "^1.2.4",
@@ -37,6 +45,7 @@
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "^7.4.3",
     "@playwright/test": "^1.58.2",
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.6",
@@ -44,11 +53,30 @@
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.19",
+    "electron": "^37.2.0",
+    "electron-builder": "^25.1.8",
     "eslint": "^8.57.0",
     "eslint-config-next": "^14.2.0",
     "postcss": "^8.4.38",
     "prisma": "^5.15.0",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.9.3"
+  },
+  "build": {
+    "appId": "com.mrf.kandahar",
+    "productName": "MRF Kandahar",
+    "directories": {
+      "output": "release/mac"
+    },
+    "files": [
+      "electron/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.business"
+    }
   }
 }

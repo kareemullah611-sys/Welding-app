@@ -1,7 +1,19 @@
 const { app, BrowserWindow, shell } = require("electron");
 const path = require("path");
+const fs = require("fs");
 
-const APP_URL = process.env.ELECTRON_START_URL || "http://localhost:3000";
+function readConfiguredUrl() {
+  try {
+    const cfgPath = path.join(__dirname, "app-config.json");
+    const raw = fs.readFileSync(cfgPath, "utf8");
+    const parsed = JSON.parse(raw);
+    return typeof parsed?.startUrl === "string" ? parsed.startUrl.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+const APP_URL = process.env.ELECTRON_START_URL || readConfiguredUrl() || "http://localhost:3000";
 
 function createWindow() {
   const win = new BrowserWindow({
