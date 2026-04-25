@@ -250,12 +250,19 @@ export default function SalesPage() {
 
     // ── Offline: queue the sale and update stock locally ──
     if (!isOnline) {
+      const selectedCustomer = customers.find((c: any) => c.id === form.customerId);
       await enqueue({
         url: "/api/v1/sales",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
         pathname: "/sales",
+        auditMeta: {
+          action: "create",
+          entityType: "sale",
+          entityLabel: "Sale (Pending)",
+          entityDetail: `${selectedCustomer?.name || "Customer"} — ${totalAmount.toLocaleString("en-US")}`,
+        },
       });
 
       // Deduct sold qty from local stock so the next sale uses the correct number

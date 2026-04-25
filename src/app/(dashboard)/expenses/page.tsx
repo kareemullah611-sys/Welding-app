@@ -129,6 +129,12 @@ export default function ExpensesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...form, lotId: form.lotId || null }),
         pathname: "/expenses",
+        auditMeta: {
+          action: "create",
+          entityType: "expense",
+          entityLabel: "Expense (Pending)",
+          entityDetail: `${form.detail} — ${Number(form.amount || 0).toLocaleString("en-US")}`,
+        },
       });
       setExpenses((prev) => [{
         id: `pending-${Date.now()}`,

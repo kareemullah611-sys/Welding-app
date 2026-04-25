@@ -2,12 +2,13 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
+import { useOffline } from "@/hooks/useOffline";
 import { PageHeader } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { cn } from "@/lib/utils";
 
 interface ActivityItem {
-  id: number;
+  id: number | string;
   user: { id: number; fullName: string; username: string };
   city: { id: number; name: string } | null;
   action: string;
@@ -18,6 +19,9 @@ interface ActivityItem {
   oldValues: Record<string, any> | null;
   newValues: Record<string, any> | null;
   createdAt: string;
+  syncStatus?: "pending" | "syncing" | "failed" | "conflict" | "synced";
+  isLocalQueue?: boolean;
+  syncError?: string | null;
 }
 
 // ─── Detail Panel ─────────────────────────────────────────────────────────────
@@ -104,6 +108,14 @@ const ACTION_CONFIG: Record<string, { label: string; cls: string; dot: string }>
   restore:     { label: "Restored",  cls: "bg-purple-100 text-purple-700 border-purple-200", dot: "bg-purple-500" },
 };
 
+const SYNC_STATUS_CONFIG: Record<string, { label: string; cls: string }> = {
+  synced:   { label: "Synced",   cls: "bg-green-100 text-green-700 border-green-200" },
+  pending:  { label: "Pending",  cls: "bg-amber-100 text-amber-700 border-amber-200" },
+  syncing:  { label: "Syncing",  cls: "bg-blue-100 text-blue-700 border-blue-200" },
+  failed:   { label: "Failed",   cls: "bg-red-100 text-red-700 border-red-200" },
+  conflict: { label: "Conflict", cls: "bg-orange-100 text-orange-700 border-orange-200" },
+};
+
 const ENTITY_CONFIG: Record<string, { icon: string; label: string }> = {
   sale:                { icon: "🧾", label: "Sale" },
   payment:             { icon: "💰", label: "Payment" },
@@ -121,6 +133,7 @@ const ENTITY_CONFIG: Record<string, { icon: string; label: string }> = {
   lot_purchase:        { icon: "🛒", label: "Lot Purchase" },
   agent:               { icon: "🤝", label: "Agent" },
   agent_payment:       { icon: "💳", label: "Agent Payment" },
+  offline_entry:       { icon: "📝", label: "Offline Entry" },
 };
 
 // Natural-language verb phrase: "created a new sale", "updated payment", etc.
@@ -179,6 +192,7 @@ function UserAvatar({ name }: { name: string }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function ActivityFeedPage() {
   const { user } = useAuth();
+  const { queuedItems } = useOffline();
   const { t } = useLang();
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -218,10 +232,37 @@ export default function ActivityFeedPage() {
     return () => clearInterval(interval);
   }, [autoRefresh, page, load]);
 
+  const localQueueItems: ActivityItem[] = user?.role === "city_admin" && page === 1
+    ? queuedItems.map((entry) => ({
+        id: `local-${entry.id}`,
+        user: {
+          id: Number(user.id),
+          fullName: user.fullName,
+          username: user.username,
+        },
+        city: user.cityId && user.cityName ? { id: user.cityId, name: user.cityName } : null,
+        action: entry.auditMeta?.action || "create",
+        entityType: entry.auditMeta?.entityType || "offline_entry",
+        entityId: 0,
+        entityLabel: entry.auditMeta?.entityLabel || "Offline Entry",
+        entityDetail: entry.auditMeta?.entityDetail || "Waiting for internet sync",
+        oldValues: null,
+        newValues: null,
+        createdAt: new Date(entry.timestamp).toISOString(),
+        syncStatus: entry.syncStatus,
+        isLocalQueue: true,
+        syncError: entry.lastError || null,
+      }))
+    : [];
+
+  const feedItems = [...localQueueItems, ...items].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+
   // Group by day
   const grouped: { label: string; items: ActivityItem[] }[] = [];
   let currentDay = "";
-  for (const item of items) {
+  for (const item of feedItems) {
     const day = getDayLabel(item.createdAt, t);
     if (day !== currentDay) { currentDay = day; grouped.push({ label: day, items: [] }); }
     grouped[grouped.length - 1].items.push(item);
@@ -261,7 +302,7 @@ export default function ActivityFeedPage() {
         <div className="flex items-center justify-center py-20">
           <div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
         </div>
-      ) : items.length === 0 ? (
+      ) : feedItems.length === 0 ? (
         <div className="card text-center py-12 text-gray-400">{t("no_activity")}</div>
       ) : (
         <div className="space-y-8">
@@ -281,6 +322,8 @@ export default function ActivityFeedPage() {
                   const actionCfg = ACTION_CONFIG[item.action] ?? { label: item.action, cls: "bg-gray-100 text-gray-600 border-gray-200", dot: "bg-gray-400" };
                   const entityCfg = ENTITY_CONFIG[item.entityType] ?? { icon: "📝", label: item.entityType };
                   const verb = buildVerb(item.action, item.entityType);
+                  const syncKey = item.syncStatus || "synced";
+                  const syncCfg = SYNC_STATUS_CONFIG[syncKey] || SYNC_STATUS_CONFIG.synced;
 
                   return (
                     <div
@@ -334,7 +377,15 @@ export default function ActivityFeedPage() {
                         </div>
 
                         {/* Timestamp */}
-                        <div className="flex-shrink-0 text-right pt-0.5">
+                        <div className="flex-shrink-0 text-right pt-0.5 space-y-1">
+                          <div className="flex justify-end">
+                            <span
+                              className={cn("inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full border", syncCfg.cls)}
+                              title={item.syncError || undefined}
+                            >
+                              {syncCfg.label}
+                            </span>
+                          </div>
                           <span
                             className="text-xs text-gray-400 whitespace-nowrap"
                             title={formatFullDate(item.createdAt)}

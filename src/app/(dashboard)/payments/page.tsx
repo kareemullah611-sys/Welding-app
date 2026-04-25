@@ -294,12 +294,19 @@ export default function PaymentsPage() {
     }
     // ── Offline: queue and optimistically add to list ──
     if (!isOnline) {
+      const entityType = createType === "payment" ? "payment" : createType;
       await enqueue({
         url: endpoint,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
         pathname: "/payments",
+        auditMeta: {
+          action: "create",
+          entityType,
+          entityLabel: `${createType.replace("_", " ")} (Pending)`,
+          entityDetail: `${(body as any).customerName || (body as any).detail || "Entry"} — ${Number((body as any).amount || 0).toLocaleString("en-US")}`,
+        },
       });
       setItems((prev) => [{
         id: `pending-${Date.now()}`,
