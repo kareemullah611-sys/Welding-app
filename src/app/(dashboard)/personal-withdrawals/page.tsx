@@ -5,10 +5,12 @@ import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
+import { useOffline } from "@/hooks/useOffline";
 
 export default function PersonalWithdrawalsPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const { isOnline, enqueue, lastSyncResult } = useOffline();
   const searchParams = useSearchParams();
   const isEmbed = searchParams.get("embed") === "1";
   const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
@@ -78,6 +80,9 @@ export default function PersonalWithdrawalsPage() {
   }, [page, searchQuery, statusFilter]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (lastSyncResult && lastSyncResult.synced > 0) load();
+  }, [lastSyncResult, load]);
   useEffect(() => { setPage(1); }, [searchQuery]);
   useEffect(() => {
     if (prefillHandled || user?.role !== "city_admin") return;
@@ -139,6 +144,38 @@ export default function PersonalWithdrawalsPage() {
     if (!form.amount || !form.detail) { setFormError(t("amount") + " " + t("and") + " " + t("detail") + " required"); return; }
     if (!normalizeWithdraweeName(form.withdrawnBy)) { setFormError("Withdrawn By is required"); return; }
     if (form.sourceType === "cheque" && !form.chequePaymentId) { setFormError("Please select a cheque"); return; }
+
+    if (!isOnline) {
+      const payload = { ...form, withdrawnBy: normalizeWithdraweeName(form.withdrawnBy) };
+      await enqueue({
+        url: "/api/v1/personal-withdrawals",
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        pathname: "/personal-withdrawals",
+        auditMeta: {
+          action: "create",
+          entityType: "personal_withdrawal",
+          entityLabel: "Withdrawal (Pending)",
+          entityDetail: `${payload.withdrawnBy} — ${Number(payload.amount || 0).toLocaleString("en-US")}`,
+        },
+      });
+      setItems((prev) => [{
+        id: `pending-${Date.now()}`,
+        withdrawalDate: form.withdrawalDate,
+        amount: form.amount,
+        detail: form.detail,
+        withdrawnBy: payload.withdrawnBy,
+        notes: form.notes || null,
+        sourceType: form.sourceType,
+        approvedAt: null,
+        _pending: true,
+      }, ...prev]);
+      setShowCreate(false);
+      if (isEmbed) closeEmbed();
+      return;
+    }
+
     setSubmitting(true);
     const result = await apiCall("/api/v1/personal-withdrawals", {
       method: "POST",
@@ -276,7 +313,7 @@ export default function PersonalWithdrawalsPage() {
               </div>
             ) : (
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200">
-                ⏳ Pending
+                {w._pending ? "syncing…" : "⏳ Pending"}
               </span>
             ),
           },
@@ -313,7 +350,7 @@ export default function PersonalWithdrawalsPage() {
                 </button>
                 {openActionId === w.id && (
                   <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
-                    {!w.approvedAt && (
+                    {!w.approvedAt && !w._pending && (
                       <>
                         <button
                           onClick={() => { setOpenActionId(null); openEdit(w); }}

@@ -6,6 +6,7 @@ import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/compon
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { useOffline } from "@/hooks/useOffline";
 
 
 const SOURCE_CONFIG: Record<string, { label: string; color: string; icon?: string }> = {
@@ -22,6 +23,7 @@ const PAKISTAN_HAJI_TARGET = "Super Admin Account";
 export default function HajiTransfersPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const { isOnline, enqueue, lastSyncResult } = useOffline();
   const searchParams = useSearchParams();
   const isEmbed = searchParams.get("embed") === "1";
   const shouldUseSuperAdminTarget = user?.role === "city_admin" && user?.countryName === "Pakistan";
@@ -85,6 +87,9 @@ export default function HajiTransfersPage() {
     setLoading(false);
   }, [page, filterFrom, filterTo, searchQuery]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (lastSyncResult && lastSyncResult.synced > 0) load();
+  }, [lastSyncResult, load]);
   useEffect(() => { setPage(1); }, [searchQuery]);
   useEffect(() => {
     if (prefillHandled || user?.role !== "city_admin") return;
@@ -158,7 +163,6 @@ export default function HajiTransfersPage() {
     if (form.sourceType === "mixed_cash_cheque" && !form.cashAmount && form.chequePaymentIds.length === 0) { setError("Enter a cash amount or select at least one cheque"); return; }
     if (form.sourceType === "bank_transfer" && !form.bankAccountId) { setError("Please select a bank account"); return; }
 
-    setSubmitting(true);
     let body: any;
     if (form.sourceType === "mixed_cash_cheque" || form.sourceType === "cheque") {
       body = {
@@ -188,6 +192,41 @@ export default function HajiTransfersPage() {
       if (body.sourceType === "cash_office") body.amount = Number(form.amount || 0);
     }
 
+    const optimisticAmount =
+      form.sourceType === "mixed_cash_cheque" || form.sourceType === "cheque"
+        ? mixedSlipTotal
+        : Number(form.amount || 0);
+
+    if (!isOnline) {
+      await enqueue({
+        url: "/api/v1/haji-transfers",
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        pathname: "/haji-transfers",
+        auditMeta: {
+          action: "create",
+          entityType: "haji_transfer",
+          entityLabel: "Haji Transfer (Pending)",
+          entityDetail: `${form.detail} — ${Number(optimisticAmount || 0).toLocaleString("en-US")}`,
+        },
+      });
+      setItems((prev) => [{
+        id: `pending-${Date.now()}`,
+        transferDate: form.transferDate,
+        amount: optimisticAmount,
+        detail: form.detail,
+        sourceType: form.sourceType,
+        transferredTo: form.transferredTo || null,
+        lot: form.lotId ? lots.find((l: any) => l.id === form.lotId) : null,
+        _pending: true,
+      }, ...prev]);
+      setShowCreate(false);
+      if (isEmbed) closeEmbed();
+      return;
+    }
+
+    setSubmitting(true);
     const r = await apiCall("/api/v1/haji-transfers", { method: "POST", body });
     if (r.success) {
       setShowCreate(false); if (isEmbed) closeEmbed(); load();
@@ -316,6 +355,9 @@ export default function HajiTransfersPage() {
         {
           key: "sourceType", label: t("type"),
           render: (tr: any) => {
+            if (tr._pending) {
+              return <span className="text-xs px-2 py-0.5 rounded font-medium bg-amber-50 text-amber-700">syncing…</span>;
+            }
             if (tr.recordType === "customer_payment") {
               return <span className="text-xs px-2 py-0.5 rounded font-medium bg-emerald-50 text-emerald-700">↗️ Customer to Haji</span>;
             }
@@ -329,7 +371,7 @@ export default function HajiTransfersPage() {
           key: "actions", label: "",
           render: (tr: any) => (
                 <div className="relative" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} data-action-menu-root="true">
-              {(user?.role === "city_admin" || user?.role === "super_admin") && tr.recordType !== "customer_payment" && (
+              {(user?.role === "city_admin" || user?.role === "super_admin") && tr.recordType !== "customer_payment" && !tr._pending && (
                 <>
                   <button
                     type="button"
