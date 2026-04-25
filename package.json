@@ -68,10 +68,6 @@
     "directories": {
       "output": "release/mac"
     },
-    "files": [
-      "electron/**/*",
-      "package.json"
-    ],
     "mac": {
       "target": [
         "dmg"
