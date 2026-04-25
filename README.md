@@ -58,7 +58,21 @@ npm run dev
 ```bash
 npm run verify
 ```
-This runs linting plus production build checks.
+This runs linting, smoke tests, and production build checks.
+
+Optional deeper DB-critical checks:
+```bash
+npm run test:critical-db
+```
+
+### 6. Backup and Restore
+```bash
+# Create backup
+DATABASE_URL=... npm run db:backup
+
+# Restore backup
+DATABASE_URL=... npm run db:restore -- ./backups/<file>.dump
+```
 
 ### Default Login Credentials
 
@@ -171,9 +185,11 @@ This repo now includes a [render.yaml](/Users/kareemullah/Desktop/welding-app/re
 ```
 
 Notes:
-- The app starts with `npm run start`, which already runs `prisma db push` before `next start`.
+- The app starts with `npm run start`, which runs `scripts/bootstrap.ts` (production uses `prisma migrate deploy` with fallback handling) before `next start`.
 - Update the service and database names in [render.yaml](/Users/kareemullah/Desktop/welding-app/render.yaml) if you want different names on Render.
 - Free Render services can sleep and have cold starts, so this is best for testing, demos, or low-traffic use.
+- Render build gate now uses `npm run verify` and health check path is `/api/health`.
+- Operational runbook: [docs/operations-hardening.md](/Users/kareemullah/Desktop/welding-app/docs/operations-hardening.md)
 
 ## Security
 

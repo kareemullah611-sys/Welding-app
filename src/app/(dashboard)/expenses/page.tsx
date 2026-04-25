@@ -64,7 +64,7 @@ export default function ExpensesPage() {
     setPrefillHandled(true);
     openCreate();
     window.history.replaceState({}, "", isEmbed ? "/expenses?embed=1" : "/expenses");
-  }, [prefillHandled, searchParams, user?.role]);
+  }, [prefillHandled, searchParams, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reload after queued entries sync
   useEffect(() => {

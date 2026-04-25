@@ -60,7 +60,7 @@ export default function CustomersPage() {
     setPrefillHandled(true);
     openCreate();
     window.history.replaceState({}, "", isEmbed ? "/customers?embed=1" : "/customers");
-  }, [prefillHandled, searchParams, user?.role]);
+  }, [prefillHandled, searchParams, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!openActionId) return;

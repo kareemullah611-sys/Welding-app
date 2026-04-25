@@ -157,6 +157,8 @@ export default function PaymentsPage() {
   useEffect(() => { load(); }, [load]);
 
   // Reload from server after queued entries sync
+  // Intentional one-time quickform prefill effect.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (isEmbed) return;
     if (lastSyncResult && lastSyncResult.synced > 0) load();
@@ -263,7 +265,7 @@ export default function PaymentsPage() {
       detail: searchParams.get("detail") || "",
     });
     window.history.replaceState({}, "", isEmbed ? "/payments?embed=1" : "/payments");
-  }, [canCreateRecords, searchParams]);
+  }, [canCreateRecords, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCreate = async (forceVoucher = false) => {
     setSubmitting(true); setError("");

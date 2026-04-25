@@ -59,6 +59,16 @@ function isSubmitLikeButton(el: HTMLElement) {
   return SUBMIT_LABEL_REGEX.test((el.textContent || "").trim());
 }
 
+function normalizeForSearchValue(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(normalizeForSearchValue).join(" ");
+  if (typeof value === "object") return Object.values(value as Record<string, unknown>).map(normalizeForSearchValue).join(" ");
+  return "";
+}
+
 // ============================================================
 // PAGE HEADER
 // ============================================================
@@ -253,25 +263,15 @@ export function DataTable<T extends Record<string, any>>({
     window.sessionStorage.setItem(columnStorageKey, selectedSearchColumn);
   }, [columnStorageKey, searchable, selectedSearchColumn]);
 
-  const normalizeForSearch = (value: unknown): string => {
-    if (value == null) return "";
-    if (typeof value === "string") return value;
-    if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);
-    if (value instanceof Date) return value.toISOString();
-    if (Array.isArray(value)) return value.map(normalizeForSearch).join(" ");
-    if (typeof value === "object") return Object.values(value as Record<string, unknown>).map(normalizeForSearch).join(" ");
-    return "";
-  };
-
   const filteredData = useMemo(() => {
     if (!searchable || activeSearch.length < minChars) return data;
     const needle = activeSearch.toLowerCase();
     return data.filter((item) => {
       if (selectedSearchColumn !== "__all__") {
-        return normalizeForSearch(item[selectedSearchColumn]).toLowerCase().includes(needle);
+        return normalizeForSearchValue(item[selectedSearchColumn]).toLowerCase().includes(needle);
       }
       const byColumns = searchableColumns
-        .map((col) => normalizeForSearch(item[col.key]))
+        .map((col) => normalizeForSearchValue(item[col.key]))
         .join(" ")
         .toLowerCase();
       if (byColumns.includes(needle)) return true;

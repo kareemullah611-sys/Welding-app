@@ -90,7 +90,7 @@ export default function PersonalWithdrawalsPage() {
     setPrefillHandled(true);
     openCreate();
     window.history.replaceState({}, "", isEmbed ? "/personal-withdrawals?embed=1" : "/personal-withdrawals");
-  }, [prefillHandled, searchParams, user?.role]);
+  }, [prefillHandled, searchParams, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     setStatusFilter(user?.role === "super_admin" ? "pending" : "all");
   }, [user?.role]);

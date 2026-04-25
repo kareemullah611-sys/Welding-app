@@ -97,7 +97,7 @@ export default function HajiTransfersPage() {
     setPrefillHandled(true);
     openCreate();
     window.history.replaceState({}, "", isEmbed ? "/haji-transfers?embed=1" : "/haji-transfers");
-  }, [prefillHandled, searchParams, user?.role]);
+  }, [prefillHandled, searchParams, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!openActionId) return;

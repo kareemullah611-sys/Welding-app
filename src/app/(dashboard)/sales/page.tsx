@@ -115,7 +115,7 @@ export default function SalesPage() {
     setPrefillHandled(true);
     openCreate();
     window.history.replaceState({}, "", isEmbed ? "/sales?embed=1" : "/sales");
-  }, [prefillHandled, searchParams, user?.role]);
+  }, [prefillHandled, searchParams, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reload from server after pending entries sync successfully
   useEffect(() => {
