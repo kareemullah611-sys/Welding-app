@@ -4,6 +4,7 @@ import { comparePassword, generateToken } from "@/lib/auth";
 import { loginSchema } from "@/lib/validations";
 import { successResponse, validationError, errorResponse } from "@/lib/api-response";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { allowSuperAdminInLockedDeployment, isAllowedCityName, isCityLockedDeployment } from "@/lib/deployment-profile";
 import crypto from "crypto";
 
 function hashToken(token: string): string {
@@ -76,6 +77,15 @@ export async function POST(request: NextRequest) {
       // Wrong password — count it
       checkRateLimit(`login:${ip}`, 10, 15 * 60 * 1000);
       return errorResponse("AUTH_FAILED", "Invalid username or password", 401);
+    }
+
+    if (isCityLockedDeployment()) {
+      if (user.role === "super_admin" && !allowSuperAdminInLockedDeployment()) {
+        return errorResponse("AUTH_FAILED", "This package only allows city users", 401);
+      }
+      if (user.role === "city_admin" && !isAllowedCityName(user.city?.name)) {
+        return errorResponse("AUTH_FAILED", "This package is restricted to another city", 401);
+      }
     }
 
     const token = generateToken({

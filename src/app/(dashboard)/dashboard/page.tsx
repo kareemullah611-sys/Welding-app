@@ -449,33 +449,20 @@ export default function DashboardPage() {
               onClick={() => setQuickAction(null)}
             />
             <div className="relative z-[91] mx-auto flex h-[100dvh] w-full items-center justify-center p-2 sm:p-4">
-              <div className="relative flex w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-white/70 bg-white shadow-[0_40px_120px_-52px_rgba(36,24,14,0.58)]">
-                <div className="flex items-center justify-between border-b border-[#efe2d3] px-5 py-3">
-                  <h2 className="text-base font-semibold text-[#2d2116]">{quickAction.title}</h2>
-                  <button
-                    type="button"
-                    onClick={() => setQuickAction(null)}
-                    className="rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
-                    aria-label="Close"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setQuickAction(null)}
-                  className="sr-only"
-                  aria-label="Close"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-                <div className="h-[min(84vh,880px)] min-h-[560px] overflow-hidden bg-white">
-                  <iframe
-                    src={quickAction.src}
-                    title={`${quickAction.title} form`}
-                    className="h-full w-full border-0 bg-transparent"
-                  />
-                </div>
+              <button
+                type="button"
+                onClick={() => setQuickAction(null)}
+                className="absolute right-4 top-4 rounded-lg bg-white/90 p-1.5 text-gray-600 shadow transition-colors hover:bg-white hover:text-gray-800"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+              <div className="h-[min(92vh,920px)] w-full max-w-6xl overflow-hidden rounded-2xl">
+                <iframe
+                  src={quickAction.src}
+                  title={`${quickAction.title} form`}
+                  className="h-full w-full border-0 bg-transparent"
+                />
               </div>
             </div>
           </div>

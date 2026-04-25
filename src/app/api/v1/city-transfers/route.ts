@@ -122,6 +122,10 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
       const stockRows: any[] = await tx.$queryRaw`
         SELECT
+          COALESCE((
+            SELECT SUM(os.qty) FROM opening_stocks os
+            WHERE os.godown_id = ${parsedFromGodownId} AND os.product_id = ${parsedProductId}
+          ), 0) as opening_qty,
           COALESCE(SUM(lcga.qty), 0) as received,
           COALESCE((
             SELECT SUM(si.qty) FROM sale_items si
@@ -143,7 +147,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       const row = stockRows[0];
       const available = Math.max(
         0,
-        Number(row?.received || 0) - Number(row?.sold || 0) - Number(row?.city_out || 0) - Number(row?.city_pending || 0)
+        Number(row?.opening_qty || 0) + Number(row?.received || 0) - Number(row?.sold || 0) - Number(row?.city_out || 0) - Number(row?.city_pending || 0)
       );
       if (parsedQty > available) {
         throw new Error(`INSUFFICIENT_STOCK:${available}`);
