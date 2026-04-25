@@ -43,7 +43,8 @@ interface OfflineContextType {
   lastSyncResult: { synced: number; failed: number } | null;
   queuedItems: QueuedRequest[];
   // Pages call this when offline to queue a write
-  enqueue: (item: EnqueueRequest) => Promise<void>;
+  enqueue: (item: EnqueueRequest) => Promise<string>;
+  updateQueuedItem: (id: string, updates: Partial<Pick<QueuedRequest, "body" | "auditMeta" | "pathname">>) => Promise<boolean>;
   // Stock cache: persists godown stock locally so city admins see correct numbers offline
   cacheGodownStock: (godownId: number, stock: any[]) => Promise<void>;
   getCachedGodownStock: (godownId: number) => Promise<any[] | null>;
@@ -57,7 +58,8 @@ const OfflineContext = createContext<OfflineContextType>({
   isSyncing: false,
   lastSyncResult: null,
   queuedItems: [],
-  enqueue: async () => {},
+  enqueue: async () => "",
+  updateQueuedItem: async () => false,
   cacheGodownStock: async () => {},
   getCachedGodownStock: async () => null,
 });
@@ -180,6 +182,15 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     };
     await dbPut(QUEUE_STORE, full);
     await refreshQueueState();
+    return full.id;
+  }, [refreshQueueState]);
+
+  const updateQueuedItem = useCallback(async (id: string, updates: Partial<Pick<QueuedRequest, "body" | "auditMeta" | "pathname">>) => {
+    const existing = await dbGet<QueuedRequest>(QUEUE_STORE, id);
+    if (!existing) return false;
+    await dbPut(QUEUE_STORE, { ...existing, ...updates });
+    await refreshQueueState();
+    return true;
   }, [refreshQueueState]);
 
   // ── Stock cache ──
@@ -254,7 +265,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
   return (
     <OfflineContext.Provider value={{
       isOnline, isServiceWorkerReady, queueCount, syncQueue, isSyncing, lastSyncResult, queuedItems,
-      enqueue, cacheGodownStock, getCachedGodownStock,
+      enqueue, updateQueuedItem, cacheGodownStock, getCachedGodownStock,
     }}>
       {children}
     </OfflineContext.Provider>

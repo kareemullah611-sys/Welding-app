@@ -4,10 +4,12 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { useOffline } from "@/hooks/useOffline";
 
 export default function CityTransfersPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const { isOnline, enqueue, lastSyncResult } = useOffline();
   const [transfers, setTransfers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -37,6 +39,9 @@ export default function CityTransfersPage() {
     setLoading(false);
   }, [page, searchQuery]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (lastSyncResult && lastSyncResult.synced > 0) load();
+  }, [lastSyncResult, load]);
   useEffect(() => { setPage(1); }, [searchQuery]);
 
   const openSend = async () => {
@@ -51,9 +56,44 @@ export default function CityTransfersPage() {
 
   const handleSend = async () => {
     if (!form.toCityId || !form.fromGodownId || !form.productId || !form.qty) { setError(t("fill_required_fields")); return; }
-    setSubmitting(true);
     const body: any = { ...form };
     if (!body.lotId) delete body.lotId;
+    if (!isOnline) {
+      const toCity = cities.find((c: any) => c.id === form.toCityId);
+      const fromGodown = godowns.find((g: any) => g.id === form.fromGodownId);
+      const product = products.find((p: any) => p.id === form.productId);
+      const lot = lots.find((l: any) => l.id === form.lotId);
+      await enqueue({
+        url: "/api/v1/city-transfers",
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        pathname: "/city-transfers",
+        auditMeta: {
+          action: "create",
+          entityType: "city_transfer",
+          entityLabel: "City Transfer (Pending)",
+          entityDetail: `${product?.name || "Product"} × ${Number(form.qty || 0).toLocaleString("en-US")}`,
+        },
+      });
+      setTransfers((prev) => [{
+        id: `pending-${Date.now()}`,
+        transferDate: form.transferDate,
+        fromCity: { id: user?.cityId, name: user?.cityName },
+        toCity: toCity ? { id: toCity.id, name: toCity.name } : null,
+        fromGodown: fromGodown ? { id: fromGodown.id, name: fromGodown.name } : null,
+        toGodown: null,
+        product: product ? { id: product.id, name: product.name } : null,
+        lot: lot ? { id: lot.id, lotNumber: lot.lotNumber } : null,
+        qty: Number(form.qty || 0),
+        status: "pending",
+        _pending: true,
+      }, ...prev]);
+      setShowSend(false);
+      return;
+    }
+
+    setSubmitting(true);
     const r = await apiCall("/api/v1/city-transfers", { method: "POST", body });
     setSubmitting(false);
     if (r.success) { setShowSend(false); load(); } else { setError(r.error || "Failed"); }
@@ -82,7 +122,7 @@ export default function CityTransfersPage() {
     load();
   };
 
-  const pendingIncoming = transfers.filter(tr => tr.status === "pending" && tr.toCity?.id === user?.cityId);
+  const pendingIncoming = transfers.filter(tr => !tr._pending && tr.status === "pending" && tr.toCity?.id === user?.cityId);
 
   return (
     <div>
@@ -114,10 +154,10 @@ export default function CityTransfersPage() {
         { key: "product", label: t("product"), render: (tr: any) => tr.product?.name },
         { key: "qty", label: t("cartons"), render: (tr: any) => <span className="font-medium">{tr.qty}</span> },
         { key: "lot", label: t("lot"), render: (tr: any) => tr.lot?.lotNumber || "-" },
-        { key: "status", label: t("status"), render: (tr: any) => <span className={`text-xs px-2 py-0.5 rounded font-medium ${tr.status === "approved" ? "bg-green-50 text-green-700" : tr.status === "rejected" ? "bg-red-50 text-red-700" : "bg-yellow-50 text-yellow-700"}`}>{tr.status}</span> },
+        { key: "status", label: t("status"), render: (tr: any) => <span className={`text-xs px-2 py-0.5 rounded font-medium ${tr._pending ? "bg-amber-100 text-amber-700" : tr.status === "approved" ? "bg-green-50 text-green-700" : tr.status === "rejected" ? "bg-red-50 text-red-700" : "bg-yellow-50 text-yellow-700"}`}>{tr._pending ? "syncing…" : tr.status}</span> },
         { key: "sentBy", label: t("sent_by"), render: (tr: any) => tr.sentBy?.fullName },
         { key: "actions", label: "", render: (tr: any) => (
-          tr.status === "pending" && tr.toCity?.id === user?.cityId ? (
+          !tr._pending && tr.status === "pending" && tr.toCity?.id === user?.cityId ? (
             <div className="flex gap-1"><button onClick={() => openApprove(tr)} className="text-xs text-green-600 hover:underline">{t("approve")}</button><button onClick={() => handleReject(tr)} className="text-xs text-red-600 hover:underline">{t("reject")}</button></div>
           ) : null
         )},
