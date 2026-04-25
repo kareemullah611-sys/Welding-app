@@ -8,6 +8,7 @@
     "build": "prisma generate && next build",
     "start": "tsx scripts/bootstrap.ts && next start -p ${PORT:-3000}",
     "lint": "next lint",
+    "verify": "npm run lint && npm run build",
     "test:e2e": "playwright test",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",

@@ -432,7 +432,7 @@ export default function PersonalWithdrawalsPage() {
                       }}
                       className="w-full border-t border-gray-100 px-3 py-2 text-left text-sm font-medium text-primary-700 hover:bg-primary-50"
                     >
-                      + Add "{normalizeWithdraweeName(withdraweeSearch)}"
+                      + Add &quot;{normalizeWithdraweeName(withdraweeSearch)}&quot;
                     </button>
                   )}
                   {!filteredWithdrawees.length && !canAddWithdrawee && (

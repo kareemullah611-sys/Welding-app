@@ -399,6 +399,11 @@ export default function IntermediariesPage() {
     }, 200);
   };
 
+  const currencyCodeById = useCallback((id: string) => {
+    if (!id) return "";
+    return currencies.find((c: any) => String(c.id) === String(id))?.code || "";
+  }, [currencies]);
+
   const isSA = user?.role === "super_admin";
   if (!isSA) return <div className="p-8 text-center text-gray-400">Access restricted to Super Admin.</div>;
 
@@ -426,11 +431,6 @@ export default function IntermediariesPage() {
       ),
     },
   ];
-
-  const currencyCodeById = useCallback((id: string) => {
-    if (!id) return "";
-    return currencies.find((c: any) => String(c.id) === String(id))?.code || "";
-  }, [currencies]);
 
   const exchangePreview = calculateToAmount(exchangeForm.fromAmount, exchangeForm.exchangeRate, exchangeForm.baseCurrencyId, exchangeForm.quoteCurrencyId, exchangeForm.fromCurrencyId, exchangeForm.toCurrencyId);
   const editExchangePreview = calculateToAmount(editExchangeForm.fromAmount, editExchangeForm.exchangeRate, editExchangeForm.baseCurrencyId, editExchangeForm.quoteCurrencyId, editExchangeForm.fromCurrencyId, editExchangeForm.toCurrencyId);

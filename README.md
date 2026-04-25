@@ -54,6 +54,12 @@ npm run dev
 # Open http://localhost:3000
 ```
 
+### 5. Verify Before Deploy
+```bash
+npm run verify
+```
+This runs linting plus production build checks.
+
 ### Default Login Credentials
 
 | Role | Username | Password |

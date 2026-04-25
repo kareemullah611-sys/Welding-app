@@ -1024,7 +1024,7 @@ export default function PaymentsPage() {
         <div className="space-y-4">
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
             <p className="font-semibold mb-1">This will mark the cheque as bounced.</p>
-            <p>This action cannot be undone. The cheque status will be updated to "Bounced".</p>
+            <p>This action cannot be undone. The cheque status will be updated to &quot;Bounced&quot;.</p>
           </div>
           {bounceTarget && (
             <div className="border border-gray-200 rounded-lg p-3 text-sm bg-gray-50">
