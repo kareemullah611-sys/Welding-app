@@ -6,6 +6,7 @@ import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, StatusBadge, formatDate } from "@/components/ui";
 import CustomerSearch from "@/components/CustomerSearch";
 import { useLang } from "@/lib/lang";
+import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
 import { useSearchParams } from "next/navigation";
 
 
@@ -221,6 +222,16 @@ export default function PaymentsPage() {
   const openCreate = async (type: string, preset?: Record<string, any>) => {
     setCreateType(type);
     const loadedCurrencies = await loadHelpers();
+    const offlineReadinessError = getOfflineFormReadinessError({
+      isOnline,
+      currencyCount: loadedCurrencies.length,
+      moduleTitle: "Payment",
+    });
+    if (offlineReadinessError) {
+      setError(offlineReadinessError);
+      setShowCreate(true);
+      return;
+    }
     const today = new Date().toISOString().split("T")[0];
     if (type === "payment") {
       setForm({
@@ -269,6 +280,16 @@ export default function PaymentsPage() {
 
   const handleCreate = async (forceVoucher = false) => {
     setSubmitting(true); setError("");
+    const resolvedCurrencyId = form.currencyId || currencies[0]?.id || 0;
+    if (!resolvedCurrencyId) {
+      setError(getOfflineFormReadinessError({
+        isOnline,
+        currencyCount: currencies.length,
+        moduleTitle: "Payment",
+      }) || "Currency setup missing");
+      setSubmitting(false);
+      return;
+    }
     let endpoint = "", body: any = {};
     if (createType === "payment") {
       if (!form.customerId || !(form.amount > 0) || !form.detail) { setError(t("customer") + ", " + t("amount") + " (must be > 0), " + t("detail") + " required"); setSubmitting(false); return; }
@@ -280,19 +301,19 @@ export default function PaymentsPage() {
         }
       }
       endpoint = "/api/v1/payments";
-      body = { ...form, currencyId: form.currencyId || currencies[0]?.id };
+      body = { ...form, currencyId: resolvedCurrencyId };
     } else if (createType === "expense") {
       if (!(form.amount > 0) || !form.detail) { setError(t("amount") + " (must be > 0) and " + t("detail") + " required"); setSubmitting(false); return; }
       endpoint = "/api/v1/expenses";
-      body = { ...form, currencyId: currencies[0]?.id };
+      body = { ...form, currencyId: resolvedCurrencyId };
     } else if (createType === "haji_transfer") {
       if (!(form.amount > 0) || !form.detail) { setError(t("amount") + " (must be > 0) and " + t("detail") + " required"); setSubmitting(false); return; }
       endpoint = "/api/v1/haji-transfers";
-      body = { ...form, currencyId: currencies[0]?.id };
+      body = { ...form, currencyId: resolvedCurrencyId };
     } else {
       if (!(form.amount > 0) || !form.detail) { setError(t("amount") + " (must be > 0) and " + t("detail") + " required"); setSubmitting(false); return; }
       endpoint = "/api/v1/personal-withdrawals";
-      body = { ...form, currencyId: currencies[0]?.id };
+      body = { ...form, currencyId: resolvedCurrencyId };
     }
     // ── Offline: queue and optimistically add to list ──
     if (!isOnline) {
