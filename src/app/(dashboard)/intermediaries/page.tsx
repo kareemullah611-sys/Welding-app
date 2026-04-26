@@ -416,6 +416,11 @@ export default function IntermediariesPage() {
     return currencies.find((c: any) => String(c.id) === String(id))?.code || "";
   }, [currencies]);
 
+  const localCurrencyName = (code: string) => {
+    const map: Record<string, string> = { AFN: "افغانی", PKR: "کلداری", AED: "درھم", USD: "ڈالر" };
+    return map[code] || code;
+  };
+
   const isSA = user?.role === "super_admin";
   if (!isSA) return <div className="p-8 text-center text-gray-400">Access restricted to Super Admin.</div>;
 
@@ -528,7 +533,7 @@ export default function IntermediariesPage() {
                   return (
                     <div key={code} className={`rounded-lg border px-3 py-2.5 ${bal >= 0 ? "border-emerald-200 bg-emerald-50/40" : "border-red-200 bg-red-50/40"}`}>
                       <div className="flex items-center justify-between">
-                        <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${bal >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>{code}</span>
+                        <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${bal >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>{localCurrencyName(code)}</span>
                       </div>
                       <p className={`mt-1.5 text-base font-bold tabular-nums ${bal >= 0 ? "text-emerald-700" : "text-red-700"}`}>
                         {formatNumber(bal)}

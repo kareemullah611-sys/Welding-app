@@ -8,6 +8,7 @@ import CustomerSearch from "@/components/CustomerSearch";
 import { useLang } from "@/lib/lang";
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
 import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { useSearchParams } from "next/navigation";
 
 
@@ -36,6 +37,13 @@ const DESTINATION_OPTIONS = [
 ];
 
 const PAYMENTS_FORM_CACHE_KEY = "mrf-payments-form-cache-v1";
+const PAYMENTS_READ_CACHE_KEY = "mrf-payments-read-cache-v1";
+
+type PaymentsReadSnapshot = {
+  items: any[];
+  totalPages: number;
+  total: number;
+};
 
 type PaymentsFormCache = {
   lots: any[];
@@ -96,6 +104,7 @@ export default function PaymentsPage() {
   const [form, setForm] = useState<any>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
 
   // Hard delete
   const [showHardDelete, setShowHardDelete] = useState(false);
@@ -150,9 +159,23 @@ export default function PaymentsPage() {
       setItems(r.data as any[]);
       setTotalPages((r.pagination as any)?.totalPages || 1);
       setTotal((r.pagination as any)?.total || 0);
+      writeOfflineReadSnapshot<PaymentsReadSnapshot>(PAYMENTS_READ_CACHE_KEY, {
+        items: r.data as any[],
+        totalPages: (r.pagination as any)?.totalPages || 1,
+        total: (r.pagination as any)?.total || 0,
+      });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readOfflineReadSnapshot<PaymentsReadSnapshot>(PAYMENTS_READ_CACHE_KEY)?.data;
+      if (snapshot?.items?.length) {
+        setItems(snapshot.items);
+        setTotalPages(snapshot.totalPages || 1);
+        setTotal(snapshot.total || 0);
+        setShowOfflineSnapshot(true);
+      }
     }
     setLoading(false);
-  }, [fromDate, isEmbed, isSuperAdmin, page, searchQuery, toDate, typeFilter]);
+  }, [fromDate, isEmbed, isOnline, isSuperAdmin, page, searchQuery, toDate, typeFilter]);
 
   const refreshToLatestPayments = useCallback(() => {
     if (page !== 1 || typeFilter !== "all") {
@@ -798,6 +821,11 @@ export default function PaymentsPage() {
           </div>
         }
       />}
+      {!isEmbed && showOfflineSnapshot && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          Offline snapshot mode: showing last cached payments data for this device.
+        </div>
+      )}
 
       {!isEmbed && queueSaved && (
         <div className="fixed bottom-6 right-6 z-50 bg-green-600 text-white text-sm font-medium px-5 py-3 rounded-2xl shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4">

@@ -8,15 +8,23 @@ import { useOffline } from "@/hooks/useOffline";
 import { useSearchParams } from "next/navigation";
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
 import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { safeParseQueuedBody } from "@/lib/queue-resolve";
 
 const CITY_TRANSFERS_FORM_CACHE_KEY = "mrf-city-transfers-form-cache-v1";
+const CITY_TRANSFERS_READ_CACHE_KEY = "mrf-city-transfers-read-cache-v1";
 
 type CityTransfersFormCache = {
   cities: any[];
   godowns: any[];
   products: any[];
   lots: any[];
+};
+
+type CityTransfersReadSnapshot = {
+  transfers: any[];
+  totalPages: number;
+  total: number;
 };
 
 export default function CityTransfersPage() {
@@ -42,6 +50,7 @@ export default function CityTransfersPage() {
   const [approveForm, setApproveForm] = useState({ toGodownId: 0, approvalNotes: "" });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -50,9 +59,27 @@ export default function CityTransfersPage() {
     const normalizedQuery = searchQuery.trim();
     if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     const r = await apiCall("/api/v1/city-transfers", { params });
-    if (r.success) { setTransfers(r.data as any[]); setTotalPages((r.pagination as any)?.totalPages || 1); setTotal((r.pagination as any)?.total || 0); }
+    if (r.success) {
+      setTransfers(r.data as any[]);
+      setTotalPages((r.pagination as any)?.totalPages || 1);
+      setTotal((r.pagination as any)?.total || 0);
+      writeOfflineReadSnapshot<CityTransfersReadSnapshot>(CITY_TRANSFERS_READ_CACHE_KEY, {
+        transfers: r.data as any[],
+        totalPages: (r.pagination as any)?.totalPages || 1,
+        total: (r.pagination as any)?.total || 0,
+      });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readOfflineReadSnapshot<CityTransfersReadSnapshot>(CITY_TRANSFERS_READ_CACHE_KEY)?.data;
+      if (snapshot?.transfers?.length) {
+        setTransfers(snapshot.transfers);
+        setTotalPages(snapshot.totalPages || 1);
+        setTotal(snapshot.total || 0);
+        setShowOfflineSnapshot(true);
+      }
+    }
     setLoading(false);
-  }, [page, searchQuery]);
+  }, [isOnline, page, searchQuery]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (lastSyncResult && lastSyncResult.synced > 0) load();
@@ -231,6 +258,11 @@ export default function CityTransfersPage() {
   return (
     <div>
       <PageHeader title={t("city_transfers")} subtitle={`${total} ${t("transfers").toLowerCase()}`} action={user?.role === "city_admin" ? <button onClick={() => { void openSend(); }} className="btn-primary text-sm">📦 {t("send_goods")}</button> : undefined} />
+      {showOfflineSnapshot && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          Offline snapshot mode: showing last cached city transfer data for this device.
+        </div>
+      )}
 
       {pendingIncoming.length > 0 && (
         <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">

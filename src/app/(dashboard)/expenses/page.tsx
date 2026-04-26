@@ -8,8 +8,16 @@ import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
 import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 
 const EXPENSES_FORM_CACHE_KEY = "mrf-expenses-form-cache-v1";
+const EXPENSES_READ_CACHE_KEY = "mrf-expenses-read-cache-v1";
+
+type ExpensesReadSnapshot = {
+  expenses: any[];
+  totalPages: number;
+  total: number;
+};
 
 type ExpensesFormCache = {
   lots: any[];
@@ -45,6 +53,7 @@ export default function ExpensesPage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
   const [openActionId, setOpenActionId] = useState<number | null>(null);
   const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
@@ -65,9 +74,23 @@ export default function ExpensesPage() {
       setExpenses(result.data as any[]);
       setTotalPages((result.pagination as any)?.totalPages || 1);
       setTotal((result.pagination as any)?.total || 0);
+      writeOfflineReadSnapshot<ExpensesReadSnapshot>(EXPENSES_READ_CACHE_KEY, {
+        expenses: result.data as any[],
+        totalPages: (result.pagination as any)?.totalPages || 1,
+        total: (result.pagination as any)?.total || 0,
+      });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readOfflineReadSnapshot<ExpensesReadSnapshot>(EXPENSES_READ_CACHE_KEY)?.data;
+      if (snapshot?.expenses?.length) {
+        setExpenses(snapshot.expenses);
+        setTotalPages(snapshot.totalPages || 1);
+        setTotal(snapshot.total || 0);
+        setShowOfflineSnapshot(true);
+      }
     }
     setLoading(false);
-  }, [page, searchQuery]);
+  }, [isOnline, page, searchQuery]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [searchQuery]);
   useEffect(() => {
@@ -311,6 +334,11 @@ export default function ExpensesPage() {
         title={t("expenses")}
         subtitle={`${total} ${t("records").toLowerCase()}`}
       />}
+      {!isEmbed && showOfflineSnapshot && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          Offline snapshot mode: showing last cached expenses data for this device.
+        </div>
+      )}
 
       {!isEmbed && <DataTable
         searchValue={searchQuery}

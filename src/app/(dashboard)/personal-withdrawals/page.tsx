@@ -8,13 +8,22 @@ import { useSearchParams } from "next/navigation";
 import { useOffline } from "@/hooks/useOffline";
 import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 
 const WITHDRAWALS_FORM_CACHE_KEY = "mrf-withdrawals-form-cache-v1";
+const WITHDRAWALS_READ_CACHE_KEY = "mrf-withdrawals-read-cache-v1";
 
 type WithdrawalsFormCache = {
   currencies: any[];
   inHandCheques: any[];
   withdraweeOptions: string[];
+};
+
+type WithdrawalsReadSnapshot = {
+  items: any[];
+  counts: { all: number; pending: number; approved: number };
+  totalPages: number;
+  total: number;
 };
 
 export default function PersonalWithdrawalsPage() {
@@ -40,6 +49,7 @@ export default function PersonalWithdrawalsPage() {
   const [form, setForm] = useState({ withdrawalDate: new Date().toISOString().split("T")[0], amount: 0, detail: "", withdrawnBy: "", notes: "", currencyId: 0, sourceType: "cash_office", chequePaymentId: 0 });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
   const [withdraweeSearch, setWithdraweeSearch] = useState("");
   const [withdraweeOptions, setWithdraweeOptions] = useState<string[]>([]);
@@ -81,14 +91,37 @@ export default function PersonalWithdrawalsPage() {
       setItems(result.data as any[]);
       setTotalPages((result.pagination as any)?.totalPages || 1);
       setTotal((result.pagination as any)?.total || 0);
+      const nextCounts = {
+        all: (allCountRes.pagination as any)?.total || 0,
+        pending: (pendingCountRes.pagination as any)?.total || 0,
+        approved: (approvedCountRes.pagination as any)?.total || 0,
+      };
+      setCounts(nextCounts);
+      writeOfflineReadSnapshot<WithdrawalsReadSnapshot>(WITHDRAWALS_READ_CACHE_KEY, {
+        items: result.data as any[],
+        counts: nextCounts,
+        totalPages: (result.pagination as any)?.totalPages || 1,
+        total: (result.pagination as any)?.total || 0,
+      });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readOfflineReadSnapshot<WithdrawalsReadSnapshot>(WITHDRAWALS_READ_CACHE_KEY)?.data;
+      if (snapshot?.items?.length) {
+        setItems(snapshot.items);
+        setCounts(snapshot.counts || { all: 0, pending: 0, approved: 0 });
+        setTotalPages(snapshot.totalPages || 1);
+        setTotal(snapshot.total || 0);
+        setShowOfflineSnapshot(true);
+      }
+    } else {
+      setCounts({
+        all: (allCountRes.pagination as any)?.total || 0,
+        pending: (pendingCountRes.pagination as any)?.total || 0,
+        approved: (approvedCountRes.pagination as any)?.total || 0,
+      });
     }
-    setCounts({
-      all: (allCountRes.pagination as any)?.total || 0,
-      pending: (pendingCountRes.pagination as any)?.total || 0,
-      approved: (approvedCountRes.pagination as any)?.total || 0,
-    });
     setLoading(false);
-  }, [page, searchQuery, statusFilter]);
+  }, [isOnline, page, searchQuery, statusFilter]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -352,6 +385,11 @@ export default function PersonalWithdrawalsPage() {
         title={t("personal_withdrawals")}
         subtitle={`${total} ${t("records").toLowerCase()}`}
       />}
+      {!isEmbed && showOfflineSnapshot && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          Offline snapshot mode: showing last cached withdrawals data for this device.
+        </div>
+      )}
 
       {!isEmbed && <div className="mb-4 flex flex-wrap items-center gap-2">
         <button

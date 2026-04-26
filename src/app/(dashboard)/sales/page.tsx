@@ -8,10 +8,18 @@ import { PageHeader, DataTable, Modal, StatusBadge, formatCurrency, formatDate }
 import CustomerSearch from "@/components/CustomerSearch";
 import { useLang } from "@/lib/lang";
 import { safeParseQueuedBody } from "@/lib/queue-resolve";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
 const SALES_FORM_CACHE_KEY = "mrf-sales-form-cache-v1";
+const SALES_READ_CACHE_KEY = "mrf-sales-read-cache-v1";
+
+type SalesReadSnapshot = {
+  sales: any[];
+  totalPages: number;
+  total: number;
+};
 
 type SalesFormCache = {
   godowns: any[];
@@ -105,6 +113,7 @@ export default function SalesPage() {
   const [formError, setFormError] = useState("");
   const [shortConfirmed, setShortConfirmed] = useState(false);
   const [saleSavedNotice, setSaleSavedNotice] = useState<string | null>(null);
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
   const [prefillHandled, setPrefillHandled] = useState(false);
   const closeEmbed = useCallback(() => {
@@ -135,9 +144,23 @@ export default function SalesPage() {
       setSales(result.data as any[]);
       setTotalPages((result.pagination as any)?.totalPages || 1);
       setTotal((result.pagination as any)?.total || 0);
+      writeOfflineReadSnapshot<SalesReadSnapshot>(SALES_READ_CACHE_KEY, {
+        sales: result.data as any[],
+        totalPages: (result.pagination as any)?.totalPages || 1,
+        total: (result.pagination as any)?.total || 0,
+      });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readOfflineReadSnapshot<SalesReadSnapshot>(SALES_READ_CACHE_KEY)?.data;
+      if (snapshot?.sales?.length) {
+        setSales(snapshot.sales);
+        setTotalPages(snapshot.totalPages || 1);
+        setTotal(snapshot.total || 0);
+        setShowOfflineSnapshot(true);
+      }
     }
     setLoading(false);
-  }, [filters, isEmbed, page]);
+  }, [filters, isEmbed, isOnline, page]);
 
   useEffect(() => { loadSales(); }, [loadSales]);
   useEffect(() => {
@@ -481,6 +504,11 @@ export default function SalesPage() {
       {!isEmbed && <PageHeader title={t("sales")} subtitle={`${total} ${t("records").toLowerCase()}`} />}
       {!isEmbed && (
       <>
+      {showOfflineSnapshot && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          Offline snapshot mode: showing last cached sales data for this device.
+        </div>
+      )}
 
       {saleSavedNotice && (
         <div className="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 flex flex-wrap items-center justify-between gap-3">
