@@ -389,7 +389,6 @@ export default function HajiTransfersPage() {
   };
 
   const handleEdit = async () => {
-    setSubmitting(true);
     const body: any = {
       amount: form.amount, detail: form.detail,
       sourceType: form.sourceType,
@@ -397,6 +396,40 @@ export default function HajiTransfersPage() {
       transferredTo: form.transferredTo || null, notes: form.notes,
     };
     if (form.sourceType === "bank_transfer" && form.bankAccountId) body.bankAccountId = form.bankAccountId;
+    if (!isOnline) {
+      await enqueue({
+        url: `/api/v1/haji-transfers/${selected.id}`,
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        pathname: "/haji-transfers",
+        auditMeta: {
+          action: "edit",
+          entityType: "haji_transfer",
+          entityLabel: "Haji Transfer Edit (Pending)",
+          entityDetail: `${form.detail} — ${Number(form.amount || 0).toLocaleString("en-US")}`,
+        },
+      });
+      setItems((prev) =>
+        prev.map((row: any) =>
+          row.id === selected.id
+            ? {
+                ...row,
+                amount: form.amount,
+                detail: form.detail,
+                sourceType: form.sourceType,
+                transferType: body.transferType,
+                transferredTo: form.transferredTo || null,
+                notes: form.notes || null,
+                _pending: true,
+              }
+            : row
+        )
+      );
+      setShowEdit(false);
+      return;
+    }
+    setSubmitting(true);
     const r = await apiCall(`/api/v1/haji-transfers/${selected.id}`, { method: "PUT", body });
     setSubmitting(false);
     if (r.success) { setShowEdit(false); load(); } else { setError(r.error || "Failed"); }
@@ -404,6 +437,23 @@ export default function HajiTransfersPage() {
 
   const handleDelete = async (item: any) => {
     if (!confirm(`${t("confirm_delete")} "${item.detail}"?`)) return;
+    if (!isOnline) {
+      await enqueue({
+        url: `/api/v1/haji-transfers/${item.id}`,
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: "",
+        pathname: "/haji-transfers",
+        auditMeta: {
+          action: "delete",
+          entityType: "haji_transfer",
+          entityLabel: "Haji Transfer Delete (Pending)",
+          entityDetail: `${item.detail} — ${Number(item.amount || 0).toLocaleString("en-US")}`,
+        },
+      });
+      setItems((prev) => prev.filter((row: any) => row.id !== item.id));
+      return;
+    }
     await apiCall(`/api/v1/haji-transfers/${item.id}`, { method: "DELETE" });
     load();
   };

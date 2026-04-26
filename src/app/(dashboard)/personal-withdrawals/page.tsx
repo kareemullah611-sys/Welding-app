@@ -333,10 +333,42 @@ export default function PersonalWithdrawalsPage() {
   };
 
   const handleEdit = async () => {
+    const body = { amount: form.amount, detail: form.detail, withdrawnBy: form.withdrawnBy, notes: form.notes };
+    if (!isOnline) {
+      await enqueue({
+        url: `/api/v1/personal-withdrawals/${selected.id}`,
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        pathname: "/personal-withdrawals",
+        auditMeta: {
+          action: "edit",
+          entityType: "personal_withdrawal",
+          entityLabel: "Withdrawal Edit (Pending)",
+          entityDetail: `${form.withdrawnBy || form.detail} — ${Number(form.amount || 0).toLocaleString("en-US")}`,
+        },
+      });
+      setItems((prev) =>
+        prev.map((row: any) =>
+          row.id === selected.id
+            ? {
+                ...row,
+                amount: form.amount,
+                detail: form.detail,
+                withdrawnBy: form.withdrawnBy,
+                notes: form.notes,
+                _pending: true,
+              }
+            : row
+        )
+      );
+      setShowEdit(false);
+      return;
+    }
     setSubmitting(true);
     const result = await apiCall(`/api/v1/personal-withdrawals/${selected.id}`, {
       method: "PUT",
-      body: { amount: form.amount, detail: form.detail, withdrawnBy: form.withdrawnBy, notes: form.notes },
+      body,
     });
     setSubmitting(false);
     if (result.success) { setShowEdit(false); load(); } else { setFormError(result.error || "Failed"); }
@@ -344,6 +376,23 @@ export default function PersonalWithdrawalsPage() {
 
   const handleDelete = async (w: any) => {
     if (!confirm(`${t("confirm_delete")} "${w.detail}"?`)) return;
+    if (!isOnline) {
+      await enqueue({
+        url: `/api/v1/personal-withdrawals/${w.id}`,
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: "",
+        pathname: "/personal-withdrawals",
+        auditMeta: {
+          action: "delete",
+          entityType: "personal_withdrawal",
+          entityLabel: "Withdrawal Delete (Pending)",
+          entityDetail: `${w.withdrawnBy || w.detail} — ${Number(w.amount || 0).toLocaleString("en-US")}`,
+        },
+      });
+      setItems((prev) => prev.filter((row: any) => row.id !== w.id));
+      return;
+    }
     await apiCall(`/api/v1/personal-withdrawals/${w.id}`, { method: "DELETE" });
     load();
   };
@@ -351,6 +400,34 @@ export default function PersonalWithdrawalsPage() {
   const handleApprove = async (w: any) => {
     const label = w.withdrawnBy ? `"${w.withdrawnBy}"` : `"${w.detail}"`;
     if (!confirm(`Approve withdrawal of ${w.currency?.symbol} ${w.amount?.toLocaleString("en-US")} by ${label}?\n\nThis will create a Haji Transfer automatically.`)) return;
+    if (!isOnline) {
+      await enqueue({
+        url: `/api/v1/personal-withdrawals/${w.id}/approve`,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "",
+        pathname: "/personal-withdrawals",
+        auditMeta: {
+          action: "approve",
+          entityType: "personal_withdrawal",
+          entityLabel: "Withdrawal Approval (Pending)",
+          entityDetail: `${w.withdrawnBy || w.detail} — ${Number(w.amount || 0).toLocaleString("en-US")}`,
+        },
+      });
+      setItems((prev) =>
+        prev.map((row: any) =>
+          row.id === w.id
+            ? {
+                ...row,
+                approvedAt: new Date().toISOString(),
+                approvedBy: row.approvedBy || { fullName: user?.fullName || "Super Admin" },
+                _pending: true,
+              }
+            : row
+        )
+      );
+      return;
+    }
     setApprovingId(w.id);
     const result = await apiCall(`/api/v1/personal-withdrawals/${w.id}/approve`, { method: "POST" });
     setApprovingId(null);
