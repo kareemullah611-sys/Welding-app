@@ -216,9 +216,32 @@ export default function InventoryPage() {
       apiCall("/api/v1/products", { params: { limit: 100 } }),
       apiCall("/api/v1/lots", { params: { limit: 100 } }),
     ]);
-    if (gR.success) setGodownList((gR.data as any[]).filter((g: any) => g.cityId === user?.cityId && g.isActive));
-    if (pR.success) setProductList(pR.data as any[]);
-    if (lR.success) setLots(lR.data as any[]);
+    const snapshot = readSnapshot()?.data;
+    if (gR.success) {
+      const liveGodowns = (gR.data as any[]).filter((g: any) => g.cityId === user?.cityId && g.isActive);
+      setGodownList(liveGodowns);
+      mergeSnapshot({ godownList: gR.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline && snapshot?.godownList?.length) {
+      setGodownList(snapshot.godownList.filter((g: any) => g.cityId === user?.cityId && g.isActive));
+      setShowOfflineSnapshot(true);
+    }
+    if (pR.success) {
+      setProductList(pR.data as any[]);
+      mergeSnapshot({ productList: pR.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline && snapshot?.productList?.length) {
+      setProductList(snapshot.productList);
+      setShowOfflineSnapshot(true);
+    }
+    if (lR.success) {
+      setLots(lR.data as any[]);
+      mergeSnapshot({ lots: lR.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline && snapshot?.lots?.length) {
+      setLots(snapshot.lots);
+      setShowOfflineSnapshot(true);
+    }
     setTransferHelpersLoading(false);
     setShowInterGodownTransfer(true);
   };
@@ -256,7 +279,20 @@ export default function InventoryPage() {
   const openApprove = async (tr: any) => {
     setSelected(tr);
     const gR = await apiCall("/api/v1/godowns", { params: { limit: 100 } });
-    if (gR.success) setMyGodowns((gR.data as any[]).filter((g: any) => g.cityId === user?.cityId));
+    if (gR.success) {
+      const liveGodowns = (gR.data as any[]).filter((g: any) => g.cityId === user?.cityId);
+      setMyGodowns(liveGodowns);
+      mergeSnapshot({ godownList: gR.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.godownList?.length) {
+        setMyGodowns(snapshot.godownList.filter((g: any) => g.cityId === user?.cityId));
+        setShowOfflineSnapshot(true);
+      } else {
+        setMyGodowns([]);
+      }
+    }
     setApproveForm({ toGodownId: 0, approvalNotes: "" });
     setShowApprove(true);
     setApproveError("");
@@ -288,7 +324,16 @@ export default function InventoryPage() {
   const openGodownAlloc = async (lot: any, dist: any) => {
     setSelectedDist(dist); setSelectedLot(lot); setGodownError("");
     const gRes = await apiCall("/api/v1/godowns", { params: { city_id: dist.cityId, limit: 50 } });
-    const godowns = ((gRes.data || []) as any[]).filter((g: any) => g.isActive);
+    let godowns: any[] = [];
+    if (gRes.success) {
+      godowns = ((gRes.data || []) as any[]).filter((g: any) => g.isActive);
+      mergeSnapshot({ godownList: gRes.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      godowns = (snapshot?.godownList || []).filter((g: any) => g.cityId === dist.cityId && g.isActive);
+      if (godowns.length) setShowOfflineSnapshot(true);
+    }
     const allocs: any[] = godowns.map((gd: any) => {
       const ex = dist.godownAllocations?.find((ga: any) => ga.godownId === gd.id);
       return { productId: dist.productId, productName: dist.productName, godownId: gd.id, godownName: gd.name, qty: ex?.qty || 0, maxQty: Number(dist.allocatedQty) };
