@@ -5,6 +5,22 @@ import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middl
 import { createExpenseSchema } from "@/lib/validations";
 import { successResponse, paginatedResponse, validationError, errorResponse, serverError, getPaginationParams, getDateRange } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+
+const EXPENSE_SYNC_MODULE = "expenses.create";
+
+function formatExpenseCreateResponse(expense: any) {
+  return {
+    id: expense.id, lotNumber: expense.lot.lotNumber,
+    expenseDate: expense.expenseDate.toISOString().split("T")[0],
+    amount: Number(expense.amount), detail: expense.detail,
+    paidFrom: expense.paidFrom ?? "cash_office",
+    bankAccountId: expense.bankAccountId ?? null,
+    chequePaymentId: (expense as any).chequePaymentId ?? null,
+    currency: { id: expense.currency.id, code: expense.currency.code, symbol: expense.currency.symbol },
+    createdBy: expense.creator,
+  };
+}
 
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
@@ -99,11 +115,37 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 export const POST = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
     if (user.role !== "city_admin") return errorResponse("FORBIDDEN", "Only city admins can create expenses", 403);
+    const syncMeta = getSyncRequestMeta(request);
     const body = await request.json();
     const parsed = createExpenseSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid expense data", parsed.error.errors);
 
     const cityId = user.cityId!;
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId,
+            module: EXPENSE_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingExpense = await prisma.expense.findFirst({
+          where: { id: existingSync.entityId, cityId },
+          include: {
+            lot: { select: { id: true, lotNumber: true } },
+            currency: true,
+            creator: { select: { id: true, fullName: true } },
+          } as any,
+        });
+        if (existingExpense) {
+          return successResponse(formatExpenseCreateResponse(existingExpense), "Expense already synced");
+        }
+      }
+    }
+
     const city = await prisma.city.findUnique({ where: { id: cityId }, include: { country: true } });
     const { lotId, expenseDate, amount, currencyId, detail, notes } = parsed.data;
 
@@ -179,20 +221,52 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       }, getClientIP(request), tx);
 
       await journalExpenseCreated({ id: createdExpense.id, cityId, lotId: lot.id, amount: Number(createdExpense.amount), currencyCode: createdExpense.currency.code, detail, expenseDate: createdExpense.expenseDate, createdBy: user.userId, paidFrom: paidFrom ?? "cash_office", bankAccountId: bankAccountId ?? null }, tx);
+
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId,
+            module: EXPENSE_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "expenses",
+            entityId: createdExpense.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+
       return createdExpense;
     });
 
-    return successResponse({
-      id: expense.id, lotNumber: expense.lot.lotNumber,
-      expenseDate: expense.expenseDate.toISOString().split("T")[0],
-      amount: Number(expense.amount), detail: expense.detail,
-      paidFrom: expense.paidFrom ?? "cash_office",
-      bankAccountId: expense.bankAccountId ?? null,
-      chequePaymentId: (expense as any).chequePaymentId ?? null,
-      currency: { id: expense.currency.id, code: expense.currency.code, symbol: expense.currency.symbol },
-      createdBy: expense.creator,
-    }, "Expense recorded", 201);
+    return successResponse(formatExpenseCreateResponse(expense), "Expense recorded", 201);
   } catch (error: any) {
+    const syncMeta = getSyncRequestMeta(request);
+    const cityId = user.role === "city_admin" ? user.cityId! : null;
+    if (syncMeta && cityId && isSyncRequestDuplicateError(error)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId,
+            module: EXPENSE_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingExpense = await prisma.expense.findFirst({
+          where: { id: existingSync.entityId, cityId },
+          include: {
+            lot: { select: { id: true, lotNumber: true } },
+            currency: true,
+            creator: { select: { id: true, fullName: true } },
+          } as any,
+        });
+        if (existingExpense) {
+          return successResponse(formatExpenseCreateResponse(existingExpense), "Expense already synced");
+        }
+      }
+    }
     if (error?.message === "CHEQUE_NOT_FOUND") return errorResponse("NOT_FOUND", "Cheque payment not found", 404);
     if (error?.message === "CHEQUE_FORBIDDEN") return errorResponse("FORBIDDEN", "Cheque payment does not belong to your city", 403);
     if (error?.message === "CHEQUE_NOT_CHEQUE") return errorResponse("VALIDATION_ERROR", "Referenced payment is not a cheque payment");

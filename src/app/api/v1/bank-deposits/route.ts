@@ -10,6 +10,7 @@ import {
 } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { journalBankDeposit } from "@/lib/accounting";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 
 type TreasuryTransferType =
   | "cheque_to_bank"
@@ -22,6 +23,7 @@ const VALID_TRANSFER_TYPES: TreasuryTransferType[] = [
   "cheque_to_cash",
   "bank_to_bank",
 ];
+const BANK_DEPOSIT_SYNC_MODULE = "bank_deposits.create";
 
 const deriveTransferType = (row: { cashAmount: number; cheques: Array<{ id: number }>; notes?: string | null }): TreasuryTransferType => {
   const cashAmount = Number(row.cashAmount || 0);
@@ -145,6 +147,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 });
 
 export const POST = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
+  const syncMeta = getSyncRequestMeta(request);
+  let resolvedCityId: number | null = user.role === "city_admin" ? user.cityId! : null;
   try {
     const body = await request.json();
     const transferTypeRaw = String(body.transferType || "cheque_to_bank");
@@ -160,9 +164,25 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         : body.cityId
         ? parseInt(body.cityId)
         : undefined;
+    resolvedCityId = cityId ?? null;
 
     if (!cityId) {
       return errorResponse("VALIDATION_ERROR", "cityId is required for super_admin");
+    }
+
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId,
+            module: BANK_DEPOSIT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        return successResponse({ id: existingSync.entityId }, "Bank deposit already synced");
+      }
     }
 
     // Required fields
@@ -405,6 +425,20 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         );
       }
 
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId,
+            module: BANK_DEPOSIT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "bank_deposits",
+            entityId: sourceDeposit.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+
       return { sourceDeposit, destinationDepositId };
     });
 
@@ -483,6 +517,20 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       201
     );
   } catch (error) {
+    if (syncMeta && resolvedCityId && isSyncRequestDuplicateError(error)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: resolvedCityId,
+            module: BANK_DEPOSIT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        return successResponse({ id: existingSync.entityId }, "Bank deposit already synced");
+      }
+    }
     return serverError();
   }
 });

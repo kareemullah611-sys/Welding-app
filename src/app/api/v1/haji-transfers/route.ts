@@ -5,8 +5,10 @@ import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middl
 import { createHajiTransferSchema } from "@/lib/validations";
 import { successResponse, paginatedResponse, validationError, errorResponse, serverError, getPaginationParams, getDateRange } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 
 const PAKISTAN_HAJI_TARGET = "Super Admin Account";
+const HAJI_TRANSFER_SYNC_MODULE = "haji_transfers.create";
 
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
@@ -155,8 +157,43 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 export const POST = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
     if (user.role !== "city_admin") return errorResponse("FORBIDDEN", "Only city admins can record Haji transfers", 403);
+    const syncMeta = getSyncRequestMeta(request);
     const body = await request.json();
     const cityId = user.cityId!;
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId,
+            module: HAJI_TRANSFER_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingTransfer = await prisma.hajiTransfer.findFirst({
+          where: { id: existingSync.entityId, cityId },
+          include: { lot: { select: { id: true, lotNumber: true } }, currency: true, creator: { select: { id: true, fullName: true } } },
+        });
+        if (existingTransfer) {
+          return successResponse({
+            id: existingTransfer.id,
+            lotNumber: existingTransfer.lot.lotNumber,
+            transferDate: existingTransfer.transferDate.toISOString().split("T")[0],
+            amount: Number(existingTransfer.amount),
+            detail: existingTransfer.detail,
+            transferType: existingTransfer.transferType,
+            sourceType: existingTransfer.sourceType ?? null,
+            bankAccountId: existingTransfer.bankAccountId ?? null,
+            chequePaymentId: existingTransfer.chequePaymentId ?? null,
+            currency: { id: existingTransfer.currency.id, code: existingTransfer.currency.code, symbol: existingTransfer.currency.symbol },
+            createdBy: existingTransfer.creator,
+          }, "Haji transfer already synced");
+        }
+        return successResponse({ id: existingSync.entityId }, "Haji transfer already synced");
+      }
+    }
+
     const city = await prisma.city.findUnique({ where: { id: cityId }, include: { country: true } });
     const shouldUseSuperAdminTarget = city?.country?.name === "Pakistan";
     const isAfghanistanCity = city?.country?.name === "Afghanistan";
@@ -314,6 +351,20 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           created.push(chequeTransfer);
         }
 
+        if (syncMeta && created.length > 0) {
+          await tx.syncRequest.create({
+            data: {
+              cityId,
+              module: HAJI_TRANSFER_SYNC_MODULE,
+              requestId: syncMeta.requestId,
+              deviceId: syncMeta.deviceId,
+              entityType: "haji_transfers",
+              entityId: created[0].id,
+              createdBy: user.userId,
+            },
+          });
+        }
+
         return created;
       });
 
@@ -413,6 +464,19 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
       await createAuditLog(user.userId, cityId, "haji_transfers", createdTransfer.id, "create", undefined, { lotId, amount, transferType, sourceType }, getClientIP(request), tx);
       await journalHajiTransfer({ id: createdTransfer.id, cityId, amount, currencyCode: createdTransfer.currency.code, date: createdTransfer.transferDate, createdBy: user.userId, sourceType: createdTransfer.sourceType, bankAccountId: (createdTransfer as any).bankAccountId ?? null }, tx);
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId,
+            module: HAJI_TRANSFER_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "haji_transfers",
+            entityId: createdTransfer.id,
+            createdBy: user.userId,
+          },
+        });
+      }
       return createdTransfer;
     });
 
@@ -427,6 +491,22 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       createdBy: transfer.creator,
     }, "Haji transfer recorded", 201);
   } catch (error: any) {
+    const syncMeta = getSyncRequestMeta(request);
+    const cityId = user.role === "city_admin" ? user.cityId! : null;
+    if (syncMeta && cityId && isSyncRequestDuplicateError(error)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId,
+            module: HAJI_TRANSFER_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        return successResponse({ id: existingSync.entityId }, "Haji transfer already synced");
+      }
+    }
     if (error?.message === "CHEQUE_NOT_FOUND") return errorResponse("NOT_FOUND", "Cheque payment not found", 404);
     if (error?.message === "CHEQUE_FORBIDDEN") return errorResponse("FORBIDDEN", "Cheque payment does not belong to your city", 403);
     if (error?.message === "CHEQUE_NOT_CHEQUE") return errorResponse("VALIDATION_ERROR", "Referenced payment is not a cheque payment");

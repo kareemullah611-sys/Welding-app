@@ -5,6 +5,26 @@ import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middl
 import { createWithdrawalSchema } from "@/lib/validations";
 import { successResponse, paginatedResponse, validationError, errorResponse, serverError, getPaginationParams, getDateRange } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+
+const WITHDRAWAL_SYNC_MODULE = "personal_withdrawals.create";
+
+function formatWithdrawalCreateResponse(withdrawal: any) {
+  return {
+    id: withdrawal.id,
+    withdrawalDate: withdrawal.withdrawalDate.toISOString().split("T")[0],
+    amount: Number(withdrawal.amount),
+    detail: withdrawal.detail,
+    withdrawnBy: withdrawal.withdrawnBy,
+    sourceType: (withdrawal as any).sourceType ?? "cash_office",
+    chequePaymentId: (withdrawal as any).chequePaymentId ?? null,
+    approvedBy: withdrawal.approver ? { id: withdrawal.approver.id, fullName: withdrawal.approver.fullName } : null,
+    approvedAt: withdrawal.approvedAt ? withdrawal.approvedAt.toISOString() : null,
+    hajiTransferId: withdrawal.hajiTransferId ?? null,
+    currency: { id: withdrawal.currency.id, code: withdrawal.currency.code, symbol: withdrawal.currency.symbol },
+    createdBy: withdrawal.creator,
+  };
+}
 
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
@@ -96,11 +116,37 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 export const POST = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
     if (user.role !== "city_admin") return errorResponse("FORBIDDEN", "Only city admins can record withdrawals", 403);
+    const syncMeta = getSyncRequestMeta(request);
     const body = await request.json();
     const parsed = createWithdrawalSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid data", parsed.error.errors);
 
     const cityId = user.cityId!;
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId,
+            module: WITHDRAWAL_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingWithdrawal = await prisma.personalWithdrawal.findFirst({
+          where: { id: existingSync.entityId, cityId },
+          include: {
+            currency: true,
+            creator: { select: { id: true, fullName: true } },
+            approver: { select: { id: true, fullName: true } },
+          },
+        });
+        if (existingWithdrawal) {
+          return successResponse(formatWithdrawalCreateResponse(existingWithdrawal), "Withdrawal already synced");
+        }
+      }
+    }
+
     const city = await prisma.city.findUnique({ where: { id: cityId }, include: { country: true } });
     const { withdrawalDate, amount, currencyId, detail, withdrawnBy, notes } = parsed.data;
     const sourceType: "cash_office" | "cheque" = body.sourceType ?? "cash_office";
@@ -160,24 +206,52 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
       await createAuditLog(user.userId, cityId, "personal_withdrawals", createdWithdrawal.id, "create", undefined, { amount, detail, withdrawnBy, sourceType }, getClientIP(request), tx);
       await journalWithdrawal({ id: createdWithdrawal.id, cityId, amount: Number(createdWithdrawal.amount), currencyCode: createdWithdrawal.currency.code, date: createdWithdrawal.withdrawalDate, createdBy: user.userId, sourceType }, tx);
+
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId,
+            module: WITHDRAWAL_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "personal_withdrawals",
+            entityId: createdWithdrawal.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+
       return createdWithdrawal;
     });
 
-    return successResponse({
-      id: withdrawal.id,
-      withdrawalDate: withdrawal.withdrawalDate.toISOString().split("T")[0],
-      amount: Number(withdrawal.amount),
-      detail: withdrawal.detail,
-      withdrawnBy: withdrawal.withdrawnBy,
-      sourceType: (withdrawal as any).sourceType ?? "cash_office",
-      chequePaymentId: (withdrawal as any).chequePaymentId ?? null,
-      approvedBy: null,
-      approvedAt: null,
-      hajiTransferId: null,
-      currency: { id: withdrawal.currency.id, code: withdrawal.currency.code, symbol: withdrawal.currency.symbol },
-      createdBy: withdrawal.creator,
-    }, "Withdrawal recorded", 201);
+    return successResponse(formatWithdrawalCreateResponse(withdrawal), "Withdrawal recorded", 201);
   } catch (error: any) {
+    const syncMeta = getSyncRequestMeta(request);
+    const cityId = user.role === "city_admin" ? user.cityId! : null;
+    if (syncMeta && cityId && isSyncRequestDuplicateError(error)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId,
+            module: WITHDRAWAL_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingWithdrawal = await prisma.personalWithdrawal.findFirst({
+          where: { id: existingSync.entityId, cityId },
+          include: {
+            currency: true,
+            creator: { select: { id: true, fullName: true } },
+            approver: { select: { id: true, fullName: true } },
+          },
+        });
+        if (existingWithdrawal) {
+          return successResponse(formatWithdrawalCreateResponse(existingWithdrawal), "Withdrawal already synced");
+        }
+      }
+    }
     if (error?.message === "CHEQUE_NOT_FOUND") return errorResponse("NOT_FOUND", "Cheque payment not found", 404);
     if (error?.message === "CHEQUE_FORBIDDEN") return errorResponse("FORBIDDEN", "Cheque payment does not belong to your city", 403);
     if (error?.message === "CHEQUE_NOT_CHEQUE") return errorResponse("VALIDATION_ERROR", "Referenced payment is not a cheque payment");
