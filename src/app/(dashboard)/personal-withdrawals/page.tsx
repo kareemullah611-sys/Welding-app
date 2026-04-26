@@ -6,11 +6,21 @@ import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/compon
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
 import { useOffline } from "@/hooks/useOffline";
+import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
+import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
+
+const WITHDRAWALS_FORM_CACHE_KEY = "mrf-withdrawals-form-cache-v1";
+
+type WithdrawalsFormCache = {
+  currencies: any[];
+  inHandCheques: any[];
+  withdraweeOptions: string[];
+};
 
 export default function PersonalWithdrawalsPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline, enqueue, lastSyncResult } = useOffline();
+  const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, syncQueue } = useOffline();
   const searchParams = useSearchParams();
   const isEmbed = searchParams.get("embed") === "1";
   const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
@@ -30,6 +40,7 @@ export default function PersonalWithdrawalsPage() {
   const [form, setForm] = useState({ withdrawalDate: new Date().toISOString().split("T")[0], amount: 0, detail: "", withdrawnBy: "", notes: "", currencyId: 0, sourceType: "cash_office", chequePaymentId: 0 });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
   const [withdraweeSearch, setWithdraweeSearch] = useState("");
   const [withdraweeOptions, setWithdraweeOptions] = useState<string[]>([]);
   const [showWithdraweeMenu, setShowWithdraweeMenu] = useState(false);
@@ -117,7 +128,45 @@ export default function PersonalWithdrawalsPage() {
     return () => document.removeEventListener("mousedown", handleOutside);
   }, [showWithdraweeMenu]);
 
-  const openCreate = async () => {
+  const openCreate = async (preset?: Record<string, any>) => {
+    if (!isOnline) {
+      const cached = readOfflineFormCache<WithdrawalsFormCache>(WITHDRAWALS_FORM_CACHE_KEY, [
+        "currencies",
+        "inHandCheques",
+        "withdraweeOptions",
+      ]);
+      if (!cached) {
+        setFormError(getOfflineFormReadinessError({
+          isOnline,
+          currencyCount: 0,
+          moduleTitle: "Withdrawal",
+        }) || "Offline setup missing");
+        setShowCreate(true);
+        return;
+      }
+      setCurrencies(cached.currencies);
+      setInHandCheques(cached.inHandCheques);
+      setWithdraweeOptions(cached.withdraweeOptions);
+      const nextWithdrawnBy = (preset?.withdrawnBy as string) || "";
+      setForm((f) => ({
+        ...f,
+        withdrawalDate: new Date().toISOString().split("T")[0],
+        amount: 0,
+        detail: "",
+        withdrawnBy: "",
+        notes: "",
+        sourceType: "cash_office",
+        chequePaymentId: 0,
+        currencyId: cached.currencies[0]?.id || 0,
+        ...preset,
+      }));
+      setWithdraweeSearch(nextWithdrawnBy);
+      setShowWithdraweeMenu(false);
+      setShowCreate(true);
+      setFormError("");
+      return;
+    }
+
     const requests: Promise<any>[] = [apiCall("/api/v1/cities")];
     requests.push(apiCall("/api/v1/personal-withdrawals/names"));
     if (!isAfghanistanCity) {
@@ -134,8 +183,19 @@ export default function PersonalWithdrawalsPage() {
     else setWithdraweeOptions([]);
     if (!isAfghanistanCity && chequeRes?.success) setInHandCheques(chequeRes.data as any[]);
     else setInHandCheques([]);
-    setForm((f) => ({ ...f, withdrawalDate: new Date().toISOString().split("T")[0], amount: 0, detail: "", withdrawnBy: "", notes: "", sourceType: "cash_office", chequePaymentId: 0 }));
-    setWithdraweeSearch("");
+    const cachedCurrencies = cityRes.success && user?.cityId
+      ? (((cityRes.data as any[]).find((c: any) => c.id === user.cityId)?.currencies) || [])
+      : [];
+    if (cachedCurrencies.length > 0) {
+      writeOfflineFormCache<WithdrawalsFormCache>(WITHDRAWALS_FORM_CACHE_KEY, {
+        currencies: cachedCurrencies,
+        inHandCheques: !isAfghanistanCity && chequeRes?.success ? (chequeRes.data as any[]) : [],
+        withdraweeOptions: nameRes?.success ? ((nameRes.data as string[]) || []) : [],
+      });
+    }
+    const nextWithdrawnBy = (preset?.withdrawnBy as string) || "";
+    setForm((f) => ({ ...f, withdrawalDate: new Date().toISOString().split("T")[0], amount: 0, detail: "", withdrawnBy: "", notes: "", sourceType: "cash_office", chequePaymentId: 0, ...preset }));
+    setWithdraweeSearch(nextWithdrawnBy);
     setShowWithdraweeMenu(false);
     setShowCreate(true); setFormError("");
   };
@@ -145,8 +205,39 @@ export default function PersonalWithdrawalsPage() {
     if (!normalizeWithdraweeName(form.withdrawnBy)) { setFormError("Withdrawn By is required"); return; }
     if (form.sourceType === "cheque" && !form.chequePaymentId) { setFormError("Please select a cheque"); return; }
 
+    const resolvedCurrencyId = form.currencyId || currencies[0]?.id || 0;
+    if (!resolvedCurrencyId) {
+      setFormError(getOfflineFormReadinessError({
+        isOnline,
+        currencyCount: currencies.length,
+        moduleTitle: "Withdrawal",
+      }) || "Currency setup missing");
+      return;
+    }
+
+    const payload = {
+      ...form,
+      withdrawnBy: normalizeWithdraweeName(form.withdrawnBy),
+      currencyId: resolvedCurrencyId,
+    };
+
+    if (resolvingQueueId) {
+      const updateOk = await updateQueuedItem(resolvingQueueId, { body: JSON.stringify(payload) });
+      if (!updateOk) {
+        setFormError("Queued entry was not found. Please retry from Activity.");
+        return;
+      }
+      if (isOnline) {
+        await retryQueuedItem(resolvingQueueId);
+        await syncQueue();
+      }
+      setResolvingQueueId(null);
+      setShowCreate(false);
+      load();
+      return;
+    }
+
     if (!isOnline) {
-      const payload = { ...form, withdrawnBy: normalizeWithdraweeName(form.withdrawnBy) };
       await enqueue({
         url: "/api/v1/personal-withdrawals",
         method: "POST",
@@ -179,11 +270,28 @@ export default function PersonalWithdrawalsPage() {
     setSubmitting(true);
     const result = await apiCall("/api/v1/personal-withdrawals", {
       method: "POST",
-      body: { ...form, withdrawnBy: normalizeWithdraweeName(form.withdrawnBy) },
+      body: payload,
     });
     setSubmitting(false);
     if (result.success) { setShowCreate(false); if (isEmbed) closeEmbed(); load(); } else { setFormError(result.error || "Failed"); }
   };
+
+  useEffect(() => {
+    const shouldResolve = searchParams.get("resolve") === "1";
+    const queueId = searchParams.get("queue_id");
+    if (!shouldResolve || !queueId) return;
+    const target = queuedItems.find((q) => q.id === queueId && q.pathname === "/personal-withdrawals");
+    if (!target) return;
+    try {
+      const parsed = JSON.parse(target.body || "{}");
+      openCreate(parsed);
+      setResolvingQueueId(queueId);
+      setFormError("Resolving queued withdrawal. Save to update and re-sync.");
+      window.history.replaceState({}, "", isEmbed ? "/personal-withdrawals?embed=1" : "/personal-withdrawals");
+    } catch {
+      // ignore malformed queued payload
+    }
+  }, [isEmbed, queuedItems, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openEdit = (w: any) => {
     setSelected(w);

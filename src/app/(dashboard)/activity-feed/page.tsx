@@ -6,6 +6,7 @@ import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, PaginationBar } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
 
 interface ActivityItem {
   id: number | string;
@@ -136,6 +137,16 @@ const ENTITY_CONFIG: Record<string, { icon: string; label: string }> = {
   agent_payment:       { icon: "💳", label: "Agent Payment" },
   offline_entry:       { icon: "📝", label: "Offline Entry" },
 };
+
+function getQueueResolvePath(entityType: string): string | null {
+  if (entityType === "sale") return "/sales";
+  if (entityType === "payment") return "/payments";
+  if (entityType === "expense") return "/expenses";
+  if (entityType === "haji_transfer") return "/haji-transfers";
+  if (entityType === "personal_withdrawal") return "/personal-withdrawals";
+  if (entityType === "customer") return "/customers";
+  return null;
+}
 
 // Natural-language verb phrase: "created a new sale", "updated payment", etc.
 function buildVerb(action: string, entityType: string): string {
@@ -397,6 +408,18 @@ export default function ActivityFeedPage() {
                           </span>
                           {item.isLocalQueue && item.queueId && (item.syncStatus === "failed" || item.syncStatus === "conflict") && (
                             <div className="flex justify-end gap-2 pt-0.5">
+                              {(() => {
+                                const path = getQueueResolvePath(item.entityType);
+                                if (!path) return null;
+                                return (
+                                  <Link
+                                    href={`${path}?resolve=1&queue_id=${encodeURIComponent(item.queueId!)}`}
+                                    className="text-[11px] text-amber-700 hover:underline"
+                                  >
+                                    Resolve
+                                  </Link>
+                                );
+                              })()}
                               <button
                                 disabled={queueActionId === item.queueId}
                                 onClick={async () => {

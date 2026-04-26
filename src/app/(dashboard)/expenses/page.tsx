@@ -6,6 +6,17 @@ import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
+import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
+import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
+
+const EXPENSES_FORM_CACHE_KEY = "mrf-expenses-form-cache-v1";
+
+type ExpensesFormCache = {
+  lots: any[];
+  currencies: any[];
+  bankAccounts: any[];
+  inHandCheques: any[];
+};
 
 export default function ExpensesPage() {
   const { user } = useAuth();
@@ -13,7 +24,7 @@ export default function ExpensesPage() {
   const searchParams = useSearchParams();
   const isEmbed = searchParams.get("embed") === "1";
   const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
-  const { isOnline, enqueue, lastSyncResult } = useOffline();
+  const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, syncQueue } = useOffline();
   const [expenses, setExpenses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -34,6 +45,7 @@ export default function ExpensesPage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
   const [openActionId, setOpenActionId] = useState<number | null>(null);
   const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
   const [prefillHandled, setPrefillHandled] = useState(false);
@@ -82,7 +94,45 @@ export default function ExpensesPage() {
     return () => document.removeEventListener("pointerdown", handleOutside, true);
   }, [openActionId]);
 
-  const openCreate = async () => {
+  const openCreate = async (preset?: Record<string, any>) => {
+    if (!isOnline) {
+      const cached = readOfflineFormCache<ExpensesFormCache>(EXPENSES_FORM_CACHE_KEY, [
+        "lots",
+        "currencies",
+        "bankAccounts",
+        "inHandCheques",
+      ]);
+      if (!cached) {
+        setFormError(getOfflineFormReadinessError({
+          isOnline,
+          currencyCount: 0,
+          moduleTitle: "Expense",
+        }) || "Offline setup missing");
+        setShowCreate(true);
+        return;
+      }
+      setLots(cached.lots);
+      setCurrencies(cached.currencies);
+      setBankAccounts(cached.bankAccounts);
+      setInHandCheques(cached.inHandCheques);
+      setForm((f: any) => ({
+        ...f,
+        expenseDate: new Date().toISOString().split("T")[0],
+        amount: 0,
+        detail: "",
+        notes: "",
+        lotId: 0,
+        currencyId: cached.currencies[0]?.id || 0,
+        paidFrom: "cash_office",
+        bankAccountId: 0,
+        chequePaymentId: 0,
+        ...preset,
+      }));
+      setShowCreate(true);
+      setFormError("");
+      return;
+    }
+
     const requests: Promise<any>[] = [
       apiCall("/api/v1/lots", { params: { limit: 100, status: "ongoing" } }),
       apiCall("/api/v1/cities"),
@@ -108,10 +158,22 @@ export default function ExpensesPage() {
     else setBankAccounts([]);
     if (!isAfghanistanCity && chRes?.success) setInHandCheques(chRes.data as any[]);
     else setInHandCheques([]);
+    const cachedCurrencies = cityRes.success && user?.cityId
+      ? (((cityRes.data as any[]).find((c: any) => c.id === user.cityId)?.currencies) || [])
+      : [];
+    if (cachedCurrencies.length > 0) {
+      writeOfflineFormCache<ExpensesFormCache>(EXPENSES_FORM_CACHE_KEY, {
+        lots: lotRes.success ? (lotRes.data as any[]) : [],
+        currencies: cachedCurrencies,
+        bankAccounts: !isAfghanistanCity && baRes?.success ? (baRes.data as any[]) : [],
+        inHandCheques: !isAfghanistanCity && chRes?.success ? (chRes.data as any[]) : [],
+      });
+    }
     setForm((f: any) => ({
       ...f, expenseDate: new Date().toISOString().split("T")[0],
       amount: 0, detail: "", notes: "", lotId: 0,
       paidFrom: "cash_office", bankAccountId: 0, chequePaymentId: 0,
+      ...preset,
     }));
     setShowCreate(true); setFormError("");
   };
@@ -121,13 +183,47 @@ export default function ExpensesPage() {
     if (form.paidFrom === "bank_account" && !form.bankAccountId) { setFormError("Please select a bank account"); return; }
     if (form.paidFrom === "cheque" && !form.chequePaymentId) { setFormError("Please select a cheque"); return; }
 
+    const resolvedCurrencyId = form.currencyId || currencies[0]?.id || 0;
+    if (!resolvedCurrencyId) {
+      setFormError(getOfflineFormReadinessError({
+        isOnline,
+        currencyCount: currencies.length,
+        moduleTitle: "Expense",
+      }) || "Currency setup missing");
+      return;
+    }
+
+    const createBody: any = {
+      ...form,
+      lotId: form.lotId || null,
+      currencyId: resolvedCurrencyId,
+    };
+    if (form.paidFrom !== "bank_account") delete createBody.bankAccountId;
+    if (form.paidFrom !== "cheque") delete createBody.chequePaymentId;
+
+    if (resolvingQueueId) {
+      const updateOk = await updateQueuedItem(resolvingQueueId, { body: JSON.stringify(createBody) });
+      if (!updateOk) {
+        setFormError("Queued entry was not found. Please retry from Activity.");
+        return;
+      }
+      if (isOnline) {
+        await retryQueuedItem(resolvingQueueId);
+        await syncQueue();
+      }
+      setResolvingQueueId(null);
+      setShowCreate(false);
+      load();
+      return;
+    }
+
     // ── Offline: queue and show optimistically ──
     if (!isOnline) {
       await enqueue({
         url: "/api/v1/expenses",
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, lotId: form.lotId || null }),
+        body: JSON.stringify(createBody),
         pathname: "/expenses",
         auditMeta: {
           action: "create",
@@ -151,13 +247,27 @@ export default function ExpensesPage() {
 
     // ── Online: normal submit ──
     setSubmitting(true);
-    const body: any = { ...form, lotId: form.lotId || null };
-    if (form.paidFrom !== "bank_account") delete body.bankAccountId;
-    if (form.paidFrom !== "cheque") delete body.chequePaymentId;
-    const result = await apiCall("/api/v1/expenses", { method: "POST", body });
+    const result = await apiCall("/api/v1/expenses", { method: "POST", body: createBody });
     setSubmitting(false);
     if (result.success) { setShowCreate(false); if (isEmbed) closeEmbed(); load(); } else { setFormError(result.error || "Failed"); }
   };
+
+  useEffect(() => {
+    const shouldResolve = searchParams.get("resolve") === "1";
+    const queueId = searchParams.get("queue_id");
+    if (!shouldResolve || !queueId) return;
+    const target = queuedItems.find((q) => q.id === queueId && q.pathname === "/expenses");
+    if (!target) return;
+    try {
+      const parsed = JSON.parse(target.body || "{}");
+      openCreate(parsed);
+      setResolvingQueueId(queueId);
+      setFormError("Resolving queued expense. Save to update and re-sync.");
+      window.history.replaceState({}, "", isEmbed ? "/expenses?embed=1" : "/expenses");
+    } catch {
+      // ignore malformed queued payload
+    }
+  }, [isEmbed, queuedItems, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openEdit = (e: any) => {
     setSelected(e);

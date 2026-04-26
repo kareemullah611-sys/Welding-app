@@ -7,6 +7,7 @@ import { PageHeader, DataTable, Modal, StatusBadge, formatDate } from "@/compone
 import CustomerSearch from "@/components/CustomerSearch";
 import { useLang } from "@/lib/lang";
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
+import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
 import { useSearchParams } from "next/navigation";
 
 
@@ -34,6 +35,15 @@ const DESTINATION_OPTIONS = [
   { value: "haji", label: "Send to Haji", hint: "Counts toward Haji settlement" },
 ];
 
+const PAYMENTS_FORM_CACHE_KEY = "mrf-payments-form-cache-v1";
+
+type PaymentsFormCache = {
+  lots: any[];
+  currencies: any[];
+  cityBankAccounts: any[];
+  superAdminBankAccounts: any[];
+};
+
 function formatInputDate(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -54,7 +64,7 @@ export default function PaymentsPage() {
   const { t } = useLang();
   const searchParams = useSearchParams();
   const isEmbed = searchParams.get("embed") === "1";
-  const { isOnline, enqueue, lastSyncResult } = useOffline();
+  const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, syncQueue } = useOffline();
   const canCreateRecords = user?.role === "city_admin";
   const isAfghanistanCity = user?.countryName === "Afghanistan";
   const isSuperAdmin = user?.role === "super_admin";
@@ -101,6 +111,7 @@ export default function PaymentsPage() {
 
   // Voucher duplicate warning
   const [voucherWarning, setVoucherWarning] = useState<{ matches: any[] } | null>(null);
+  const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
   const [openActionId, setOpenActionId] = useState<string | null>(null);
   const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
 
@@ -202,6 +213,23 @@ export default function PaymentsPage() {
   }, [openActionId]);
 
   const loadHelpers = async () => {
+    if (!isOnline) {
+      const cached = readOfflineFormCache<PaymentsFormCache>(PAYMENTS_FORM_CACHE_KEY, [
+        "lots",
+        "currencies",
+        "cityBankAccounts",
+        "superAdminBankAccounts",
+      ]);
+      if (!cached) {
+        return { loadedCurrencies: [] as any[] };
+      }
+      setLots(cached.lots);
+      setCurrencies(cached.currencies);
+      setCityBankAccounts(cached.cityBankAccounts);
+      setSuperAdminBankAccounts(cached.superAdminBankAccounts);
+      return { loadedCurrencies: cached.currencies };
+    }
+
     const [lR, ciR, cityBanksR, superAdminBanksR] = await Promise.all([
       apiCall("/api/v1/lots", { params: { limit: 100 } }),
       apiCall("/api/v1/cities"),
@@ -216,12 +244,21 @@ export default function PaymentsPage() {
       const city = (ciR.data as any[]).find((c: any) => c.id === user.cityId);
       if (city?.currencies?.length) { loadedCurrencies = city.currencies; setCurrencies(city.currencies); }
     }
-    return loadedCurrencies;
+    if (loadedCurrencies.length > 0) {
+      writeOfflineFormCache<PaymentsFormCache>(PAYMENTS_FORM_CACHE_KEY, {
+        lots: lR.success ? (lR.data as any[]) : [],
+        currencies: loadedCurrencies,
+        cityBankAccounts: cityBanksR.success ? (cityBanksR.data as any[]) : [],
+        superAdminBankAccounts: superAdminBanksR.success ? (superAdminBanksR.data as any[]) : [],
+      });
+    }
+    return { loadedCurrencies };
   };
 
   const openCreate = async (type: string, preset?: Record<string, any>) => {
     setCreateType(type);
-    const loadedCurrencies = await loadHelpers();
+    setResolvingQueueId(null);
+    const { loadedCurrencies } = await loadHelpers();
     const offlineReadinessError = getOfflineFormReadinessError({
       isOnline,
       currencyCount: loadedCurrencies.length,
@@ -278,6 +315,33 @@ export default function PaymentsPage() {
     window.history.replaceState({}, "", isEmbed ? "/payments?embed=1" : "/payments");
   }, [canCreateRecords, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    const shouldResolve = searchParams.get("resolve") === "1";
+    const queueId = searchParams.get("queue_id");
+    if (!shouldResolve || !queueId || !canCreateRecords) return;
+    const target = queuedItems.find((q) => q.id === queueId && q.pathname === "/payments");
+    if (!target) return;
+    let parsedBody: any = null;
+    try {
+      parsedBody = JSON.parse(target.body || "{}");
+    } catch {
+      return;
+    }
+    const endpoint = target.url;
+    const nextType =
+      endpoint.includes("/api/v1/expenses")
+        ? "expense"
+        : endpoint.includes("/api/v1/haji-transfers")
+          ? "haji_transfer"
+          : endpoint.includes("/api/v1/personal-withdrawals")
+            ? "withdrawal"
+            : "payment";
+    openCreate(nextType, parsedBody);
+    setResolvingQueueId(queueId);
+    setError("Resolving queued entry. Save to update and re-sync.");
+    window.history.replaceState({}, "", isEmbed ? "/payments?embed=1" : "/payments");
+  }, [canCreateRecords, isEmbed, queuedItems, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleCreate = async (forceVoucher = false) => {
     setSubmitting(true); setError("");
     const resolvedCurrencyId = form.currencyId || currencies[0]?.id || 0;
@@ -316,6 +380,26 @@ export default function PaymentsPage() {
       body = { ...form, currencyId: resolvedCurrencyId };
     }
     // ── Offline: queue and optimistically add to list ──
+    if (resolvingQueueId) {
+      const updateOk = await updateQueuedItem(resolvingQueueId, {
+        body: JSON.stringify(body),
+      });
+      if (!updateOk) {
+        setError("Queued entry was not found. Please retry from Activity.");
+        setSubmitting(false);
+        return;
+      }
+      if (isOnline) {
+        await retryQueuedItem(resolvingQueueId);
+        await syncQueue();
+      }
+      setShowCreate(false);
+      setResolvingQueueId(null);
+      setSubmitting(false);
+      load();
+      return;
+    }
+
     if (!isOnline) {
       const entityType = createType === "payment" ? "payment" : createType;
       await enqueue({
@@ -341,6 +425,7 @@ export default function PaymentsPage() {
         _pending: true,
       }, ...prev]);
       setShowCreate(false);
+      setResolvingQueueId(null);
       setSubmitting(false);
       return;
     }
@@ -349,6 +434,7 @@ export default function PaymentsPage() {
     const r = await apiCall(endpoint, { method: "POST", body });
     if (r.success) {
       setShowCreate(false);
+      setResolvingQueueId(null);
       if (isEmbed) closeEmbed();
       refreshToLatestPayments();
     } else { setError(r.error || "Failed"); }

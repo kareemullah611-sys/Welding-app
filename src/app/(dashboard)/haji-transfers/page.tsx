@@ -7,6 +7,8 @@ import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useOffline } from "@/hooks/useOffline";
+import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
+import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
 
 
 const SOURCE_CONFIG: Record<string, { label: string; color: string; icon?: string }> = {
@@ -19,11 +21,19 @@ const SOURCE_CONFIG: Record<string, { label: string; color: string; icon?: strin
 };
 
 const PAKISTAN_HAJI_TARGET = "Super Admin Account";
+const HAJI_FORM_CACHE_KEY = "mrf-haji-form-cache-v1";
+
+type HajiFormCache = {
+  lots: any[];
+  currencies: any[];
+  bankAccounts: any[];
+  inHandCheques: any[];
+};
 
 export default function HajiTransfersPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline, enqueue, lastSyncResult } = useOffline();
+  const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, syncQueue } = useOffline();
   const searchParams = useSearchParams();
   const isEmbed = searchParams.get("embed") === "1";
   const shouldUseSuperAdminTarget = user?.role === "city_admin" && user?.countryName === "Pakistan";
@@ -48,6 +58,7 @@ export default function HajiTransfersPage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
 
   // Filters
   const [filterFrom, setFilterFrom] = useState("");
@@ -119,7 +130,48 @@ export default function HajiTransfersPage() {
     return acc;
   }, {});
 
-  const openCreate = async () => {
+  const openCreate = async (preset?: Record<string, any>) => {
+    if (!isOnline) {
+      const cached = readOfflineFormCache<HajiFormCache>(HAJI_FORM_CACHE_KEY, [
+        "lots",
+        "currencies",
+        "bankAccounts",
+        "inHandCheques",
+      ]);
+      if (!cached) {
+        setError(getOfflineFormReadinessError({
+          isOnline,
+          currencyCount: 0,
+          moduleTitle: "Haji Transfer",
+        }) || "Offline setup missing");
+        setShowCreate(true);
+        return;
+      }
+      setLots(cached.lots);
+      setCurrencies(cached.currencies);
+      setBankAccounts(cached.bankAccounts);
+      setInHandCheques(cached.inHandCheques);
+      setForm((f: any) => ({
+        ...f,
+        transferDate: new Date().toISOString().split("T")[0],
+        amount: 0,
+        detail: "",
+        sourceType: "cash_office",
+        bankAccountId: 0,
+        chequePaymentId: 0,
+        chequePaymentIds: [],
+        cashAmount: 0,
+        transferredTo: shouldUseSuperAdminTarget ? PAKISTAN_HAJI_TARGET : "",
+        notes: "",
+        lotId: 0,
+        currencyId: cached.currencies[0]?.id || 0,
+        ...preset,
+      }));
+      setShowCreate(true);
+      setError("");
+      return;
+    }
+
     const requests: Promise<any>[] = [
       apiCall("/api/v1/lots", { params: { limit: 100 } }),
       apiCall("/api/v1/cities"),
@@ -148,10 +200,22 @@ export default function HajiTransfersPage() {
     else setBankAccounts([]);
     if (!isAfghanistanCity && chR?.success) setInHandCheques(chR.data as any[]);
     else setInHandCheques([]);
+    const cachedCurrencies = cR.success && user?.cityId
+      ? (((cR.data as any[]).find((c: any) => c.id === user.cityId)?.currencies) || [])
+      : [];
+    if (cachedCurrencies.length > 0) {
+      writeOfflineFormCache<HajiFormCache>(HAJI_FORM_CACHE_KEY, {
+        lots: lR.success ? (lR.data as any[]) : [],
+        currencies: cachedCurrencies,
+        bankAccounts: !isAfghanistanCity && baR?.success ? (baR.data as any[]) : [],
+        inHandCheques: !isAfghanistanCity && chR?.success ? (chR.data as any[]) : [],
+      });
+    }
     setForm((f: any) => ({
       ...f, transferDate: new Date().toISOString().split("T")[0],
       amount: 0, detail: "", sourceType: "cash_office",
       bankAccountId: 0, chequePaymentId: 0, chequePaymentIds: [], cashAmount: 0, transferredTo: shouldUseSuperAdminTarget ? PAKISTAN_HAJI_TARGET : "", notes: "", lotId: 0,
+      ...preset,
     }));
     setShowCreate(true); setError("");
   };
@@ -163,6 +227,16 @@ export default function HajiTransfersPage() {
     if (form.sourceType === "mixed_cash_cheque" && !form.cashAmount && form.chequePaymentIds.length === 0) { setError("Enter a cash amount or select at least one cheque"); return; }
     if (form.sourceType === "bank_transfer" && !form.bankAccountId) { setError("Please select a bank account"); return; }
 
+    const resolvedCurrencyId = form.currencyId || currencies[0]?.id || 0;
+    if (!resolvedCurrencyId) {
+      setError(getOfflineFormReadinessError({
+        isOnline,
+        currencyCount: currencies.length,
+        moduleTitle: "Haji Transfer",
+      }) || "Currency setup missing");
+      return;
+    }
+
     let body: any;
     if (form.sourceType === "mixed_cash_cheque" || form.sourceType === "cheque") {
       body = {
@@ -172,13 +246,14 @@ export default function HajiTransfersPage() {
         transferredTo: form.transferredTo || undefined,
         notes: form.notes || undefined,
         lotId: form.lotId || undefined,
-        currencyId: form.currencyId || undefined,
+        currencyId: resolvedCurrencyId || undefined,
         cashAmount: form.sourceType === "mixed_cash_cheque" ? Number(form.cashAmount || 0) : 0,
         chequePaymentIds: form.chequePaymentIds,
       };
     } else {
       body = {
         ...form,
+        currencyId: resolvedCurrencyId,
         sourceType: form.sourceType,
         transferType: form.sourceType === "cash_office" ? "from_in_hand" : "direct",
       };
@@ -196,6 +271,22 @@ export default function HajiTransfersPage() {
       form.sourceType === "mixed_cash_cheque" || form.sourceType === "cheque"
         ? mixedSlipTotal
         : Number(form.amount || 0);
+
+    if (resolvingQueueId) {
+      const updateOk = await updateQueuedItem(resolvingQueueId, { body: JSON.stringify(body) });
+      if (!updateOk) {
+        setError("Queued entry was not found. Please retry from Activity.");
+        return;
+      }
+      if (isOnline) {
+        await retryQueuedItem(resolvingQueueId);
+        await syncQueue();
+      }
+      setResolvingQueueId(null);
+      setShowCreate(false);
+      load();
+      return;
+    }
 
     if (!isOnline) {
       await enqueue({
@@ -222,6 +313,7 @@ export default function HajiTransfersPage() {
         _pending: true,
       }, ...prev]);
       setShowCreate(false);
+      setResolvingQueueId(null);
       if (isEmbed) closeEmbed();
       return;
     }
@@ -229,10 +321,28 @@ export default function HajiTransfersPage() {
     setSubmitting(true);
     const r = await apiCall("/api/v1/haji-transfers", { method: "POST", body });
     if (r.success) {
+      setResolvingQueueId(null);
       setShowCreate(false); if (isEmbed) closeEmbed(); load();
     } else { setError(r.error || "Failed"); }
     setSubmitting(false);
   };
+
+  useEffect(() => {
+    const shouldResolve = searchParams.get("resolve") === "1";
+    const queueId = searchParams.get("queue_id");
+    if (!shouldResolve || !queueId) return;
+    const target = queuedItems.find((q) => q.id === queueId && q.pathname === "/haji-transfers");
+    if (!target) return;
+    try {
+      const parsed = JSON.parse(target.body || "{}");
+      openCreate(parsed);
+      setResolvingQueueId(queueId);
+      setError("Resolving queued transfer. Save to update and re-sync.");
+      window.history.replaceState({}, "", isEmbed ? "/haji-transfers?embed=1" : "/haji-transfers");
+    } catch {
+      // ignore malformed queued payload
+    }
+  }, [isEmbed, queuedItems, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openEdit = (item: any) => {
     setSelected(item);
