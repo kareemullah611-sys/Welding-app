@@ -10,7 +10,7 @@ interface MRFLoaderProps {
   onAnimationComplete?: () => void;
 }
 
-const MIN_LOGIN_DURATION = 3000; // ms — reduced for faster UX
+const MIN_LOGIN_DURATION = 5000; // ms — overlay shows for at least 5 seconds on login
 
 export default function MRFLoader({
   variant = "global",
