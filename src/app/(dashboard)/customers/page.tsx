@@ -4,13 +4,14 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { isEditableCustomerQueuedPayload, safeParseQueuedBody } from "@/lib/queue-resolve";
 import { useSearchParams } from "next/navigation";
 import { useOffline } from "@/hooks/useOffline";
 
 export default function CustomersPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline, enqueue, updateQueuedItem, lastSyncResult } = useOffline();
+  const { isOnline, enqueue, updateQueuedItem, retryQueuedItem, syncQueue, queuedItems, lastSyncResult } = useOffline();
   const searchParams = useSearchParams();
   const isEmbed = searchParams.get("embed") === "1";
   const [customers, setCustomers] = useState<any[]>([]);
@@ -31,6 +32,7 @@ export default function CustomersPage() {
   const [hardDeleteTarget, setHardDeleteTarget] = useState<any>(null);
   const [hardDeletePassword, setHardDeletePassword] = useState("");
   const [hardDeleteError, setHardDeleteError] = useState("");
+  const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
   const [openActionId, setOpenActionId] = useState<number | null>(null);
   const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
   const [prefillHandled, setPrefillHandled] = useState(false);
@@ -73,41 +75,73 @@ export default function CustomersPage() {
     return () => document.removeEventListener("pointerdown", handleOutside, true);
   }, [openActionId]);
 
-  const openCreate = () => { setForm({ name: "", phone: "", address: "", cityId: user?.cityId || 0 }); setShowCreate(true); setFormError(""); };
+  const openCreate = (preset?: Partial<typeof form>) => {
+    setForm({ name: "", phone: "", address: "", cityId: user?.cityId || 0, ...preset });
+    setShowCreate(true);
+    setFormError("");
+  };
   const handleCreate = async () => {
     if (!form.name.trim()) { setFormError("Name required"); return; }
+    const payload = { ...form, name: form.name.trim() };
+
+    if (resolvingQueueId) {
+      const ok = await updateQueuedItem(resolvingQueueId, {
+        body: JSON.stringify(payload),
+        auditMeta: {
+          action: "update",
+          entityType: "customer",
+          entityLabel: "Customer (Pending)",
+          entityDetail: payload.name,
+        },
+      });
+      if (!ok) {
+        setFormError("Queued customer entry not found");
+        return;
+      }
+      if (isOnline) {
+        await retryQueuedItem(resolvingQueueId);
+        await syncQueue();
+      }
+      setResolvingQueueId(null);
+      setShowCreate(false);
+      if (isEmbed) closeEmbed();
+      load();
+      return;
+    }
+
     if (!isOnline) {
       const queueId = await enqueue({
         url: "/api/v1/customers",
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
         pathname: "/customers",
         auditMeta: {
           action: "create",
           entityType: "customer",
           entityLabel: "Customer (Pending)",
-          entityDetail: form.name.trim(),
+          entityDetail: payload.name,
         },
       });
       setCustomers((prev) => [{
         id: `pending-${Date.now()}`,
         _queueId: queueId,
-        name: form.name.trim(),
-        phone: form.phone || "",
-        address: form.address || "",
-        cityId: form.cityId || user?.cityId || 0,
+        name: payload.name,
+        phone: payload.phone || "",
+        address: payload.address || "",
+        cityId: payload.cityId || user?.cityId || 0,
         isActive: true,
         _pending: true,
       }, ...prev]);
       setShowCreate(false);
+      setResolvingQueueId(null);
       if (isEmbed) closeEmbed();
       return;
     }
     setSubmitting(true);
-    const result = await apiCall("/api/v1/customers", { method: "POST", body: form });
+    const result = await apiCall("/api/v1/customers", { method: "POST", body: payload });
     setSubmitting(false);
-    if (result.success) { setShowCreate(false); if (isEmbed) closeEmbed(); load(); } else { setFormError(result.error || "Failed"); }
+    if (result.success) { setShowCreate(false); setResolvingQueueId(null); if (isEmbed) closeEmbed(); load(); } else { setFormError(result.error || "Failed"); }
   };
 
   const openEdit = (c: any) => { setSelected(c); setForm({ name: c.name, phone: c.phone || "", address: c.address || "", cityId: c.cityId }); setShowEdit(true); setFormError(""); };
@@ -217,6 +251,32 @@ export default function CustomersPage() {
     const result = await apiCall(`/api/v1/customers/${c.id}`);
     if (result.success) setLedgerData(result.data);
   };
+
+  useEffect(() => {
+    const shouldResolve = searchParams.get("resolve") === "1";
+    const queueId = searchParams.get("queue_id");
+    if (!shouldResolve || !queueId) return;
+    const target = queuedItems.find((q) => q.id === queueId && q.pathname === "/customers");
+    if (!target) return;
+    try {
+      const parsed = safeParseQueuedBody(target.body);
+      if (!isEditableCustomerQueuedPayload(parsed)) {
+        setFormError("This queued customer action cannot be edited in form. Use Retry or Discard in Activity.");
+        return;
+      }
+      openCreate({
+        name: parsed.name || "",
+        phone: parsed.phone || "",
+        address: parsed.address || "",
+        cityId: Number(parsed.cityId || user?.cityId || 0),
+      });
+      setResolvingQueueId(queueId);
+      setFormError("Resolving queued customer entry. Save to update and re-sync.");
+      window.history.replaceState({}, "", isEmbed ? "/customers?embed=1" : "/customers");
+    } catch {
+      // ignore malformed queued payload
+    }
+  }, [isEmbed, queuedItems, searchParams, user?.cityId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div>

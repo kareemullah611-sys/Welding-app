@@ -7,6 +7,7 @@ import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, StatusBadge, formatCurrency, formatDate } from "@/components/ui";
 import CustomerSearch from "@/components/CustomerSearch";
 import { useLang } from "@/lib/lang";
+import { safeParseQueuedBody } from "@/lib/queue-resolve";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
@@ -59,7 +60,7 @@ export default function SalesPage() {
   const { t } = useLang();
   const searchParams = useSearchParams();
   const isEmbed = searchParams.get("embed") === "1";
-  const { isOnline, enqueue, cacheGodownStock, getCachedGodownStock, lastSyncResult } = useOffline();
+  const { isOnline, enqueue, cacheGodownStock, getCachedGodownStock, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, syncQueue } = useOffline();
   const [sales, setSales] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -104,6 +105,7 @@ export default function SalesPage() {
   const [formError, setFormError] = useState("");
   const [shortConfirmed, setShortConfirmed] = useState(false);
   const [saleSavedNotice, setSaleSavedNotice] = useState<string | null>(null);
+  const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
   const [prefillHandled, setPrefillHandled] = useState(false);
   const closeEmbed = useCallback(() => {
     if (typeof window !== "undefined" && window.parent !== window) {
@@ -269,13 +271,15 @@ export default function SalesPage() {
     setStockLoading(false);
   };
 
-  const openCreate = async () => {
+  const openCreate = async (preset?: Partial<typeof form>) => {
     const loaded = await loadDropdowns();
     if (!loaded) return;
+    const nextItems = preset?.items?.length ? preset.items : [{ productId: 0, qty: 0, ratePerCarton: 0 }];
     setForm((prev) => ({
       customerId: 0, godownId: 0, lotId: 0, saleDate: new Date().toISOString().split("T")[0],
       currencyId: prev.currencyId || 0, notes: "",
-      items: [{ productId: 0, qty: 0, ratePerCarton: 0 }],
+      ...preset,
+      items: nextItems,
     }));
     setGodownStock([]);
     setShowCreate(true); setFormError("");
@@ -320,6 +324,23 @@ export default function SalesPage() {
 
     const payload = { customerId: form.customerId, godownId: form.godownId, lotId: form.lotId || null, saleDate: form.saleDate, currencyId: form.currencyId, notes: form.notes, items: validItems };
 
+    if (resolvingQueueId) {
+      const ok = await updateQueuedItem(resolvingQueueId, { body: JSON.stringify(payload) });
+      if (!ok) {
+        setFormError("Queued sale entry not found. Please retry from Activity.");
+        return;
+      }
+      if (isOnline) {
+        await retryQueuedItem(resolvingQueueId);
+        await syncQueue();
+      }
+      setResolvingQueueId(null);
+      setShowCreate(false);
+      setShortConfirmed(false);
+      loadSales();
+      return;
+    }
+
     // ── Offline: queue the sale and update stock locally ──
     if (!isOnline) {
       const selectedCustomer = customers.find((c: any) => c.id === form.customerId);
@@ -359,6 +380,7 @@ export default function SalesPage() {
       }, ...prev]);
 
       setShowCreate(false);
+      setResolvingQueueId(null);
       setShortConfirmed(false);
       setForm({ customerId: 0, godownId: 0, lotId: 0, saleDate: new Date().toISOString().split("T")[0], currencyId: currencies[0]?.id || 0, notes: "", items: [{ productId: 0, qty: 0, ratePerCarton: 0 }] });
       return;
@@ -370,6 +392,7 @@ export default function SalesPage() {
     setSubmitting(false);
     if (result.success) {
       setShowCreate(false);
+      setResolvingQueueId(null);
       if (isEmbed) closeEmbed();
       setShortConfirmed(false);
       setForm({ customerId: 0, godownId: 0, lotId: 0, saleDate: new Date().toISOString().split("T")[0], currencyId: currencies[0]?.id || 0, notes: "", items: [{ productId: 0, qty: 0, ratePerCarton: 0 }] });
@@ -378,6 +401,32 @@ export default function SalesPage() {
       loadSales();
     } else { setFormError(result.error || "Failed to create sale"); }
   };
+
+  useEffect(() => {
+    const shouldResolve = searchParams.get("resolve") === "1";
+    const queueId = searchParams.get("queue_id");
+    if (!shouldResolve || !queueId || !isEmbed && user?.role !== "city_admin") return;
+    const target = queuedItems.find((q) => q.id === queueId && q.pathname === "/sales");
+    if (!target) return;
+    try {
+      const parsed = safeParseQueuedBody(target.body);
+      if (!parsed) return;
+      openCreate({
+        customerId: Number(parsed.customerId || 0),
+        godownId: Number(parsed.godownId || 0),
+        lotId: Number(parsed.lotId || 0),
+        saleDate: String(parsed.saleDate || new Date().toISOString().split("T")[0]),
+        currencyId: Number(parsed.currencyId || 0),
+        notes: String(parsed.notes || ""),
+        items: Array.isArray(parsed.items) ? (parsed.items as any[]) : [{ productId: 0, qty: 0, ratePerCarton: 0 }],
+      });
+      setResolvingQueueId(queueId);
+      setFormError("Resolving queued sale. Save to update and re-sync.");
+      window.history.replaceState({}, "", isEmbed ? "/sales?embed=1" : "/sales");
+    } catch {
+      // ignore malformed queued payload
+    }
+  }, [isEmbed, queuedItems, searchParams, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Hard delete sale (super admin + 2FA)
   const openHardDelete = (sale: any) => { setHardDeleteTarget(sale); setHardDeletePassword(""); setHardDeleteError(""); setShowHardDelete(true); };
