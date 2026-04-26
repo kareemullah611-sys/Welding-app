@@ -414,34 +414,109 @@ export default function IntermediariesPage() {
 
   const exportIntermediaryLedgerPdf = () => {
     if (!selected || !ledger?.ledger) return;
-    const balanceSummary = Object.entries(ledger?.balances || {})
-      .map(([code, value]) => `${code} ${formatNumber(Number(value || 0))}`)
-      .join(" · ");
+    const balanceRows = Object.entries(ledger.balances || {}).map(([code, amount]) => {
+      const bal = Number(amount || 0);
+      return `
+        <div class="balance-card ${bal >= 0 ? "positive" : "negative"}">
+          <span class="currency">${localCurrencyName(code)}</span>
+          <span class="amount">${formatNumber(bal)}</span>
+        </div>
+      `;
+    }).join("");
+    
     const rowsHtml = (ledger.ledger || []).map((entry: any) => `
       <tr>
         <td>${escHtml(formatDate(entry.date))}</td>
         <td>${escHtml(entry.description || "")}</td>
-        <td style="text-align:right;">${entry.debit > 0 ? escHtml(formatNumber(entry.debit)) : "—"}</td>
-        <td style="text-align:right;">${entry.credit > 0 ? escHtml(formatNumber(entry.credit)) : "—"}</td>
-        <td style="text-align:right;">${escHtml(formatNumber(entry.balance || 0))}</td>
+        <td class="num">${entry.debit > 0 ? escHtml(formatNumber(entry.debit)) : "—"}</td>
+        <td class="num">${entry.credit > 0 ? escHtml(formatNumber(entry.credit)) : "—"}</td>
+        <td class="num ${entry.balance >= 0 ? "pos" : "neg"}">${escHtml(formatNumber(entry.balance))}</td>
       </tr>
     `).join("");
+    
+    const totalEntries = ledger.ledger?.length || 0;
     const html = `
-      <html><head><title>Intermediary Ledger</title>
+      <!DOCTYPE html>
+      <html><head><title>Intermediary Ledger - ${escHtml(selected.name || "")}</title>
       <style>
-        body { font-family: Arial, sans-serif; padding: 24px; color: #222; }
-        h1 { margin: 0 0 8px 0; font-size: 20px; }
-        .meta { margin: 0 0 14px 0; color: #555; font-size: 12px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-        th, td { border: 1px solid #e2e2e2; padding: 7px; font-size: 12px; text-align: left; }
-        th { background: #f6f6f6; text-transform: uppercase; font-size: 10px; letter-spacing: .06em; color: #666; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; padding: 0; color: #1a1a1a; background: #fff; }
+        .header { background: linear-gradient(135deg, #1a0505 0%, #3d0808 100%); color: #fff; padding: 24px 32px; display: flex; justify-content: space-between; align-items: center; }
+        .brand { display: flex; align-items: center; gap: 12px; }
+        .shield { width: 42px; height: 48px; }
+        .brand-text h1 { font-family: Georgia, serif; font-size: 18px; font-weight: bold; letter-spacing: 2px; margin: 0; }
+        .brand-text span { font-size: 9px; letter-spacing: 3px; opacity: 0.7; text-transform: uppercase; }
+        .meta { text-align: right; font-size: 12px; opacity: 0.85; line-height: 1.6; }
+        .title-section { padding: 20px 32px 12px; border-bottom: 2px solid #D4AF37; }
+        .title-section h2 { font-size: 22px; color: #1a0505; margin-bottom: 4px; }
+        .title-section p { font-size: 12px; color: #666; }
+        
+        .balances { padding: 20px 32px; background: #fafafa; display: flex; flex-wrap: wrap; gap: 12px; border-bottom: 1px solid #e5e5e5; }
+        .balance-card { flex: 1; min-width: 120px; padding: 14px 18px; border-radius: 8px; background: #fff; border: 1px solid #e5e5e5; display: flex; flex-direction: column; gap: 4px; }
+        .balance-card.positive { border-left: 3px solid #16a34a; }
+        .balance-card.negative { border-left: 3px solid #dc2626; }
+        .balance-card .currency { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #666; }
+        .balance-card .amount { font-size: 18px; font-weight: 600; color: #1a1a1a; }
+        .balance-card.positive .amount { color: #16a34a; }
+        .balance-card.negative .amount { color: #dc2626; }
+        
+        .table-wrapper { padding: 20px 32px; }
+        table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        thead { background: #f5f0e8; }
+        th { padding: 10px 12px; text-align: left; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #444; border-bottom: 2px solid #D4AF37; }
+        th.num { text-align: right; }
+        td { padding: 9px 12px; border-bottom: 1px solid #eee; color: #333; }
+        td.num { text-align: right; font-family: 'Consolas', monospace; }
+        td.pos { color: #16a34a; font-weight: 500; }
+        td.neg { color: #dc2626; font-weight: 500; }
+        tr:hover { background: #fafafa; }
+        
+        .footer { padding: 16px 32px; background: #fafafa; font-size: 10px; color: #888; display: flex; justify-content: space-between; border-top: 1px solid #e5e5e5; }
       </style></head><body>
-        <h1>Intermediary Ledger - ${escHtml(selected.name || "")}</h1>
-        <p class="meta">Generated: ${escHtml(new Date().toISOString().split("T")[0])}<br/>Balance: ${escHtml(balanceSummary || "0")}</p>
-        <table>
-          <thead><tr><th>Date</th><th>Particulars</th><th style="text-align:right;">Debit</th><th style="text-align:right;">Credit</th><th style="text-align:right;">Running</th></tr></thead>
-          <tbody>${rowsHtml || `<tr><td colspan="5">No ledger entries</td></tr>`}</tbody>
-        </table>
+        <div class="header">
+          <div class="brand">
+            <svg class="shield" viewBox="0 0 50 55" fill="none"><path d="M25 2L45 9V33C45 48 25 54 25 54S5 48 5 33V9L25 2Z" fill="#6B0F1A"/><path d="M25 2L45 9V33C45 48 25 54 25 54S5 48 5 33V9L25 2Z" stroke="#D4AF37" stroke-width="1.5"/></svg>
+            <div class="brand-text">
+              <h1>MRF HARDWARE</h1>
+              <span>Management System</span>
+            </div>
+          </div>
+          <div class="meta">
+            Intermediary Ledger Report<br/>
+            Generated: ${escHtml(new Date().toISOString().split("T")[0])}
+          </div>
+        </div>
+        
+        <div class="title-section">
+          <h2>${escHtml(selected.name || "Intermediary")}</h2>
+          <p>${totalEntries} transaction${totalEntries !== 1 ? "s" : ""} · Running Balance Statement</p>
+        </div>
+        
+        <div class="balances">
+          ${balanceRows || '<div class="balance-card"><span class="currency">No balances</span></div>'}
+        </div>
+        
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Particulars</th>
+                <th class="num">Debit</th>
+                <th class="num">Credit</th>
+                <th class="num">Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml || '<tr><td colspan="5" style="text-align:center;color:#888;">No ledger entries</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+        
+        <div class="footer">
+          <span>MRF Hardware Management System</span>
+          <span>Page 1 of 1</span>
+        </div>
       </body></html>
     `;
     const iframe = document.createElement("iframe");
