@@ -1,11 +1,41 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
+import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 
 type Tab = "users" | "products" | "cities" | "sessions" | "godown_access";
+
+const SETTINGS_USERS_READ_CACHE_KEY = "mrf-settings-users-read-cache-v1";
+const SETTINGS_PRODUCTS_READ_CACHE_KEY = "mrf-settings-products-read-cache-v1";
+const SETTINGS_CITIES_READ_CACHE_KEY = "mrf-settings-cities-read-cache-v1";
+const SETTINGS_GODOWN_ACCESS_READ_CACHE_KEY = "mrf-settings-godown-access-read-cache-v1";
+const SETTINGS_SESSIONS_READ_CACHE_KEY = "mrf-settings-sessions-read-cache-v1";
+
+type SettingsUsersReadSnapshot = {
+  users: any[];
+  cities: any[];
+};
+
+type SettingsProductsReadSnapshot = {
+  products: any[];
+};
+
+type SettingsCitiesReadSnapshot = {
+  cities: any[];
+};
+
+type SettingsGodownAccessReadSnapshot = {
+  cities: any[];
+  permissions: { fromCityId: number; toCityId: number }[];
+};
+
+type SettingsSessionsReadSnapshot = {
+  sessions: any[];
+};
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -173,6 +203,7 @@ function CityAdminSettingsCard() {
 function UsersTab() {
   const { user } = useAuth();
   const { t } = useLang();
+  const { isOnline } = useOffline();
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -187,13 +218,51 @@ function UsersTab() {
   const [revealedPasswords, setRevealedPasswords] = useState<Record<number, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
 
-  const load = async () => { setLoading(true); const r = await apiCall("/api/v1/users", { params: { limit: 100 } }); if (r.success) setUsers(r.data as any[]); setLoading(false); };
-  useEffect(() => { load(); }, []);
+  const readSnapshot = useCallback(
+    () => readOfflineReadSnapshot<SettingsUsersReadSnapshot>(SETTINGS_USERS_READ_CACHE_KEY),
+    []
+  );
+  const mergeSnapshot = useCallback((partial: Partial<SettingsUsersReadSnapshot>) => {
+    const existing = readSnapshot()?.data || { users: [], cities: [] };
+    writeOfflineReadSnapshot<SettingsUsersReadSnapshot>(SETTINGS_USERS_READ_CACHE_KEY, {
+      ...existing,
+      ...partial,
+    });
+  }, [readSnapshot]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const r = await apiCall("/api/v1/users", { params: { limit: 100 } });
+    if (r.success) {
+      setUsers(r.data as any[]);
+      mergeSnapshot({ users: r.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.users?.length) {
+        setUsers(snapshot.users);
+        setShowOfflineSnapshot(true);
+      }
+    }
+    setLoading(false);
+  }, [isOnline, mergeSnapshot, readSnapshot]);
+  useEffect(() => { load(); }, [load]);
 
   const openCreate = async () => {
     const c = await apiCall("/api/v1/cities");
-    if (c.success) setCities(c.data as any[]);
+    if (c.success) {
+      setCities(c.data as any[]);
+      mergeSnapshot({ cities: c.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.cities?.length) {
+        setCities(snapshot.cities);
+        setShowOfflineSnapshot(true);
+      }
+    }
     setForm({ username: "", password: "", fullName: "", role: "city_admin", cityId: 0 });
     setShowCreate(true);
     setShowCreatePassword(false);
@@ -251,6 +320,11 @@ function UsersTab() {
 
   return (
     <>
+      {showOfflineSnapshot && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          Offline snapshot mode: showing last cached users/settings data for this device.
+        </div>
+      )}
       <div className="flex justify-end mb-4"><button onClick={openCreate} className="btn-primary text-sm">+ {t("new_user")}</button></div>
       <DataTable columns={[
         { key: "fullName", label: t("name"), render: (u: any) => <span className="font-medium">{u.fullName}</span> },
@@ -365,6 +439,7 @@ function UsersTab() {
 
 function ProductsTab() {
   const { t } = useLang();
+  const { isOnline } = useOffline();
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -373,9 +448,37 @@ function ProductsTab() {
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
 
-  const load = async () => { setLoading(true); const r = await apiCall("/api/v1/products", { params: { limit: 100 } }); if (r.success) setProducts(r.data as any[]); setLoading(false); };
-  useEffect(() => { load(); }, []);
+  const readSnapshot = useCallback(
+    () => readOfflineReadSnapshot<SettingsProductsReadSnapshot>(SETTINGS_PRODUCTS_READ_CACHE_KEY),
+    []
+  );
+  const mergeSnapshot = useCallback((partial: Partial<SettingsProductsReadSnapshot>) => {
+    const existing = readSnapshot()?.data || { products: [] };
+    writeOfflineReadSnapshot<SettingsProductsReadSnapshot>(SETTINGS_PRODUCTS_READ_CACHE_KEY, {
+      ...existing,
+      ...partial,
+    });
+  }, [readSnapshot]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const r = await apiCall("/api/v1/products", { params: { limit: 100 } });
+    if (r.success) {
+      setProducts(r.data as any[]);
+      mergeSnapshot({ products: r.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.products?.length) {
+        setProducts(snapshot.products);
+        setShowOfflineSnapshot(true);
+      }
+    }
+    setLoading(false);
+  }, [isOnline, mergeSnapshot, readSnapshot]);
+  useEffect(() => { load(); }, [load]);
 
   const handleCreate = async () => { if (!name.trim()) return; setSubmitting(true); const r = await apiCall("/api/v1/products", { method: "POST", body: { name } }); setSubmitting(false); if (r.success) { setShowCreate(false); setName(""); load(); } };
   const openEdit = (p: any) => { setSelected(p); setName(p.name); setShowEdit(true); };
@@ -393,6 +496,11 @@ function ProductsTab() {
 
   return (
     <>
+      {showOfflineSnapshot && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          Offline snapshot mode: showing last cached products data for this device.
+        </div>
+      )}
       <div className="flex justify-end mb-4"><button onClick={() => { setName(""); setShowCreate(true); }} className="btn-primary text-sm">+ {t("new_product")}</button></div>
       {deleteError && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-start gap-2">
@@ -429,37 +537,81 @@ function ProductsTab() {
 
 function CitiesTab() {
   const { t } = useLang();
+  const { isOnline } = useOffline();
   const [cities, setCities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  useEffect(() => { const l = async () => { setLoading(true); const r = await apiCall("/api/v1/cities"); if (r.success) setCities(r.data as any[]); setLoading(false); }; l(); }, []);
-  return <DataTable columns={[
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
+
+  useEffect(() => {
+    const l = async () => {
+      setLoading(true);
+      const r = await apiCall("/api/v1/cities");
+      if (r.success) {
+        setCities(r.data as any[]);
+        writeOfflineReadSnapshot<SettingsCitiesReadSnapshot>(SETTINGS_CITIES_READ_CACHE_KEY, {
+          cities: r.data as any[],
+        });
+        setShowOfflineSnapshot(false);
+      } else if (!isOnline) {
+        const snapshot = readOfflineReadSnapshot<SettingsCitiesReadSnapshot>(SETTINGS_CITIES_READ_CACHE_KEY)?.data;
+        if (snapshot?.cities?.length) {
+          setCities(snapshot.cities);
+          setShowOfflineSnapshot(true);
+        }
+      }
+      setLoading(false);
+    };
+    l();
+  }, [isOnline]);
+  return <>
+    {showOfflineSnapshot && (
+      <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+        Offline snapshot mode: showing last cached cities data for this device.
+      </div>
+    )}
+    <DataTable columns={[
     { key: "name", label: t("city"), render: (c: any) => <span className="font-medium">{c.name}</span> },
     { key: "countryName", label: t("country") },
     { key: "currencies", label: t("currencies"), render: (c: any) => c.currencies?.map((cur: any) => cur.code).join(", ") },
     { key: "godownsCount", label: t("godowns") },
     { key: "customersCount", label: t("customers") },
     { key: "usersCount", label: t("users") },
-  ]} data={cities} loading={loading} />;
+  ]} data={cities} loading={loading} />
+  </>;
 }
 
 function GodownAccessTab() {
   const { t } = useLang();
+  const { isOnline } = useOffline();
   const [cities, setCities] = useState<any[]>([]);
   const [permissions, setPermissions] = useState<{ fromCityId: number; toCityId: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     const r = await apiCall("/api/v1/godown-permissions");
     if (r.success) {
       const d = r.data as any;
       setCities(d.cities || []);
       setPermissions(d.permissions || []);
+      writeOfflineReadSnapshot<SettingsGodownAccessReadSnapshot>(SETTINGS_GODOWN_ACCESS_READ_CACHE_KEY, {
+        cities: d.cities || [],
+        permissions: d.permissions || [],
+      });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readOfflineReadSnapshot<SettingsGodownAccessReadSnapshot>(SETTINGS_GODOWN_ACCESS_READ_CACHE_KEY)?.data;
+      if (snapshot?.cities?.length) {
+        setCities(snapshot.cities);
+        setPermissions(snapshot.permissions || []);
+        setShowOfflineSnapshot(true);
+      }
     }
     setLoading(false);
-  };
-  useEffect(() => { load(); }, []);
+  }, [isOnline]);
+  useEffect(() => { load(); }, [load]);
 
   const hasPermission = (fromId: number, toId: number) =>
     permissions.some((p) => p.fromCityId === fromId && p.toCityId === toId);
@@ -482,6 +634,11 @@ function GodownAccessTab() {
 
   return (
     <div>
+      {showOfflineSnapshot && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          Offline snapshot mode: showing last cached godown access data for this device.
+        </div>
+      )}
       <div className="mb-4">
         <h3 className="text-sm font-semibold text-gray-700 mb-1">{t("cross_city_access")}</h3>
         <p className="text-sm text-gray-500">
@@ -552,18 +709,32 @@ function timeAgo(dateStr: string): string {
 
 function SessionsTab() {
   const { t } = useLang();
+  const { isOnline } = useOffline();
   const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [revoking, setRevoking] = useState<string | null>(null);
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     const r = await apiCall("/api/v1/sessions");
-    if (r.success) setSessions(r.data as any[]);
+    if (r.success) {
+      setSessions(r.data as any[]);
+      writeOfflineReadSnapshot<SettingsSessionsReadSnapshot>(SETTINGS_SESSIONS_READ_CACHE_KEY, {
+        sessions: r.data as any[],
+      });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readOfflineReadSnapshot<SettingsSessionsReadSnapshot>(SETTINGS_SESSIONS_READ_CACHE_KEY)?.data;
+      if (snapshot?.sessions?.length) {
+        setSessions(snapshot.sessions);
+        setShowOfflineSnapshot(true);
+      }
+    }
     setLoading(false);
-  };
+  }, [isOnline]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   const revokeSession = async (id: string) => {
     if (!confirm("Revoke this session? The user will be logged out on that device.")) return;
@@ -585,6 +756,11 @@ function SessionsTab() {
 
   return (
     <div>
+      {showOfflineSnapshot && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          Offline snapshot mode: showing last cached sessions data for this device.
+        </div>
+      )}
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-gray-500">{sessions.length} {t("active_sessions")}</p>
         {sessions.length > 1 && (
