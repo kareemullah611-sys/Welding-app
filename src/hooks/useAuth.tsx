@@ -28,9 +28,41 @@ const AuthContext = createContext<AuthContextType>({
   logout: async () => {},
 });
 
+const OFFLINE_AUTH_CACHE_KEY = "mrf-offline-auth-cache-v1";
+
+interface OfflineAuthCache {
+  username: string;
+  password: string;
+  user: User;
+  updatedAt: string;
+}
+
+function readOfflineAuthCache(): OfflineAuthCache | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(OFFLINE_AUTH_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as OfflineAuthCache;
+    if (!parsed?.username || !parsed?.password || !parsed?.user) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeOfflineAuthCache(cache: OfflineAuthCache) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(OFFLINE_AUTH_CACHE_KEY, JSON.stringify(cache));
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const cached = readOfflineAuthCache();
+    if (cached?.user) setUser(cached.user);
+  }, []);
 
   const checkAuth = useCallback(async (retries = 3) => {
     try {
@@ -52,6 +84,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null);
       }
     } catch {
+      const cached = readOfflineAuthCache();
+      if (cached?.user) {
+        setUser(cached.user);
+        return;
+      }
       // Network error - retry
       if (retries > 0) {
         setTimeout(() => checkAuth(retries - 1), 2000);
@@ -76,10 +113,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await res.json();
       if (data.success) {
         setUser(data.data.user);
+        writeOfflineAuthCache({
+          username: username.trim().toLowerCase(),
+          password,
+          user: data.data.user,
+          updatedAt: new Date().toISOString(),
+        });
+        return { success: true };
+      }
+      const cached = readOfflineAuthCache();
+      if (!navigator.onLine && cached &&
+        cached.username === username.trim().toLowerCase() &&
+        cached.password === password &&
+        cached.user) {
+        setUser(cached.user);
         return { success: true };
       }
       return { success: false, error: data.error?.message || "Login failed" };
     } catch {
+      const cached = readOfflineAuthCache();
+      if (cached &&
+        cached.username === username.trim().toLowerCase() &&
+        cached.password === password &&
+        cached.user) {
+        setUser(cached.user);
+        return { success: true };
+      }
       return { success: false, error: "Network error" };
     }
   };

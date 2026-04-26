@@ -10,6 +10,35 @@ import { useLang } from "@/lib/lang";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
+const SALES_FORM_CACHE_KEY = "mrf-sales-form-cache-v1";
+
+type SalesFormCache = {
+  godowns: any[];
+  products: any[];
+  lots: any[];
+  currencies: any[];
+};
+
+function readSalesFormCache(): SalesFormCache | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(SALES_FORM_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SalesFormCache;
+    if (!Array.isArray(parsed.godowns) || !Array.isArray(parsed.products) || !Array.isArray(parsed.lots) || !Array.isArray(parsed.currencies)) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeSalesFormCache(cache: SalesFormCache) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(SALES_FORM_CACHE_KEY, JSON.stringify(cache));
+}
+
 function formatInputDate(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -160,6 +189,22 @@ export default function SalesPage() {
   }, [openActionId]);
 
   const loadDropdowns = async () => {
+    if (!isOnline) {
+      const cached = readSalesFormCache();
+      if (!cached) {
+        setFormError("Offline sales setup not ready on this device yet. Connect internet once, open New Sale, then you can use it offline.");
+        return false;
+      }
+      setGodowns(cached.godowns);
+      setProducts(cached.products);
+      setLots(cached.lots);
+      setCurrencies(cached.currencies);
+      if (cached.currencies.length > 0) {
+        setForm((f) => ({ ...f, currencyId: f.currencyId || cached.currencies[0].id }));
+      }
+      return true;
+    }
+
     const [custRes, gdRes, prodRes, lotRes, cityRes] = await Promise.all([
       Promise.resolve({ success: true, data: [] }), // customers loaded on-demand via CustomerSearch
       apiCall("/api/v1/godowns", { params: { limit: 200, is_active: "true", show_all: "true" } }),
@@ -168,16 +213,42 @@ export default function SalesPage() {
       apiCall("/api/v1/cities"),
     ]);
     if (custRes.success) setCustomers(custRes.data as any[]);
-    if (gdRes.success) setGodowns(gdRes.data as any[]);
-    if (prodRes.success) setProducts(prodRes.data as any[]);
-    if (lotRes.success) setLots(lotRes.data as any[]);
+    const nextGodowns = gdRes.success ? (gdRes.data as any[]) : [];
+    const nextProducts = prodRes.success ? (prodRes.data as any[]) : [];
+    const nextLots = lotRes.success ? (lotRes.data as any[]) : [];
+    if (gdRes.success) setGodowns(nextGodowns);
+    if (prodRes.success) setProducts(nextProducts);
+    if (lotRes.success) setLots(nextLots);
+    let nextCurrencies: any[] = [];
     if (cityRes.success && user?.cityId) {
       const city = (cityRes.data as any[]).find((c: any) => c.id === user.cityId);
       if (city?.currencies?.length) {
         setForm((f) => ({ ...f, currencyId: city.currencies[0].id }));
-        setCurrencies(city.currencies);
+        nextCurrencies = city.currencies;
+        setCurrencies(nextCurrencies);
       }
     }
+    if (nextGodowns.length > 0 && nextProducts.length > 0 && nextCurrencies.length > 0) {
+      writeSalesFormCache({
+        godowns: nextGodowns,
+        products: nextProducts,
+        lots: nextLots,
+        currencies: nextCurrencies,
+      });
+      return true;
+    }
+    const cached = readSalesFormCache();
+    if (cached) {
+      setGodowns(cached.godowns);
+      setProducts(cached.products);
+      setLots(cached.lots);
+      setCurrencies(cached.currencies);
+      if (cached.currencies.length > 0) {
+        setForm((f) => ({ ...f, currencyId: f.currencyId || cached.currencies[0].id }));
+      }
+      return true;
+    }
+    return false;
   };
 
   // Load godown stock — serves from local cache when offline
@@ -199,7 +270,8 @@ export default function SalesPage() {
   };
 
   const openCreate = async () => {
-    await loadDropdowns();
+    const loaded = await loadDropdowns();
+    if (!loaded) return;
     setForm((prev) => ({
       customerId: 0, godownId: 0, lotId: 0, saleDate: new Date().toISOString().split("T")[0],
       currencyId: prev.currencyId || 0, notes: "",
