@@ -233,15 +233,60 @@ export default function CityTransfersPage() {
   const openApprove = async (tr: any) => {
     setSelected(tr);
     const gR = await apiCall("/api/v1/godowns", { params: { limit: 100 } });
-    if (gR.success) setMyGodowns((gR.data as any[]).filter((g: any) => g.cityId === user?.cityId));
+    if (gR.success) {
+      setMyGodowns((gR.data as any[]).filter((g: any) => g.cityId === user?.cityId));
+    } else if (!isOnline) {
+      const cached = readOfflineFormCache<CityTransfersFormCache>(CITY_TRANSFERS_FORM_CACHE_KEY, [
+        "cities",
+        "godowns",
+        "products",
+        "lots",
+      ]);
+      if (cached?.godowns?.length) {
+        setMyGodowns(cached.godowns.filter((g: any) => g.cityId === user?.cityId));
+      } else {
+        setMyGodowns([]);
+      }
+    }
     setApproveForm({ toGodownId: 0, approvalNotes: "" });
     setShowApprove(true); setError("");
   };
 
   const handleApprove = async () => {
     if (!approveForm.toGodownId) { setError(t("select_godown")); return; }
+    const body = { action: "approve", ...approveForm };
+    if (!isOnline) {
+      await enqueue({
+        url: `/api/v1/city-transfers/${selected.id}`,
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        pathname: "/city-transfers",
+        auditMeta: {
+          action: "approve",
+          entityType: "city_transfer",
+          entityLabel: "City Transfer Approval (Pending)",
+          entityDetail: `${selected?.product?.name || "Transfer"} × ${Number(selected?.qty || 0).toLocaleString("en-US")}`,
+        },
+      });
+      setTransfers((prev) =>
+        prev.map((tr: any) =>
+          tr.id === selected.id
+            ? {
+                ...tr,
+                status: "approved",
+                toGodown: myGodowns.find((g: any) => g.id === approveForm.toGodownId) || tr.toGodown,
+                approvalNotes: approveForm.approvalNotes || tr.approvalNotes,
+                _pending: true,
+              }
+            : tr
+        )
+      );
+      setShowApprove(false);
+      return;
+    }
     setSubmitting(true);
-    const r = await apiCall(`/api/v1/city-transfers/${selected.id}`, { method: "PUT", body: { action: "approve", ...approveForm } });
+    const r = await apiCall(`/api/v1/city-transfers/${selected.id}`, { method: "PUT", body });
     setSubmitting(false);
     if (r.success) { setShowApprove(false); load(); } else { setError(r.error || "Failed"); }
   };
@@ -249,7 +294,29 @@ export default function CityTransfersPage() {
   const handleReject = async (tr: any) => {
     const reason = prompt(t("reason_for_rejection"));
     if (!reason) return;
-    await apiCall(`/api/v1/city-transfers/${tr.id}`, { method: "PUT", body: { action: "reject", approvalNotes: reason } });
+    const body = { action: "reject", approvalNotes: reason };
+    if (!isOnline) {
+      await enqueue({
+        url: `/api/v1/city-transfers/${tr.id}`,
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        pathname: "/city-transfers",
+        auditMeta: {
+          action: "reject",
+          entityType: "city_transfer",
+          entityLabel: "City Transfer Rejection (Pending)",
+          entityDetail: `${tr?.product?.name || "Transfer"} × ${Number(tr?.qty || 0).toLocaleString("en-US")}`,
+        },
+      });
+      setTransfers((prev) =>
+        prev.map((row: any) =>
+          row.id === tr.id ? { ...row, status: "rejected", approvalNotes: reason, _pending: true } : row
+        )
+      );
+      return;
+    }
+    await apiCall(`/api/v1/city-transfers/${tr.id}`, { method: "PUT", body });
     load();
   };
 

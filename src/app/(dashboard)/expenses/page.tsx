@@ -303,10 +303,35 @@ export default function ExpensesPage() {
   };
 
   const handleEdit = async () => {
+    const body = { amount: form.amount, detail: form.detail, notes: form.notes };
+    if (!isOnline) {
+      await enqueue({
+        url: `/api/v1/expenses/${selected.id}`,
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        pathname: "/expenses",
+        auditMeta: {
+          action: "edit",
+          entityType: "expense",
+          entityLabel: "Expense Edit (Pending)",
+          entityDetail: `${form.detail} — ${Number(form.amount || 0).toLocaleString("en-US")}`,
+        },
+      });
+      setExpenses((prev) =>
+        prev.map((exp: any) =>
+          exp.id === selected.id
+            ? { ...exp, amount: form.amount, detail: form.detail, notes: form.notes, _pending: true }
+            : exp
+        )
+      );
+      setShowEdit(false);
+      return;
+    }
     setSubmitting(true);
     const result = await apiCall(`/api/v1/expenses/${selected.id}`, {
       method: "PUT",
-      body: { amount: form.amount, detail: form.detail, notes: form.notes },
+      body,
     });
     setSubmitting(false);
     if (result.success) { setShowEdit(false); load(); } else { setFormError(result.error || "Failed"); }
@@ -314,6 +339,23 @@ export default function ExpensesPage() {
 
   const handleDelete = async (e: any) => {
     if (!confirm(`${t("confirm_delete")} "${e.detail}"?`)) return;
+    if (!isOnline) {
+      await enqueue({
+        url: `/api/v1/expenses/${e.id}`,
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: "",
+        pathname: "/expenses",
+        auditMeta: {
+          action: "delete",
+          entityType: "expense",
+          entityLabel: "Expense Delete (Pending)",
+          entityDetail: `${e.detail} — ${Number(e.amount || 0).toLocaleString("en-US")}`,
+        },
+      });
+      setExpenses((prev) => prev.filter((item: any) => item.id !== e.id));
+      return;
+    }
     await apiCall(`/api/v1/expenses/${e.id}`, { method: "DELETE" });
     load();
   };
