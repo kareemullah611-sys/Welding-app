@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { buildPaginationItems, getPaginationRange } from "@/lib/pagination";
 import { X } from "lucide-react";
 
 const MODAL_FOCUSABLE_SELECTOR = [
@@ -162,12 +163,7 @@ interface DataTableProps<T> {
   searchColumnKeys?: string[];
   searchValue?: string;
   onSearchChange?: (value: string) => void;
-  pagination?: {
-    page: number;
-    totalPages: number;
-    total: number;
-    onPageChange: (page: number) => void;
-  };
+  pagination?: PaginationConfig;
   stripedRows?: boolean;
   rowClassName?: (item: T, index: number) => string;
 }
@@ -460,37 +456,84 @@ export function DataTable<T extends Record<string, any>>({
           </TableBody>
         </Table>
       </div>
-      {pagination && pagination.totalPages > 1 && (
-        <div className="flex items-center justify-between border-t border-[#efe2d3] bg-[#fbf6ef]/80 px-4 py-3 text-sm">
-          <p className="text-muted-foreground text-xs">
-            Showing page <span className="font-medium text-gray-700">{pagination.page}</span> of <span className="font-medium text-gray-700">{pagination.totalPages}</span>
-            <span className="text-gray-400 ml-1">· {pagination.total} total</span>
-          </p>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => pagination.onPageChange(pagination.page - 1)}
-              disabled={pagination.page <= 1}
-              className="h-8 px-3 text-xs"
-            >
-              ← Prev
-            </Button>
-            <span className="px-2 py-1 text-xs text-gray-500 font-medium">
-              {pagination.page} / {pagination.totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => pagination.onPageChange(pagination.page + 1)}
-              disabled={pagination.page >= pagination.totalPages}
-              className="h-8 px-3 text-xs"
-            >
-              Next →
-            </Button>
-          </div>
-        </div>
+      {pagination && pagination.totalPages > 1 && <PaginationBar pagination={pagination} />}
+    </div>
+  );
+}
+
+export interface PaginationConfig {
+  page: number;
+  totalPages: number;
+  total: number;
+  onPageChange: (page: number) => void;
+  pageSize?: number;
+}
+
+export function PaginationBar({
+  pagination,
+  className,
+  bordered = true,
+}: {
+  pagination: PaginationConfig;
+  className?: string;
+  bordered?: boolean;
+}) {
+  const pageSize = pagination.pageSize || 20;
+  const pageItems = buildPaginationItems(pagination.page, pagination.totalPages);
+  const range = getPaginationRange({ page: pagination.page, pageSize, total: pagination.total });
+
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-3 bg-[#fbf6ef]/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between",
+        bordered && "border-t border-[#efe2d3]",
+        className
       )}
+    >
+      <p className="text-xs italic text-[#6b7280]">
+        Showing {range.start}-{range.end} of {pagination.total} transactions
+      </p>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => pagination.onPageChange(pagination.page - 1)}
+          disabled={pagination.page <= 1}
+          className="h-8 px-3 text-xs"
+        >
+          Previous
+        </Button>
+        {pageItems.map((item, index) =>
+          item === "..." ? (
+            <span key={`ellipsis-${index}`} className="px-1.5 text-xs text-gray-400">
+              ...
+            </span>
+          ) : (
+            <button
+              key={item}
+              type="button"
+              onClick={() => pagination.onPageChange(item)}
+              className={cn(
+                "h-8 min-w-8 rounded-md border px-2 text-xs font-semibold transition-colors",
+                item === pagination.page
+                  ? "border-[#1f2a44] bg-[#111a30] text-white shadow-sm"
+                  : "border-[#e8ddcf] bg-white text-[#374151] hover:border-[#cdbca6] hover:bg-[#f8efe2]"
+              )}
+            >
+              {item}
+            </button>
+          )
+        )}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => pagination.onPageChange(pagination.page + 1)}
+          disabled={pagination.page >= pagination.totalPages}
+          className="h-8 px-3 text-xs"
+        >
+          Next
+        </Button>
+      </div>
     </div>
   );
 }

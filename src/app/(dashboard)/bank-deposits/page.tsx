@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, Modal, formatDate } from "@/components/ui";
+import { PageHeader, Modal, PaginationBar, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useOffline } from "@/hooks/useOffline";
 
@@ -265,10 +265,11 @@ export default function BankDepositsPage() {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex justify-center gap-2 mt-6">
-          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} className="btn-secondary text-sm px-3 py-1.5">← Prev</button>
-          <span className="text-sm text-gray-500 px-2 py-1.5">Page {page} of {totalPages}</span>
-          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="btn-secondary text-sm px-3 py-1.5">Next →</button>
+        <div className="mt-6 rounded-[1.1rem] border border-[#efe2d3] bg-white/80 shadow-[0_16px_40px_-30px_rgba(51,42,33,0.35)]">
+          <PaginationBar
+            bordered={false}
+            pagination={{ page, totalPages, total, pageSize: 20, onPageChange: setPage }}
+          />
         </div>
       )}
 

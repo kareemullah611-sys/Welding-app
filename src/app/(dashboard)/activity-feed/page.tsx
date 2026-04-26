@@ -3,7 +3,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader } from "@/components/ui";
+import { PageHeader, PaginationBar } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { cn } from "@/lib/utils";
 
@@ -433,11 +433,18 @@ export default function ActivityFeedPage() {
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-              <p className="text-sm text-gray-500">{t("page")} {page} {t("of")} {totalPages}</p>
-              <div className="flex gap-2">
-                <button onClick={() => load(page - 1)} disabled={page <= 1} className="btn-secondary text-xs px-3 py-1">← {t("previous")}</button>
-                <button onClick={() => load(page + 1)} disabled={page >= totalPages} className="btn-secondary text-xs px-3 py-1">{t("next")} →</button>
+            <div className="pt-4">
+              <div className="rounded-[1.1rem] border border-[#efe2d3] bg-white/80 shadow-[0_16px_40px_-30px_rgba(51,42,33,0.35)]">
+                <PaginationBar
+                  bordered={false}
+                  pagination={{
+                    page,
+                    totalPages,
+                    total,
+                    pageSize: 30,
+                    onPageChange: load,
+                  }}
+                />
               </div>
             </div>
           )}
