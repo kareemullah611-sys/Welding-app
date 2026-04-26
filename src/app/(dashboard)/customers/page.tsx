@@ -7,6 +7,14 @@ import { useLang } from "@/lib/lang";
 import { isEditableCustomerQueuedPayload, safeParseQueuedBody } from "@/lib/queue-resolve";
 import { useSearchParams } from "next/navigation";
 import { useOffline } from "@/hooks/useOffline";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+
+const CUSTOMERS_READ_CACHE_KEY = "mrf-customers-read-cache-v1";
+
+type CustomersReadSnapshot = {
+  customers: any[];
+  ledgerByCustomer: Record<string, any>;
+};
 
 export default function CustomersPage() {
   const { user } = useAuth();
@@ -20,6 +28,7 @@ export default function CustomersPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showLedger, setShowLedger] = useState(false);
@@ -42,15 +51,42 @@ export default function CustomersPage() {
     }
   }, []);
 
+  const readSnapshot = useCallback(() => {
+    return readOfflineReadSnapshot<CustomersReadSnapshot>(CUSTOMERS_READ_CACHE_KEY);
+  }, []);
+
+  const mergeSnapshot = useCallback((partial: Partial<CustomersReadSnapshot>) => {
+    const existing = readSnapshot()?.data || { customers: [], ledgerByCustomer: {} };
+    writeOfflineReadSnapshot<CustomersReadSnapshot>(CUSTOMERS_READ_CACHE_KEY, {
+      ...existing,
+      ...partial,
+      ledgerByCustomer: { ...(existing.ledgerByCustomer || {}), ...(partial.ledgerByCustomer || {}) },
+    });
+  }, [readSnapshot]);
+
   const load = useCallback(async () => {
     setLoading(true);
     const params: any = { page, limit: 20 };
     const normalizedQuery = searchQuery.trim();
     if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     const result = await apiCall("/api/v1/customers", { params });
-    if (result.success) { setCustomers(result.data as any[]); setTotalPages((result.pagination as any)?.totalPages || 1); setTotal((result.pagination as any)?.total || 0); }
+    if (result.success) {
+      setCustomers(result.data as any[]);
+      setTotalPages((result.pagination as any)?.totalPages || 1);
+      setTotal((result.pagination as any)?.total || 0);
+      mergeSnapshot({ customers: result.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.customers?.length) {
+        setCustomers(snapshot.customers);
+        setTotalPages(1);
+        setTotal(snapshot.customers.length);
+        setShowOfflineSnapshot(true);
+      }
+    }
     setLoading(false);
-  }, [page, searchQuery]);
+  }, [isOnline, mergeSnapshot, page, readSnapshot, searchQuery]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (lastSyncResult && lastSyncResult.synced > 0) load();
@@ -249,7 +285,18 @@ export default function CustomersPage() {
   const openLedger = async (c: any) => {
     setSelected(c); setShowLedger(true); setLedgerData(null);
     const result = await apiCall(`/api/v1/customers/${c.id}`);
-    if (result.success) setLedgerData(result.data);
+    if (result.success) {
+      setLedgerData(result.data);
+      mergeSnapshot({ ledgerByCustomer: { [String(c.id)]: result.data } });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      const cached = snapshot?.ledgerByCustomer?.[String(c.id)];
+      if (cached) {
+        setLedgerData(cached);
+        setShowOfflineSnapshot(true);
+      }
+    }
   };
 
   useEffect(() => {
@@ -281,6 +328,11 @@ export default function CustomersPage() {
   return (
     <div>
       {!isEmbed && <PageHeader title={t("customers")} subtitle={`${total} ${t("customers").toLowerCase()}`} />}
+      {!isEmbed && showOfflineSnapshot && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          Offline snapshot mode: showing last cached customers data for this device.
+        </div>
+      )}
       {!isEmbed && <DataTable
         searchValue={searchQuery}
         onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}

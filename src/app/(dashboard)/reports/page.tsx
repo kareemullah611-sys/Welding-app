@@ -1,11 +1,20 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
+import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, StatsCard, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 
 type ReportType = "sales" | "payments" | "expenses" | "haji_settlement" | "customer_ledger" | "city_ledger" | "discount_history";
+const REPORTS_READ_CACHE_KEY = "mrf-reports-read-cache-v1";
+
+type ReportsReadSnapshot = {
+  customers: any[];
+  cities: any[];
+  reportsByType: Partial<Record<ReportType, { data: any[]; summary: any; filters: Record<string, string> }>>;
+};
 
 const escapeHtml = (value: unknown) =>
   String(value ?? "")
@@ -20,6 +29,7 @@ const stripLegacyReportUrl = (value: unknown) =>
 export default function ReportsPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const { isOnline } = useOffline();
   const [reportType, setReportType] = useState<ReportType>("sales");
   const [filters, setFilters] = useState({ date_from: "", date_to: "", customer_id: "", city_id: "" });
   const [data, setData] = useState<any[]>([]);
@@ -28,12 +38,56 @@ export default function ReportsPage() {
   const [customers, setCustomers] = useState<any[]>([]);
   const [cities, setCities] = useState<any[]>([]);
   const [reportMode, setReportMode] = useState<"quick" | "advanced">("quick");
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
 
-  const loadFilters = async () => {
-    const [custRes, cityRes] = await Promise.all([apiCall("/api/v1/customers", { params: { limit: 200 } }), apiCall("/api/v1/cities")]);
-    if (custRes.success) setCustomers(custRes.data as any[]);
-    if (cityRes.success) setCities(cityRes.data as any[]);
+  const readSnapshot = useCallback(() => {
+    return readOfflineReadSnapshot<ReportsReadSnapshot>(REPORTS_READ_CACHE_KEY);
+  }, []);
+
+  const mergeSnapshot = useCallback((partial: Partial<ReportsReadSnapshot>) => {
+    const existing = readSnapshot()?.data || { customers: [], cities: [], reportsByType: {} };
+    writeOfflineReadSnapshot<ReportsReadSnapshot>(REPORTS_READ_CACHE_KEY, {
+      ...existing,
+      ...partial,
+      reportsByType: { ...(existing.reportsByType || {}), ...(partial.reportsByType || {}) },
+    });
+  }, [readSnapshot]);
+
+  const applyOfflineSnapshotReport = (type: ReportType) => {
+    const snapshot = readSnapshot()?.data;
+    const cached = snapshot?.reportsByType?.[type];
+    if (!cached) return false;
+    setData(cached.data || []);
+    setSummary(cached.summary || null);
+    setShowOfflineSnapshot(true);
+    return true;
   };
+
+  const loadFilters = useCallback(async () => {
+    const [custRes, cityRes] = await Promise.all([apiCall("/api/v1/customers", { params: { limit: 200 } }), apiCall("/api/v1/cities")]);
+    if (custRes.success) {
+      setCustomers(custRes.data as any[]);
+      mergeSnapshot({ customers: custRes.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.customers?.length) {
+        setCustomers(snapshot.customers);
+        setShowOfflineSnapshot(true);
+      }
+    }
+    if (cityRes.success) {
+      setCities(cityRes.data as any[]);
+      mergeSnapshot({ cities: cityRes.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.cities?.length) {
+        setCities(snapshot.cities);
+        setShowOfflineSnapshot(true);
+      }
+    }
+  }, [isOnline, mergeSnapshot, readSnapshot]);
 
   useEffect(() => {
     if (
@@ -44,7 +98,7 @@ export default function ReportsPage() {
     ) {
       loadFilters();
     }
-  }, [reportType, user?.role]);
+  }, [loadFilters, reportType, user?.role]);
 
   const showCityFilter = user?.role === "super_admin" && reportType !== "customer_ledger";
 
@@ -67,12 +121,40 @@ export default function ReportsPage() {
         setData(items);
         const pag = result.pagination as any;
         setSummary({ count: items.length, totalByCurrency: pag?.totalByCurrency || {} });
+        mergeSnapshot({
+          reportsByType: {
+            discount_history: {
+              data: items,
+              summary: { count: items.length, totalByCurrency: pag?.totalByCurrency || {} },
+              filters: { ...filters },
+            },
+          },
+        });
+        setShowOfflineSnapshot(false);
+      } else if (!isOnline) {
+        applyOfflineSnapshotReport("discount_history");
       }
     } else if (reportType === "city_ledger") {
       const cid = filters.city_id || (user?.role === "city_admin" ? String(user.cityId) : "");
       if (!cid) { alert("Select a city"); setLoading(false); return; }
       const result = await apiCall("/api/v1/city-ledger", { params: { city_id: cid, date_from: filters.date_from, date_to: filters.date_to } });
-      if (result.success) { const d = result.data as any; setData(d.entries || []); setSummary(d.summary); }
+      if (result.success) {
+        const d = result.data as any;
+        setData(d.entries || []);
+        setSummary(d.summary);
+        mergeSnapshot({
+          reportsByType: {
+            city_ledger: {
+              data: d.entries || [],
+              summary: d.summary || null,
+              filters: { ...filters },
+            },
+          },
+        });
+        setShowOfflineSnapshot(false);
+      } else if (!isOnline) {
+        applyOfflineSnapshotReport("city_ledger");
+      }
     } else if (reportType === "customer_ledger") {
       if (!filters.customer_id) { alert("Select a customer"); setLoading(false); return; }
       const result = await apiCall(`/api/v1/customers/${filters.customer_id}`, {
@@ -81,14 +163,45 @@ export default function ReportsPage() {
           ...(filters.date_to ? { date_to: filters.date_to } : {}),
         },
       });
-      if (result.success) { const d = result.data as any; setData(d.ledger || []); setSummary({ balance: d.balance, balanceByCurrency: d.balanceByCurrency, name: d.name, isActive: d.isActive, countryCode: d.countryCode || null }); }
+      if (result.success) {
+        const d = result.data as any;
+        const nextSummary = { balance: d.balance, balanceByCurrency: d.balanceByCurrency, name: d.name, isActive: d.isActive, countryCode: d.countryCode || null };
+        setData(d.ledger || []);
+        setSummary(nextSummary);
+        mergeSnapshot({
+          reportsByType: {
+            customer_ledger: {
+              data: d.ledger || [],
+              summary: nextSummary,
+              filters: { ...filters },
+            },
+          },
+        });
+        setShowOfflineSnapshot(false);
+      } else if (!isOnline) {
+        applyOfflineSnapshotReport("customer_ledger");
+      }
     } else {
       const urls: Record<string, string> = { sales: "/api/v1/sales", payments: "/api/v1/payments", expenses: "/api/v1/expenses", haji_settlement: "/api/v1/haji-transfers", discount_history: "/api/v1/discounts" };
       const result = await apiCall(urls[reportType], { params });
       if (result.success) { const items = result.data as any[]; setData(items);
-        if (reportType === "sales") setSummary({ total: items.reduce((s, i: any) => s + (i.totalAmount || 0), 0), count: items.length });
-        else if (reportType === "payments") { const tot = items.reduce((s, i: any) => s + (i.amount || 0), 0); const h = items.filter((i: any) => i.destination === "haji").reduce((s, i: any) => s + (i.amount || 0), 0); setSummary({ total: tot, haji: h, inHand: tot - h, count: items.length }); }
-        else setSummary({ total: items.reduce((s, i: any) => s + (i.amount || 0), 0), count: items.length });
+        let nextSummary: any = null;
+        if (reportType === "sales") nextSummary = { total: items.reduce((s, i: any) => s + (i.totalAmount || 0), 0), count: items.length };
+        else if (reportType === "payments") { const tot = items.reduce((s, i: any) => s + (i.amount || 0), 0); const h = items.filter((i: any) => i.destination === "haji").reduce((s, i: any) => s + (i.amount || 0), 0); nextSummary = { total: tot, haji: h, inHand: tot - h, count: items.length }; }
+        else nextSummary = { total: items.reduce((s, i: any) => s + (i.amount || 0), 0), count: items.length };
+        setSummary(nextSummary);
+        mergeSnapshot({
+          reportsByType: {
+            [reportType]: {
+              data: items,
+              summary: nextSummary,
+              filters: { ...filters },
+            },
+          },
+        });
+        setShowOfflineSnapshot(false);
+      } else if (!isOnline) {
+        applyOfflineSnapshotReport(reportType);
       }
     }
     setLoading(false);
@@ -284,6 +397,11 @@ export default function ReportsPage() {
       )}
 
       <PageHeader title={t("reports")} subtitle="Generate formal operational and ledger reports" />
+      {showOfflineSnapshot && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          Offline snapshot mode: showing last cached report output for this device.
+        </div>
+      )}
       <div className="card mb-6 no-print">
         <div className="mb-4 flex flex-wrap gap-2">
           <button onClick={() => setReportMode("quick")} className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${reportMode === "quick" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-600 border-gray-200"}`}>Quick Reports</button>
