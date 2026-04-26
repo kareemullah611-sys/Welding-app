@@ -3,15 +3,30 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
+import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, Modal, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { Warehouse } from "lucide-react";
+
+const INVENTORY_READ_CACHE_KEY = "mrf-inventory-read-cache-v1";
+
+type InventoryReadSnapshot = {
+  data: any | null;
+  pendingTransfers: any[];
+  lots: any[];
+  ledger: any[];
+  godownList: any[];
+  productList: any[];
+};
 
 export default function InventoryPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const { isOnline } = useOffline();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [pendingTransfers, setPendingTransfers] = useState<any[]>([]);
   const [showApprove, setShowApprove] = useState(false);
   const [selected, setSelected] = useState<any>(null);
@@ -59,21 +74,53 @@ export default function InventoryPage() {
   const [godownSubmitting, setGodownSubmitting] = useState(false);
   const [godownError, setGodownError] = useState("");
 
+  const readSnapshot = useCallback(() => {
+    return readOfflineReadSnapshot<InventoryReadSnapshot>(INVENTORY_READ_CACHE_KEY);
+  }, []);
+
+  const mergeSnapshot = useCallback((partial: Partial<InventoryReadSnapshot>) => {
+    const existing = readSnapshot()?.data || {
+      data: null,
+      pendingTransfers: [],
+      lots: [],
+      ledger: [],
+      godownList: [],
+      productList: [],
+    };
+    writeOfflineReadSnapshot<InventoryReadSnapshot>(INVENTORY_READ_CACHE_KEY, {
+      ...existing,
+      ...partial,
+    });
+  }, [readSnapshot]);
+
   const loadInventory = useCallback(async () => {
     setLoading(true);
     const [invRes, trRes] = await Promise.all([
       apiCall("/api/v1/inventory"),
       apiCall("/api/v1/city-transfers", { params: { limit: 100 } }),
     ]);
-    if (invRes.success) setData(invRes.data);
+    const snapshot = readSnapshot()?.data;
+    if (invRes.success) {
+      setData(invRes.data);
+      mergeSnapshot({ data: invRes.data });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline && snapshot?.data) {
+      setData(snapshot.data);
+      setShowOfflineSnapshot(true);
+    }
     if (trRes.success) {
       const pending = (trRes.data as any[]).filter(
         (tr: any) => tr.status === "pending" && tr.toCity?.id === user?.cityId
       );
       setPendingTransfers(pending);
+      mergeSnapshot({ pendingTransfers: pending });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline && snapshot?.pendingTransfers) {
+      setPendingTransfers(snapshot.pendingTransfers);
+      setShowOfflineSnapshot(true);
     }
     setLoading(false);
-  }, [user?.cityId]);
+  }, [isOnline, mergeSnapshot, readSnapshot, user?.cityId]);
 
   const loadLots = useCallback(async () => {
     if (user?.role !== "city_admin") return;
@@ -88,9 +135,19 @@ export default function InventoryPage() {
       totalPages = (r.pagination as any)?.totalPages || 1;
       page += 1;
     } while (page <= totalPages);
-    setLots(allLots);
+    if (allLots.length > 0) {
+      setLots(allLots);
+      mergeSnapshot({ lots: allLots });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.lots?.length) {
+        setLots(snapshot.lots);
+        setShowOfflineSnapshot(true);
+      }
+    }
     setLotsLoading(false);
-  }, [user?.role]);
+  }, [isOnline, mergeSnapshot, readSnapshot, user?.role]);
 
   const loadLedger = useCallback(async () => {
     setLedgerLoading(true);
@@ -100,18 +157,47 @@ export default function InventoryPage() {
     if (ledgerDateFrom) params.date_from = ledgerDateFrom;
     if (ledgerDateTo) params.date_to = ledgerDateTo;
     const r = await apiCall("/api/v1/inventory/stock-ledger", { params });
-    if (r.success) setLedger(r.data as any[]);
+    if (r.success) {
+      setLedger(r.data as any[]);
+      mergeSnapshot({ ledger: r.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.ledger?.length) {
+        setLedger(snapshot.ledger);
+        setShowOfflineSnapshot(true);
+      }
+    }
     setLedgerLoading(false);
-  }, [ledgerGodownId, ledgerProductId, ledgerDateFrom, ledgerDateTo]);
+  }, [isOnline, ledgerGodownId, ledgerProductId, ledgerDateFrom, ledgerDateTo, mergeSnapshot, readSnapshot]);
 
   const loadLedgerHelpers = useCallback(async () => {
     const [gR, pR] = await Promise.all([
       apiCall("/api/v1/godowns", { params: { limit: 100 } }),
       apiCall("/api/v1/products", { params: { limit: 100 } }),
     ]);
-    if (gR.success) setGodownList(gR.data as any[]);
-    if (pR.success) setProductList(pR.data as any[]);
-  }, []);
+    if (gR.success) {
+      setGodownList(gR.data as any[]);
+      mergeSnapshot({ godownList: gR.data as any[] });
+      setShowOfflineSnapshot(false);
+    }
+    if (pR.success) {
+      setProductList(pR.data as any[]);
+      mergeSnapshot({ productList: pR.data as any[] });
+      setShowOfflineSnapshot(false);
+    }
+    if ((!gR.success || !pR.success) && !isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (!gR.success && snapshot?.godownList?.length) {
+        setGodownList(snapshot.godownList);
+        setShowOfflineSnapshot(true);
+      }
+      if (!pR.success && snapshot?.productList?.length) {
+        setProductList(snapshot.productList);
+        setShowOfflineSnapshot(true);
+      }
+    }
+  }, [isOnline, mergeSnapshot, readSnapshot]);
 
   const openInterGodownTransfer = async () => {
     setTransferHelpersLoading(true);
@@ -309,6 +395,11 @@ export default function InventoryPage() {
           </div>
         }
       />
+      {showOfflineSnapshot && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          Offline snapshot mode: showing last cached inventory data for this device.
+        </div>
+      )}
 
       {/* Pending Incoming City Transfers — notification banner */}
       {pendingTransfers.length > 0 && (

@@ -2,13 +2,24 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
+import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, formatDate, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import * as XLSX from "xlsx";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+
+const BANK_ACCOUNTS_READ_CACHE_KEY = "mrf-bank-accounts-read-cache-v1";
+
+type BankAccountsReadSnapshot = {
+  accounts: any[];
+  currencies: any[];
+  ledgerByAccount: Record<string, { rows: any[]; balanceByCurrency: Record<string, number> }>;
+};
 
 export default function BankAccountsPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const { isOnline } = useOffline();
   const isSA = user?.role === "super_admin";
 
   const [accounts, setAccounts] = useState<any[]>([]);
@@ -27,15 +38,39 @@ export default function BankAccountsPage() {
   const [ledgerRows, setLedgerRows] = useState<any[]>([]);
   const [ledgerBalanceByCurrency, setLedgerBalanceByCurrency] = useState<Record<string, number>>({});
   const [ledgerAccount, setLedgerAccount] = useState<any>(null);
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
+
+  const readSnapshot = useCallback(() => {
+    return readOfflineReadSnapshot<BankAccountsReadSnapshot>(BANK_ACCOUNTS_READ_CACHE_KEY);
+  }, []);
+
+  const mergeSnapshot = useCallback((partial: Partial<BankAccountsReadSnapshot>) => {
+    const existing = readSnapshot()?.data || { accounts: [], currencies: [], ledgerByAccount: {} };
+    writeOfflineReadSnapshot<BankAccountsReadSnapshot>(BANK_ACCOUNTS_READ_CACHE_KEY, {
+      ...existing,
+      ...partial,
+      ledgerByAccount: { ...(existing.ledgerByAccount || {}), ...(partial.ledgerByAccount || {}) },
+    });
+  }, [readSnapshot]);
 
   const load = useCallback(async () => {
     setLoading(true);
     const r = await apiCall("/api/v1/bank-accounts", {
       params: isSA ? { scope: "super_admin" } : undefined,
     });
-    if (r.success) setAccounts(r.data as any[]);
+    if (r.success) {
+      setAccounts(r.data as any[]);
+      mergeSnapshot({ accounts: r.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.accounts?.length) {
+        setAccounts(snapshot.accounts);
+        setShowOfflineSnapshot(true);
+      }
+    }
     setLoading(false);
-  }, [isSA]);
+  }, [isOnline, isSA, mergeSnapshot, readSnapshot]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -53,10 +88,20 @@ export default function BankAccountsPage() {
   useEffect(() => {
     if (isSA) {
       apiCall("/api/v1/currencies").then(r => {
-        if (r.success) setCurrencies(r.data as any[]);
+        if (r.success) {
+          setCurrencies(r.data as any[]);
+          mergeSnapshot({ currencies: r.data as any[] });
+          setShowOfflineSnapshot(false);
+        } else if (!isOnline) {
+          const snapshot = readSnapshot()?.data;
+          if (snapshot?.currencies?.length) {
+            setCurrencies(snapshot.currencies);
+            setShowOfflineSnapshot(true);
+          }
+        }
       });
     }
-  }, [isSA]);
+  }, [isOnline, isSA, mergeSnapshot, readSnapshot]);
 
   const openCreate = () => {
     setForm({ bankName: "", accountNumber: "", cityId: isSA ? (currencies[0]?.id?.toString() || "") : "" });
@@ -110,10 +155,27 @@ export default function BankAccountsPage() {
       const payload: any = r.data || {};
       setLedgerRows(payload.ledger || []);
       setLedgerBalanceByCurrency(payload.balanceByCurrency || {});
+      mergeSnapshot({
+        ledgerByAccount: {
+          [String(acc.id)]: {
+            rows: payload.ledger || [],
+            balanceByCurrency: payload.balanceByCurrency || {},
+          },
+        },
+      });
+      setShowOfflineSnapshot(false);
     } else {
-      setLedgerRows([]);
-      setLedgerBalanceByCurrency({});
-      setError(r.error || "Failed to load ledger");
+      const snapshot = readSnapshot()?.data;
+      const cachedLedger = snapshot?.ledgerByAccount?.[String(acc.id)];
+      if (!isOnline && cachedLedger) {
+        setLedgerRows(cachedLedger.rows || []);
+        setLedgerBalanceByCurrency(cachedLedger.balanceByCurrency || {});
+        setShowOfflineSnapshot(true);
+      } else {
+        setLedgerRows([]);
+        setLedgerBalanceByCurrency({});
+        setError(r.error || "Failed to load ledger");
+      }
     }
     setLedgerLoading(false);
   };
@@ -295,6 +357,11 @@ export default function BankAccountsPage() {
         subtitle={isSA ? "Manage super admin bank accounts" : "Manage bank accounts for your city"}
         action={<button onClick={openCreate} className="btn-primary text-sm">+ {t("new_bank_account")}</button>}
       />
+      {showOfflineSnapshot && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          Offline snapshot mode: showing last cached bank-account data for this device.
+        </div>
+      )}
 
       <DataTable
         columns={columns}
