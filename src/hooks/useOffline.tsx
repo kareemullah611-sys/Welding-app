@@ -1,6 +1,14 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import {
+  OFFLINE_API_CACHE_STORE,
+  OFFLINE_DB_NAME,
+  OFFLINE_DB_VERSION,
+  OFFLINE_QUEUE_STORE,
+  OFFLINE_STOCK_STORE,
+  buildApiCacheKey,
+} from "@/lib/offline-cache";
 
 type QueueSyncStatus = "pending" | "syncing" | "failed" | "conflict";
 
@@ -50,6 +58,8 @@ interface OfflineContextType {
   // Stock cache: persists godown stock locally so city admins see correct numbers offline
   cacheGodownStock: (godownId: number, stock: any[]) => Promise<void>;
   getCachedGodownStock: (godownId: number) => Promise<any[] | null>;
+  cacheApiResponse: (url: string, params: Record<string, string | number | undefined> | undefined, data: unknown, pagination?: unknown) => Promise<void>;
+  getCachedApiResponse: (url: string, params?: Record<string, string | number | undefined>) => Promise<{ data: unknown; pagination?: unknown; cachedAt: number } | null>;
 }
 
 const OfflineContext = createContext<OfflineContextType>({
@@ -66,13 +76,16 @@ const OfflineContext = createContext<OfflineContextType>({
   discardQueuedItem: async () => false,
   cacheGodownStock: async () => {},
   getCachedGodownStock: async () => null,
+  cacheApiResponse: async () => {},
+  getCachedApiResponse: async () => null,
 });
 
 // ── IndexedDB helpers ──────────────────────────────────────────────────────────
-const DB_NAME = "mrf-offline";
-const DB_VERSION = 2;
-const QUEUE_STORE = "queue";
-const STOCK_STORE = "stock_cache";
+const DB_NAME = OFFLINE_DB_NAME;
+const DB_VERSION = OFFLINE_DB_VERSION;
+const QUEUE_STORE = OFFLINE_QUEUE_STORE;
+const STOCK_STORE = OFFLINE_STOCK_STORE;
+const API_CACHE_STORE = OFFLINE_API_CACHE_STORE;
 const DEVICE_ID_KEY = "mrf-offline-device-id";
 
 function getOrCreateDeviceId(): string {
@@ -93,6 +106,8 @@ function openDB(): Promise<IDBDatabase> {
         db.createObjectStore(QUEUE_STORE, { keyPath: "id" });
       if (!db.objectStoreNames.contains(STOCK_STORE))
         db.createObjectStore(STOCK_STORE, { keyPath: "godownId" });
+      if (!db.objectStoreNames.contains(API_CACHE_STORE))
+        db.createObjectStore(API_CACHE_STORE, { keyPath: "key" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -235,6 +250,31 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     } catch { return null; }
   }, []);
 
+  // ── API response cache (generic all-module GET cache) ──
+  const cacheApiResponse = useCallback(async (
+    url: string,
+    params: Record<string, string | number | undefined> | undefined,
+    data: unknown,
+    pagination?: unknown
+  ) => {
+    const key = buildApiCacheKey(url, params);
+    await dbPut(API_CACHE_STORE, { key, data, pagination, cachedAt: Date.now() });
+  }, []);
+
+  const getCachedApiResponse = useCallback(async (
+    url: string,
+    params?: Record<string, string | number | undefined>
+  ): Promise<{ data: unknown; pagination?: unknown; cachedAt: number } | null> => {
+    try {
+      const key = buildApiCacheKey(url, params);
+      const row = await dbGet<{ key: string; data: unknown; pagination?: unknown; cachedAt: number }>(API_CACHE_STORE, key);
+      if (!row) return null;
+      return { data: row.data, pagination: row.pagination, cachedAt: row.cachedAt };
+    } catch {
+      return null;
+    }
+  }, []);
+
   // ── Sync queue (FIFO) when back online ──
   const syncQueue = useCallback(async () => {
     if (isSyncing || !isOnline) return;
@@ -300,7 +340,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
   return (
     <OfflineContext.Provider value={{
       isOnline, isServiceWorkerReady, queueCount, syncQueue, isSyncing, lastSyncResult, queuedItems,
-      enqueue, updateQueuedItem, retryQueuedItem, discardQueuedItem, cacheGodownStock, getCachedGodownStock,
+      enqueue, updateQueuedItem, retryQueuedItem, discardQueuedItem, cacheGodownStock, getCachedGodownStock, cacheApiResponse, getCachedApiResponse,
     }}>
       {children}
     </OfflineContext.Provider>
