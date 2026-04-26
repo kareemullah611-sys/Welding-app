@@ -147,9 +147,10 @@ export default function IntermediariesPage() {
     const params = buildLedgerParams(item.id, 1);
     const r = await apiCall(`/api/v1/intermediaries/${item.id}`, { params });
     if (r.success) {
-      setLedger(r.data);
-      setTotalPages((r.data.pagination as any)?.totalPages || 1);
-      setTotal((r.data.pagination as any)?.total || 0);
+      const ledgerPayload = r.data as any;
+      setLedger(ledgerPayload);
+      setTotalPages((ledgerPayload?.pagination as any)?.totalPages || 1);
+      setTotal((ledgerPayload?.pagination as any)?.total || 0);
     }
     setLedgerLoading(false);
   };
@@ -179,9 +180,10 @@ export default function IntermediariesPage() {
     const params = buildLedgerParams(selected.id, newPage);
     const r = await apiCall(`/api/v1/intermediaries/${selected.id}`, { params });
     if (r.success) {
-      setLedger(r.data);
-      setTotalPages((r.data.pagination as any)?.totalPages || 1);
-      setTotal((r.data.pagination as any)?.total || 0);
+      const ledgerPayload = r.data as any;
+      setLedger(ledgerPayload);
+      setTotalPages((ledgerPayload?.pagination as any)?.totalPages || 1);
+      setTotal((ledgerPayload?.pagination as any)?.total || 0);
     }
     setLedgerLoading(false);
   };
@@ -585,9 +587,10 @@ export default function IntermediariesPage() {
                 }
                 const r = await apiCall(`/api/v1/intermediaries/${selected?.id}`, { params });
                 if (r.success) {
-                  setLedger(r.data);
-                  setTotalPages((r.data.pagination as any)?.totalPages || 1);
-                  setTotal((r.data.pagination as any)?.total || 0);
+                  const ledgerPayload = r.data as any;
+                  setLedger(ledgerPayload);
+                  setTotalPages((ledgerPayload?.pagination as any)?.totalPages || 1);
+                  setTotal((ledgerPayload?.pagination as any)?.total || 0);
                 }
                 setLedgerLoading(false);
               }}
