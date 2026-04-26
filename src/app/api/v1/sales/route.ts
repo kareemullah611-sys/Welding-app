@@ -10,6 +10,9 @@ import {
 } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { canAccessGodownCity } from "@/lib/godown-access";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+
+const SALE_SYNC_MODULE = "sales.create";
 
 // Round a financial value to 2 decimal places to avoid floating-point precision errors
 function roundMoney(n: number): number { return Math.round(n * 100) / 100; }
@@ -90,6 +93,35 @@ async function getGodownStock(
   const inn = Number(transferredIn._sum.qty || 0);
 
   return opn + rcv - sld - out + inn;
+}
+
+function formatSaleCreateResponse(
+  sale: any,
+  isCrossCity: boolean,
+  sourceCityName: string,
+  stockWarnings?: string[],
+) {
+  return {
+    id: sale.id,
+    voucherNo: sale.voucherNo,
+    saleDate: sale.saleDate.toISOString().split("T")[0],
+    totalAmount: Number(sale.totalAmount),
+    status: sale.status,
+    stockShortFlag: sale.stockShortFlag,
+    customer: sale.customer,
+    lot: { id: sale.lot.id, lotNumber: sale.lot.lotNumber },
+    godown: { ...sale.godown, crossCity: isCrossCity, sourceCityName },
+    currency: { id: sale.currency.id, code: sale.currency.code, symbol: sale.currency.symbol },
+    items: sale.items.map((i: any) => ({
+      productId: i.productId,
+      productName: i.product.name,
+      qty: Number(i.qty),
+      ratePerCarton: Number(i.ratePerCarton),
+      amount: Number(i.amount),
+    })),
+    createdBy: sale.creator,
+    ...(stockWarnings && stockWarnings.length > 0 ? { stockWarnings } : {}),
+  };
 }
 
 // GET /api/v1/sales - List sales
@@ -252,6 +284,42 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       return errorResponse("FORBIDDEN", "Only city admins can create sales", 403);
     }
 
+    const syncMeta = getSyncRequestMeta(request);
+    const cityId = user.cityId!;
+
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId,
+            module: SALE_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingSale = await prisma.sale.findFirst({
+          where: { id: existingSync.entityId, cityId },
+          include: {
+            customer: { select: { id: true, name: true } },
+            lot: { select: { id: true, lotNumber: true, status: true } },
+            godown: { include: { city: { select: { id: true, name: true } } } },
+            currency: true,
+            items: { include: { product: { select: { id: true, name: true } } } },
+            creator: { select: { id: true, fullName: true } },
+          },
+        });
+        if (existingSale) {
+          const replayResponse = formatSaleCreateResponse(
+            existingSale,
+            existingSale.godown.cityId !== cityId,
+            existingSale.godown.city.name,
+          );
+          return successResponse(replayResponse, "Sale already synced");
+        }
+      }
+    }
+
     const body = await request.json();
     const parsed = createSaleSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid sale data", parsed.error.errors);
@@ -259,7 +327,6 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const { godownId, saleDate, currencyId, notes, items } = parsed.data;
     let { customerId } = parsed.data;
     let lotId = parsed.data.lotId;
-    const cityId = user.cityId!;
 
     // Handle walk-in customer (id = -1): find or create per city
     if (customerId === -1) {
@@ -446,30 +513,24 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         saleDate: createdSale.saleDate, cityId: createdSale.cityId, createdBy: user.userId,
       }, tx);
 
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId,
+            module: SALE_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "sales",
+            entityId: createdSale.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+
       return createdSale;
     });
 
-    const responseData = {
-      id: sale.id,
-      voucherNo: sale.voucherNo,
-      saleDate: sale.saleDate.toISOString().split("T")[0],
-      totalAmount: Number(sale.totalAmount),
-      status: sale.status,
-      stockShortFlag: sale.stockShortFlag,
-      customer: sale.customer,
-      lot: { id: sale.lot.id, lotNumber: sale.lot.lotNumber },
-      godown: { ...sale.godown, crossCity: isCrossCity, sourceCityName: godown.city.name },
-      currency: { id: sale.currency.id, code: sale.currency.code, symbol: sale.currency.symbol },
-      items: sale.items.map((i: any) => ({
-        productId: i.productId,
-        productName: i.product.name,
-        qty: Number(i.qty),
-        ratePerCarton: Number(i.ratePerCarton),
-        amount: Number(i.amount),
-      })),
-      createdBy: sale.creator,
-      ...(stockWarnings.length > 0 ? { stockWarnings } : {}),
-    };
+    const responseData = formatSaleCreateResponse(sale, isCrossCity, godown.city.name, stockWarnings);
 
     // Check inventory thresholds — fire low-stock notification if any product drops below minimum
     try {
@@ -544,6 +605,40 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       201
     );
   } catch (error) {
+    const syncMeta = getSyncRequestMeta(request);
+    const cityId = user.role === "city_admin" ? user.cityId! : null;
+    if (syncMeta && cityId && isSyncRequestDuplicateError(error)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId,
+            module: SALE_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingSale = await prisma.sale.findFirst({
+          where: { id: existingSync.entityId, cityId },
+          include: {
+            customer: { select: { id: true, name: true } },
+            lot: { select: { id: true, lotNumber: true, status: true } },
+            godown: { include: { city: { select: { id: true, name: true } } } },
+            currency: true,
+            items: { include: { product: { select: { id: true, name: true } } } },
+            creator: { select: { id: true, fullName: true } },
+          },
+        });
+        if (existingSale) {
+          const replayResponse = formatSaleCreateResponse(
+            existingSale,
+            existingSale.godown.cityId !== cityId,
+            existingSale.godown.city.name,
+          );
+          return successResponse(replayResponse, "Sale already synced");
+        }
+      }
+    }
     console.error("Create sale error:", error);
     return serverError();
   }

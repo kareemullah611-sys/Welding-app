@@ -9,6 +9,9 @@ import {
   getPaginationParams, getDateRange,
 } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+
+const PAYMENT_SYNC_MODULE = "payments.create";
 
 // Helper: Get FIFO lot for a city
 async function getFIFOLot(cityId: number, countryId: number): Promise<number | null> {
@@ -22,6 +25,29 @@ async function getFIFOLot(cityId: number, countryId: number): Promise<number | n
     select: { id: true },
   });
   return lot?.id || null;
+}
+
+function formatPaymentCreateResponse(payment: any, exchangeRate?: number | null, usdEquivalent?: number | null) {
+  return {
+    id: payment.id,
+    paymentDate: payment.paymentDate.toISOString().split("T")[0],
+    detail: payment.detail,
+    amount: Number(payment.amount),
+    exchangeRate: exchangeRate ?? payment.exchangeRate ?? null,
+    usdEquivalent: usdEquivalent ?? payment.usdEquivalent ?? null,
+    manualVoucherNo: payment.manualVoucherNo,
+    paymentMethod: payment.paymentMethod,
+    destination: payment.destination,
+    status: payment.status,
+    customer: payment.customer,
+    lot: { id: payment.lot.id, lotNumber: payment.lot.lotNumber },
+    currency: { id: payment.currency.id, code: payment.currency.code, symbol: payment.currency.symbol },
+    createdBy: payment.creator,
+    bankAccountId: payment.bankAccountId ?? null,
+    bankAccount: payment.bankAccount ?? null,
+    superAdminBankAccountId: payment.superAdminBankAccountId ?? null,
+    superAdminBankAccount: payment.superAdminBankAccount ?? null,
+  };
 }
 
 // GET /api/v1/payments
@@ -123,6 +149,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       return errorResponse("FORBIDDEN", "Only city admins can create payments", 403);
     }
 
+    const syncMeta = getSyncRequestMeta(request);
     const body = await request.json();
     const parsed = createPaymentSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid payment data", parsed.error.errors);
@@ -288,34 +315,58 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         paymentDate: createdPayment.paymentDate, createdBy: user.userId,
       }, tx);
 
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId,
+            module: PAYMENT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "payments",
+            entityId: createdPayment.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+
       return createdPayment;
     });
 
-    const responsePayData = {
-      id: payment.id,
-      paymentDate: payment.paymentDate.toISOString().split("T")[0],
-      detail: payment.detail,
-      amount: Number(payment.amount),
-      exchangeRate: exchangeRate ?? null,
-      usdEquivalent: usdEquivalent ?? null,
-      manualVoucherNo: payment.manualVoucherNo,
-      paymentMethod: payment.paymentMethod,
-      destination: payment.destination,
-      status: payment.status,
-      customer: payment.customer,
-      lot: { id: payment.lot.id, lotNumber: payment.lot.lotNumber },
-      currency: { id: payment.currency.id, code: payment.currency.code, symbol: payment.currency.symbol },
-      createdBy: payment.creator,
-      bankAccountId: payment.bankAccountId ?? null,
-      bankAccount: payment.bankAccount ?? null,
-      superAdminBankAccountId: (payment as any).superAdminBankAccountId ?? null,
-      superAdminBankAccount: (payment as any).superAdminBankAccount ?? null,
-    };
+    const responsePayData = formatPaymentCreateResponse(payment, exchangeRate ?? null, usdEquivalent ?? null);
 
     return successResponse(responsePayData, "Payment recorded successfully", 201);
   } catch (error: any) {
     if (error?.code === "CHEQUE_DUPLICATE") {
       return errorResponse("CONFLICT", error.message, 409);
+    }
+    const syncMeta = getSyncRequestMeta(request);
+    const cityId = user.role === "city_admin" ? user.cityId! : null;
+    if (syncMeta && cityId && isSyncRequestDuplicateError(error)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId,
+            module: PAYMENT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingPayment = await prisma.payment.findFirst({
+          where: { id: existingSync.entityId, cityId },
+          include: {
+            customer: { select: { id: true, name: true } },
+            lot: { select: { id: true, lotNumber: true, status: true } },
+            currency: true,
+            bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+            superAdminBankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+            creator: { select: { id: true, fullName: true } },
+          },
+        });
+        if (existingPayment) {
+          return successResponse(formatPaymentCreateResponse(existingPayment), "Payment already synced");
+        }
+      }
     }
     console.error("Create payment error:", error);
     return serverError();

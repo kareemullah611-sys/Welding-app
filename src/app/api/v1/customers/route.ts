@@ -7,6 +7,9 @@ import {
   getPaginationParams,
 } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+
+const CUSTOMER_SYNC_MODULE = "customers.create";
 
 // GET /api/v1/customers
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
@@ -120,6 +123,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 // POST /api/v1/customers
 export const POST = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
+    const syncMeta = getSyncRequestMeta(request);
     const body = await request.json();
     if (!body.name || !body.name.trim()) return validationError("Customer name is required");
 
@@ -129,20 +133,86 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const city = await prisma.city.findFirst({ where: { id: cityId, isActive: true } });
     if (!city) return errorResponse("NOT_FOUND", "City not found");
 
-    const customer = await prisma.customer.create({
-      data: { cityId, name: body.name.trim(), phone: body.phone || null, address: body.address || null },
-      include: { city: { select: { id: true, name: true } } },
-    });
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId,
+            module: CUSTOMER_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingCustomer = await prisma.customer.findFirst({
+          where: { id: existingSync.entityId, cityId },
+          include: { city: { select: { id: true, name: true } } },
+        });
+        if (existingCustomer) {
+          return successResponse({
+            id: existingCustomer.id, cityId: existingCustomer.cityId, cityName: existingCustomer.city.name,
+            name: existingCustomer.name, phone: existingCustomer.phone, address: existingCustomer.address, isActive: existingCustomer.isActive,
+          }, "Customer already synced");
+        }
+      }
+    }
 
-    await createAuditLog(user.userId, cityId, "customers", customer.id, "create", undefined, {
-      name: customer.name,
-    }, getClientIP(request));
+    const customer = await prisma.$transaction(async (tx) => {
+      const createdCustomer = await tx.customer.create({
+        data: { cityId, name: body.name.trim(), phone: body.phone || null, address: body.address || null },
+        include: { city: { select: { id: true, name: true } } },
+      });
+
+      await createAuditLog(user.userId, cityId, "customers", createdCustomer.id, "create", undefined, {
+        name: createdCustomer.name,
+      }, getClientIP(request), tx);
+
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId,
+            module: CUSTOMER_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "customers",
+            entityId: createdCustomer.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+      return createdCustomer;
+    });
 
     return successResponse({
       id: customer.id, cityId: customer.cityId, cityName: customer.city.name,
       name: customer.name, phone: customer.phone, address: customer.address, isActive: customer.isActive,
     }, "Customer created successfully", 201);
-  } catch (error) {
+  } catch (error: any) {
+    const syncMeta = getSyncRequestMeta(request);
+    const cityId = user.role === "city_admin" ? user.cityId! : null;
+    if (syncMeta && cityId && isSyncRequestDuplicateError(error)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId,
+            module: CUSTOMER_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingCustomer = await prisma.customer.findFirst({
+          where: { id: existingSync.entityId, cityId },
+          include: { city: { select: { id: true, name: true } } },
+        });
+        if (existingCustomer) {
+          return successResponse({
+            id: existingCustomer.id, cityId: existingCustomer.cityId, cityName: existingCustomer.city.name,
+            name: existingCustomer.name, phone: existingCustomer.phone, address: existingCustomer.address, isActive: existingCustomer.isActive,
+          }, "Customer already synced");
+        }
+      }
+    }
     console.error("Create customer error:", error);
     return serverError();
   }

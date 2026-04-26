@@ -73,6 +73,16 @@ const DB_NAME = "mrf-offline";
 const DB_VERSION = 2;
 const QUEUE_STORE = "queue";
 const STOCK_STORE = "stock_cache";
+const DEVICE_ID_KEY = "mrf-offline-device-id";
+
+function getOrCreateDeviceId(): string {
+  if (typeof window === "undefined") return "server";
+  const existing = window.localStorage.getItem(DEVICE_ID_KEY);
+  if (existing && existing.trim()) return existing;
+  const created = crypto.randomUUID();
+  window.localStorage.setItem(DEVICE_ID_KEY, created);
+  return created;
+}
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -237,9 +247,14 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     for (const item of [...items].sort((a, b) => a.timestamp - b.timestamp)) {
       try {
         await dbPut(QUEUE_STORE, { ...item, syncStatus: "syncing", lastError: null });
+        const deviceId = getOrCreateDeviceId();
         const res  = await fetch(item.url, {
           method:  item.method,
-          headers: item.headers,
+          headers: {
+            ...item.headers,
+            "x-sync-request-id": item.id,
+            "x-sync-device-id": deviceId,
+          },
           body:    item.method !== "GET" ? item.body : undefined,
         });
         const isJson = res.headers.get("content-type")?.includes("application/json");

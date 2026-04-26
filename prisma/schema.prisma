@@ -1396,6 +1396,23 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+model SyncRequest {
+  id         Int      @id @default(autoincrement())
+  cityId     Int      @map("city_id")
+  module     String   @db.VarChar(80)
+  requestId  String   @map("request_id") @db.VarChar(120)
+  deviceId   String?  @map("device_id") @db.VarChar(120)
+  entityType String?  @map("entity_type") @db.VarChar(80)
+  entityId   Int?     @map("entity_id")
+  createdBy  Int?     @map("created_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@unique([cityId, module, requestId], name: "unique_sync_request_per_city_module")
+  @@index([cityId])
+  @@index([createdAt])
+  @@map("sync_requests")
+}
+
 // ============================================================
 // INVENTORY THRESHOLDS
 // ============================================================
