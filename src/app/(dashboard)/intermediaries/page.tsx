@@ -70,6 +70,8 @@ export default function IntermediariesPage() {
   const [ledger, setLedger] = useState<any>(null);
   const [ledgerLoading, setLedgerLoading] = useState(false);
 
+  const [showExchange, setShowExchange] = useState(false);
+
   const [showDeposit, setShowDeposit] = useState(false);
   const [depositForm, setDepositForm] = useState({ ...EMPTY_DEPOSIT });
   const [depositSubmitting, setDepositSubmitting] = useState(false);
@@ -139,6 +141,13 @@ export default function IntermediariesPage() {
     setDepositForm({ ...EMPTY_DEPOSIT });
     setDepositError("");
     setShowDeposit(true);
+  };
+
+  const openExchangeModal = async () => {
+    await loadRefData();
+    setExchangeForm({ ...EMPTY_EXCHANGE });
+    setExchangeError("");
+    setShowExchange(true);
   };
 
   const handleDeposit = async () => {
@@ -224,7 +233,7 @@ export default function IntermediariesPage() {
       },
     });
     setExchangeSubmitting(false);
-    if (r.success) { setExchangeForm({ ...EMPTY_EXCHANGE }); setExchangeError(""); openLedger(selected); } else { setExchangeError(r.error || "Failed to execute exchange"); }
+    if (r.success) { setShowExchange(false); setExchangeForm({ ...EMPTY_EXCHANGE }); setExchangeError(""); openLedger(selected); } else { setExchangeError(r.error || "Failed to execute exchange"); }
   };
 
   const openEditExchange = async (exchange: any) => {
@@ -495,6 +504,9 @@ export default function IntermediariesPage() {
             <div className="flex items-center gap-2">
               <button onClick={exportIntermediaryLedgerXlsx} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100">Export XLSX</button>
               <button onClick={exportIntermediaryLedgerPdf} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100">Export PDF</button>
+              <button onClick={openExchangeModal} className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700">
+                + Exchange
+              </button>
               <button onClick={openDeposit} className="btn-primary text-sm">
                 + Record Deposit
               </button>
@@ -521,68 +533,6 @@ export default function IntermediariesPage() {
                     </div>
                   );
                 })}
-              </div>
-
-              <div className="rounded-xl border border-amber-200 bg-amber-50/35 p-3.5">
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-amber-900">Currency Exchange</h3>
-                <div className="mb-2.5 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-gray-600">Base Currency</label>
-                    <select value={exchangeForm.baseCurrencyId} onChange={e => setExchangeForm(prev => ({ ...prev, baseCurrencyId: e.target.value }))} className="select-field text-sm">
-                      <option value="">Select</option>
-                      {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-gray-600">Quote Currency</label>
-                    <select value={exchangeForm.quoteCurrencyId} onChange={e => setExchangeForm(prev => ({ ...prev, quoteCurrencyId: e.target.value }))} className="select-field text-sm">
-                      <option value="">Select</option>
-                      {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-gray-600">Exchange Rate</label>
-                    <input type="text" inputMode="decimal" value={exchangeForm.exchangeRate} onChange={e => setExchangeForm(prev => ({ ...prev, exchangeRate: e.target.value }))} className="input-field text-sm" placeholder="0.00" />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-gray-600">Date</label>
-                    <input type="date" value={exchangeForm.exchangeDate} onChange={e => setExchangeForm(prev => ({ ...prev, exchangeDate: e.target.value }))} className="input-field text-sm" />
-                  </div>
-                </div>
-                <div className="mb-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-gray-600">From Currency</label>
-                    <select value={exchangeForm.fromCurrencyId} onChange={e => setExchangeForm(prev => ({ ...prev, fromCurrencyId: e.target.value }))} className="select-field text-sm">
-                      <option value="">Select</option>
-                      {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-gray-600">Amount</label>
-                    <input type="text" inputMode="decimal" value={exchangeForm.fromAmount} onChange={e => setExchangeForm(prev => ({ ...prev, fromAmount: e.target.value }))} className="input-field text-sm" placeholder="0.00" />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-gray-600">To Currency</label>
-                    <select value={exchangeForm.toCurrencyId} onChange={e => setExchangeForm(prev => ({ ...prev, toCurrencyId: e.target.value }))} className="select-field text-sm">
-                      <option value="">Select</option>
-                      {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
-                    </select>
-                  </div>
-                </div>
-                <div className="mb-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-gray-600">To Amount (Calculated)</label>
-                    <input type="text" value={exchangePreview.toAmount.toLocaleString("en-US")} className="input-field text-sm bg-amber-50" readOnly />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-gray-600">Notes</label>
-                    <input type="text" value={exchangeForm.notes} onChange={e => setExchangeForm(prev => ({ ...prev, notes: e.target.value }))} className="input-field text-sm" placeholder="Optional note" />
-                  </div>
-                </div>
-                {exchangeError && <div className="mb-2.5 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{exchangeError}</div>}
-                <button onClick={handleExchange} disabled={exchangeSubmitting} className="rounded-lg bg-amber-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50">
-                  {exchangeSubmitting ? "Executing..." : "Execute Exchange"}
-                </button>
               </div>
 
               <div className="rounded-xl border border-gray-200 overflow-hidden">
@@ -622,6 +572,15 @@ export default function IntermediariesPage() {
                                 <button onClick={() => handleDeleteDeposit(entry.id)} className="rounded px-1.5 py-0.5 text-xs text-red-700 hover:bg-red-100">Del</button>
                               </div>
                             )}
+                            {entry.type === "exchange_out" && (() => {
+                              const exch = ledger?.exchangeHistory?.find((ex: any) => ex.id === entry.id);
+                              return exch ? (
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button onClick={() => openEditExchange(exch)} className="rounded px-1.5 py-0.5 text-xs text-amber-700 hover:bg-amber-100">Edit</button>
+                                  <button onClick={() => handleDeleteExchange(exch.id)} className="rounded px-1.5 py-0.5 text-xs text-red-700 hover:bg-red-100">Del</button>
+                                </div>
+                              ) : null;
+                            })()}
                           </td>
                         </tr>
                       ))}
@@ -680,6 +639,85 @@ export default function IntermediariesPage() {
           <div className="flex justify-end gap-3 pt-4 border-t">
             <button onClick={() => setShowDeposit(false)} className="btn-secondary text-sm">Cancel</button>
             <button onClick={handleDeposit} disabled={depositSubmitting} className="btn-primary text-sm">{depositSubmitting ? "Saving..." : "Record Deposit"}</button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={showExchange} onClose={() => setShowExchange(false)} title={`Execute Exchange — ${selected?.name || "Intermediary"}`} size="md">
+        <div className="space-y-4">
+          <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+            <p className="text-xs font-semibold text-amber-900 uppercase tracking-wider mb-2">Exchange Between Currencies</p>
+            <p className="text-sm text-amber-800">
+              Exchanging for{" "}
+              <span className="font-medium">👤 {selected?.name}</span>
+              {exchangeForm.fromCurrencyId && exchangeForm.toCurrencyId ? (
+                <span>
+                  {" "}—{" "}
+                  <span className="font-semibold">{exchangePreview.operation === "multiply" ? "Multiply" : "Divide"} by rate</span>
+                </span>
+              ) : null}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Date</label>
+              <input type="date" value={exchangeForm.exchangeDate} onChange={e => setExchangeForm(prev => ({ ...prev, exchangeDate: e.target.value }))} className="input-field" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Exchange Rate</label>
+              <input type="text" inputMode="decimal" value={exchangeForm.exchangeRate} onChange={e => setExchangeForm(prev => ({ ...prev, exchangeRate: e.target.value }))} className="input-field" placeholder="0.00" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Base Currency (Numerator)</label>
+              <select value={exchangeForm.baseCurrencyId} onChange={e => setExchangeForm(prev => ({ ...prev, baseCurrencyId: e.target.value }))} className="select-field">
+                <option value="">Select</option>
+                {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Quote Currency (Denominator)</label>
+              <select value={exchangeForm.quoteCurrencyId} onChange={e => setExchangeForm(prev => ({ ...prev, quoteCurrencyId: e.target.value }))} className="select-field">
+                <option value="">Select</option>
+                {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">From Currency</label>
+              <select value={exchangeForm.fromCurrencyId} onChange={e => setExchangeForm(prev => ({ ...prev, fromCurrencyId: e.target.value }))} className="select-field">
+                <option value="">Select</option>
+                {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">To Currency</label>
+              <select value={exchangeForm.toCurrencyId} onChange={e => setExchangeForm(prev => ({ ...prev, toCurrencyId: e.target.value }))} className="select-field">
+                <option value="">Select</option>
+                {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Amount</label>
+              <input type="text" inputMode="decimal" value={exchangeForm.fromAmount} onChange={e => setExchangeForm(prev => ({ ...prev, fromAmount: e.target.value }))} className="input-field" placeholder="0.00" />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">To Amount (Calculated)</label>
+              <input type="text" value={exchangePreview.toAmount.toLocaleString("en-US")} className="input-field bg-gray-50" readOnly />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Notes</label>
+            <input type="text" value={exchangeForm.notes} onChange={e => setExchangeForm(prev => ({ ...prev, notes: e.target.value }))} className="input-field" placeholder="Optional note" />
+          </div>
+          {exchangeError && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{exchangeError}</div>}
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <button onClick={() => setShowExchange(false)} className="btn-secondary text-sm">Cancel</button>
+            <button onClick={handleExchange} disabled={exchangeSubmitting} className="btn-primary text-sm">{exchangeSubmitting ? "Executing..." : "Execute Exchange"}</button>
           </div>
         </div>
       </Modal>
