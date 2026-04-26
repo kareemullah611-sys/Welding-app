@@ -95,6 +95,8 @@ export default function IntermediariesPage() {
   const [currencies, setCurrencies] = useState<any[]>([]);
   const [superAdminBankAccounts, setSuperAdminBankAccounts] = useState<any[]>([]);
 
+  const [ledgerCurrencyFilter, setLedgerCurrencyFilter] = useState<string>("");
+
   const load = useCallback(async () => {
     setLoading(true);
     const r = await apiCall("/api/v1/intermediaries");
@@ -125,6 +127,7 @@ export default function IntermediariesPage() {
   };
 
   const openLedger = async (item: any) => {
+    setLedgerCurrencyFilter("");
     setExchangeForm({ ...EMPTY_EXCHANGE });
     setExchangeError("");
     await loadRefData();
@@ -535,6 +538,25 @@ export default function IntermediariesPage() {
                 })}
               </div>
 
+              <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50/60 px-3 py-2">
+                <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Filter by Currency:</span>
+                <select
+                  value={ledgerCurrencyFilter}
+                  onChange={e => setLedgerCurrencyFilter(e.target.value)}
+                  className="select-field text-sm py-1"
+                >
+                  <option value="">All</option>
+                  {currencies.map((c: any) => (
+                    <option key={c.id} value={c.code}>{c.code}</option>
+                  ))}
+                </select>
+                {ledgerCurrencyFilter && (
+                  <button onClick={() => setLedgerCurrencyFilter("")} className="text-xs text-gray-500 hover:text-gray-700 underline">
+                    Clear
+                  </button>
+                )}
+              </div>
+
               <div className="rounded-xl border border-gray-200 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -553,7 +575,7 @@ export default function IntermediariesPage() {
                       {(!ledger.ledger || ledger.ledger.length === 0) && (
                         <tr><td colSpan={7} className="py-8 text-center text-sm text-gray-400">No ledger entries</td></tr>
                       )}
-                      {ledger.ledger?.map((entry: any, i: number) => (
+                      {(ledgerCurrencyFilter ? ledger.ledger?.filter((e: any) => e.currencyCode === ledgerCurrencyFilter) : ledger.ledger)?.map((entry: any, i: number) => (
                         <tr key={i} className="border-t border-[#f3e8db] hover:bg-[#fff8ef]">
                           <td className="whitespace-nowrap px-3 py-2.5 text-xs text-gray-600">{formatDate(entry.date)}</td>
                           <td className="max-w-xs px-3 py-2.5 text-sm text-gray-800">
