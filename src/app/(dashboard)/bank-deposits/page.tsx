@@ -5,11 +5,24 @@ import { apiCall } from "@/hooks/useApi";
 import { PageHeader, Modal, PaginationBar, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useOffline } from "@/hooks/useOffline";
+import { useSearchParams } from "next/navigation";
+import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
+import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
+import { safeParseQueuedBody } from "@/lib/queue-resolve";
+
+const BANK_DEPOSITS_FORM_CACHE_KEY = "mrf-bank-deposits-form-cache-v1";
+
+type BankDepositsFormCache = {
+  bankAccounts: any[];
+  currencies: any[];
+  inHandCheques: any[];
+};
 
 export default function BankDepositsPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline, enqueue, lastSyncResult } = useOffline();
+  const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, syncQueue } = useOffline();
+  const searchParams = useSearchParams();
   const [deposits, setDeposits] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -28,6 +41,7 @@ export default function BankDepositsPage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const transferTypeLabels: Record<string, string> = {
     cheque_to_bank: "Cash/Cheque → Bank",
@@ -55,7 +69,45 @@ export default function BankDepositsPage() {
   }, [lastSyncResult, load]);
   useEffect(() => { setPage(1); }, [searchQuery]);
 
-  const openCreate = async () => {
+  const openCreate = async (preset?: Partial<typeof form>) => {
+    if (!isOnline) {
+      const cached = readOfflineFormCache<BankDepositsFormCache>(BANK_DEPOSITS_FORM_CACHE_KEY, [
+        "bankAccounts",
+        "currencies",
+        "inHandCheques",
+      ]);
+      if (!cached) {
+        setError(
+          getOfflineFormReadinessError({
+            isOnline,
+            currencyCount: 0,
+            moduleTitle: "Bank Deposit",
+          }) || "Offline setup missing",
+        );
+        setShowCreate(true);
+        return;
+      }
+      setBankAccounts(cached.bankAccounts);
+      setCurrencies(cached.currencies);
+      setInHandCheques(cached.inHandCheques);
+      setForm((f: any) => ({
+        ...f,
+        transferType: "cheque_to_bank",
+        bankAccountId: 0,
+        destinationBankAccountId: 0,
+        depositDate: new Date().toISOString().split("T")[0],
+        slipNumber: "",
+        cashAmount: 0,
+        notes: "",
+        chequePaymentIds: [],
+        currencyId: cached.currencies[0]?.id || 0,
+        ...preset,
+      }));
+      setShowCreate(true);
+      setError("");
+      return;
+    }
+
     const [baRes, cityRes, chRes] = await Promise.all([
       apiCall("/api/v1/bank-accounts"),
       apiCall("/api/v1/cities"),
@@ -64,14 +116,23 @@ export default function BankDepositsPage() {
       }),
     ]);
     if (baRes.success) setBankAccounts(baRes.data as any[]);
+    let nextCurrencies: any[] = [];
     if (cityRes.success && user?.cityId) {
       const city = (cityRes.data as any[]).find((c: any) => c.id === user.cityId);
       if (city?.currencies?.length) {
+        nextCurrencies = city.currencies;
         setCurrencies(city.currencies);
         setForm((f: any) => ({ ...f, currencyId: city.currencies[0].id }));
       }
     }
     if (chRes.success) setInHandCheques(chRes.data as any[]);
+    if (baRes.success && nextCurrencies.length > 0) {
+      writeOfflineFormCache<BankDepositsFormCache>(BANK_DEPOSITS_FORM_CACHE_KEY, {
+        bankAccounts: baRes.data as any[],
+        currencies: nextCurrencies,
+        inHandCheques: chRes.success ? (chRes.data as any[]) : [],
+      });
+    }
     setForm((f: any) => ({
       ...f,
       transferType: "cheque_to_bank",
@@ -82,6 +143,7 @@ export default function BankDepositsPage() {
       cashAmount: 0,
       notes: "",
       chequePaymentIds: [],
+      ...preset,
     }));
     setShowCreate(true); setError("");
   };
@@ -117,6 +179,23 @@ export default function BankDepositsPage() {
       ...form,
       cashAmount: form.transferType === "cheque_to_cash" ? chequesTotal : Number(form.cashAmount || 0),
     };
+
+    if (resolvingQueueId) {
+      const ok = await updateQueuedItem(resolvingQueueId, { body: JSON.stringify(body) });
+      if (!ok) {
+        setError("Queued bank deposit entry not found. Please retry from Activity.");
+        return;
+      }
+      if (isOnline) {
+        await retryQueuedItem(resolvingQueueId);
+        await syncQueue();
+      }
+      setResolvingQueueId(null);
+      setShowCreate(false);
+      load();
+      return;
+    }
+
     if (!isOnline) {
       await enqueue({
         url: "/api/v1/bank-deposits",
@@ -159,14 +238,39 @@ export default function BankDepositsPage() {
         cheques: optimisticCheques,
       }, ...prev]);
       setShowCreate(false);
+      setResolvingQueueId(null);
       return;
     }
 
     setSubmitting(true);
     const r = await apiCall("/api/v1/bank-deposits", { method: "POST", body });
     setSubmitting(false);
-    if (r.success) { setShowCreate(false); load(); } else { setError(r.error || "Failed"); }
+    if (r.success) { setShowCreate(false); setResolvingQueueId(null); load(); } else { setError(r.error || "Failed"); }
   };
+
+  useEffect(() => {
+    const shouldResolve = searchParams.get("resolve") === "1";
+    const queueId = searchParams.get("queue_id");
+    if (!shouldResolve || !queueId) return;
+    const target = queuedItems.find((q) => q.id === queueId && q.pathname === "/bank-deposits");
+    if (!target) return;
+    const parsed = safeParseQueuedBody(target.body);
+    if (!parsed) return;
+    openCreate({
+      transferType: String(parsed.transferType || "cheque_to_bank"),
+      bankAccountId: Number(parsed.bankAccountId || 0),
+      destinationBankAccountId: Number(parsed.destinationBankAccountId || 0),
+      depositDate: String(parsed.depositDate || new Date().toISOString().split("T")[0]),
+      slipNumber: String(parsed.slipNumber || ""),
+      cashAmount: Number(parsed.cashAmount || 0),
+      currencyId: Number(parsed.currencyId || 0),
+      notes: String(parsed.notes || ""),
+      chequePaymentIds: Array.isArray(parsed.chequePaymentIds) ? (parsed.chequePaymentIds as number[]) : [],
+    });
+    setResolvingQueueId(queueId);
+    setError("Resolving queued bank deposit. Save to update and re-sync.");
+    window.history.replaceState({}, "", "/bank-deposits");
+  }, [queuedItems, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div>
@@ -174,7 +278,7 @@ export default function BankDepositsPage() {
         title={t("bank_deposits")}
         subtitle={`${total} deposit slips`}
         action={user?.role === "city_admin" ? (
-          <button onClick={openCreate} className="btn-primary text-sm">+ New Deposit Slip</button>
+          <button onClick={() => { void openCreate(); }} className="btn-primary text-sm">+ New Deposit Slip</button>
         ) : undefined}
       />
       <div className="mb-4">

@@ -5,11 +5,25 @@ import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useOffline } from "@/hooks/useOffline";
+import { useSearchParams } from "next/navigation";
+import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
+import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
+import { safeParseQueuedBody } from "@/lib/queue-resolve";
+
+const CITY_TRANSFERS_FORM_CACHE_KEY = "mrf-city-transfers-form-cache-v1";
+
+type CityTransfersFormCache = {
+  cities: any[];
+  godowns: any[];
+  products: any[];
+  lots: any[];
+};
 
 export default function CityTransfersPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline, enqueue, lastSyncResult } = useOffline();
+  const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, syncQueue } = useOffline();
+  const searchParams = useSearchParams();
   const [transfers, setTransfers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -28,6 +42,7 @@ export default function CityTransfersPage() {
   const [approveForm, setApproveForm] = useState({ toGodownId: 0, approvalNotes: "" });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -44,13 +59,62 @@ export default function CityTransfersPage() {
   }, [lastSyncResult, load]);
   useEffect(() => { setPage(1); }, [searchQuery]);
 
-  const openSend = async () => {
+  const openSend = async (preset?: Partial<typeof form>) => {
+    if (!isOnline) {
+      const cached = readOfflineFormCache<CityTransfersFormCache>(CITY_TRANSFERS_FORM_CACHE_KEY, [
+        "cities",
+        "godowns",
+        "products",
+        "lots",
+      ]);
+      if (!cached) {
+        setError(
+          getOfflineFormReadinessError({
+            isOnline,
+            currencyCount: 0,
+            moduleTitle: "City Transfer",
+          }) || "Offline setup missing",
+        );
+        setShowSend(true);
+        return;
+      }
+      setCities(cached.cities);
+      setGodowns(cached.godowns);
+      setProducts(cached.products);
+      setLots(cached.lots);
+      setForm({
+        toCityId: 0,
+        fromGodownId: 0,
+        productId: 0,
+        lotId: 0,
+        qty: 0,
+        notes: "",
+        transferDate: new Date().toISOString().split("T")[0],
+        ...preset,
+      });
+      setShowSend(true);
+      setError("");
+      return;
+    }
+
     const [cR, gR, pR, lR] = await Promise.all([apiCall("/api/v1/cities", { params: { all: "true" } }), apiCall("/api/v1/godowns", { params: { limit: 100 } }), apiCall("/api/v1/products", { params: { limit: 100 } }), apiCall("/api/v1/lots", { params: { limit: 100 } })]);
-    if (cR.success) setCities((cR.data as any[]).filter((c: any) => c.id !== user?.cityId && c.countryName === user?.countryName));
-    if (gR.success) setGodowns((gR.data as any[]).filter((g: any) => g.cityId === user?.cityId));
-    if (pR.success) setProducts(pR.data as any[]);
-    if (lR.success) setLots(lR.data as any[]);
-    setForm({ toCityId: 0, fromGodownId: 0, productId: 0, lotId: 0, qty: 0, notes: "", transferDate: new Date().toISOString().split("T")[0] });
+    const nextCities = cR.success ? (cR.data as any[]).filter((c: any) => c.id !== user?.cityId && c.countryName === user?.countryName) : [];
+    const nextGodowns = gR.success ? (gR.data as any[]).filter((g: any) => g.cityId === user?.cityId) : [];
+    const nextProducts = pR.success ? (pR.data as any[]) : [];
+    const nextLots = lR.success ? (lR.data as any[]) : [];
+    if (cR.success) setCities(nextCities);
+    if (gR.success) setGodowns(nextGodowns);
+    if (pR.success) setProducts(nextProducts);
+    if (lR.success) setLots(nextLots);
+    if (nextCities.length > 0 && nextGodowns.length > 0 && nextProducts.length > 0) {
+      writeOfflineFormCache<CityTransfersFormCache>(CITY_TRANSFERS_FORM_CACHE_KEY, {
+        cities: nextCities,
+        godowns: nextGodowns,
+        products: nextProducts,
+        lots: nextLots,
+      });
+    }
+    setForm({ toCityId: 0, fromGodownId: 0, productId: 0, lotId: 0, qty: 0, notes: "", transferDate: new Date().toISOString().split("T")[0], ...preset });
     setShowSend(true); setError("");
   };
 
@@ -58,6 +122,23 @@ export default function CityTransfersPage() {
     if (!form.toCityId || !form.fromGodownId || !form.productId || !form.qty) { setError(t("fill_required_fields")); return; }
     const body: any = { ...form };
     if (!body.lotId) delete body.lotId;
+
+    if (resolvingQueueId) {
+      const ok = await updateQueuedItem(resolvingQueueId, { body: JSON.stringify(body) });
+      if (!ok) {
+        setError("Queued city transfer entry not found. Please retry from Activity.");
+        return;
+      }
+      if (isOnline) {
+        await retryQueuedItem(resolvingQueueId);
+        await syncQueue();
+      }
+      setResolvingQueueId(null);
+      setShowSend(false);
+      load();
+      return;
+    }
+
     if (!isOnline) {
       const toCity = cities.find((c: any) => c.id === form.toCityId);
       const fromGodown = godowns.find((g: any) => g.id === form.fromGodownId);
@@ -90,14 +171,37 @@ export default function CityTransfersPage() {
         _pending: true,
       }, ...prev]);
       setShowSend(false);
+      setResolvingQueueId(null);
       return;
     }
 
     setSubmitting(true);
     const r = await apiCall("/api/v1/city-transfers", { method: "POST", body });
     setSubmitting(false);
-    if (r.success) { setShowSend(false); load(); } else { setError(r.error || "Failed"); }
+    if (r.success) { setShowSend(false); setResolvingQueueId(null); load(); } else { setError(r.error || "Failed"); }
   };
+
+  useEffect(() => {
+    const shouldResolve = searchParams.get("resolve") === "1";
+    const queueId = searchParams.get("queue_id");
+    if (!shouldResolve || !queueId) return;
+    const target = queuedItems.find((q) => q.id === queueId && q.pathname === "/city-transfers");
+    if (!target) return;
+    const parsed = safeParseQueuedBody(target.body);
+    if (!parsed) return;
+    openSend({
+      toCityId: Number(parsed.toCityId || 0),
+      fromGodownId: Number(parsed.fromGodownId || 0),
+      productId: Number(parsed.productId || 0),
+      lotId: Number(parsed.lotId || 0),
+      qty: Number(parsed.qty || 0),
+      notes: String(parsed.notes || ""),
+      transferDate: String(parsed.transferDate || new Date().toISOString().split("T")[0]),
+    });
+    setResolvingQueueId(queueId);
+    setError("Resolving queued city transfer. Save to update and re-sync.");
+    window.history.replaceState({}, "", "/city-transfers");
+  }, [queuedItems, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openApprove = async (tr: any) => {
     setSelected(tr);
@@ -126,7 +230,7 @@ export default function CityTransfersPage() {
 
   return (
     <div>
-      <PageHeader title={t("city_transfers")} subtitle={`${total} ${t("transfers").toLowerCase()}`} action={user?.role === "city_admin" ? <button onClick={openSend} className="btn-primary text-sm">📦 {t("send_goods")}</button> : undefined} />
+      <PageHeader title={t("city_transfers")} subtitle={`${total} ${t("transfers").toLowerCase()}`} action={user?.role === "city_admin" ? <button onClick={() => { void openSend(); }} className="btn-primary text-sm">📦 {t("send_goods")}</button> : undefined} />
 
       {pendingIncoming.length > 0 && (
         <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">

@@ -7,6 +7,7 @@ import { PageHeader, PaginationBar } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import { getQueueResolvePath } from "@/lib/queue-resolve";
 
 interface ActivityItem {
   id: number | string;
@@ -130,6 +131,7 @@ const ENTITY_CONFIG: Record<string, { icon: string; label: string }> = {
   product:             { icon: "🏷️", label: "Product" },
   user:                { icon: "👤", label: "User" },
   city_transfer:       { icon: "🔄", label: "City Transfer" },
+  bank_deposit:        { icon: "🏦", label: "Bank Deposit" },
   supplier_payment:    { icon: "💵", label: "Supplier Payment" },
   lot_cost:            { icon: "🏷️", label: "Lot Cost" },
   lot_purchase:        { icon: "🛒", label: "Lot Purchase" },
@@ -137,16 +139,6 @@ const ENTITY_CONFIG: Record<string, { icon: string; label: string }> = {
   agent_payment:       { icon: "💳", label: "Agent Payment" },
   offline_entry:       { icon: "📝", label: "Offline Entry" },
 };
-
-function getQueueResolvePath(entityType: string): string | null {
-  if (entityType === "sale") return "/sales";
-  if (entityType === "payment") return "/payments";
-  if (entityType === "expense") return "/expenses";
-  if (entityType === "haji_transfer") return "/haji-transfers";
-  if (entityType === "personal_withdrawal") return "/personal-withdrawals";
-  if (entityType === "customer") return "/customers";
-  return null;
-}
 
 // Natural-language verb phrase: "created a new sale", "updated payment", etc.
 function buildVerb(action: string, entityType: string): string {
