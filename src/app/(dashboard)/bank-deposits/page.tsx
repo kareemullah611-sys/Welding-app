@@ -8,14 +8,22 @@ import { useOffline } from "@/hooks/useOffline";
 import { useSearchParams } from "next/navigation";
 import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { safeParseQueuedBody } from "@/lib/queue-resolve";
 
 const BANK_DEPOSITS_FORM_CACHE_KEY = "mrf-bank-deposits-form-cache-v1";
+const BANK_DEPOSITS_READ_CACHE_KEY = "mrf-bank-deposits-read-cache-v1";
 
 type BankDepositsFormCache = {
   bankAccounts: any[];
   currencies: any[];
   inHandCheques: any[];
+};
+
+type BankDepositsReadSnapshot = {
+  deposits: any[];
+  totalPages: number;
+  total: number;
 };
 
 export default function BankDepositsPage() {
@@ -41,6 +49,7 @@ export default function BankDepositsPage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const transferTypeLabels: Record<string, string> = {
@@ -60,9 +69,23 @@ export default function BankDepositsPage() {
       setDeposits(r.data as any[]);
       setTotalPages((r.pagination as any)?.totalPages || 1);
       setTotal((r.pagination as any)?.total || 0);
+      writeOfflineReadSnapshot<BankDepositsReadSnapshot>(BANK_DEPOSITS_READ_CACHE_KEY, {
+        deposits: r.data as any[],
+        totalPages: (r.pagination as any)?.totalPages || 1,
+        total: (r.pagination as any)?.total || 0,
+      });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readOfflineReadSnapshot<BankDepositsReadSnapshot>(BANK_DEPOSITS_READ_CACHE_KEY)?.data;
+      if (snapshot?.deposits?.length) {
+        setDeposits(snapshot.deposits);
+        setTotalPages(snapshot.totalPages || 1);
+        setTotal(snapshot.total || 0);
+        setShowOfflineSnapshot(true);
+      }
     }
     setLoading(false);
-  }, [page, searchQuery]);
+  }, [isOnline, page, searchQuery]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (lastSyncResult && lastSyncResult.synced > 0) load();
@@ -281,6 +304,11 @@ export default function BankDepositsPage() {
           <button onClick={() => { void openCreate(); }} className="btn-primary text-sm">+ New Deposit Slip</button>
         ) : undefined}
       />
+      {showOfflineSnapshot && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          Offline snapshot mode: showing last cached bank deposit data for this device.
+        </div>
+      )}
       <div className="mb-4">
         <input
           type="search"
