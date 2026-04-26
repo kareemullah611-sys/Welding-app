@@ -8,6 +8,7 @@ import {
   OFFLINE_QUEUE_STORE,
   OFFLINE_STOCK_STORE,
   buildApiCacheKey,
+  shouldAutoQueueOfflineWrite,
 } from "@/lib/offline-cache";
 
 interface FetchOptions {
@@ -27,6 +28,25 @@ interface ApiCacheRecord<T> {
   data: T;
   pagination?: unknown;
   cachedAt: number;
+}
+
+interface QueuedRequest {
+  id: string;
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body: string;
+  timestamp: number;
+  pathname: string;
+  syncStatus: "pending";
+  syncAttempts: number;
+  lastError?: string | null;
+  auditMeta?: {
+    action?: string;
+    entityType?: string;
+    entityLabel?: string;
+    entityDetail?: string;
+  };
 }
 
 function buildFullUrl(url: string, params?: Record<string, string | number | undefined>): string {
@@ -104,6 +124,44 @@ async function getCachedApiResponse<T>(
   });
 }
 
+async function enqueueOfflineWrite(
+  url: string,
+  method: string,
+  body: unknown
+): Promise<string> {
+  const db = await openOfflineDb();
+  const id = crypto.randomUUID();
+  const queueItem: QueuedRequest = {
+    id,
+    url,
+    method: String(method || "POST").toUpperCase(),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+    timestamp: Date.now(),
+    pathname: typeof window !== "undefined" ? window.location.pathname : "/",
+    syncStatus: "pending",
+    syncAttempts: 0,
+    lastError: null,
+    auditMeta: {
+      action: "create",
+      entityType: "offline_entry",
+      entityLabel: "Offline Entry",
+      entityDetail: `${String(method || "POST").toUpperCase()} ${url}`,
+    },
+  };
+
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(OFFLINE_QUEUE_STORE, "readwrite");
+    tx.objectStore(OFFLINE_QUEUE_STORE).put(queueItem);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("mrf-offline-queue-updated"));
+  }
+  return id;
+}
+
 export function useApi<T = unknown>() {
   const [state, setState] = useState<ApiState<T>>({
     data: null,
@@ -135,6 +193,19 @@ export function useApi<T = unknown>() {
         }
       }
 
+      if (
+        typeof window !== "undefined" &&
+        !navigator.onLine &&
+        shouldAutoQueueOfflineWrite(url, method)
+      ) {
+        const queueId = await enqueueOfflineWrite(url, method, options.body);
+        return {
+          success: true,
+          data: { queued: true, queueId } as T,
+          queued: true,
+        };
+      }
+
       const res = await fetch(fullUrl, fetchOptions);
       const data = await res.json();
 
@@ -158,6 +229,17 @@ export function useApi<T = unknown>() {
       }
     } catch (err) {
       const method = options.method || "GET";
+      if (
+        shouldAutoQueueOfflineWrite(url, method) &&
+        typeof window !== "undefined"
+      ) {
+        const queueId = await enqueueOfflineWrite(url, method, options.body);
+        return {
+          success: true,
+          data: { queued: true, queueId } as T,
+          queued: true,
+        };
+      }
       if (method === "GET") {
         const cached = await getCachedApiResponse<T>(url, options.params);
         if (cached) {
@@ -178,7 +260,7 @@ export function useApi<T = unknown>() {
 export async function apiCall<T = unknown>(
   url: string,
   options: FetchOptions = {}
-): Promise<{ success: boolean; data?: T; error?: string; pagination?: unknown; cached?: boolean }> {
+): Promise<{ success: boolean; data?: T; error?: string; pagination?: unknown; cached?: boolean; queued?: boolean }> {
   try {
     const method = options.method || "GET";
     const fullUrl = buildFullUrl(url, options.params);
@@ -190,6 +272,15 @@ export async function apiCall<T = unknown>(
 
     if (options.body && method !== "GET") {
       fetchOptions.body = JSON.stringify(options.body);
+    }
+
+    if (
+      typeof window !== "undefined" &&
+      !navigator.onLine &&
+      shouldAutoQueueOfflineWrite(url, method)
+    ) {
+      const queueId = await enqueueOfflineWrite(url, method, options.body);
+      return { success: true, data: { queued: true, queueId } as T, queued: true };
     }
 
     if (method === "GET" && typeof window !== "undefined" && !navigator.onLine) {
@@ -217,6 +308,13 @@ export async function apiCall<T = unknown>(
     return { success: false, error: data.error?.message || "Request failed" };
   } catch {
     const method = options.method || "GET";
+    if (
+      typeof window !== "undefined" &&
+      shouldAutoQueueOfflineWrite(url, method)
+    ) {
+      const queueId = await enqueueOfflineWrite(url, method, options.body);
+      return { success: true, data: { queued: true, queueId } as T, queued: true };
+    }
     if (method === "GET") {
       const cached = await getCachedApiResponse<T>(url, options.params);
       if (cached) {

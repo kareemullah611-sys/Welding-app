@@ -198,6 +198,11 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => { refreshQueueState(); }, [refreshQueueState]);
+  useEffect(() => {
+    const onQueueUpdated = () => { refreshQueueState(); };
+    window.addEventListener("mrf-offline-queue-updated", onQueueUpdated);
+    return () => window.removeEventListener("mrf-offline-queue-updated", onQueueUpdated);
+  }, [refreshQueueState]);
 
   // ── enqueue — called by pages when offline ──
   const enqueue = useCallback(async (item: EnqueueRequest) => {

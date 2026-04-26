@@ -19,3 +19,12 @@ export function buildApiCacheKey(
     .join("&");
   return `${url}?${qs}`;
 }
+
+export function shouldAutoQueueOfflineWrite(url: string, method: string): boolean {
+  const normalizedMethod = String(method || "GET").toUpperCase();
+  if (normalizedMethod === "GET") return false;
+  if (!url.startsWith("/api/v1/")) return false;
+  if (url.startsWith("/api/v1/auth/")) return false;
+  if (url === "/api/v1/auth/logout") return false;
+  return true;
+}
