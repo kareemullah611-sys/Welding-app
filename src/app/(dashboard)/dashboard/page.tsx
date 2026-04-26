@@ -2,8 +2,10 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
+import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, StatsCard, formatNumber, DataTable, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import Link from "next/link";
 import { 
   ShoppingCart, 
@@ -21,6 +23,14 @@ import {
   CheckCircle2,
   X,
 } from "lucide-react";
+
+const DASHBOARD_READ_CACHE_KEY = "mrf-dashboard-read-cache-v1";
+
+type DashboardReadSnapshot = {
+  data: any | null;
+  cashPosition: any | null;
+  treasury: any | null;
+};
 
 const QuickActionCard = ({ 
   icon: Icon, 
@@ -127,10 +137,12 @@ const SectionCard = ({
 export default function DashboardPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const { isOnline } = useOffline();
   const [data, setData] = useState<any>(null);
   const [cashPosition, setCashPosition] = useState<any>(null);
   const [treasury, setTreasury] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState<string>("");
   const [showOperationalDetails, setShowOperationalDetails] = useState(true);
   const [quickAction, setQuickAction] = useState<{ title: string; src: string } | null>(null);
@@ -138,19 +150,58 @@ export default function DashboardPage() {
   useEffect(() => {
     const load = async () => {
       setLoading(true);
+      const snapshot = readOfflineReadSnapshot<DashboardReadSnapshot>(DASHBOARD_READ_CACHE_KEY)?.data;
       const treasuryRequest = user?.role === "city_admin" ? apiCall("/api/v1/treasury") : Promise.resolve(null);
       const [dashRes, cashRes, treasuryRes] = await Promise.all([
         apiCall("/api/v1/dashboard"),
         apiCall("/api/v1/cash-position"),
         treasuryRequest,
       ]);
-      if (dashRes.success) setData(dashRes.data);
-      if (cashRes.success) setCashPosition(cashRes.data);
-      if (treasuryRes?.success) setTreasury(treasuryRes.data);
+      let usedSnapshot = false;
+      let usedLive = false;
+      let nextData = snapshot?.data ?? null;
+      let nextCashPosition = snapshot?.cashPosition ?? null;
+      let nextTreasury = snapshot?.treasury ?? null;
+
+      if (dashRes.success) {
+        nextData = dashRes.data;
+        setData(dashRes.data);
+        usedLive = true;
+      } else if (!isOnline && snapshot?.data) {
+        setData(snapshot.data);
+        usedSnapshot = true;
+      }
+
+      if (cashRes.success) {
+        nextCashPosition = cashRes.data;
+        setCashPosition(cashRes.data);
+        usedLive = true;
+      } else if (!isOnline && snapshot?.cashPosition) {
+        setCashPosition(snapshot.cashPosition);
+        usedSnapshot = true;
+      }
+
+      if (treasuryRes?.success) {
+        nextTreasury = treasuryRes.data;
+        setTreasury(treasuryRes.data);
+        usedLive = true;
+      } else if (!isOnline && snapshot?.treasury) {
+        setTreasury(snapshot.treasury);
+        usedSnapshot = true;
+      }
+
+      if (usedLive) {
+        writeOfflineReadSnapshot<DashboardReadSnapshot>(DASHBOARD_READ_CACHE_KEY, {
+          data: nextData,
+          cashPosition: nextCashPosition,
+          treasury: nextTreasury,
+        });
+      }
+      setShowOfflineSnapshot(usedSnapshot);
       setLoading(false);
     };
     load();
-  }, [user?.role]);
+  }, [isOnline, user?.role]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -204,6 +255,11 @@ export default function DashboardPage() {
           title={t("dashboard")} 
           subtitle={`Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}, ${user?.fullName}`} 
         />
+        {showOfflineSnapshot && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            Offline snapshot mode: showing last cached dashboard data for this device.
+          </div>
+        )}
 
         {/* Quick Actions - Featured */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -498,6 +554,11 @@ export default function DashboardPage() {
         title={t("dashboard")} 
         subtitle={`Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}, ${user?.fullName}`} 
       />
+      {showOfflineSnapshot && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          Offline snapshot mode: showing last cached dashboard data for this device.
+        </div>
+      )}
 
       {/* Global Metrics */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
