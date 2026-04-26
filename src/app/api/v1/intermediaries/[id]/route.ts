@@ -46,7 +46,7 @@ export const GET = withSuperAdmin(async (_request: NextRequest, context: any, _u
     ...deposits.map((d) => ({
       date: d.depositDate, type: "deposit" as const, id: d.id,
       description: `Deposit${d.city ? ` (${d.city.name})` : ""}${d.bankAccount ? ` via ${d.bankAccount.bankName}` : ""}${d.superAdminBankAccount ? ` via ${d.superAdminBankAccount.bankName}` : ""}${d.notes ? ` — ${d.notes}` : ""}`,
-      currencyCode: d.currency.code, debit: Number(d.amount), credit: 0,
+      currencyCode: d.currency.code, debit: 0, credit: Number(d.amount),
       sourceType: d.sourceType,
       currencyId: d.currencyId,
       superAdminBankAccountId: d.superAdminBankAccountId,
@@ -55,7 +55,7 @@ export const GET = withSuperAdmin(async (_request: NextRequest, context: any, _u
     ...payments.map((p) => ({
       date: p.paymentDate, type: "payment" as const, id: p.id,
       description: `Supplier payment — ${p.supplier.name}${p.notes ? ` — ${p.notes}` : ""}`,
-      currencyCode: "USD", debit: 0, credit: Number(p.amountUsd),
+      currencyCode: "USD", debit: Number(p.amountUsd), credit: 0,
     })),
     ...exchanges.flatMap((e) => ([
       {
