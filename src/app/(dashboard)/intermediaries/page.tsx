@@ -96,6 +96,12 @@ export default function IntermediariesPage() {
   const [superAdminBankAccounts, setSuperAdminBankAccounts] = useState<any[]>([]);
 
   const [ledgerCurrencyFilter, setLedgerCurrencyFilter] = useState<string>("");
+  const [ledgerDateFilter, setLedgerDateFilter] = useState<string>("all");
+  const [customStartDate, setCustomStartDate] = useState<string>("");
+  const [customEndDate, setCustomEndDate] = useState<string>("");
+  const [ledgerPage, setLedgerPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -128,14 +134,55 @@ export default function IntermediariesPage() {
 
   const openLedger = async (item: any) => {
     setLedgerCurrencyFilter("");
+    setLedgerDateFilter("all");
+    setCustomStartDate("");
+    setCustomEndDate("");
+    setLedgerPage(1);
     setExchangeForm({ ...EMPTY_EXCHANGE });
     setExchangeError("");
     await loadRefData();
     setSelected(item);
     setShowLedger(true);
     setLedgerLoading(true);
-    const r = await apiCall(`/api/v1/intermediaries/${item.id}`);
-    if (r.success) setLedger(r.data);
+    const params = buildLedgerParams(item.id, 1);
+    const r = await apiCall(`/api/v1/intermediaries/${item.id}`, { params });
+    if (r.success) {
+      setLedger(r.data);
+      setTotalPages((r.data.pagination as any)?.totalPages || 1);
+      setTotal((r.data.pagination as any)?.total || 0);
+    }
+    setLedgerLoading(false);
+  };
+
+  const buildLedgerParams = (id: number, page: number) => {
+    const params: any = { page, limit: 20 };
+    const dateFilter = ledgerDateFilter;
+    if (dateFilter === "custom" && customStartDate && customEndDate) {
+      params.startDate = customStartDate;
+      params.endDate = customEndDate;
+    } else if (dateFilter === "7days") {
+      const d7 = new Date(); d7.setDate(d7.getDate() - 7);
+      params.startDate = d7.toISOString().split("T")[0];
+      params.endDate = new Date().toISOString().split("T")[0];
+    } else if (dateFilter === "month") {
+      const d = new Date();
+      params.startDate = new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split("T")[0];
+      params.endDate = new Date().toISOString().split("T")[0];
+    }
+    return params;
+  };
+
+  const handleLedgerPageChange = async (newPage: number) => {
+    if (!selected?.id) return;
+    setLedgerPage(newPage);
+    setLedgerLoading(true);
+    const params = buildLedgerParams(selected.id, newPage);
+    const r = await apiCall(`/api/v1/intermediaries/${selected.id}`, { params });
+    if (r.success) {
+      setLedger(r.data);
+      setTotalPages((r.data.pagination as any)?.totalPages || 1);
+      setTotal((r.data.pagination as any)?.total || 0);
+    }
     setLedgerLoading(false);
   };
 
@@ -519,6 +566,68 @@ export default function IntermediariesPage() {
                 + Record Deposit
               </button>
             </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50/60 px-3 py-2">
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Date:</span>
+            <select
+              value={ledgerDateFilter}
+              onChange={async (e) => {
+                setLedgerDateFilter(e.target.value);
+                setLedgerPage(1);
+                setLedgerLoading(true);
+                const params = buildLedgerParams(selected?.id, 1);
+                if (e.target.value === "custom") {
+                  if (customStartDate && customEndDate) {
+                    params.startDate = customStartDate;
+                    params.endDate = customEndDate;
+                  }
+                }
+                const r = await apiCall(`/api/v1/intermediaries/${selected?.id}`, { params });
+                if (r.success) {
+                  setLedger(r.data);
+                  setTotalPages((r.data.pagination as any)?.totalPages || 1);
+                  setTotal((r.data.pagination as any)?.total || 0);
+                }
+                setLedgerLoading(false);
+              }}
+              className="select-field text-sm py-1"
+            >
+              <option value="all">All</option>
+              <option value="7days">Last 7 Days</option>
+              <option value="month">This Month</option>
+              <option value="custom">Custom</option>
+            </select>
+            {ledgerDateFilter === "custom" && (
+              <>
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={e => setCustomStartDate(e.target.value)}
+                  className="input-field text-sm py-1 w-36"
+                />
+                <span className="text-gray-400">to</span>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  onChange={e => setCustomEndDate(e.target.value)}
+                  className="input-field text-sm py-1 w-36"
+                />
+              </>
+            )}
+            <span className="ml-auto text-xs text-gray-400">
+              {total > 0 && `Page ${ledgerPage} of ${totalPages} (${total} entries)`}
+            </span>
+            {ledgerPage > 1 && (
+              <button onClick={() => handleLedgerPageChange(ledgerPage - 1)} className="text-xs text-gray-600 hover:text-gray-800">
+                ← Prev
+              </button>
+            )}
+            {ledgerPage < totalPages && (
+              <button onClick={() => handleLedgerPageChange(ledgerPage + 1)} className="text-xs text-gray-600 hover:text-gray-800">
+                Next →
+              </button>
+            )}
           </div>
 
           {ledgerLoading ? (

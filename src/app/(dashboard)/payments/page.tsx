@@ -535,9 +535,39 @@ export default function PaymentsPage() {
   };
 
   const handleEdit = async () => {
-    setSubmitting(true);
     const id = selected.id;
     const endpoint = createType === "payment" ? `/api/v1/payments/${id}` : createType === "expense" ? `/api/v1/expenses/${id}` : createType === "haji_transfer" ? `/api/v1/haji-transfers/${id}` : `/api/v1/personal-withdrawals/${id}`;
+    if (!isOnline) {
+      await enqueue({
+        url: endpoint,
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+        pathname: "/payments",
+        auditMeta: {
+          action: "edit",
+          entityType: createType,
+          entityLabel: `${createType.replace("_", " ")} edit (Pending)`,
+          entityDetail: `${form.detail || selected?.detail || "Entry"} — ${Number(form.amount || selected?.amount || 0).toLocaleString("en-US")}`,
+        },
+      });
+      setItems((prev) =>
+        prev.map((item: any) =>
+          item.id === id
+            ? {
+                ...item,
+                amount: form.amount ?? item.amount,
+                detail: form.detail ?? item.detail,
+                _pending: true,
+                raw: { ...(item.raw || {}), ...form },
+              }
+            : item
+        )
+      );
+      setShowEdit(false);
+      return;
+    }
+    setSubmitting(true);
     const r = await apiCall(endpoint, { method: "PUT", body: form });
     setSubmitting(false);
     if (r.success) { setShowEdit(false); load(); } else { setError(r.error || "Failed"); }
@@ -561,18 +591,98 @@ export default function PaymentsPage() {
     const endpoint = item.type === "payment" ? `/api/v1/payments/${item.id}/cancel` : item.type === "expense" ? `/api/v1/expenses/${item.id}` : item.type === "haji_transfer" ? `/api/v1/haji-transfers/${item.id}` : `/api/v1/personal-withdrawals/${item.id}`;
     const method = item.type === "payment" ? "PUT" : "DELETE";
     const body = item.type === "payment" ? { reason: reason.trim() } : undefined;
+    if (!isOnline) {
+      await enqueue({
+        url: endpoint,
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : "",
+        pathname: "/payments",
+        auditMeta: {
+          action: item.type === "payment" ? "cancel" : "delete",
+          entityType: item.type,
+          entityLabel: `${typeLabel} ${item.type === "payment" ? "cancel" : "delete"} (Pending)`,
+          entityDetail: `${item.detail || item.person || typeLabel} — ${Number(item.amount || 0).toLocaleString("en-US")}`,
+        },
+      });
+      setItems((prev) =>
+        prev
+          .map((row: any) =>
+            row.id === item.id
+              ? item.type === "payment"
+                ? {
+                    ...row,
+                    status: "cancelled",
+                    _pending: true,
+                    raw: { ...(row.raw || {}), cancellationReason: reason.trim() },
+                  }
+                : null
+              : row
+          )
+          .filter(Boolean) as any[]
+      );
+      return;
+    }
     await apiCall(endpoint, { method, body });
     load();
   };
 
   const handleApproveWithdrawal = async (item: any) => {
     if (!window.confirm("Approve this withdrawal? This will create a Haji Transfer.")) return;
+    if (!isOnline) {
+      await enqueue({
+        url: `/api/v1/personal-withdrawals/${item.id}/approve`,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "",
+        pathname: "/payments",
+        auditMeta: {
+          action: "approve",
+          entityType: "withdrawal",
+          entityLabel: "Withdrawal approval (Pending)",
+          entityDetail: `${item.person || item.detail || "Withdrawal"} — ${Number(item.amount || 0).toLocaleString("en-US")}`,
+        },
+      });
+      setItems((prev) =>
+        prev.map((row: any) =>
+          row.id === item.id
+            ? { ...row, status: "approved", _pending: true, raw: { ...(row.raw || {}), status: "approved" } }
+            : row
+        )
+      );
+      return;
+    }
     await apiCall(`/api/v1/personal-withdrawals/${item.id}/approve`, { method: "POST" });
     load();
   };
 
   const handleBounce = async () => {
     if (!bounceTarget) return;
+    if (!isOnline) {
+      await enqueue({
+        url: `/api/v1/payments/${bounceTarget.id}`,
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "bounce_cheque" }),
+        pathname: "/payments",
+        auditMeta: {
+          action: "bounce",
+          entityType: "payment",
+          entityLabel: "Cheque bounce (Pending)",
+          entityDetail: `${bounceTarget.detail || "Payment"} — ${Number(bounceTarget.amount || 0).toLocaleString("en-US")}`,
+        },
+      });
+      setItems((prev) =>
+        prev.map((row: any) =>
+          row.id === bounceTarget.id
+            ? { ...row, _pending: true, raw: { ...(row.raw || {}), chequeStatus: "bounced" } }
+            : row
+        )
+      );
+      setShowBounce(false);
+      setBounceTarget(null);
+      return;
+    }
     setBounceSubmitting(true);
     const r = await apiCall(`/api/v1/payments/${bounceTarget.id}`, { method: "PATCH", body: { action: "bounce_cheque" } });
     setBounceSubmitting(false);
@@ -581,6 +691,36 @@ export default function PaymentsPage() {
   };
 
   const handleToggleHajiAudit = async (item: any, confirmed: boolean) => {
+    if (!isOnline) {
+      await enqueue({
+        url: `/api/v1/payments/${item.id}`,
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "set_haji_audit", confirmed }),
+        pathname: "/payments",
+        auditMeta: {
+          action: "audit_toggle",
+          entityType: "payment",
+          entityLabel: "Haji audit toggle (Pending)",
+          entityDetail: `${item.detail || "Payment"} — ${confirmed ? "confirmed" : "unconfirmed"}`,
+        },
+      });
+      setItems((prev) =>
+        prev.map((row: any) =>
+          row.id === item.id
+            ? {
+                ...row,
+                _pending: true,
+                raw: {
+                  ...(row.raw || {}),
+                  hajiAudit: { ...(row.raw?.hajiAudit || {}), confirmed },
+                },
+              }
+            : row
+        )
+      );
+      return;
+    }
     const r = await apiCall(`/api/v1/payments/${item.id}`, {
       method: "PATCH",
       body: { action: "set_haji_audit", confirmed },

@@ -4,24 +4,68 @@ import { withSuperAdmin } from "@/lib/middleware";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 
-export const GET = withSuperAdmin(async (_request: NextRequest, context: any, _user: JWTPayload) => {
+export const GET = withSuperAdmin(async (request: NextRequest, context: any, _user: JWTPayload) => {
   const id = parseInt(context.params.id);
+  const { searchParams } = new URL(request.url);
+  const page = parseInt(searchParams.get("page") || "1");
+  const limit = parseInt(searchParams.get("limit") || "20");
+  const startDate = searchParams.get("startDate");
+  const endDate = searchParams.get("endDate");
+
   const intermediary = await prisma.intermediary.findUnique({ where: { id } });
   if (!intermediary) return errorResponse("NOT_FOUND", "Not found", 404);
 
+  const whereDeposits: any = { intermediaryId: id };
+  const wherePayments: any = { intermediaryId: id };
+  const whereExchanges: any = { intermediaryId: id, isActive: true };
+
+  if (startDate || endDate) {
+    if (startDate) {
+      if (!whereDeposits.depositDate) whereDeposits.depositDate = {};
+      whereDeposits.depositDate.gte = new Date(startDate);
+      if (!wherePayments.paymentDate) wherePayments.paymentDate = {};
+      wherePayments.paymentDate.gte = new Date(startDate);
+      if (!whereExchanges.exchangeDate) whereExchanges.exchangeDate = {};
+      whereExchanges.exchangeDate.gte = new Date(startDate);
+    }
+    if (endDate) {
+      const eod = new Date(endDate);
+      eod.setHours(23, 59, 59, 999);
+      if (!whereDeposits.depositDate) whereDeposits.depositDate = {};
+      whereDeposits.depositDate.lte = eod;
+      if (!wherePayments.paymentDate) wherePayments.paymentDate = {};
+      wherePayments.paymentDate.lte = eod;
+      if (!whereExchanges.exchangeDate) whereExchanges.exchangeDate = {};
+      whereExchanges.exchangeDate.lte = eod;
+    }
+  }
+
+  const [totalDeposits, totalPayments, totalExchanges] = await Promise.all([
+    prisma.intermediaryDeposit.count({ where: whereDeposits }),
+    prisma.supplierPayment.count({ where: wherePayments }),
+    prisma.intermediaryExchange.count({ where: whereExchanges }),
+  ]);
+  const totalEntries = totalDeposits + totalPayments + (totalExchanges * 2);
+  const totalPages = Math.ceil(totalEntries / limit);
+  const skip = (page - 1) * limit;
+
   const [deposits, payments, exchanges] = await Promise.all([
     prisma.intermediaryDeposit.findMany({
-      where: { intermediaryId: id },
+      where: whereDeposits,
       include: { currency: true, city: true, bankAccount: true, superAdminBankAccount: true, creator: { select: { fullName: true } } },
       orderBy: { depositDate: "asc" },
+      skip,
+      take: limit,
     }),
     prisma.supplierPayment.findMany({
-      where: { intermediaryId: id },
+      where: wherePayments,
       include: { supplier: true, creator: { select: { fullName: true } } },
       orderBy: { paymentDate: "asc" },
+      skip,
+      take: limit,
     }),
     prisma.intermediaryExchange.findMany({
-      where: { intermediaryId: id, isActive: true },
+      where: whereExchanges,
       include: {
         baseCurrency: true,
         quoteCurrency: true,
@@ -30,6 +74,8 @@ export const GET = withSuperAdmin(async (_request: NextRequest, context: any, _u
         creator: { select: { fullName: true } },
       },
       orderBy: { exchangeDate: "asc" },
+      skip,
+      take: limit,
     }),
   ]);
 
@@ -84,6 +130,8 @@ export const GET = withSuperAdmin(async (_request: NextRequest, context: any, _u
     balances[e.currencyCode] = (balances[e.currencyCode] || 0) + e.debit - e.credit;
     return { ...e, balance: balances[e.currencyCode] };
   });
+  
+  const paginatedLedger = ledger.slice(skip, skip + limit);
 
   const exchangeHistory = exchanges.map((e) => ({
     id: e.id,
@@ -103,7 +151,7 @@ export const GET = withSuperAdmin(async (_request: NextRequest, context: any, _u
     createdByName: e.creator?.fullName || null,
   }));
 
-  return successResponse({ intermediary, ledger, balances, exchangeHistory });
+  return successResponse({ intermediary, ledger: paginatedLedger, balances, exchangeHistory, pagination: { page, limit, totalPages, total: totalEntries } });
 });
 
 export const PUT = withSuperAdmin(async (request: NextRequest, context: any, _user: JWTPayload) => {

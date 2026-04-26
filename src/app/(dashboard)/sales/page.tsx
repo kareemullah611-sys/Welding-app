@@ -466,6 +466,30 @@ export default function SalesPage() {
   const openCancel = (sale: any) => { setSelectedSale(sale); setCancelReason(""); setShowCancel(true); setFormError(""); };
   const handleCancel = async () => {
     if (!cancelReason.trim()) { setFormError("Cancellation reason is required"); return; }
+    if (!isOnline) {
+      await enqueue({
+        url: `/api/v1/sales/${selectedSale.id}/cancel`,
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: cancelReason }),
+        pathname: "/sales",
+        auditMeta: {
+          action: "cancel",
+          entityType: "sale",
+          entityLabel: "Sale cancel (Pending)",
+          entityDetail: `${selectedSale?.voucherNo || "Sale"} — ${cancelReason}`,
+        },
+      });
+      setSales((prev) =>
+        prev.map((sale: any) =>
+          sale.id === selectedSale.id
+            ? { ...sale, status: "cancelled", cancellationReason: cancelReason, _pending: true }
+            : sale
+        )
+      );
+      setShowCancel(false);
+      return;
+    }
     setSubmitting(true);
     const result = await apiCall(`/api/v1/sales/${selectedSale.id}/cancel`, { method: "PUT", body: { reason: cancelReason } });
     setSubmitting(false);
@@ -486,6 +510,31 @@ export default function SalesPage() {
     if (!correctReason.trim()) { setFormError("Provide reason for correction"); return; }
     const validItems = correctItems.filter(i => i.productId && i.qty > 0 && i.ratePerCarton > 0);
     if (!validItems.length) { setFormError("Add at least one item"); return; }
+    if (!isOnline) {
+      await enqueue({
+        url: `/api/v1/sales/${selectedSale.id}/correct`,
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: validItems, reason: correctReason }),
+        pathname: "/sales",
+        auditMeta: {
+          action: "correct",
+          entityType: "sale",
+          entityLabel: "Sale correction (Pending)",
+          entityDetail: `${selectedSale?.voucherNo || "Sale"} — ${correctReason}`,
+        },
+      });
+      const correctedTotal = validItems.reduce((sum, item) => sum + Number(item.qty || 0) * Number(item.ratePerCarton || 0), 0);
+      setSales((prev) =>
+        prev.map((sale: any) =>
+          sale.id === selectedSale.id
+            ? { ...sale, totalAmount: correctedTotal, _pending: true }
+            : sale
+        )
+      );
+      setShowCorrect(false);
+      return;
+    }
     setSubmitting(true);
     const r = await apiCall(`/api/v1/sales/${selectedSale.id}/correct`, { method: "PUT", body: { items: validItems, reason: correctReason } });
     setSubmitting(false);
@@ -493,6 +542,30 @@ export default function SalesPage() {
   };
   const handleDiscount = async () => {
     if (!discountForm.discountAmount || discountForm.discountAmount <= 0) { setFormError("Discount amount must be positive"); return; }
+    if (!isOnline) {
+      await enqueue({
+        url: `/api/v1/sales/${selectedSale.id}/discount`,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(discountForm),
+        pathname: "/sales",
+        auditMeta: {
+          action: "discount",
+          entityType: "sale",
+          entityLabel: "Sale discount (Pending)",
+          entityDetail: `${selectedSale?.voucherNo || "Sale"} — ${Number(discountForm.discountAmount || 0).toLocaleString("en-US")}`,
+        },
+      });
+      setSales((prev) =>
+        prev.map((sale: any) =>
+          sale.id === selectedSale.id
+            ? { ...sale, totalAmount: Math.max(0, Number(sale.totalAmount || 0) - Number(discountForm.discountAmount || 0)), _pending: true }
+            : sale
+        )
+      );
+      setShowDiscount(false);
+      return;
+    }
     setSubmitting(true);
     const result = await apiCall(`/api/v1/sales/${selectedSale.id}/discount`, { method: "POST", body: discountForm });
     setSubmitting(false);
