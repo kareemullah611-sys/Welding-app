@@ -2,15 +2,29 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
+import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, StatsCard, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import * as XLSX from "xlsx";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+
+const SUPPLIERS_READ_CACHE_KEY = "mrf-suppliers-read-cache-v1";
+
+type SuppliersReadSnapshot = {
+  suppliers: any[];
+  lots: any[];
+  bankAccounts: any[];
+  intermediaries: any[];
+  ledgerBySupplier: Record<string, any>;
+};
 
 export default function SuppliersPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const { isOnline } = useOffline();
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showLedger, setShowLedger] = useState(false);
@@ -42,6 +56,19 @@ export default function SuppliersPage() {
   const [error, setError] = useState("");
   const [openActionId, setOpenActionId] = useState<string | null>(null);
   const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
+
+  const readSnapshot = useCallback(() => {
+    return readOfflineReadSnapshot<SuppliersReadSnapshot>(SUPPLIERS_READ_CACHE_KEY);
+  }, []);
+
+  const mergeSnapshot = useCallback((partial: Partial<SuppliersReadSnapshot>) => {
+    const existing = readSnapshot()?.data || { suppliers: [], lots: [], bankAccounts: [], intermediaries: [], ledgerBySupplier: {} };
+    writeOfflineReadSnapshot<SuppliersReadSnapshot>(SUPPLIERS_READ_CACHE_KEY, {
+      ...existing,
+      ...partial,
+      ledgerBySupplier: { ...(existing.ledgerBySupplier || {}), ...(partial.ledgerBySupplier || {}) },
+    });
+  }, [readSnapshot]);
 
   useEffect(() => {
     if (!openActionId) return;
@@ -75,9 +102,19 @@ export default function SuppliersPage() {
   const load = useCallback(async () => {
     setLoading(true);
     const r = await apiCall("/api/v1/suppliers", { params: { limit: 100 } });
-    if (r.success) setSuppliers(r.data as any[]);
+    if (r.success) {
+      setSuppliers(r.data as any[]);
+      mergeSnapshot({ suppliers: r.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.suppliers?.length) {
+        setSuppliers(snapshot.suppliers);
+        setShowOfflineSnapshot(true);
+      }
+    }
     setLoading(false);
-  }, []);
+  }, [isOnline, mergeSnapshot, readSnapshot]);
   useEffect(() => { load(); }, [load]);
 
   const handleCreate = async () => {
@@ -127,10 +164,51 @@ export default function SuppliersPage() {
       apiCall("/api/v1/bank-accounts"),
       apiCall("/api/v1/intermediaries"),
     ]);
-    if (r.success) setLedgerData(r.data);
-    if (lotR.success) setLots(lotR.data as any[]);
-    if (bankR.success) setBankAccounts(bankR.data as any[]);
-    if (intR.success) setIntermediaries(intR.data as any[]);
+    if (r.success) {
+      setLedgerData(r.data);
+      mergeSnapshot({ ledgerBySupplier: { [String(s.id)]: r.data } });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      const cachedLedger = snapshot?.ledgerBySupplier?.[String(s.id)];
+      if (cachedLedger) {
+        setLedgerData(cachedLedger);
+        setShowOfflineSnapshot(true);
+      }
+    }
+    if (lotR.success) {
+      setLots(lotR.data as any[]);
+      mergeSnapshot({ lots: lotR.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.lots?.length) {
+        setLots(snapshot.lots);
+        setShowOfflineSnapshot(true);
+      }
+    }
+    if (bankR.success) {
+      setBankAccounts(bankR.data as any[]);
+      mergeSnapshot({ bankAccounts: bankR.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.bankAccounts?.length) {
+        setBankAccounts(snapshot.bankAccounts);
+        setShowOfflineSnapshot(true);
+      }
+    }
+    if (intR.success) {
+      setIntermediaries(intR.data as any[]);
+      mergeSnapshot({ intermediaries: intR.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.intermediaries?.length) {
+        setIntermediaries(snapshot.intermediaries);
+        setShowOfflineSnapshot(true);
+      }
+    }
   };
 
   useEffect(() => {
@@ -343,6 +421,11 @@ export default function SuppliersPage() {
           </button>
         }
       />
+      {showOfflineSnapshot && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Showing last synced data (offline mode).
+        </div>
+      )}
       <DataTable
         columns={[
           {

@@ -2,11 +2,23 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
+import { useOffline } from "@/hooks/useOffline";
 import { DataTable, Modal, PageHeader, formatDate, formatNumber } from "@/components/ui";
 import Link from "next/link";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+
+const SA_PERSONAL_EXPENSES_READ_CACHE_KEY = "mrf-sa-personal-expenses-read-cache-v1";
+
+type SaPersonalExpensesReadSnapshot = {
+  accounts: any[];
+  expenses: any[];
+  totalPages: number;
+  total: number;
+};
 
 export default function SuperAdminPersonalExpensesPage() {
   const { user } = useAuth();
+  const { isOnline } = useOffline();
   const isSA = user?.role === "super_admin";
 
   const [loading, setLoading] = useState(true);
@@ -23,6 +35,15 @@ export default function SuperAdminPersonalExpensesPage() {
   const [expenseForm, setExpenseForm] = useState<any>({ expenseDate: new Date().toISOString().split("T")[0], detail: "", amount: 0, notes: "", bankAccountId: 0 });
   const [openActionId, setOpenActionId] = useState<number | null>(null);
   const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
+
+  const readSnapshot = useCallback(() => {
+    return readOfflineReadSnapshot<SaPersonalExpensesReadSnapshot>(SA_PERSONAL_EXPENSES_READ_CACHE_KEY);
+  }, []);
+
+  const writeSnapshot = useCallback((data: SaPersonalExpensesReadSnapshot) => {
+    writeOfflineReadSnapshot<SaPersonalExpensesReadSnapshot>(SA_PERSONAL_EXPENSES_READ_CACHE_KEY, data);
+  }, []);
 
   const load = useCallback(async () => {
     if (!isSA) return;
@@ -34,14 +55,34 @@ export default function SuperAdminPersonalExpensesPage() {
       apiCall("/api/v1/bank-accounts", { params: { scope: "super_admin" } }),
       apiCall("/api/v1/super-admin-personal-expenses", { params: expenseParams }),
     ]);
-    if (accountsRes.success) setAccounts(accountsRes.data as any[]);
-    if (expensesRes.success) {
-      setExpenses(expensesRes.data as any[]);
-      setTotalPages((expensesRes.pagination as any)?.totalPages || 1);
-      setTotal((expensesRes.pagination as any)?.total || 0);
+    if (accountsRes.success && expensesRes.success) {
+      const loadedAccounts = accountsRes.data as any[];
+      const loadedExpenses = expensesRes.data as any[];
+      const loadedTotalPages = (expensesRes.pagination as any)?.totalPages || 1;
+      const loadedTotal = (expensesRes.pagination as any)?.total || 0;
+      setAccounts(loadedAccounts);
+      setExpenses(loadedExpenses);
+      setTotalPages(loadedTotalPages);
+      setTotal(loadedTotal);
+      writeSnapshot({
+        accounts: loadedAccounts,
+        expenses: loadedExpenses,
+        totalPages: loadedTotalPages,
+        total: loadedTotal,
+      });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.expenses) {
+        setAccounts(snapshot.accounts || []);
+        setExpenses(snapshot.expenses || []);
+        setTotalPages(snapshot.totalPages || 1);
+        setTotal(snapshot.total || snapshot.expenses?.length || 0);
+        setShowOfflineSnapshot(true);
+      }
     }
     setLoading(false);
-  }, [isSA, page, searchQuery]);
+  }, [isOnline, isSA, page, readSnapshot, searchQuery, writeSnapshot]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [searchQuery]);
@@ -128,6 +169,11 @@ export default function SuperAdminPersonalExpensesPage() {
           </div>
         }
       />
+      {showOfflineSnapshot && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Showing last synced data (offline mode).
+        </div>
+      )}
 
       <div className="mb-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-4 text-sm text-blue-900">
         This module is separate from city expenses. It is only for home spending and only deducts from super admin bank accounts.

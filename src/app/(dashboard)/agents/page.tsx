@@ -1,9 +1,21 @@
 "use client";
 import React, { useEffect, useState, useCallback } from "react";
 import { apiCall } from "@/hooks/useApi";
+import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, StatsCard, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+
+const AGENTS_READ_CACHE_KEY = "mrf-agents-read-cache-v1";
+
+type AgentsReadSnapshot = {
+  agents: any[];
+  cities: any[];
+  ledgerByAgent: Record<string, any>;
+  bankAccounts: any[];
+  intermediaries: any[];
+};
 
 const TYPES = [
   { value: "customs", label: "Customs Agent" },
@@ -14,6 +26,7 @@ const TYPES = [
 
 export default function AgentsPage() {
   const { t } = useLang();
+  const { isOnline } = useOffline();
   const searchParams = useSearchParams();
   const [agents, setAgents] = useState<any[]>([]);
   const [cities, setCities] = useState<any[]>([]);
@@ -27,6 +40,7 @@ export default function AgentsPage() {
   const [payForm, setPayForm] = useState({ agentId: 0, cityId: 0, paymentDate: new Date().toISOString().split("T")[0], amount: 0, currencyCode: "PKR", paymentMethod: "cash", reference: "", paidFrom: "city_cash", bankAccountId: "", intermediaryId: "" });
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
   const [intermediaries, setIntermediaries] = useState<any[]>([]);
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [openActionId, setOpenActionId] = useState<number | null>(null);
@@ -45,13 +59,46 @@ export default function AgentsPage() {
   const pageTitle = showOnlyCustomAgents ? "Custom Agents" : showOnlyClearingAgents ? "Clearing Agents" : t("agents");
   const pageSubtitle = showOnlyCustomAgents ? "Custom-agent liabilities and settlements" : t("agents_subtitle");
 
+  const readSnapshot = useCallback(() => {
+    return readOfflineReadSnapshot<AgentsReadSnapshot>(AGENTS_READ_CACHE_KEY);
+  }, []);
+
+  const mergeSnapshot = useCallback((partial: Partial<AgentsReadSnapshot>) => {
+    const existing = readSnapshot()?.data || { agents: [], cities: [], ledgerByAgent: {}, bankAccounts: [], intermediaries: [] };
+    writeOfflineReadSnapshot<AgentsReadSnapshot>(AGENTS_READ_CACHE_KEY, {
+      ...existing,
+      ...partial,
+      ledgerByAgent: { ...(existing.ledgerByAgent || {}), ...(partial.ledgerByAgent || {}) },
+    });
+  }, [readSnapshot]);
+
   const load = useCallback(async () => {
     setLoading(true);
     const [aR, cR] = await Promise.all([apiCall("/api/v1/agents", { params: { limit: 100 } }), apiCall("/api/v1/cities", { params: { all: "true" } })]);
-    if (aR.success) setAgents(aR.data as any[]);
-    if (cR.success) setCities(cR.data as any[]);
+    if (aR.success) {
+      setAgents(aR.data as any[]);
+      mergeSnapshot({ agents: aR.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.agents?.length) {
+        setAgents(snapshot.agents);
+        setShowOfflineSnapshot(true);
+      }
+    }
+    if (cR.success) {
+      setCities(cR.data as any[]);
+      mergeSnapshot({ cities: cR.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.cities?.length) {
+        setCities(snapshot.cities);
+        setShowOfflineSnapshot(true);
+      }
+    }
     setLoading(false);
-  }, []);
+  }, [isOnline, mergeSnapshot, readSnapshot]);
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
@@ -76,7 +123,18 @@ export default function AgentsPage() {
   const openLedger = async (a: any) => {
     setSelected(a); setShowLedger(true); setLedgerData(null);
     const r = await apiCall(`/api/v1/agents/${a.id}`);
-    if (r.success) setLedgerData(r.data);
+    if (r.success) {
+      setLedgerData(r.data);
+      mergeSnapshot({ ledgerByAgent: { [String(a.id)]: r.data } });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      const cachedLedger = snapshot?.ledgerByAgent?.[String(a.id)];
+      if (cachedLedger) {
+        setLedgerData(cachedLedger);
+        setShowOfflineSnapshot(true);
+      }
+    }
   };
 
   const openPayment = async (a: any) => {
@@ -87,8 +145,29 @@ export default function AgentsPage() {
       bankAccounts.length ? Promise.resolve({ success: true, data: bankAccounts }) : apiCall("/api/v1/bank-accounts", { params: { limit: 100 } }),
       intermediaries.length ? Promise.resolve({ success: true, data: intermediaries }) : apiCall("/api/v1/intermediaries"),
     ]);
-    if (baRes.success) setBankAccounts((baRes.data as any).items || baRes.data as any[]);
-    if (intRes.success) setIntermediaries(intRes.data as any[]);
+    if (baRes.success) {
+      const loadedBanks = (baRes.data as any).items || baRes.data as any[];
+      setBankAccounts(loadedBanks);
+      mergeSnapshot({ bankAccounts: loadedBanks });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.bankAccounts?.length) {
+        setBankAccounts(snapshot.bankAccounts);
+        setShowOfflineSnapshot(true);
+      }
+    }
+    if (intRes.success) {
+      setIntermediaries(intRes.data as any[]);
+      mergeSnapshot({ intermediaries: intRes.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.intermediaries?.length) {
+        setIntermediaries(snapshot.intermediaries);
+        setShowOfflineSnapshot(true);
+      }
+    }
   };
 
   const handlePayment = async () => {
@@ -107,6 +186,11 @@ export default function AgentsPage() {
   return (
     <div>
       <PageHeader title={pageTitle} subtitle={pageSubtitle} action={<button onClick={() => { setForm({ name: "", agentType: showOnlyClearingAgents ? "transport" : "customs", cityId: 0, phone: "" }); setShowCreate(true); setError(""); }} className="btn-primary text-sm">+ {createAgentLabel}</button>} />
+      {showOfflineSnapshot && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Showing last synced data (offline mode).
+        </div>
+      )}
       <DataTable columns={[
         { key: "name", label: t("name"), render: (a: any) => <button onClick={() => openLedger(a)} className="font-medium text-primary-600 hover:underline">{a.name}</button> },
         { key: "agentType", label: t("type"), render: (a: any) => <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100">{TYPES.find(ty => ty.value === a.agentType)?.label || a.agentType}</span> },

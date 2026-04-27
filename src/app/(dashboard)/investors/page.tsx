@@ -3,17 +3,27 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
 import { apiCall } from "@/hooks/useApi";
+import { useOffline } from "@/hooks/useOffline";
 import { formatNumber } from "@/components/ui";
 import { ChevronRight, Users, Search, Plus } from "lucide-react";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+
+const INVESTORS_READ_CACHE_KEY = "mrf-investors-read-cache-v1";
+
+type InvestorsReadSnapshot = {
+  investors: Investor[];
+};
 
 type Investor = { id: number; name: string; relationship?: string; phone?: string; accounts: any[] };
 
 export default function InvestorsPage() {
   const { user } = useAuth();
   const router = useRouter();
+  const { isOnline } = useOffline();
   const [investors, setInvestors] = useState<Investor[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
 
   // Create investor
   const [showCreate, setShowCreate] = useState(false);
@@ -42,12 +52,31 @@ export default function InvestorsPage() {
     if (user && user.role !== "super_admin") router.replace("/dashboard");
   }, [user, router]);
 
+  const readSnapshot = useCallback(() => {
+    return readOfflineReadSnapshot<InvestorsReadSnapshot>(INVESTORS_READ_CACHE_KEY);
+  }, []);
+
+  const writeSnapshot = useCallback((investorsData: Investor[]) => {
+    writeOfflineReadSnapshot<InvestorsReadSnapshot>(INVESTORS_READ_CACHE_KEY, { investors: investorsData });
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     const invRes = await apiCall("/api/v1/investors", { params: { limit: 200 } });
-    if (invRes.success) setInvestors(invRes.data as any[]);
+    if (invRes.success) {
+      const loaded = invRes.data as Investor[];
+      setInvestors(loaded);
+      writeSnapshot(loaded);
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.investors?.length) {
+        setInvestors(snapshot.investors);
+        setShowOfflineSnapshot(true);
+      }
+    }
     setLoading(false);
-  }, []);
+  }, [isOnline, readSnapshot, writeSnapshot]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -149,6 +178,11 @@ export default function InvestorsPage() {
           className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl outline-none focus:border-violet-400 bg-white"
         />
       </div>
+      {showOfflineSnapshot && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Showing last synced data (offline mode).
+        </div>
+      )}
 
       {loading ? (
         <div className="space-y-2">

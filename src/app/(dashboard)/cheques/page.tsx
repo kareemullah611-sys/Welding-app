@@ -2,8 +2,18 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
+import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+
+const CHEQUES_READ_CACHE_KEY = "mrf-cheques-read-cache-v1";
+
+type ChequesReadSnapshot = {
+  allCheques: any[];
+  totalPages: number;
+  total: number;
+};
 
 const CHEQUE_STATUS_CONFIG: Record<string, { label: string; color: string; icon: string }> = {
   in_hand:           { label: "In Hand",           icon: "🤲", color: "bg-yellow-50 text-yellow-700 border-yellow-200" },
@@ -20,6 +30,7 @@ type Tab = typeof TABS[number];
 export default function ChequesPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const { isOnline } = useOffline();
   const [allCheques, setAllCheques] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("all");
@@ -27,6 +38,7 @@ export default function ChequesPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const PAGE_SIZE = 50;
 
   // Bounce modal
@@ -34,6 +46,14 @@ export default function ChequesPage() {
   const [bounceTarget, setBounceTarget] = useState<any>(null);
   const [bounceSubmitting, setBounceSubmitting] = useState(false);
   const [bounceError, setBounceError] = useState("");
+
+  const readSnapshot = useCallback(() => {
+    return readOfflineReadSnapshot<ChequesReadSnapshot>(CHEQUES_READ_CACHE_KEY);
+  }, []);
+
+  const writeSnapshot = useCallback((data: ChequesReadSnapshot) => {
+    writeOfflineReadSnapshot<ChequesReadSnapshot>(CHEQUES_READ_CACHE_KEY, data);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -47,11 +67,23 @@ export default function ChequesPage() {
         (item: any) => item.type === "payment" && item.raw?.paymentMethod === "cheque"
       );
       setAllCheques(cheques);
-      setTotalPages((r.pagination as any)?.totalPages || 1);
-      setTotal((r.pagination as any)?.total || 0);
+      const nextTotalPages = (r.pagination as any)?.totalPages || 1;
+      const nextTotal = (r.pagination as any)?.total || 0;
+      setTotalPages(nextTotalPages);
+      setTotal(nextTotal);
+      writeSnapshot({ allCheques: cheques, totalPages: nextTotalPages, total: nextTotal });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.allCheques) {
+        setAllCheques(snapshot.allCheques);
+        setTotalPages(snapshot.totalPages || 1);
+        setTotal(snapshot.total || snapshot.allCheques.length || 0);
+        setShowOfflineSnapshot(true);
+      }
     }
     setLoading(false);
-  }, [page, searchQuery]);
+  }, [isOnline, page, readSnapshot, searchQuery, writeSnapshot]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [searchQuery]);
@@ -156,6 +188,11 @@ export default function ChequesPage() {
         title={t("cheque_register")}
         subtitle="All cheques received from customers"
       />
+      {showOfflineSnapshot && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Showing last synced data (offline mode).
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 mb-4 flex-wrap">

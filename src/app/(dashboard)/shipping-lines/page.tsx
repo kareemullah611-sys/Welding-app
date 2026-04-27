@@ -2,12 +2,25 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
+import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, StatsCard, formatNumber, formatDate } from "@/components/ui";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+
+const SHIPPING_LINES_READ_CACHE_KEY = "mrf-shipping-lines-read-cache-v1";
+
+type ShippingLinesReadSnapshot = {
+  lines: any[];
+  ledgerByLine: Record<string, any>;
+  bankAccounts: any[];
+  intermediaries: any[];
+};
 
 export default function ShippingLinesPage() {
   const { user } = useAuth();
+  const { isOnline } = useOffline();
   const [lines, setLines] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
 
   // Create
   const [showCreate, setShowCreate] = useState(false);
@@ -34,12 +47,35 @@ export default function ShippingLinesPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  const readSnapshot = useCallback(() => {
+    return readOfflineReadSnapshot<ShippingLinesReadSnapshot>(SHIPPING_LINES_READ_CACHE_KEY);
+  }, []);
+
+  const mergeSnapshot = useCallback((partial: Partial<ShippingLinesReadSnapshot>) => {
+    const existing = readSnapshot()?.data || { lines: [], ledgerByLine: {}, bankAccounts: [], intermediaries: [] };
+    writeOfflineReadSnapshot<ShippingLinesReadSnapshot>(SHIPPING_LINES_READ_CACHE_KEY, {
+      ...existing,
+      ...partial,
+      ledgerByLine: { ...(existing.ledgerByLine || {}), ...(partial.ledgerByLine || {}) },
+    });
+  }, [readSnapshot]);
+
   const load = useCallback(async () => {
     setLoading(true);
     const r = await apiCall("/api/v1/shipping-lines", { params: { limit: 100 } });
-    if (r.success) setLines(r.data as any[]);
+    if (r.success) {
+      setLines(r.data as any[]);
+      mergeSnapshot({ lines: r.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.lines?.length) {
+        setLines(snapshot.lines);
+        setShowOfflineSnapshot(true);
+      }
+    }
     setLoading(false);
-  }, []);
+  }, [isOnline, mergeSnapshot, readSnapshot]);
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
@@ -80,7 +116,18 @@ export default function ShippingLinesPage() {
   const openLedger = async (sl: any) => {
     setSelected(sl); setShowLedger(true); setLedger(null); setLedgerLoading(true);
     const r = await apiCall(`/api/v1/shipping-lines/${sl.id}`);
-    if (r.success) setLedger(r.data);
+    if (r.success) {
+      setLedger(r.data);
+      mergeSnapshot({ ledgerByLine: { [String(sl.id)]: r.data } });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      const cached = snapshot?.ledgerByLine?.[String(sl.id)];
+      if (cached) {
+        setLedger(cached);
+        setShowOfflineSnapshot(true);
+      }
+    }
     setLedgerLoading(false);
   };
 
@@ -93,8 +140,29 @@ export default function ShippingLinesPage() {
       bankAccounts.length ? Promise.resolve({ success: true, data: bankAccounts }) : apiCall("/api/v1/bank-accounts", { params: { limit: 100 } }),
       intermediaries.length ? Promise.resolve({ success: true, data: intermediaries }) : apiCall("/api/v1/intermediaries"),
     ]);
-    if (baRes.success) setBankAccounts((baRes.data as any).items || baRes.data as any[]);
-    if (intRes.success) setIntermediaries(intRes.data as any[]);
+    if (baRes.success) {
+      const loadedBanks = (baRes.data as any).items || baRes.data as any[];
+      setBankAccounts(loadedBanks);
+      mergeSnapshot({ bankAccounts: loadedBanks });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.bankAccounts?.length) {
+        setBankAccounts(snapshot.bankAccounts);
+        setShowOfflineSnapshot(true);
+      }
+    }
+    if (intRes.success) {
+      setIntermediaries(intRes.data as any[]);
+      mergeSnapshot({ intermediaries: intRes.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.intermediaries?.length) {
+        setIntermediaries(snapshot.intermediaries);
+        setShowOfflineSnapshot(true);
+      }
+    }
   };
 
   const handleAddPayment = async () => {
@@ -169,6 +237,11 @@ export default function ShippingLinesPage() {
     <div>
       <PageHeader title="Shipping Lines" subtitle="Professional freight ledger and settlement records (USD)"
         action={<button onClick={openCreate} className="btn-primary text-sm">+ Add Shipping Line</button>} />
+      {showOfflineSnapshot && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Showing last synced data (offline mode).
+        </div>
+      )}
 
       {/* Summary cards */}
       {lines.length > 0 && (

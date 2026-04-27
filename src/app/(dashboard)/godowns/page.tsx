@@ -2,12 +2,22 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
+import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+
+const GODOWNS_READ_CACHE_KEY = "mrf-godowns-read-cache-v1";
+
+type GodownsReadSnapshot = {
+  godowns: any[];
+  cities: any[];
+};
 
 export default function GodownsPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const { isOnline } = useOffline();
   const [godowns, setGodowns] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -17,15 +27,38 @@ export default function GodownsPage() {
   const [form, setForm] = useState({ name: "", cityId: 0 });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [openActionId, setOpenActionId] = useState<number | null>(null);
   const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
+
+  const readSnapshot = useCallback(() => {
+    return readOfflineReadSnapshot<GodownsReadSnapshot>(GODOWNS_READ_CACHE_KEY);
+  }, []);
+
+  const mergeSnapshot = useCallback((partial: Partial<GodownsReadSnapshot>) => {
+    const existing = readSnapshot()?.data || { godowns: [], cities: [] };
+    writeOfflineReadSnapshot<GodownsReadSnapshot>(GODOWNS_READ_CACHE_KEY, {
+      ...existing,
+      ...partial,
+    });
+  }, [readSnapshot]);
 
   const load = useCallback(async () => {
     setLoading(true);
     const result = await apiCall("/api/v1/godowns", { params: { limit: 100, is_active: "true" } });
-    if (result.success) setGodowns(result.data as any[]);
+    if (result.success) {
+      setGodowns(result.data as any[]);
+      mergeSnapshot({ godowns: result.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.godowns?.length) {
+        setGodowns(snapshot.godowns);
+        setShowOfflineSnapshot(true);
+      }
+    }
     setLoading(false);
-  }, []);
+  }, [isOnline, mergeSnapshot, readSnapshot]);
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
@@ -40,7 +73,20 @@ export default function GodownsPage() {
   }, [openActionId]);
 
   const openCreate = async () => {
-    if (user?.role === "super_admin") { const cityRes = await apiCall("/api/v1/cities"); if (cityRes.success) setCities(cityRes.data as any[]); }
+    if (user?.role === "super_admin") {
+      const cityRes = await apiCall("/api/v1/cities");
+      if (cityRes.success) {
+        setCities(cityRes.data as any[]);
+        mergeSnapshot({ cities: cityRes.data as any[] });
+        setShowOfflineSnapshot(false);
+      } else if (!isOnline) {
+        const snapshot = readSnapshot()?.data;
+        if (snapshot?.cities?.length) {
+          setCities(snapshot.cities);
+          setShowOfflineSnapshot(true);
+        }
+      }
+    }
     setForm({ name: "", cityId: user?.cityId || 0 }); setShowCreate(true); setFormError("");
   };
   const handleCreate = async () => {
@@ -71,6 +117,11 @@ export default function GodownsPage() {
   return (
     <div>
       <PageHeader title={t("godowns")} subtitle={`${godowns.length} ${t("godowns").toLowerCase()}`} action={<button onClick={openCreate} className="btn-primary text-sm">+ {t("new_godown")}</button>} />
+      {showOfflineSnapshot && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Showing last synced data (offline mode).
+        </div>
+      )}
       <DataTable columns={[
         { key: "name", label: t("godown_name"), render: (g: any) => <span className="font-medium">{g.name}</span> },
         { key: "cityName", label: t("city") },

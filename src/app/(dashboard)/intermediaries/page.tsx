@@ -2,8 +2,19 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
+import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import * as XLSX from "xlsx";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+
+const INTERMEDIARIES_READ_CACHE_KEY = "mrf-intermediaries-read-cache-v1";
+
+type IntermediariesReadSnapshot = {
+  intermediaries: any[];
+  currencies: any[];
+  superAdminBankAccounts: any[];
+  ledgerByIntermediary: Record<string, any>;
+};
 
 const EMPTY_DEPOSIT = {
   depositDate: new Date().toISOString().split("T")[0],
@@ -56,8 +67,10 @@ function calculateToAmount(
 
 export default function IntermediariesPage() {
   const { user } = useAuth();
+  const { isOnline } = useOffline();
   const [intermediaries, setIntermediaries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
 
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -103,12 +116,35 @@ export default function IntermediariesPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
 
+  const readSnapshot = useCallback(() => {
+    return readOfflineReadSnapshot<IntermediariesReadSnapshot>(INTERMEDIARIES_READ_CACHE_KEY);
+  }, []);
+
+  const mergeSnapshot = useCallback((partial: Partial<IntermediariesReadSnapshot>) => {
+    const existing = readSnapshot()?.data || { intermediaries: [], currencies: [], superAdminBankAccounts: [], ledgerByIntermediary: {} };
+    writeOfflineReadSnapshot<IntermediariesReadSnapshot>(INTERMEDIARIES_READ_CACHE_KEY, {
+      ...existing,
+      ...partial,
+      ledgerByIntermediary: { ...(existing.ledgerByIntermediary || {}), ...(partial.ledgerByIntermediary || {}) },
+    });
+  }, [readSnapshot]);
+
   const load = useCallback(async () => {
     setLoading(true);
     const r = await apiCall("/api/v1/intermediaries");
-    if (r.success) setIntermediaries(r.data as any[]);
+    if (r.success) {
+      setIntermediaries(r.data as any[]);
+      mergeSnapshot({ intermediaries: r.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.intermediaries?.length) {
+        setIntermediaries(snapshot.intermediaries);
+        setShowOfflineSnapshot(true);
+      }
+    }
     setLoading(false);
-  }, []);
+  }, [isOnline, mergeSnapshot, readSnapshot]);
   useEffect(() => { load(); }, [load]);
 
   const loadRefData = async () => {
@@ -119,6 +155,8 @@ export default function IntermediariesPage() {
     if (c.success) {
       const loadedCurrencies = c.data as any[];
       setCurrencies(loadedCurrencies);
+      mergeSnapshot({ currencies: loadedCurrencies });
+      setShowOfflineSnapshot(false);
       if (loadedCurrencies.length >= 2) {
         setExchangeForm((prev) => ({
           ...prev,
@@ -128,8 +166,24 @@ export default function IntermediariesPage() {
           toCurrencyId: prev.toCurrencyId || String(loadedCurrencies[1].id),
         }));
       }
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.currencies?.length) {
+        setCurrencies(snapshot.currencies);
+        setShowOfflineSnapshot(true);
+      }
     }
-    if (saBanks.success) setSuperAdminBankAccounts(saBanks.data as any[]);
+    if (saBanks.success) {
+      setSuperAdminBankAccounts(saBanks.data as any[]);
+      mergeSnapshot({ superAdminBankAccounts: saBanks.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.superAdminBankAccounts?.length) {
+        setSuperAdminBankAccounts(snapshot.superAdminBankAccounts);
+        setShowOfflineSnapshot(true);
+      }
+    }
   };
 
   const openLedger = async (item: any) => {
@@ -151,6 +205,17 @@ export default function IntermediariesPage() {
       setLedger(ledgerPayload);
       setTotalPages((ledgerPayload?.pagination as any)?.totalPages || 1);
       setTotal((ledgerPayload?.pagination as any)?.total || 0);
+      mergeSnapshot({ ledgerByIntermediary: { [String(item.id)]: ledgerPayload } });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      const cachedLedger = snapshot?.ledgerByIntermediary?.[String(item.id)];
+      if (cachedLedger) {
+        setLedger(cachedLedger);
+        setTotalPages((cachedLedger?.pagination as any)?.totalPages || 1);
+        setTotal((cachedLedger?.pagination as any)?.total || 0);
+        setShowOfflineSnapshot(true);
+      }
     }
     setLedgerLoading(false);
   };
@@ -587,6 +652,11 @@ export default function IntermediariesPage() {
           </button>
         )}
       />
+      {showOfflineSnapshot && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Showing last synced data (offline mode).
+        </div>
+      )}
 
       <DataTable columns={columns} data={intermediaries} loading={loading} />
 

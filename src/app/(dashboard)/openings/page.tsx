@@ -4,6 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { apiCall } from "@/hooks/useApi";
 import { useAuth } from "@/hooks/useAuth";
+import { useOffline } from "@/hooks/useOffline";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+
+const OPENINGS_READ_CACHE_KEY = "mrf-openings-read-cache-v1";
 
 type OpeningData = {
   cities: { id: number; name: string }[];
@@ -62,10 +66,12 @@ type OpeningData = {
 
 export default function OpeningsPage() {
   const { user } = useAuth();
+  const { isOnline } = useOffline();
   const isSuperAdmin = user?.role === "super_admin";
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<OpeningData | null>(null);
   const [selectedCityId, setSelectedCityId] = useState<number>(0);
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
 
   const today = new Date().toISOString().split("T")[0];
   const [cashForm, setCashForm] = useState({ currencyId: 0, amount: "", openingDate: today, notes: "" });
@@ -87,6 +93,8 @@ export default function OpeningsPage() {
     const result = await apiCall<OpeningData>("/api/v1/openings", { params });
     if (result.success && result.data) {
       setData(result.data);
+      writeOfflineReadSnapshot<OpeningData>(OPENINGS_READ_CACHE_KEY, result.data);
+      setShowOfflineSnapshot(false);
 
       if (isSuperAdmin) {
         const resolvedCityId = cityId > 0
@@ -105,7 +113,13 @@ export default function OpeningsPage() {
         setLiabilityForm((prev) => ({ ...prev, currencyId: result.data!.liabilityOptions.currencies[0].id }));
       }
     } else {
-      toast.error(result.error || "Failed to load openings");
+      const snapshot = readOfflineReadSnapshot<OpeningData>(OPENINGS_READ_CACHE_KEY)?.data;
+      if (!isOnline && snapshot) {
+        setData(snapshot);
+        setShowOfflineSnapshot(true);
+      } else {
+        toast.error(result.error || "Failed to load openings");
+      }
     }
     setLoading(false);
   };
@@ -219,6 +233,11 @@ export default function OpeningsPage() {
           {isSuperAdmin ? "Set opening balances, stock, and liabilities." : "Set starting cash, customer receivables, and stock for this city."}
         </p>
       </div>
+      {showOfflineSnapshot && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Showing last synced data (offline mode).
+        </div>
+      )}
 
       {isSuperAdmin && (
         <div className="card">

@@ -2,12 +2,22 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
+import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, StatsCard, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+
+const ACCOUNTS_READ_CACHE_KEY = "mrf-accounts-read-cache-v1";
+
+type AccountsReadSnapshot = {
+  data: any | null;
+  cities: any[];
+};
 
 export default function AccountsPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const { isOnline } = useOffline();
 
   const TABS = [
     { key: "pnl", label: t("profit_loss") },
@@ -22,24 +32,65 @@ export default function AccountsPage() {
   const [year, setYear] = useState(new Date().getFullYear());
   const [cityId, setCityId] = useState<string>("");
   const [cities, setCities] = useState<any[]>([]);
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
+
+  const readSnapshot = useCallback(() => {
+    return readOfflineReadSnapshot<AccountsReadSnapshot>(ACCOUNTS_READ_CACHE_KEY);
+  }, []);
+
+  const mergeSnapshot = useCallback((partial: Partial<AccountsReadSnapshot>) => {
+    const existing = readSnapshot()?.data || { data: null, cities: [] };
+    writeOfflineReadSnapshot<AccountsReadSnapshot>(ACCOUNTS_READ_CACHE_KEY, {
+      ...existing,
+      ...partial,
+    });
+  }, [readSnapshot]);
 
   useEffect(() => {
-    if (user?.role === "super_admin") apiCall("/api/v1/cities").then(r => { if (r.success) setCities(r.data as any[]); });
-  }, [user]);
+    if (user?.role !== "super_admin") return;
+    apiCall("/api/v1/cities").then(r => {
+      if (r.success) {
+        setCities(r.data as any[]);
+        mergeSnapshot({ cities: r.data as any[] });
+        setShowOfflineSnapshot(false);
+      } else if (!isOnline) {
+        const snapshot = readSnapshot()?.data;
+        if (snapshot?.cities?.length) {
+          setCities(snapshot.cities);
+          setShowOfflineSnapshot(true);
+        }
+      }
+    });
+  }, [isOnline, mergeSnapshot, readSnapshot, user]);
 
   const load = useCallback(async () => {
     setLoading(true);
     const params: any = { report: tab, year };
     if (cityId) params.city_id = cityId;
     const r = await apiCall("/api/v1/financial-reports", { params });
-    if (r.success) setData(r.data);
+    if (r.success) {
+      setData(r.data);
+      mergeSnapshot({ data: r.data });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.data) {
+        setData(snapshot.data);
+        setShowOfflineSnapshot(true);
+      }
+    }
     setLoading(false);
-  }, [tab, year, cityId]);
+  }, [cityId, isOnline, mergeSnapshot, readSnapshot, tab, year]);
   useEffect(() => { load(); }, [load]);
 
   return (
     <div>
       <PageHeader title={t("financial_reports")} subtitle="Professional financial statements and ledger summaries" />
+      {showOfflineSnapshot && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Showing last synced data (offline mode).
+        </div>
+      )}
       <div className="flex flex-wrap gap-1 mb-4 bg-gray-100 p-1 rounded-lg">
         {TABS.map(tab_item => (
           <button key={tab_item.key} onClick={() => setTab(tab_item.key)}

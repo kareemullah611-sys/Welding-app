@@ -2,22 +2,38 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
+import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, StatsCard, StatusBadge, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { Pencil, Package, CheckCircle, RotateCcw, Trash2, Warehouse } from "lucide-react";
 import * as XLSX from "xlsx";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+
+const LOTS_READ_CACHE_KEY = "mrf-lots-read-cache-v1";
+
+type LotsReadSnapshot = {
+  lots: any[];
+  totalPages: number;
+  total: number;
+  countries: any[];
+  products: any[];
+  suppliers: any[];
+  lotDetailById: Record<string, any>;
+};
 
 type LotDetailTab = "overview" | "purchases" | "costs" | "sales";
 
 export default function LotsPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const { isOnline } = useOffline();
   const [lots,       setLots]       = useState<any[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [page,       setPage]       = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total,      setTotal]      = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
 
   // Create
   const [showCreate,  setShowCreate]  = useState(false);
@@ -85,6 +101,27 @@ export default function LotsPage() {
   const selectedLotCountryCode = String(selectedLot?.country?.code || selectedLot?.countryCode || "").toUpperCase();
   const nonFreightCostCurrency = selectedLotCountryCode === "AFG" ? "AFN" : "PKR";
 
+  const readSnapshot = useCallback(() => {
+    return readOfflineReadSnapshot<LotsReadSnapshot>(LOTS_READ_CACHE_KEY);
+  }, []);
+
+  const mergeSnapshot = useCallback((partial: Partial<LotsReadSnapshot>) => {
+    const existing = readSnapshot()?.data || {
+      lots: [],
+      totalPages: 1,
+      total: 0,
+      countries: [],
+      products: [],
+      suppliers: [],
+      lotDetailById: {},
+    };
+    writeOfflineReadSnapshot<LotsReadSnapshot>(LOTS_READ_CACHE_KEY, {
+      ...existing,
+      ...partial,
+      lotDetailById: { ...(existing.lotDetailById || {}), ...(partial.lotDetailById || {}) },
+    });
+  }, [readSnapshot]);
+
   const lotCostToPkr = (cost: any, usdPkrRate: number) => {
     const amount = Number(cost?.amount || 0);
     const code = String(cost?.currencyCode || "PKR").toUpperCase();
@@ -111,11 +148,27 @@ export default function LotsPage() {
     const r = await apiCall("/api/v1/lots", { params });
     if (r.success) {
       setLots(r.data as any[]);
-      setTotalPages((r.pagination as any)?.totalPages || 1);
-      setTotal((r.pagination as any)?.total || 0);
+      const nextTotalPages = (r.pagination as any)?.totalPages || 1;
+      const nextTotal = (r.pagination as any)?.total || 0;
+      setTotalPages(nextTotalPages);
+      setTotal(nextTotal);
+      mergeSnapshot({
+        lots: r.data as any[],
+        totalPages: nextTotalPages,
+        total: nextTotal,
+      });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.lots) {
+        setLots(snapshot.lots);
+        setTotalPages(snapshot.totalPages || 1);
+        setTotal(snapshot.total || snapshot.lots.length || 0);
+        setShowOfflineSnapshot(true);
+      }
     }
     setLoading(false);
-  }, [page, searchQuery]);
+  }, [isOnline, mergeSnapshot, page, readSnapshot, searchQuery]);
   useEffect(() => { loadLots(); }, [loadLots]);
   useEffect(() => { setPage(1); }, [searchQuery]);
 
@@ -139,9 +192,39 @@ export default function LotsPage() {
       apiCall("/api/v1/products", { params: { limit: 100 } }),
       apiCall("/api/v1/suppliers", { params: { limit: 100 } }),
     ]);
-    if (cRes.success) setCountries(cRes.data as any[]);
-    if (pRes.success) setProducts(pRes.data as any[]);
-    if (sRes.success) setSuppliers(sRes.data as any[]);
+    if (cRes.success) {
+      setCountries(cRes.data as any[]);
+      mergeSnapshot({ countries: cRes.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.countries?.length) {
+        setCountries(snapshot.countries);
+        setShowOfflineSnapshot(true);
+      }
+    }
+    if (pRes.success) {
+      setProducts(pRes.data as any[]);
+      mergeSnapshot({ products: pRes.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.products?.length) {
+        setProducts(snapshot.products);
+        setShowOfflineSnapshot(true);
+      }
+    }
+    if (sRes.success) {
+      setSuppliers(sRes.data as any[]);
+      mergeSnapshot({ suppliers: sRes.data as any[] });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.suppliers?.length) {
+        setSuppliers(snapshot.suppliers);
+        setShowOfflineSnapshot(true);
+      }
+    }
     setCreateForm({ countryId: 0, lotNumber: "", lotDate: new Date().toISOString().split("T")[0], notes: "", purchaseItems: [emptyItem()] });
     setShowCreate(true); setFormError("");
   };
@@ -206,6 +289,16 @@ export default function LotsPage() {
       const d = r.data as any;
       setSelectedLot(d);
       setPkrRateInput(d.pkrExchangeRate ? String(d.pkrExchangeRate) : "");
+      mergeSnapshot({ lotDetailById: { [String(lot.id)]: d } });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      const cachedDetail = snapshot?.lotDetailById?.[String(lot.id)];
+      if (cachedDetail) {
+        setSelectedLot(cachedDetail);
+        setPkrRateInput(cachedDetail.pkrExchangeRate ? String(cachedDetail.pkrExchangeRate) : "");
+        setShowOfflineSnapshot(true);
+      }
     } else { setFormError(r.error || "Failed to load"); }
     setDetailLoading(false);
   };
@@ -760,6 +853,11 @@ export default function LotsPage() {
     <div>
       <PageHeader title={t("lots")} subtitle={`${total} ${t("lots").toLowerCase()}`}
         action={user?.role === "super_admin" ? <button onClick={openCreate} className="btn-primary text-sm">{"+ " + t("new_lot")}</button> : undefined} />
+      {showOfflineSnapshot && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Showing last synced data (offline mode).
+        </div>
+      )}
       <DataTable
         searchValue={searchQuery}
         onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}
