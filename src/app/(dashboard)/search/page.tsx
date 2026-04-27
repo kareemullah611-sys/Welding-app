@@ -2,13 +2,25 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
+import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, StatusBadge } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 
 const TYPE_VALUES = ["all", "customers", "sales", "payments", "lots", "products", "haji_transfers", "expenses"];
+const SEARCH_READ_CACHE_KEY = "mrf-search-read-cache-v1";
+
+type SearchReadSnapshot = {
+  cities: any[];
+  results: any;
+  query: string;
+  type: string;
+  cityId?: number;
+};
 
 export default function SearchPage() {
   const { user } = useAuth();
+  const { isOnline } = useOffline();
   const { t } = useLang();
   const [query, setQuery] = useState("");
   const [type, setType] = useState("all");
@@ -16,6 +28,7 @@ export default function SearchPage() {
   const [cities, setCities] = useState<any[]>([]);
   const [results, setResults] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
 
   const TYPES = [
     { value: "all", label: t("all") },
@@ -30,9 +43,39 @@ export default function SearchPage() {
 
   useEffect(() => {
     if (user?.role === "super_admin") {
-      apiCall("/api/v1/cities").then(r => { if (r.success) setCities(r.data as any[]); });
+      apiCall("/api/v1/cities").then(r => {
+        if (r.success) {
+          setCities(r.data as any[]);
+          const existing = readOfflineReadSnapshot<SearchReadSnapshot>(SEARCH_READ_CACHE_KEY)?.data;
+          writeOfflineReadSnapshot<SearchReadSnapshot>(SEARCH_READ_CACHE_KEY, {
+            cities: r.data as any[],
+            results: existing?.results || null,
+            query: existing?.query || "",
+            type: existing?.type || "all",
+            cityId: existing?.cityId,
+          });
+          setShowOfflineSnapshot(false);
+        } else if (!isOnline) {
+          const snapshot = readOfflineReadSnapshot<SearchReadSnapshot>(SEARCH_READ_CACHE_KEY)?.data;
+          if (snapshot?.cities?.length) {
+            setCities(snapshot.cities);
+            setShowOfflineSnapshot(true);
+          }
+        }
+      });
     }
-  }, [user]);
+  }, [isOnline, user]);
+
+  useEffect(() => {
+    if (isOnline) return;
+    const snapshot = readOfflineReadSnapshot<SearchReadSnapshot>(SEARCH_READ_CACHE_KEY)?.data;
+    if (!snapshot) return;
+    if (snapshot.query) setQuery(snapshot.query);
+    if (snapshot.type) setType(snapshot.type);
+    if (snapshot.cityId) setCityId(snapshot.cityId);
+    if (snapshot.results) setResults(snapshot.results);
+    setShowOfflineSnapshot(true);
+  }, [isOnline]);
 
   const doSearch = async () => {
     if (query.length < 2) return;
@@ -40,7 +83,23 @@ export default function SearchPage() {
     const params: any = { q: query, type };
     if (cityId) params.city_id = cityId;
     const result = await apiCall("/api/v1/search", { params });
-    if (result.success) setResults(result.data);
+    if (result.success) {
+      setResults(result.data);
+      writeOfflineReadSnapshot<SearchReadSnapshot>(SEARCH_READ_CACHE_KEY, {
+        cities,
+        results: result.data,
+        query,
+        type,
+        cityId,
+      });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readOfflineReadSnapshot<SearchReadSnapshot>(SEARCH_READ_CACHE_KEY)?.data;
+      if (snapshot?.results) {
+        setResults(snapshot.results);
+        setShowOfflineSnapshot(true);
+      }
+    }
     setLoading(false);
   };
 
@@ -51,6 +110,11 @@ export default function SearchPage() {
   return (
     <div>
       <PageHeader title={t("search")} subtitle={t("search_subtitle")} />
+      {showOfflineSnapshot && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Showing last synced data (offline mode).
+        </div>
+      )}
 
       <div className="card mb-6">
         <div className="flex flex-wrap gap-3 items-end">

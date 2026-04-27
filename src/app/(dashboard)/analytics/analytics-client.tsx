@@ -2,7 +2,9 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
+import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, formatNumber } from "@/components/ui";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import {
   ResponsiveContainer,
   ComposedChart, Area, Line,
@@ -38,6 +40,19 @@ const PALETTE = {
   expenses:      { stroke: "#f43f5e", fill: "#f43f5e" },
   hajiTransfers: { stroke: "#f97316", fill: "#f97316" },
   cartons:       { stroke: "#8b5cf6", fill: "#8b5cf6" },
+};
+
+const ANALYTICS_READ_CACHE_KEY = "mrf-analytics-read-cache-v1";
+
+type AnalyticsReadSnapshot = {
+  cities: any[];
+  chartData: ChartRow[];
+  totals: Totals | null;
+  period: Period;
+  year: number;
+  from: string;
+  to: string;
+  cityId: number;
 };
 
 const KPI_CONFIG = [
@@ -86,6 +101,7 @@ const CustomTooltip = ({ active, payload, label, valueLabel }: any) => {
 
 export default function AnalyticsClient() {
   const { user } = useAuth();
+  const { isOnline } = useOffline();
 
   const [period,        setPeriod]        = useState<Period>("monthly");
   const [year,          setYear]          = useState(new Date().getFullYear());
@@ -96,14 +112,47 @@ export default function AnalyticsClient() {
   const [chartData,     setChartData]     = useState<ChartRow[]>([]);
   const [totals,        setTotals]        = useState<Totals | null>(null);
   const [loading,       setLoading]       = useState(true);
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [activeMetrics, setActiveMetrics] = useState({
     sales: true, payments: true, expenses: true, hajiTransfers: true,
   });
 
   useEffect(() => {
     if (user?.role === "super_admin")
-      apiCall("/api/v1/cities").then((r) => { if (r.success) setCities(r.data as any[]); });
-  }, [user]);
+      apiCall("/api/v1/cities").then((r) => {
+        if (r.success) {
+          setCities(r.data as any[]);
+          const existing = readOfflineReadSnapshot<AnalyticsReadSnapshot>(ANALYTICS_READ_CACHE_KEY)?.data;
+          writeOfflineReadSnapshot<AnalyticsReadSnapshot>(ANALYTICS_READ_CACHE_KEY, {
+            cities: r.data as any[],
+            chartData: existing?.chartData || [],
+            totals: existing?.totals || null,
+            period: existing?.period || period,
+            year: existing?.year || year,
+            from: existing?.from || from,
+            to: existing?.to || to,
+            cityId: existing?.cityId || cityId,
+          });
+          setShowOfflineSnapshot(false);
+        } else if (!isOnline) {
+          const snapshot = readOfflineReadSnapshot<AnalyticsReadSnapshot>(ANALYTICS_READ_CACHE_KEY)?.data;
+          if (snapshot?.cities?.length) {
+            setCities(snapshot.cities);
+            setShowOfflineSnapshot(true);
+          }
+        }
+      });
+  }, [cityId, from, isOnline, period, to, user, year]);
+
+  useEffect(() => {
+    if (isOnline) return;
+    const snapshot = readOfflineReadSnapshot<AnalyticsReadSnapshot>(ANALYTICS_READ_CACHE_KEY)?.data;
+    if (!snapshot) return;
+    if (snapshot.cities?.length) setCities(snapshot.cities);
+    if (snapshot.chartData?.length) setChartData(snapshot.chartData);
+    if (snapshot.totals) setTotals(snapshot.totals);
+    setShowOfflineSnapshot(true);
+  }, [isOnline]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -115,9 +164,27 @@ export default function AnalyticsClient() {
       const d = r.data as any;
       setChartData(d.chartData || []);
       setTotals(d.totals || null);
+      writeOfflineReadSnapshot<AnalyticsReadSnapshot>(ANALYTICS_READ_CACHE_KEY, {
+        cities,
+        chartData: d.chartData || [],
+        totals: d.totals || null,
+        period,
+        year,
+        from,
+        to,
+        cityId,
+      });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readOfflineReadSnapshot<AnalyticsReadSnapshot>(ANALYTICS_READ_CACHE_KEY)?.data;
+      if (snapshot?.chartData) {
+        setChartData(snapshot.chartData);
+        setTotals(snapshot.totals || null);
+        setShowOfflineSnapshot(true);
+      }
     }
     setLoading(false);
-  }, [period, year, from, to, cityId]);
+  }, [cities, cityId, from, isOnline, period, to, year]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -139,6 +206,11 @@ export default function AnalyticsClient() {
   return (
     <div>
       <PageHeader title="Analytics" subtitle="Sales, payments & operational insights" />
+      {showOfflineSnapshot && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Showing last synced data (offline mode).
+        </div>
+      )}
 
       {/* ── Period Tabs ─────────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-2 mb-4">

@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { useOffline } from "@/hooks/useOffline";
 import { useRouter } from "next/navigation";
 import { Send, Bot, Sparkles, Trash2, ChevronDown } from "lucide-react";
 
@@ -10,6 +11,8 @@ interface Message {
   loading?: boolean;
   timestamp?: Date;
 }
+
+const ASSISTANT_READ_CACHE_KEY = "mrf-assistant-chat-cache-v1";
 
 const SUGGESTIONS = [
   "Give me a financial summary for this month",
@@ -104,6 +107,7 @@ function MessageBubble({ msg }: { msg: Message }) {
 
 export default function AssistantPage() {
   const { user } = useAuth();
+  const { isOnline } = useOffline();
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -117,6 +121,21 @@ export default function AssistantPage() {
   useEffect(() => {
     if (user && user.role !== "super_admin") router.replace("/dashboard");
   }, [user, router]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(ASSISTANT_READ_CACHE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Message[];
+      setMessages(parsed.map((m) => ({ ...m, timestamp: m.timestamp ? new Date(m.timestamp) : undefined })));
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ASSISTANT_READ_CACHE_KEY, JSON.stringify(messages.filter((m) => !m.loading)));
+    } catch {}
+  }, [messages]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -143,6 +162,15 @@ export default function AssistantPage() {
 
     setMessages(prev => [...prev, userMsg, loadingMsg]);
     setLoading(true);
+
+    if (!isOnline) {
+      setMessages(prev => [
+        ...prev.slice(0, -1),
+        { role: "assistant", content: "⚠️ Offline: assistant queries need internet. Your chat history is saved locally.", timestamp: new Date() },
+      ]);
+      setLoading(false);
+      return;
+    }
 
     try {
       const history = [...messages, userMsg].map(m => ({
@@ -212,8 +240,8 @@ export default function AssistantPage() {
           <div>
             <h1 className="text-[15px] font-semibold text-white leading-tight">Business Assistant</h1>
             <div className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
-              <p className="text-xs text-white/70">Powered by DeepSeek · Always online</p>
+              <span className={`w-2 h-2 rounded-full ${isOnline ? "bg-emerald-300 animate-pulse" : "bg-amber-300"}`} />
+              <p className="text-xs text-white/70">{isOnline ? "Powered by DeepSeek · Online" : "Offline mode · chat saved locally"}</p>
             </div>
           </div>
         </div>

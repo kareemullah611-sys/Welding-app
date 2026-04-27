@@ -1,9 +1,11 @@
 "use client";
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { useOffline } from "@/hooks/useOffline";
 import { useRouter, useParams } from "next/navigation";
 import { apiCall } from "@/hooks/useApi";
 import { formatNumber } from "@/components/ui";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import {
   ArrowLeft, ArrowDownCircle, ArrowUpCircle, Trash2, CheckCircle2, Pencil,
 } from "lucide-react";
@@ -13,8 +15,11 @@ type TxType = "deposit" | "withdrawal";
 function fmt(n: number) { return formatNumber(n); }
 function txLabel(type: TxType) { return type === "deposit" ? "Credit" : "Debit"; }
 
+const INVESTOR_LEDGER_READ_CACHE_KEY_PREFIX = "mrf-investor-ledger-read-cache-v1";
+
 export default function InvestorLedgerPage() {
   const { user } = useAuth();
+  const { isOnline, enqueue } = useOffline();
   const router = useRouter();
   const params = useParams();
   const id = params.id as string;
@@ -34,6 +39,7 @@ export default function InvestorLedgerPage() {
   const [editTarget, setEditTarget] = useState<{ type: TxType; id: number; amount: string; date: string; notes: string } | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState("");
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
 
   // Single entry form
   const emptyForm = () => ({
@@ -44,6 +50,23 @@ export default function InvestorLedgerPage() {
   });
   const [form, setForm] = useState(emptyForm());
 
+  const snapshotKey = `${INVESTOR_LEDGER_READ_CACHE_KEY_PREFIX}:${id}`;
+
+  const persistSnapshot = useCallback((nextInvestor: any) => {
+    if (!nextInvestor) return;
+    writeOfflineReadSnapshot(snapshotKey, nextInvestor);
+  }, [snapshotKey]);
+
+  const patchInvestorAccount = useCallback((updater: (acc: any) => any) => {
+    setInvestor((prev: any) => {
+      if (!prev?.accounts?.[0]) return prev;
+      const nextAcc = updater(prev.accounts[0]);
+      const next = { ...prev, accounts: [nextAcc] };
+      persistSnapshot(next);
+      return next;
+    });
+  }, [persistSnapshot]);
+
   useEffect(() => {
     if (user && user.role !== "super_admin") router.replace("/dashboard");
   }, [user, router]);
@@ -51,10 +74,21 @@ export default function InvestorLedgerPage() {
   const load = useCallback(async () => {
     setLoading(true);
     const res = await apiCall(`/api/v1/investors/${id}`);
-    if (res.success) setInvestor(res.data);
-    else router.push("/investors");
+    if (res.success) {
+      setInvestor(res.data);
+      persistSnapshot(res.data);
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readOfflineReadSnapshot<any>(snapshotKey)?.data;
+      if (snapshot) {
+        setInvestor(snapshot);
+        setShowOfflineSnapshot(true);
+      } else {
+        router.push("/investors");
+      }
+    } else router.push("/investors");
     setLoading(false);
-  }, [id, router]);
+  }, [id, isOnline, persistSnapshot, router, snapshotKey]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -70,16 +104,57 @@ export default function InvestorLedgerPage() {
       return;
     }
     if (!acc) return;
+    const parsedAmount = parseFloat(form.amount);
+    const payload = {
+      type: form.type,
+      accountId: acc.id,
+      amount: parsedAmount,
+      date: form.date,
+      notes: form.notes,
+    };
+    if (!isOnline) {
+      await enqueue({
+        url: `/api/v1/investors/${id}/transactions`,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        pathname: `/investors/${id}`,
+        auditMeta: {
+          action: "create",
+          entityType: "investor_transaction",
+          entityLabel: "Investor Transaction (Pending)",
+          entityDetail: `${txLabel(form.type)} ${parsedAmount}`,
+        },
+      });
+      patchInvestorAccount((prevAcc: any) => {
+        const delta = form.type === "deposit" ? parsedAmount : -parsedAmount;
+        const nextCapital = Number(prevAcc.capital || 0) + delta;
+        const nextEntries = [...(prevAcc.entries || []), {
+          id: `pending-${Date.now()}`,
+          type: form.type,
+          amount: parsedAmount,
+          date: form.date,
+          notes: form.notes,
+          runningBalance: nextCapital,
+          _pending: true,
+        }];
+        return {
+          ...prevAcc,
+          entries: nextEntries,
+          capital: nextCapital,
+          totalDeposits: Number(prevAcc.totalDeposits || 0) + (form.type === "deposit" ? parsedAmount : 0),
+          totalWithdrawals: Number(prevAcc.totalWithdrawals || 0) + (form.type === "withdrawal" ? parsedAmount : 0),
+        };
+      });
+      setSaveSuccess(true);
+      setForm(emptyForm());
+      setTimeout(() => setSaveSuccess(false), 3000);
+      return;
+    }
     setSaving(true);
     const res = await apiCall(`/api/v1/investors/${id}/transactions`, {
       method: "POST",
-      body: {
-        type: form.type,
-        accountId: acc.id,
-        amount: parseFloat(form.amount),
-        date: form.date,
-        notes: form.notes,
-      },
+      body: payload,
     });
     setSaving(false);
     if ((res as any).success === false) {
@@ -95,6 +170,32 @@ export default function InvestorLedgerPage() {
   const handleEditSave = async () => {
     if (!editTarget) return;
     if (!editTarget.amount || parseFloat(editTarget.amount) <= 0) { setEditError("Enter a valid amount"); return; }
+    const parsedAmount = parseFloat(editTarget.amount);
+    if (!isOnline) {
+      await enqueue({
+        url: `/api/v1/investors/${id}/transactions`,
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: editTarget.type, transactionId: editTarget.id, amount: parsedAmount, date: editTarget.date, notes: editTarget.notes }),
+        pathname: `/investors/${id}`,
+        auditMeta: {
+          action: "update",
+          entityType: "investor_transaction",
+          entityLabel: "Investor Transaction Update (Pending)",
+          entityDetail: `${txLabel(editTarget.type)} ${parsedAmount}`,
+        },
+      });
+      patchInvestorAccount((prevAcc: any) => {
+        const entries = [...(prevAcc.entries || [])];
+        const idx = entries.findIndex((entry: any) => String(entry.id) === String(editTarget.id));
+        if (idx >= 0) {
+          entries[idx] = { ...entries[idx], amount: parsedAmount, date: editTarget.date, notes: editTarget.notes, _pending: true };
+        }
+        return { ...prevAcc, entries };
+      });
+      setEditTarget(null);
+      return;
+    }
     setEditSaving(true);
     setEditError("");
     const res = await apiCall(`/api/v1/investors/${id}/transactions`, {
@@ -109,6 +210,27 @@ export default function InvestorLedgerPage() {
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
+    if (!isOnline) {
+      await enqueue({
+        url: `/api/v1/investors/${id}/transactions`,
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: deleteTarget.type, transactionId: deleteTarget.id }),
+        pathname: `/investors/${id}`,
+        auditMeta: {
+          action: "delete",
+          entityType: "investor_transaction",
+          entityLabel: "Investor Transaction Delete (Pending)",
+          entityDetail: String(deleteTarget.id),
+        },
+      });
+      patchInvestorAccount((prevAcc: any) => {
+        const nextEntries = (prevAcc.entries || []).filter((entry: any) => String(entry.id) !== String(deleteTarget.id));
+        return { ...prevAcc, entries: nextEntries };
+      });
+      setDeleteTarget(null);
+      return;
+    }
     setDeleting(true);
     await apiCall(`/api/v1/investors/${id}/transactions`, {
       method: "DELETE",
@@ -129,6 +251,11 @@ export default function InvestorLedgerPage() {
 
   return (
     <div className="space-y-5 max-w-2xl mx-auto">
+      {showOfflineSnapshot && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Showing last synced data (offline mode).
+        </div>
+      )}
 
       {/* ── Header ── */}
       <div className="flex items-center gap-3">

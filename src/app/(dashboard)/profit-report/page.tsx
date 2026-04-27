@@ -1,19 +1,66 @@
 "use client";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { apiCall } from "@/hooks/useApi";
+import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, StatsCard, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
+import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+
+const PROFIT_REPORT_READ_CACHE_KEY = "mrf-profit-report-read-cache-v1";
+
+type ProfitReportReadSnapshot = {
+  lots: any[];
+  data: any;
+  mode: "lot" | "period";
+  selectedLotId: number;
+  year: number;
+};
 
 export default function ProfitReportPage() {
   const { t } = useLang();
+  const { isOnline } = useOffline();
   const [mode, setMode] = useState<"lot" | "period">("period");
   const [lots, setLots] = useState<any[]>([]);
   const [selectedLotId, setSelectedLotId] = useState(0);
   const [year, setYear] = useState(new Date().getFullYear());
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
 
-  const loadLots = async () => { if (lots.length) return; const r = await apiCall("/api/v1/lots", { params: { limit: 100 } }); if (r.success) setLots(r.data as any[]); };
+  useEffect(() => {
+    if (isOnline) return;
+    const snapshot = readOfflineReadSnapshot<ProfitReportReadSnapshot>(PROFIT_REPORT_READ_CACHE_KEY)?.data;
+    if (!snapshot) return;
+    if (snapshot.lots?.length) setLots(snapshot.lots);
+    if (snapshot.data) setData(snapshot.data);
+    if (snapshot.mode) setMode(snapshot.mode);
+    if (snapshot.selectedLotId) setSelectedLotId(snapshot.selectedLotId);
+    if (snapshot.year) setYear(snapshot.year);
+    setShowOfflineSnapshot(true);
+  }, [isOnline]);
+
+  const loadLots = async () => {
+    if (lots.length) return;
+    const r = await apiCall("/api/v1/lots", { params: { limit: 100 } });
+    if (r.success) {
+      setLots(r.data as any[]);
+      const existing = readOfflineReadSnapshot<ProfitReportReadSnapshot>(PROFIT_REPORT_READ_CACHE_KEY)?.data;
+      writeOfflineReadSnapshot<ProfitReportReadSnapshot>(PROFIT_REPORT_READ_CACHE_KEY, {
+        lots: r.data as any[],
+        data: existing?.data || null,
+        mode: existing?.mode || mode,
+        selectedLotId: existing?.selectedLotId || selectedLotId,
+        year: existing?.year || year,
+      });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readOfflineReadSnapshot<ProfitReportReadSnapshot>(PROFIT_REPORT_READ_CACHE_KEY)?.data;
+      if (snapshot?.lots?.length) {
+        setLots(snapshot.lots);
+        setShowOfflineSnapshot(true);
+      }
+    }
+  };
 
   const generate = async () => {
     setLoading(true); setData(null);
@@ -21,13 +68,34 @@ export default function ProfitReportPage() {
     if (mode === "lot") { if (!selectedLotId) { alert("Select a lot"); setLoading(false); return; } params.lot_id = selectedLotId; }
     else { params.year = year; }
     const r = await apiCall("/api/v1/profit-report", { params });
-    if (r.success) setData(r.data);
+    if (r.success) {
+      setData(r.data);
+      writeOfflineReadSnapshot<ProfitReportReadSnapshot>(PROFIT_REPORT_READ_CACHE_KEY, {
+        lots,
+        data: r.data,
+        mode,
+        selectedLotId,
+        year,
+      });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readOfflineReadSnapshot<ProfitReportReadSnapshot>(PROFIT_REPORT_READ_CACHE_KEY)?.data;
+      if (snapshot?.data) {
+        setData(snapshot.data);
+        setShowOfflineSnapshot(true);
+      }
+    }
     setLoading(false);
   };
 
   return (
     <div>
       <PageHeader title={t("profit_report")} subtitle={t("profit_report_subtitle")} />
+      {showOfflineSnapshot && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Showing last synced data (offline mode).
+        </div>
+      )}
       <div className="card mb-6">
         <div className="flex flex-wrap gap-3 items-end">
           <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("report_type")}</label>
