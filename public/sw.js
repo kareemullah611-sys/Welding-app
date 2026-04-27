@@ -1,13 +1,24 @@
 // Service Worker for MRF Hardware Management System
 // Provides offline caching and background sync
 
-const CACHE_NAME = "mrf-hardware-v1";
+const CACHE_NAME = "mrf-hardware-v2";
 const API_CACHE_NAME = "mrf-hardware-api-v1";
 
 // Static assets to precache
 const STATIC_ASSETS = [
   "/login",
   "/dashboard",
+  "/sales",
+  "/payments",
+  "/expenses",
+  "/personal-withdrawals",
+  "/haji-transfers",
+  "/customers",
+  "/inventory",
+  "/city-transfers",
+  "/bank-deposits",
+  "/settings",
+  "/settings/bank-accounts",
 ];
 
 // API routes that are safe to cache (GET only)
@@ -110,11 +121,24 @@ self.addEventListener("fetch", (event) => {
   // Next.js pages — network first, fallback to cache
   if (event.request.mode === "navigate") {
     event.respondWith(
-      fetch(event.request).catch(() => {
-        return caches.match(event.request).then((cached) => {
-          return cached || caches.match("/dashboard");
-        });
-      })
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(async () => {
+          const cachedExact = await caches.match(event.request, { ignoreSearch: true });
+          if (cachedExact) return cachedExact;
+
+          const urlPath = url.pathname || "/dashboard";
+          const cachedByPath = await caches.match(urlPath);
+          if (cachedByPath) return cachedByPath;
+
+          return caches.match("/dashboard");
+        })
     );
     return;
   }
