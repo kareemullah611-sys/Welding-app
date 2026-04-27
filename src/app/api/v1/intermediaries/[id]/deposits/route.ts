@@ -4,6 +4,10 @@ import { withSuperAdmin } from "@/lib/middleware";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { journalIntermediaryDeposit } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+
+const INTERMEDIARY_DEPOSIT_SYNC_MODULE = "intermediary_deposits";
+const SUPERADMIN_SYNC_CITY_ID = 0;
 
 function parsePositiveAmount(value: unknown): number | null {
   const normalized = String(value ?? "").replace(/,/g, "").trim();
@@ -16,6 +20,7 @@ function parsePositiveAmount(value: unknown): number | null {
 export const POST = withSuperAdmin(async (request: NextRequest, context: any, user: JWTPayload) => {
   const intermediaryId = parseInt(context.params.id);
   const body = await request.json();
+  const syncMeta = getSyncRequestMeta(request);
 
   if (!body.depositDate) return errorResponse("VALIDATION", "depositDate required", 400);
   const amount = parsePositiveAmount(body.amount);
@@ -46,28 +51,79 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
   const sourceType: string = "super_admin_bank_account";
   const cityId: number | null = null;
   const bankAccountId: number | null = null;
+  try {
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: INTERMEDIARY_DEPOSIT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingDeposit = await prisma.intermediaryDeposit.findUnique({ where: { id: existingSync.entityId } });
+        if (existingDeposit) return successResponse(existingDeposit, "Deposit already synced");
+      }
+    }
 
-  const deposit = await prisma.intermediaryDeposit.create({
-    data: {
-      intermediaryId,
-      depositDate: new Date(body.depositDate),
-      amount,
-      currencyId: Number(body.currencyId),
-      sourceType: sourceType as any,
-      cityId,
-      bankAccountId,
-      superAdminBankAccountId,
-      notes: body.notes || null,
-      createdBy: user.userId,
-    },
-  });
+    const deposit = await prisma.$transaction(async (tx) => {
+      const created = await tx.intermediaryDeposit.create({
+        data: {
+          intermediaryId,
+          depositDate: new Date(body.depositDate),
+          amount,
+          currencyId: Number(body.currencyId),
+          sourceType: sourceType as any,
+          cityId,
+          bankAccountId,
+          superAdminBankAccountId,
+          notes: body.notes || null,
+          createdBy: user.userId,
+        },
+      });
 
-  await journalIntermediaryDeposit({
-    id: deposit.id, intermediaryId,
-    amount: Number(deposit.amount), currencyCode: currency.code,
-    depositDate: deposit.depositDate, createdBy: user.userId,
-    sourceType, cityId, bankAccountId, superAdminBankAccountId,
-  });
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: INTERMEDIARY_DEPOSIT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "intermediary_deposits",
+            entityId: created.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+      return created;
+    });
 
-  return successResponse(deposit, "Deposit recorded", 201);
+    await journalIntermediaryDeposit({
+      id: deposit.id, intermediaryId,
+      amount: Number(deposit.amount), currencyCode: currency.code,
+      depositDate: deposit.depositDate, createdBy: user.userId,
+      sourceType, cityId, bankAccountId, superAdminBankAccountId,
+    });
+
+    return successResponse(deposit, "Deposit recorded", 201);
+  } catch (error) {
+    if (syncMeta && isSyncRequestDuplicateError(error)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: INTERMEDIARY_DEPOSIT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingDeposit = await prisma.intermediaryDeposit.findUnique({ where: { id: existingSync.entityId } });
+        if (existingDeposit) return successResponse(existingDeposit, "Deposit already synced");
+      }
+    }
+    throw error;
+  }
 });

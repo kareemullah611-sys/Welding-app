@@ -3,6 +3,9 @@ import prisma from "@/lib/prisma";
 import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, paginatedResponse, errorResponse, validationError, serverError, getPaginationParams } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+
+const GODOWN_TRANSFER_SYNC_MODULE = "godown_transfers";
 
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
@@ -31,10 +34,27 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 });
 
 export const POST = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
+  const syncMeta = getSyncRequestMeta(request);
   try {
     if (user.role !== "city_admin") return errorResponse("FORBIDDEN", "Only city admins can transfer stock", 403);
     const body = await request.json();
     const { fromGodownId, toGodownId, productId, lotId, qty, transferDate, notes } = body;
+
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: user.cityId!,
+            module: GODOWN_TRANSFER_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingTransfer = await prisma.godownTransfer.findUnique({ where: { id: existingSync.entityId } });
+        if (existingTransfer) return successResponse({ id: existingTransfer.id }, "Stock transfer already synced");
+      }
+    }
 
     if (!fromGodownId || !toGodownId || !productId || !qty || qty <= 0) return validationError("All fields required, qty must be positive");
     if (fromGodownId === toGodownId) return validationError("Cannot transfer to same godown");
@@ -94,16 +114,49 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       effectiveLotId = fifoLot.id;
     }
 
-    const transfer = await prisma.godownTransfer.create({
-      data: { fromGodownId, toGodownId, productId, lotId: effectiveLotId, qty, transferDate: transferDate ? new Date(transferDate) : new Date(), notes, createdBy: user.userId },
-      include: { fromGodown: true, toGodown: true, product: true },
-    });
+    const transfer = await prisma.$transaction(async (tx) => {
+      const created = await tx.godownTransfer.create({
+        data: { fromGodownId, toGodownId, productId, lotId: effectiveLotId, qty, transferDate: transferDate ? new Date(transferDate) : new Date(), notes, createdBy: user.userId },
+        include: { fromGodown: true, toGodown: true, product: true },
+      });
 
-    await createAuditLog(user.userId, user.cityId!, "godown_transfers", transfer.id, "create", undefined, { fromGodownId, toGodownId, productId, qty }, getClientIP(request));
+      await createAuditLog(user.userId, user.cityId!, "godown_transfers", created.id, "create", undefined, { fromGodownId, toGodownId, productId, qty }, getClientIP(request), tx);
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId: user.cityId!,
+            module: GODOWN_TRANSFER_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "godown_transfers",
+            entityId: created.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+      return created;
+    });
 
     return successResponse({
       id: transfer.id, fromGodown: transfer.fromGodown.name, toGodown: transfer.toGodown.name,
       product: transfer.product.name, qty: Number(transfer.qty),
     }, "Stock transferred", 201);
-  } catch (error) { return serverError(); }
+  } catch (error) {
+    if (syncMeta && user.cityId && isSyncRequestDuplicateError(error)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: user.cityId,
+            module: GODOWN_TRANSFER_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingTransfer = await prisma.godownTransfer.findUnique({ where: { id: existingSync.entityId } });
+        if (existingTransfer) return successResponse({ id: existingTransfer.id }, "Stock transfer already synced");
+      }
+    }
+    return serverError();
+  }
 });

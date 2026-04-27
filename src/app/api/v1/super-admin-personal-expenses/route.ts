@@ -3,6 +3,10 @@ import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, paginatedResponse, errorResponse, serverError, getPaginationParams, getDateRange } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+
+const SUPER_ADMIN_EXPENSE_SYNC_MODULE = "super_admin_personal_expenses";
+const SUPERADMIN_SYNC_CITY_ID = 0;
 
 export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayload) => {
   try {
@@ -75,6 +79,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
 });
 
 export const POST = withAuth(async (request: NextRequest, _context, user: JWTPayload) => {
+  const syncMeta = getSyncRequestMeta(request);
   try {
     if (user.role !== "super_admin") {
       return errorResponse("FORBIDDEN", "Only super admin can create these expenses", 403);
@@ -92,6 +97,42 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
     if (!detail) return errorResponse("VALIDATION_ERROR", "Detail is required");
     if (!bankAccountId || Number.isNaN(bankAccountId)) return errorResponse("VALIDATION_ERROR", "Bank account is required");
 
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: SUPER_ADMIN_EXPENSE_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingExpense = await prisma.superAdminPersonalExpense.findUnique({
+          where: { id: existingSync.entityId },
+          include: { creator: { select: { id: true, fullName: true } }, bankAccount: { include: { currency: true } } },
+        });
+        if (existingExpense) {
+          return successResponse({
+            id: existingExpense.id,
+            expenseDate: existingExpense.expenseDate.toISOString().split("T")[0],
+            amount: Number(existingExpense.amount),
+            detail: existingExpense.detail,
+            notes: existingExpense.notes,
+            bankAccountId: existingExpense.bankAccountId,
+            bankAccount: {
+              id: existingExpense.bankAccount.id,
+              bankName: existingExpense.bankAccount.bankName,
+              accountNumber: existingExpense.bankAccount.accountNumber,
+              currency: existingExpense.bankAccount.currency,
+            },
+            createdBy: existingExpense.creator,
+            createdAt: existingExpense.createdAt.toISOString(),
+          }, "Personal expense already synced");
+        }
+      }
+    }
+
     const bankAccount = await prisma.superAdminBankAccount.findUnique({
       where: { id: bankAccountId },
       include: { currency: true },
@@ -100,38 +141,56 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       return errorResponse("NOT_FOUND", "Active super admin bank account not found", 404);
     }
 
-    const expense = await prisma.superAdminPersonalExpense.create({
-      data: {
-        expenseDate: new Date(expenseDate),
-        amount,
-        detail,
-        notes,
-        bankAccountId,
-        createdBy: user.userId,
-      },
-      include: {
-        creator: { select: { id: true, fullName: true } },
-        bankAccount: { include: { currency: true } },
-      },
-    });
+    const expense = await prisma.$transaction(async (tx) => {
+      const created = await tx.superAdminPersonalExpense.create({
+        data: {
+          expenseDate: new Date(expenseDate),
+          amount,
+          detail,
+          notes,
+          bankAccountId,
+          createdBy: user.userId,
+        },
+        include: {
+          creator: { select: { id: true, fullName: true } },
+          bankAccount: { include: { currency: true } },
+        },
+      });
 
-    await createAuditLog(
-      user.userId,
-      null,
-      "super_admin_personal_expenses",
-      expense.id,
-      "create",
-      undefined,
-      {
-        expenseDate,
-        amount,
-        detail,
-        notes,
-        bankAccount: bankAccount.bankName,
-        currency: bankAccount.currency.code,
-      },
-      getClientIP(request)
-    );
+      await createAuditLog(
+        user.userId,
+        null,
+        "super_admin_personal_expenses",
+        created.id,
+        "create",
+        undefined,
+        {
+          expenseDate,
+          amount,
+          detail,
+          notes,
+          bankAccount: bankAccount.bankName,
+          currency: bankAccount.currency.code,
+        },
+        getClientIP(request),
+        tx
+      );
+
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: SUPER_ADMIN_EXPENSE_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "super_admin_personal_expenses",
+            entityId: created.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+      return created;
+    });
 
     return successResponse({
       id: expense.id,
@@ -149,7 +208,42 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       createdBy: expense.creator,
       createdAt: expense.createdAt.toISOString(),
     }, "Personal expense recorded", 201);
-  } catch {
+  } catch (error) {
+    if (syncMeta && isSyncRequestDuplicateError(error)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: SUPER_ADMIN_EXPENSE_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingExpense = await prisma.superAdminPersonalExpense.findUnique({
+          where: { id: existingSync.entityId },
+          include: { creator: { select: { id: true, fullName: true } }, bankAccount: { include: { currency: true } } },
+        });
+        if (existingExpense) {
+          return successResponse({
+            id: existingExpense.id,
+            expenseDate: existingExpense.expenseDate.toISOString().split("T")[0],
+            amount: Number(existingExpense.amount),
+            detail: existingExpense.detail,
+            notes: existingExpense.notes,
+            bankAccountId: existingExpense.bankAccountId,
+            bankAccount: {
+              id: existingExpense.bankAccount.id,
+              bankName: existingExpense.bankAccount.bankName,
+              accountNumber: existingExpense.bankAccount.accountNumber,
+              currency: existingExpense.bankAccount.currency,
+            },
+            createdBy: existingExpense.creator,
+            createdAt: existingExpense.createdAt.toISOString(),
+          }, "Personal expense already synced");
+        }
+      }
+    }
     return serverError();
   }
 });

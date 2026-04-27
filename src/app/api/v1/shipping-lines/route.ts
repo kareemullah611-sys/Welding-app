@@ -3,6 +3,10 @@ import prisma from "@/lib/prisma";
 import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, paginatedResponse, validationError, serverError, getPaginationParams } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+
+const SHIPPING_LINE_SYNC_MODULE = "shipping_lines";
+const SUPERADMIN_SYNC_CITY_ID = 0;
 
 export const GET = withSuperAdmin(async (request: NextRequest, _context, _user: JWTPayload) => {
   try {
@@ -50,13 +54,66 @@ export const GET = withSuperAdmin(async (request: NextRequest, _context, _user: 
 });
 
 export const POST = withSuperAdmin(async (request: NextRequest, _context, user: JWTPayload) => {
+  const syncMeta = getSyncRequestMeta(request);
   try {
     const body = await request.json();
     if (!body.name?.trim()) return validationError("Name is required");
-    const sl = await prisma.shippingLine.create({
-      data: { name: body.name.trim(), contact: body.contact || null, notes: body.notes || null },
+
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: SHIPPING_LINE_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingShippingLine = await prisma.shippingLine.findUnique({ where: { id: existingSync.entityId } });
+        if (existingShippingLine) return successResponse({ id: existingShippingLine.id, name: existingShippingLine.name }, "Shipping line already synced");
+      }
+    }
+
+    const sl = await prisma.$transaction(async (tx) => {
+      const created = await tx.shippingLine.create({
+        data: { name: body.name.trim(), contact: body.contact || null, notes: body.notes || null },
+      });
+      await createAuditLog(user.userId, null, "shipping_lines", created.id, "create", undefined, { name: created.name }, getClientIP(request), tx);
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: SHIPPING_LINE_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "shipping_lines",
+            entityId: created.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+      return created;
     });
-    await createAuditLog(user.userId, null, "shipping_lines", sl.id, "create", undefined, { name: sl.name }, getClientIP(request));
+
     return successResponse({ id: sl.id, name: sl.name }, "Shipping line created", 201);
-  } catch (error) { console.error("Create shipping line:", error); return serverError(); }
+  } catch (error) {
+    if (syncMeta && isSyncRequestDuplicateError(error)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: SHIPPING_LINE_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingShippingLine = await prisma.shippingLine.findUnique({ where: { id: existingSync.entityId } });
+        if (existingShippingLine) return successResponse({ id: existingShippingLine.id, name: existingShippingLine.name }, "Shipping line already synced");
+      }
+    }
+    console.error("Create shipping line:", error);
+    return serverError();
+  }
 });

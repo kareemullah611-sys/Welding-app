@@ -4,6 +4,7 @@ import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, validationError, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { OpeningLiabilityType } from "@prisma/client";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 
 function dateOnly(value?: string | null): Date {
   if (!value) return new Date();
@@ -15,6 +16,8 @@ function getScopedCityId(user: JWTPayload, requestedCityId?: unknown): number | 
   const cityId = Number(requestedCityId || 0);
   return Number.isInteger(cityId) && cityId > 0 ? cityId : null;
 }
+
+const OPENINGS_SYNC_MODULE = "openings";
 
 export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayload) => {
   try {
@@ -158,14 +161,33 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
 });
 
 export const POST = withAuth(async (request: NextRequest, _context, user: JWTPayload) => {
+  const syncMeta = getSyncRequestMeta(request);
+  let body: any = null;
+  let kind = "";
+  let cityId: number | null = null;
   try {
     if (user.role !== "city_admin" && user.role !== "super_admin") {
       return errorResponse("FORBIDDEN", "Only admins can manage openings", 403);
     }
 
-    const body = await request.json();
-    const kind = String(body?.kind || "");
-    const cityId = getScopedCityId(user, body?.cityId);
+    body = await request.json();
+    kind = String(body?.kind || "");
+    cityId = getScopedCityId(user, body?.cityId);
+
+    if (syncMeta && cityId && (kind === "cash" || kind === "customer" || kind === "stock")) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId,
+            module: OPENINGS_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        return successResponse({ id: existingSync.entityId }, "Opening already synced");
+      }
+    }
 
     if (kind === "cash") {
       if (!cityId) return validationError("City is required");
@@ -188,6 +210,19 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           });
 
       await createAuditLog(user.userId, cityId, "opening_cashes", row.id, "update", undefined, { amount }, getClientIP(request));
+      if (syncMeta) {
+        await prisma.syncRequest.create({
+          data: {
+            cityId,
+            module: OPENINGS_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "opening_cashes",
+            entityId: row.id,
+            createdBy: user.userId,
+          },
+        });
+      }
       return successResponse({ id: row.id }, "Opening cash saved");
     }
 
@@ -216,6 +251,19 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           });
 
       await createAuditLog(user.userId, cityId, "opening_customer_balances", row.id, "update", undefined, { amount }, getClientIP(request));
+      if (syncMeta) {
+        await prisma.syncRequest.create({
+          data: {
+            cityId,
+            module: OPENINGS_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "opening_customer_balances",
+            entityId: row.id,
+            createdBy: user.userId,
+          },
+        });
+      }
       return successResponse({ id: row.id }, "Opening customer balance saved");
     }
 
@@ -244,6 +292,19 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           });
 
       await createAuditLog(user.userId, cityId, "opening_stocks", row.id, "update", undefined, { qty }, getClientIP(request));
+      if (syncMeta) {
+        await prisma.syncRequest.create({
+          data: {
+            cityId,
+            module: OPENINGS_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "opening_stocks",
+            entityId: row.id,
+            createdBy: user.userId,
+          },
+        });
+      }
       return successResponse({ id: row.id }, "Opening stock saved");
     }
 
@@ -311,6 +372,25 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
 
     return validationError("Invalid opening kind");
   } catch (error) {
+    if (
+      syncMeta &&
+      cityId &&
+      (kind === "cash" || kind === "customer" || kind === "stock") &&
+      isSyncRequestDuplicateError(error)
+    ) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId,
+            module: OPENINGS_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        return successResponse({ id: existingSync.entityId }, "Opening already synced");
+      }
+    }
     console.error("Save opening error:", error);
     return serverError();
   }

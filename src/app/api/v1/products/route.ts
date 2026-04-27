@@ -4,6 +4,10 @@ import { withAuth, withSuperAdmin, createAuditLog, getClientIP } from "@/lib/mid
 import { createProductSchema } from "@/lib/validations";
 import { successResponse, paginatedResponse, validationError, errorResponse, serverError, getPaginationParams } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+
+const PRODUCT_SYNC_MODULE = "products";
+const SUPERADMIN_SYNC_CITY_ID = 0;
 
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
@@ -31,19 +35,71 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 });
 
 export const POST = withSuperAdmin(async (request: NextRequest, context, user: JWTPayload) => {
+  const syncMeta = getSyncRequestMeta(request);
   try {
     const body = await request.json();
     const parsed = createProductSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid product data", parsed.error.errors);
 
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: PRODUCT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingProduct = await prisma.product.findUnique({ where: { id: existingSync.entityId } });
+        if (existingProduct) {
+          return successResponse({ id: existingProduct.id, name: existingProduct.name, isActive: existingProduct.isActive }, "Product already synced");
+        }
+      }
+    }
+
     const existing = await prisma.product.findUnique({ where: { name: parsed.data.name } });
     if (existing) return errorResponse("DUPLICATE", "Product with this name already exists", 409);
 
-    const product = await prisma.product.create({ data: { name: parsed.data.name } });
-    await createAuditLog(user.userId, null, "products", product.id, "create", undefined, { name: product.name }, getClientIP(request));
+    const product = await prisma.$transaction(async (tx) => {
+      const created = await tx.product.create({ data: { name: parsed.data.name } });
+      await createAuditLog(user.userId, null, "products", created.id, "create", undefined, { name: created.name }, getClientIP(request), tx);
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: PRODUCT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "products",
+            entityId: created.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+      return created;
+    });
 
     return successResponse({ id: product.id, name: product.name, isActive: product.isActive }, "Product created", 201);
   } catch (error) {
+    if (syncMeta && isSyncRequestDuplicateError(error)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: PRODUCT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingProduct = await prisma.product.findUnique({ where: { id: existingSync.entityId } });
+        if (existingProduct) {
+          return successResponse({ id: existingProduct.id, name: existingProduct.name, isActive: existingProduct.isActive }, "Product already synced");
+        }
+      }
+    }
     return serverError();
   }
 });

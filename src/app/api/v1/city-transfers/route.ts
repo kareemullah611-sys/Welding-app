@@ -4,6 +4,9 @@ import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middl
 import { successResponse, paginatedResponse, errorResponse, validationError, serverError, getPaginationParams } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { canAccessGodownCity } from "@/lib/godown-access";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+
+const CITY_TRANSFER_SYNC_MODULE = "city_transfers";
 
 // GET - list transfers (sent + received)
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
@@ -71,6 +74,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
 // POST - send goods to another city
 export const POST = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
+  const syncMeta = getSyncRequestMeta(request);
   try {
     if (user.role !== "city_admin") return errorResponse("FORBIDDEN", "Only city admins can send", 403);
     const body = await request.json();
@@ -80,6 +84,22 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const parsedProductId = Number(productId);
     const parsedLotId = lotId ? Number(lotId) : null;
     const parsedQty = Number(qty);
+
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: user.cityId!,
+            module: CITY_TRANSFER_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingTransfer = await prisma.cityTransfer.findUnique({ where: { id: existingSync.entityId } });
+        if (existingTransfer) return successResponse({ id: existingTransfer.id }, "Transfer already synced");
+      }
+    }
 
     if (!parsedToCityId || !parsedFromGodownId || !parsedProductId || !parsedQty) return validationError("Missing required fields");
     if (!Number.isFinite(parsedQty) || parsedQty <= 0) return validationError("Quantity must be greater than 0");
@@ -168,11 +188,39 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       });
 
       await createAuditLog(user.userId, user.cityId, "city_transfers", createdTransfer.id, "create", undefined, body, getClientIP(request), tx);
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId: user.cityId!,
+            module: CITY_TRANSFER_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "city_transfers",
+            entityId: createdTransfer.id,
+            createdBy: user.userId,
+          },
+        });
+      }
       return createdTransfer;
     });
 
     return successResponse({ id: transfer.id }, "Transfer sent — waiting for approval", 201);
   } catch (error: any) {
+    if (syncMeta && user.cityId && isSyncRequestDuplicateError(error)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: user.cityId,
+            module: CITY_TRANSFER_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingTransfer = await prisma.cityTransfer.findUnique({ where: { id: existingSync.entityId } });
+        if (existingTransfer) return successResponse({ id: existingTransfer.id }, "Transfer already synced");
+      }
+    }
     console.error("Create city transfer:", error);
     if (typeof error?.message === "string" && error.message.startsWith("INSUFFICIENT_STOCK:")) {
       const available = Number(error.message.split(":")[1] || 0);

@@ -6,6 +6,10 @@ import { createLotCostSchema } from "@/lib/validations";
 import { successResponse, validationError, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { validatePaymentSource } from "@/lib/payment-source-validation";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+
+const LOT_COST_SYNC_MODULE = "lot_costs";
+const SUPERADMIN_SYNC_CITY_ID = 0;
 
 export const GET = withSuperAdmin(async (request: NextRequest, context, user: JWTPayload) => {
   try {
@@ -28,6 +32,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
 });
 
 export const POST = withSuperAdmin(async (request: NextRequest, context, user: JWTPayload) => {
+  const syncMeta = getSyncRequestMeta(request);
   try {
     const body = await request.json();
     const parsed = createLotCostSchema.safeParse(body);
@@ -135,6 +140,21 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       }
     }
 
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: LOT_COST_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        return successResponse({ id: existingSync.entityId }, "Cost already synced");
+      }
+    }
+
     const cost = await prisma.$transaction(async (tx) => {
       const createdCost = await tx.lotCost.create({
         data: {
@@ -170,9 +190,39 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         intermediaryId,
         paidFromCash,
       }, tx);
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: LOT_COST_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "lot_costs",
+            entityId: createdCost.id,
+            createdBy: user.userId,
+          },
+        });
+      }
       return createdCost;
     });
 
     return successResponse({ id: cost.id }, "Cost recorded", 201);
-  } catch (error) { console.error("Create lot cost error:", error); return serverError(); }
+  } catch (error) {
+    if (syncMeta && isSyncRequestDuplicateError(error)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: LOT_COST_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        return successResponse({ id: existingSync.entityId }, "Cost already synced");
+      }
+    }
+    console.error("Create lot cost error:", error);
+    return serverError();
+  }
 });

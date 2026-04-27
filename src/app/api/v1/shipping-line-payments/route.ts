@@ -5,8 +5,13 @@ import { successResponse, validationError, errorResponse, serverError } from "@/
 import { journalShippingLinePayment } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { validatePaymentSource } from "@/lib/payment-source-validation";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+
+const SHIPPING_LINE_PAYMENT_SYNC_MODULE = "shipping_line_payments";
+const SUPERADMIN_SYNC_CITY_ID = 0;
 
 export const POST = withSuperAdmin(async (request: NextRequest, _context: any, user: JWTPayload) => {
+  const syncMeta = getSyncRequestMeta(request);
   try {
     const body = await request.json();
     const { shippingLineId, lotId, paymentDate, amountUsd, exchangeRate, reference, notes, bankAccountId, intermediaryId } = body;
@@ -25,26 +30,64 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
     if (parsedLotId && !lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
     if (!source.ok) return errorResponse(source.code, source.message, source.status);
 
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: SHIPPING_LINE_PAYMENT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingPayment = await prisma.shippingLinePayment.findUnique({ where: { id: existingSync.entityId } });
+        if (existingPayment) {
+          return successResponse(
+            { id: existingPayment.id, amountUsd: Number(existingPayment.amountUsd), amountPkr: existingPayment.amountPkr ? Number(existingPayment.amountPkr) : null },
+            "Payment already synced"
+          );
+        }
+      }
+    }
+
     const amountPkr = exchangeRate ? Math.round(Number(amountUsd) * Number(exchangeRate) * 100) / 100 : null;
 
-    const payment = await prisma.shippingLinePayment.create({
-      data: {
-        shippingLineId: parsedShippingLineId,
-        lotId: parsedLotId,
-        bankAccountId: source.bankAccountId,
-        intermediaryId: source.intermediaryId,
-        paymentDate: new Date(paymentDate),
-        amountUsd: Number(amountUsd),
-        exchangeRate: exchangeRate ? Number(exchangeRate) : null,
-        amountPkr,
-        reference: reference || null,
-        notes: notes || null,
-        createdBy: user.userId,
-      },
-    });
+    const payment = await prisma.$transaction(async (tx) => {
+      const created = await tx.shippingLinePayment.create({
+        data: {
+          shippingLineId: parsedShippingLineId,
+          lotId: parsedLotId,
+          bankAccountId: source.bankAccountId,
+          intermediaryId: source.intermediaryId,
+          paymentDate: new Date(paymentDate),
+          amountUsd: Number(amountUsd),
+          exchangeRate: exchangeRate ? Number(exchangeRate) : null,
+          amountPkr,
+          reference: reference || null,
+          notes: notes || null,
+          createdBy: user.userId,
+        },
+      });
 
-    await createAuditLog(user.userId, null, "shipping_line_payments", payment.id, "create", undefined,
-      { shippingLineId: parsedShippingLineId, amountUsd, bankAccountId: source.bankAccountId, intermediaryId: source.intermediaryId }, getClientIP(request));
+      await createAuditLog(user.userId, null, "shipping_line_payments", created.id, "create", undefined,
+        { shippingLineId: parsedShippingLineId, amountUsd, bankAccountId: source.bankAccountId, intermediaryId: source.intermediaryId }, getClientIP(request), tx);
+
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: SHIPPING_LINE_PAYMENT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "shipping_line_payments",
+            entityId: created.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+      return created;
+    });
 
     try {
       await journalShippingLinePayment({
@@ -59,5 +102,28 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
     } catch (je) { console.error("Journal (shipping line payment):", je); }
 
     return successResponse({ id: payment.id, amountUsd: Number(payment.amountUsd), amountPkr }, "Payment recorded", 201);
-  } catch (error) { console.error("Create shipping line payment:", error); return serverError(); }
+  } catch (error) {
+    if (syncMeta && isSyncRequestDuplicateError(error)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: SHIPPING_LINE_PAYMENT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingPayment = await prisma.shippingLinePayment.findUnique({ where: { id: existingSync.entityId } });
+        if (existingPayment) {
+          return successResponse(
+            { id: existingPayment.id, amountUsd: Number(existingPayment.amountUsd), amountPkr: existingPayment.amountPkr ? Number(existingPayment.amountPkr) : null },
+            "Payment already synced"
+          );
+        }
+      }
+    }
+    console.error("Create shipping line payment:", error);
+    return serverError();
+  }
 });

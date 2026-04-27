@@ -5,6 +5,10 @@ import { successResponse, errorResponse } from "@/lib/api-response";
 import { journalIntermediaryExchange } from "@/lib/accounting";
 import { getIntermediaryBalances } from "@/lib/intermediary-balance";
 import { JWTPayload } from "@/lib/auth";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+
+const INTERMEDIARY_EXCHANGE_SYNC_MODULE = "intermediary_exchanges";
+const SUPERADMIN_SYNC_CITY_ID = 0;
 
 function parsePositive(value: unknown): number | null {
   const parsed = Number(String(value ?? "").replace(/,/g, "").trim());
@@ -13,6 +17,7 @@ function parsePositive(value: unknown): number | null {
 }
 
 export const POST = withSuperAdmin(async (request: NextRequest, context: any, user: JWTPayload) => {
+  const syncMeta = getSyncRequestMeta(request);
   const intermediaryId = parseInt(context.params.id);
   if (!Number.isFinite(intermediaryId)) return errorResponse("VALIDATION", "Invalid intermediary ID", 400);
 
@@ -62,32 +67,84 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
 
   if (!(toAmount > 0)) return errorResponse("VALIDATION", "Calculated toAmount must be > 0", 400);
 
-  const exchange = await prisma.intermediaryExchange.create({
-    data: {
+  try {
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: INTERMEDIARY_EXCHANGE_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingExchange = await prisma.intermediaryExchange.findUnique({ where: { id: existingSync.entityId } });
+        if (existingExchange) return successResponse(existingExchange, "Exchange already synced");
+      }
+    }
+
+    const exchange = await prisma.$transaction(async (tx) => {
+      const created = await tx.intermediaryExchange.create({
+        data: {
+          intermediaryId,
+          exchangeDate: new Date(body.exchangeDate),
+          baseCurrencyId,
+          quoteCurrencyId,
+          fromCurrencyId,
+          fromAmount,
+          toCurrencyId,
+          toAmount,
+          exchangeRate,
+          notes: body.notes || null,
+          createdBy: user.userId,
+        },
+      });
+
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: INTERMEDIARY_EXCHANGE_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "intermediary_exchanges",
+            entityId: created.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+      return created;
+    });
+
+    await journalIntermediaryExchange({
+      id: exchange.id,
       intermediaryId,
-      exchangeDate: new Date(body.exchangeDate),
-      baseCurrencyId,
-      quoteCurrencyId,
-      fromCurrencyId,
-      fromAmount,
-      toCurrencyId,
-      toAmount,
-      exchangeRate,
-      notes: body.notes || null,
+      exchangeDate: exchange.exchangeDate,
+      fromCurrencyCode: fromCurrency.code,
+      fromAmount: Number(exchange.fromAmount),
+      toCurrencyCode: toCurrency.code,
+      toAmount: Number(exchange.toAmount),
       createdBy: user.userId,
-    },
-  });
+    });
 
-  await journalIntermediaryExchange({
-    id: exchange.id,
-    intermediaryId,
-    exchangeDate: exchange.exchangeDate,
-    fromCurrencyCode: fromCurrency.code,
-    fromAmount: Number(exchange.fromAmount),
-    toCurrencyCode: toCurrency.code,
-    toAmount: Number(exchange.toAmount),
-    createdBy: user.userId,
-  });
-
-  return successResponse(exchange, "Exchange executed", 201);
+    return successResponse(exchange, "Exchange executed", 201);
+  } catch (error) {
+    if (syncMeta && isSyncRequestDuplicateError(error)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: INTERMEDIARY_EXCHANGE_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingExchange = await prisma.intermediaryExchange.findUnique({ where: { id: existingSync.entityId } });
+        if (existingExchange) return successResponse(existingExchange, "Exchange already synced");
+      }
+    }
+    throw error;
+  }
 });

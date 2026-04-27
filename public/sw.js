@@ -3,7 +3,6 @@
 
 const CACHE_NAME = "mrf-hardware-v1";
 const API_CACHE_NAME = "mrf-hardware-api-v1";
-const OFFLINE_QUEUE_KEY = "offline-queue";
 
 // Static assets to precache
 const STATIC_ASSETS = [
@@ -86,36 +85,18 @@ self.addEventListener("fetch", (event) => {
       return;
     }
 
-    // For mutating requests (POST, PUT, DELETE) — try network, queue if offline
+    // For mutating requests (POST, PUT, DELETE) — network only.
+    // Offline queueing is handled centrally in the app layer (IndexedDB + useOffline).
     if (event.request.method !== "GET") {
       event.respondWith(
-        fetch(event.request.clone()).catch(async () => {
-          // Queue the request for later sync
-          const body = await event.request.clone().text();
-          const queueItem = {
-            id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
-            url: event.request.url,
-            method: event.request.method,
-            headers: Object.fromEntries(event.request.headers.entries()),
-            body,
-            timestamp: Date.now(),
-            pathname: url.pathname,
-          };
-
-          // Store in IndexedDB via message to client
-          const clients = await self.clients.matchAll();
-          for (const client of clients) {
-            client.postMessage({
-              type: "QUEUE_OFFLINE_REQUEST",
-              payload: queueItem,
-            });
-          }
-
+        fetch(event.request.clone()).catch(() => {
           return new Response(
             JSON.stringify({
-              success: true,
-              data: { _queued: true, _queueId: queueItem.id },
-              message: "Request queued for sync when online",
+              success: false,
+              error: {
+                code: "OFFLINE",
+                message: "You are offline. Please retry when connected.",
+              },
               _offline: true,
             }),
             { headers: { "Content-Type": "application/json" } }
@@ -157,39 +138,3 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 });
-
-// Listen for sync events
-self.addEventListener("message", (event) => {
-  if (event.data?.type === "SYNC_OFFLINE_QUEUE") {
-    // Trigger sync from the client
-    syncOfflineQueue(event);
-  }
-});
-
-async function syncOfflineQueue(event) {
-  const queue = event.data?.queue || [];
-  const results = [];
-
-  for (const item of queue) {
-    try {
-      const response = await fetch(item.url, {
-        method: item.method,
-        headers: item.headers,
-        body: item.method !== "GET" ? item.body : undefined,
-      });
-      const data = await response.json();
-      results.push({ id: item.id, success: data.success, data });
-    } catch (error) {
-      results.push({ id: item.id, success: false, error: "Network error" });
-    }
-  }
-
-  // Notify all clients
-  const clients = await self.clients.matchAll();
-  for (const client of clients) {
-    client.postMessage({
-      type: "SYNC_RESULTS",
-      payload: results,
-    });
-  }
-}

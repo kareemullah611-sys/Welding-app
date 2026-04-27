@@ -8,6 +8,10 @@ import {
   getPaginationParams, getDateRange,
 } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+
+const LOT_SYNC_MODULE = "lots";
+const SUPERADMIN_SYNC_CITY_ID = 0;
 
 // GET /api/v1/lots - List lots
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
@@ -142,12 +146,29 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
 // POST /api/v1/lots - Create lot with purchase invoice (Super Admin only)
 export const POST = withSuperAdmin(async (request: NextRequest, context, user: JWTPayload) => {
+  const syncMeta = getSyncRequestMeta(request);
   try {
     const body = await request.json();
     const parsed = createLotSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid lot data", parsed.error.errors);
 
     const { countryId, lotNumber, lotDate, notes, purchaseItems, distributions } = parsed.data;
+
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: LOT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingLot = await prisma.lot.findUnique({ where: { id: existingSync.entityId } });
+        if (existingLot) return successResponse({ id: existingLot.id }, "Lot already synced");
+      }
+    }
 
     // Verify country exists
     const country = await prisma.country.findUnique({ where: { id: countryId } });
@@ -260,6 +281,20 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         lotNumber, countryId, purchaseItems, distributions,
       }, getClientIP(request), tx);
 
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: LOT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "lots",
+            entityId: createdLot.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+
       return createdLot;
     });
 
@@ -300,6 +335,23 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       createdBy: lotFull.creator,
     }, "Lot created successfully", 201);
   } catch (error) {
+    if (syncMeta && isSyncRequestDuplicateError(error)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: LOT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingLot = await prisma.lot.findUnique({ where: { id: existingSync.entityId } });
+        if (existingLot) {
+          return successResponse({ id: existingLot.id }, "Lot already synced");
+        }
+      }
+    }
     console.error("Create lot error:", error);
     return serverError();
   }

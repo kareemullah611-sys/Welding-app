@@ -3,6 +3,10 @@ import prisma from "@/lib/prisma";
 import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+
+const BANK_ACCOUNT_SYNC_MODULE = "bank_accounts";
+const SUPERADMIN_SYNC_CITY_ID = 0;
 
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
@@ -308,6 +312,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 });
 
 export const POST = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
+  const syncMeta = getSyncRequestMeta(request);
   try {
     if (user.role === "super_admin") {
       const body = await request.json();
@@ -322,27 +327,80 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       const currency = await prisma.currency.findUnique({ where: { id: currencyId } });
       if (!currency) return errorResponse("NOT_FOUND", "Currency not found", 404);
 
-      const account = await prisma.superAdminBankAccount.create({
-        data: {
-          bankName,
-          accountNumber,
-          currencyId,
-          isActive: true,
-          createdBy: user.userId,
-        },
-        include: { currency: true },
-      });
+      if (syncMeta) {
+        const existingSync = await prisma.syncRequest.findUnique({
+          where: {
+            unique_sync_request_per_city_module: {
+              cityId: SUPERADMIN_SYNC_CITY_ID,
+              module: BANK_ACCOUNT_SYNC_MODULE,
+              requestId: syncMeta.requestId,
+            },
+          },
+        });
+        if (existingSync?.entityId) {
+          const existingAccount = await prisma.superAdminBankAccount.findUnique({
+            where: { id: existingSync.entityId },
+            include: { currency: true },
+          });
+          if (existingAccount) {
+            return successResponse(
+              {
+                id: existingAccount.id,
+                cityId: null,
+                cityName: "Super Admin",
+                bankName: existingAccount.bankName,
+                accountNumber: existingAccount.accountNumber,
+                currencyId: existingAccount.currencyId,
+                currency: existingAccount.currency,
+                isActive: existingAccount.isActive,
+                createdAt: existingAccount.createdAt.toISOString(),
+                accountScope: "super_admin",
+              },
+              "Bank account already synced"
+            );
+          }
+        }
+      }
 
-      await createAuditLog(
-        user.userId,
-        null,
-        "super_admin_bank_accounts",
-        account.id,
-        "create",
-        undefined,
-        { bankName, accountNumber, currencyId },
-        getClientIP(request)
-      );
+      const account = await prisma.$transaction(async (tx) => {
+        const created = await tx.superAdminBankAccount.create({
+          data: {
+            bankName,
+            accountNumber,
+            currencyId,
+            isActive: true,
+            createdBy: user.userId,
+          },
+          include: { currency: true },
+        });
+
+        await createAuditLog(
+          user.userId,
+          null,
+          "super_admin_bank_accounts",
+          created.id,
+          "create",
+          undefined,
+          { bankName, accountNumber, currencyId },
+          getClientIP(request),
+          tx
+        );
+
+        if (syncMeta) {
+          await tx.syncRequest.create({
+            data: {
+              cityId: SUPERADMIN_SYNC_CITY_ID,
+              module: BANK_ACCOUNT_SYNC_MODULE,
+              requestId: syncMeta.requestId,
+              deviceId: syncMeta.deviceId,
+              entityType: "super_admin_bank_accounts",
+              entityId: created.id,
+              createdBy: user.userId,
+            },
+          });
+        }
+        return created;
+      });
 
       return successResponse(
         {
@@ -364,6 +422,38 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const body = await request.json();
     const cityId = user.cityId!;
 
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId,
+            module: BANK_ACCOUNT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingAccount = await prisma.bankAccount.findUnique({
+          where: { id: existingSync.entityId },
+          include: { city: { select: { id: true, name: true } } },
+        });
+        if (existingAccount) {
+          return successResponse(
+            {
+              id: existingAccount.id,
+              cityId: existingAccount.cityId,
+              cityName: existingAccount.city.name,
+              bankName: existingAccount.bankName,
+              accountNumber: existingAccount.accountNumber,
+              isActive: existingAccount.isActive,
+              createdAt: existingAccount.createdAt.toISOString(),
+            },
+            "Bank account already synced"
+          );
+        }
+      }
+    }
+
     // Validate bankName
     const bankName: string = (body.bankName || "").trim();
     if (!bankName) {
@@ -375,28 +465,46 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
     const accountNumber: string | null = body.accountNumber ? String(body.accountNumber).trim() : null;
 
-    const account = await prisma.bankAccount.create({
-      data: {
-        cityId,
-        bankName,
-        accountNumber,
-        isActive: true,
-      },
-      include: {
-        city: { select: { id: true, name: true } },
-      },
-    });
+    const account = await prisma.$transaction(async (tx) => {
+      const created = await tx.bankAccount.create({
+        data: {
+          cityId,
+          bankName,
+          accountNumber,
+          isActive: true,
+        },
+        include: {
+          city: { select: { id: true, name: true } },
+        },
+      });
 
-    await createAuditLog(
-      user.userId,
-      cityId,
-      "bank_accounts",
-      account.id,
-      "create",
-      undefined,
-      { bankName, accountNumber, cityId },
-      getClientIP(request)
-    );
+      await createAuditLog(
+        user.userId,
+        cityId,
+        "bank_accounts",
+        created.id,
+        "create",
+        undefined,
+        { bankName, accountNumber, cityId },
+        getClientIP(request),
+        tx
+      );
+
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId,
+            module: BANK_ACCOUNT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "bank_accounts",
+            entityId: created.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+      return created;
+    });
 
     return successResponse(
       {
@@ -412,6 +520,56 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       201
     );
   } catch (error) {
+    if (syncMeta && isSyncRequestDuplicateError(error)) {
+      const fallbackCityId = user.role === "super_admin" ? SUPERADMIN_SYNC_CITY_ID : (user.cityId || 0);
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: fallbackCityId,
+            module: BANK_ACCOUNT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        if (user.role === "super_admin") {
+          const existingAccount = await prisma.superAdminBankAccount.findUnique({
+            where: { id: existingSync.entityId },
+            include: { currency: true },
+          });
+          if (existingAccount) {
+            return successResponse({
+              id: existingAccount.id,
+              cityId: null,
+              cityName: "Super Admin",
+              bankName: existingAccount.bankName,
+              accountNumber: existingAccount.accountNumber,
+              currencyId: existingAccount.currencyId,
+              currency: existingAccount.currency,
+              isActive: existingAccount.isActive,
+              createdAt: existingAccount.createdAt.toISOString(),
+              accountScope: "super_admin",
+            }, "Bank account already synced");
+          }
+        } else {
+          const existingAccount = await prisma.bankAccount.findUnique({
+            where: { id: existingSync.entityId },
+            include: { city: { select: { id: true, name: true } } },
+          });
+          if (existingAccount) {
+            return successResponse({
+              id: existingAccount.id,
+              cityId: existingAccount.cityId,
+              cityName: existingAccount.city.name,
+              bankName: existingAccount.bankName,
+              accountNumber: existingAccount.accountNumber,
+              isActive: existingAccount.isActive,
+              createdAt: existingAccount.createdAt.toISOString(),
+            }, "Bank account already synced");
+          }
+        }
+      }
+    }
     return serverError();
   }
 });

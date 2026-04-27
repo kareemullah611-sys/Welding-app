@@ -5,15 +5,35 @@ import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { createLotPurchaseSchema } from "@/lib/validations";
 import { successResponse, validationError, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+
+const LOT_PURCHASE_SYNC_MODULE = "lot_purchases";
+const SUPERADMIN_SYNC_CITY_ID = 0;
 
 // POST /api/v1/lot-purchases - Record purchase prices for a lot
 export const POST = withSuperAdmin(async (request: NextRequest, context, user: JWTPayload) => {
+  const syncMeta = getSyncRequestMeta(request);
   try {
     const body = await request.json();
     const parsed = createLotPurchaseSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid data", parsed.error.errors);
 
     const { lotId, supplierId, products, exchangeRate } = parsed.data;
+
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: LOT_PURCHASE_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        return successResponse({ lotId: existingSync.entityId }, "Purchase prices already synced");
+      }
+    }
 
     const lot = await prisma.lot.findUnique({ where: { id: lotId }, include: { lotProducts: { select: { productId: true } } } });
     if (!lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
@@ -57,6 +77,20 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
 
       await createAuditLog(user.userId, null, "lot_purchases", lotId, "create", undefined, { supplierId, products }, getClientIP(request), tx);
 
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: LOT_PURCHASE_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "lot_purchases",
+            entityId: lotId,
+            createdBy: user.userId,
+          },
+        });
+      }
+
       for (const item of itemsCreated) {
         await journalLotPurchase({ id: item.id, supplierId, lotId, totalUsd: item.totalPriceUsd, createdBy: user.userId }, tx);
       }
@@ -66,7 +100,22 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     const createdIds = createdItems.map((c) => c.id);
 
     return successResponse({ lotId, purchaseIds: createdIds }, "Purchase prices recorded", 201);
-  } catch (error) { console.error("Create lot purchase error:", error); return serverError(); }
+  } catch (error) {
+    if (syncMeta && isSyncRequestDuplicateError(error)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: LOT_PURCHASE_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) return successResponse({ lotId: existingSync.entityId }, "Purchase prices already synced");
+    }
+    console.error("Create lot purchase error:", error);
+    return serverError();
+  }
 });
 
 // GET /api/v1/lot-purchases?lot_id=X - Get purchases for a lot

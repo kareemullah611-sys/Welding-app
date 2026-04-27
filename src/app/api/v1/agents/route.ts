@@ -3,6 +3,10 @@ import prisma from "@/lib/prisma";
 import { withSuperAdmin } from "@/lib/middleware";
 import { successResponse, paginatedResponse, validationError, serverError, getPaginationParams } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+
+const AGENT_SYNC_MODULE = "agents";
+const SUPERADMIN_SYNC_CITY_ID = 0;
 
 export const GET = withSuperAdmin(async (request: NextRequest, context, user: JWTPayload) => {
   try {
@@ -27,11 +31,63 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
 });
 
 export const POST = withSuperAdmin(async (request: NextRequest, context, user: JWTPayload) => {
+  const syncMeta = getSyncRequestMeta(request);
   try {
     const body = await request.json();
     if (!body.name) return validationError("Name required");
     if (body.agentType === "freight") return validationError("Use Shipping Lines for freight parties");
-    const agent = await prisma.agent.create({ data: { name: body.name, agentType: body.agentType || "customs", cityId: body.cityId || null, phone: body.phone, notes: body.notes } });
+
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: AGENT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingAgent = await prisma.agent.findUnique({ where: { id: existingSync.entityId } });
+        if (existingAgent) return successResponse({ id: existingAgent.id }, "Agent already synced");
+      }
+    }
+
+    const agent = await prisma.$transaction(async (tx) => {
+      const created = await tx.agent.create({ data: { name: body.name, agentType: body.agentType || "customs", cityId: body.cityId || null, phone: body.phone, notes: body.notes } });
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: AGENT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "agents",
+            entityId: created.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+      return created;
+    });
+
     return successResponse({ id: agent.id }, "Agent created", 201);
-  } catch (error) { return serverError(); }
+  } catch (error) {
+    if (syncMeta && isSyncRequestDuplicateError(error)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: AGENT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingAgent = await prisma.agent.findUnique({ where: { id: existingSync.entityId } });
+        if (existingAgent) return successResponse({ id: existingAgent.id }, "Agent already synced");
+      }
+    }
+    return serverError();
+  }
 });

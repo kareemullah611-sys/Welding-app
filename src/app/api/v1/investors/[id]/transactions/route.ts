@@ -3,15 +3,46 @@ import prisma from "@/lib/prisma";
 import { withAuth } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+
+const INVESTOR_TXN_SYNC_MODULE = "investor_transactions";
+const SUPERADMIN_SYNC_CITY_ID = 0;
 
 // ─── POST /api/v1/investors/[id]/transactions ──────────────────────────────
 // Body: { type: "deposit"|"withdrawal"|"profit", accountId, amount, date, notes, periodStart?, periodEnd? }
 export const POST = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   if (user.role !== "super_admin") return errorResponse("FORBIDDEN", "Super admin only", 403);
+  const syncMeta = getSyncRequestMeta(request);
   try {
     const investorId = parseInt(context.params.id);
     const body = await request.json();
     const { type, accountId, amount, date, notes, periodStart, periodEnd } = body;
+
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: INVESTOR_TXN_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        if (existingSync.entityType === "investor_deposit") {
+          const existing = await prisma.investorDeposit.findUnique({ where: { id: existingSync.entityId } });
+          if (existing) return successResponse(existing, "Deposit already synced");
+        }
+        if (existingSync.entityType === "investor_withdrawal") {
+          const existing = await prisma.investorWithdrawal.findUnique({ where: { id: existingSync.entityId } });
+          if (existing) return successResponse(existing, "Withdrawal already synced");
+        }
+        if (existingSync.entityType === "profit_allocation") {
+          const existing = await prisma.profitAllocation.findUnique({ where: { id: existingSync.entityId } });
+          if (existing) return successResponse(existing, "Profit allocation already synced");
+        }
+      }
+    }
 
     if (!type || !accountId || !amount || !date) return errorResponse("VALIDATION", "type, accountId, amount, date are required", 400);
     if (parseFloat(amount) <= 0) return errorResponse("VALIDATION", "Amount must be greater than 0", 400);
@@ -21,14 +52,30 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
     if (!account) return errorResponse("NOT_FOUND", "Account not found", 404);
 
     if (type === "deposit") {
-      const record = await prisma.investorDeposit.create({
-        data: {
-          accountId: parseInt(accountId),
-          amount: parseFloat(amount),
-          depositDate: new Date(date),
-          notes: notes?.trim() || null,
-          createdBy: user.userId,
-        },
+      const record = await prisma.$transaction(async (tx) => {
+        const created = await tx.investorDeposit.create({
+          data: {
+            accountId: parseInt(accountId),
+            amount: parseFloat(amount),
+            depositDate: new Date(date),
+            notes: notes?.trim() || null,
+            createdBy: user.userId,
+          },
+        });
+        if (syncMeta) {
+          await tx.syncRequest.create({
+            data: {
+              cityId: SUPERADMIN_SYNC_CITY_ID,
+              module: INVESTOR_TXN_SYNC_MODULE,
+              requestId: syncMeta.requestId,
+              deviceId: syncMeta.deviceId,
+              entityType: "investor_deposit",
+              entityId: created.id,
+              createdBy: user.userId,
+            },
+          });
+        }
+        return created;
       });
       return successResponse(record, "Deposit recorded", 201);
     }
@@ -43,36 +90,93 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
       if (parseFloat(amount) > capital) {
         return errorResponse("VALIDATION", `Withdrawal amount (${amount}) exceeds available capital (${capital})`, 400);
       }
-      const record = await prisma.investorWithdrawal.create({
-        data: {
-          accountId: parseInt(accountId),
-          amount: parseFloat(amount),
-          withdrawalDate: new Date(date),
-          notes: notes?.trim() || null,
-          createdBy: user.userId,
-        },
+      const record = await prisma.$transaction(async (tx) => {
+        const created = await tx.investorWithdrawal.create({
+          data: {
+            accountId: parseInt(accountId),
+            amount: parseFloat(amount),
+            withdrawalDate: new Date(date),
+            notes: notes?.trim() || null,
+            createdBy: user.userId,
+          },
+        });
+        if (syncMeta) {
+          await tx.syncRequest.create({
+            data: {
+              cityId: SUPERADMIN_SYNC_CITY_ID,
+              module: INVESTOR_TXN_SYNC_MODULE,
+              requestId: syncMeta.requestId,
+              deviceId: syncMeta.deviceId,
+              entityType: "investor_withdrawal",
+              entityId: created.id,
+              createdBy: user.userId,
+            },
+          });
+        }
+        return created;
       });
       return successResponse(record, "Withdrawal recorded", 201);
     }
 
     if (type === "profit") {
       if (!periodStart || !periodEnd) return errorResponse("VALIDATION", "periodStart and periodEnd are required for profit allocation", 400);
-      const record = await prisma.profitAllocation.create({
-        data: {
-          accountId: parseInt(accountId),
-          amount: parseFloat(amount),
-          allocationDate: new Date(date),
-          periodStart: new Date(periodStart),
-          periodEnd: new Date(periodEnd),
-          notes: notes?.trim() || null,
-          createdBy: user.userId,
-        },
+      const record = await prisma.$transaction(async (tx) => {
+        const created = await tx.profitAllocation.create({
+          data: {
+            accountId: parseInt(accountId),
+            amount: parseFloat(amount),
+            allocationDate: new Date(date),
+            periodStart: new Date(periodStart),
+            periodEnd: new Date(periodEnd),
+            notes: notes?.trim() || null,
+            createdBy: user.userId,
+          },
+        });
+        if (syncMeta) {
+          await tx.syncRequest.create({
+            data: {
+              cityId: SUPERADMIN_SYNC_CITY_ID,
+              module: INVESTOR_TXN_SYNC_MODULE,
+              requestId: syncMeta.requestId,
+              deviceId: syncMeta.deviceId,
+              entityType: "profit_allocation",
+              entityId: created.id,
+              createdBy: user.userId,
+            },
+          });
+        }
+        return created;
       });
       return successResponse(record, "Profit allocated", 201);
     }
 
     return errorResponse("VALIDATION", "type must be deposit, withdrawal, or profit", 400);
   } catch (e) {
+    if (syncMeta && isSyncRequestDuplicateError(e)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: INVESTOR_TXN_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        if (existingSync.entityType === "investor_deposit") {
+          const existing = await prisma.investorDeposit.findUnique({ where: { id: existingSync.entityId } });
+          if (existing) return successResponse(existing, "Deposit already synced");
+        }
+        if (existingSync.entityType === "investor_withdrawal") {
+          const existing = await prisma.investorWithdrawal.findUnique({ where: { id: existingSync.entityId } });
+          if (existing) return successResponse(existing, "Withdrawal already synced");
+        }
+        if (existingSync.entityType === "profit_allocation") {
+          const existing = await prisma.profitAllocation.findUnique({ where: { id: existingSync.entityId } });
+          if (existing) return successResponse(existing, "Profit allocation already synced");
+        }
+      }
+    }
     console.error(e);
     return serverError();
   }

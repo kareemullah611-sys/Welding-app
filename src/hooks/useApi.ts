@@ -7,8 +7,9 @@ import {
   OFFLINE_DB_VERSION,
   OFFLINE_QUEUE_STORE,
   OFFLINE_STOCK_STORE,
+  buildOfflineAuditMeta,
   buildApiCacheKey,
-  shouldAutoQueueOfflineWrite,
+  shouldQueueOfflineWriteNow,
 } from "@/lib/offline-cache";
 
 interface FetchOptions {
@@ -142,12 +143,7 @@ async function enqueueOfflineWrite(
     syncStatus: "pending",
     syncAttempts: 0,
     lastError: null,
-    auditMeta: {
-      action: "create",
-      entityType: "offline_entry",
-      entityLabel: "Offline Entry",
-      entityDetail: `${String(method || "POST").toUpperCase()} ${url}`,
-    },
+    auditMeta: buildOfflineAuditMeta(url, method, body),
   };
 
   await new Promise<void>((resolve, reject) => {
@@ -195,8 +191,7 @@ export function useApi<T = unknown>() {
 
       if (
         typeof window !== "undefined" &&
-        !navigator.onLine &&
-        shouldAutoQueueOfflineWrite(url, method)
+        shouldQueueOfflineWriteNow(url, method, navigator.onLine)
       ) {
         const queueId = await enqueueOfflineWrite(url, method, options.body);
         return {
@@ -230,8 +225,8 @@ export function useApi<T = unknown>() {
     } catch (err) {
       const method = options.method || "GET";
       if (
-        shouldAutoQueueOfflineWrite(url, method) &&
-        typeof window !== "undefined"
+        typeof window !== "undefined" &&
+        shouldQueueOfflineWriteNow(url, method, navigator.onLine)
       ) {
         const queueId = await enqueueOfflineWrite(url, method, options.body);
         return {
@@ -276,8 +271,7 @@ export async function apiCall<T = unknown>(
 
     if (
       typeof window !== "undefined" &&
-      !navigator.onLine &&
-      shouldAutoQueueOfflineWrite(url, method)
+      shouldQueueOfflineWriteNow(url, method, navigator.onLine)
     ) {
       const queueId = await enqueueOfflineWrite(url, method, options.body);
       return { success: true, data: { queued: true, queueId } as T, queued: true };
@@ -310,7 +304,7 @@ export async function apiCall<T = unknown>(
     const method = options.method || "GET";
     if (
       typeof window !== "undefined" &&
-      shouldAutoQueueOfflineWrite(url, method)
+      shouldQueueOfflineWriteNow(url, method, navigator.onLine)
     ) {
       const queueId = await enqueueOfflineWrite(url, method, options.body);
       return { success: true, data: { queued: true, queueId } as T, queued: true };

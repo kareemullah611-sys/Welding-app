@@ -5,6 +5,10 @@ import { withSuperAdmin } from "@/lib/middleware";
 import { successResponse, validationError, errorResponse, serverError, paginatedResponse, getPaginationParams } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { validatePaymentSource } from "@/lib/payment-source-validation";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+
+const AGENT_PAYMENT_SYNC_MODULE = "agent_payments";
+const SUPERADMIN_SYNC_CITY_ID = 0;
 
 export const GET = withSuperAdmin(async (request: NextRequest, context, user: JWTPayload) => {
   try {
@@ -21,6 +25,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
 });
 
 export const POST = withSuperAdmin(async (request: NextRequest, context, user: JWTPayload) => {
+  const syncMeta = getSyncRequestMeta(request);
   try {
     const body = await request.json();
     if (!body.agentId || !body.amount || !body.cityId) return validationError("Agent, city, and amount required");
@@ -49,16 +54,47 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     });
     if (!source.ok) return errorResponse(source.code, source.message, source.status);
 
-    const payment = await prisma.agentPayment.create({
-      data: {
-        agentId, cityId,
-        paymentDate: new Date(body.paymentDate || new Date()),
-        amount, currencyCode: body.currencyCode || "PKR",
-        paymentMethod: body.paymentMethod || "cash",
-        bankAccountId: source.bankAccountId,
-        intermediaryId: source.intermediaryId,
-        reference: body.reference, notes: body.notes, createdBy: user.userId,
-      },
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: AGENT_PAYMENT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        return successResponse({ id: existingSync.entityId }, "Payment already synced");
+      }
+    }
+
+    const payment = await prisma.$transaction(async (tx) => {
+      const createdPayment = await tx.agentPayment.create({
+        data: {
+          agentId, cityId,
+          paymentDate: new Date(body.paymentDate || new Date()),
+          amount, currencyCode: body.currencyCode || "PKR",
+          paymentMethod: body.paymentMethod || "cash",
+          bankAccountId: source.bankAccountId,
+          intermediaryId: source.intermediaryId,
+          reference: body.reference, notes: body.notes, createdBy: user.userId,
+        },
+      });
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: AGENT_PAYMENT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "agent_payments",
+            entityId: createdPayment.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+      return createdPayment;
     });
     try {
       await journalAgentPaid({
@@ -74,5 +110,21 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       });
     } catch (e) { console.error("Journal entry error:", e); }
     return successResponse({ id: payment.id }, "Payment recorded", 201);
-  } catch (error) { return serverError(); }
+  } catch (error) {
+    if (syncMeta && isSyncRequestDuplicateError(error)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: AGENT_PAYMENT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        return successResponse({ id: existingSync.entityId }, "Payment already synced");
+      }
+    }
+    return serverError();
+  }
 });

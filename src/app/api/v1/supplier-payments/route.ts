@@ -6,6 +6,10 @@ import { createSupplierPaymentSchema } from "@/lib/validations";
 import { successResponse, validationError, errorResponse, serverError, paginatedResponse, getPaginationParams } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { validatePaymentSource } from "@/lib/payment-source-validation";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+
+const SUPPLIER_PAYMENT_SYNC_MODULE = "supplier_payments";
+const SUPERADMIN_SYNC_CITY_ID = 0;
 
 function round2(value: number) {
   return Math.round(value * 100) / 100;
@@ -40,10 +44,26 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
 });
 
 export const POST = withSuperAdmin(async (request: NextRequest, context, user: JWTPayload) => {
+  const syncMeta = getSyncRequestMeta(request);
   try {
     const body = await request.json();
     const parsed = createSupplierPaymentSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid data", parsed.error.errors);
+
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: SUPPLIER_PAYMENT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        return successResponse({ id: existingSync.entityId }, "Payment already synced");
+      }
+    }
 
     const source = await validatePaymentSource({
       bankAccountId: parsed.data.bankAccountId,
@@ -91,6 +111,20 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
 
       await createAuditLog(user.userId, null, "supplier_payments", created.id, "create", undefined, parsed.data, getClientIP(request), tx);
 
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: SUPPLIER_PAYMENT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "supplier_payments",
+            entityId: created.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+
       await journalSupplierPaid({
         id: created.id, supplierId: parsed.data.supplierId, amountUsd: parsed.data.amountUsd,
         paymentDate: created.paymentDate, createdBy: user.userId,
@@ -101,5 +135,22 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     });
 
     return successResponse({ id: payment.id }, "Payment recorded", 201);
-  } catch (error) { console.error("Create supplier payment error:", error); return serverError(); }
+  } catch (error) {
+    if (syncMeta && isSyncRequestDuplicateError(error)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: SUPPLIER_PAYMENT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        return successResponse({ id: existingSync.entityId }, "Payment already synced");
+      }
+    }
+    console.error("Create supplier payment error:", error);
+    return serverError();
+  }
 });
