@@ -78,11 +78,34 @@ export default function ExpensesPage() {
     if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     const result = await apiCall("/api/v1/expenses", { params });
     if (result.success) {
-      setExpenses(result.data as any[]);
+      let nextExpenses = (result.data as any[]) || [];
+      if (!isOnline) {
+        const pendingExpenses = queuedItems
+          .filter((q) => q.pathname === "/expenses" && q.method === "POST" && q.url === "/api/v1/expenses")
+          .map((q) => {
+            let parsed: any = {};
+            try {
+              parsed = JSON.parse(q.body || "{}");
+            } catch {
+              parsed = {};
+            }
+            return {
+              id: `pending-${q.id}`,
+              expenseDate: parsed?.expenseDate || new Date().toISOString().split("T")[0],
+              detail: parsed?.detail || "",
+              amount: Number(parsed?.amount || 0),
+              notes: parsed?.notes || "",
+              currency: null,
+              _pending: true,
+            };
+          });
+        nextExpenses = [...pendingExpenses, ...nextExpenses];
+      }
+      setExpenses(nextExpenses);
       setTotalPages((result.pagination as any)?.totalPages || 1);
       setTotal((result.pagination as any)?.total || 0);
       writeOfflineReadSnapshot<ExpensesReadSnapshot>(EXPENSES_READ_CACHE_KEY, {
-        expenses: result.data as any[],
+        expenses: nextExpenses,
         totalPages: (result.pagination as any)?.totalPages || 1,
         total: (result.pagination as any)?.total || 0,
       });
@@ -97,7 +120,7 @@ export default function ExpensesPage() {
       }
     }
     setLoading(false);
-  }, [isOnline, page, searchQuery]);
+  }, [isOnline, page, queuedItems, searchQuery]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [searchQuery]);
   useEffect(() => {

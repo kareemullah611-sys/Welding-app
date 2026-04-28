@@ -71,10 +71,29 @@ export default function CustomersPage() {
     if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     const result = await apiCall("/api/v1/customers", { params });
     if (result.success) {
-      setCustomers(result.data as any[]);
+      let nextCustomers = (result.data as any[]) || [];
+      if (!isOnline) {
+        const pendingCustomers = queuedItems
+          .filter((q) => q.pathname === "/customers" && q.method === "POST" && q.url === "/api/v1/customers")
+          .map((q) => {
+            const parsed = safeParseQueuedBody(q.body) as any;
+            return {
+              id: `pending-${q.id}`,
+              _queueId: q.id,
+              name: parsed?.name || "Customer",
+              phone: parsed?.phone || "",
+              address: parsed?.address || "",
+              cityId: Number(parsed?.cityId || user?.cityId || 0),
+              isActive: true,
+              _pending: true,
+            };
+          });
+        nextCustomers = [...pendingCustomers, ...nextCustomers];
+      }
+      setCustomers(nextCustomers);
       setTotalPages((result.pagination as any)?.totalPages || 1);
       setTotal((result.pagination as any)?.total || 0);
-      mergeSnapshot({ customers: result.data as any[] });
+      mergeSnapshot({ customers: nextCustomers });
       setShowOfflineSnapshot(false);
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
@@ -86,7 +105,7 @@ export default function CustomersPage() {
       }
     }
     setLoading(false);
-  }, [isOnline, mergeSnapshot, page, readSnapshot, searchQuery]);
+  }, [isOnline, mergeSnapshot, page, queuedItems, readSnapshot, searchQuery, user?.cityId]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (lastSyncResult && lastSyncResult.synced > 0) load();

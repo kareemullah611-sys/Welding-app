@@ -149,11 +149,32 @@ export default function SalesPage() {
     if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     const result = await apiCall("/api/v1/sales", { params });
     if (result.success) {
-      setSales(result.data as any[]);
+      let nextSales = (result.data as any[]) || [];
+      if (!isOnline) {
+        const pendingSales = queuedItems
+          .filter((q) => q.pathname === "/sales" && q.method === "POST" && q.url === "/api/v1/sales")
+          .map((q) => {
+            const parsed = safeParseQueuedBody(q.body) as any;
+            return {
+              id: `pending-${q.id}`,
+              voucherNo: "—",
+              saleDate: parsed?.saleDate || new Date().toISOString().split("T")[0],
+              customer: { name: "..." },
+              totalAmount: Array.isArray(parsed?.items)
+                ? parsed.items.reduce((sum: number, i: any) => sum + Number(i?.qty || 0) * Number(i?.ratePerCarton || 0), 0)
+                : 0,
+              status: "pending_sync",
+              currency: { code: "" },
+              _pending: true,
+            };
+          });
+        nextSales = [...pendingSales, ...nextSales];
+      }
+      setSales(nextSales);
       setTotalPages((result.pagination as any)?.totalPages || 1);
       setTotal((result.pagination as any)?.total || 0);
       writeOfflineReadSnapshot<SalesReadSnapshot>(SALES_READ_CACHE_KEY, {
-        sales: result.data as any[],
+        sales: nextSales,
         totalPages: (result.pagination as any)?.totalPages || 1,
         total: (result.pagination as any)?.total || 0,
       });
@@ -168,7 +189,7 @@ export default function SalesPage() {
       }
     }
     setLoading(false);
-  }, [filters, isEmbed, isOnline, page]);
+  }, [filters, isEmbed, isOnline, page, queuedItems]);
 
   useEffect(() => { loadSales(); }, [loadSales]);
   useEffect(() => {

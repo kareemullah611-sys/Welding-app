@@ -26,6 +26,12 @@ type WithdrawalsReadSnapshot = {
   total: number;
 };
 
+function pendingWithdrawalsCount(queuedItems: Array<{ pathname: string; method: string; url: string }>) {
+  return queuedItems.filter(
+    (q) => q.pathname === "/personal-withdrawals" && q.method === "POST" && q.url === "/api/v1/personal-withdrawals"
+  ).length;
+}
+
 export default function PersonalWithdrawalsPage() {
   const { user } = useAuth();
   const { t } = useLang();
@@ -99,7 +105,32 @@ export default function PersonalWithdrawalsPage() {
       apiCall("/api/v1/personal-withdrawals", { params: { page: 1, limit: 1, approval_status: "approved", ...countParams } }),
     ]);
     if (result.success) {
-      setItems(result.data as any[]);
+      let nextItems = (result.data as any[]) || [];
+      if (!isOnline) {
+        const pendingWithdrawals = queuedItems
+          .filter((q) => q.pathname === "/personal-withdrawals" && q.method === "POST" && q.url === "/api/v1/personal-withdrawals")
+          .map((q) => {
+            let parsed: any = {};
+            try {
+              parsed = JSON.parse(q.body || "{}");
+            } catch {
+              parsed = {};
+            }
+            return {
+              id: `pending-${q.id}`,
+              withdrawalDate: parsed?.withdrawalDate || new Date().toISOString().split("T")[0],
+              amount: Number(parsed?.amount || 0),
+              detail: parsed?.detail || "",
+              withdrawnBy: parsed?.withdrawnBy || "",
+              notes: parsed?.notes || "",
+              sourceType: parsed?.sourceType || "cash_office",
+              approvedAt: null,
+              _pending: true,
+            };
+          });
+        nextItems = [...pendingWithdrawals, ...nextItems];
+      }
+      setItems(nextItems);
       setTotalPages((result.pagination as any)?.totalPages || 1);
       setTotal((result.pagination as any)?.total || 0);
       const nextCounts = {
@@ -107,9 +138,13 @@ export default function PersonalWithdrawalsPage() {
         pending: (pendingCountRes.pagination as any)?.total || 0,
         approved: (approvedCountRes.pagination as any)?.total || 0,
       };
+      if (!isOnline) {
+        nextCounts.all += pendingWithdrawalsCount(queuedItems);
+        nextCounts.pending += pendingWithdrawalsCount(queuedItems);
+      }
       setCounts(nextCounts);
       writeOfflineReadSnapshot<WithdrawalsReadSnapshot>(WITHDRAWALS_READ_CACHE_KEY, {
-        items: result.data as any[],
+        items: nextItems,
         counts: nextCounts,
         totalPages: (result.pagination as any)?.totalPages || 1,
         total: (result.pagination as any)?.total || 0,
@@ -132,7 +167,7 @@ export default function PersonalWithdrawalsPage() {
       });
     }
     setLoading(false);
-  }, [isOnline, page, searchQuery, statusFilter]);
+  }, [isOnline, page, queuedItems, searchQuery, statusFilter]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
