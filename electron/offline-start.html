@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MRF Hardware</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: radial-gradient(circle at 20% 10%, #2e3f63 0%, #0a1324 50%, #08101d 100%);
+        color: #f5f0e8;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      .card {
+        width: min(520px, calc(100vw - 48px));
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 20px;
+        background: rgba(7, 13, 24, 0.8);
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
+        padding: 28px;
+      }
+      h1 { margin: 0 0 10px; font-size: 22px; }
+      p { margin: 0 0 10px; color: #d3d8e4; line-height: 1.5; }
+      .meta { font-size: 12px; color: #a8b2c5; margin-top: 10px; word-break: break-all; }
+      button {
+        margin-top: 16px;
+        border: none;
+        border-radius: 12px;
+        padding: 11px 14px;
+        font-size: 14px;
+        font-weight: 700;
+        background: linear-gradient(135deg, #9a3a22 0%, #cc8b60 100%);
+        color: white;
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.7; cursor: wait; }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>Offline startup mode</h1>
+      <p>The app opened locally, but the remote service is currently unreachable.</p>
+      <p>Your cached/offline records remain on this device. Retry when internet is available.</p>
+      <button id="retryBtn" type="button">Retry connection</button>
+      <p class="meta" id="targetUrl"></p>
+    </main>
+    <script>
+      const targetUrl = new URLSearchParams(window.location.search).get("appUrl") || "";
+      const targetUrlEl = document.getElementById("targetUrl");
+      if (targetUrlEl && targetUrl) targetUrlEl.textContent = targetUrl;
+      const retryBtn = document.getElementById("retryBtn");
+      retryBtn?.addEventListener("click", async () => {
+        if (!window.platformInfo?.retryRemoteLoad) return;
+        retryBtn.disabled = true;
+        retryBtn.textContent = "Trying...";
+        const ok = await window.platformInfo.retryRemoteLoad();
+        if (!ok) {
+          retryBtn.disabled = false;
+          retryBtn.textContent = "Retry connection";
+        }
+      });
+    </script>
+  </body>
+</html>

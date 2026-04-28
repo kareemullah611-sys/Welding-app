@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell } = require("electron");
+const { app, BrowserWindow, shell, ipcMain } = require("electron");
 const path = require("path");
 const fs = require("fs");
 
@@ -14,6 +14,12 @@ function readConfiguredUrl() {
 }
 
 const APP_URL = process.env.ELECTRON_START_URL || readConfiguredUrl() || "http://localhost:3000";
+const REMOTE_BOOT_TIMEOUT_MS = 7000;
+
+function loadOfflineFallback(win) {
+  const fallbackPath = path.join(__dirname, "offline-start.html");
+  return win.loadFile(fallbackPath, { query: { appUrl: APP_URL } });
+}
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -30,7 +36,29 @@ function createWindow() {
     },
   });
 
-  win.loadURL(APP_URL);
+  let didFinish = false;
+  const timeout = setTimeout(() => {
+    if (!didFinish && !win.isDestroyed()) {
+      loadOfflineFallback(win).catch(() => {});
+    }
+  }, REMOTE_BOOT_TIMEOUT_MS);
+
+  win.webContents.once("did-finish-load", () => {
+    didFinish = true;
+    clearTimeout(timeout);
+  });
+
+  win.webContents.once("did-fail-load", () => {
+    if (!win.isDestroyed()) {
+      loadOfflineFallback(win).catch(() => {});
+    }
+  });
+
+  win.loadURL(APP_URL).catch(() => {
+    if (!win.isDestroyed()) {
+      loadOfflineFallback(win).catch(() => {});
+    }
+  });
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
@@ -39,6 +67,17 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  ipcMain.handle("electron:retry-remote-load", async (event) => {
+    const senderWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!senderWindow || senderWindow.isDestroyed()) return false;
+    try {
+      await senderWindow.loadURL(APP_URL);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

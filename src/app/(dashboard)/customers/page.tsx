@@ -159,7 +159,8 @@ export default function CustomersPage() {
           entityDetail: payload.name,
         },
       });
-      setCustomers((prev) => [{
+      setCustomers((prev) => {
+        const next = [{
         id: `pending-${Date.now()}`,
         _queueId: queueId,
         name: payload.name,
@@ -168,7 +169,10 @@ export default function CustomersPage() {
         cityId: payload.cityId || user?.cityId || 0,
         isActive: true,
         _pending: true,
-      }, ...prev]);
+      }, ...prev];
+        mergeSnapshot({ customers: next });
+        return next;
+      });
       setShowCreate(false);
       setResolvingQueueId(null);
       if (isEmbed) closeEmbed();
@@ -197,7 +201,11 @@ export default function CustomersPage() {
         setFormError("Pending queue entry not found");
         return;
       }
-      setCustomers((prev) => prev.map((c) => c.id === selected.id ? { ...c, ...updatedForm, _pending: true } : c));
+      setCustomers((prev) => {
+        const next = prev.map((c) => c.id === selected.id ? { ...c, ...updatedForm, _pending: true } : c);
+        mergeSnapshot({ customers: next });
+        return next;
+      });
       setShowEdit(false);
       return;
     }
@@ -216,7 +224,11 @@ export default function CustomersPage() {
           entityDetail: form.name.trim() || selected?.name || "Customer",
         },
       });
-      setCustomers((prev) => prev.map((c) => c.id === selected.id ? { ...c, ...form, _pending: true, _queueId: queueId } : c));
+      setCustomers((prev) => {
+        const next = prev.map((c) => c.id === selected.id ? { ...c, ...form, _pending: true, _queueId: queueId } : c);
+        mergeSnapshot({ customers: next });
+        return next;
+      });
       setShowEdit(false);
       return;
     }
@@ -242,7 +254,11 @@ export default function CustomersPage() {
           entityDetail: c.name,
         },
       });
-      setCustomers((prev) => prev.map((row) => row.id === c.id ? { ...row, isActive: false, _pending: true, _queueId: queueId } : row));
+      setCustomers((prev) => {
+        const next = prev.map((row) => row.id === c.id ? { ...row, isActive: false, _pending: true, _queueId: queueId } : row);
+        mergeSnapshot({ customers: next });
+        return next;
+      });
       return;
     }
     await apiCall(`/api/v1/customers/${c.id}`, { method: "DELETE" });
@@ -275,7 +291,11 @@ export default function CustomersPage() {
           entityDetail: c.name,
         },
       });
-      setCustomers((prev) => prev.map((row) => row.id === c.id ? { ...row, isActive: true, _pending: true, _queueId: queueId } : row));
+      setCustomers((prev) => {
+        const next = prev.map((row) => row.id === c.id ? { ...row, isActive: true, _pending: true, _queueId: queueId } : row);
+        mergeSnapshot({ customers: next });
+        return next;
+      });
       return;
     }
     await apiCall(`/api/v1/customers/${c.id}`, { method: "PUT", body: { isActive: true } });

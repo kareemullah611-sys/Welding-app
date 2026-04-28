@@ -127,6 +127,14 @@ export default function SalesPage() {
   // Discount form
   const [discountForm, setDiscountForm] = useState({ discountAmount: 0, notes: "", discountDate: new Date().toISOString().split("T")[0] });
 
+  const persistSalesSnapshot = useCallback((nextSales: any[], nextTotal = total) => {
+    writeOfflineReadSnapshot<SalesReadSnapshot>(SALES_READ_CACHE_KEY, {
+      sales: nextSales,
+      totalPages: totalPages || 1,
+      total: nextTotal,
+    });
+  }, [total, totalPages]);
+
   const loadSales = useCallback(async () => {
     if (isEmbed) {
       setLoading(false);
@@ -391,7 +399,8 @@ export default function SalesPage() {
 
       // Add an optimistic row to the sales list
       const currency = currencies.find((c) => c.id === form.currencyId);
-      setSales((prev) => [{
+      setSales((prev) => {
+        const next = [{
         id: `pending-${Date.now()}`,
         voucherNo: "—",
         saleDate: form.saleDate,
@@ -400,7 +409,10 @@ export default function SalesPage() {
         status: "pending_sync",
         currency: { code: currency?.code ?? "" },
         _pending: true,
-      }, ...prev]);
+      }, ...prev];
+        persistSalesSnapshot(next, total + 1);
+        return next;
+      });
 
       setShowCreate(false);
       setResolvingQueueId(null);
@@ -480,13 +492,15 @@ export default function SalesPage() {
           entityDetail: `${selectedSale?.voucherNo || "Sale"} — ${cancelReason}`,
         },
       });
-      setSales((prev) =>
-        prev.map((sale: any) =>
+      setSales((prev) => {
+        const next = prev.map((sale: any) =>
           sale.id === selectedSale.id
             ? { ...sale, status: "cancelled", cancellationReason: cancelReason, _pending: true }
             : sale
-        )
-      );
+        );
+        persistSalesSnapshot(next);
+        return next;
+      });
       setShowCancel(false);
       return;
     }
@@ -525,13 +539,15 @@ export default function SalesPage() {
         },
       });
       const correctedTotal = validItems.reduce((sum, item) => sum + Number(item.qty || 0) * Number(item.ratePerCarton || 0), 0);
-      setSales((prev) =>
-        prev.map((sale: any) =>
+      setSales((prev) => {
+        const next = prev.map((sale: any) =>
           sale.id === selectedSale.id
             ? { ...sale, totalAmount: correctedTotal, _pending: true }
             : sale
-        )
-      );
+        );
+        persistSalesSnapshot(next);
+        return next;
+      });
       setShowCorrect(false);
       return;
     }
@@ -556,13 +572,15 @@ export default function SalesPage() {
           entityDetail: `${selectedSale?.voucherNo || "Sale"} — ${Number(discountForm.discountAmount || 0).toLocaleString("en-US")}`,
         },
       });
-      setSales((prev) =>
-        prev.map((sale: any) =>
+      setSales((prev) => {
+        const next = prev.map((sale: any) =>
           sale.id === selectedSale.id
             ? { ...sale, totalAmount: Math.max(0, Number(sale.totalAmount || 0) - Number(discountForm.discountAmount || 0)), _pending: true }
             : sale
-        )
-      );
+        );
+        persistSalesSnapshot(next);
+        return next;
+      });
       setShowDiscount(false);
       return;
     }

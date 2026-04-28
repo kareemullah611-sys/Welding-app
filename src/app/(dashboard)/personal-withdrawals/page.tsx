@@ -64,6 +64,17 @@ export default function PersonalWithdrawalsPage() {
       window.parent.postMessage({ type: "dashboard-quick-close" }, window.location.origin);
     }
   }, []);
+  const persistWithdrawalsSnapshot = useCallback(
+    (nextItems: any[], nextCounts = counts, nextTotal = total) => {
+      writeOfflineReadSnapshot<WithdrawalsReadSnapshot>(WITHDRAWALS_READ_CACHE_KEY, {
+        items: nextItems,
+        counts: nextCounts,
+        totalPages: totalPages || 1,
+        total: nextTotal,
+      });
+    },
+    [counts, total, totalPages]
+  );
 
   const normalizeWithdraweeName = (value: string) => value.trim().replace(/\s+/g, " ");
 
@@ -284,7 +295,8 @@ export default function PersonalWithdrawalsPage() {
           entityDetail: `${payload.withdrawnBy} — ${Number(payload.amount || 0).toLocaleString("en-US")}`,
         },
       });
-      setItems((prev) => [{
+      setItems((prev) => {
+        const next = [{
         id: `pending-${Date.now()}`,
         withdrawalDate: form.withdrawalDate,
         amount: form.amount,
@@ -294,7 +306,12 @@ export default function PersonalWithdrawalsPage() {
         sourceType: form.sourceType,
         approvedAt: null,
         _pending: true,
-      }, ...prev]);
+      }, ...prev];
+        const nextCounts = { ...counts, all: counts.all + 1, pending: counts.pending + 1 };
+        setCounts(nextCounts);
+        persistWithdrawalsSnapshot(next, nextCounts, total + 1);
+        return next;
+      });
       setShowCreate(false);
       if (isEmbed) closeEmbed();
       return;
@@ -348,8 +365,8 @@ export default function PersonalWithdrawalsPage() {
           entityDetail: `${form.withdrawnBy || form.detail} — ${Number(form.amount || 0).toLocaleString("en-US")}`,
         },
       });
-      setItems((prev) =>
-        prev.map((row: any) =>
+      setItems((prev) => {
+        const next = prev.map((row: any) =>
           row.id === selected.id
             ? {
                 ...row,
@@ -360,8 +377,10 @@ export default function PersonalWithdrawalsPage() {
                 _pending: true,
               }
             : row
-        )
-      );
+        );
+        persistWithdrawalsSnapshot(next);
+        return next;
+      });
       setShowEdit(false);
       return;
     }
@@ -390,7 +409,18 @@ export default function PersonalWithdrawalsPage() {
           entityDetail: `${w.withdrawnBy || w.detail} — ${Number(w.amount || 0).toLocaleString("en-US")}`,
         },
       });
-      setItems((prev) => prev.filter((row: any) => row.id !== w.id));
+      setItems((prev) => {
+        const next = prev.filter((row: any) => row.id !== w.id);
+        const wasPending = !w.approvedAt;
+        const nextCounts = {
+          all: Math.max(0, counts.all - 1),
+          pending: Math.max(0, counts.pending - (wasPending ? 1 : 0)),
+          approved: Math.max(0, counts.approved - (wasPending ? 0 : 1)),
+        };
+        setCounts(nextCounts);
+        persistWithdrawalsSnapshot(next, nextCounts, Math.max(0, total - 1));
+        return next;
+      });
       return;
     }
     await apiCall(`/api/v1/personal-withdrawals/${w.id}`, { method: "DELETE" });
@@ -414,8 +444,8 @@ export default function PersonalWithdrawalsPage() {
           entityDetail: `${w.withdrawnBy || w.detail} — ${Number(w.amount || 0).toLocaleString("en-US")}`,
         },
       });
-      setItems((prev) =>
-        prev.map((row: any) =>
+      setItems((prev) => {
+        const next = prev.map((row: any) =>
           row.id === w.id
             ? {
                 ...row,
@@ -424,8 +454,16 @@ export default function PersonalWithdrawalsPage() {
                 _pending: true,
               }
             : row
-        )
-      );
+        );
+        const nextCounts = {
+          ...counts,
+          pending: Math.max(0, counts.pending - 1),
+          approved: counts.approved + 1,
+        };
+        setCounts(nextCounts);
+        persistWithdrawalsSnapshot(next, nextCounts);
+        return next;
+      });
       return;
     }
     setApprovingId(w.id);

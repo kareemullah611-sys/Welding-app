@@ -63,6 +63,13 @@ export default function ExpensesPage() {
       window.parent.postMessage({ type: "dashboard-quick-close" }, window.location.origin);
     }
   }, []);
+  const persistExpensesSnapshot = useCallback((nextExpenses: any[], nextTotal = total) => {
+    writeOfflineReadSnapshot<ExpensesReadSnapshot>(EXPENSES_READ_CACHE_KEY, {
+      expenses: nextExpenses,
+      totalPages: totalPages || 1,
+      total: nextTotal,
+    });
+  }, [total, totalPages]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -255,7 +262,8 @@ export default function ExpensesPage() {
           entityDetail: `${form.detail} — ${Number(form.amount || 0).toLocaleString("en-US")}`,
         },
       });
-      setExpenses((prev) => [{
+      setExpenses((prev) => {
+        const next = [{
         id: `pending-${Date.now()}`,
         expenseDate: form.expenseDate,
         detail: form.detail,
@@ -263,7 +271,10 @@ export default function ExpensesPage() {
         notes: form.notes,
         currency: currencies[0] ?? null,
         _pending: true,
-      }, ...prev]);
+      }, ...prev];
+        persistExpensesSnapshot(next, total + 1);
+        return next;
+      });
       setShowCreate(false);
       return;
     }
@@ -318,13 +329,15 @@ export default function ExpensesPage() {
           entityDetail: `${form.detail} — ${Number(form.amount || 0).toLocaleString("en-US")}`,
         },
       });
-      setExpenses((prev) =>
-        prev.map((exp: any) =>
+      setExpenses((prev) => {
+        const next = prev.map((exp: any) =>
           exp.id === selected.id
             ? { ...exp, amount: form.amount, detail: form.detail, notes: form.notes, _pending: true }
             : exp
-        )
-      );
+        );
+        persistExpensesSnapshot(next);
+        return next;
+      });
       setShowEdit(false);
       return;
     }
@@ -353,7 +366,11 @@ export default function ExpensesPage() {
           entityDetail: `${e.detail} — ${Number(e.amount || 0).toLocaleString("en-US")}`,
         },
       });
-      setExpenses((prev) => prev.filter((item: any) => item.id !== e.id));
+      setExpenses((prev) => {
+        const next = prev.filter((item: any) => item.id !== e.id);
+        persistExpensesSnapshot(next, Math.max(0, total - 1));
+        return next;
+      });
       return;
     }
     await apiCall(`/api/v1/expenses/${e.id}`, { method: "DELETE" });

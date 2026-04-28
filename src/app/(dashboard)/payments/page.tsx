@@ -136,6 +136,13 @@ export default function PaymentsPage() {
   }, []);
 
   const getActionKey = useCallback((item: any) => `${item.type}-${item.id}`, []);
+  const persistPaymentsSnapshot = useCallback((nextItems: any[], nextTotal = total) => {
+    writeOfflineReadSnapshot<PaymentsReadSnapshot>(PAYMENTS_READ_CACHE_KEY, {
+      items: nextItems,
+      totalPages: totalPages || 1,
+      total: nextTotal,
+    });
+  }, [total, totalPages]);
 
   const load = useCallback(async () => {
     if (isEmbed) {
@@ -438,7 +445,8 @@ export default function PaymentsPage() {
           entityDetail: `${(body as any).customerName || (body as any).detail || "Entry"} — ${Number((body as any).amount || 0).toLocaleString("en-US")}`,
         },
       });
-      setItems((prev) => [{
+      setItems((prev) => {
+        const next = [{
         id: `pending-${Date.now()}`,
         type: createType,
         paymentDate: (body as any).paymentDate || new Date().toISOString().split("T")[0],
@@ -446,7 +454,10 @@ export default function PaymentsPage() {
         detail: (body as any).detail || "",
         status: "active",
         _pending: true,
-      }, ...prev]);
+      }, ...prev];
+        persistPaymentsSnapshot(next, total + 1);
+        return next;
+      });
       setShowCreate(false);
       setResolvingQueueId(null);
       setSubmitting(false);
@@ -551,8 +562,8 @@ export default function PaymentsPage() {
           entityDetail: `${form.detail || selected?.detail || "Entry"} — ${Number(form.amount || selected?.amount || 0).toLocaleString("en-US")}`,
         },
       });
-      setItems((prev) =>
-        prev.map((item: any) =>
+      setItems((prev) => {
+        const next = prev.map((item: any) =>
           item.id === id
             ? {
                 ...item,
@@ -562,8 +573,10 @@ export default function PaymentsPage() {
                 raw: { ...(item.raw || {}), ...form },
               }
             : item
-        )
-      );
+        );
+        persistPaymentsSnapshot(next);
+        return next;
+      });
       setShowEdit(false);
       return;
     }
@@ -605,8 +618,8 @@ export default function PaymentsPage() {
           entityDetail: `${item.detail || item.person || typeLabel} — ${Number(item.amount || 0).toLocaleString("en-US")}`,
         },
       });
-      setItems((prev) =>
-        prev
+      setItems((prev) => {
+        const next = prev
           .map((row: any) =>
             row.id === item.id
               ? item.type === "payment"
@@ -619,8 +632,10 @@ export default function PaymentsPage() {
                 : null
               : row
           )
-          .filter(Boolean) as any[]
-      );
+          .filter(Boolean) as any[];
+        persistPaymentsSnapshot(next);
+        return next;
+      });
       return;
     }
     await apiCall(endpoint, { method, body });
@@ -643,13 +658,15 @@ export default function PaymentsPage() {
           entityDetail: `${item.person || item.detail || "Withdrawal"} — ${Number(item.amount || 0).toLocaleString("en-US")}`,
         },
       });
-      setItems((prev) =>
-        prev.map((row: any) =>
+      setItems((prev) => {
+        const next = prev.map((row: any) =>
           row.id === item.id
             ? { ...row, status: "approved", _pending: true, raw: { ...(row.raw || {}), status: "approved" } }
             : row
-        )
-      );
+        );
+        persistPaymentsSnapshot(next);
+        return next;
+      });
       return;
     }
     await apiCall(`/api/v1/personal-withdrawals/${item.id}/approve`, { method: "POST" });
@@ -672,13 +689,15 @@ export default function PaymentsPage() {
           entityDetail: `${bounceTarget.detail || "Payment"} — ${Number(bounceTarget.amount || 0).toLocaleString("en-US")}`,
         },
       });
-      setItems((prev) =>
-        prev.map((row: any) =>
+      setItems((prev) => {
+        const next = prev.map((row: any) =>
           row.id === bounceTarget.id
             ? { ...row, _pending: true, raw: { ...(row.raw || {}), chequeStatus: "bounced" } }
             : row
-        )
-      );
+        );
+        persistPaymentsSnapshot(next);
+        return next;
+      });
       setShowBounce(false);
       setBounceTarget(null);
       return;
@@ -705,8 +724,8 @@ export default function PaymentsPage() {
           entityDetail: `${item.detail || "Payment"} — ${confirmed ? "confirmed" : "unconfirmed"}`,
         },
       });
-      setItems((prev) =>
-        prev.map((row: any) =>
+      setItems((prev) => {
+        const next = prev.map((row: any) =>
           row.id === item.id
             ? {
                 ...row,
@@ -717,8 +736,10 @@ export default function PaymentsPage() {
                 },
               }
             : row
-        )
-      );
+        );
+        persistPaymentsSnapshot(next);
+        return next;
+      });
       return;
     }
     const r = await apiCall(`/api/v1/payments/${item.id}`, {
