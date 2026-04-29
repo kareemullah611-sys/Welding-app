@@ -36,6 +36,7 @@ interface QueuedRequest {
   pathname: string;
   syncStatus: QueueSyncStatus;
   syncAttempts: number;
+  nextRetryAt?: number | null;
   lastError?: string | null;
   auditMeta?: OfflineAuditMeta;
 }
@@ -231,6 +232,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
       timestamp: Date.now(),
       syncStatus: "pending",
       syncAttempts: 0,
+      nextRetryAt: null,
       lastError: null,
     };
     await dbPut(QUEUE_STORE, full);
@@ -249,7 +251,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
   const retryQueuedItem = useCallback(async (id: string) => {
     const existing = await dbGet<QueuedRequest>(QUEUE_STORE, id);
     if (!existing) return false;
-    await dbPut(QUEUE_STORE, { ...existing, syncStatus: "pending", lastError: null });
+    await dbPut(QUEUE_STORE, { ...existing, syncStatus: "pending", lastError: null, nextRetryAt: null });
     await refreshQueueState();
     return true;
   }, [refreshQueueState]);
@@ -307,10 +309,14 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
 
     setIsSyncing(true);
     let synced = 0, failed = 0;
+    const now = Date.now();
 
     for (const item of [...items].sort((a, b) => a.timestamp - b.timestamp)) {
+      if ((item.syncStatus === "failed" || item.syncStatus === "conflict") && item.nextRetryAt && item.nextRetryAt > now) {
+        continue;
+      }
       try {
-        await dbPut(QUEUE_STORE, { ...item, syncStatus: "syncing", lastError: null });
+        await dbPut(QUEUE_STORE, { ...item, syncStatus: "syncing", lastError: null, nextRetryAt: null });
         const deviceId = getOrCreateDeviceId();
         const res  = await fetch(item.url, {
           method:  item.method,
@@ -337,18 +343,24 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
         }
 
         const nextStatus: QueueSyncStatus = res.status === 409 ? "conflict" : "failed";
+        const nextAttempts = item.syncAttempts + 1;
+        const retryDelayMs = Math.min(5 * 60 * 1000, Math.pow(2, Math.min(nextAttempts, 8)) * 5000);
         await dbPut(QUEUE_STORE, {
           ...item,
           syncStatus: nextStatus,
-          syncAttempts: item.syncAttempts + 1,
+          syncAttempts: nextAttempts,
+          nextRetryAt: Date.now() + retryDelayMs,
           lastError: data?.error || `Sync failed (${res.status})`,
         });
         failed++;
       } catch {
+        const nextAttempts = item.syncAttempts + 1;
+        const retryDelayMs = Math.min(5 * 60 * 1000, Math.pow(2, Math.min(nextAttempts, 8)) * 5000);
         await dbPut(QUEUE_STORE, {
           ...item,
           syncStatus: "failed",
-          syncAttempts: item.syncAttempts + 1,
+          syncAttempts: nextAttempts,
+          nextRetryAt: Date.now() + retryDelayMs,
           lastError: "Network error",
         });
         failed++;
@@ -367,6 +379,15 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
       return () => clearTimeout(t);
     }
   }, [isOnline, queueCount, isSyncing, syncQueue]);
+
+  // Periodic retry loop while online so backoff-expired items reattempt automatically.
+  useEffect(() => {
+    if (!isOnline || queueCount === 0) return;
+    const t = setInterval(() => {
+      void syncQueue();
+    }, 10000);
+    return () => clearInterval(t);
+  }, [isOnline, queueCount, syncQueue]);
 
   return (
     <OfflineContext.Provider value={{
