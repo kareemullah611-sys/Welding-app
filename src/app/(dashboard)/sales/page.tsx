@@ -68,7 +68,7 @@ export default function SalesPage() {
   const { t } = useLang();
   const searchParams = useSearchParams();
   const isEmbed = searchParams.get("embed") === "1";
-  const { isOnline, enqueue, cacheGodownStock, getCachedGodownStock, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, syncQueue } = useOffline();
+  const { isOnline, enqueue, cacheGodownStock, getCachedGodownStock, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, discardQueuedItem, syncQueue } = useOffline();
   const [sales, setSales] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -509,6 +509,18 @@ export default function SalesPage() {
   const handleCancel = async () => {
     if (!cancelReason.trim()) { setFormError("Cancellation reason is required"); return; }
     if (!isOnline) {
+      const pendingId = String(selectedSale?.id || "");
+      if (pendingId.startsWith("pending-")) {
+        const queueId = pendingId.replace("pending-", "");
+        await discardQueuedItem(queueId);
+        setSales((prev) => {
+          const next = prev.filter((sale: any) => String(sale.id) !== pendingId);
+          persistSalesSnapshot(next);
+          return next;
+        });
+        setShowCancel(false);
+        return;
+      }
       await enqueue({
         url: `/api/v1/sales/${selectedSale.id}/cancel`,
         method: "PUT",
@@ -555,6 +567,36 @@ export default function SalesPage() {
     const validItems = correctItems.filter(i => i.productId && i.qty > 0 && i.ratePerCarton > 0);
     if (!validItems.length) { setFormError("Add at least one item"); return; }
     if (!isOnline) {
+      const pendingId = String(selectedSale?.id || "");
+      if (pendingId.startsWith("pending-")) {
+        const queueId = pendingId.replace("pending-", "");
+        const existing = queuedItems.find((q) => q.id === queueId);
+        let parsed: any = {};
+        try {
+          parsed = existing?.body ? JSON.parse(existing.body) : {};
+        } catch {
+          parsed = {};
+        }
+        const ok = await updateQueuedItem(queueId, {
+          body: JSON.stringify({ ...parsed, items: validItems }),
+        });
+        if (!ok) {
+          setFormError("Pending queued sale not found. Retry from Activity.");
+          return;
+        }
+        const correctedTotal = validItems.reduce((sum, item) => sum + Number(item.qty || 0) * Number(item.ratePerCarton || 0), 0);
+        setSales((prev) => {
+          const next = prev.map((sale: any) =>
+            String(sale.id) === pendingId
+              ? { ...sale, totalAmount: correctedTotal, _pending: true }
+              : sale
+          );
+          persistSalesSnapshot(next);
+          return next;
+        });
+        setShowCorrect(false);
+        return;
+      }
       await enqueue({
         url: `/api/v1/sales/${selectedSale.id}/correct`,
         method: "PUT",
@@ -589,6 +631,11 @@ export default function SalesPage() {
   const handleDiscount = async () => {
     if (!discountForm.discountAmount || discountForm.discountAmount <= 0) { setFormError("Discount amount must be positive"); return; }
     if (!isOnline) {
+      const pendingId = String(selectedSale?.id || "");
+      if (pendingId.startsWith("pending-")) {
+        setFormError("For pending offline sales, use Correct Sale to adjust item rates/amount.");
+        return;
+      }
       await enqueue({
         url: `/api/v1/sales/${selectedSale.id}/discount`,
         method: "POST",
