@@ -70,7 +70,7 @@ function calculateToAmount(
 
 export default function IntermediariesPage() {
   const { user } = useAuth();
-  const { isOnline, queuedItems } = useOffline();
+  const { isOnline, queuedItems, updateQueuedItem, discardQueuedItem } = useOffline();
   const [intermediaries, setIntermediaries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
@@ -421,6 +421,11 @@ export default function IntermediariesPage() {
     if (r.success) { setShowCreate(false); load(); } else { setFormError(r.error || "Failed"); }
   };
 
+  const getPendingQueueId = (id: unknown) => {
+    if (typeof id !== "string" || !id.startsWith("pending-")) return null;
+    return id.replace("pending-", "");
+  };
+
   const openEdit = (item: any) => {
     setSelected(item);
     setForm({ name: item.name, notes: item.notes || "" });
@@ -429,6 +434,16 @@ export default function IntermediariesPage() {
   };
 
   const handleEdit = async () => {
+    const pendingQueueId = getPendingQueueId(selected?.id);
+    if (pendingQueueId) {
+      const ok = await updateQueuedItem(pendingQueueId, { body: JSON.stringify(form) });
+      if (!ok) { setFormError("Unable to update pending entry"); return; }
+      const nextRows = intermediaries.map((row) => row.id === selected.id ? { ...row, ...form } : row);
+      setIntermediaries(nextRows);
+      mergeSnapshot({ intermediaries: nextRows });
+      setShowEdit(false);
+      return;
+    }
     setSubmitting(true);
     const r = await apiCall(`/api/v1/intermediaries/${selected.id}`, { method: "PUT", body: form });
     setSubmitting(false);
@@ -438,6 +453,19 @@ export default function IntermediariesPage() {
   const handleToggleActive = async (item: any) => {
     const action = item.isActive ? "deactivate" : "reactivate";
     if (!confirm(`Do you want to ${action} intermediary "${item.name}"?`)) return;
+    const pendingQueueId = getPendingQueueId(item.id);
+    if (pendingQueueId) {
+      if (item.isActive) {
+        const ok = await discardQueuedItem(pendingQueueId);
+        if (!ok) { setFormError("Unable to remove pending intermediary"); return; }
+        const nextRows = intermediaries.filter((row) => row.id !== item.id);
+        setIntermediaries(nextRows);
+        mergeSnapshot({ intermediaries: nextRows });
+        return;
+      }
+      setFormError("Pending intermediary cannot be reactivated until it is synced.");
+      return;
+    }
     const r = await apiCall(`/api/v1/intermediaries/${item.id}`, { method: "PUT", body: { isActive: !item.isActive } });
     if (!r.success) { setFormError(r.error || "Failed"); return; }
     if (selected?.id === item.id) { setSelected((prev: any) => prev ? { ...prev, isActive: !item.isActive } : prev); }
