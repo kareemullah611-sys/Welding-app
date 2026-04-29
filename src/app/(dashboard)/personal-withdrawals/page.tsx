@@ -9,6 +9,7 @@ import { useOffline } from "@/hooks/useOffline";
 import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { getPendingQueueId } from "@/lib/queue-resolve";
 
 const WITHDRAWALS_FORM_CACHE_KEY = "mrf-withdrawals-form-cache-v1";
@@ -150,10 +151,11 @@ export default function PersonalWithdrawalsPage() {
     } else if (!isOnline) {
       const snapshot = readOfflineReadSnapshot<WithdrawalsReadSnapshot>(WITHDRAWALS_READ_CACHE_KEY)?.data;
       if (snapshot?.items?.length) {
-        setItems(snapshot.items);
+        const cleanedItems = pruneStalePendingRows(snapshot.items as any[], queuedItems as any[], "/personal-withdrawals");
+        setItems(cleanedItems);
         setCounts(snapshot.counts || { all: 0, pending: 0, approved: 0 });
         setTotalPages(snapshot.totalPages || 1);
-        setTotal(snapshot.total || 0);
+        setTotal(snapshot.total || cleanedItems.length);
         setShowOfflineSnapshot(true);
       }
     } else {

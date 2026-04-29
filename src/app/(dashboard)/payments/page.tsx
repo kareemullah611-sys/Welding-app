@@ -9,6 +9,7 @@ import { useLang } from "@/lib/lang";
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
 import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { useSearchParams } from "next/navigation";
 
 
@@ -206,9 +207,10 @@ export default function PaymentsPage() {
     } else if (!isOnline) {
       const snapshot = readOfflineReadSnapshot<PaymentsReadSnapshot>(PAYMENTS_READ_CACHE_KEY)?.data;
       if (snapshot?.items?.length) {
-        setItems(snapshot.items);
+        const cleanedItems = pruneStalePendingRows(snapshot.items as any[], queuedItems as any[], "/payments");
+        setItems(cleanedItems);
         setTotalPages(snapshot.totalPages || 1);
-        setTotal(snapshot.total || 0);
+        setTotal(snapshot.total || cleanedItems.length);
         setShowOfflineSnapshot(true);
       }
     }

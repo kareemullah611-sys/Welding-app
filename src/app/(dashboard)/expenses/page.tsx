@@ -9,6 +9,7 @@ import { useSearchParams } from "next/navigation";
 import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { getPendingQueueId } from "@/lib/queue-resolve";
 
 const EXPENSES_FORM_CACHE_KEY = "mrf-expenses-form-cache-v1";
@@ -112,9 +113,10 @@ export default function ExpensesPage() {
     } else if (!isOnline) {
       const snapshot = readOfflineReadSnapshot<ExpensesReadSnapshot>(EXPENSES_READ_CACHE_KEY)?.data;
       if (snapshot?.expenses?.length) {
-        setExpenses(snapshot.expenses);
+        const cleanedExpenses = pruneStalePendingRows(snapshot.expenses as any[], queuedItems as any[], "/expenses");
+        setExpenses(cleanedExpenses);
         setTotalPages(snapshot.totalPages || 1);
-        setTotal(snapshot.total || 0);
+        setTotal(snapshot.total || cleanedExpenses.length);
         setShowOfflineSnapshot(true);
       }
     }

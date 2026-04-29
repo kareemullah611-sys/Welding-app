@@ -10,6 +10,7 @@ import { useOffline } from "@/hooks/useOffline";
 import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { getPendingQueueId } from "@/lib/queue-resolve";
 
 
@@ -137,9 +138,10 @@ export default function HajiTransfersPage() {
     } else if (!isOnline) {
       const snapshot = readOfflineReadSnapshot<HajiReadSnapshot>(HAJI_READ_CACHE_KEY)?.data;
       if (snapshot?.items?.length) {
-        setItems(snapshot.items);
+        const cleanedItems = pruneStalePendingRows(snapshot.items as any[], queuedItems as any[], "/haji-transfers");
+        setItems(cleanedItems);
         setTotalPages(snapshot.totalPages || 1);
-        setTotal(snapshot.total || 0);
+        setTotal(snapshot.total || cleanedItems.length);
         setShowOfflineSnapshot(true);
       }
     }
