@@ -10,6 +10,7 @@ import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
 import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { safeParseQueuedBody } from "@/lib/queue-resolve";
+import { getPendingCityTransfers } from "@/lib/offline-queue-overlays";
 
 const CITY_TRANSFERS_FORM_CACHE_KEY = "mrf-city-transfers-form-cache-v1";
 const CITY_TRANSFERS_READ_CACHE_KEY = "mrf-city-transfers-read-cache-v1";
@@ -60,11 +61,12 @@ export default function CityTransfersPage() {
     if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     const r = await apiCall("/api/v1/city-transfers", { params });
     if (r.success) {
-      setTransfers(r.data as any[]);
+      const nextRows = [...getPendingCityTransfers(queuedItems as any), ...((r.data as any[]) || [])];
+      setTransfers(nextRows);
       setTotalPages((r.pagination as any)?.totalPages || 1);
       setTotal((r.pagination as any)?.total || 0);
       writeOfflineReadSnapshot<CityTransfersReadSnapshot>(CITY_TRANSFERS_READ_CACHE_KEY, {
-        transfers: r.data as any[],
+        transfers: nextRows,
         totalPages: (r.pagination as any)?.totalPages || 1,
         total: (r.pagination as any)?.total || 0,
       });
@@ -79,7 +81,7 @@ export default function CityTransfersPage() {
       }
     }
     setLoading(false);
-  }, [isOnline, page, searchQuery]);
+  }, [isOnline, page, queuedItems, searchQuery]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (lastSyncResult && lastSyncResult.synced > 0) load();

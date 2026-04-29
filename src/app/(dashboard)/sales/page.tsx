@@ -150,26 +150,24 @@ export default function SalesPage() {
     const result = await apiCall("/api/v1/sales", { params });
     if (result.success) {
       let nextSales = (result.data as any[]) || [];
-      if (!isOnline) {
-        const pendingSales = queuedItems
-          .filter((q) => q.pathname === "/sales" && q.method === "POST" && q.url === "/api/v1/sales")
-          .map((q) => {
-            const parsed = safeParseQueuedBody(q.body) as any;
-            return {
-              id: `pending-${q.id}`,
-              voucherNo: "—",
-              saleDate: parsed?.saleDate || new Date().toISOString().split("T")[0],
-              customer: { name: "..." },
-              totalAmount: Array.isArray(parsed?.items)
-                ? parsed.items.reduce((sum: number, i: any) => sum + Number(i?.qty || 0) * Number(i?.ratePerCarton || 0), 0)
-                : 0,
-              status: "pending_sync",
-              currency: { code: "" },
-              _pending: true,
-            };
-          });
-        nextSales = [...pendingSales, ...nextSales];
-      }
+      const pendingSales = queuedItems
+        .filter((q) => q.pathname === "/sales" && q.method === "POST" && q.url === "/api/v1/sales")
+        .map((q) => {
+          const parsed = safeParseQueuedBody(q.body) as any;
+          return {
+            id: `pending-${q.id}`,
+            voucherNo: "—",
+            saleDate: parsed?.saleDate || new Date().toISOString().split("T")[0],
+            customer: { name: "..." },
+            totalAmount: Array.isArray(parsed?.items)
+              ? parsed.items.reduce((sum: number, i: any) => sum + Number(i?.qty || 0) * Number(i?.ratePerCarton || 0), 0)
+              : 0,
+            status: "pending_sync",
+            currency: { code: "" },
+            _pending: true,
+          };
+        });
+      nextSales = [...pendingSales, ...nextSales];
       setSales(nextSales);
       setTotalPages((result.pagination as any)?.totalPages || 1);
       setTotal((result.pagination as any)?.total || 0);

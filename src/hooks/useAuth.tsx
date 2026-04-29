@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { clearOfflineAuthCache, readOfflineAuthCache, writeOfflineAuthCache } from "@/lib/offline-auth-cache";
 
 interface User {
   id: number;
@@ -28,39 +29,12 @@ const AuthContext = createContext<AuthContextType>({
   logout: async () => {},
 });
 
-const OFFLINE_AUTH_CACHE_KEY = "mrf-offline-auth-cache-v1";
-
-interface OfflineAuthCache {
-  username: string;
-  password: string;
-  user: User;
-  updatedAt: string;
-}
-
-function readOfflineAuthCache(): OfflineAuthCache | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(OFFLINE_AUTH_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as OfflineAuthCache;
-    if (!parsed?.username || !parsed?.password || !parsed?.user) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function writeOfflineAuthCache(cache: OfflineAuthCache) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(OFFLINE_AUTH_CACHE_KEY, JSON.stringify(cache));
-}
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const cached = readOfflineAuthCache();
+    const cached = readOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
     if (cached?.user) setUser(cached.user);
   }, []);
 
@@ -84,7 +58,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null);
       }
     } catch {
-      const cached = readOfflineAuthCache();
+      const cached = readOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
       if (cached?.user) {
         setUser(cached.user);
         return;
@@ -113,7 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await res.json();
       if (data.success) {
         setUser(data.data.user);
-        writeOfflineAuthCache({
+        writeOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null, {
           username: username.trim().toLowerCase(),
           password,
           user: data.data.user,
@@ -121,7 +95,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
         return { success: true };
       }
-      const cached = readOfflineAuthCache();
+      const cached = readOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
       if (!navigator.onLine && cached &&
         cached.username === username.trim().toLowerCase() &&
         cached.password === password &&
@@ -131,7 +105,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       return { success: false, error: data.error?.message || "Login failed" };
     } catch {
-      const cached = readOfflineAuthCache();
+      const cached = readOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
       if (cached &&
         cached.username === username.trim().toLowerCase() &&
         cached.password === password &&
@@ -144,7 +118,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
-    await fetch("/api/v1/auth/logout", { method: "POST" });
+    clearOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
+    try {
+      await fetch("/api/v1/auth/logout", { method: "POST" });
+    } catch {
+      // Keep local logout deterministic even when offline.
+    }
     setUser(null);
     window.location.href = "/login";
   };

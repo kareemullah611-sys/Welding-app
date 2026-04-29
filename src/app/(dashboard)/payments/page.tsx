@@ -164,38 +164,36 @@ export default function PaymentsPage() {
     const r = await apiCall("/api/v1/finance/combined", { params });
     if (r.success) {
       let nextItems = (r.data as any[]) || [];
-      if (!isOnline) {
-        const pendingEntries = queuedItems
-          .filter((q) => q.pathname === "/payments" && q.method === "POST")
-          .map((q) => {
-            let parsed: any = {};
-            try {
-              parsed = JSON.parse(q.body || "{}");
-            } catch {
-              parsed = {};
-            }
-            const type = q.url === "/api/v1/expenses"
-              ? "expense"
-              : q.url === "/api/v1/haji-transfers"
-                ? "haji_transfer"
-                : q.url === "/api/v1/personal-withdrawals"
-                  ? "withdrawal"
-                  : "payment";
-            return {
-              id: `pending-${q.id}`,
-              type,
-              date: parsed?.paymentDate || parsed?.expenseDate || parsed?.withdrawalDate || parsed?.date || new Date().toISOString(),
-              person: parsed?.customerName || parsed?.withdrawnBy || null,
-              detail: parsed?.detail || "",
-              amount: Number(parsed?.amount || 0),
-              status: "active",
-              _pending: true,
-              raw: parsed,
-            };
-          })
-          .filter((entry) => !isSuperAdmin || entry.type === "payment");
-        nextItems = [...pendingEntries, ...nextItems];
-      }
+      const pendingEntries = queuedItems
+        .filter((q) => q.pathname === "/payments" && q.method === "POST")
+        .map((q) => {
+          let parsed: any = {};
+          try {
+            parsed = JSON.parse(q.body || "{}");
+          } catch {
+            parsed = {};
+          }
+          const type = q.url === "/api/v1/expenses"
+            ? "expense"
+            : q.url === "/api/v1/haji-transfers"
+              ? "haji_transfer"
+              : q.url === "/api/v1/personal-withdrawals"
+                ? "withdrawal"
+                : "payment";
+          return {
+            id: `pending-${q.id}`,
+            type,
+            date: parsed?.paymentDate || parsed?.expenseDate || parsed?.withdrawalDate || parsed?.date || new Date().toISOString(),
+            person: parsed?.customerName || parsed?.withdrawnBy || null,
+            detail: parsed?.detail || "",
+            amount: Number(parsed?.amount || 0),
+            status: "active",
+            _pending: true,
+            raw: parsed,
+          };
+        })
+        .filter((entry) => !isSuperAdmin || entry.type === "payment");
+      nextItems = [...pendingEntries, ...nextItems];
       setItems(nextItems);
       setTotalPages((r.pagination as any)?.totalPages || 1);
       setTotal((r.pagination as any)?.total || 0);

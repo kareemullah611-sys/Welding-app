@@ -3,6 +3,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
+import { applyPendingBankLedger } from "@/lib/offline-bank-ledger";
 import { PageHeader, DataTable, Modal, formatDate, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import * as XLSX from "xlsx";
@@ -19,7 +20,7 @@ type BankAccountsReadSnapshot = {
 export default function BankAccountsPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline } = useOffline();
+  const { isOnline, queuedItems } = useOffline();
   const isSA = user?.role === "super_admin";
 
   const [accounts, setAccounts] = useState<any[]>([]);
@@ -153,13 +154,18 @@ export default function BankAccountsPage() {
     const r = await apiCall(`/api/v1/bank-accounts/${acc.id}`, { params: { view: "ledger" } });
     if (r.success) {
       const payload: any = r.data || {};
-      setLedgerRows(payload.ledger || []);
-      setLedgerBalanceByCurrency(payload.balanceByCurrency || {});
+      const baseRows = payload.ledger || [];
+      const baseBalance = payload.balanceByCurrency || {};
+      const merged = !isOnline
+        ? applyPendingBankLedger(baseRows, baseBalance, queuedItems as any, Number(acc.id))
+        : { rows: baseRows, balanceByCurrency: baseBalance };
+      setLedgerRows(merged.rows || []);
+      setLedgerBalanceByCurrency(merged.balanceByCurrency || {});
       mergeSnapshot({
         ledgerByAccount: {
           [String(acc.id)]: {
-            rows: payload.ledger || [],
-            balanceByCurrency: payload.balanceByCurrency || {},
+            rows: merged.rows || [],
+            balanceByCurrency: merged.balanceByCurrency || {},
           },
         },
       });
@@ -168,8 +174,14 @@ export default function BankAccountsPage() {
       const snapshot = readSnapshot()?.data;
       const cachedLedger = snapshot?.ledgerByAccount?.[String(acc.id)];
       if (!isOnline && cachedLedger) {
-        setLedgerRows(cachedLedger.rows || []);
-        setLedgerBalanceByCurrency(cachedLedger.balanceByCurrency || {});
+        const merged = applyPendingBankLedger(
+          cachedLedger.rows || [],
+          cachedLedger.balanceByCurrency || {},
+          queuedItems as any,
+          Number(acc.id)
+        );
+        setLedgerRows(merged.rows || []);
+        setLedgerBalanceByCurrency(merged.balanceByCurrency || {});
         setShowOfflineSnapshot(true);
       } else {
         setLedgerRows([]);

@@ -6,6 +6,7 @@ import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { getPendingGodowns } from "@/lib/offline-queue-overlays";
 
 const GODOWNS_READ_CACHE_KEY = "mrf-godowns-read-cache-v1";
 
@@ -17,7 +18,7 @@ type GodownsReadSnapshot = {
 export default function GodownsPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline } = useOffline();
+  const { isOnline, queuedItems } = useOffline();
   const [godowns, setGodowns] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -47,8 +48,9 @@ export default function GodownsPage() {
     setLoading(true);
     const result = await apiCall("/api/v1/godowns", { params: { limit: 100, is_active: "true" } });
     if (result.success) {
-      setGodowns(result.data as any[]);
-      mergeSnapshot({ godowns: result.data as any[] });
+      const nextRows = [...getPendingGodowns(queuedItems as any), ...((result.data as any[]) || [])];
+      setGodowns(nextRows);
+      mergeSnapshot({ godowns: nextRows });
       setShowOfflineSnapshot(false);
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
@@ -58,7 +60,7 @@ export default function GodownsPage() {
       }
     }
     setLoading(false);
-  }, [isOnline, mergeSnapshot, readSnapshot]);
+  }, [isOnline, mergeSnapshot, queuedItems, readSnapshot]);
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {

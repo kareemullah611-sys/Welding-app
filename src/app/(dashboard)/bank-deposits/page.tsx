@@ -10,6 +10,7 @@ import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { safeParseQueuedBody } from "@/lib/queue-resolve";
+import { getPendingBankDeposits } from "@/lib/offline-queue-overlays";
 
 const BANK_DEPOSITS_FORM_CACHE_KEY = "mrf-bank-deposits-form-cache-v1";
 const BANK_DEPOSITS_READ_CACHE_KEY = "mrf-bank-deposits-read-cache-v1";
@@ -66,11 +67,12 @@ export default function BankDepositsPage() {
     if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     const r = await apiCall("/api/v1/bank-deposits", { params });
     if (r.success) {
-      setDeposits(r.data as any[]);
+      const nextRows = [...getPendingBankDeposits(queuedItems as any), ...((r.data as any[]) || [])];
+      setDeposits(nextRows);
       setTotalPages((r.pagination as any)?.totalPages || 1);
       setTotal((r.pagination as any)?.total || 0);
       writeOfflineReadSnapshot<BankDepositsReadSnapshot>(BANK_DEPOSITS_READ_CACHE_KEY, {
-        deposits: r.data as any[],
+        deposits: nextRows,
         totalPages: (r.pagination as any)?.totalPages || 1,
         total: (r.pagination as any)?.total || 0,
       });
@@ -85,7 +87,7 @@ export default function BankDepositsPage() {
       }
     }
     setLoading(false);
-  }, [isOnline, page, searchQuery]);
+  }, [isOnline, page, queuedItems, searchQuery]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (lastSyncResult && lastSyncResult.synced > 0) load();

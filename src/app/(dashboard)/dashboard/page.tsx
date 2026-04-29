@@ -6,6 +6,7 @@ import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, StatsCard, formatNumber, DataTable, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { applyPendingDashboardMetrics } from "@/lib/offline-dashboard";
 import Link from "next/link";
 import { 
   ShoppingCart, 
@@ -137,7 +138,7 @@ const SectionCard = ({
 export default function DashboardPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline } = useOffline();
+  const { isOnline, queuedItems } = useOffline();
   const [data, setData] = useState<any>(null);
   const [cashPosition, setCashPosition] = useState<any>(null);
   const [treasury, setTreasury] = useState<any>(null);
@@ -191,17 +192,28 @@ export default function DashboardPage() {
       }
 
       if (usedLive) {
+        if (!isOnline && user?.role === "city_admin") {
+          const merged = applyPendingDashboardMetrics(nextData, nextCashPosition, queuedItems as any);
+          nextData = merged.data;
+          nextCashPosition = merged.cashPosition;
+          setData(merged.data);
+          setCashPosition(merged.cashPosition);
+        }
         writeOfflineReadSnapshot<DashboardReadSnapshot>(DASHBOARD_READ_CACHE_KEY, {
           data: nextData,
           cashPosition: nextCashPosition,
           treasury: nextTreasury,
         });
+      } else if (!isOnline && user?.role === "city_admin" && (nextData || nextCashPosition)) {
+        const merged = applyPendingDashboardMetrics(nextData, nextCashPosition, queuedItems as any);
+        setData(merged.data);
+        setCashPosition(merged.cashPosition);
       }
       setShowOfflineSnapshot(usedSnapshot);
       setLoading(false);
     };
     load();
-  }, [isOnline, user?.role]);
+  }, [isOnline, queuedItems, user?.role]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {

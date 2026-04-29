@@ -5,6 +5,7 @@ import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { isEditableCustomerQueuedPayload, safeParseQueuedBody } from "@/lib/queue-resolve";
+import { applyPendingCustomerLedger } from "@/lib/offline-customer-ledger";
 import { useSearchParams } from "next/navigation";
 import { useOffline } from "@/hooks/useOffline";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
@@ -72,24 +73,22 @@ export default function CustomersPage() {
     const result = await apiCall("/api/v1/customers", { params });
     if (result.success) {
       let nextCustomers = (result.data as any[]) || [];
-      if (!isOnline) {
-        const pendingCustomers = queuedItems
-          .filter((q) => q.pathname === "/customers" && q.method === "POST" && q.url === "/api/v1/customers")
-          .map((q) => {
-            const parsed = safeParseQueuedBody(q.body) as any;
-            return {
-              id: `pending-${q.id}`,
-              _queueId: q.id,
-              name: parsed?.name || "Customer",
-              phone: parsed?.phone || "",
-              address: parsed?.address || "",
-              cityId: Number(parsed?.cityId || user?.cityId || 0),
-              isActive: true,
-              _pending: true,
-            };
-          });
-        nextCustomers = [...pendingCustomers, ...nextCustomers];
-      }
+      const pendingCustomers = queuedItems
+        .filter((q) => q.pathname === "/customers" && q.method === "POST" && q.url === "/api/v1/customers")
+        .map((q) => {
+          const parsed = safeParseQueuedBody(q.body) as any;
+          return {
+            id: `pending-${q.id}`,
+            _queueId: q.id,
+            name: parsed?.name || "Customer",
+            phone: parsed?.phone || "",
+            address: parsed?.address || "",
+            cityId: Number(parsed?.cityId || user?.cityId || 0),
+            isActive: true,
+            _pending: true,
+          };
+        });
+      nextCustomers = [...pendingCustomers, ...nextCustomers];
       setCustomers(nextCustomers);
       setTotalPages((result.pagination as any)?.totalPages || 1);
       setTotal((result.pagination as any)?.total || 0);
@@ -325,14 +324,17 @@ export default function CustomersPage() {
     setSelected(c); setShowLedger(true); setLedgerData(null);
     const result = await apiCall(`/api/v1/customers/${c.id}`);
     if (result.success) {
-      setLedgerData(result.data);
-      mergeSnapshot({ ledgerByCustomer: { [String(c.id)]: result.data } });
+      const mergedLedger = !isOnline
+        ? applyPendingCustomerLedger(result.data as any, queuedItems as any, Number(c.id))
+        : result.data;
+      setLedgerData(mergedLedger);
+      mergeSnapshot({ ledgerByCustomer: { [String(c.id)]: mergedLedger } });
       setShowOfflineSnapshot(false);
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
       const cached = snapshot?.ledgerByCustomer?.[String(c.id)];
       if (cached) {
-        setLedgerData(cached);
+        setLedgerData(applyPendingCustomerLedger(cached as any, queuedItems as any, Number(c.id)));
         setShowOfflineSnapshot(true);
       }
     }

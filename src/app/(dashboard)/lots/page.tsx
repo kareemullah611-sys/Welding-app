@@ -8,6 +8,7 @@ import { useLang } from "@/lib/lang";
 import { Pencil, Package, CheckCircle, RotateCcw, Trash2, Warehouse } from "lucide-react";
 import * as XLSX from "xlsx";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { getPendingLots } from "@/lib/offline-queue-overlays";
 
 const LOTS_READ_CACHE_KEY = "mrf-lots-read-cache-v1";
 
@@ -26,7 +27,7 @@ type LotDetailTab = "overview" | "purchases" | "costs" | "sales";
 export default function LotsPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline } = useOffline();
+  const { isOnline, queuedItems } = useOffline();
   const [lots,       setLots]       = useState<any[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [page,       setPage]       = useState(1);
@@ -147,13 +148,14 @@ export default function LotsPage() {
     if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     const r = await apiCall("/api/v1/lots", { params });
     if (r.success) {
-      setLots(r.data as any[]);
+      const nextRows = [...getPendingLots(queuedItems as any), ...((r.data as any[]) || [])];
+      setLots(nextRows);
       const nextTotalPages = (r.pagination as any)?.totalPages || 1;
       const nextTotal = (r.pagination as any)?.total || 0;
       setTotalPages(nextTotalPages);
       setTotal(nextTotal);
       mergeSnapshot({
-        lots: r.data as any[],
+        lots: nextRows,
         totalPages: nextTotalPages,
         total: nextTotal,
       });
@@ -168,7 +170,7 @@ export default function LotsPage() {
       }
     }
     setLoading(false);
-  }, [isOnline, mergeSnapshot, page, readSnapshot, searchQuery]);
+  }, [isOnline, mergeSnapshot, page, queuedItems, readSnapshot, searchQuery]);
   useEffect(() => { loadLots(); }, [loadLots]);
   useEffect(() => { setPage(1); }, [searchQuery]);
 

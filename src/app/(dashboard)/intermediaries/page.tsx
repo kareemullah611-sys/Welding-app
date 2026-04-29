@@ -6,6 +6,8 @@ import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import * as XLSX from "xlsx";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { getPendingIntermediaries } from "@/lib/offline-queue-overlays";
+import { applyPendingIntermediaryLedger } from "@/lib/offline-intermediary-ledger";
 
 const INTERMEDIARIES_READ_CACHE_KEY = "mrf-intermediaries-read-cache-v1";
 
@@ -67,7 +69,7 @@ function calculateToAmount(
 
 export default function IntermediariesPage() {
   const { user } = useAuth();
-  const { isOnline } = useOffline();
+  const { isOnline, queuedItems } = useOffline();
   const [intermediaries, setIntermediaries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
@@ -133,8 +135,9 @@ export default function IntermediariesPage() {
     setLoading(true);
     const r = await apiCall("/api/v1/intermediaries");
     if (r.success) {
-      setIntermediaries(r.data as any[]);
-      mergeSnapshot({ intermediaries: r.data as any[] });
+      const nextRows = [...getPendingIntermediaries(queuedItems as any), ...((r.data as any[]) || [])];
+      setIntermediaries(nextRows);
+      mergeSnapshot({ intermediaries: nextRows });
       setShowOfflineSnapshot(false);
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
@@ -144,7 +147,7 @@ export default function IntermediariesPage() {
       }
     }
     setLoading(false);
-  }, [isOnline, mergeSnapshot, readSnapshot]);
+  }, [isOnline, mergeSnapshot, queuedItems, readSnapshot]);
   useEffect(() => { load(); }, [load]);
 
   const loadRefData = async () => {
@@ -201,7 +204,7 @@ export default function IntermediariesPage() {
     const params = buildLedgerParams(item.id, 1);
     const r = await apiCall(`/api/v1/intermediaries/${item.id}`, { params });
     if (r.success) {
-      const ledgerPayload = r.data as any;
+      const ledgerPayload = applyPendingIntermediaryLedger(r.data as any, queuedItems as any, item.id, currencies as any);
       setLedger(ledgerPayload);
       setTotalPages((ledgerPayload?.pagination as any)?.totalPages || 1);
       setTotal((ledgerPayload?.pagination as any)?.total || 0);
@@ -211,7 +214,8 @@ export default function IntermediariesPage() {
       const snapshot = readSnapshot()?.data;
       const cachedLedger = snapshot?.ledgerByIntermediary?.[String(item.id)];
       if (cachedLedger) {
-        setLedger(cachedLedger);
+        const mergedCached = applyPendingIntermediaryLedger(cachedLedger, queuedItems as any, item.id, currencies as any);
+        setLedger(mergedCached);
         setTotalPages((cachedLedger?.pagination as any)?.totalPages || 1);
         setTotal((cachedLedger?.pagination as any)?.total || 0);
         setShowOfflineSnapshot(true);
@@ -245,7 +249,7 @@ export default function IntermediariesPage() {
     const params = buildLedgerParams(selected.id, newPage);
     const r = await apiCall(`/api/v1/intermediaries/${selected.id}`, { params });
     if (r.success) {
-      const ledgerPayload = r.data as any;
+      const ledgerPayload = applyPendingIntermediaryLedger(r.data as any, queuedItems as any, selected.id, currencies as any);
       setLedger(ledgerPayload);
       setTotalPages((ledgerPayload?.pagination as any)?.totalPages || 1);
       setTotal((ledgerPayload?.pagination as any)?.total || 0);
@@ -732,7 +736,7 @@ export default function IntermediariesPage() {
                 }
                 const r = await apiCall(`/api/v1/intermediaries/${selected?.id}`, { params });
                 if (r.success) {
-                  const ledgerPayload = r.data as any;
+                  const ledgerPayload = applyPendingIntermediaryLedger(r.data as any, queuedItems as any, Number(selected?.id || 0), currencies as any);
                   setLedger(ledgerPayload);
                   setTotalPages((ledgerPayload?.pagination as any)?.totalPages || 1);
                   setTotal((ledgerPayload?.pagination as any)?.total || 0);
@@ -850,13 +854,13 @@ export default function IntermediariesPage() {
                           <td className="px-3 py-2.5 text-right text-sm font-medium tabular-nums text-red-700">{entry.credit > 0 ? formatNumber(entry.credit) : "—"}</td>
                           <td className="px-3 py-2.5 text-right text-sm font-bold tabular-nums text-gray-800">{formatNumber(entry.balance)}</td>
                           <td className="px-2 py-2.5 text-center">
-                            {entry.type === "deposit" && (
+                            {entry.type === "deposit" && !entry._pending && (
                               <div className="flex items-center justify-center gap-1.5">
                                 <button onClick={() => openEditDeposit(entry)} className="rounded px-1.5 py-0.5 text-xs text-amber-700 hover:bg-amber-100">Edit</button>
                                 <button onClick={() => handleDeleteDeposit(entry.id)} className="rounded px-1.5 py-0.5 text-xs text-red-700 hover:bg-red-100">Del</button>
                               </div>
                             )}
-                            {entry.type === "exchange_out" && (() => {
+                            {entry.type === "exchange_out" && !entry._pending && (() => {
                               const exch = ledger?.exchangeHistory?.find((ex: any) => ex.id === entry.id);
                               return exch ? (
                                 <div className="flex items-center justify-center gap-1.5">

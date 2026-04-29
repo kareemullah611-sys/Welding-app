@@ -7,6 +7,7 @@ import { PageHeader, DataTable, Modal, StatsCard, formatNumber } from "@/compone
 import { useLang } from "@/lib/lang";
 import * as XLSX from "xlsx";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { getPendingSuppliers } from "@/lib/offline-queue-overlays";
 
 const SUPPLIERS_READ_CACHE_KEY = "mrf-suppliers-read-cache-v1";
 
@@ -21,7 +22,7 @@ type SuppliersReadSnapshot = {
 export default function SuppliersPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline } = useOffline();
+  const { isOnline, queuedItems } = useOffline();
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
@@ -103,8 +104,9 @@ export default function SuppliersPage() {
     setLoading(true);
     const r = await apiCall("/api/v1/suppliers", { params: { limit: 100 } });
     if (r.success) {
-      setSuppliers(r.data as any[]);
-      mergeSnapshot({ suppliers: r.data as any[] });
+      const nextRows = [...getPendingSuppliers(queuedItems as any), ...((r.data as any[]) || [])];
+      setSuppliers(nextRows);
+      mergeSnapshot({ suppliers: nextRows });
       setShowOfflineSnapshot(false);
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
@@ -114,7 +116,7 @@ export default function SuppliersPage() {
       }
     }
     setLoading(false);
-  }, [isOnline, mergeSnapshot, readSnapshot]);
+  }, [isOnline, mergeSnapshot, queuedItems, readSnapshot]);
   useEffect(() => { load(); }, [load]);
 
   const handleCreate = async () => {

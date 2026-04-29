@@ -6,6 +6,7 @@ import { apiCall } from "@/hooks/useApi";
 import { useAuth } from "@/hooks/useAuth";
 import { useOffline } from "@/hooks/useOffline";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { applyPendingOpeningsData } from "@/lib/offline-openings";
 
 const OPENINGS_READ_CACHE_KEY = "mrf-openings-read-cache-v1";
 
@@ -66,7 +67,7 @@ type OpeningData = {
 
 export default function OpeningsPage() {
   const { user } = useAuth();
-  const { isOnline } = useOffline();
+  const { isOnline, queuedItems } = useOffline();
   const isSuperAdmin = user?.role === "super_admin";
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<OpeningData | null>(null);
@@ -92,30 +93,32 @@ export default function OpeningsPage() {
     const params = isSuperAdmin && cityId > 0 ? { city_id: cityId } : undefined;
     const result = await apiCall<OpeningData>("/api/v1/openings", { params });
     if (result.success && result.data) {
-      setData(result.data);
-      writeOfflineReadSnapshot<OpeningData>(OPENINGS_READ_CACHE_KEY, result.data);
+      const nextData = applyPendingOpeningsData(result.data as any, queuedItems as any) as OpeningData;
+      setData(nextData);
+      writeOfflineReadSnapshot<OpeningData>(OPENINGS_READ_CACHE_KEY, nextData);
       setShowOfflineSnapshot(false);
 
       if (isSuperAdmin) {
         const resolvedCityId = cityId > 0
           ? cityId
-          : (result.data.selectedCityId || result.data.cities[0]?.id || 0);
+          : (nextData.selectedCityId || nextData.cities[0]?.id || 0);
         if (resolvedCityId && resolvedCityId !== selectedCityId) setSelectedCityId(resolvedCityId);
       }
 
-      if (!cashForm.currencyId && result.data.currencies[0]) {
-        setCashForm((prev) => ({ ...prev, currencyId: result.data!.currencies[0].id }));
+      if (!cashForm.currencyId && nextData.currencies[0]) {
+        setCashForm((prev) => ({ ...prev, currencyId: nextData.currencies[0].id }));
       }
-      if (!customerForm.currencyId && result.data.currencies[0]) {
-        setCustomerForm((prev) => ({ ...prev, currencyId: result.data!.currencies[0].id }));
+      if (!customerForm.currencyId && nextData.currencies[0]) {
+        setCustomerForm((prev) => ({ ...prev, currencyId: nextData.currencies[0].id }));
       }
-      if (!liabilityForm.currencyId && result.data.liabilityOptions?.currencies?.[0]) {
-        setLiabilityForm((prev) => ({ ...prev, currencyId: result.data!.liabilityOptions.currencies[0].id }));
+      if (!liabilityForm.currencyId && nextData.liabilityOptions?.currencies?.[0]) {
+        setLiabilityForm((prev) => ({ ...prev, currencyId: nextData.liabilityOptions.currencies[0].id }));
       }
     } else {
       const snapshot = readOfflineReadSnapshot<OpeningData>(OPENINGS_READ_CACHE_KEY)?.data;
       if (!isOnline && snapshot) {
-        setData(snapshot);
+        const nextData = applyPendingOpeningsData(snapshot as any, queuedItems as any) as OpeningData;
+        setData(nextData);
         setShowOfflineSnapshot(true);
       } else {
         toast.error(result.error || "Failed to load openings");

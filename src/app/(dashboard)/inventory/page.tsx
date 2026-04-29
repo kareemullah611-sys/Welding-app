@@ -7,6 +7,7 @@ import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, Modal, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { countPendingInterGodownTransfers } from "@/lib/offline-inventory";
 import { Warehouse } from "lucide-react";
 
 const INVENTORY_READ_CACHE_KEY = "mrf-inventory-read-cache-v1";
@@ -23,11 +24,12 @@ type InventoryReadSnapshot = {
 export default function InventoryPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline } = useOffline();
+  const { isOnline, queuedItems } = useOffline();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [pendingTransfers, setPendingTransfers] = useState<any[]>([]);
+  const [pendingInterGodownCount, setPendingInterGodownCount] = useState(0);
   const [showApprove, setShowApprove] = useState(false);
   const [selected, setSelected] = useState<any>(null);
   const [myGodowns, setMyGodowns] = useState<any[]>([]);
@@ -119,8 +121,9 @@ export default function InventoryPage() {
       setPendingTransfers(snapshot.pendingTransfers);
       setShowOfflineSnapshot(true);
     }
+    setPendingInterGodownCount(countPendingInterGodownTransfers(queuedItems as any));
     setLoading(false);
-  }, [isOnline, mergeSnapshot, readSnapshot, user?.cityId]);
+  }, [isOnline, mergeSnapshot, queuedItems, readSnapshot, user?.cityId]);
 
   const loadLots = useCallback(async () => {
     if (user?.role !== "city_admin") return;
@@ -488,6 +491,17 @@ export default function InventoryPage() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {pendingInterGodownCount > 0 && (
+        <div className="mb-6 p-4 bg-amber-50 border border-amber-300 rounded-xl shadow-sm">
+          <p className="text-sm font-semibold text-amber-800">
+            {pendingInterGodownCount} pending inter-godown transfer{pendingInterGodownCount > 1 ? "s" : ""} (offline queue)
+          </p>
+          <p className="text-xs text-amber-700 mt-1">
+            These transfers are saved locally and will sync automatically when internet returns.
+          </p>
         </div>
       )}
 

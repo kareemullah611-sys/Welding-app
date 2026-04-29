@@ -6,6 +6,7 @@ import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { getPendingProducts, getPendingUsers } from "@/lib/offline-queue-overlays";
 
 type Tab = "users" | "products" | "cities" | "sessions" | "godown_access";
 
@@ -203,7 +204,7 @@ function CityAdminSettingsCard() {
 function UsersTab() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline } = useOffline();
+  const { isOnline, queuedItems } = useOffline();
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -236,8 +237,9 @@ function UsersTab() {
     setLoading(true);
     const r = await apiCall("/api/v1/users", { params: { limit: 100 } });
     if (r.success) {
-      setUsers(r.data as any[]);
-      mergeSnapshot({ users: r.data as any[] });
+      const nextRows = [...getPendingUsers(queuedItems as any), ...((r.data as any[]) || [])];
+      setUsers(nextRows);
+      mergeSnapshot({ users: nextRows });
       setShowOfflineSnapshot(false);
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
@@ -247,7 +249,7 @@ function UsersTab() {
       }
     }
     setLoading(false);
-  }, [isOnline, mergeSnapshot, readSnapshot]);
+  }, [isOnline, mergeSnapshot, queuedItems, readSnapshot]);
   useEffect(() => { load(); }, [load]);
 
   const openCreate = async () => {
@@ -327,7 +329,12 @@ function UsersTab() {
       )}
       <div className="flex justify-end mb-4"><button onClick={openCreate} className="btn-primary text-sm">+ {t("new_user")}</button></div>
       <DataTable columns={[
-        { key: "fullName", label: t("name"), render: (u: any) => <span className="font-medium">{u.fullName}</span> },
+        { key: "fullName", label: t("name"), render: (u: any) => (
+          <div className="flex items-center gap-2">
+            <span className="font-medium">{u.fullName}</span>
+            {u._pending && <span className="text-[11px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">syncing…</span>}
+          </div>
+        ) },
         { key: "username", label: t("username") },
         {
           key: "password",
@@ -439,7 +446,7 @@ function UsersTab() {
 
 function ProductsTab() {
   const { t } = useLang();
-  const { isOnline } = useOffline();
+  const { isOnline, queuedItems } = useOffline();
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -466,8 +473,9 @@ function ProductsTab() {
     setLoading(true);
     const r = await apiCall("/api/v1/products", { params: { limit: 100 } });
     if (r.success) {
-      setProducts(r.data as any[]);
-      mergeSnapshot({ products: r.data as any[] });
+      const nextRows = [...getPendingProducts(queuedItems as any), ...((r.data as any[]) || [])];
+      setProducts(nextRows);
+      mergeSnapshot({ products: nextRows });
       setShowOfflineSnapshot(false);
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
@@ -477,7 +485,7 @@ function ProductsTab() {
       }
     }
     setLoading(false);
-  }, [isOnline, mergeSnapshot, readSnapshot]);
+  }, [isOnline, mergeSnapshot, queuedItems, readSnapshot]);
   useEffect(() => { load(); }, [load]);
 
   const handleCreate = async () => { if (!name.trim()) return; setSubmitting(true); const r = await apiCall("/api/v1/products", { method: "POST", body: { name } }); setSubmitting(false); if (r.success) { setShowCreate(false); setName(""); load(); } };

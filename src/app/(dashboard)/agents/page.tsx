@@ -6,6 +6,7 @@ import { PageHeader, DataTable, Modal, StatsCard, formatNumber } from "@/compone
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { getPendingAgents } from "@/lib/offline-queue-overlays";
 
 const AGENTS_READ_CACHE_KEY = "mrf-agents-read-cache-v1";
 
@@ -26,7 +27,7 @@ const TYPES = [
 
 export default function AgentsPage() {
   const { t } = useLang();
-  const { isOnline } = useOffline();
+  const { isOnline, queuedItems } = useOffline();
   const searchParams = useSearchParams();
   const [agents, setAgents] = useState<any[]>([]);
   const [cities, setCities] = useState<any[]>([]);
@@ -76,8 +77,9 @@ export default function AgentsPage() {
     setLoading(true);
     const [aR, cR] = await Promise.all([apiCall("/api/v1/agents", { params: { limit: 100 } }), apiCall("/api/v1/cities", { params: { all: "true" } })]);
     if (aR.success) {
-      setAgents(aR.data as any[]);
-      mergeSnapshot({ agents: aR.data as any[] });
+      const nextRows = [...getPendingAgents(queuedItems as any), ...((aR.data as any[]) || [])];
+      setAgents(nextRows);
+      mergeSnapshot({ agents: nextRows });
       setShowOfflineSnapshot(false);
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
@@ -98,7 +100,7 @@ export default function AgentsPage() {
       }
     }
     setLoading(false);
-  }, [isOnline, mergeSnapshot, readSnapshot]);
+  }, [isOnline, mergeSnapshot, queuedItems, readSnapshot]);
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {

@@ -23,6 +23,7 @@ const OFFLINE_WRITE_QUEUE_ALLOWLIST = [
   "/api/v1/lots",
   "/api/v1/lot-purchases",
   "/api/v1/products",
+  "/api/v1/users",
   "/api/v1/shipping-lines",
   "/api/v1/agents",
   "/api/v1/bank-accounts",
@@ -75,6 +76,7 @@ const OFFLINE_AUDIT_META_BY_PATH: Record<string, { entityType: string; entityLab
   "/api/v1/lots": { entityType: "lot", entityLabel: "Lot" },
   "/api/v1/lot-purchases": { entityType: "lot_purchase", entityLabel: "Lot Purchase" },
   "/api/v1/products": { entityType: "product", entityLabel: "Product" },
+  "/api/v1/users": { entityType: "user", entityLabel: "User" },
   "/api/v1/shipping-lines": { entityType: "shipping_line", entityLabel: "Shipping Line" },
   "/api/v1/agents": { entityType: "agent", entityLabel: "Agent" },
   "/api/v1/bank-accounts": { entityType: "bank_account", entityLabel: "Bank Account" },
@@ -154,6 +156,9 @@ function detailFromBody(path: string, body: unknown): string | null {
   }
   if (path === "/api/v1/products" && typeof record.name === "string" && record.name.trim()) {
     return `Product: ${record.name.trim()}`;
+  }
+  if (path === "/api/v1/users" && typeof record.fullName === "string" && record.fullName.trim()) {
+    return `User: ${record.fullName.trim()}`;
   }
   if (path === "/api/v1/shipping-lines" && typeof record.name === "string" && record.name.trim()) {
     return `Shipping Line: ${record.name.trim()}`;

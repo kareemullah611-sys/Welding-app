@@ -6,6 +6,8 @@ import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, StatsCard, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { applyPendingFinancialCashReport } from "@/lib/offline-financial-cash";
+import { applyPendingPayablesReport, applyPendingReceivablesReport } from "@/lib/offline-financial-ledgers";
 
 const ACCOUNTS_READ_CACHE_KEY = "mrf-accounts-read-cache-v1";
 
@@ -17,7 +19,7 @@ type AccountsReadSnapshot = {
 export default function AccountsPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline } = useOffline();
+  const { isOnline, queuedItems } = useOffline();
 
   const TABS = [
     { key: "pnl", label: t("profit_loss") },
@@ -69,18 +71,28 @@ export default function AccountsPage() {
     if (cityId) params.city_id = cityId;
     const r = await apiCall("/api/v1/financial-reports", { params });
     if (r.success) {
-      setData(r.data);
-      mergeSnapshot({ data: r.data });
+      let nextData = r.data as any;
+      if (!isOnline) {
+        if (tab === "cash") nextData = applyPendingFinancialCashReport(nextData, queuedItems as any);
+        else if (tab === "receivables") nextData = applyPendingReceivablesReport(nextData, queuedItems as any);
+        else if (tab === "payables") nextData = applyPendingPayablesReport(nextData, queuedItems as any);
+      }
+      setData(nextData);
+      mergeSnapshot({ data: nextData });
       setShowOfflineSnapshot(false);
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.data) {
-        setData(snapshot.data);
+        let nextData = snapshot.data;
+        if (tab === "cash") nextData = applyPendingFinancialCashReport(nextData as any, queuedItems as any);
+        else if (tab === "receivables") nextData = applyPendingReceivablesReport(nextData as any, queuedItems as any);
+        else if (tab === "payables") nextData = applyPendingPayablesReport(nextData as any, queuedItems as any);
+        setData(nextData);
         setShowOfflineSnapshot(true);
       }
     }
     setLoading(false);
-  }, [cityId, isOnline, mergeSnapshot, readSnapshot, tab, year]);
+  }, [cityId, isOnline, mergeSnapshot, queuedItems, readSnapshot, tab, year]);
   useEffect(() => { load(); }, [load]);
 
   return (

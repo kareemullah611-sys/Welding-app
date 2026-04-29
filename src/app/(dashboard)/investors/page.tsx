@@ -7,6 +7,7 @@ import { useOffline } from "@/hooks/useOffline";
 import { formatNumber } from "@/components/ui";
 import { ChevronRight, Users, Search, Plus } from "lucide-react";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { getPendingInvestors } from "@/lib/offline-queue-overlays";
 
 const INVESTORS_READ_CACHE_KEY = "mrf-investors-read-cache-v1";
 
@@ -14,12 +15,12 @@ type InvestorsReadSnapshot = {
   investors: Investor[];
 };
 
-type Investor = { id: number; name: string; relationship?: string; phone?: string; accounts: any[] };
+type Investor = { id: number | string; name: string; relationship?: string; phone?: string; accounts: any[] };
 
 export default function InvestorsPage() {
   const { user } = useAuth();
   const router = useRouter();
-  const { isOnline } = useOffline();
+  const { isOnline, queuedItems } = useOffline();
   const [investors, setInvestors] = useState<Investor[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -45,7 +46,7 @@ export default function InvestorsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Investor | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
-  const [openActionId, setOpenActionId] = useState<number | null>(null);
+  const [openActionId, setOpenActionId] = useState<number | string | null>(null);
   const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
 
   useEffect(() => {
@@ -64,7 +65,7 @@ export default function InvestorsPage() {
     setLoading(true);
     const invRes = await apiCall("/api/v1/investors", { params: { limit: 200 } });
     if (invRes.success) {
-      const loaded = invRes.data as Investor[];
+      const loaded = [...getPendingInvestors(queuedItems as any), ...((invRes.data as Investor[]) || [])];
       setInvestors(loaded);
       writeSnapshot(loaded);
       setShowOfflineSnapshot(false);
@@ -76,7 +77,7 @@ export default function InvestorsPage() {
       }
     }
     setLoading(false);
-  }, [isOnline, readSnapshot, writeSnapshot]);
+  }, [isOnline, queuedItems, readSnapshot, writeSnapshot]);
 
   useEffect(() => { load(); }, [load]);
 

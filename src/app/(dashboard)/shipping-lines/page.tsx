@@ -5,6 +5,7 @@ import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, StatsCard, formatNumber, formatDate } from "@/components/ui";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { getPendingShippingLines } from "@/lib/offline-queue-overlays";
 
 const SHIPPING_LINES_READ_CACHE_KEY = "mrf-shipping-lines-read-cache-v1";
 
@@ -17,7 +18,7 @@ type ShippingLinesReadSnapshot = {
 
 export default function ShippingLinesPage() {
   const { user } = useAuth();
-  const { isOnline } = useOffline();
+  const { isOnline, queuedItems } = useOffline();
   const [lines, setLines] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
@@ -64,8 +65,9 @@ export default function ShippingLinesPage() {
     setLoading(true);
     const r = await apiCall("/api/v1/shipping-lines", { params: { limit: 100 } });
     if (r.success) {
-      setLines(r.data as any[]);
-      mergeSnapshot({ lines: r.data as any[] });
+      const nextRows = [...getPendingShippingLines(queuedItems as any), ...((r.data as any[]) || [])];
+      setLines(nextRows);
+      mergeSnapshot({ lines: nextRows });
       setShowOfflineSnapshot(false);
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
@@ -75,7 +77,7 @@ export default function ShippingLinesPage() {
       }
     }
     setLoading(false);
-  }, [isOnline, mergeSnapshot, readSnapshot]);
+  }, [isOnline, mergeSnapshot, queuedItems, readSnapshot]);
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {

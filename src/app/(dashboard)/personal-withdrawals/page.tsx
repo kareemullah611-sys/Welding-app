@@ -106,30 +106,28 @@ export default function PersonalWithdrawalsPage() {
     ]);
     if (result.success) {
       let nextItems = (result.data as any[]) || [];
-      if (!isOnline) {
-        const pendingWithdrawals = queuedItems
-          .filter((q) => q.pathname === "/personal-withdrawals" && q.method === "POST" && q.url === "/api/v1/personal-withdrawals")
-          .map((q) => {
-            let parsed: any = {};
-            try {
-              parsed = JSON.parse(q.body || "{}");
-            } catch {
-              parsed = {};
-            }
-            return {
-              id: `pending-${q.id}`,
-              withdrawalDate: parsed?.withdrawalDate || new Date().toISOString().split("T")[0],
-              amount: Number(parsed?.amount || 0),
-              detail: parsed?.detail || "",
-              withdrawnBy: parsed?.withdrawnBy || "",
-              notes: parsed?.notes || "",
-              sourceType: parsed?.sourceType || "cash_office",
-              approvedAt: null,
-              _pending: true,
-            };
-          });
-        nextItems = [...pendingWithdrawals, ...nextItems];
-      }
+      const pendingWithdrawals = queuedItems
+        .filter((q) => q.pathname === "/personal-withdrawals" && q.method === "POST" && q.url === "/api/v1/personal-withdrawals")
+        .map((q) => {
+          let parsed: any = {};
+          try {
+            parsed = JSON.parse(q.body || "{}");
+          } catch {
+            parsed = {};
+          }
+          return {
+            id: `pending-${q.id}`,
+            withdrawalDate: parsed?.withdrawalDate || new Date().toISOString().split("T")[0],
+            amount: Number(parsed?.amount || 0),
+            detail: parsed?.detail || "",
+            withdrawnBy: parsed?.withdrawnBy || "",
+            notes: parsed?.notes || "",
+            sourceType: parsed?.sourceType || "cash_office",
+            approvedAt: null,
+            _pending: true,
+          };
+        });
+      nextItems = [...pendingWithdrawals, ...nextItems];
       setItems(nextItems);
       setTotalPages((result.pagination as any)?.totalPages || 1);
       setTotal((result.pagination as any)?.total || 0);
@@ -138,10 +136,8 @@ export default function PersonalWithdrawalsPage() {
         pending: (pendingCountRes.pagination as any)?.total || 0,
         approved: (approvedCountRes.pagination as any)?.total || 0,
       };
-      if (!isOnline) {
-        nextCounts.all += pendingWithdrawalsCount(queuedItems);
-        nextCounts.pending += pendingWithdrawalsCount(queuedItems);
-      }
+      nextCounts.all += pendingWithdrawalsCount(queuedItems);
+      nextCounts.pending += pendingWithdrawalsCount(queuedItems);
       setCounts(nextCounts);
       writeOfflineReadSnapshot<WithdrawalsReadSnapshot>(WITHDRAWALS_READ_CACHE_KEY, {
         items: nextItems,

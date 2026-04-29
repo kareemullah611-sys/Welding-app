@@ -6,6 +6,7 @@ import { useOffline } from "@/hooks/useOffline";
 import { DataTable, Modal, PageHeader, formatDate, formatNumber } from "@/components/ui";
 import Link from "next/link";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { getPendingSuperAdminPersonalExpenses } from "@/lib/offline-queue-overlays";
 
 const SA_PERSONAL_EXPENSES_READ_CACHE_KEY = "mrf-sa-personal-expenses-read-cache-v1";
 
@@ -18,7 +19,7 @@ type SaPersonalExpensesReadSnapshot = {
 
 export default function SuperAdminPersonalExpensesPage() {
   const { user } = useAuth();
-  const { isOnline } = useOffline();
+  const { isOnline, queuedItems } = useOffline();
   const isSA = user?.role === "super_admin";
 
   const [loading, setLoading] = useState(true);
@@ -57,7 +58,7 @@ export default function SuperAdminPersonalExpensesPage() {
     ]);
     if (accountsRes.success && expensesRes.success) {
       const loadedAccounts = accountsRes.data as any[];
-      const loadedExpenses = expensesRes.data as any[];
+      const loadedExpenses = [...getPendingSuperAdminPersonalExpenses(queuedItems as any), ...((expensesRes.data as any[]) || [])];
       const loadedTotalPages = (expensesRes.pagination as any)?.totalPages || 1;
       const loadedTotal = (expensesRes.pagination as any)?.total || 0;
       setAccounts(loadedAccounts);
@@ -82,7 +83,7 @@ export default function SuperAdminPersonalExpensesPage() {
       }
     }
     setLoading(false);
-  }, [isOnline, isSA, page, readSnapshot, searchQuery, writeSnapshot]);
+  }, [isOnline, isSA, page, queuedItems, readSnapshot, searchQuery, writeSnapshot]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [searchQuery]);
