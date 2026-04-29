@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  applyQueuedMutationToReadModel,
   buildPendingReadModelRow,
   canApplyCreateToReadModel,
   mergeReadModelRows,
@@ -58,4 +59,19 @@ test("removes a pending row when queue item is synced", () => {
   ) as any[];
   assert.equal(result.length, 1);
   assert.equal(result[0].id, "2");
+});
+
+test("applies queued delete mutation to read model rows", () => {
+  const rows = [{ id: "1", name: "A" }, { id: "2", name: "B" }];
+  const next = applyQueuedMutationToReadModel(rows, "/api/v1/customers/1", "DELETE", null) as any[];
+  assert.equal(next.length, 1);
+  assert.equal(next[0].id, "2");
+});
+
+test("applies queued update mutation to read model rows", () => {
+  const rows = [{ id: "1", detail: "old", amount: 10 }, { id: "2", detail: "x", amount: 20 }];
+  const next = applyQueuedMutationToReadModel(rows, "/api/v1/expenses/1", "PUT", { detail: "new" }) as any[];
+  assert.equal(next.length, 2);
+  assert.equal(next[0].detail, "new");
+  assert.equal(next[0].amount, 10);
 });

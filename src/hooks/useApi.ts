@@ -13,10 +13,12 @@ import {
   shouldQueueOfflineWriteNow,
 } from "@/lib/offline-cache";
 import {
+  applyQueuedMutationToReadModel,
   buildPendingReadModelRow,
   canApplyCreateToReadModel,
   getReadModelKey,
   mergeReadModelRows,
+  normalizeReadModelPath,
 } from "@/lib/offline-local-read-model";
 
 interface FetchOptions {
@@ -205,6 +207,19 @@ async function upsertPendingLocalReadModelRow(url: string, method: string, body:
   await cacheLocalReadModel(url, undefined, merged as unknown[]);
 }
 
+async function applyQueuedMutationLocalReadModel(url: string, method: string, body: unknown) {
+  const normalizedMethod = String(method || "GET").toUpperCase();
+  if (!["PUT", "PATCH", "DELETE"].includes(normalizedMethod)) return;
+  const normalizedPath = normalizeReadModelPath(url);
+  const listMatch = normalizedPath.match(/^(\/api\/v1\/[^/]+)\/[^/]+$/);
+  if (!listMatch) return;
+  const listPath = listMatch[1];
+  const current = await getLocalReadModel<unknown[]>(listPath);
+  if (!current || !Array.isArray(current.data)) return;
+  const nextData = applyQueuedMutationToReadModel(current.data, normalizedPath, normalizedMethod, body);
+  await cacheLocalReadModel(listPath, undefined, nextData as unknown[]);
+}
+
 async function enqueueOfflineWrite(
   url: string,
   method: string,
@@ -285,6 +300,7 @@ export function useApi<T = unknown>() {
       ) {
         const queueId = await enqueueOfflineWrite(url, method, options.body);
         await upsertPendingLocalReadModelRow(url, method, options.body, queueId);
+        await applyQueuedMutationLocalReadModel(url, method, options.body);
         return {
           success: true,
           data: { queued: true, queueId } as T,
@@ -332,6 +348,7 @@ export function useApi<T = unknown>() {
       ) {
         const queueId = await enqueueOfflineWrite(url, method, options.body);
         await upsertPendingLocalReadModelRow(url, method, options.body, queueId);
+        await applyQueuedMutationLocalReadModel(url, method, options.body);
         return {
           success: true,
           data: { queued: true, queueId } as T,
@@ -388,6 +405,7 @@ export async function apiCall<T = unknown>(
     ) {
       const queueId = await enqueueOfflineWrite(url, method, options.body);
       await upsertPendingLocalReadModelRow(url, method, options.body, queueId);
+      await applyQueuedMutationLocalReadModel(url, method, options.body);
       return { success: true, data: { queued: true, queueId } as T, queued: true };
     }
 
@@ -439,6 +457,7 @@ export async function apiCall<T = unknown>(
     ) {
       const queueId = await enqueueOfflineWrite(url, method, options.body);
       await upsertPendingLocalReadModelRow(url, method, options.body, queueId);
+      await applyQueuedMutationLocalReadModel(url, method, options.body);
       return { success: true, data: { queued: true, queueId } as T, queued: true };
     }
     if (method === "GET") {

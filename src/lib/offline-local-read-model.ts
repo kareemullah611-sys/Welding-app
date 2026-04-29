@@ -46,6 +46,10 @@ function normalizePath(url: string): string {
   return raw.split("?")[0] || raw;
 }
 
+export function normalizeReadModelPath(url: string): string {
+  return normalizePath(url);
+}
+
 function makePendingId(queueId: string) {
   return `pending-${queueId}`;
 }
@@ -340,4 +344,29 @@ export function removePendingReadModelRowsByQueueId(baseData: unknown, queueId: 
   if (!Array.isArray(baseData)) return baseData;
   const pendingId = makePendingId(queueId);
   return baseData.filter((row) => String(safeObject(row).id || "") !== pendingId);
+}
+
+export function applyQueuedMutationToReadModel(baseData: unknown, url: string, method: string, body: unknown): unknown {
+  if (!Array.isArray(baseData)) return baseData;
+  const normalizedMethod = String(method || "GET").toUpperCase();
+  if (!["PUT", "PATCH", "DELETE"].includes(normalizedMethod)) return baseData;
+
+  const path = normalizePath(url);
+  const match = path.match(/^(\/api\/v1\/[^/]+)\/([^/]+)$/);
+  if (!match) return baseData;
+
+  const listPath = match[1];
+  const entityId = match[2];
+  if (!CREATE_LIST_PATHS.has(listPath)) return baseData;
+
+  if (normalizedMethod === "DELETE") {
+    return baseData.filter((row) => String(safeObject(row).id || "") !== entityId);
+  }
+
+  if (!body || typeof body !== "object") return baseData;
+  const patch = body as Record<string, unknown>;
+  return baseData.map((row) => {
+    if (String(safeObject(row).id || "") !== entityId) return row;
+    return { ...(row as Record<string, unknown>), ...patch };
+  });
 }
