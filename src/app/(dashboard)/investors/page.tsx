@@ -21,7 +21,7 @@ type Investor = { id: number | string; name: string; relationship?: string; phon
 export default function InvestorsPage() {
   const { user } = useAuth();
   const router = useRouter();
-  const { isOnline, queuedItems } = useOffline();
+  const { isOnline, queuedItems, updateQueuedItem, discardQueuedItem } = useOffline();
   const [investors, setInvestors] = useState<Investor[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -123,6 +123,31 @@ export default function InvestorsPage() {
 
   const handleEditSave = async () => {
     if (!editTarget || !editForm.name.trim()) { setEditError("Name is required"); return; }
+    if (typeof editTarget.id === "string" && editTarget.id.startsWith("pending-")) {
+      const queueId = editTarget.id.replace("pending-", "");
+      const ok = await updateQueuedItem(queueId, {
+        body: JSON.stringify({
+          name: editForm.name.trim(),
+          relationship: editForm.relationship.trim() || null,
+          phone: editForm.phone.trim() || null,
+        }),
+      });
+      if (!ok) { setEditError("Unable to update pending entry"); return; }
+      const nextRows = investors.map((row) =>
+        row.id === editTarget.id
+          ? {
+              ...row,
+              name: editForm.name.trim(),
+              relationship: editForm.relationship.trim() || undefined,
+              phone: editForm.phone.trim() || undefined,
+            }
+          : row
+      );
+      setInvestors(nextRows);
+      writeSnapshot(nextRows);
+      setEditTarget(null);
+      return;
+    }
     setEditSaving(true); setEditError("");
     const res = await apiCall(`/api/v1/investors/${editTarget.id}`, {
       method: "PATCH",
@@ -141,6 +166,16 @@ export default function InvestorsPage() {
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
+    if (typeof deleteTarget.id === "string" && deleteTarget.id.startsWith("pending-")) {
+      const queueId = deleteTarget.id.replace("pending-", "");
+      const ok = await discardQueuedItem(queueId);
+      if (!ok) { setDeleteError("Unable to delete pending entry"); return; }
+      const nextRows = investors.filter((row) => row.id !== deleteTarget.id);
+      setInvestors(nextRows);
+      writeSnapshot(nextRows);
+      setDeleteTarget(null);
+      return;
+    }
     setDeleting(true); setDeleteError("");
     const res = await apiCall(`/api/v1/investors/${deleteTarget.id}`, { method: "DELETE" });
     setDeleting(false);

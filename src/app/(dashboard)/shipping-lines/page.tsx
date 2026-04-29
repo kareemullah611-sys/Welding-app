@@ -19,7 +19,7 @@ type ShippingLinesReadSnapshot = {
 
 export default function ShippingLinesPage() {
   const { user } = useAuth();
-  const { isOnline, queuedItems } = useOffline();
+  const { isOnline, queuedItems, updateQueuedItem, discardQueuedItem } = useOffline();
   const [lines, setLines] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
@@ -43,7 +43,7 @@ export default function ShippingLinesPage() {
   const [payForm, setPayForm] = useState({ paymentDate: new Date().toISOString().split("T")[0], amountUsd: "", exchangeRate: "", reference: "", notes: "", paidFrom: "bank", bankAccountId: "", intermediaryId: "" });
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
   const [intermediaries, setIntermediaries] = useState<any[]>([]);
-  const [openActionId, setOpenActionId] = useState<number | null>(null);
+  const [openActionId, setOpenActionId] = useState<number | string | null>(null);
   const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
 
   const [submitting, setSubmitting] = useState(false);
@@ -95,6 +95,11 @@ export default function ShippingLinesPage() {
 
   const openCreate = () => { setCreateForm({ name: "", contact: "", notes: "" }); setError(""); setShowCreate(true); };
 
+  const getPendingQueueId = (id: unknown) => {
+    if (typeof id !== "string" || !id.startsWith("pending-")) return null;
+    return id.slice("pending-".length) || null;
+  };
+
   const handleCreate = async () => {
     if (!createForm.name.trim()) { setError("Name required"); return; }
     setSubmitting(true);
@@ -111,6 +116,19 @@ export default function ShippingLinesPage() {
 
   const handleEdit = async () => {
     if (!editForm.name.trim()) { setError("Name required"); return; }
+    const pendingQueueId = getPendingQueueId(selected?.id);
+    if (pendingQueueId) {
+      await updateQueuedItem(pendingQueueId, {
+        body: JSON.stringify({ ...editForm }),
+      });
+      const nextRows = lines.map((row) =>
+        row.id === selected.id ? { ...row, ...editForm } : row
+      );
+      setLines(nextRows);
+      mergeSnapshot({ lines: nextRows });
+      setShowEdit(false);
+      return;
+    }
     setSubmitting(true);
     const r = await apiCall(`/api/v1/shipping-lines/${selected.id}`, { method: "PUT", body: editForm });
     setSubmitting(false);
@@ -230,6 +248,22 @@ export default function ShippingLinesPage() {
               <button onClick={() => { setOpenActionId(null); openLedger(sl); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">Open Ledger</button>
               <button onClick={() => { setOpenActionId(null); openAddPayment(sl); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-green-700 hover:bg-green-50">Record Settlement</button>
               <button onClick={() => { setOpenActionId(null); openEdit(sl); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-gray-700 hover:bg-gray-50">Edit</button>
+              {typeof sl.id === "string" && sl.id.startsWith("pending-") && (
+                <button
+                  onClick={async () => {
+                    setOpenActionId(null);
+                    const pendingQueueId = getPendingQueueId(sl.id);
+                    if (!pendingQueueId) return;
+                    await discardQueuedItem(pendingQueueId);
+                    const nextRows = lines.filter((row) => row.id !== sl.id);
+                    setLines(nextRows);
+                    mergeSnapshot({ lines: nextRows });
+                  }}
+                  className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-700 hover:bg-red-50"
+                >
+                  Delete Pending
+                </button>
+              )}
             </div>
           )}
         </div>
