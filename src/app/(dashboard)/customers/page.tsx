@@ -181,7 +181,7 @@ export default function CustomersPage() {
       });
       setCustomers((prev) => {
         const next = [{
-        id: `pending-${Date.now()}`,
+        id: `pending-${queueId}`,
         _queueId: queueId,
         name: payload.name,
         phone: payload.phone || "",
