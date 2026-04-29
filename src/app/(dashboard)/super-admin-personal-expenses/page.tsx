@@ -20,7 +20,7 @@ type SaPersonalExpensesReadSnapshot = {
 
 export default function SuperAdminPersonalExpensesPage() {
   const { user } = useAuth();
-  const { isOnline, queuedItems } = useOffline();
+  const { isOnline, queuedItems, updateQueuedItem, discardQueuedItem } = useOffline();
   const isSA = user?.role === "super_admin";
 
   const [loading, setLoading] = useState(true);
@@ -35,7 +35,7 @@ export default function SuperAdminPersonalExpensesPage() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [expenseForm, setExpenseForm] = useState<any>({ expenseDate: new Date().toISOString().split("T")[0], detail: "", amount: 0, notes: "", bankAccountId: 0 });
-  const [openActionId, setOpenActionId] = useState<number | null>(null);
+  const [openActionId, setOpenActionId] = useState<number | string | null>(null);
   const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
 
@@ -131,6 +131,11 @@ export default function SuperAdminPersonalExpensesPage() {
     setShowExpense(true);
   };
 
+  const getPendingQueueId = (id: unknown) => {
+    if (typeof id !== "string" || !id.startsWith("pending-")) return null;
+    return id.replace("pending-", "");
+  };
+
   const saveExpense = async (editing = false) => {
     if (!expenseForm.expenseDate || !expenseForm.detail.trim() || !expenseForm.amount || !expenseForm.bankAccountId) {
       setError("Date, detail, amount, and bank account are required");
@@ -144,6 +149,42 @@ export default function SuperAdminPersonalExpensesPage() {
     const body = editing
       ? { detail: expenseForm.detail, amount: Number(expenseForm.amount), notes: expenseForm.notes }
       : { ...expenseForm, amount: Number(expenseForm.amount) };
+    if (editing) {
+      const pendingQueueId = getPendingQueueId(editingExpense?.id);
+      if (pendingQueueId) {
+        const queuedBody = {
+          expenseDate: expenseForm.expenseDate,
+          detail: expenseForm.detail,
+          amount: Number(expenseForm.amount),
+          notes: expenseForm.notes,
+          bankAccountId: Number(expenseForm.bankAccountId),
+        };
+        const ok = await updateQueuedItem(pendingQueueId, { body: JSON.stringify(queuedBody) });
+        if (!ok) {
+          setSubmitting(false);
+          setError("Unable to update pending entry");
+          return;
+        }
+        const nextRows = expenses.map((row) => (
+          row.id === editingExpense.id
+            ? {
+                ...row,
+                expenseDate: expenseForm.expenseDate,
+                detail: expenseForm.detail,
+                amount: Number(expenseForm.amount),
+                notes: expenseForm.notes,
+                bankAccountId: Number(expenseForm.bankAccountId),
+              }
+            : row
+        ));
+        setExpenses(nextRows);
+        writeSnapshot({ accounts, expenses: nextRows, totalPages, total });
+        setSubmitting(false);
+        setShowExpense(false);
+        setEditingExpense(null);
+        return;
+      }
+    }
     const result = await apiCall(endpoint, { method, body });
     setSubmitting(false);
     if (result.success) {
@@ -157,6 +198,15 @@ export default function SuperAdminPersonalExpensesPage() {
 
   const deleteExpense = async (expense: any) => {
     if (!confirm(`Delete home expense "${expense.detail}"?`)) return;
+    const pendingQueueId = getPendingQueueId(expense.id);
+    if (pendingQueueId) {
+      const ok = await discardQueuedItem(pendingQueueId);
+      if (!ok) return;
+      const nextRows = expenses.filter((row) => row.id !== expense.id);
+      setExpenses(nextRows);
+      writeSnapshot({ accounts, expenses: nextRows, totalPages, total: Math.max(0, total - 1) });
+      return;
+    }
     await apiCall(`/api/v1/super-admin-personal-expenses/${expense.id}`, { method: "DELETE" });
     load();
   };
