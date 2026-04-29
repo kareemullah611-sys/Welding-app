@@ -15,6 +15,7 @@ import {
   getReadModelKey,
   removePendingReadModelRowsByQueueId,
 } from "@/lib/offline-local-read-model";
+import { isAlreadySyncedResponse } from "@/lib/offline-sync-classifier";
 
 type QueueSyncStatus = "pending" | "syncing" | "failed" | "conflict";
 
@@ -323,6 +324,12 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
         const isJson = res.headers.get("content-type")?.includes("application/json");
         const data = isJson ? await res.json() : null;
         if (res.ok && data?.success) {
+          await dbDelete(QUEUE_STORE, item.id);
+          await removeSyncedPendingReadModelRow(item);
+          synced++;
+          continue;
+        }
+        if (isAlreadySyncedResponse(res.status, data)) {
           await dbDelete(QUEUE_STORE, item.id);
           await removeSyncedPendingReadModelRow(item);
           synced++;
