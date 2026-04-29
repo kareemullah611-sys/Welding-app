@@ -20,7 +20,7 @@ const INVESTOR_LEDGER_READ_CACHE_KEY_PREFIX = "mrf-investor-ledger-read-cache-v1
 
 export default function InvestorLedgerPage() {
   const { user } = useAuth();
-  const { isOnline, enqueue, queuedItems } = useOffline();
+  const { isOnline, enqueue, queuedItems, updateQueuedItem, discardQueuedItem } = useOffline();
   const router = useRouter();
   const params = useParams();
   const id = params.id as string;
@@ -33,11 +33,11 @@ export default function InvestorLedgerPage() {
   const [amountError, setAmountError] = useState("");
 
   // Delete confirm
-  const [deleteTarget, setDeleteTarget] = useState<{ type: TxType; id: number } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ type: TxType; id: number | string } | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   // Edit transaction
-  const [editTarget, setEditTarget] = useState<{ type: TxType; id: number; amount: string; date: string; notes: string } | null>(null);
+  const [editTarget, setEditTarget] = useState<{ type: TxType; id: number | string; amount: string; date: string; notes: string } | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState("");
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
@@ -182,6 +182,33 @@ export default function InvestorLedgerPage() {
     if (!editTarget.amount || parseFloat(editTarget.amount) <= 0) { setEditError("Enter a valid amount"); return; }
     const parsedAmount = parseFloat(editTarget.amount);
     if (!isOnline) {
+      const pendingId = String(editTarget.id || "");
+      if (pendingId.startsWith("pending-")) {
+        const queueId = pendingId.replace("pending-", "");
+        const ok = await updateQueuedItem(queueId, {
+          body: JSON.stringify({
+            type: editTarget.type,
+            accountId: acc?.id,
+            amount: parsedAmount,
+            date: editTarget.date,
+            notes: editTarget.notes,
+          }),
+        });
+        if (!ok) {
+          setEditError("Pending queued entry not found. Retry from activity feed.");
+          return;
+        }
+        patchInvestorAccount((prevAcc: any) => {
+          const entries = [...(prevAcc.entries || [])];
+          const idx = entries.findIndex((entry: any) => String(entry.id) === String(editTarget.id));
+          if (idx >= 0) {
+            entries[idx] = { ...entries[idx], amount: parsedAmount, date: editTarget.date, notes: editTarget.notes, _pending: true };
+          }
+          return { ...prevAcc, entries };
+        });
+        setEditTarget(null);
+        return;
+      }
       await enqueue({
         url: `/api/v1/investors/${id}/transactions`,
         method: "PATCH",
@@ -221,6 +248,17 @@ export default function InvestorLedgerPage() {
   const handleDelete = async () => {
     if (!deleteTarget) return;
     if (!isOnline) {
+      const pendingId = String(deleteTarget.id || "");
+      if (pendingId.startsWith("pending-")) {
+        const queueId = pendingId.replace("pending-", "");
+        await discardQueuedItem(queueId);
+        patchInvestorAccount((prevAcc: any) => {
+          const nextEntries = (prevAcc.entries || []).filter((entry: any) => String(entry.id) !== String(deleteTarget.id));
+          return { ...prevAcc, entries: nextEntries };
+        });
+        setDeleteTarget(null);
+        return;
+      }
       await enqueue({
         url: `/api/v1/investors/${id}/transactions`,
         method: "DELETE",
