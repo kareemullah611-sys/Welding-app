@@ -567,9 +567,6 @@ export default function HajiTransfersPage() {
         {
           key: "sourceType", label: t("type"),
           render: (tr: any) => {
-            if (tr._pending) {
-              return <span className="text-xs px-2 py-0.5 rounded font-medium bg-amber-50 text-amber-700">syncing…</span>;
-            }
             if (tr.recordType === "customer_payment") {
               return <span className="text-xs px-2 py-0.5 rounded font-medium bg-emerald-50 text-emerald-700">↗️ Customer to Haji</span>;
             }
@@ -583,7 +580,7 @@ export default function HajiTransfersPage() {
           key: "actions", label: "",
           render: (tr: any) => (
                 <div className="relative" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} data-action-menu-root="true">
-              {(user?.role === "city_admin" || user?.role === "super_admin") && tr.recordType !== "customer_payment" && !tr._pending && (
+              {(user?.role === "city_admin" || user?.role === "super_admin") && tr.recordType !== "customer_payment" && (
                 <>
                   <button
                     type="button"

@@ -5,10 +5,16 @@ import {
   OFFLINE_API_CACHE_STORE,
   OFFLINE_DB_NAME,
   OFFLINE_DB_VERSION,
+  OFFLINE_LOCAL_READ_MODEL_STORE,
   OFFLINE_QUEUE_STORE,
   OFFLINE_STOCK_STORE,
   buildApiCacheKey,
 } from "@/lib/offline-cache";
+import {
+  canApplyCreateToReadModel,
+  getReadModelKey,
+  removePendingReadModelRowsByQueueId,
+} from "@/lib/offline-local-read-model";
 
 type QueueSyncStatus = "pending" | "syncing" | "failed" | "conflict";
 
@@ -86,6 +92,7 @@ const DB_VERSION = OFFLINE_DB_VERSION;
 const QUEUE_STORE = OFFLINE_QUEUE_STORE;
 const STOCK_STORE = OFFLINE_STOCK_STORE;
 const API_CACHE_STORE = OFFLINE_API_CACHE_STORE;
+const LOCAL_READ_MODEL_STORE = OFFLINE_LOCAL_READ_MODEL_STORE;
 const DEVICE_ID_KEY = "mrf-offline-device-id";
 
 function getOrCreateDeviceId(): string {
@@ -108,6 +115,8 @@ function openDB(): Promise<IDBDatabase> {
         db.createObjectStore(STOCK_STORE, { keyPath: "godownId" });
       if (!db.objectStoreNames.contains(API_CACHE_STORE))
         db.createObjectStore(API_CACHE_STORE, { keyPath: "key" });
+      if (!db.objectStoreNames.contains(LOCAL_READ_MODEL_STORE))
+        db.createObjectStore(LOCAL_READ_MODEL_STORE, { keyPath: "key" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -152,6 +161,15 @@ async function dbGet<T>(store: string, key: any): Promise<T | undefined> {
     r.onsuccess = () => resolve(r.result as T);
     r.onerror = () => reject(r.error);
   });
+}
+
+async function removeSyncedPendingReadModelRow(item: QueuedRequest) {
+  if (!canApplyCreateToReadModel(item.url, item.method)) return;
+  const key = getReadModelKey(item.url, undefined);
+  const row = await dbGet<{ key: string; data: unknown; pagination?: unknown; updatedAt: number }>(LOCAL_READ_MODEL_STORE, key);
+  if (!row) return;
+  const data = removePendingReadModelRowsByQueueId(row.data, item.id);
+  await dbPut(LOCAL_READ_MODEL_STORE, { ...row, data, updatedAt: Date.now() });
 }
 
 // ── Provider ───────────────────────────────────────────────────────────────────
@@ -306,6 +324,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
         const data = isJson ? await res.json() : null;
         if (res.ok && data?.success) {
           await dbDelete(QUEUE_STORE, item.id);
+          await removeSyncedPendingReadModelRow(item);
           synced++;
           continue;
         }

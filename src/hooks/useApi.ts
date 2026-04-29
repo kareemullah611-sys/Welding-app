@@ -5,12 +5,19 @@ import {
   OFFLINE_API_CACHE_STORE,
   OFFLINE_DB_NAME,
   OFFLINE_DB_VERSION,
+  OFFLINE_LOCAL_READ_MODEL_STORE,
   OFFLINE_QUEUE_STORE,
   OFFLINE_STOCK_STORE,
   buildOfflineAuditMeta,
   buildApiCacheKey,
   shouldQueueOfflineWriteNow,
 } from "@/lib/offline-cache";
+import {
+  buildPendingReadModelRow,
+  canApplyCreateToReadModel,
+  getReadModelKey,
+  mergeReadModelRows,
+} from "@/lib/offline-local-read-model";
 
 interface FetchOptions {
   method?: string;
@@ -29,6 +36,13 @@ interface ApiCacheRecord<T> {
   data: T;
   pagination?: unknown;
   cachedAt: number;
+}
+
+interface LocalReadModelRecord<T = unknown> {
+  key: string;
+  data: T;
+  pagination?: unknown;
+  updatedAt: number;
 }
 
 interface QueuedRequest {
@@ -82,6 +96,9 @@ function openOfflineDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(OFFLINE_API_CACHE_STORE)) {
         db.createObjectStore(OFFLINE_API_CACHE_STORE, { keyPath: "key" });
       }
+      if (!db.objectStoreNames.contains(OFFLINE_LOCAL_READ_MODEL_STORE)) {
+        db.createObjectStore(OFFLINE_LOCAL_READ_MODEL_STORE, { keyPath: "key" });
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -123,6 +140,69 @@ async function getCachedApiResponse<T>(
     req.onsuccess = () => resolve((req.result as ApiCacheRecord<T>) || null);
     req.onerror = () => reject(req.error);
   });
+}
+
+async function cacheLocalReadModel<T>(
+  url: string,
+  params: Record<string, string | number | undefined> | undefined,
+  data: T,
+  pagination?: unknown
+) {
+  if (typeof window === "undefined") return;
+  const db = await openOfflineDb();
+  const key = getReadModelKey(url, params);
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(OFFLINE_LOCAL_READ_MODEL_STORE, "readwrite");
+    tx.objectStore(OFFLINE_LOCAL_READ_MODEL_STORE).put({
+      key,
+      data,
+      pagination,
+      updatedAt: Date.now(),
+    } satisfies LocalReadModelRecord<T>);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function getLocalReadModel<T>(
+  url: string,
+  params?: Record<string, string | number | undefined>
+): Promise<LocalReadModelRecord<T> | null> {
+  if (typeof window === "undefined") return null;
+  const db = await openOfflineDb();
+  const key = getReadModelKey(url, params);
+  const fallbackKey = getReadModelKey(url, undefined);
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(OFFLINE_LOCAL_READ_MODEL_STORE, "readonly");
+    const store = tx.objectStore(OFFLINE_LOCAL_READ_MODEL_STORE);
+    const req = store.get(key);
+    req.onsuccess = () => {
+      if (req.result) {
+        resolve(req.result as LocalReadModelRecord<T>);
+        return;
+      }
+      if (fallbackKey === key) {
+        resolve(null);
+        return;
+      }
+      const fallbackReq = store.get(fallbackKey);
+      fallbackReq.onsuccess = () => resolve((fallbackReq.result as LocalReadModelRecord<T>) || null);
+      fallbackReq.onerror = () => reject(fallbackReq.error);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function upsertPendingLocalReadModelRow(url: string, method: string, body: unknown, queueId: string) {
+  if (!canApplyCreateToReadModel(url, method)) return;
+  const now = Date.now();
+  const pendingRow = buildPendingReadModelRow(url, body, queueId, now);
+  if (!pendingRow) return;
+
+  const current = await getLocalReadModel<unknown[]>(url);
+  const currentRows = Array.isArray(current?.data) ? current?.data : [];
+  const merged = mergeReadModelRows(currentRows || [], [pendingRow]);
+  await cacheLocalReadModel(url, undefined, merged as unknown[]);
 }
 
 async function enqueueOfflineWrite(
@@ -183,9 +263,19 @@ export function useApi<T = unknown>() {
 
       if (method === "GET" && typeof window !== "undefined" && !navigator.onLine) {
         const cached = await getCachedApiResponse<T>(url, options.params);
+        const local = await getLocalReadModel<T>(url, options.params);
+        if (cached && local) {
+          const mergedData = mergeReadModelRows(cached.data, Array.isArray(local.data) ? (local.data as unknown[]) : []);
+          setState({ data: mergedData as T, loading: false, error: null });
+          return { success: true, data: mergedData as T, pagination: cached.pagination ?? local.pagination, cached: true };
+        }
         if (cached) {
           setState({ data: cached.data, loading: false, error: null });
           return { success: true, data: cached.data, pagination: cached.pagination, cached: true };
+        }
+        if (local) {
+          setState({ data: local.data as T, loading: false, error: null });
+          return { success: true, data: local.data as T, pagination: local.pagination, cached: true };
         }
       }
 
@@ -194,6 +284,7 @@ export function useApi<T = unknown>() {
         shouldQueueOfflineWriteNow(url, method, navigator.onLine)
       ) {
         const queueId = await enqueueOfflineWrite(url, method, options.body);
+        await upsertPendingLocalReadModelRow(url, method, options.body, queueId);
         return {
           success: true,
           data: { queued: true, queueId } as T,
@@ -207,6 +298,7 @@ export function useApi<T = unknown>() {
       if (data.success) {
         if (method === "GET") {
           await cacheApiResponse(url, options.params, data.data as T, data.pagination);
+          await cacheLocalReadModel(url, options.params, data.data as T, data.pagination);
         }
         setState({ data: data.data as T, loading: false, error: null });
         return { success: true, data: data.data as T, pagination: data.pagination };
@@ -214,9 +306,19 @@ export function useApi<T = unknown>() {
         const error = data.error?.message || "Request failed";
         if (method === "GET") {
           const cached = await getCachedApiResponse<T>(url, options.params);
+          const local = await getLocalReadModel<T>(url, options.params);
+          if (cached && local) {
+            const mergedData = mergeReadModelRows(cached.data, Array.isArray(local.data) ? (local.data as unknown[]) : []);
+            setState({ data: mergedData as T, loading: false, error: null });
+            return { success: true, data: mergedData as T, pagination: cached.pagination ?? local.pagination, cached: true };
+          }
           if (cached) {
             setState({ data: cached.data, loading: false, error: null });
             return { success: true, data: cached.data, pagination: cached.pagination, cached: true };
+          }
+          if (local) {
+            setState({ data: local.data as T, loading: false, error: null });
+            return { success: true, data: local.data as T, pagination: local.pagination, cached: true };
           }
         }
         setState({ data: null, loading: false, error });
@@ -229,6 +331,7 @@ export function useApi<T = unknown>() {
         shouldQueueOfflineWriteNow(url, method, navigator.onLine)
       ) {
         const queueId = await enqueueOfflineWrite(url, method, options.body);
+        await upsertPendingLocalReadModelRow(url, method, options.body, queueId);
         return {
           success: true,
           data: { queued: true, queueId } as T,
@@ -237,9 +340,19 @@ export function useApi<T = unknown>() {
       }
       if (method === "GET") {
         const cached = await getCachedApiResponse<T>(url, options.params);
+        const local = await getLocalReadModel<T>(url, options.params);
+        if (cached && local) {
+          const mergedData = mergeReadModelRows(cached.data, Array.isArray(local.data) ? (local.data as unknown[]) : []);
+          setState({ data: mergedData as T, loading: false, error: null });
+          return { success: true, data: mergedData as T, pagination: cached.pagination ?? local.pagination, cached: true };
+        }
         if (cached) {
           setState({ data: cached.data, loading: false, error: null });
           return { success: true, data: cached.data, pagination: cached.pagination, cached: true };
+        }
+        if (local) {
+          setState({ data: local.data as T, loading: false, error: null });
+          return { success: true, data: local.data as T, pagination: local.pagination, cached: true };
         }
       }
       const error = "Network error";
@@ -274,13 +387,22 @@ export async function apiCall<T = unknown>(
       shouldQueueOfflineWriteNow(url, method, navigator.onLine)
     ) {
       const queueId = await enqueueOfflineWrite(url, method, options.body);
+      await upsertPendingLocalReadModelRow(url, method, options.body, queueId);
       return { success: true, data: { queued: true, queueId } as T, queued: true };
     }
 
     if (method === "GET" && typeof window !== "undefined" && !navigator.onLine) {
       const cached = await getCachedApiResponse<T>(url, options.params);
+      const local = await getLocalReadModel<T>(url, options.params);
+      if (cached && local) {
+        const mergedData = mergeReadModelRows(cached.data, Array.isArray(local.data) ? (local.data as unknown[]) : []);
+        return { success: true, data: mergedData as T, pagination: cached.pagination ?? local.pagination, cached: true };
+      }
       if (cached) {
         return { success: true, data: cached.data, pagination: cached.pagination, cached: true };
+      }
+      if (local) {
+        return { success: true, data: local.data as T, pagination: local.pagination, cached: true };
       }
     }
 
@@ -290,13 +412,22 @@ export async function apiCall<T = unknown>(
     if (data.success) {
       if (method === "GET") {
         await cacheApiResponse(url, options.params, data.data as T, data.pagination);
+        await cacheLocalReadModel(url, options.params, data.data as T, data.pagination);
       }
       return { success: true, data: data.data as T, pagination: data.pagination };
     }
     if (method === "GET") {
       const cached = await getCachedApiResponse<T>(url, options.params);
+      const local = await getLocalReadModel<T>(url, options.params);
+      if (cached && local) {
+        const mergedData = mergeReadModelRows(cached.data, Array.isArray(local.data) ? (local.data as unknown[]) : []);
+        return { success: true, data: mergedData as T, pagination: cached.pagination ?? local.pagination, cached: true };
+      }
       if (cached) {
         return { success: true, data: cached.data, pagination: cached.pagination, cached: true };
+      }
+      if (local) {
+        return { success: true, data: local.data as T, pagination: local.pagination, cached: true };
       }
     }
     return { success: false, error: data.error?.message || "Request failed" };
@@ -307,12 +438,21 @@ export async function apiCall<T = unknown>(
       shouldQueueOfflineWriteNow(url, method, navigator.onLine)
     ) {
       const queueId = await enqueueOfflineWrite(url, method, options.body);
+      await upsertPendingLocalReadModelRow(url, method, options.body, queueId);
       return { success: true, data: { queued: true, queueId } as T, queued: true };
     }
     if (method === "GET") {
       const cached = await getCachedApiResponse<T>(url, options.params);
+      const local = await getLocalReadModel<T>(url, options.params);
+      if (cached && local) {
+        const mergedData = mergeReadModelRows(cached.data, Array.isArray(local.data) ? (local.data as unknown[]) : []);
+        return { success: true, data: mergedData as T, pagination: cached.pagination ?? local.pagination, cached: true };
+      }
       if (cached) {
         return { success: true, data: cached.data, pagination: cached.pagination, cached: true };
+      }
+      if (local) {
+        return { success: true, data: local.data as T, pagination: local.pagination, cached: true };
       }
     }
     return { success: false, error: "Network error" };

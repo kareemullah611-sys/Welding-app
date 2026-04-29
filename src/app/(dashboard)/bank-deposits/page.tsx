@@ -344,7 +344,6 @@ export default function BankDepositsPage() {
                   <p className="text-sm font-semibold text-gray-900">{d.bankAccount?.bankName || "—"}</p>
                   <p className="text-xs text-gray-500 mt-0.5">{formatDate(d.depositDate)}{d.slipNumber ? ` · Slip #${d.slipNumber}` : ""}</p>
                   <p className="text-[11px] text-gray-500 mt-0.5">{transferTypeLabels[d.transferType || "cheque_to_bank"] || "Cash/Cheque → Bank"}</p>
-                  {d._pending && <p className="text-[11px] text-amber-700 mt-0.5">syncing…</p>}
                 </div>
               </div>
                   <div className="flex items-center gap-4">

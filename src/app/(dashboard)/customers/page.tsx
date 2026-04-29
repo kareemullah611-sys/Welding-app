@@ -382,7 +382,6 @@ export default function CustomersPage() {
         { key: "name", label: t("name"), render: (c: any) => (
           <div className="flex items-center gap-2">
             <button onClick={() => openLedger(c)} className="font-medium text-primary-600 hover:underline">{c.name}</button>
-            {c._pending && <span className="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">syncing…</span>}
             {!c.isActive && <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-medium">{t("inactive")}</span>}
           </div>
         )},
@@ -425,12 +424,12 @@ export default function CustomersPage() {
                   <button onClick={() => { setOpenActionId(null); openEdit(c); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
                 )}
                 {c.isActive ? (
-                  <button disabled={c._pending} onClick={() => { setOpenActionId(null); handleDelete(c); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50 disabled:opacity-50">{t("deactivate")}</button>
+                  <button onClick={() => { setOpenActionId(null); handleDelete(c); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("deactivate")}</button>
                 ) : (
-                  <button disabled={c._pending} onClick={() => { setOpenActionId(null); handleReactivate(c); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-green-700 hover:bg-green-50 disabled:opacity-50">{t("reactivate")}</button>
+                  <button onClick={() => { setOpenActionId(null); handleReactivate(c); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-green-700 hover:bg-green-50">{t("reactivate")}</button>
                 )}
                 {user?.role === "super_admin" && (
-                  <button disabled={c._pending} onClick={() => { setOpenActionId(null); openHardDelete(c); }} className="w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-red-800 hover:bg-red-50 disabled:opacity-50">{t("hard_delete")}</button>
+                  <button onClick={() => { setOpenActionId(null); openHardDelete(c); }} className="w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-red-800 hover:bg-red-50">{t("hard_delete")}</button>
                 )}
               </div>
             )}

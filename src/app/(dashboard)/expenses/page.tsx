@@ -430,15 +430,10 @@ export default function ExpensesPage() {
         { key: "amount", label: t("amount"), render: (e: any) => <span className="font-medium text-red-600">{e.currency?.symbol} {e.amount.toLocaleString("en-US")}</span> },
         { key: "lot", label: t("lot"), render: (e: any) => e.lot?.lotNumber || e.lotNumber },
         { key: "notes", label: t("notes"), render: (e: any) => e.notes || "-", className: "max-w-xs truncate" },
-        { key: "source", label: t("paid_from"), render: (e: any) => e._pending
-          ? <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700">⏳ Pending Sync</span>
-          : renderPaidFrom(e)
-        },
+        { key: "source", label: t("paid_from"), render: (e: any) => renderPaidFrom(e) },
         {
           key: "actions", label: "",
-          render: (e: any) => e._pending
-            ? <span className="text-xs text-gray-400 italic">syncing…</span>
-            : (
+          render: (e: any) => (
             <div className="relative" onClick={(evt) => evt.stopPropagation()} onMouseDown={(evt) => evt.stopPropagation()} data-action-menu-root="true">
               <button
                 type="button"

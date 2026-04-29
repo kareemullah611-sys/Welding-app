@@ -322,7 +322,7 @@ export default function CityTransfersPage() {
     load();
   };
 
-  const pendingIncoming = transfers.filter(tr => !tr._pending && tr.status === "pending" && tr.toCity?.id === user?.cityId);
+  const pendingIncoming = transfers.filter(tr => tr.status === "pending" && tr.toCity?.id === user?.cityId);
 
   return (
     <div>
@@ -359,10 +359,10 @@ export default function CityTransfersPage() {
         { key: "product", label: t("product"), render: (tr: any) => tr.product?.name },
         { key: "qty", label: t("cartons"), render: (tr: any) => <span className="font-medium">{tr.qty}</span> },
         { key: "lot", label: t("lot"), render: (tr: any) => tr.lot?.lotNumber || "-" },
-        { key: "status", label: t("status"), render: (tr: any) => <span className={`text-xs px-2 py-0.5 rounded font-medium ${tr._pending ? "bg-amber-100 text-amber-700" : tr.status === "approved" ? "bg-green-50 text-green-700" : tr.status === "rejected" ? "bg-red-50 text-red-700" : "bg-yellow-50 text-yellow-700"}`}>{tr._pending ? "syncing…" : tr.status}</span> },
+        { key: "status", label: t("status"), render: (tr: any) => <span className={`text-xs px-2 py-0.5 rounded font-medium ${tr.status === "approved" ? "bg-green-50 text-green-700" : tr.status === "rejected" ? "bg-red-50 text-red-700" : "bg-yellow-50 text-yellow-700"}`}>{tr.status}</span> },
         { key: "sentBy", label: t("sent_by"), render: (tr: any) => tr.sentBy?.fullName },
         { key: "actions", label: "", render: (tr: any) => (
-          !tr._pending && tr.status === "pending" && tr.toCity?.id === user?.cityId ? (
+          tr.status === "pending" && tr.toCity?.id === user?.cityId ? (
             <div className="flex gap-1"><button onClick={() => openApprove(tr)} className="text-xs text-green-600 hover:underline">{t("approve")}</button><button onClick={() => handleReject(tr)} className="text-xs text-red-600 hover:underline">{t("reject")}</button></div>
           ) : null
         )},

@@ -1,8 +1,9 @@
 export const OFFLINE_DB_NAME = "mrf-offline";
-export const OFFLINE_DB_VERSION = 3;
+export const OFFLINE_DB_VERSION = 4;
 export const OFFLINE_QUEUE_STORE = "queue";
 export const OFFLINE_STOCK_STORE = "stock_cache";
 export const OFFLINE_API_CACHE_STORE = "api_cache";
+export const OFFLINE_LOCAL_READ_MODEL_STORE = "local_read_models";
 
 const OFFLINE_WRITE_QUEUE_ALLOWLIST = [
   "/api/v1/sales",

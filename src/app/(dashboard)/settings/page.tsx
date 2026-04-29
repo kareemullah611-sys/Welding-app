@@ -332,7 +332,6 @@ function UsersTab() {
         { key: "fullName", label: t("name"), render: (u: any) => (
           <div className="flex items-center gap-2">
             <span className="font-medium">{u.fullName}</span>
-            {u._pending && <span className="text-[11px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">syncing…</span>}
           </div>
         ) },
         { key: "username", label: t("username") },

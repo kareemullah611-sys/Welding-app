@@ -605,7 +605,7 @@ export default function PersonalWithdrawalsPage() {
               </div>
             ) : (
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200">
-                {w._pending ? "syncing…" : "⏳ Pending"}
+                ⏳ Pending
               </span>
             ),
           },
@@ -642,7 +642,7 @@ export default function PersonalWithdrawalsPage() {
                 </button>
                 {openActionId === w.id && (
                   <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
-                    {!w.approvedAt && !w._pending && (
+                    {!w.approvedAt && (
                       <>
                         <button
                           onClick={() => { setOpenActionId(null); openEdit(w); }}

@@ -838,9 +838,6 @@ export default function PaymentsPage() {
     {
       key: "status", label: t("status"),
       render: (item: any) => {
-        if (item._pending) return (
-          <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700">⏳ Pending Sync</span>
-        );
         if (item.type === "payment") {
           const chequeStatusColors: Record<string, string> = {
             in_hand: "bg-yellow-50 text-yellow-700",
@@ -909,8 +906,6 @@ export default function PaymentsPage() {
     {
       key: "actions", label: "",
       render: (item: any) => {
-        // Pending (offline) rows have no server ID — disable all mutating actions
-        if (item._pending) return <span className="text-xs text-gray-400 italic">syncing…</span>;
         return (
           <div className="relative" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} data-action-menu-root="true">
             <button

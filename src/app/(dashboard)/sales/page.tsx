@@ -682,10 +682,7 @@ export default function SalesPage() {
         { key: "lot", label: t("lot"), render: (s: any) => s.lot?.lotNumber },
         { key: "status", label: t("status"), render: (s: any) => (
           <div>
-            {s._pending
-              ? <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700">⏳ Pending Sync</span>
-              : <StatusBadge status={s.status} />
-            }
+            <StatusBadge status={s.status} />
             {s.status === "cancelled" && s.cancellationReason && (
               <p className="text-xs text-gray-500 mt-0.5 max-w-[160px] truncate" title={s.cancellationReason}>
                 {s.cancellationReason}
