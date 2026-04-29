@@ -2,6 +2,9 @@
   "name": "welding-app",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": "22.x"
+  },
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "next dev",
