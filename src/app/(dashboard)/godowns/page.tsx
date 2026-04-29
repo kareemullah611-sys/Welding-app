@@ -19,7 +19,7 @@ type GodownsReadSnapshot = {
 export default function GodownsPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline, queuedItems } = useOffline();
+  const { isOnline, queuedItems, updateQueuedItem, discardQueuedItem } = useOffline();
   const [godowns, setGodowns] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -32,6 +32,12 @@ export default function GodownsPage() {
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [openActionId, setOpenActionId] = useState<number | null>(null);
   const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
+
+  const getPendingQueueId = useCallback((id: any) => {
+    const str = String(id || "");
+    if (!str.startsWith("pending-")) return null;
+    return str.replace("pending-", "");
+  }, []);
 
   const readSnapshot = useCallback(() => {
     return readOfflineReadSnapshot<GodownsReadSnapshot>(GODOWNS_READ_CACHE_KEY);
@@ -102,6 +108,21 @@ export default function GodownsPage() {
   };
   const openEdit = (g: any) => { setSelected(g); setForm({ name: g.name, cityId: g.cityId }); setShowEdit(true); setFormError(""); };
   const handleEdit = async () => {
+    const pendingQueueId = getPendingQueueId(selected?.id);
+    if (pendingQueueId) {
+      const ok = await updateQueuedItem(pendingQueueId, { body: JSON.stringify(form) });
+      if (!ok) {
+        setFormError("Queued godown entry not found. Retry from Activity.");
+        return;
+      }
+      setGodowns((prev) => {
+        const next = prev.map((row: any) => (row.id === selected.id ? { ...row, name: form.name, cityId: form.cityId, _pending: true } : row));
+        mergeSnapshot({ godowns: next });
+        return next;
+      });
+      setShowEdit(false);
+      return;
+    }
     setSubmitting(true);
     const result = await apiCall(`/api/v1/godowns/${selected.id}`, { method: "PUT", body: { name: form.name } });
     setSubmitting(false);
@@ -109,11 +130,31 @@ export default function GodownsPage() {
   };
   const handleDeactivate = async (g: any) => {
     if (!confirm(`"${g.name}": ${t("confirm_deactivate_godown")}`)) return;
+    const pendingQueueId = getPendingQueueId(g?.id);
+    if (pendingQueueId) {
+      await discardQueuedItem(pendingQueueId);
+      setGodowns((prev) => {
+        const next = prev.filter((row: any) => row.id !== g.id);
+        mergeSnapshot({ godowns: next });
+        return next;
+      });
+      return;
+    }
     await apiCall(`/api/v1/godowns/${g.id}`, { method: "PUT", body: { isActive: false } });
     load();
   };
   const handleDeleteGodown = async (g: any) => {
     if (!confirm(`"${g.name}": ${t("confirm_delete_godown")}`)) return;
+    const pendingQueueId = getPendingQueueId(g?.id);
+    if (pendingQueueId) {
+      await discardQueuedItem(pendingQueueId);
+      setGodowns((prev) => {
+        const next = prev.filter((row: any) => row.id !== g.id);
+        mergeSnapshot({ godowns: next });
+        return next;
+      });
+      return;
+    }
     const r = await apiCall(`/api/v1/godowns/${g.id}`, { method: "DELETE" });
     if (r.success) load(); else alert(r.error || "Cannot delete - godown may have stock");
   };
