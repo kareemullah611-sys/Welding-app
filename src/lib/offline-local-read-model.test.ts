@@ -30,7 +30,7 @@ test("only allows local read-model create application for selected endpoints", (
   assert.equal(canApplyCreateToReadModel("/api/v1/sales", "POST"), true);
   assert.equal(canApplyCreateToReadModel("/api/v1/payments", "POST"), true);
   assert.equal(canApplyCreateToReadModel("/api/v1/customers", "PUT"), false);
-  assert.equal(canApplyCreateToReadModel("/api/v1/suppliers", "POST"), false);
+  assert.equal(canApplyCreateToReadModel("/api/v1/unknown-module", "POST"), false);
 });
 
 test("allows operational treasury endpoints for local read-model creates", () => {
@@ -39,6 +39,16 @@ test("allows operational treasury endpoints for local read-model creates", () =>
   assert.equal(canApplyCreateToReadModel("/api/v1/haji-transfers", "POST"), true);
   assert.equal(canApplyCreateToReadModel("/api/v1/bank-deposits", "POST"), true);
   assert.equal(canApplyCreateToReadModel("/api/v1/city-transfers", "POST"), true);
+  assert.equal(canApplyCreateToReadModel("/api/v1/suppliers", "POST"), true);
+  assert.equal(canApplyCreateToReadModel("/api/v1/intermediaries", "POST"), true);
+  assert.equal(canApplyCreateToReadModel("/api/v1/products", "POST"), true);
+  assert.equal(canApplyCreateToReadModel("/api/v1/users", "POST"), true);
+  assert.equal(canApplyCreateToReadModel("/api/v1/godowns", "POST"), true);
+  assert.equal(canApplyCreateToReadModel("/api/v1/bank-accounts", "POST"), true);
+  assert.equal(canApplyCreateToReadModel("/api/v1/shipping-lines", "POST"), true);
+  assert.equal(canApplyCreateToReadModel("/api/v1/agents", "POST"), true);
+  assert.equal(canApplyCreateToReadModel("/api/v1/investors", "POST"), true);
+  assert.equal(canApplyCreateToReadModel("/api/v1/lots", "POST"), true);
 });
 
 test("removes a pending row when queue item is synced", () => {
