@@ -7,6 +7,7 @@ import { PageHeader, DataTable, Modal } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingGodowns } from "@/lib/offline-queue-overlays";
+import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 
 const GODOWNS_READ_CACHE_KEY = "mrf-godowns-read-cache-v1";
 
@@ -55,7 +56,8 @@ export default function GodownsPage() {
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.godowns?.length) {
-        setGodowns(snapshot.godowns);
+        const cleanedGodowns = pruneStalePendingRows(snapshot.godowns as any[], queuedItems as any[], "/godowns");
+        setGodowns(cleanedGodowns);
         setShowOfflineSnapshot(true);
       }
     }

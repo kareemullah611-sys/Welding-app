@@ -7,6 +7,7 @@ import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingAgents } from "@/lib/offline-queue-overlays";
+import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 
 const AGENTS_READ_CACHE_KEY = "mrf-agents-read-cache-v1";
 
@@ -84,7 +85,8 @@ export default function AgentsPage() {
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.agents?.length) {
-        setAgents(snapshot.agents);
+        const cleanedAgents = pruneStalePendingRows(snapshot.agents as any[], queuedItems as any[], "/agents");
+        setAgents(cleanedAgents);
         setShowOfflineSnapshot(true);
       }
     }

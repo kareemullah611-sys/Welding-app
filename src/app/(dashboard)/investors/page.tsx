@@ -8,6 +8,7 @@ import { formatNumber } from "@/components/ui";
 import { ChevronRight, Users, Search, Plus } from "lucide-react";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingInvestors } from "@/lib/offline-queue-overlays";
+import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 
 const INVESTORS_READ_CACHE_KEY = "mrf-investors-read-cache-v1";
 
@@ -72,7 +73,8 @@ export default function InvestorsPage() {
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.investors?.length) {
-        setInvestors(snapshot.investors);
+        const cleanedInvestors = pruneStalePendingRows(snapshot.investors as any[], queuedItems as any[], "/investors");
+        setInvestors(cleanedInvestors);
         setShowOfflineSnapshot(true);
       }
     }

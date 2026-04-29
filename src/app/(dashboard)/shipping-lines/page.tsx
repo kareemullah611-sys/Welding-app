@@ -6,6 +6,7 @@ import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, StatsCard, formatNumber, formatDate } from "@/components/ui";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingShippingLines } from "@/lib/offline-queue-overlays";
+import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 
 const SHIPPING_LINES_READ_CACHE_KEY = "mrf-shipping-lines-read-cache-v1";
 
@@ -72,7 +73,8 @@ export default function ShippingLinesPage() {
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.lines?.length) {
-        setLines(snapshot.lines);
+        const cleanedLines = pruneStalePendingRows(snapshot.lines as any[], queuedItems as any[], "/shipping-lines");
+        setLines(cleanedLines);
         setShowOfflineSnapshot(true);
       }
     }

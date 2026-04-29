@@ -8,6 +8,7 @@ import * as XLSX from "xlsx";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingIntermediaries } from "@/lib/offline-queue-overlays";
 import { applyPendingIntermediaryLedger } from "@/lib/offline-intermediary-ledger";
+import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 
 const INTERMEDIARIES_READ_CACHE_KEY = "mrf-intermediaries-read-cache-v1";
 
@@ -142,7 +143,8 @@ export default function IntermediariesPage() {
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.intermediaries?.length) {
-        setIntermediaries(snapshot.intermediaries);
+        const cleanedIntermediaries = pruneStalePendingRows(snapshot.intermediaries as any[], queuedItems as any[], "/intermediaries");
+        setIntermediaries(cleanedIntermediaries);
         setShowOfflineSnapshot(true);
       }
     }
