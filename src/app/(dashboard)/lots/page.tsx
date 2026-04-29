@@ -9,6 +9,7 @@ import { Pencil, Package, CheckCircle, RotateCcw, Trash2, Warehouse } from "luci
 import * as XLSX from "xlsx";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingLots } from "@/lib/offline-queue-overlays";
+import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 
 const LOTS_READ_CACHE_KEY = "mrf-lots-read-cache-v1";
 
@@ -163,9 +164,10 @@ export default function LotsPage() {
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.lots) {
-        setLots(snapshot.lots);
+        const cleanedLots = pruneStalePendingRows(snapshot.lots as any[], queuedItems as any[], "/lots");
+        setLots(cleanedLots);
         setTotalPages(snapshot.totalPages || 1);
-        setTotal(snapshot.total || snapshot.lots.length || 0);
+        setTotal(snapshot.total || cleanedLots.length || 0);
         setShowOfflineSnapshot(true);
       }
     }

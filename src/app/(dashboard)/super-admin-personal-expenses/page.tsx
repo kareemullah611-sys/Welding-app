@@ -7,6 +7,7 @@ import { DataTable, Modal, PageHeader, formatDate, formatNumber } from "@/compon
 import Link from "next/link";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingSuperAdminPersonalExpenses } from "@/lib/offline-queue-overlays";
+import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 
 const SA_PERSONAL_EXPENSES_READ_CACHE_KEY = "mrf-sa-personal-expenses-read-cache-v1";
 
@@ -75,10 +76,11 @@ export default function SuperAdminPersonalExpensesPage() {
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.expenses) {
+        const cleanedExpenses = pruneStalePendingRows(snapshot.expenses as any[], queuedItems as any[], "/super-admin-personal-expenses");
         setAccounts(snapshot.accounts || []);
-        setExpenses(snapshot.expenses || []);
+        setExpenses(cleanedExpenses);
         setTotalPages(snapshot.totalPages || 1);
-        setTotal(snapshot.total || snapshot.expenses?.length || 0);
+        setTotal(snapshot.total || cleanedExpenses.length || 0);
         setShowOfflineSnapshot(true);
       }
     }
