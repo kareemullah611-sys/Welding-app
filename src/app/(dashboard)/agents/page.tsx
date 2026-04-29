@@ -28,7 +28,7 @@ const TYPES = [
 
 export default function AgentsPage() {
   const { t } = useLang();
-  const { isOnline, queuedItems } = useOffline();
+  const { isOnline, queuedItems, discardQueuedItem } = useOffline();
   const searchParams = useSearchParams();
   const [agents, setAgents] = useState<any[]>([]);
   const [cities, setCities] = useState<any[]>([]);
@@ -60,6 +60,11 @@ export default function AgentsPage() {
   });
   const pageTitle = showOnlyCustomAgents ? "Custom Agents" : showOnlyClearingAgents ? "Clearing Agents" : t("agents");
   const pageSubtitle = showOnlyCustomAgents ? "Custom-agent liabilities and settlements" : t("agents_subtitle");
+  const getPendingQueueId = (id: unknown) => {
+    const str = String(id || "");
+    if (!str.startsWith("pending-")) return null;
+    return str.replace("pending-", "");
+  };
 
   const readSnapshot = useCallback(() => {
     return readOfflineReadSnapshot<AgentsReadSnapshot>(AGENTS_READ_CACHE_KEY);
@@ -125,6 +130,10 @@ export default function AgentsPage() {
   };
 
   const openLedger = async (a: any) => {
+    if (getPendingQueueId(a?.id)) {
+      setError("Pending agent is not synced yet. Please sync first.");
+      return;
+    }
     setSelected(a); setShowLedger(true); setLedgerData(null);
     const r = await apiCall(`/api/v1/agents/${a.id}`);
     if (r.success) {
@@ -142,6 +151,10 @@ export default function AgentsPage() {
   };
 
   const openPayment = async (a: any) => {
+    if (getPendingQueueId(a?.id)) {
+      setError("Pending agent is not synced yet. Please sync first.");
+      return;
+    }
     setSelected(a);
     setPayForm({ agentId: a.id, cityId: a.city?.id || cities[0]?.id || 0, paymentDate: new Date().toISOString().split("T")[0], amount: 0, currencyCode: "PKR", paymentMethod: "cash", reference: "", paidFrom: "city_cash", bankAccountId: "", intermediaryId: "" });
     setShowPayment(true); setError("");
@@ -196,7 +209,13 @@ export default function AgentsPage() {
         </div>
       )}
       <DataTable columns={[
-        { key: "name", label: t("name"), render: (a: any) => <button onClick={() => openLedger(a)} className="font-medium text-primary-600 hover:underline">{a.name}</button> },
+        { key: "name", label: t("name"), render: (a: any) => (
+          getPendingQueueId(a?.id) ? (
+            <span className="font-medium text-gray-500">{a.name}</span>
+          ) : (
+            <button onClick={() => openLedger(a)} className="font-medium text-primary-600 hover:underline">{a.name}</button>
+          )
+        ) },
         { key: "agentType", label: t("type"), render: (a: any) => <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100">{TYPES.find(ty => ty.value === a.agentType)?.label || a.agentType}</span> },
         { key: "city", label: t("city"), render: (a: any) => a.city?.name || "-" },
         { key: "balance", label: t("balance_owed"), render: (a: any) => <div>{Object.entries(a.balance || {}).map(([cc, bal]: [string, any]) => <div key={cc} className={`text-sm font-medium ${bal > 0 ? "text-red-600" : "text-green-600"}`}>{cc} {bal.toLocaleString("en-US")}</div>)}</div> },
@@ -220,6 +239,20 @@ export default function AgentsPage() {
                 <div className={`absolute right-0 z-50 w-44 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}>
                   <button onClick={() => { setOpenActionId(null); openLedger(a); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">Open Ledger</button>
                   <button onClick={() => { setOpenActionId(null); openPayment(a); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-green-700 hover:bg-green-50">{t("pay_agent")}</button>
+                  {getPendingQueueId(a?.id) && (
+                    <button
+                      onClick={async () => {
+                        setOpenActionId(null);
+                        const queueId = getPendingQueueId(a?.id);
+                        if (!queueId) return;
+                        await discardQueuedItem(queueId);
+                        setAgents((prev) => prev.filter((row: any) => row.id !== a.id));
+                      }}
+                      className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-700 hover:bg-red-50"
+                    >
+                      Delete Pending
+                    </button>
+                  )}
                 </div>
               )}
             </div>
