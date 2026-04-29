@@ -180,9 +180,20 @@ export default function SalesPage() {
     } else if (!isOnline) {
       const snapshot = readOfflineReadSnapshot<SalesReadSnapshot>(SALES_READ_CACHE_KEY)?.data;
       if (snapshot?.sales?.length) {
-        setSales(snapshot.sales);
+        const activePendingIds = new Set(
+          queuedItems
+            .filter((q) => q.pathname === "/sales" && q.method === "POST")
+            .map((q) => `pending-${q.id}`)
+        );
+        const cleanedSnapshotSales = snapshot.sales.filter((row: any) => {
+          if (!row?._pending) return true;
+          const pendingId = String(row.id || "");
+          if (!pendingId.startsWith("pending-")) return true;
+          return activePendingIds.has(pendingId);
+        });
+        setSales(cleanedSnapshotSales);
         setTotalPages(snapshot.totalPages || 1);
-        setTotal(snapshot.total || 0);
+        setTotal(snapshot.total || cleanedSnapshotSales.length);
         setShowOfflineSnapshot(true);
       }
     }
@@ -394,7 +405,7 @@ export default function SalesPage() {
     // ── Offline: queue the sale and update stock locally ──
     if (!isOnline) {
       const selectedCustomer = customers.find((c: any) => c.id === form.customerId);
-      await enqueue({
+      const queueId = await enqueue({
         url: "/api/v1/sales",
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -420,7 +431,7 @@ export default function SalesPage() {
       const currency = currencies.find((c) => c.id === form.currencyId);
       setSales((prev) => {
         const next = [{
-        id: `pending-${Date.now()}`,
+        id: `pending-${queueId}`,
         voucherNo: "—",
         saleDate: form.saleDate,
         customer: { name: "..." },
