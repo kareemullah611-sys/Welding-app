@@ -6,6 +6,7 @@ import { useRouter, useParams } from "next/navigation";
 import { apiCall } from "@/hooks/useApi";
 import { formatNumber } from "@/components/ui";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import {
   ArrowLeft, ArrowDownCircle, ArrowUpCircle, Trash2, CheckCircle2, Pencil,
 } from "lucide-react";
@@ -19,7 +20,7 @@ const INVESTOR_LEDGER_READ_CACHE_KEY_PREFIX = "mrf-investor-ledger-read-cache-v1
 
 export default function InvestorLedgerPage() {
   const { user } = useAuth();
-  const { isOnline, enqueue } = useOffline();
+  const { isOnline, enqueue, queuedItems } = useOffline();
   const router = useRouter();
   const params = useParams();
   const id = params.id as string;
@@ -81,14 +82,23 @@ export default function InvestorLedgerPage() {
     } else if (!isOnline) {
       const snapshot = readOfflineReadSnapshot<any>(snapshotKey)?.data;
       if (snapshot) {
-        setInvestor(snapshot);
+        const pathname = `/investors/${id}`;
+        const nextSnapshot = { ...snapshot };
+        if (nextSnapshot?.accounts?.[0]?.entries) {
+          nextSnapshot.accounts = [...nextSnapshot.accounts];
+          nextSnapshot.accounts[0] = {
+            ...nextSnapshot.accounts[0],
+            entries: pruneStalePendingRows(nextSnapshot.accounts[0].entries as any[], queuedItems as any[], pathname),
+          };
+        }
+        setInvestor(nextSnapshot);
         setShowOfflineSnapshot(true);
       } else {
         router.push("/investors");
       }
     } else router.push("/investors");
     setLoading(false);
-  }, [id, isOnline, persistSnapshot, router, snapshotKey]);
+  }, [id, isOnline, persistSnapshot, queuedItems, router, snapshotKey]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -113,7 +123,7 @@ export default function InvestorLedgerPage() {
       notes: form.notes,
     };
     if (!isOnline) {
-      await enqueue({
+      const queueId = await enqueue({
         url: `/api/v1/investors/${id}/transactions`,
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -130,7 +140,7 @@ export default function InvestorLedgerPage() {
         const delta = form.type === "deposit" ? parsedAmount : -parsedAmount;
         const nextCapital = Number(prevAcc.capital || 0) + delta;
         const nextEntries = [...(prevAcc.entries || []), {
-          id: `pending-${Date.now()}`,
+          id: `pending-${queueId}`,
           type: form.type,
           amount: parsedAmount,
           date: form.date,
