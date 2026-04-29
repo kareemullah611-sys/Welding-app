@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import {
   OFFLINE_API_CACHE_STORE,
   OFFLINE_DB_NAME,
@@ -209,6 +209,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
   const [queuedItems, setQueuedItems]     = useState<QueuedRequest[]>([]);
   const [isSyncing, setIsSyncing]         = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState<{ synced: number; failed: number } | null>(null);
+  const syncLockRef = useRef(false);
 
   // ── Online / Offline ──
   useEffect(() => {
@@ -356,76 +357,81 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
 
   // ── Sync queue (FIFO) when back online ──
   const syncQueue = useCallback(async () => {
-    if (isSyncing || !isOnline) return;
-    const items = await dbGetAll<QueuedRequest>(QUEUE_STORE);
-    if (items.length === 0) return;
-
+    if (syncLockRef.current || !isOnline) return;
+    syncLockRef.current = true;
     setIsSyncing(true);
-    let synced = 0, failed = 0;
-    const now = Date.now();
+    try {
+      const items = await dbGetAll<QueuedRequest>(QUEUE_STORE);
+      if (items.length === 0) return;
 
-    for (const item of [...items].sort((a, b) => a.timestamp - b.timestamp)) {
-      if ((item.syncStatus === "failed" || item.syncStatus === "conflict") && item.nextRetryAt && item.nextRetryAt > now) {
-        continue;
+      let synced = 0, failed = 0;
+      const now = Date.now();
+
+      for (const item of [...items].sort((a, b) => a.timestamp - b.timestamp)) {
+        if ((item.syncStatus === "failed" || item.syncStatus === "conflict") && item.nextRetryAt && item.nextRetryAt > now) {
+          continue;
+        }
+        try {
+          await dbPut(QUEUE_STORE, { ...item, syncStatus: "syncing", lastError: null, nextRetryAt: null });
+          const deviceId = getOrCreateDeviceId();
+          const res  = await fetch(item.url, {
+            method:  item.method,
+            headers: {
+              ...item.headers,
+              "x-sync-request-id": item.id,
+              "x-sync-device-id": deviceId,
+            },
+            body:    item.method !== "GET" ? item.body : undefined,
+          });
+          const isJson = res.headers.get("content-type")?.includes("application/json");
+          const data = isJson ? await res.json() : null;
+          if (res.ok && data?.success) {
+            await dbDelete(QUEUE_STORE, item.id);
+            await reconcileSyncedIds(item, data?.data ?? data);
+            await removePendingReadModelRowForQueueItem(item);
+            synced++;
+            continue;
+          }
+          if (isAlreadySyncedResponse(res.status, data)) {
+            await dbDelete(QUEUE_STORE, item.id);
+            await reconcileSyncedIds(item, data?.data ?? data);
+            await removePendingReadModelRowForQueueItem(item);
+            synced++;
+            continue;
+          }
+
+          const nextStatus: QueueSyncStatus = res.status === 409 ? "conflict" : "failed";
+          const nextAttempts = item.syncAttempts + 1;
+          const retryDelayMs = Math.min(5 * 60 * 1000, Math.pow(2, Math.min(nextAttempts, 8)) * 5000);
+          await dbPut(QUEUE_STORE, {
+            ...item,
+            syncStatus: nextStatus,
+            syncAttempts: nextAttempts,
+            nextRetryAt: Date.now() + retryDelayMs,
+            lastError: data?.error || `Sync failed (${res.status})`,
+          });
+          failed++;
+        } catch {
+          const nextAttempts = item.syncAttempts + 1;
+          const retryDelayMs = Math.min(5 * 60 * 1000, Math.pow(2, Math.min(nextAttempts, 8)) * 5000);
+          await dbPut(QUEUE_STORE, {
+            ...item,
+            syncStatus: "failed",
+            syncAttempts: nextAttempts,
+            nextRetryAt: Date.now() + retryDelayMs,
+            lastError: "Network error",
+          });
+          failed++;
+        } // still offline / failed — leave in queue
       }
-      try {
-        await dbPut(QUEUE_STORE, { ...item, syncStatus: "syncing", lastError: null, nextRetryAt: null });
-        const deviceId = getOrCreateDeviceId();
-        const res  = await fetch(item.url, {
-          method:  item.method,
-          headers: {
-            ...item.headers,
-            "x-sync-request-id": item.id,
-            "x-sync-device-id": deviceId,
-          },
-          body:    item.method !== "GET" ? item.body : undefined,
-        });
-        const isJson = res.headers.get("content-type")?.includes("application/json");
-        const data = isJson ? await res.json() : null;
-        if (res.ok && data?.success) {
-          await dbDelete(QUEUE_STORE, item.id);
-          await reconcileSyncedIds(item, data?.data ?? data);
-          await removePendingReadModelRowForQueueItem(item);
-          synced++;
-          continue;
-        }
-        if (isAlreadySyncedResponse(res.status, data)) {
-          await dbDelete(QUEUE_STORE, item.id);
-          await reconcileSyncedIds(item, data?.data ?? data);
-          await removePendingReadModelRowForQueueItem(item);
-          synced++;
-          continue;
-        }
 
-        const nextStatus: QueueSyncStatus = res.status === 409 ? "conflict" : "failed";
-        const nextAttempts = item.syncAttempts + 1;
-        const retryDelayMs = Math.min(5 * 60 * 1000, Math.pow(2, Math.min(nextAttempts, 8)) * 5000);
-        await dbPut(QUEUE_STORE, {
-          ...item,
-          syncStatus: nextStatus,
-          syncAttempts: nextAttempts,
-          nextRetryAt: Date.now() + retryDelayMs,
-          lastError: data?.error || `Sync failed (${res.status})`,
-        });
-        failed++;
-      } catch {
-        const nextAttempts = item.syncAttempts + 1;
-        const retryDelayMs = Math.min(5 * 60 * 1000, Math.pow(2, Math.min(nextAttempts, 8)) * 5000);
-        await dbPut(QUEUE_STORE, {
-          ...item,
-          syncStatus: "failed",
-          syncAttempts: nextAttempts,
-          nextRetryAt: Date.now() + retryDelayMs,
-          lastError: "Network error",
-        });
-        failed++;
-      } // still offline / failed — leave in queue
+      setLastSyncResult({ synced, failed });
+      await refreshQueueState();
+    } finally {
+      syncLockRef.current = false;
+      setIsSyncing(false);
     }
-
-    setLastSyncResult({ synced, failed });
-    setIsSyncing(false);
-    await refreshQueueState();
-  }, [isSyncing, isOnline, refreshQueueState]);
+  }, [isOnline, refreshQueueState]);
 
   // Auto-sync 2 s after coming back online
   useEffect(() => {
