@@ -305,6 +305,12 @@ export function useApi<T = unknown>() {
         const queueId = await enqueueOfflineWrite(url, method, options.body);
         await upsertPendingLocalReadModelRow(url, method, options.body, queueId);
         await applyQueuedMutationLocalReadModel(url, method, options.body);
+        const local = await getLocalReadModel<T>(url, options.params);
+        if (local) {
+          setState({ data: local.data as T, loading: false, error: null });
+        } else {
+          setState((prev) => ({ ...prev, loading: false, error: null }));
+        }
         return {
           success: true,
           data: { queued: true, queueId } as T,
@@ -353,6 +359,12 @@ export function useApi<T = unknown>() {
         const queueId = await enqueueOfflineWrite(url, method, options.body);
         await upsertPendingLocalReadModelRow(url, method, options.body, queueId);
         await applyQueuedMutationLocalReadModel(url, method, options.body);
+        const local = await getLocalReadModel<T>(url, options.params);
+        if (local) {
+          setState({ data: local.data as T, loading: false, error: null });
+        } else {
+          setState((prev) => ({ ...prev, loading: false, error: null }));
+        }
         return {
           success: true,
           data: { queued: true, queueId } as T,
