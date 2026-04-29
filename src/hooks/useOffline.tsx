@@ -64,6 +64,7 @@ interface OfflineContextType {
   isSyncing: boolean;
   lastSyncResult: { synced: number; failed: number } | null;
   queuedItems: QueuedRequest[];
+  clearOfflineData: () => Promise<void>;
   // Pages call this when offline to queue a write
   enqueue: (item: EnqueueRequest) => Promise<string>;
   updateQueuedItem: (id: string, updates: Partial<Pick<QueuedRequest, "body" | "auditMeta" | "pathname">>) => Promise<boolean>;
@@ -84,6 +85,7 @@ const OfflineContext = createContext<OfflineContextType>({
   isSyncing: false,
   lastSyncResult: null,
   queuedItems: [],
+  clearOfflineData: async () => {},
   enqueue: async () => "",
   updateQueuedItem: async () => false,
   retryQueuedItem: async () => false,
@@ -289,6 +291,31 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     return true;
   }, [refreshQueueState]);
 
+  const clearOfflineData = useCallback(async () => {
+    const db = await openDB();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction([QUEUE_STORE, STOCK_STORE, API_CACHE_STORE, LOCAL_READ_MODEL_STORE, ID_MAP_STORE], "readwrite");
+      tx.objectStore(QUEUE_STORE).clear();
+      tx.objectStore(STOCK_STORE).clear();
+      tx.objectStore(API_CACHE_STORE).clear();
+      tx.objectStore(LOCAL_READ_MODEL_STORE).clear();
+      tx.objectStore(ID_MAP_STORE).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    if (typeof window !== "undefined") {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const key = window.localStorage.key(i);
+        if (!key) continue;
+        if (key.startsWith("mrf-") || key.startsWith("offline_")) keysToRemove.push(key);
+      }
+      keysToRemove.forEach((k) => window.localStorage.removeItem(k));
+      window.dispatchEvent(new Event("mrf-offline-queue-updated"));
+    }
+    await refreshQueueState();
+  }, [refreshQueueState]);
+
   // ── Stock cache ──
   const cacheGodownStock = useCallback(async (godownId: number, stock: any[]) => {
     await dbPut(STOCK_STORE, { godownId, stock, cachedAt: Date.now() });
@@ -419,7 +446,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
   return (
     <OfflineContext.Provider value={{
       isOnline, isServiceWorkerReady, queueCount, syncQueue, isSyncing, lastSyncResult, queuedItems,
-      enqueue, updateQueuedItem, retryQueuedItem, discardQueuedItem, cacheGodownStock, getCachedGodownStock, cacheApiResponse, getCachedApiResponse,
+      enqueue, updateQueuedItem, retryQueuedItem, discardQueuedItem, clearOfflineData, cacheGodownStock, getCachedGodownStock, cacheApiResponse, getCachedApiResponse,
     }}>
       {children}
     </OfflineContext.Provider>

@@ -207,7 +207,7 @@ function UserAvatar({ name }: { name: string }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function ActivityFeedPage() {
   const { user } = useAuth();
-  const { queuedItems, retryQueuedItem, discardQueuedItem, syncQueue } = useOffline();
+  const { queuedItems, retryQueuedItem, discardQueuedItem, syncQueue, clearOfflineData } = useOffline();
   const { t } = useLang();
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -218,6 +218,7 @@ export default function ActivityFeedPage() {
   const [cities, setCities] = useState<{ id: number; name: string }[]>([]);
   const [filterCityId, setFilterCityId] = useState<number | "">("");
   const [queueActionId, setQueueActionId] = useState<string | null>(null);
+  const [resettingOffline, setResettingOffline] = useState(false);
 
   useEffect(() => {
     if (user?.role === "super_admin") {
@@ -285,6 +286,15 @@ export default function ActivityFeedPage() {
   const feedItems = [...localQueueItems, ...items].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
+  const queueHealth = React.useMemo(() => {
+    const pending = queuedItems.filter((q) => q.syncStatus === "pending").length;
+    const syncing = queuedItems.filter((q) => q.syncStatus === "syncing").length;
+    const failed = queuedItems.filter((q) => q.syncStatus === "failed").length;
+    const conflict = queuedItems.filter((q) => q.syncStatus === "conflict").length;
+    const oldestTs = queuedItems.length ? Math.min(...queuedItems.map((q) => Number(q.timestamp || Date.now()))) : null;
+    const oldestAgeMin = oldestTs ? Math.max(0, Math.floor((Date.now() - oldestTs) / 60000)) : 0;
+    return { pending, syncing, failed, conflict, total: queuedItems.length, oldestAgeMin };
+  }, [queuedItems]);
 
   // Group by day
   const grouped: { label: string; items: ActivityItem[] }[] = [];
@@ -324,6 +334,46 @@ export default function ActivityFeedPage() {
           </div>
         }
       />
+      {user?.role === "city_admin" && (
+        <div className="mb-4 rounded-xl border border-[#efe2d3] bg-white/90 p-3 shadow-[0_12px_30px_-24px_rgba(51,42,33,0.35)]">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.15em] text-gray-500">Offline Queue Health</p>
+              <p className="text-sm text-gray-700 mt-1">
+                Total {queueHealth.total} · Pending {queueHealth.pending} · Syncing {queueHealth.syncing} · Failed {queueHealth.failed} · Conflict {queueHealth.conflict}
+              </p>
+              {queueHealth.total > 0 && (
+                <p className="text-xs text-gray-500 mt-0.5">Oldest queued item age: {queueHealth.oldestAgeMin} min</p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={async () => { await syncQueue(); }}
+                className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
+              >
+                Force Sync Now
+              </button>
+              <button
+                disabled={resettingOffline}
+                onClick={async () => {
+                  const ok = confirm("This will clear local offline queue/cache on this device. Server data is not deleted. Continue?");
+                  if (!ok) return;
+                  setResettingOffline(true);
+                  try {
+                    await clearOfflineData();
+                    await load(1);
+                  } finally {
+                    setResettingOffline(false);
+                  }
+                }}
+                className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+              >
+                {resettingOffline ? "Resetting..." : "Safe Reset Local Cache"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
