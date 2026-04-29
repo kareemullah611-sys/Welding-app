@@ -23,7 +23,7 @@ type SuppliersReadSnapshot = {
 export default function SuppliersPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline, queuedItems } = useOffline();
+  const { isOnline, queuedItems, updateQueuedItem, discardQueuedItem } = useOffline();
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
@@ -138,6 +138,22 @@ export default function SuppliersPage() {
 
   const handleEdit = async () => {
     if (!form.name.trim()) { setError(t("name") + " required"); return; }
+    const pendingId = String(selected?.id || "");
+    if (pendingId.startsWith("pending-")) {
+      const queueId = pendingId.replace("pending-", "");
+      const ok = await updateQueuedItem(queueId, { body: JSON.stringify(form) });
+      if (!ok) {
+        setError("Queued supplier entry not found. Retry from Activity.");
+        return;
+      }
+      setSuppliers((prev) => {
+        const next = prev.map((row: any) => (row.id === selected.id ? { ...row, ...form, _pending: true } : row));
+        mergeSnapshot({ suppliers: next });
+        return next;
+      });
+      setShowEdit(false);
+      return;
+    }
     setSubmitting(true);
     const r = await apiCall(`/api/v1/suppliers/${selected.id}`, { method: "PUT", body: form });
     setSubmitting(false);
@@ -151,6 +167,19 @@ export default function SuppliersPage() {
 
   const handleDelete = async () => {
     if (!selected) return;
+    const pendingId = String(selected?.id || "");
+    if (pendingId.startsWith("pending-")) {
+      const queueId = pendingId.replace("pending-", "");
+      await discardQueuedItem(queueId);
+      setSuppliers((prev) => {
+        const next = prev.filter((row: any) => row.id !== selected.id);
+        mergeSnapshot({ suppliers: next });
+        return next;
+      });
+      setShowDeleteConfirm(false);
+      setSelected(null);
+      return;
+    }
     setDeleting(true);
     const r = await apiCall(`/api/v1/suppliers/${selected.id}`, { method: "DELETE" });
     setDeleting(false);
