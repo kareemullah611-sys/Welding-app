@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
-    "start": "tsx scripts/bootstrap.ts && next start -p ${PORT:-3000}",
+    "start": "tsx scripts/bootstrap.ts && next start -H 0.0.0.0 -p ${PORT:-3000}",
     "lint": "next lint",
     "verify": "npm run lint && npm run test:smoke && npm run build",
     "test:e2e": "playwright test",
