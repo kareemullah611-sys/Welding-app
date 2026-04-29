@@ -8,6 +8,7 @@ import { useLang } from "@/lib/lang";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { getQueueResolvePath } from "@/lib/queue-resolve";
+import { getOfflineConflictHint } from "@/lib/offline-conflict-hints";
 
 interface ActivityItem {
   id: number | string;
@@ -350,6 +351,9 @@ export default function ActivityFeedPage() {
                   const verb = buildVerb(item.action, item.entityType);
                   const syncKey = item.syncStatus || "synced";
                   const syncCfg = SYNC_STATUS_CONFIG[syncKey] || SYNC_STATUS_CONFIG.synced;
+                  const conflictHint = item.isLocalQueue && (item.syncStatus === "failed" || item.syncStatus === "conflict")
+                    ? getOfflineConflictHint(item.newValues?._offlinePath || "", item.syncError || "")
+                    : null;
 
                   return (
                     <div
@@ -392,6 +396,12 @@ export default function ActivityFeedPage() {
                             <p className="mt-1 text-xs text-red-600 leading-snug break-words">
                               Sync issue: {item.syncError}
                             </p>
+                          )}
+                          {conflictHint && (
+                            <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5">
+                              <p className="text-xs font-semibold text-amber-800">{conflictHint.title}</p>
+                              <p className="text-xs text-amber-700 mt-0.5">{conflictHint.detail}</p>
+                            </div>
                           )}
 
                           {/* Line 3: Collapsible full record panel */}
@@ -447,7 +457,7 @@ export default function ActivityFeedPage() {
                                 }}
                                 className="text-[11px] text-blue-600 hover:underline disabled:opacity-50"
                               >
-                                Retry
+                                {conflictHint?.recommended === "retry" ? "Retry (Recommended)" : "Retry"}
                               </button>
                               <button
                                 disabled={queueActionId === item.queueId}
@@ -458,7 +468,7 @@ export default function ActivityFeedPage() {
                                 }}
                                 className="text-[11px] text-red-600 hover:underline disabled:opacity-50"
                               >
-                                Discard
+                                {conflictHint?.recommended === "discard" ? "Discard (Recommended)" : "Discard"}
                               </button>
                             </div>
                           )}
