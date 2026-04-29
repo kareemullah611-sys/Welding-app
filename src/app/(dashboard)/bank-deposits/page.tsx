@@ -11,6 +11,7 @@ import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { safeParseQueuedBody } from "@/lib/queue-resolve";
 import { getPendingBankDeposits } from "@/lib/offline-queue-overlays";
+import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 
 const BANK_DEPOSITS_FORM_CACHE_KEY = "mrf-bank-deposits-form-cache-v1";
 const BANK_DEPOSITS_READ_CACHE_KEY = "mrf-bank-deposits-read-cache-v1";
@@ -80,9 +81,10 @@ export default function BankDepositsPage() {
     } else if (!isOnline) {
       const snapshot = readOfflineReadSnapshot<BankDepositsReadSnapshot>(BANK_DEPOSITS_READ_CACHE_KEY)?.data;
       if (snapshot?.deposits?.length) {
-        setDeposits(snapshot.deposits);
+        const cleanedDeposits = pruneStalePendingRows(snapshot.deposits as any[], queuedItems as any[], "/bank-deposits");
+        setDeposits(cleanedDeposits);
         setTotalPages(snapshot.totalPages || 1);
-        setTotal(snapshot.total || 0);
+        setTotal(snapshot.total || cleanedDeposits.length);
         setShowOfflineSnapshot(true);
       }
     }

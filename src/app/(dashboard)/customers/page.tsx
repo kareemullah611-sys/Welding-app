@@ -9,6 +9,7 @@ import { applyPendingCustomerLedger } from "@/lib/offline-customer-ledger";
 import { useSearchParams } from "next/navigation";
 import { useOffline } from "@/hooks/useOffline";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 
 const CUSTOMERS_READ_CACHE_KEY = "mrf-customers-read-cache-v1";
 
@@ -97,9 +98,10 @@ export default function CustomersPage() {
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.customers?.length) {
-        setCustomers(snapshot.customers);
+        const cleanedCustomers = pruneStalePendingRows(snapshot.customers as any[], queuedItems as any[], "/customers");
+        setCustomers(cleanedCustomers);
         setTotalPages(1);
-        setTotal(snapshot.customers.length);
+        setTotal(cleanedCustomers.length);
         setShowOfflineSnapshot(true);
       }
     }

@@ -8,6 +8,7 @@ import { useLang } from "@/lib/lang";
 import * as XLSX from "xlsx";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingSuppliers } from "@/lib/offline-queue-overlays";
+import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 
 const SUPPLIERS_READ_CACHE_KEY = "mrf-suppliers-read-cache-v1";
 
@@ -111,7 +112,8 @@ export default function SuppliersPage() {
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.suppliers?.length) {
-        setSuppliers(snapshot.suppliers);
+        const cleanedSuppliers = pruneStalePendingRows(snapshot.suppliers as any[], queuedItems as any[], "/suppliers");
+        setSuppliers(cleanedSuppliers);
         setShowOfflineSnapshot(true);
       }
     }

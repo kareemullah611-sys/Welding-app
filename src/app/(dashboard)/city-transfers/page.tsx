@@ -11,6 +11,7 @@ import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingQueueId, safeParseQueuedBody } from "@/lib/queue-resolve";
 import { getPendingCityTransfers } from "@/lib/offline-queue-overlays";
+import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 
 const CITY_TRANSFERS_FORM_CACHE_KEY = "mrf-city-transfers-form-cache-v1";
 const CITY_TRANSFERS_READ_CACHE_KEY = "mrf-city-transfers-read-cache-v1";
@@ -74,9 +75,10 @@ export default function CityTransfersPage() {
     } else if (!isOnline) {
       const snapshot = readOfflineReadSnapshot<CityTransfersReadSnapshot>(CITY_TRANSFERS_READ_CACHE_KEY)?.data;
       if (snapshot?.transfers?.length) {
-        setTransfers(snapshot.transfers);
+        const cleanedTransfers = pruneStalePendingRows(snapshot.transfers as any[], queuedItems as any[], "/city-transfers");
+        setTransfers(cleanedTransfers);
         setTotalPages(snapshot.totalPages || 1);
-        setTotal(snapshot.total || 0);
+        setTotal(snapshot.total || cleanedTransfers.length);
         setShowOfflineSnapshot(true);
       }
     }
