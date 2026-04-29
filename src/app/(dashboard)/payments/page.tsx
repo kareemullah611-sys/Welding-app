@@ -73,7 +73,7 @@ export default function PaymentsPage() {
   const { t } = useLang();
   const searchParams = useSearchParams();
   const isEmbed = searchParams.get("embed") === "1";
-  const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, syncQueue } = useOffline();
+  const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, discardQueuedItem, syncQueue } = useOffline();
   const canCreateRecords = user?.role === "city_admin";
   const isAfghanistanCity = user?.countryName === "Afghanistan";
   const isSuperAdmin = user?.role === "super_admin";
@@ -144,6 +144,12 @@ export default function PaymentsPage() {
       total: nextTotal,
     });
   }, [total, totalPages]);
+
+  const getPendingQueueId = useCallback((id: any) => {
+    const str = String(id || "");
+    if (!str.startsWith("pending-")) return null;
+    return str.replace("pending-", "");
+  }, []);
 
   const load = useCallback(async () => {
     if (isEmbed) {
@@ -465,7 +471,7 @@ export default function PaymentsPage() {
 
     if (!isOnline) {
       const entityType = createType === "payment" ? "payment" : createType;
-      await enqueue({
+      const queueId = await enqueue({
         url: endpoint,
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -480,7 +486,7 @@ export default function PaymentsPage() {
       });
       setItems((prev) => {
         const next = [{
-        id: `pending-${Date.now()}`,
+        id: `pending-${queueId}`,
         type: createType,
         paymentDate: (body as any).paymentDate || new Date().toISOString().split("T")[0],
         amount: (body as any).amount || 0,
@@ -582,6 +588,31 @@ export default function PaymentsPage() {
     const id = selected.id;
     const endpoint = createType === "payment" ? `/api/v1/payments/${id}` : createType === "expense" ? `/api/v1/expenses/${id}` : createType === "haji_transfer" ? `/api/v1/haji-transfers/${id}` : `/api/v1/personal-withdrawals/${id}`;
     if (!isOnline) {
+      const pendingQueueId = getPendingQueueId(id);
+      if (pendingQueueId) {
+        const ok = await updateQueuedItem(pendingQueueId, { body: JSON.stringify(form) });
+        if (!ok) {
+          setError("Queued entry was not found. Please retry from Activity.");
+          return;
+        }
+        setItems((prev) => {
+          const next = prev.map((item: any) =>
+            item.id === id
+              ? {
+                  ...item,
+                  amount: form.amount ?? item.amount,
+                  detail: form.detail ?? item.detail,
+                  _pending: true,
+                  raw: { ...(item.raw || {}), ...form },
+                }
+              : item
+          );
+          persistPaymentsSnapshot(next);
+          return next;
+        });
+        setShowEdit(false);
+        return;
+      }
       await enqueue({
         url: endpoint,
         method: "PUT",
@@ -638,6 +669,16 @@ export default function PaymentsPage() {
     const method = item.type === "payment" ? "PUT" : "DELETE";
     const body = item.type === "payment" ? { reason: reason.trim() } : undefined;
     if (!isOnline) {
+      const pendingQueueId = getPendingQueueId(item?.id);
+      if (pendingQueueId) {
+        await discardQueuedItem(pendingQueueId);
+        setItems((prev) => {
+          const next = prev.filter((row: any) => row.id !== item.id);
+          persistPaymentsSnapshot(next);
+          return next;
+        });
+        return;
+      }
       await enqueue({
         url: endpoint,
         method,
@@ -678,6 +719,10 @@ export default function PaymentsPage() {
   const handleApproveWithdrawal = async (item: any) => {
     if (!window.confirm("Approve this withdrawal? This will create a Haji Transfer.")) return;
     if (!isOnline) {
+      if (getPendingQueueId(item?.id)) {
+        alert("Sync this pending withdrawal first, then approve it.");
+        return;
+      }
       await enqueue({
         url: `/api/v1/personal-withdrawals/${item.id}/approve`,
         method: "POST",
@@ -709,6 +754,10 @@ export default function PaymentsPage() {
   const handleBounce = async () => {
     if (!bounceTarget) return;
     if (!isOnline) {
+      if (getPendingQueueId(bounceTarget?.id)) {
+        setError("Sync this pending payment first, then mark cheque as bounced.");
+        return;
+      }
       await enqueue({
         url: `/api/v1/payments/${bounceTarget.id}`,
         method: "PATCH",
@@ -744,6 +793,10 @@ export default function PaymentsPage() {
 
   const handleToggleHajiAudit = async (item: any, confirmed: boolean) => {
     if (!isOnline) {
+      if (getPendingQueueId(item?.id)) {
+        setError("Sync this pending payment first, then update haji audit confirmation.");
+        return;
+      }
       await enqueue({
         url: `/api/v1/payments/${item.id}`,
         method: "PATCH",
