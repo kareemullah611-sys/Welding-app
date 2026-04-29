@@ -7,6 +7,7 @@ import { PageHeader, DataTable, Modal } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingProducts, getPendingUsers } from "@/lib/offline-queue-overlays";
+import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 
 type Tab = "users" | "products" | "cities" | "sessions" | "godown_access";
 
@@ -244,7 +245,8 @@ function UsersTab() {
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.users?.length) {
-        setUsers(snapshot.users);
+        const cleanedUsers = pruneStalePendingRows(snapshot.users as any[], queuedItems as any[], "/users");
+        setUsers(cleanedUsers);
         setShowOfflineSnapshot(true);
       }
     }
@@ -479,7 +481,8 @@ function ProductsTab() {
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.products?.length) {
-        setProducts(snapshot.products);
+        const cleanedProducts = pruneStalePendingRows(snapshot.products as any[], queuedItems as any[], "/products");
+        setProducts(cleanedProducts);
         setShowOfflineSnapshot(true);
       }
     }
