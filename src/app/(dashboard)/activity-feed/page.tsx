@@ -174,6 +174,16 @@ function formatFullDate(dateStr: string): string {
   });
 }
 
+function safeParseQueueBody(body: string): Record<string, any> | null {
+  try {
+    const parsed = JSON.parse(body || "{}");
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed as Record<string, any>;
+  } catch {
+    return null;
+  }
+}
+
 function getDayLabel(dateStr: string, t: (k: string) => string): string {
   const date = new Date(dateStr);
   const today = new Date();
@@ -239,6 +249,18 @@ export default function ActivityFeedPage() {
 
   const localQueueItems: ActivityItem[] = user?.role === "city_admin" && page === 1
     ? queuedItems.map((entry) => ({
+        ...(function buildQueueValues() {
+          const parsed = safeParseQueueBody(entry.body);
+          if (!parsed) return { oldValues: null, newValues: null };
+          return {
+            oldValues: null,
+            newValues: {
+              ...parsed,
+              _offlineMethod: entry.method,
+              _offlinePath: entry.url,
+            },
+          };
+        })(),
         id: `local-${entry.id}`,
         user: {
           id: Number(user.id),
@@ -251,8 +273,6 @@ export default function ActivityFeedPage() {
         entityId: 0,
         entityLabel: entry.auditMeta?.entityLabel || "Offline Entry",
         entityDetail: entry.auditMeta?.entityDetail || "Waiting for internet sync",
-        oldValues: null,
-        newValues: null,
         createdAt: new Date(entry.timestamp).toISOString(),
         syncStatus: entry.syncStatus,
         isLocalQueue: true,
@@ -366,6 +386,11 @@ export default function ActivityFeedPage() {
                           {item.entityDetail && (
                             <p className="mt-1 text-sm text-gray-500 leading-snug break-words">
                               {item.entityDetail}
+                            </p>
+                          )}
+                          {item.isLocalQueue && item.syncError && (
+                            <p className="mt-1 text-xs text-red-600 leading-snug break-words">
+                              Sync issue: {item.syncError}
                             </p>
                           )}
 
