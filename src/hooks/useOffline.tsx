@@ -15,6 +15,12 @@ import {
   getReadModelKey,
   removePendingReadModelRowsByQueueId,
 } from "@/lib/offline-local-read-model";
+import {
+  OFFLINE_ID_MAP_STORE,
+  createIdMapRecord,
+  extractServerId,
+  reconcileIdsInReadModel,
+} from "@/lib/offline-id-reconciliation";
 import { isAlreadySyncedResponse } from "@/lib/offline-sync-classifier";
 
 type QueueSyncStatus = "pending" | "syncing" | "failed" | "conflict";
@@ -95,6 +101,7 @@ const QUEUE_STORE = OFFLINE_QUEUE_STORE;
 const STOCK_STORE = OFFLINE_STOCK_STORE;
 const API_CACHE_STORE = OFFLINE_API_CACHE_STORE;
 const LOCAL_READ_MODEL_STORE = OFFLINE_LOCAL_READ_MODEL_STORE;
+const ID_MAP_STORE = OFFLINE_ID_MAP_STORE;
 const DEVICE_ID_KEY = "mrf-offline-device-id";
 
 function getOrCreateDeviceId(): string {
@@ -119,6 +126,8 @@ function openDB(): Promise<IDBDatabase> {
         db.createObjectStore(API_CACHE_STORE, { keyPath: "key" });
       if (!db.objectStoreNames.contains(LOCAL_READ_MODEL_STORE))
         db.createObjectStore(LOCAL_READ_MODEL_STORE, { keyPath: "key" });
+      if (!db.objectStoreNames.contains(ID_MAP_STORE))
+        db.createObjectStore(ID_MAP_STORE, { keyPath: "key" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -172,6 +181,22 @@ async function removeSyncedPendingReadModelRow(item: QueuedRequest) {
   if (!row) return;
   const data = removePendingReadModelRowsByQueueId(row.data, item.id);
   await dbPut(LOCAL_READ_MODEL_STORE, { ...row, data, updatedAt: Date.now() });
+}
+
+async function reconcileSyncedIds(item: QueuedRequest, responsePayload: unknown) {
+  if (!canApplyCreateToReadModel(item.url, item.method)) return;
+  const serverId = extractServerId(responsePayload);
+  if (!serverId) return;
+
+  const mapRecord = createIdMapRecord(item.url, item.id, serverId);
+  await dbPut(ID_MAP_STORE, mapRecord);
+
+  const pendingId = mapRecord.pendingId;
+  const rows = await dbGetAll<{ key: string; data: unknown; pagination?: unknown; updatedAt?: number }>(LOCAL_READ_MODEL_STORE);
+  for (const row of rows) {
+    const nextData = reconcileIdsInReadModel(row.data, pendingId, serverId);
+    await dbPut(LOCAL_READ_MODEL_STORE, { ...row, data: nextData, updatedAt: Date.now() });
+  }
 }
 
 // ── Provider ───────────────────────────────────────────────────────────────────
@@ -331,12 +356,14 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
         const data = isJson ? await res.json() : null;
         if (res.ok && data?.success) {
           await dbDelete(QUEUE_STORE, item.id);
+          await reconcileSyncedIds(item, data?.data ?? data);
           await removeSyncedPendingReadModelRow(item);
           synced++;
           continue;
         }
         if (isAlreadySyncedResponse(res.status, data)) {
           await dbDelete(QUEUE_STORE, item.id);
+          await reconcileSyncedIds(item, data?.data ?? data);
           await removeSyncedPendingReadModelRow(item);
           synced++;
           continue;

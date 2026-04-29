@@ -1,5 +1,5 @@
 export const OFFLINE_DB_NAME = "mrf-offline";
-export const OFFLINE_DB_VERSION = 4;
+export const OFFLINE_DB_VERSION = 5;
 export const OFFLINE_QUEUE_STORE = "queue";
 export const OFFLINE_STOCK_STORE = "stock_cache";
 export const OFFLINE_API_CACHE_STORE = "api_cache";

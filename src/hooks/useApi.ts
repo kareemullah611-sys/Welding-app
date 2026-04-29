@@ -12,6 +12,7 @@ import {
   buildApiCacheKey,
   shouldQueueOfflineWriteNow,
 } from "@/lib/offline-cache";
+import { OFFLINE_ID_MAP_STORE } from "@/lib/offline-id-reconciliation";
 import {
   applyQueuedMutationToReadModel,
   buildPendingReadModelRow,
@@ -100,6 +101,9 @@ function openOfflineDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(OFFLINE_LOCAL_READ_MODEL_STORE)) {
         db.createObjectStore(OFFLINE_LOCAL_READ_MODEL_STORE, { keyPath: "key" });
+      }
+      if (!db.objectStoreNames.contains(OFFLINE_ID_MAP_STORE)) {
+        db.createObjectStore(OFFLINE_ID_MAP_STORE, { keyPath: "key" });
       }
     };
     req.onsuccess = () => resolve(req.result);
