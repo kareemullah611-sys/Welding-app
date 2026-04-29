@@ -30,7 +30,7 @@ type Tab = typeof TABS[number];
 export default function ChequesPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline } = useOffline();
+  const { isOnline, queuedItems } = useOffline();
   const [allCheques, setAllCheques] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("all");
@@ -40,6 +40,38 @@ export default function ChequesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const PAGE_SIZE = 50;
+
+  const buildPendingChequeRows = useCallback(() => {
+    return (queuedItems || [])
+      .filter((q: any) => q.pathname === "/payments" && q.method === "POST" && q.url === "/api/v1/payments")
+      .map((q: any) => {
+        let parsed: any = {};
+        try {
+          parsed = JSON.parse(q.body || "{}");
+        } catch {
+          parsed = {};
+        }
+        if (String(parsed?.paymentMethod || "") !== "cheque") return null;
+        return {
+          id: `pending-${q.id}`,
+          type: "payment",
+          date: parsed?.paymentDate || new Date().toISOString(),
+          person: parsed?.customerName || "Pending Customer",
+          detail: parsed?.detail || "Pending cheque payment",
+          amount: Number(parsed?.amount || 0),
+          status: "active",
+          raw: {
+            paymentMethod: "cheque",
+            chequeNumber: parsed?.chequeNumber || "",
+            chequeStatus: "in_hand",
+            bankName: parsed?.chequeBank || "",
+            dueDate: parsed?.chequeDueDate || null,
+          },
+          _pending: true,
+        };
+      })
+      .filter(Boolean) as any[];
+  }, [queuedItems]);
 
   // Bounce modal
   const [showBounce, setShowBounce] = useState(false);
@@ -66,24 +98,32 @@ export default function ChequesPage() {
       const cheques = (r.data as any[]).filter(
         (item: any) => item.type === "payment" && item.raw?.paymentMethod === "cheque"
       );
-      setAllCheques(cheques);
+      const nextRows = [...buildPendingChequeRows(), ...cheques];
+      setAllCheques(nextRows);
       const nextTotalPages = (r.pagination as any)?.totalPages || 1;
       const nextTotal = (r.pagination as any)?.total || 0;
       setTotalPages(nextTotalPages);
       setTotal(nextTotal);
-      writeSnapshot({ allCheques: cheques, totalPages: nextTotalPages, total: nextTotal });
+      writeSnapshot({ allCheques: nextRows, totalPages: nextTotalPages, total: nextTotal });
       setShowOfflineSnapshot(false);
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.allCheques) {
-        setAllCheques(snapshot.allCheques);
+        const pendingRows = buildPendingChequeRows();
+        const cleanedSnapshot = (snapshot.allCheques || []).filter((row: any) => {
+          if (!row?._pending) return true;
+          const id = String(row.id || "");
+          if (!id.startsWith("pending-")) return true;
+          return pendingRows.some((p) => String(p.id) === id);
+        });
+        setAllCheques([...pendingRows, ...cleanedSnapshot.filter((row: any) => !row?._pending)]);
         setTotalPages(snapshot.totalPages || 1);
         setTotal(snapshot.total || snapshot.allCheques.length || 0);
         setShowOfflineSnapshot(true);
       }
     }
     setLoading(false);
-  }, [isOnline, page, readSnapshot, searchQuery, writeSnapshot]);
+  }, [buildPendingChequeRows, isOnline, page, readSnapshot, searchQuery, writeSnapshot]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [searchQuery]);
