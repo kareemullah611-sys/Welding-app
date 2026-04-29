@@ -42,3 +42,10 @@ export function getQueueResolvePath(entityType: string): string | null {
   if (entityType === "investor_transaction") return "/investors";
   return null;
 }
+
+export function getPendingQueueId(value: unknown): string | null {
+  const id = String(value || "");
+  if (!id.startsWith("pending-")) return null;
+  const queueId = id.slice("pending-".length).trim();
+  return queueId || null;
+}

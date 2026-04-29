@@ -222,7 +222,7 @@ export default function BankDepositsPage() {
     }
 
     if (!isOnline) {
-      await enqueue({
+      const queueId = await enqueue({
         url: "/api/v1/bank-deposits",
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -248,7 +248,7 @@ export default function BankDepositsPage() {
         currency: selectedCurrency,
       }));
       setDeposits((prev) => [{
-        id: `pending-${Date.now()}`,
+        id: `pending-${queueId}`,
         _pending: true,
         transferType: body.transferType,
         bankAccountId: body.bankAccountId,

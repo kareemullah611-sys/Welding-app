@@ -9,6 +9,7 @@ import { useSearchParams } from "next/navigation";
 import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { getPendingQueueId } from "@/lib/queue-resolve";
 
 const EXPENSES_FORM_CACHE_KEY = "mrf-expenses-form-cache-v1";
 const EXPENSES_READ_CACHE_KEY = "mrf-expenses-read-cache-v1";
@@ -32,7 +33,7 @@ export default function ExpensesPage() {
   const searchParams = useSearchParams();
   const isEmbed = searchParams.get("embed") === "1";
   const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
-  const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, syncQueue } = useOffline();
+  const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, discardQueuedItem, syncQueue } = useOffline();
   const [expenses, setExpenses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -270,7 +271,7 @@ export default function ExpensesPage() {
 
     // ── Offline: queue and show optimistically ──
     if (!isOnline) {
-      await enqueue({
+      const queueId = await enqueue({
         url: "/api/v1/expenses",
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -285,7 +286,7 @@ export default function ExpensesPage() {
       });
       setExpenses((prev) => {
         const next = [{
-        id: `pending-${Date.now()}`,
+        id: `pending-${queueId}`,
         expenseDate: form.expenseDate,
         detail: form.detail,
         amount: form.amount,
@@ -337,6 +338,23 @@ export default function ExpensesPage() {
   const handleEdit = async () => {
     const body = { amount: form.amount, detail: form.detail, notes: form.notes };
     if (!isOnline) {
+      const pendingQueueId = getPendingQueueId(selected?.id);
+      if (pendingQueueId) {
+        const ok = await updateQueuedItem(pendingQueueId, { body: JSON.stringify(body) });
+        if (!ok) {
+          setFormError("Queued expense was not found. Please retry from Activity.");
+          return;
+        }
+        setExpenses((prev) => {
+          const next = prev.map((exp: any) =>
+            exp.id === selected.id ? { ...exp, amount: form.amount, detail: form.detail, notes: form.notes } : exp
+          );
+          persistExpensesSnapshot(next);
+          return next;
+        });
+        setShowEdit(false);
+        return;
+      }
       await enqueue({
         url: `/api/v1/expenses/${selected.id}`,
         method: "PUT",
@@ -353,7 +371,7 @@ export default function ExpensesPage() {
       setExpenses((prev) => {
         const next = prev.map((exp: any) =>
           exp.id === selected.id
-            ? { ...exp, amount: form.amount, detail: form.detail, notes: form.notes, _pending: true }
+            ? { ...exp, amount: form.amount, detail: form.detail, notes: form.notes }
             : exp
         );
         persistExpensesSnapshot(next);
@@ -374,6 +392,16 @@ export default function ExpensesPage() {
   const handleDelete = async (e: any) => {
     if (!confirm(`${t("confirm_delete")} "${e.detail}"?`)) return;
     if (!isOnline) {
+      const pendingQueueId = getPendingQueueId(e?.id);
+      if (pendingQueueId) {
+        await discardQueuedItem(pendingQueueId);
+        setExpenses((prev) => {
+          const next = prev.filter((item: any) => item.id !== e.id);
+          persistExpensesSnapshot(next, Math.max(0, total - 1));
+          return next;
+        });
+        return;
+      }
       await enqueue({
         url: `/api/v1/expenses/${e.id}`,
         method: "DELETE",

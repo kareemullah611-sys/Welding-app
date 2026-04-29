@@ -9,7 +9,7 @@ import { useSearchParams } from "next/navigation";
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
 import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
-import { safeParseQueuedBody } from "@/lib/queue-resolve";
+import { getPendingQueueId, safeParseQueuedBody } from "@/lib/queue-resolve";
 import { getPendingCityTransfers } from "@/lib/offline-queue-overlays";
 
 const CITY_TRANSFERS_FORM_CACHE_KEY = "mrf-city-transfers-form-cache-v1";
@@ -31,7 +31,7 @@ type CityTransfersReadSnapshot = {
 export default function CityTransfersPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, syncQueue } = useOffline();
+  const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, discardQueuedItem, syncQueue } = useOffline();
   const searchParams = useSearchParams();
   const [transfers, setTransfers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -173,7 +173,7 @@ export default function CityTransfersPage() {
       const fromGodown = godowns.find((g: any) => g.id === form.fromGodownId);
       const product = products.find((p: any) => p.id === form.productId);
       const lot = lots.find((l: any) => l.id === form.lotId);
-      await enqueue({
+      const queueId = await enqueue({
         url: "/api/v1/city-transfers",
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -187,7 +187,7 @@ export default function CityTransfersPage() {
         },
       });
       setTransfers((prev) => [{
-        id: `pending-${Date.now()}`,
+        id: `pending-${queueId}`,
         transferDate: form.transferDate,
         fromCity: { id: user?.cityId, name: user?.cityName },
         toCity: toCity ? { id: toCity.id, name: toCity.name } : null,
@@ -258,6 +258,10 @@ export default function CityTransfersPage() {
     if (!approveForm.toGodownId) { setError(t("select_godown")); return; }
     const body = { action: "approve", ...approveForm };
     if (!isOnline) {
+      if (getPendingQueueId(selected?.id)) {
+        alert("Sync this transfer first, then approve it.");
+        return;
+      }
       await enqueue({
         url: `/api/v1/city-transfers/${selected.id}`,
         method: "PUT",
@@ -279,7 +283,6 @@ export default function CityTransfersPage() {
                 status: "approved",
                 toGodown: myGodowns.find((g: any) => g.id === approveForm.toGodownId) || tr.toGodown,
                 approvalNotes: approveForm.approvalNotes || tr.approvalNotes,
-                _pending: true,
               }
             : tr
         )
@@ -298,6 +301,11 @@ export default function CityTransfersPage() {
     if (!reason) return;
     const body = { action: "reject", approvalNotes: reason };
     if (!isOnline) {
+      if (getPendingQueueId(tr?.id)) {
+        await discardQueuedItem(getPendingQueueId(tr.id)!);
+        setTransfers((prev) => prev.filter((row: any) => row.id !== tr.id));
+        return;
+      }
       await enqueue({
         url: `/api/v1/city-transfers/${tr.id}`,
         method: "PUT",
@@ -313,7 +321,7 @@ export default function CityTransfersPage() {
       });
       setTransfers((prev) =>
         prev.map((row: any) =>
-          row.id === tr.id ? { ...row, status: "rejected", approvalNotes: reason, _pending: true } : row
+          row.id === tr.id ? { ...row, status: "rejected", approvalNotes: reason } : row
         )
       );
       return;

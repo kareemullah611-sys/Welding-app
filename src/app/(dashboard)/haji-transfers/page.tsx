@@ -10,6 +10,7 @@ import { useOffline } from "@/hooks/useOffline";
 import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { getPendingQueueId } from "@/lib/queue-resolve";
 
 
 const SOURCE_CONFIG: Record<string, { label: string; color: string; icon?: string }> = {
@@ -41,7 +42,7 @@ type HajiReadSnapshot = {
 export default function HajiTransfersPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, syncQueue } = useOffline();
+  const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, discardQueuedItem, syncQueue } = useOffline();
   const searchParams = useSearchParams();
   const isEmbed = searchParams.get("embed") === "1";
   const shouldUseSuperAdminTarget = user?.role === "city_admin" && user?.countryName === "Pakistan";
@@ -336,7 +337,7 @@ export default function HajiTransfersPage() {
     }
 
     if (!isOnline) {
-      await enqueue({
+      const queueId = await enqueue({
         url: "/api/v1/haji-transfers",
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -350,7 +351,7 @@ export default function HajiTransfersPage() {
         },
       });
       setItems((prev) => [{
-        id: `pending-${Date.now()}`,
+        id: `pending-${queueId}`,
         transferDate: form.transferDate,
         amount: optimisticAmount,
         detail: form.detail,
@@ -417,6 +418,31 @@ export default function HajiTransfersPage() {
     };
     if (form.sourceType === "bank_transfer" && form.bankAccountId) body.bankAccountId = form.bankAccountId;
     if (!isOnline) {
+      const pendingQueueId = getPendingQueueId(selected?.id);
+      if (pendingQueueId) {
+        const ok = await updateQueuedItem(pendingQueueId, { body: JSON.stringify(body) });
+        if (!ok) {
+          setError("Queued transfer was not found. Please retry from Activity.");
+          return;
+        }
+        setItems((prev) =>
+          prev.map((row: any) =>
+            row.id === selected.id
+              ? {
+                  ...row,
+                  amount: form.amount,
+                  detail: form.detail,
+                  sourceType: form.sourceType,
+                  transferType: body.transferType,
+                  transferredTo: form.transferredTo || null,
+                  notes: form.notes || null,
+                }
+              : row
+          )
+        );
+        setShowEdit(false);
+        return;
+      }
       await enqueue({
         url: `/api/v1/haji-transfers/${selected.id}`,
         method: "PUT",
@@ -441,7 +467,6 @@ export default function HajiTransfersPage() {
                 transferType: body.transferType,
                 transferredTo: form.transferredTo || null,
                 notes: form.notes || null,
-                _pending: true,
               }
             : row
         )
@@ -458,6 +483,12 @@ export default function HajiTransfersPage() {
   const handleDelete = async (item: any) => {
     if (!confirm(`${t("confirm_delete")} "${item.detail}"?`)) return;
     if (!isOnline) {
+      const pendingQueueId = getPendingQueueId(item?.id);
+      if (pendingQueueId) {
+        await discardQueuedItem(pendingQueueId);
+        setItems((prev) => prev.filter((row: any) => row.id !== item.id));
+        return;
+      }
       await enqueue({
         url: `/api/v1/haji-transfers/${item.id}`,
         method: "DELETE",

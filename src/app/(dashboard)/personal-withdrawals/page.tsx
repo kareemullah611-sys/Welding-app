@@ -9,6 +9,7 @@ import { useOffline } from "@/hooks/useOffline";
 import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { getPendingQueueId } from "@/lib/queue-resolve";
 
 const WITHDRAWALS_FORM_CACHE_KEY = "mrf-withdrawals-form-cache-v1";
 const WITHDRAWALS_READ_CACHE_KEY = "mrf-withdrawals-read-cache-v1";
@@ -35,7 +36,7 @@ function pendingWithdrawalsCount(queuedItems: Array<{ pathname: string; method: 
 export default function PersonalWithdrawalsPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, syncQueue } = useOffline();
+  const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, discardQueuedItem, syncQueue } = useOffline();
   const searchParams = useSearchParams();
   const isEmbed = searchParams.get("embed") === "1";
   const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
@@ -313,7 +314,7 @@ export default function PersonalWithdrawalsPage() {
     }
 
     if (!isOnline) {
-      await enqueue({
+      const queueId = await enqueue({
         url: "/api/v1/personal-withdrawals",
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -328,7 +329,7 @@ export default function PersonalWithdrawalsPage() {
       });
       setItems((prev) => {
         const next = [{
-        id: `pending-${Date.now()}`,
+        id: `pending-${queueId}`,
         withdrawalDate: form.withdrawalDate,
         amount: form.amount,
         detail: form.detail,
@@ -383,6 +384,23 @@ export default function PersonalWithdrawalsPage() {
   const handleEdit = async () => {
     const body = { amount: form.amount, detail: form.detail, withdrawnBy: form.withdrawnBy, notes: form.notes };
     if (!isOnline) {
+      const pendingQueueId = getPendingQueueId(selected?.id);
+      if (pendingQueueId) {
+        const ok = await updateQueuedItem(pendingQueueId, { body: JSON.stringify(body) });
+        if (!ok) {
+          setFormError("Queued withdrawal was not found. Please retry from Activity.");
+          return;
+        }
+        setItems((prev) => {
+          const next = prev.map((row: any) =>
+            row.id === selected.id ? { ...row, amount: form.amount, detail: form.detail, withdrawnBy: form.withdrawnBy, notes: form.notes } : row
+          );
+          persistWithdrawalsSnapshot(next);
+          return next;
+        });
+        setShowEdit(false);
+        return;
+      }
       await enqueue({
         url: `/api/v1/personal-withdrawals/${selected.id}`,
         method: "PUT",
@@ -405,7 +423,6 @@ export default function PersonalWithdrawalsPage() {
                 detail: form.detail,
                 withdrawnBy: form.withdrawnBy,
                 notes: form.notes,
-                _pending: true,
               }
             : row
         );
@@ -427,6 +444,23 @@ export default function PersonalWithdrawalsPage() {
   const handleDelete = async (w: any) => {
     if (!confirm(`${t("confirm_delete")} "${w.detail}"?`)) return;
     if (!isOnline) {
+      const pendingQueueId = getPendingQueueId(w?.id);
+      if (pendingQueueId) {
+        await discardQueuedItem(pendingQueueId);
+        setItems((prev) => {
+          const next = prev.filter((row: any) => row.id !== w.id);
+          const wasPending = !w.approvedAt;
+          const nextCounts = {
+            all: Math.max(0, counts.all - 1),
+            pending: Math.max(0, counts.pending - (wasPending ? 1 : 0)),
+            approved: Math.max(0, counts.approved - (wasPending ? 0 : 1)),
+          };
+          setCounts(nextCounts);
+          persistWithdrawalsSnapshot(next, nextCounts, Math.max(0, total - 1));
+          return next;
+        });
+        return;
+      }
       await enqueue({
         url: `/api/v1/personal-withdrawals/${w.id}`,
         method: "DELETE",
@@ -462,6 +496,10 @@ export default function PersonalWithdrawalsPage() {
     const label = w.withdrawnBy ? `"${w.withdrawnBy}"` : `"${w.detail}"`;
     if (!confirm(`Approve withdrawal of ${w.currency?.symbol} ${w.amount?.toLocaleString("en-US")} by ${label}?\n\nThis will create a Haji Transfer automatically.`)) return;
     if (!isOnline) {
+      if (getPendingQueueId(w?.id)) {
+        alert("Sync this withdrawal first, then approve it.");
+        return;
+      }
       await enqueue({
         url: `/api/v1/personal-withdrawals/${w.id}/approve`,
         method: "POST",
@@ -482,7 +520,6 @@ export default function PersonalWithdrawalsPage() {
                 ...row,
                 approvedAt: new Date().toISOString(),
                 approvedBy: row.approvedBy || { fullName: user?.fullName || "Super Admin" },
-                _pending: true,
               }
             : row
         );
