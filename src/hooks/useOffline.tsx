@@ -176,7 +176,7 @@ async function dbGet<T>(store: string, key: any): Promise<T | undefined> {
   });
 }
 
-async function removeSyncedPendingReadModelRow(item: QueuedRequest) {
+async function removePendingReadModelRowForQueueItem(item: QueuedRequest) {
   if (!canApplyCreateToReadModel(item.url, item.method)) return;
   const key = getReadModelKey(item.url, undefined);
   const row = await dbGet<{ key: string; data: unknown; pagination?: unknown; updatedAt: number }>(LOCAL_READ_MODEL_STORE, key);
@@ -287,6 +287,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     const existing = await dbGet<QueuedRequest>(QUEUE_STORE, id);
     if (!existing) return false;
     await dbDelete(QUEUE_STORE, id);
+    await removePendingReadModelRowForQueueItem(existing);
     await refreshQueueState();
     return true;
   }, [refreshQueueState]);
@@ -384,14 +385,14 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
         if (res.ok && data?.success) {
           await dbDelete(QUEUE_STORE, item.id);
           await reconcileSyncedIds(item, data?.data ?? data);
-          await removeSyncedPendingReadModelRow(item);
+          await removePendingReadModelRowForQueueItem(item);
           synced++;
           continue;
         }
         if (isAlreadySyncedResponse(res.status, data)) {
           await dbDelete(QUEUE_STORE, item.id);
           await reconcileSyncedIds(item, data?.data ?? data);
-          await removeSyncedPendingReadModelRow(item);
+          await removePendingReadModelRowForQueueItem(item);
           synced++;
           continue;
         }
