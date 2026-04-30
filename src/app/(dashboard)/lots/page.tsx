@@ -28,7 +28,7 @@ type LotDetailTab = "overview" | "purchases" | "costs" | "sales";
 export default function LotsPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline, queuedItems } = useOffline();
+  const { isOnline, queuedItems, discardQueuedItem } = useOffline();
   const [lots,       setLots]       = useState<any[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [page,       setPage]       = useState(1);
@@ -102,6 +102,11 @@ export default function LotsPage() {
   const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
   const selectedLotCountryCode = String(selectedLot?.country?.code || selectedLot?.countryCode || "").toUpperCase();
   const nonFreightCostCurrency = selectedLotCountryCode === "AFG" ? "AFN" : "PKR";
+  const getPendingQueueId = (id: unknown) => {
+    const str = String(id || "");
+    if (!str.startsWith("pending-")) return null;
+    return str.replace("pending-", "");
+  };
 
   const readSnapshot = useCallback(() => {
     return readOfflineReadSnapshot<LotsReadSnapshot>(LOTS_READ_CACHE_KEY);
@@ -278,6 +283,7 @@ export default function LotsPage() {
   // DETAIL
   // ════════════════════════════════════════════
   const openDetail = async (lot: any) => {
+    if (getPendingQueueId(lot?.id)) { alert("Pending lot is not synced yet. Please sync first."); return; }
     setSelectedLot(lot); setShowDetail(true); setDetailLoading(true); setFormError("");
     setActiveDetailTab("overview");
     // Pre-fetch shipping lines for super admin cost form
@@ -593,6 +599,7 @@ export default function LotsPage() {
   // DISTRIBUTE
   // ════════════════════════════════════════════
   const openDistribute = async (lot: any) => {
+    if (getPendingQueueId(lot?.id)) { alert("Pending lot is not synced yet. Please sync first."); return; }
     setSelectedLot(lot); setDistributions([]); setShowDistribute(true); setFormError(""); setDetailLoading(true);
     try {
       const [detailRes, cityRes] = await Promise.all([
@@ -680,6 +687,7 @@ export default function LotsPage() {
   // GODOWN ALLOCATION
   // ════════════════════════════════════════════
   const openGodownAlloc = async (lot: any, dist: any) => {
+    if (getPendingQueueId(lot?.id)) { alert("Pending lot is not synced yet. Please sync first."); return; }
     setSelectedDist(dist); setSelectedLot(lot); setFormError("");
     const gRes = await apiCall("/api/v1/godowns", { params: { city_id: dist.cityId, limit: 50 } });
     const godowns = ((gRes.data || []) as any[]).filter((g: any) => g.isActive);
@@ -724,6 +732,7 @@ export default function LotsPage() {
   // EDIT LOT
   // ════════════════════════════════════════════
   const openEditLot = async (lot: any) => {
+    if (getPendingQueueId(lot?.id)) { alert("Pending lot is not synced yet. Please sync first."); return; }
     if (!products.length) {
       const pRes = await apiCall("/api/v1/products", { params: { limit: 100 } });
       if (pRes.success) setProducts(pRes.data as any[]);
@@ -761,16 +770,29 @@ export default function LotsPage() {
   // ════════════════════════════════════════════
   const handleDeleteLot = async (lot: any) => {
     if (!confirm(`${lot.lotNumber}: ${t("confirm_delete")} ${t("cannot_undo")}`)) return;
+    const pendingQueueId = getPendingQueueId(lot?.id);
+    if (pendingQueueId) {
+      const ok = await discardQueuedItem(pendingQueueId);
+      if (!ok) return;
+      setLots((prev) => {
+        const next = prev.filter((row) => row.id !== lot.id);
+        mergeSnapshot({ lots: next, totalPages, total: Math.max(0, total - 1) });
+        return next;
+      });
+      return;
+    }
     const r = await apiCall(`/api/v1/lots/${lot.id}`, { method: "DELETE" });
     if (r.success) loadLots(); else alert(r.error || "Failed - lot may have active sales");
   };
   const handleComplete = async (lot: any) => {
     if (!confirm(`${lot.lotNumber}: ${t("confirm_complete")}`)) return;
+    if (getPendingQueueId(lot?.id)) { alert("Pending lot is not synced yet. Please sync first."); return; }
     const r = await apiCall(`/api/v1/lots/${lot.id}/complete`, { method: "PUT" });
     if (r.success) loadLots(); else alert(r.error || "Failed");
   };
   const handleReopen = async (lot: any) => {
     if (!confirm(`${lot.lotNumber}: ${t("confirm_reopen")}`)) return;
+    if (getPendingQueueId(lot?.id)) { alert("Pending lot is not synced yet. Please sync first."); return; }
     const r = await apiCall(`/api/v1/lots/${lot.id}/reopen`, { method: "PUT" });
     if (r.success) loadLots(); else alert(r.error || "Failed");
   };
@@ -780,7 +802,9 @@ export default function LotsPage() {
   // ════════════════════════════════════════════
   const columns = [
     { key: "lotNumber", label: t("lot_num"), render: (l: any) => (
-      <button onClick={() => openDetail(l)} className="font-mono font-semibold text-primary-600 hover:underline text-sm">{l.lotNumber}</button>
+      getPendingQueueId(l?.id)
+        ? <span className="font-mono font-semibold text-gray-500 text-sm">{l.lotNumber}</span>
+        : <button onClick={() => openDetail(l)} className="font-mono font-semibold text-primary-600 hover:underline text-sm">{l.lotNumber}</button>
     )},
     { key: "country",  label: t("country"),  render: (l: any) => <span className="text-sm text-gray-700">{l.countryName || l.country?.name}</span> },
     { key: "lotDate",  label: t("date"),     render: (l: any) => <span className="text-sm text-gray-500">{formatDate(l.lotDate)}</span> },
@@ -832,13 +856,17 @@ export default function LotsPage() {
               </button>
               {openActionId === l.id && (
                 <div className={`absolute right-0 z-50 w-44 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}>
-                  <button onClick={() => { setOpenActionId(null); openEditLot(l); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">Edit Lot</button>
-                  <button onClick={() => { setOpenActionId(null); openDistribute(l); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-blue-700 hover:bg-blue-50">Distribute</button>
-                  {l.status === "ongoing" && (
-                    <button onClick={() => { setOpenActionId(null); handleComplete(l); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-green-700 hover:bg-green-50">Complete</button>
-                  )}
-                  {l.status === "completed" && (
-                    <button onClick={() => { setOpenActionId(null); handleReopen(l); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-amber-700 hover:bg-amber-50">Reopen</button>
+                  {!getPendingQueueId(l?.id) && (
+                    <>
+                      <button onClick={() => { setOpenActionId(null); openEditLot(l); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">Edit Lot</button>
+                      <button onClick={() => { setOpenActionId(null); openDistribute(l); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-blue-700 hover:bg-blue-50">Distribute</button>
+                      {l.status === "ongoing" && (
+                        <button onClick={() => { setOpenActionId(null); handleComplete(l); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-green-700 hover:bg-green-50">Complete</button>
+                      )}
+                      {l.status === "completed" && (
+                        <button onClick={() => { setOpenActionId(null); handleReopen(l); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-amber-700 hover:bg-amber-50">Reopen</button>
+                      )}
+                    </>
                   )}
                   <button onClick={() => { setOpenActionId(null); handleDeleteLot(l); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">Delete</button>
                 </div>
