@@ -350,8 +350,14 @@ export default function CityTransfersPage() {
             <div key={tr.id} className="flex items-center justify-between bg-white p-2 rounded border mb-1 text-sm">
               <span>{tr.product?.name} × {tr.qty} {t("from")} <strong>{tr.fromCity?.name}</strong> ({tr.fromGodown?.name})</span>
               <div className="flex gap-2">
-                <button onClick={() => openApprove(tr)} className="text-xs bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700">✓ {t("approve")}</button>
-                <button onClick={() => handleReject(tr)} className="text-xs bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700">✗ {t("reject")}</button>
+                {!getPendingQueueId(tr?.id) ? (
+                  <>
+                    <button onClick={() => openApprove(tr)} className="text-xs bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700">✓ {t("approve")}</button>
+                    <button onClick={() => handleReject(tr)} className="text-xs bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700">✗ {t("reject")}</button>
+                  </>
+                ) : (
+                  <span className="text-[11px] text-amber-700">Sync first</span>
+                )}
               </div>
             </div>
           ))}
@@ -372,7 +378,7 @@ export default function CityTransfersPage() {
         { key: "status", label: t("status"), render: (tr: any) => <span className={`text-xs px-2 py-0.5 rounded font-medium ${tr.status === "approved" ? "bg-green-50 text-green-700" : tr.status === "rejected" ? "bg-red-50 text-red-700" : "bg-yellow-50 text-yellow-700"}`}>{tr.status}</span> },
         { key: "sentBy", label: t("sent_by"), render: (tr: any) => tr.sentBy?.fullName },
         { key: "actions", label: "", render: (tr: any) => (
-          tr.status === "pending" && tr.toCity?.id === user?.cityId ? (
+          tr.status === "pending" && tr.toCity?.id === user?.cityId && !getPendingQueueId(tr?.id) ? (
             <div className="flex gap-1"><button onClick={() => openApprove(tr)} className="text-xs text-green-600 hover:underline">{t("approve")}</button><button onClick={() => handleReject(tr)} className="text-xs text-red-600 hover:underline">{t("reject")}</button></div>
           ) : null
         )},
