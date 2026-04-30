@@ -497,6 +497,10 @@ export default function SalesPage() {
   const openHardDelete = (sale: any) => { setHardDeleteTarget(sale); setHardDeletePassword(""); setHardDeleteError(""); setShowHardDelete(true); };
   const handleHardDelete = async () => {
     if (!hardDeletePassword.trim()) { setHardDeleteError("Password is required"); return; }
+    if (String(hardDeleteTarget?.id || "").startsWith("pending-")) {
+      setHardDeleteError("Pending sale is not synced yet. Use Cancel to remove it locally.");
+      return;
+    }
     setHardDeleteSubmitting(true);
     const result = await apiCall(`/api/v1/sales/${hardDeleteTarget.id}/hard-delete`, { method: "DELETE", body: { password: hardDeletePassword } });
     setHardDeleteSubmitting(false);
@@ -771,7 +775,7 @@ export default function SalesPage() {
                     <button onClick={() => { setOpenActionId(null); openCancel(s); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("cancel")}</button>
                   </>
                 )}
-                {user?.role === "super_admin" && (
+                {user?.role === "super_admin" && !String(s.id || "").startsWith("pending-") && (
                   <button onClick={() => { setOpenActionId(null); openHardDelete(s); }} className="w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-red-800 hover:bg-red-50">{t("hard_delete")}</button>
                 )}
               </div>
