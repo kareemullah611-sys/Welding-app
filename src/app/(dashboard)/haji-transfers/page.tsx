@@ -40,6 +40,45 @@ type HajiReadSnapshot = {
   total: number;
 };
 
+function applyQueuedMutationsToHajiTransfers(baseItems: any[], queueItems: any[]) {
+  if (!Array.isArray(baseItems) || !Array.isArray(queueItems) || queueItems.length === 0) return baseItems;
+  let next = [...baseItems];
+  for (const q of queueItems) {
+    const method = String(q?.method || "").toUpperCase();
+    if (!["PUT", "PATCH", "DELETE"].includes(method)) continue;
+    const url = String(q?.url || "");
+    if (!url.startsWith("/api/v1/haji-transfers/")) continue;
+    const match = url.match(/^\/api\/v1\/haji-transfers\/([^/?#]+)/);
+    const transferId = match?.[1];
+    if (!transferId) continue;
+    if (method === "DELETE") {
+      next = next.filter((row: any) => String(row?.id || "") !== transferId);
+      continue;
+    }
+    let patch: any = {};
+    try {
+      patch = JSON.parse(String(q?.body || "{}"));
+    } catch {
+      patch = {};
+    }
+    next = next.map((row: any) =>
+      String(row?.id || "") === transferId
+        ? {
+            ...row,
+            amount: patch?.amount ?? row?.amount,
+            detail: patch?.detail ?? row?.detail,
+            sourceType: patch?.sourceType ?? row?.sourceType,
+            transferType: patch?.transferType ?? row?.transferType,
+            transferredTo: patch?.transferredTo ?? row?.transferredTo,
+            notes: patch?.notes ?? row?.notes,
+            _pending: true,
+          }
+        : row
+    );
+  }
+  return next;
+}
+
 export default function HajiTransfersPage() {
   const { user } = useAuth();
   const { t } = useLang();
@@ -125,7 +164,8 @@ export default function HajiTransfersPage() {
             _pending: true,
           };
         });
-      const nextItems = [...pendingTransfers, ...((r.data as any[]) || [])];
+      let nextItems = [...pendingTransfers, ...((r.data as any[]) || [])];
+      nextItems = applyQueuedMutationsToHajiTransfers(nextItems, queuedItems as any[]);
       setItems(nextItems);
       setTotalPages((r.pagination as any)?.totalPages || 1);
       setTotal((r.pagination as any)?.total || 0);
@@ -139,9 +179,10 @@ export default function HajiTransfersPage() {
       const snapshot = readOfflineReadSnapshot<HajiReadSnapshot>(HAJI_READ_CACHE_KEY)?.data;
       if (snapshot?.items?.length) {
         const cleanedItems = pruneStalePendingRows(snapshot.items as any[], queuedItems as any[], "/haji-transfers");
-        setItems(cleanedItems);
+        const mergedSnapshotItems = applyQueuedMutationsToHajiTransfers(cleanedItems, queuedItems as any[]);
+        setItems(mergedSnapshotItems);
         setTotalPages(snapshot.totalPages || 1);
-        setTotal(snapshot.total || cleanedItems.length);
+        setTotal(snapshot.total || mergedSnapshotItems.length);
         setShowOfflineSnapshot(true);
       }
     }

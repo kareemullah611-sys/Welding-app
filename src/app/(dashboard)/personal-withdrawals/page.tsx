@@ -28,6 +28,54 @@ type WithdrawalsReadSnapshot = {
   total: number;
 };
 
+function applyQueuedMutationsToWithdrawals(baseItems: any[], queueItems: any[]) {
+  if (!Array.isArray(baseItems) || !Array.isArray(queueItems) || queueItems.length === 0) return baseItems;
+  let next = [...baseItems];
+  for (const q of queueItems) {
+    const method = String(q?.method || "").toUpperCase();
+    const url = String(q?.url || "");
+    if (url.endsWith("/approve") && method === "POST") {
+      const matchApprove = url.match(/^\/api\/v1\/personal-withdrawals\/([^/?#]+)\/approve$/);
+      const approveId = matchApprove?.[1];
+      if (!approveId) continue;
+      next = next.map((row: any) =>
+        String(row?.id || "") === approveId
+          ? { ...row, approvedAt: row?.approvedAt || new Date().toISOString(), _pending: true }
+          : row
+      );
+      continue;
+    }
+    if (!["PUT", "PATCH", "DELETE"].includes(method)) continue;
+    if (!url.startsWith("/api/v1/personal-withdrawals/")) continue;
+    const match = url.match(/^\/api\/v1\/personal-withdrawals\/([^/?#]+)/);
+    const withdrawalId = match?.[1];
+    if (!withdrawalId) continue;
+    if (method === "DELETE") {
+      next = next.filter((row: any) => String(row?.id || "") !== withdrawalId);
+      continue;
+    }
+    let patch: any = {};
+    try {
+      patch = JSON.parse(String(q?.body || "{}"));
+    } catch {
+      patch = {};
+    }
+    next = next.map((row: any) =>
+      String(row?.id || "") === withdrawalId
+        ? {
+            ...row,
+            amount: patch?.amount ?? row?.amount,
+            detail: patch?.detail ?? row?.detail,
+            withdrawnBy: patch?.withdrawnBy ?? row?.withdrawnBy,
+            notes: patch?.notes ?? row?.notes,
+            _pending: true,
+          }
+        : row
+    );
+  }
+  return next;
+}
+
 function pendingWithdrawalsCount(queuedItems: Array<{ pathname: string; method: string; url: string }>) {
   return queuedItems.filter(
     (q) => q.pathname === "/personal-withdrawals" && q.method === "POST" && q.url === "/api/v1/personal-withdrawals"
@@ -130,6 +178,7 @@ export default function PersonalWithdrawalsPage() {
           };
         });
       nextItems = [...pendingWithdrawals, ...nextItems];
+      nextItems = applyQueuedMutationsToWithdrawals(nextItems, queuedItems as any[]);
       setItems(nextItems);
       setTotalPages((result.pagination as any)?.totalPages || 1);
       setTotal((result.pagination as any)?.total || 0);
@@ -152,10 +201,11 @@ export default function PersonalWithdrawalsPage() {
       const snapshot = readOfflineReadSnapshot<WithdrawalsReadSnapshot>(WITHDRAWALS_READ_CACHE_KEY)?.data;
       if (snapshot?.items?.length) {
         const cleanedItems = pruneStalePendingRows(snapshot.items as any[], queuedItems as any[], "/personal-withdrawals");
-        setItems(cleanedItems);
+        const mergedSnapshotItems = applyQueuedMutationsToWithdrawals(cleanedItems, queuedItems as any[]);
+        setItems(mergedSnapshotItems);
         setCounts(snapshot.counts || { all: 0, pending: 0, approved: 0 });
         setTotalPages(snapshot.totalPages || 1);
-        setTotal(snapshot.total || cleanedItems.length);
+        setTotal(snapshot.total || mergedSnapshotItems.length);
         setShowOfflineSnapshot(true);
       }
     } else {
