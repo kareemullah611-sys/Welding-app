@@ -20,6 +20,61 @@ const TYPE_CONFIG: Record<string, { label: string; color: string; amountColor: s
   withdrawal:   { label: "Withdrawal", color: "bg-purple-50 text-purple-700", amountColor: "text-purple-600" },
 };
 
+function safeParseQueueBody(body: string): any {
+  try {
+    return JSON.parse(body || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function mapQueueUrlToCombinedType(url: string): "payment" | "expense" | "haji_transfer" | "withdrawal" | null {
+  if (url.startsWith("/api/v1/payments")) return "payment";
+  if (url.startsWith("/api/v1/expenses")) return "expense";
+  if (url.startsWith("/api/v1/haji-transfers")) return "haji_transfer";
+  if (url.startsWith("/api/v1/personal-withdrawals")) return "withdrawal";
+  return null;
+}
+
+function applyQueuedMutationsToCombinedList(baseItems: any[], queueItems: any[]) {
+  if (!Array.isArray(baseItems) || !Array.isArray(queueItems) || queueItems.length === 0) return baseItems;
+  let next = [...baseItems];
+  for (const q of queueItems) {
+    const method = String(q?.method || "").toUpperCase();
+    if (!["PUT", "PATCH", "DELETE"].includes(method)) continue;
+    const url = String(q?.url || "");
+    const type = mapQueueUrlToCombinedType(url);
+    if (!type) continue;
+    const match = url.match(/^\/api\/v1\/[^/]+\/([^/?#]+)/);
+    const targetId = match?.[1];
+    if (!targetId) continue;
+    if (method === "DELETE") {
+      next = next.filter((row) => !(String(row?.id || "") === targetId && String(row?.type || "") === type));
+      continue;
+    }
+    const patch = safeParseQueueBody(String(q?.body || ""));
+    next = next.map((row) => {
+      if (String(row?.id || "") !== targetId || String(row?.type || "") !== type) return row;
+      if (type === "withdrawal") {
+        return {
+          ...row,
+          person: patch?.withdrawnBy ?? row?.person,
+          detail: patch?.reason ?? row?.detail,
+          amount: patch?.amount ?? row?.amount,
+          _pending: true,
+        };
+      }
+      return {
+        ...row,
+        detail: patch?.detail ?? row?.detail,
+        amount: patch?.amount ?? row?.amount,
+        _pending: true,
+      };
+    });
+  }
+  return next;
+}
+
 function TypeBadge({ type }: { type: string }) {
   const cfg = TYPE_CONFIG[type] || { label: type, color: "bg-gray-50 text-gray-700" };
   return <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${cfg.color}`}>{cfg.label}</span>;
@@ -201,6 +256,7 @@ export default function PaymentsPage() {
         })
         .filter((entry) => !isSuperAdmin || entry.type === "payment");
       nextItems = [...pendingEntries, ...nextItems];
+      nextItems = applyQueuedMutationsToCombinedList(nextItems, queuedItems as any[]);
       setItems(nextItems);
       setTotalPages((r.pagination as any)?.totalPages || 1);
       setTotal((r.pagination as any)?.total || 0);
