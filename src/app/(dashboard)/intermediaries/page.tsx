@@ -192,6 +192,10 @@ export default function IntermediariesPage() {
   };
 
   const openLedger = async (item: any) => {
+    if (getPendingQueueId(item?.id)) {
+      setFormError("Pending intermediary is not synced yet. Please sync first.");
+      return;
+    }
     setLedgerCurrencyFilter("");
     setLedgerDateFilter("all");
     setCustomStartDate("");
@@ -662,7 +666,9 @@ export default function IntermediariesPage() {
       key: "actions", label: "",
       render: (row: any) => (
         <div className="flex items-center gap-3">
-          <button onClick={() => openLedger(row)} className="text-primary-600 hover:underline text-sm font-medium">Ledger</button>
+          {!getPendingQueueId(row?.id) && (
+            <button onClick={() => openLedger(row)} className="text-primary-600 hover:underline text-sm font-medium">Ledger</button>
+          )}
           <button onClick={() => openEdit(row)} className="text-amber-600 hover:underline text-sm">Edit</button>
           <button onClick={() => handleToggleActive(row)} className={`hover:underline text-sm ${row.isActive ? "text-red-600" : "text-green-600"}`}>
             {row.isActive ? "Deactivate" : "Reactivate"}
