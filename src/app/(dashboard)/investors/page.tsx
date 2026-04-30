@@ -19,6 +19,42 @@ type InvestorsReadSnapshot = {
 type Investor = { id: number | string; name: string; relationship?: string; phone?: string; accounts: any[] };
 const isPendingInvestor = (inv: Investor) => typeof inv?.id === "string" && inv.id.startsWith("pending-");
 
+function applyQueuedMutationsToInvestors(baseRows: Investor[], queueItems: any[]) {
+  if (!Array.isArray(baseRows) || !Array.isArray(queueItems) || queueItems.length === 0) return baseRows;
+  let next = [...baseRows];
+  for (const q of queueItems) {
+    const method = String(q?.method || "").toUpperCase();
+    if (!["PUT", "PATCH", "DELETE"].includes(method)) continue;
+    const url = String(q?.url || "");
+    if (!url.startsWith("/api/v1/investors/")) continue;
+    const match = url.match(/^\/api\/v1\/investors\/([^/?#]+)/);
+    const investorId = match?.[1];
+    if (!investorId) continue;
+    if (method === "DELETE") {
+      next = next.filter((row) => String(row?.id || "") !== investorId);
+      continue;
+    }
+    let patch: any = {};
+    try {
+      patch = JSON.parse(String(q?.body || "{}"));
+    } catch {
+      patch = {};
+    }
+    next = next.map((row) =>
+      String(row?.id || "") === investorId
+        ? {
+            ...row,
+            name: patch?.name ?? row?.name,
+            relationship: patch?.relationship ?? row?.relationship,
+            phone: patch?.phone ?? row?.phone,
+            _pending: true,
+          }
+        : row
+    );
+  }
+  return next;
+}
+
 export default function InvestorsPage() {
   const { user } = useAuth();
   const router = useRouter();
@@ -67,7 +103,8 @@ export default function InvestorsPage() {
     setLoading(true);
     const invRes = await apiCall("/api/v1/investors", { params: { limit: 200 } });
     if (invRes.success) {
-      const loaded = [...getPendingInvestors(queuedItems as any), ...((invRes.data as Investor[]) || [])];
+      let loaded = [...getPendingInvestors(queuedItems as any), ...((invRes.data as Investor[]) || [])];
+      loaded = applyQueuedMutationsToInvestors(loaded, queuedItems as any);
       setInvestors(loaded);
       writeSnapshot(loaded);
       setShowOfflineSnapshot(false);
@@ -75,7 +112,8 @@ export default function InvestorsPage() {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.investors?.length) {
         const cleanedInvestors = pruneStalePendingRows(snapshot.investors as any[], queuedItems as any[], "/investors");
-        setInvestors(cleanedInvestors);
+        const mergedSnapshotInvestors = applyQueuedMutationsToInvestors(cleanedInvestors as Investor[], queuedItems as any);
+        setInvestors(mergedSnapshotInvestors);
         setShowOfflineSnapshot(true);
       }
     }

@@ -18,6 +18,72 @@ function txLabel(type: TxType) { return type === "deposit" ? "Credit" : "Debit";
 
 const INVESTOR_LEDGER_READ_CACHE_KEY_PREFIX = "mrf-investor-ledger-read-cache-v1";
 
+function applyQueuedMutationsToInvestorLedger(baseInvestor: any, queueItems: any[], investorId: string) {
+  if (!baseInvestor?.accounts?.[0] || !Array.isArray(queueItems) || queueItems.length === 0) return baseInvestor;
+  const pathname = `/investors/${investorId}`;
+  const account = { ...baseInvestor.accounts[0] };
+  let entries = [...(account.entries || [])];
+
+  entries = pruneStalePendingRows(entries as any[], queueItems as any[], pathname);
+
+  for (const q of queueItems) {
+    if (q?.pathname !== pathname) continue;
+    const method = String(q?.method || "").toUpperCase();
+    if (!["PATCH", "DELETE"].includes(method)) continue;
+    if (String(q?.url || "") !== `/api/v1/investors/${investorId}/transactions`) continue;
+    let patch: any = {};
+    try {
+      patch = JSON.parse(String(q?.body || "{}"));
+    } catch {
+      patch = {};
+    }
+    const txId = String(patch?.transactionId || "");
+    if (!txId) continue;
+    if (method === "DELETE") {
+      entries = entries.filter((entry: any) => String(entry?.id || "") !== txId);
+      continue;
+    }
+    entries = entries.map((entry: any) =>
+      String(entry?.id || "") === txId
+        ? {
+            ...entry,
+            amount: patch?.amount ?? entry?.amount,
+            date: patch?.date ?? entry?.date,
+            notes: patch?.notes ?? entry?.notes,
+            _pending: true,
+          }
+        : entry
+    );
+  }
+
+  const sortedEntries = [...entries].sort((a: any, b: any) => String(a?.date || "").localeCompare(String(b?.date || "")));
+  let running = 0;
+  let deposits = 0;
+  let withdrawals = 0;
+  const recalculated = sortedEntries.map((entry: any) => {
+    const amount = Number(entry?.amount || 0);
+    if (entry?.type === "deposit") {
+      deposits += amount;
+      running += amount;
+    } else {
+      withdrawals += amount;
+      running -= amount;
+    }
+    return { ...entry, runningBalance: running };
+  });
+
+  return {
+    ...baseInvestor,
+    accounts: [{
+      ...account,
+      entries: recalculated,
+      totalDeposits: deposits,
+      totalWithdrawals: withdrawals,
+      capital: running,
+    }],
+  };
+}
+
 export default function InvestorLedgerPage() {
   const { user } = useAuth();
   const { isOnline, enqueue, queuedItems, updateQueuedItem, discardQueuedItem } = useOffline();
@@ -76,22 +142,17 @@ export default function InvestorLedgerPage() {
     setLoading(true);
     const res = await apiCall(`/api/v1/investors/${id}`);
     if (res.success) {
-      setInvestor(res.data);
-      persistSnapshot(res.data);
+      const merged = applyQueuedMutationsToInvestorLedger(res.data, queuedItems as any, String(id));
+      setInvestor(merged);
+      persistSnapshot(merged);
       setShowOfflineSnapshot(false);
     } else if (!isOnline) {
       const snapshot = readOfflineReadSnapshot<any>(snapshotKey)?.data;
       if (snapshot) {
         const pathname = `/investors/${id}`;
         const nextSnapshot = { ...snapshot };
-        if (nextSnapshot?.accounts?.[0]?.entries) {
-          nextSnapshot.accounts = [...nextSnapshot.accounts];
-          nextSnapshot.accounts[0] = {
-            ...nextSnapshot.accounts[0],
-            entries: pruneStalePendingRows(nextSnapshot.accounts[0].entries as any[], queuedItems as any[], pathname),
-          };
-        }
-        setInvestor(nextSnapshot);
+        const merged = applyQueuedMutationsToInvestorLedger(nextSnapshot, queuedItems as any, String(id));
+        setInvestor(merged);
         setShowOfflineSnapshot(true);
       } else {
         router.push("/investors");
