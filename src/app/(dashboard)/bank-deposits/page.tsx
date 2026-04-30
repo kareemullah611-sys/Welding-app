@@ -28,6 +28,48 @@ type BankDepositsReadSnapshot = {
   total: number;
 };
 
+function applyQueuedMutationsToBankDeposits(baseRows: any[], queueItems: any[], bankAccounts: any[], currencies: any[]) {
+  if (!Array.isArray(baseRows) || !Array.isArray(queueItems) || queueItems.length === 0) return baseRows;
+  let next = [...baseRows];
+  for (const q of queueItems) {
+    const method = String(q?.method || "").toUpperCase();
+    if (!["PUT", "PATCH", "DELETE"].includes(method)) continue;
+    const url = String(q?.url || "");
+    if (!url.startsWith("/api/v1/bank-deposits/")) continue;
+    const match = url.match(/^\/api\/v1\/bank-deposits\/([^/?#]+)/);
+    const depositId = match?.[1];
+    if (!depositId) continue;
+    if (method === "DELETE") {
+      next = next.filter((row: any) => String(row?.id || "") !== depositId);
+      continue;
+    }
+    const patch = safeParseQueuedBody(String(q?.body || "")) as any;
+    if (!patch) continue;
+    const patchCurrency = currencies.find((c: any) => c.id === Number(patch.currencyId || 0));
+    const patchBank = bankAccounts.find((b: any) => b.id === Number(patch.bankAccountId || 0));
+    const patchDestBank = bankAccounts.find((b: any) => b.id === Number(patch.destinationBankAccountId || 0));
+    next = next.map((row: any) =>
+      String(row?.id || "") === depositId
+        ? {
+            ...row,
+            transferType: patch?.transferType ?? row?.transferType,
+            bankAccountId: patch?.bankAccountId ?? row?.bankAccountId,
+            destinationBankAccountId: patch?.destinationBankAccountId ?? row?.destinationBankAccountId,
+            bankAccount: patchBank || row?.bankAccount,
+            destinationBankAccount: patchDestBank || row?.destinationBankAccount,
+            depositDate: patch?.depositDate ?? row?.depositDate,
+            slipNumber: patch?.slipNumber ?? row?.slipNumber,
+            cashAmount: patch?.cashAmount ?? row?.cashAmount,
+            currency: patchCurrency || row?.currency,
+            notes: patch?.notes ?? row?.notes,
+            _pending: true,
+          }
+        : row
+    );
+  }
+  return next;
+}
+
 export default function BankDepositsPage() {
   const { user } = useAuth();
   const { t } = useLang();
@@ -68,7 +110,8 @@ export default function BankDepositsPage() {
     if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     const r = await apiCall("/api/v1/bank-deposits", { params });
     if (r.success) {
-      const nextRows = [...getPendingBankDeposits(queuedItems as any), ...((r.data as any[]) || [])];
+      let nextRows = [...getPendingBankDeposits(queuedItems as any), ...((r.data as any[]) || [])];
+      nextRows = applyQueuedMutationsToBankDeposits(nextRows, queuedItems as any[], bankAccounts as any[], currencies as any[]);
       setDeposits(nextRows);
       setTotalPages((r.pagination as any)?.totalPages || 1);
       setTotal((r.pagination as any)?.total || 0);
@@ -82,14 +125,15 @@ export default function BankDepositsPage() {
       const snapshot = readOfflineReadSnapshot<BankDepositsReadSnapshot>(BANK_DEPOSITS_READ_CACHE_KEY)?.data;
       if (snapshot?.deposits?.length) {
         const cleanedDeposits = pruneStalePendingRows(snapshot.deposits as any[], queuedItems as any[], "/bank-deposits");
-        setDeposits(cleanedDeposits);
+        const mergedSnapshotDeposits = applyQueuedMutationsToBankDeposits(cleanedDeposits, queuedItems as any[], bankAccounts as any[], currencies as any[]);
+        setDeposits(mergedSnapshotDeposits);
         setTotalPages(snapshot.totalPages || 1);
-        setTotal(snapshot.total || cleanedDeposits.length);
+        setTotal(snapshot.total || mergedSnapshotDeposits.length);
         setShowOfflineSnapshot(true);
       }
     }
     setLoading(false);
-  }, [isOnline, page, queuedItems, searchQuery]);
+  }, [bankAccounts, currencies, isOnline, page, queuedItems, searchQuery]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (lastSyncResult && lastSyncResult.synced > 0) load();

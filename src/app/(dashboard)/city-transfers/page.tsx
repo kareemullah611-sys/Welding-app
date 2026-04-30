@@ -29,6 +29,49 @@ type CityTransfersReadSnapshot = {
   total: number;
 };
 
+function applyQueuedMutationsToCityTransfers(baseRows: any[], queueItems: any[], myGodowns: any[]) {
+  if (!Array.isArray(baseRows) || !Array.isArray(queueItems) || queueItems.length === 0) return baseRows;
+  let next = [...baseRows];
+  for (const q of queueItems) {
+    const method = String(q?.method || "").toUpperCase();
+    const url = String(q?.url || "");
+    if (!["PUT", "PATCH", "DELETE"].includes(method)) continue;
+    if (!url.startsWith("/api/v1/city-transfers/")) continue;
+    const match = url.match(/^\/api\/v1\/city-transfers\/([^/?#]+)/);
+    const transferId = match?.[1];
+    if (!transferId) continue;
+    if (method === "DELETE") {
+      next = next.filter((row: any) => String(row?.id || "") !== transferId);
+      continue;
+    }
+    const patch = safeParseQueuedBody(String(q?.body || "")) as any;
+    if (!patch) continue;
+    const action = String(patch.action || "").toLowerCase();
+    next = next.map((row: any) => {
+      if (String(row?.id || "") !== transferId) return row;
+      if (action === "approve") {
+        return {
+          ...row,
+          status: "approved",
+          toGodown: myGodowns.find((g: any) => g.id === Number(patch?.toGodownId || 0)) || row?.toGodown,
+          approvalNotes: patch?.approvalNotes ?? row?.approvalNotes,
+          _pending: true,
+        };
+      }
+      if (action === "reject") {
+        return {
+          ...row,
+          status: "rejected",
+          approvalNotes: patch?.approvalNotes ?? row?.approvalNotes,
+          _pending: true,
+        };
+      }
+      return row;
+    });
+  }
+  return next;
+}
+
 export default function CityTransfersPage() {
   const { user } = useAuth();
   const { t } = useLang();
@@ -62,7 +105,8 @@ export default function CityTransfersPage() {
     if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     const r = await apiCall("/api/v1/city-transfers", { params });
     if (r.success) {
-      const nextRows = [...getPendingCityTransfers(queuedItems as any), ...((r.data as any[]) || [])];
+      let nextRows = [...getPendingCityTransfers(queuedItems as any), ...((r.data as any[]) || [])];
+      nextRows = applyQueuedMutationsToCityTransfers(nextRows, queuedItems as any[], myGodowns as any[]);
       setTransfers(nextRows);
       setTotalPages((r.pagination as any)?.totalPages || 1);
       setTotal((r.pagination as any)?.total || 0);
@@ -76,14 +120,15 @@ export default function CityTransfersPage() {
       const snapshot = readOfflineReadSnapshot<CityTransfersReadSnapshot>(CITY_TRANSFERS_READ_CACHE_KEY)?.data;
       if (snapshot?.transfers?.length) {
         const cleanedTransfers = pruneStalePendingRows(snapshot.transfers as any[], queuedItems as any[], "/city-transfers");
-        setTransfers(cleanedTransfers);
+        const mergedSnapshotTransfers = applyQueuedMutationsToCityTransfers(cleanedTransfers, queuedItems as any[], myGodowns as any[]);
+        setTransfers(mergedSnapshotTransfers);
         setTotalPages(snapshot.totalPages || 1);
-        setTotal(snapshot.total || cleanedTransfers.length);
+        setTotal(snapshot.total || mergedSnapshotTransfers.length);
         setShowOfflineSnapshot(true);
       }
     }
     setLoading(false);
-  }, [isOnline, page, queuedItems, searchQuery]);
+  }, [isOnline, myGodowns, page, queuedItems, searchQuery]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (lastSyncResult && lastSyncResult.synced > 0) load();
