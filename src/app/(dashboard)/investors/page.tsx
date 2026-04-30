@@ -17,6 +17,7 @@ type InvestorsReadSnapshot = {
 };
 
 type Investor = { id: number | string; name: string; relationship?: string; phone?: string; accounts: any[] };
+const isPendingInvestor = (inv: Investor) => typeof inv?.id === "string" && inv.id.startsWith("pending-");
 
 export default function InvestorsPage() {
   const { user } = useAuth();
@@ -242,10 +243,14 @@ export default function InvestorsPage() {
           {filtered.map(inv => {
             const capital = inv.accounts.reduce((s: number, a: any) => s + a.capital, 0);
             const sym = inv.accounts[0]?.currency?.symbol ?? "";
+            const pending = isPendingInvestor(inv);
             return (
               <div
                 key={inv.id}
-                onClick={() => router.push(`/investors/${inv.id}`)}
+                onClick={() => {
+                  if (pending) return;
+                  router.push(`/investors/${inv.id}`);
+                }}
                 className="flex items-center gap-3 px-5 py-4 hover:bg-gray-50/70 transition-colors cursor-pointer group"
               >
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white font-bold flex-shrink-0">
@@ -280,7 +285,7 @@ export default function InvestorsPage() {
                     </div>
                   )}
                 </div>
-                <ChevronRight size={16} className="text-gray-300 flex-shrink-0" />
+                {!pending && <ChevronRight size={16} className="text-gray-300 flex-shrink-0" />}
               </div>
             );
           })}
