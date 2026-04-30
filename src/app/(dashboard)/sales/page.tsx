@@ -63,6 +63,52 @@ function getCurrentMonthDateRange() {
   };
 }
 
+function applyQueuedMutationsToSales(baseSales: any[], queueItems: any[]) {
+  if (!Array.isArray(baseSales) || !Array.isArray(queueItems) || queueItems.length === 0) return baseSales;
+  let next = [...baseSales];
+  for (const q of queueItems) {
+    const method = String(q?.method || "").toUpperCase();
+    if (!["PUT", "PATCH", "DELETE"].includes(method)) continue;
+    const url = String(q?.url || "");
+    if (!url.startsWith("/api/v1/sales/")) continue;
+    const match = url.match(/^\/api\/v1\/sales\/([^/?#]+)/);
+    const saleId = match?.[1];
+    if (!saleId) continue;
+    if (method === "DELETE") {
+      next = next.filter((sale: any) => String(sale?.id || "") !== saleId);
+      continue;
+    }
+    const patch = safeParseQueuedBody(String(q?.body || "")) as any;
+    if (url.endsWith("/cancel")) {
+      next = next.map((sale: any) =>
+        String(sale?.id || "") === saleId
+          ? { ...sale, status: "cancelled", cancellationReason: patch?.reason || sale?.cancellationReason, _pending: true }
+          : sale
+      );
+      continue;
+    }
+    if (url.endsWith("/discount")) {
+      next = next.map((sale: any) => {
+        if (String(sale?.id || "") !== saleId) return sale;
+        const current = Number(sale?.totalAmount || 0);
+        const discount = Number(patch?.discountAmount || 0);
+        return { ...sale, totalAmount: Math.max(0, current - discount), _pending: true };
+      });
+      continue;
+    }
+    if (url.endsWith("/correct")) {
+      next = next.map((sale: any) => {
+        if (String(sale?.id || "") !== saleId) return sale;
+        const correctedTotal = Array.isArray(patch?.items)
+          ? patch.items.reduce((sum: number, i: any) => sum + Number(i?.qty || 0) * Number(i?.ratePerCarton || 0), 0)
+          : Number(sale?.totalAmount || 0);
+        return { ...sale, totalAmount: correctedTotal, _pending: true };
+      });
+    }
+  }
+  return next;
+}
+
 export default function SalesPage() {
   const { user } = useAuth();
   const { t } = useLang();
@@ -168,6 +214,7 @@ export default function SalesPage() {
           };
         });
       nextSales = [...pendingSales, ...nextSales];
+      nextSales = applyQueuedMutationsToSales(nextSales, queuedItems as any[]);
       setSales(nextSales);
       setTotalPages((result.pagination as any)?.totalPages || 1);
       setTotal((result.pagination as any)?.total || 0);
@@ -191,9 +238,10 @@ export default function SalesPage() {
           if (!pendingId.startsWith("pending-")) return true;
           return activePendingIds.has(pendingId);
         });
-        setSales(cleanedSnapshotSales);
+        const mergedSnapshotSales = applyQueuedMutationsToSales(cleanedSnapshotSales, queuedItems as any[]);
+        setSales(mergedSnapshotSales);
         setTotalPages(snapshot.totalPages || 1);
-        setTotal(snapshot.total || cleanedSnapshotSales.length);
+        setTotal(snapshot.total || mergedSnapshotSales.length);
         setShowOfflineSnapshot(true);
       }
     }
