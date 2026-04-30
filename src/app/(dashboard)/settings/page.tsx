@@ -221,6 +221,11 @@ function UsersTab() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
+  const getPendingQueueId = (id: unknown) => {
+    const str = String(id || "");
+    if (!str.startsWith("pending-")) return null;
+    return str.replace("pending-", "");
+  };
 
   const readSnapshot = useCallback(
     () => readOfflineReadSnapshot<SettingsUsersReadSnapshot>(SETTINGS_USERS_READ_CACHE_KEY),
@@ -281,7 +286,13 @@ function UsersTab() {
     if (r.success) { setShowCreate(false); load(); } else { setError(r.error || "Failed"); }
   };
 
-  const openEdit = (u: any) => { setSelected(u); setForm({ ...form, fullName: u.fullName, role: u.role, cityId: u.cityId || 0, username: u.username, password: "" }); setShowEdit(true); setError(""); };
+  const openEdit = (u: any) => {
+    if (getPendingQueueId(u?.id)) { setError("Pending user is not synced yet. Please sync first."); return; }
+    setSelected(u);
+    setForm({ ...form, fullName: u.fullName, role: u.role, cityId: u.cityId || 0, username: u.username, password: "" });
+    setShowEdit(true);
+    setError("");
+  };
   const handleEdit = async () => {
     setSubmitting(true);
     const r = await apiCall(`/api/v1/users/${selected.id}`, { method: "PUT", body: { fullName: form.fullName, isActive: true } });
@@ -290,6 +301,7 @@ function UsersTab() {
   };
 
   const openResetPw = (u: any) => {
+    if (getPendingQueueId(u?.id)) { setError("Pending user is not synced yet. Please sync first."); return; }
     setSelected(u);
     setNewPassword("");
     setShowResetPassword(false);
@@ -308,6 +320,10 @@ function UsersTab() {
   };
 
   const toggleActive = async (u: any) => {
+    if (getPendingQueueId(u?.id)) {
+      setError("Pending user is not synced yet. Please sync first.");
+      return;
+    }
     if (u.id === user?.id) {
       setError("You cannot deactivate your own account");
       return;
@@ -447,7 +463,7 @@ function UsersTab() {
 
 function ProductsTab() {
   const { t } = useLang();
-  const { isOnline, queuedItems } = useOffline();
+  const { isOnline, queuedItems, updateQueuedItem, discardQueuedItem } = useOffline();
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -456,6 +472,11 @@ function ProductsTab() {
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const getPendingQueueId = (id: unknown) => {
+    const str = String(id || "");
+    if (!str.startsWith("pending-")) return null;
+    return str.replace("pending-", "");
+  };
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
 
   const readSnapshot = useCallback(
@@ -492,14 +513,56 @@ function ProductsTab() {
 
   const handleCreate = async () => { if (!name.trim()) return; setSubmitting(true); const r = await apiCall("/api/v1/products", { method: "POST", body: { name } }); setSubmitting(false); if (r.success) { setShowCreate(false); setName(""); load(); } };
   const openEdit = (p: any) => { setSelected(p); setName(p.name); setShowEdit(true); };
-  const handleEdit = async () => { setSubmitting(true); await apiCall(`/api/v1/products/${selected.id}`, { method: "PUT", body: { name } }); setSubmitting(false); setShowEdit(false); load(); };
+  const handleEdit = async () => {
+    const pendingQueueId = getPendingQueueId(selected?.id);
+    if (pendingQueueId) {
+      const ok = await updateQueuedItem(pendingQueueId, { body: JSON.stringify({ name }) });
+      if (!ok) return;
+      setProducts((prev) => {
+        const next = prev.map((row: any) => (row.id === selected.id ? { ...row, name, _pending: true } : row));
+        mergeSnapshot({ products: next });
+        return next;
+      });
+      setShowEdit(false);
+      return;
+    }
+    setSubmitting(true);
+    await apiCall(`/api/v1/products/${selected.id}`, { method: "PUT", body: { name } });
+    setSubmitting(false);
+    setShowEdit(false);
+    load();
+  };
   const handleDelete = async (p: any) => {
     if (!confirm(`Delete "${p.name}"? This cannot be undone.`)) return;
+    const pendingQueueId = getPendingQueueId(p?.id);
+    if (pendingQueueId) {
+      const ok = await discardQueuedItem(pendingQueueId);
+      if (!ok) return;
+      setProducts((prev) => {
+        const next = prev.filter((row: any) => row.id !== p.id);
+        mergeSnapshot({ products: next });
+        return next;
+      });
+      return;
+    }
     setDeleteError("");
     const r = await apiCall(`/api/v1/products/${p.id}`, { method: "DELETE" });
     if (r.success) { load(); } else { setDeleteError(r.error || "Could not delete product."); }
   };
   const handleToggleActive = async (p: any) => {
+    const pendingQueueId = getPendingQueueId(p?.id);
+    if (pendingQueueId) {
+      if (p.isActive) {
+        const ok = await discardQueuedItem(pendingQueueId);
+        if (!ok) return;
+        setProducts((prev) => {
+          const next = prev.filter((row: any) => row.id !== p.id);
+          mergeSnapshot({ products: next });
+          return next;
+        });
+      }
+      return;
+    }
     await apiCall(`/api/v1/products/${p.id}`, { method: "PUT", body: { isActive: !p.isActive } });
     load();
   };
