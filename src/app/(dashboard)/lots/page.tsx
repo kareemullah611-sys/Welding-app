@@ -10,6 +10,7 @@ import * as XLSX from "xlsx";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingLots } from "@/lib/offline-queue-overlays";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
+import { applyQueuedMutationsToLots } from "@/lib/offline-remaining-mutations";
 
 const LOTS_READ_CACHE_KEY = "mrf-lots-read-cache-v1";
 
@@ -154,7 +155,8 @@ export default function LotsPage() {
     if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     const r = await apiCall("/api/v1/lots", { params });
     if (r.success) {
-      const nextRows = [...getPendingLots(queuedItems as any), ...((r.data as any[]) || [])];
+      let nextRows = [...getPendingLots(queuedItems as any), ...((r.data as any[]) || [])];
+      nextRows = applyQueuedMutationsToLots(nextRows, queuedItems as any[]);
       setLots(nextRows);
       const nextTotalPages = (r.pagination as any)?.totalPages || 1;
       const nextTotal = (r.pagination as any)?.total || 0;
@@ -169,7 +171,8 @@ export default function LotsPage() {
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.lots) {
-        const cleanedLots = pruneStalePendingRows(snapshot.lots as any[], queuedItems as any[], "/lots");
+        let cleanedLots = pruneStalePendingRows(snapshot.lots as any[], queuedItems as any[], "/lots");
+        cleanedLots = applyQueuedMutationsToLots(cleanedLots, queuedItems as any[]);
         setLots(cleanedLots);
         setTotalPages(snapshot.totalPages || 1);
         setTotal(snapshot.total || cleanedLots.length || 0);

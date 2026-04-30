@@ -6,6 +6,7 @@ import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { applyQueuedMutationsToCheques } from "@/lib/offline-remaining-mutations";
 
 const CHEQUES_READ_CACHE_KEY = "mrf-cheques-read-cache-v1";
 
@@ -98,7 +99,8 @@ export default function ChequesPage() {
       const cheques = (r.data as any[]).filter(
         (item: any) => item.type === "payment" && item.raw?.paymentMethod === "cheque"
       );
-      const nextRows = [...buildPendingChequeRows(), ...cheques];
+      let nextRows = [...buildPendingChequeRows(), ...cheques];
+      nextRows = applyQueuedMutationsToCheques(nextRows, queuedItems as any[]);
       setAllCheques(nextRows);
       const nextTotalPages = (r.pagination as any)?.totalPages || 1;
       const nextTotal = (r.pagination as any)?.total || 0;
@@ -116,7 +118,9 @@ export default function ChequesPage() {
           if (!id.startsWith("pending-")) return true;
           return pendingRows.some((p) => String(p.id) === id);
         });
-        setAllCheques([...pendingRows, ...cleanedSnapshot.filter((row: any) => !row?._pending)]);
+        let nextRows = [...pendingRows, ...cleanedSnapshot.filter((row: any) => !row?._pending)];
+        nextRows = applyQueuedMutationsToCheques(nextRows, queuedItems as any[]);
+        setAllCheques(nextRows);
         setTotalPages(snapshot.totalPages || 1);
         setTotal(snapshot.total || snapshot.allCheques.length || 0);
         setShowOfflineSnapshot(true);

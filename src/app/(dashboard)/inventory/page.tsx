@@ -8,6 +8,7 @@ import { PageHeader, Modal, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { countPendingInterGodownTransfers } from "@/lib/offline-inventory";
+import { applyQueuedMutationsToPendingTransfers } from "@/lib/offline-remaining-mutations";
 import { Warehouse } from "lucide-react";
 
 const INVENTORY_READ_CACHE_KEY = "mrf-inventory-read-cache-v1";
@@ -111,14 +112,15 @@ export default function InventoryPage() {
       setShowOfflineSnapshot(true);
     }
     if (trRes.success) {
-      const pending = (trRes.data as any[]).filter(
+      let pending = (trRes.data as any[]).filter(
         (tr: any) => tr.status === "pending" && tr.toCity?.id === user?.cityId
       );
+      pending = applyQueuedMutationsToPendingTransfers(pending, queuedItems as any[]);
       setPendingTransfers(pending);
       mergeSnapshot({ pendingTransfers: pending });
       setShowOfflineSnapshot(false);
     } else if (!isOnline && snapshot?.pendingTransfers) {
-      setPendingTransfers(snapshot.pendingTransfers);
+      setPendingTransfers(applyQueuedMutationsToPendingTransfers(snapshot.pendingTransfers, queuedItems as any[]));
       setShowOfflineSnapshot(true);
     }
     setPendingInterGodownCount(countPendingInterGodownTransfers(queuedItems as any));
