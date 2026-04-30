@@ -993,10 +993,10 @@ export default function PaymentsPage() {
                 {item.type === "payment" && user?.role === "super_admin" && !getPendingQueueId(item?.id) && (
                   <button onClick={() => { setOpenActionId(null); openHardDelete(item); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-800 hover:bg-red-50">{t("hard_delete")}</button>
                 )}
-                {item.type === "withdrawal" && item.status === "pending" && user?.role === "super_admin" && !getPendingQueueId(item?.id) && (
+                {item.type === "withdrawal" && item.status === "pending" && user?.role === "super_admin" && (
                   <button onClick={() => { setOpenActionId(null); handleApproveWithdrawal(item); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-green-700 hover:bg-green-50">Approve</button>
                 )}
-                {item.type === "payment" && item.status === "active" && item.raw?.paymentMethod === "cheque" && item.raw?.chequeStatus === "in_hand" && !getPendingQueueId(item?.id) && (
+                {item.type === "payment" && item.status === "active" && item.raw?.paymentMethod === "cheque" && item.raw?.chequeStatus === "in_hand" && (
                   <button onClick={() => { setOpenActionId(null); setBounceTarget(item); setShowBounce(true); setError(""); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-amber-700 hover:bg-amber-50">{t("mark_bounced")}</button>
                 )}
               </div>

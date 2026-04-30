@@ -418,7 +418,11 @@ export default function CustomersPage() {
         columns={[
         { key: "name", label: t("name"), render: (c: any) => (
           <div className="flex items-center gap-2">
-            <button onClick={() => openLedger(c)} className="font-medium text-primary-600 hover:underline">{c.name}</button>
+            {String(c?.id || "").startsWith("pending-") ? (
+              <span className="font-medium text-gray-500">{c.name}</span>
+            ) : (
+              <button onClick={() => openLedger(c)} className="font-medium text-primary-600 hover:underline">{c.name}</button>
+            )}
             {!c.isActive && <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-medium">{t("inactive")}</span>}
           </div>
         )},
