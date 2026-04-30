@@ -58,6 +58,7 @@ export default function SuppliersPage() {
   const [error, setError] = useState("");
   const [openActionId, setOpenActionId] = useState<string | null>(null);
   const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
+  const isPendingSupplier = (supplier: any) => String(supplier?.id || "").startsWith("pending-");
 
   const readSnapshot = useCallback(() => {
     return readOfflineReadSnapshot<SuppliersReadSnapshot>(SUPPLIERS_READ_CACHE_KEY);
@@ -188,6 +189,10 @@ export default function SuppliersPage() {
   };
 
   const openLedger = async (s: any) => {
+    if (isPendingSupplier(s)) {
+      setError("Pending supplier is not synced yet. Please sync first.");
+      return;
+    }
     setSelected(s);
     setShowLedger(true);
     setLedgerData(null);
@@ -464,9 +469,13 @@ export default function SuppliersPage() {
           {
             key: "name", label: t("suppliers"),
             render: (s: any) => (
-              <button onClick={() => openLedger(s)} className="font-medium text-primary-600 hover:underline">
-                {s.name}
-              </button>
+              isPendingSupplier(s) ? (
+                <span className="font-medium text-gray-500">{s.name}</span>
+              ) : (
+                <button onClick={() => openLedger(s)} className="font-medium text-primary-600 hover:underline">
+                  {s.name}
+                </button>
+              )
             ),
           },
           { key: "country", label: t("country"), render: (s: any) => s.country || "-" },
