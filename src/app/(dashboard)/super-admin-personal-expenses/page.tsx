@@ -18,6 +18,46 @@ type SaPersonalExpensesReadSnapshot = {
   total: number;
 };
 
+function applyQueuedMutationsToSaExpenses(baseRows: any[], queueItems: any[], accounts: any[]) {
+  if (!Array.isArray(baseRows) || !Array.isArray(queueItems) || queueItems.length === 0) return baseRows;
+  let next = [...baseRows];
+  for (const q of queueItems) {
+    const method = String(q?.method || "").toUpperCase();
+    if (!["PUT", "PATCH", "DELETE"].includes(method)) continue;
+    const url = String(q?.url || "");
+    if (!url.startsWith("/api/v1/super-admin-personal-expenses/")) continue;
+    const match = url.match(/^\/api\/v1\/super-admin-personal-expenses\/([^/?#]+)/);
+    const expenseId = match?.[1];
+    if (!expenseId) continue;
+    if (method === "DELETE") {
+      next = next.filter((row: any) => String(row?.id || "") !== expenseId);
+      continue;
+    }
+    let patch: any = {};
+    try {
+      patch = JSON.parse(String(q?.body || "{}"));
+    } catch {
+      patch = {};
+    }
+    const patchAccount = accounts.find((a: any) => a.id === Number(patch?.bankAccountId || 0));
+    next = next.map((row: any) =>
+      String(row?.id || "") === expenseId
+        ? {
+            ...row,
+            expenseDate: patch?.expenseDate ?? row?.expenseDate,
+            detail: patch?.detail ?? row?.detail,
+            amount: patch?.amount ?? row?.amount,
+            notes: patch?.notes ?? row?.notes,
+            bankAccountId: patch?.bankAccountId ?? row?.bankAccountId,
+            bankAccount: patchAccount || row?.bankAccount,
+            _pending: true,
+          }
+        : row
+    );
+  }
+  return next;
+}
+
 export default function SuperAdminPersonalExpensesPage() {
   const { user } = useAuth();
   const { isOnline, queuedItems, updateQueuedItem, discardQueuedItem } = useOffline();
@@ -59,7 +99,8 @@ export default function SuperAdminPersonalExpensesPage() {
     ]);
     if (accountsRes.success && expensesRes.success) {
       const loadedAccounts = accountsRes.data as any[];
-      const loadedExpenses = [...getPendingSuperAdminPersonalExpenses(queuedItems as any), ...((expensesRes.data as any[]) || [])];
+      let loadedExpenses = [...getPendingSuperAdminPersonalExpenses(queuedItems as any), ...((expensesRes.data as any[]) || [])];
+      loadedExpenses = applyQueuedMutationsToSaExpenses(loadedExpenses, queuedItems as any[], loadedAccounts as any[]);
       const loadedTotalPages = (expensesRes.pagination as any)?.totalPages || 1;
       const loadedTotal = (expensesRes.pagination as any)?.total || 0;
       setAccounts(loadedAccounts);
@@ -77,10 +118,11 @@ export default function SuperAdminPersonalExpensesPage() {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.expenses) {
         const cleanedExpenses = pruneStalePendingRows(snapshot.expenses as any[], queuedItems as any[], "/super-admin-personal-expenses");
+        const mergedSnapshotExpenses = applyQueuedMutationsToSaExpenses(cleanedExpenses, queuedItems as any[], snapshot.accounts || []);
         setAccounts(snapshot.accounts || []);
-        setExpenses(cleanedExpenses);
+        setExpenses(mergedSnapshotExpenses);
         setTotalPages(snapshot.totalPages || 1);
-        setTotal(snapshot.total || cleanedExpenses.length || 0);
+        setTotal(snapshot.total || mergedSnapshotExpenses.length || 0);
         setShowOfflineSnapshot(true);
       }
     }

@@ -18,6 +18,44 @@ type CustomersReadSnapshot = {
   ledgerByCustomer: Record<string, any>;
 };
 
+function applyQueuedMutationsToCustomers(baseRows: any[], queueItems: any[]) {
+  if (!Array.isArray(baseRows) || !Array.isArray(queueItems) || queueItems.length === 0) return baseRows;
+  let next = [...baseRows];
+  for (const q of queueItems) {
+    const method = String(q?.method || "").toUpperCase();
+    if (!["PUT", "PATCH", "DELETE"].includes(method)) continue;
+    const url = String(q?.url || "");
+    if (!url.startsWith("/api/v1/customers/")) continue;
+    const match = url.match(/^\/api\/v1\/customers\/([^/?#]+)/);
+    const customerId = match?.[1];
+    if (!customerId) continue;
+    if (method === "DELETE") {
+      next = next.filter((row: any) => String(row?.id || "") !== customerId);
+      continue;
+    }
+    let patch: any = {};
+    try {
+      patch = JSON.parse(String(q?.body || "{}"));
+    } catch {
+      patch = {};
+    }
+    next = next.map((row: any) =>
+      String(row?.id || "") === customerId
+        ? {
+            ...row,
+            name: patch?.name ?? row?.name,
+            phone: patch?.phone ?? row?.phone,
+            address: patch?.address ?? row?.address,
+            cityId: patch?.cityId ?? row?.cityId,
+            isActive: typeof patch?.isActive === "boolean" ? patch.isActive : row?.isActive,
+            _pending: true,
+          }
+        : row
+    );
+  }
+  return next;
+}
+
 export default function CustomersPage() {
   const { user } = useAuth();
   const { t } = useLang();
@@ -97,6 +135,7 @@ export default function CustomersPage() {
           };
         });
       nextCustomers = [...pendingCustomers, ...nextCustomers];
+      nextCustomers = applyQueuedMutationsToCustomers(nextCustomers, queuedItems as any[]);
       setCustomers(nextCustomers);
       setTotalPages((result.pagination as any)?.totalPages || 1);
       setTotal((result.pagination as any)?.total || 0);
@@ -106,9 +145,10 @@ export default function CustomersPage() {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.customers?.length) {
         const cleanedCustomers = pruneStalePendingRows(snapshot.customers as any[], queuedItems as any[], "/customers");
-        setCustomers(cleanedCustomers);
+        const mergedSnapshotCustomers = applyQueuedMutationsToCustomers(cleanedCustomers, queuedItems as any[]);
+        setCustomers(mergedSnapshotCustomers);
         setTotalPages(1);
-        setTotal(cleanedCustomers.length);
+        setTotal(mergedSnapshotCustomers.length);
         setShowOfflineSnapshot(true);
       }
     }
