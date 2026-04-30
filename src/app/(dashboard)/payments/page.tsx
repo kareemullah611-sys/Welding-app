@@ -653,6 +653,10 @@ export default function PaymentsPage() {
   const openHardDelete = (item: any) => { setHardDeleteTarget(item); setHardDeletePassword(""); setHardDeleteError(""); setShowHardDelete(true); };
   const handleHardDelete = async () => {
     if (!hardDeletePassword.trim()) { setHardDeleteError(t("password_required")); return; }
+    if (getPendingQueueId(hardDeleteTarget?.id)) {
+      setHardDeleteError("Pending payment is not synced yet. Use Cancel to remove it locally.");
+      return;
+    }
     setHardDeleteSubmitting(true);
     const result = await apiCall(`/api/v1/payments/${hardDeleteTarget.id}/hard-delete`, { method: "DELETE", body: { password: hardDeletePassword } });
     setHardDeleteSubmitting(false);
@@ -986,7 +990,7 @@ export default function PaymentsPage() {
                 {item.type !== "payment" && (
                   <button onClick={() => { setOpenActionId(null); handleDelete(item); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("delete")}</button>
                 )}
-                {item.type === "payment" && user?.role === "super_admin" && (
+                {item.type === "payment" && user?.role === "super_admin" && !getPendingQueueId(item?.id) && (
                   <button onClick={() => { setOpenActionId(null); openHardDelete(item); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-800 hover:bg-red-50">{t("hard_delete")}</button>
                 )}
                 {item.type === "withdrawal" && item.status === "pending" && user?.role === "super_admin" && (
