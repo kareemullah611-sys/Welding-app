@@ -136,6 +136,10 @@ export default function ShippingLinesPage() {
   };
 
   const openLedger = async (sl: any) => {
+    if (getPendingQueueId(sl?.id)) {
+      setError("Pending shipping line is not synced yet. Please sync first.");
+      return;
+    }
     setSelected(sl); setShowLedger(true); setLedger(null); setLedgerLoading(true);
     const r = await apiCall(`/api/v1/shipping-lines/${sl.id}`);
     if (r.success) {
@@ -154,6 +158,10 @@ export default function ShippingLinesPage() {
   };
 
   const openAddPayment = async (sl: any) => {
+    if (getPendingQueueId(sl?.id)) {
+      setError("Pending shipping line is not synced yet. Please sync first.");
+      return;
+    }
     setSelected(sl);
     setPayForm({ paymentDate: new Date().toISOString().split("T")[0], amountUsd: "", exchangeRate: "", reference: "", notes: "", paidFrom: "bank", bankAccountId: "", intermediaryId: "" });
     setError(""); setShowPayment(true);
@@ -245,8 +253,12 @@ export default function ShippingLinesPage() {
           </button>
           {openActionId === sl.id && (
             <div className={`absolute right-0 z-50 w-44 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}>
-              <button onClick={() => { setOpenActionId(null); openLedger(sl); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">Open Ledger</button>
-              <button onClick={() => { setOpenActionId(null); openAddPayment(sl); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-green-700 hover:bg-green-50">Record Settlement</button>
+              {!getPendingQueueId(sl?.id) && (
+                <>
+                  <button onClick={() => { setOpenActionId(null); openLedger(sl); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">Open Ledger</button>
+                  <button onClick={() => { setOpenActionId(null); openAddPayment(sl); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-green-700 hover:bg-green-50">Record Settlement</button>
+                </>
+              )}
               <button onClick={() => { setOpenActionId(null); openEdit(sl); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-gray-700 hover:bg-gray-50">Edit</button>
               {typeof sl.id === "string" && sl.id.startsWith("pending-") && (
                 <button
