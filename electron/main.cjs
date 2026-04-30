@@ -14,7 +14,6 @@ function readConfiguredUrl() {
 }
 
 const APP_URL = process.env.ELECTRON_START_URL || readConfiguredUrl() || "http://localhost:3000";
-const REMOTE_BOOT_TIMEOUT_MS = 7000;
 
 function loadOfflineFallback(win) {
   const fallbackPath = path.join(__dirname, "offline-start.html");
@@ -36,29 +35,8 @@ function createWindow() {
     },
   });
 
-  let didFinish = false;
-  const timeout = setTimeout(() => {
-    if (!didFinish && !win.isDestroyed()) {
-      loadOfflineFallback(win).catch(() => {});
-    }
-  }, REMOTE_BOOT_TIMEOUT_MS);
-
-  win.webContents.once("did-finish-load", () => {
-    didFinish = true;
-    clearTimeout(timeout);
-  });
-
-  win.webContents.once("did-fail-load", () => {
-    if (!win.isDestroyed()) {
-      loadOfflineFallback(win).catch(() => {});
-    }
-  });
-
-  win.loadURL(APP_URL).catch(() => {
-    if (!win.isDestroyed()) {
-      loadOfflineFallback(win).catch(() => {});
-    }
-  });
+  // Local-first boot: always open the bundled local shell first.
+  loadOfflineFallback(win).catch(() => {});
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
@@ -77,6 +55,8 @@ app.whenReady().then(() => {
       return false;
     }
   });
+
+  ipcMain.handle("electron:get-remote-url", () => APP_URL);
 
   createWindow();
   app.on("activate", () => {

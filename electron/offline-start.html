@@ -41,9 +41,9 @@
   </head>
   <body>
     <main class="card">
-      <h1>Offline startup mode</h1>
-      <p>The app opened locally, but the remote service is currently unreachable.</p>
-      <p>Your cached/offline records remain on this device. Retry when internet is available.</p>
+      <h1>Starting local workspace</h1>
+      <p>The app now starts locally first on every launch.</p>
+      <p>If internet is available, it will connect to the remote service automatically.</p>
       <button id="retryBtn" type="button">Retry connection</button>
       <p class="meta" id="targetUrl"></p>
     </main>
@@ -52,7 +52,7 @@
       const targetUrlEl = document.getElementById("targetUrl");
       if (targetUrlEl && targetUrl) targetUrlEl.textContent = targetUrl;
       const retryBtn = document.getElementById("retryBtn");
-      retryBtn?.addEventListener("click", async () => {
+      const tryRemote = async () => {
         if (!window.platformInfo?.retryRemoteLoad) return;
         retryBtn.disabled = true;
         retryBtn.textContent = "Trying...";
@@ -61,7 +61,10 @@
           retryBtn.disabled = false;
           retryBtn.textContent = "Retry connection";
         }
-      });
+      };
+      retryBtn?.addEventListener("click", tryRemote);
+      window.setTimeout(() => { void tryRemote(); }, 500);
+      window.addEventListener("online", () => { void tryRemote(); });
     </script>
   </body>
 </html>
