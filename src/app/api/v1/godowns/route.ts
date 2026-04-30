@@ -4,7 +4,7 @@ import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middl
 import { createGodownSchema } from "@/lib/validations";
 import { successResponse, paginatedResponse, validationError, errorResponse, serverError, getPaginationParams } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
-import { getAllowedGodownCityIds } from "@/lib/godown-access";
+import { getAllowedGodownCityIds, getAllowedGodownIds } from "@/lib/godown-access";
 
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
@@ -18,9 +18,15 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     if (showAll && user.role === "city_admin" && user.cityId) {
       // Own city + cities this admin has permission to access
-      const permittedCityIds = await getAllowedGodownCityIds(user.cityId);
+      const [permittedCityIds, permittedGodownIds] = await Promise.all([
+        getAllowedGodownCityIds(user.cityId),
+        getAllowedGodownIds(user.cityId),
+      ]);
       const allowedCityIds = [user.cityId, ...permittedCityIds];
-      where.cityId = { in: allowedCityIds };
+      where.OR = [
+        { cityId: { in: allowedCityIds } },
+        ...(permittedGodownIds.length ? [{ id: { in: permittedGodownIds } }] : []),
+      ];
     } else if (showAll && user.role === "super_admin" && user.countryId) {
       // Super admin sees all godowns in the country when show_all
       where.city = { countryId: user.countryId };

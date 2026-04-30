@@ -9,7 +9,7 @@ import {
   getPaginationParams, getDateRange,
 } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
-import { canAccessGodownCity } from "@/lib/godown-access";
+import { canAccessGodown } from "@/lib/godown-access";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 
 const SALE_SYNC_MODULE = "sales.create";
@@ -350,7 +350,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const isCrossCity = godown.cityId !== cityId;
     // If cross-city, verify this admin's city has explicit permission
     if (isCrossCity) {
-      const permitted = await canAccessGodownCity(cityId, godown.cityId);
+      const permitted = await canAccessGodown(cityId, godown.id, godown.cityId);
       if (!permitted) return errorResponse("FORBIDDEN", `Your city does not have permission to use godowns from ${godown.city.name}`, 403);
     }
 
