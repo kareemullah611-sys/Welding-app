@@ -28,6 +28,43 @@ type ExpensesFormCache = {
   inHandCheques: any[];
 };
 
+function applyQueuedMutationsToExpenses(baseExpenses: any[], queueItems: any[]) {
+  if (!Array.isArray(baseExpenses) || !Array.isArray(queueItems) || queueItems.length === 0) return baseExpenses;
+  let next = [...baseExpenses];
+  for (const q of queueItems) {
+    const method = String(q?.method || "").toUpperCase();
+    if (!["PUT", "PATCH", "DELETE"].includes(method)) continue;
+    const url = String(q?.url || "");
+    if (!url.startsWith("/api/v1/expenses/")) continue;
+    const match = url.match(/^\/api\/v1\/expenses\/([^/?#]+)/);
+    const expenseId = match?.[1];
+    if (!expenseId) continue;
+    if (method === "DELETE") {
+      next = next.filter((item: any) => String(item?.id || "") !== expenseId);
+      continue;
+    }
+    let patch: any = {};
+    try {
+      patch = JSON.parse(String(q?.body || "{}"));
+    } catch {
+      patch = {};
+    }
+    next = next.map((item: any) =>
+      String(item?.id || "") === expenseId
+        ? {
+            ...item,
+            expenseDate: patch?.expenseDate ?? item?.expenseDate,
+            detail: patch?.detail ?? item?.detail,
+            notes: patch?.notes ?? item?.notes,
+            amount: patch?.amount ?? item?.amount,
+            _pending: true,
+          }
+        : item
+    );
+  }
+  return next;
+}
+
 export default function ExpensesPage() {
   const { user } = useAuth();
   const { t } = useLang();
@@ -101,6 +138,7 @@ export default function ExpensesPage() {
           };
         });
       nextExpenses = [...pendingExpenses, ...nextExpenses];
+      nextExpenses = applyQueuedMutationsToExpenses(nextExpenses, queuedItems as any[]);
       setExpenses(nextExpenses);
       setTotalPages((result.pagination as any)?.totalPages || 1);
       setTotal((result.pagination as any)?.total || 0);
@@ -114,9 +152,10 @@ export default function ExpensesPage() {
       const snapshot = readOfflineReadSnapshot<ExpensesReadSnapshot>(EXPENSES_READ_CACHE_KEY)?.data;
       if (snapshot?.expenses?.length) {
         const cleanedExpenses = pruneStalePendingRows(snapshot.expenses as any[], queuedItems as any[], "/expenses");
-        setExpenses(cleanedExpenses);
+        const mergedSnapshotExpenses = applyQueuedMutationsToExpenses(cleanedExpenses, queuedItems as any[]);
+        setExpenses(mergedSnapshotExpenses);
         setTotalPages(snapshot.totalPages || 1);
-        setTotal(snapshot.total || cleanedExpenses.length);
+        setTotal(snapshot.total || mergedSnapshotExpenses.length);
         setShowOfflineSnapshot(true);
       }
     }
