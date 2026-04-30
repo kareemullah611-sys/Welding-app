@@ -207,7 +207,7 @@ function UserAvatar({ name }: { name: string }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function ActivityFeedPage() {
   const { user } = useAuth();
-  const { queuedItems, retryQueuedItem, discardQueuedItem, syncQueue, clearOfflineData } = useOffline();
+  const { queuedItems, retryQueuedItem, discardQueuedItem, syncQueue, clearOfflineData, exportOfflineBundle, importOfflineBundle } = useOffline();
   const { t } = useLang();
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -219,6 +219,7 @@ export default function ActivityFeedPage() {
   const [filterCityId, setFilterCityId] = useState<number | "">("");
   const [queueActionId, setQueueActionId] = useState<string | null>(null);
   const [resettingOffline, setResettingOffline] = useState(false);
+  const [importingOffline, setImportingOffline] = useState(false);
 
   useEffect(() => {
     if (user?.role === "super_admin") {
@@ -347,6 +348,49 @@ export default function ActivityFeedPage() {
               )}
             </div>
             <div className="flex items-center gap-2">
+              <button
+                onClick={async () => {
+                  const bundle = await exportOfflineBundle();
+                  const blob = new Blob([bundle], { type: "application/json" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `offline_backup_${new Date().toISOString().slice(0, 10)}.json`;
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                  URL.revokeObjectURL(url);
+                }}
+                className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+              >
+                Export Offline Backup
+              </button>
+              <label className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 cursor-pointer">
+                {importingOffline ? "Importing..." : "Import Offline Backup"}
+                <input
+                  type="file"
+                  accept="application/json"
+                  className="hidden"
+                  disabled={importingOffline}
+                  onChange={async (event) => {
+                    const file = event.target.files?.[0];
+                    event.currentTarget.value = "";
+                    if (!file) return;
+                    const ok = confirm("Importing will replace this device offline cache/queue with backup data. Continue?");
+                    if (!ok) return;
+                    setImportingOffline(true);
+                    try {
+                      const text = await file.text();
+                      await importOfflineBundle(text);
+                      await load(1);
+                    } catch (error) {
+                      alert(error instanceof Error ? error.message : "Failed to import backup");
+                    } finally {
+                      setImportingOffline(false);
+                    }
+                  }}
+                />
+              </label>
               <button
                 onClick={async () => { await syncQueue(); }}
                 className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"

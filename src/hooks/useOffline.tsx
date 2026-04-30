@@ -75,6 +75,8 @@ interface OfflineContextType {
   getCachedGodownStock: (godownId: number) => Promise<any[] | null>;
   cacheApiResponse: (url: string, params: Record<string, string | number | undefined> | undefined, data: unknown, pagination?: unknown) => Promise<void>;
   getCachedApiResponse: (url: string, params?: Record<string, string | number | undefined>) => Promise<{ data: unknown; pagination?: unknown; cachedAt: number } | null>;
+  exportOfflineBundle: () => Promise<string>;
+  importOfflineBundle: (bundleJson: string) => Promise<void>;
 }
 
 const OfflineContext = createContext<OfflineContextType>({
@@ -94,6 +96,8 @@ const OfflineContext = createContext<OfflineContextType>({
   getCachedGodownStock: async () => null,
   cacheApiResponse: async () => {},
   getCachedApiResponse: async () => null,
+  exportOfflineBundle: async () => "{}",
+  importOfflineBundle: async () => {},
 });
 
 // ── IndexedDB helpers ──────────────────────────────────────────────────────────
@@ -318,6 +322,70 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     await refreshQueueState();
   }, [refreshQueueState]);
 
+  const exportOfflineBundle = useCallback(async () => {
+    const [queue, stock, apiCache, localReadModel, idMap] = await Promise.all([
+      dbGetAll<any>(QUEUE_STORE),
+      dbGetAll<any>(STOCK_STORE),
+      dbGetAll<any>(API_CACHE_STORE),
+      dbGetAll<any>(LOCAL_READ_MODEL_STORE),
+      dbGetAll<any>(ID_MAP_STORE),
+    ]);
+    const localStorageData: Record<string, string> = {};
+    if (typeof window !== "undefined") {
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const key = window.localStorage.key(i);
+        if (!key) continue;
+        if (key.startsWith("mrf-") || key.startsWith("offline_")) {
+          const value = window.localStorage.getItem(key);
+          if (value !== null) localStorageData[key] = value;
+        }
+      }
+    }
+    return JSON.stringify({
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      stores: { queue, stock, apiCache, localReadModel, idMap },
+      localStorage: localStorageData,
+    });
+  }, []);
+
+  const importOfflineBundle = useCallback(async (bundleJson: string) => {
+    const parsed = JSON.parse(bundleJson || "{}");
+    const stores = parsed?.stores || {};
+    const db = await openDB();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction([QUEUE_STORE, STOCK_STORE, API_CACHE_STORE, LOCAL_READ_MODEL_STORE, ID_MAP_STORE], "readwrite");
+      tx.objectStore(QUEUE_STORE).clear();
+      tx.objectStore(STOCK_STORE).clear();
+      tx.objectStore(API_CACHE_STORE).clear();
+      tx.objectStore(LOCAL_READ_MODEL_STORE).clear();
+      tx.objectStore(ID_MAP_STORE).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    for (const row of Array.isArray(stores.queue) ? stores.queue : []) await dbPut(QUEUE_STORE, row);
+    for (const row of Array.isArray(stores.stock) ? stores.stock : []) await dbPut(STOCK_STORE, row);
+    for (const row of Array.isArray(stores.apiCache) ? stores.apiCache : []) await dbPut(API_CACHE_STORE, row);
+    for (const row of Array.isArray(stores.localReadModel) ? stores.localReadModel : []) await dbPut(LOCAL_READ_MODEL_STORE, row);
+    for (const row of Array.isArray(stores.idMap) ? stores.idMap : []) await dbPut(ID_MAP_STORE, row);
+
+    if (typeof window !== "undefined") {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const key = window.localStorage.key(i);
+        if (!key) continue;
+        if (key.startsWith("mrf-") || key.startsWith("offline_")) keysToRemove.push(key);
+      }
+      keysToRemove.forEach((k) => window.localStorage.removeItem(k));
+      const ls = parsed?.localStorage || {};
+      for (const [key, value] of Object.entries(ls)) {
+        if (typeof value === "string") window.localStorage.setItem(key, value);
+      }
+      window.dispatchEvent(new Event("mrf-offline-queue-updated"));
+    }
+    await refreshQueueState();
+  }, [refreshQueueState]);
+
   // ── Stock cache ──
   const cacheGodownStock = useCallback(async (godownId: number, stock: any[]) => {
     await dbPut(STOCK_STORE, { godownId, stock, cachedAt: Date.now() });
@@ -454,6 +522,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     <OfflineContext.Provider value={{
       isOnline, isServiceWorkerReady, queueCount, syncQueue, isSyncing, lastSyncResult, queuedItems,
       enqueue, updateQueuedItem, retryQueuedItem, discardQueuedItem, clearOfflineData, cacheGodownStock, getCachedGodownStock, cacheApiResponse, getCachedApiResponse,
+      exportOfflineBundle, importOfflineBundle,
     }}>
       {children}
     </OfflineContext.Provider>
