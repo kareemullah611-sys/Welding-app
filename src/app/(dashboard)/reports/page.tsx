@@ -6,6 +6,7 @@ import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, StatsCard, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { applyPendingCustomerLedger } from "@/lib/offline-customer-ledger";
 
 type ReportType = "sales" | "payments" | "expenses" | "haji_settlement" | "customer_ledger" | "city_ledger" | "discount_history";
 const REPORTS_READ_CACHE_KEY = "mrf-reports-read-cache-v1";
@@ -29,7 +30,7 @@ const stripLegacyReportUrl = (value: unknown) =>
 export default function ReportsPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline } = useOffline();
+  const { isOnline, queuedItems } = useOffline();
   const [reportType, setReportType] = useState<ReportType>("sales");
   const [filters, setFilters] = useState({ date_from: "", date_to: "", customer_id: "", city_id: "" });
   const [data, setData] = useState<any[]>([]);
@@ -62,6 +63,71 @@ export default function ReportsPage() {
     setShowOfflineSnapshot(true);
     return true;
   };
+
+  const parseQueuedBody = (body: string) => {
+    try { return JSON.parse(body || "{}"); } catch { return {}; }
+  };
+
+  const getPendingRowsForReport = useCallback((type: ReportType) => {
+    const rows: any[] = [];
+    for (const q of queuedItems as any[]) {
+      if (String(q?.method || "").toUpperCase() !== "POST") continue;
+      const parsed = parseQueuedBody(String(q?.body || "{}"));
+      const pendingId = `pending-${q.id}`;
+      if (type === "sales" && q.url === "/api/v1/sales") {
+        const date = parsed?.saleDate || parsed?.date || new Date().toISOString().slice(0, 10);
+        const totalAmount = Number(parsed?.totalAmount || 0);
+        rows.push({
+          id: pendingId,
+          saleDate: date,
+          voucherNo: parsed?.voucherNo || "PENDING",
+          customer: { name: parsed?.customerName || "Pending Customer" },
+          status: "active",
+          totalAmount,
+          _pending: true,
+        });
+        continue;
+      }
+      if (type === "payments" && q.url === "/api/v1/payments") {
+        const date = parsed?.paymentDate || parsed?.date || new Date().toISOString().slice(0, 10);
+        const amount = Number(parsed?.amount || 0);
+        rows.push({
+          id: pendingId,
+          paymentDate: date,
+          customer: { name: parsed?.customerName || "Pending Customer" },
+          detail: parsed?.detail || "Pending offline payment",
+          amount,
+          paymentMethod: parsed?.paymentMethod || "cash",
+          destination: parsed?.destination || "our_account",
+          _pending: true,
+        });
+        continue;
+      }
+      if (type === "expenses" && q.url === "/api/v1/expenses") {
+        const date = parsed?.expenseDate || parsed?.date || new Date().toISOString().slice(0, 10);
+        rows.push({
+          id: pendingId,
+          expenseDate: date,
+          detail: parsed?.detail || "Pending offline expense",
+          amount: Number(parsed?.amount || 0),
+          _pending: true,
+        });
+        continue;
+      }
+      if (type === "haji_settlement" && q.url === "/api/v1/haji-transfers") {
+        const date = parsed?.transferDate || parsed?.date || new Date().toISOString().slice(0, 10);
+        rows.push({
+          id: pendingId,
+          transferDate: date,
+          detail: parsed?.detail || "Pending offline haji transfer",
+          amount: Number(parsed?.amount || 0),
+          transferType: parsed?.transferType || "from_in_hand",
+          _pending: true,
+        });
+      }
+    }
+    return rows;
+  }, [queuedItems]);
 
   const loadFilters = useCallback(async () => {
     const [custRes, cityRes] = await Promise.all([apiCall("/api/v1/customers", { params: { limit: 200 } }), apiCall("/api/v1/cities")]);
@@ -165,13 +231,19 @@ export default function ReportsPage() {
       });
       if (result.success) {
         const d = result.data as any;
-        const nextSummary = { balance: d.balance, balanceByCurrency: d.balanceByCurrency, name: d.name, isActive: d.isActive, countryCode: d.countryCode || null };
-        setData(d.ledger || []);
+        const customerIdNum = Number(filters.customer_id || 0);
+        const merged = applyPendingCustomerLedger(
+          { ledger: d.ledger || [], balance: d.balance, balanceByCurrency: d.balanceByCurrency },
+          queuedItems as any,
+          customerIdNum,
+        );
+        const nextSummary = { balance: merged.balance, balanceByCurrency: merged.balanceByCurrency, name: d.name, isActive: d.isActive, countryCode: d.countryCode || null };
+        setData(merged.ledger || []);
         setSummary(nextSummary);
         mergeSnapshot({
           reportsByType: {
             customer_ledger: {
-              data: d.ledger || [],
+              data: merged.ledger || [],
               summary: nextSummary,
               filters: { ...filters },
             },
@@ -184,16 +256,16 @@ export default function ReportsPage() {
     } else {
       const urls: Record<string, string> = { sales: "/api/v1/sales", payments: "/api/v1/payments", expenses: "/api/v1/expenses", haji_settlement: "/api/v1/haji-transfers", discount_history: "/api/v1/discounts" };
       const result = await apiCall(urls[reportType], { params });
-      if (result.success) { const items = result.data as any[]; setData(items);
+      if (result.success) { const items = result.data as any[]; const nextItems = [...getPendingRowsForReport(reportType), ...items]; setData(nextItems);
         let nextSummary: any = null;
-        if (reportType === "sales") nextSummary = { total: items.reduce((s, i: any) => s + (i.totalAmount || 0), 0), count: items.length };
-        else if (reportType === "payments") { const tot = items.reduce((s, i: any) => s + (i.amount || 0), 0); const h = items.filter((i: any) => i.destination === "haji").reduce((s, i: any) => s + (i.amount || 0), 0); nextSummary = { total: tot, haji: h, inHand: tot - h, count: items.length }; }
-        else nextSummary = { total: items.reduce((s, i: any) => s + (i.amount || 0), 0), count: items.length };
+        if (reportType === "sales") nextSummary = { total: nextItems.reduce((s, i: any) => s + (i.totalAmount || 0), 0), count: nextItems.length };
+        else if (reportType === "payments") { const tot = nextItems.reduce((s, i: any) => s + (i.amount || 0), 0); const h = nextItems.filter((i: any) => i.destination === "haji").reduce((s, i: any) => s + (i.amount || 0), 0); nextSummary = { total: tot, haji: h, inHand: tot - h, count: nextItems.length }; }
+        else nextSummary = { total: nextItems.reduce((s, i: any) => s + (i.amount || 0), 0), count: nextItems.length };
         setSummary(nextSummary);
         mergeSnapshot({
           reportsByType: {
             [reportType]: {
-              data: items,
+              data: nextItems,
               summary: nextSummary,
               filters: { ...filters },
             },
