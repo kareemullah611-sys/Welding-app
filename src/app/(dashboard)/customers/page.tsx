@@ -21,7 +21,7 @@ type CustomersReadSnapshot = {
 export default function CustomersPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline, enqueue, updateQueuedItem, retryQueuedItem, syncQueue, queuedItems, lastSyncResult } = useOffline();
+  const { isOnline, enqueue, updateQueuedItem, retryQueuedItem, discardQueuedItem, syncQueue, queuedItems, lastSyncResult } = useOffline();
   const searchParams = useSearchParams();
   const isEmbed = searchParams.get("embed") === "1";
   const [customers, setCustomers] = useState<any[]>([]);
@@ -44,8 +44,15 @@ export default function CustomersPage() {
   const [hardDeletePassword, setHardDeletePassword] = useState("");
   const [hardDeleteError, setHardDeleteError] = useState("");
   const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
-  const [openActionId, setOpenActionId] = useState<number | null>(null);
+  const [openActionId, setOpenActionId] = useState<number | string | null>(null);
   const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
+  const getPendingQueueId = useCallback((row: any): string | null => {
+    if (!row) return null;
+    if (typeof row._queueId === "string" && row._queueId) return row._queueId;
+    const id = String(row.id || "");
+    if (id.startsWith("pending-")) return id.replace("pending-", "");
+    return null;
+  }, []);
   const [prefillHandled, setPrefillHandled] = useState(false);
   const closeEmbed = useCallback(() => {
     if (typeof window !== "undefined" && window.parent !== window) {
@@ -260,6 +267,17 @@ export default function CustomersPage() {
 
   const handleDelete = async (c: any) => {
     if (!confirm(`${c.name}: ${t("confirm_deactivate_customer")}`)) return;
+    const pendingQueueId = getPendingQueueId(c);
+    if (pendingQueueId && String(c?.id || "").startsWith("pending-")) {
+      const ok = await discardQueuedItem(pendingQueueId);
+      if (!ok) return;
+      setCustomers((prev) => {
+        const next = prev.filter((row) => row.id !== c.id);
+        mergeSnapshot({ customers: next });
+        return next;
+      });
+      return;
+    }
     if (!isOnline) {
       const queueId = await enqueue({
         url: `/api/v1/customers/${c.id}`,
@@ -288,6 +306,18 @@ export default function CustomersPage() {
   const openHardDelete = (c: any) => { setHardDeleteTarget(c); setHardDeletePassword(""); setHardDeleteError(""); setShowHardDelete(true); };
   const handleHardDelete = async () => {
     if (!hardDeletePassword.trim()) { setHardDeleteError(t("password_required")); return; }
+    const pendingQueueId = getPendingQueueId(hardDeleteTarget);
+    if (pendingQueueId && String(hardDeleteTarget?.id || "").startsWith("pending-")) {
+      const ok = await discardQueuedItem(pendingQueueId);
+      if (!ok) { setHardDeleteError("Unable to remove pending customer."); return; }
+      setCustomers((prev) => {
+        const next = prev.filter((row) => row.id !== hardDeleteTarget.id);
+        mergeSnapshot({ customers: next });
+        return next;
+      });
+      setShowHardDelete(false);
+      return;
+    }
     setSubmitting(true);
     const result = await apiCall(`/api/v1/customers/${hardDeleteTarget.id}/hard-delete`, { method: "DELETE", body: { password: hardDeletePassword } });
     setSubmitting(false);
@@ -297,6 +327,7 @@ export default function CustomersPage() {
 
   const handleReactivate = async (c: any) => {
     if (!confirm(`${c.name}: ${t("confirm_reactivate_customer")}`)) return;
+    if (String(c?.id || "").startsWith("pending-")) return;
     if (!isOnline) {
       const queueId = await enqueue({
         url: `/api/v1/customers/${c.id}`,
@@ -323,6 +354,10 @@ export default function CustomersPage() {
   };
 
   const openLedger = async (c: any) => {
+    if (String(c?.id || "").startsWith("pending-")) {
+      setFormError("Pending customer is not synced yet. Please sync first.");
+      return;
+    }
     setSelected(c); setShowLedger(true); setLedgerData(null);
     const result = await apiCall(`/api/v1/customers/${c.id}`);
     if (result.success) {
