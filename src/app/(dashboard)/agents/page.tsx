@@ -19,6 +19,43 @@ type AgentsReadSnapshot = {
   intermediaries: any[];
 };
 
+function applyQueuedMutationsToAgents(baseRows: any[], queueItems: any[]) {
+  if (!Array.isArray(baseRows) || !Array.isArray(queueItems) || queueItems.length === 0) return baseRows;
+  let next = [...baseRows];
+  for (const q of queueItems) {
+    const method = String(q?.method || "").toUpperCase();
+    if (!["PUT", "PATCH", "DELETE"].includes(method)) continue;
+    const url = String(q?.url || "");
+    if (!url.startsWith("/api/v1/agents/")) continue;
+    const match = url.match(/^\/api\/v1\/agents\/([^/?#]+)/);
+    const agentId = match?.[1];
+    if (!agentId) continue;
+    if (method === "DELETE") {
+      next = next.filter((row: any) => String(row?.id || "") !== agentId);
+      continue;
+    }
+    let patch: any = {};
+    try {
+      patch = JSON.parse(String(q?.body || "{}"));
+    } catch {
+      patch = {};
+    }
+    next = next.map((row: any) =>
+      String(row?.id || "") === agentId
+        ? {
+            ...row,
+            name: patch?.name ?? row?.name,
+            agentType: patch?.agentType ?? row?.agentType,
+            cityId: patch?.cityId ?? row?.cityId,
+            phone: patch?.phone ?? row?.phone,
+            _pending: true,
+          }
+        : row
+    );
+  }
+  return next;
+}
+
 const TYPES = [
   { value: "customs", label: "Customs Agent" },
   { value: "transport", label: "Transport" },
@@ -83,7 +120,8 @@ export default function AgentsPage() {
     setLoading(true);
     const [aR, cR] = await Promise.all([apiCall("/api/v1/agents", { params: { limit: 100 } }), apiCall("/api/v1/cities", { params: { all: "true" } })]);
     if (aR.success) {
-      const nextRows = [...getPendingAgents(queuedItems as any), ...((aR.data as any[]) || [])];
+      let nextRows = [...getPendingAgents(queuedItems as any), ...((aR.data as any[]) || [])];
+      nextRows = applyQueuedMutationsToAgents(nextRows, queuedItems as any[]);
       setAgents(nextRows);
       mergeSnapshot({ agents: nextRows });
       setShowOfflineSnapshot(false);
@@ -91,7 +129,8 @@ export default function AgentsPage() {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.agents?.length) {
         const cleanedAgents = pruneStalePendingRows(snapshot.agents as any[], queuedItems as any[], "/agents");
-        setAgents(cleanedAgents);
+        const mergedSnapshotAgents = applyQueuedMutationsToAgents(cleanedAgents, queuedItems as any[]);
+        setAgents(mergedSnapshotAgents);
         setShowOfflineSnapshot(true);
       }
     }

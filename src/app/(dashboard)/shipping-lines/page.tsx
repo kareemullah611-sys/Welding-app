@@ -17,6 +17,42 @@ type ShippingLinesReadSnapshot = {
   intermediaries: any[];
 };
 
+function applyQueuedMutationsToShippingLines(baseRows: any[], queueItems: any[]) {
+  if (!Array.isArray(baseRows) || !Array.isArray(queueItems) || queueItems.length === 0) return baseRows;
+  let next = [...baseRows];
+  for (const q of queueItems) {
+    const method = String(q?.method || "").toUpperCase();
+    if (!["PUT", "PATCH", "DELETE"].includes(method)) continue;
+    const url = String(q?.url || "");
+    if (!url.startsWith("/api/v1/shipping-lines/")) continue;
+    const match = url.match(/^\/api\/v1\/shipping-lines\/([^/?#]+)/);
+    const lineId = match?.[1];
+    if (!lineId) continue;
+    if (method === "DELETE") {
+      next = next.filter((row: any) => String(row?.id || "") !== lineId);
+      continue;
+    }
+    let patch: any = {};
+    try {
+      patch = JSON.parse(String(q?.body || "{}"));
+    } catch {
+      patch = {};
+    }
+    next = next.map((row: any) =>
+      String(row?.id || "") === lineId
+        ? {
+            ...row,
+            name: patch?.name ?? row?.name,
+            contact: patch?.contact ?? row?.contact,
+            notes: patch?.notes ?? row?.notes,
+            _pending: true,
+          }
+        : row
+    );
+  }
+  return next;
+}
+
 export default function ShippingLinesPage() {
   const { user } = useAuth();
   const { isOnline, queuedItems, updateQueuedItem, discardQueuedItem } = useOffline();
@@ -66,7 +102,8 @@ export default function ShippingLinesPage() {
     setLoading(true);
     const r = await apiCall("/api/v1/shipping-lines", { params: { limit: 100 } });
     if (r.success) {
-      const nextRows = [...getPendingShippingLines(queuedItems as any), ...((r.data as any[]) || [])];
+      let nextRows = [...getPendingShippingLines(queuedItems as any), ...((r.data as any[]) || [])];
+      nextRows = applyQueuedMutationsToShippingLines(nextRows, queuedItems as any[]);
       setLines(nextRows);
       mergeSnapshot({ lines: nextRows });
       setShowOfflineSnapshot(false);
@@ -74,7 +111,8 @@ export default function ShippingLinesPage() {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.lines?.length) {
         const cleanedLines = pruneStalePendingRows(snapshot.lines as any[], queuedItems as any[], "/shipping-lines");
-        setLines(cleanedLines);
+        const mergedSnapshotLines = applyQueuedMutationsToShippingLines(cleanedLines, queuedItems as any[]);
+        setLines(mergedSnapshotLines);
         setShowOfflineSnapshot(true);
       }
     }

@@ -20,6 +20,43 @@ type SuppliersReadSnapshot = {
   ledgerBySupplier: Record<string, any>;
 };
 
+function applyQueuedMutationsToSuppliers(baseRows: any[], queueItems: any[]) {
+  if (!Array.isArray(baseRows) || !Array.isArray(queueItems) || queueItems.length === 0) return baseRows;
+  let next = [...baseRows];
+  for (const q of queueItems) {
+    const method = String(q?.method || "").toUpperCase();
+    if (!["PUT", "PATCH", "DELETE"].includes(method)) continue;
+    const url = String(q?.url || "");
+    if (!url.startsWith("/api/v1/suppliers/")) continue;
+    const match = url.match(/^\/api\/v1\/suppliers\/([^/?#]+)/);
+    const supplierId = match?.[1];
+    if (!supplierId) continue;
+    if (method === "DELETE") {
+      next = next.filter((row: any) => String(row?.id || "") !== supplierId);
+      continue;
+    }
+    let patch: any = {};
+    try {
+      patch = JSON.parse(String(q?.body || "{}"));
+    } catch {
+      patch = {};
+    }
+    next = next.map((row: any) =>
+      String(row?.id || "") === supplierId
+        ? {
+            ...row,
+            name: patch?.name ?? row?.name,
+            country: patch?.country ?? row?.country,
+            contact: patch?.contact ?? row?.contact,
+            notes: patch?.notes ?? row?.notes,
+            _pending: true,
+          }
+        : row
+    );
+  }
+  return next;
+}
+
 export default function SuppliersPage() {
   const { user } = useAuth();
   const { t } = useLang();
@@ -106,7 +143,8 @@ export default function SuppliersPage() {
     setLoading(true);
     const r = await apiCall("/api/v1/suppliers", { params: { limit: 100 } });
     if (r.success) {
-      const nextRows = [...getPendingSuppliers(queuedItems as any), ...((r.data as any[]) || [])];
+      let nextRows = [...getPendingSuppliers(queuedItems as any), ...((r.data as any[]) || [])];
+      nextRows = applyQueuedMutationsToSuppliers(nextRows, queuedItems as any[]);
       setSuppliers(nextRows);
       mergeSnapshot({ suppliers: nextRows });
       setShowOfflineSnapshot(false);
@@ -114,7 +152,8 @@ export default function SuppliersPage() {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.suppliers?.length) {
         const cleanedSuppliers = pruneStalePendingRows(snapshot.suppliers as any[], queuedItems as any[], "/suppliers");
-        setSuppliers(cleanedSuppliers);
+        const mergedSnapshotSuppliers = applyQueuedMutationsToSuppliers(cleanedSuppliers, queuedItems as any[]);
+        setSuppliers(mergedSnapshotSuppliers);
         setShowOfflineSnapshot(true);
       }
     }
