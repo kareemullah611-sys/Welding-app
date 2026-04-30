@@ -134,6 +134,10 @@ export default function ChequesPage() {
 
   const handleBounce = async () => {
     if (!bounceTarget) return;
+    if (String(bounceTarget?.id || "").startsWith("pending-")) {
+      setBounceError("Pending cheque is not synced yet. Please sync first.");
+      return;
+    }
     setBounceSubmitting(true); setBounceError("");
     const r = await apiCall(`/api/v1/payments/${bounceTarget.id}`, { method: "PATCH", body: { action: "bounce_cheque" } });
     setBounceSubmitting(false);
@@ -206,6 +210,9 @@ export default function ChequesPage() {
     {
       key: "actions", label: "",
       render: (item: any) => {
+        if (item?._pending) {
+          return <span className="text-xs text-amber-600">Pending sync</span>;
+        }
         const status = item.raw?.chequeStatus;
         if (status !== "in_hand" || item.status !== "active") return <span className="text-gray-300">—</span>;
         return (
