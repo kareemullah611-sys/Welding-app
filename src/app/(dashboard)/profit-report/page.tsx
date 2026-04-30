@@ -5,6 +5,7 @@ import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, StatsCard, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { applyPendingProfitReportPeriod } from "@/lib/offline-profit-report";
 
 const PROFIT_REPORT_READ_CACHE_KEY = "mrf-profit-report-read-cache-v1";
 
@@ -18,7 +19,7 @@ type ProfitReportReadSnapshot = {
 
 export default function ProfitReportPage() {
   const { t } = useLang();
-  const { isOnline } = useOffline();
+  const { isOnline, queuedItems } = useOffline();
   const [mode, setMode] = useState<"lot" | "period">("period");
   const [lots, setLots] = useState<any[]>([]);
   const [selectedLotId, setSelectedLotId] = useState(0);
@@ -69,10 +70,13 @@ export default function ProfitReportPage() {
     else { params.year = year; }
     const r = await apiCall("/api/v1/profit-report", { params });
     if (r.success) {
-      setData(r.data);
+      const nextData = !isOnline && mode === "period"
+        ? applyPendingProfitReportPeriod(r.data, queuedItems as any, year)
+        : r.data;
+      setData(nextData);
       writeOfflineReadSnapshot<ProfitReportReadSnapshot>(PROFIT_REPORT_READ_CACHE_KEY, {
         lots,
-        data: r.data,
+        data: nextData,
         mode,
         selectedLotId,
         year,
@@ -81,7 +85,10 @@ export default function ProfitReportPage() {
     } else if (!isOnline) {
       const snapshot = readOfflineReadSnapshot<ProfitReportReadSnapshot>(PROFIT_REPORT_READ_CACHE_KEY)?.data;
       if (snapshot?.data) {
-        setData(snapshot.data);
+        const nextData = mode === "period"
+          ? applyPendingProfitReportPeriod(snapshot.data, queuedItems as any, year)
+          : snapshot.data;
+        setData(nextData);
         setShowOfflineSnapshot(true);
       }
     }
