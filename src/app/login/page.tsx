@@ -20,7 +20,7 @@ export default function LoginPage() {
 
   // Loading state — drives the MRF animation
   const [loginStarted, setLoginStarted] = useState(false);
-  const [apiDone, setApiDone] = useState(false);
+  const [loginSuccess, setLoginSuccess] = useState(false);
   const redirectRef = useRef<() => void>(() => {});
 
   // Photo slideshow
@@ -39,11 +39,12 @@ export default function LoginPage() {
     e.preventDefault();
     setError("");
     setLoginStarted(true);
-    setApiDone(false);
+    setLoginSuccess(false);
 
     const result = await login(username, password);
 
     if (result.success) {
+      setLoginSuccess(true);
       // Store redirect intent — MRFLoader will call this after animation
       redirectRef.current = () => router.push("/dashboard");
     } else {
@@ -51,12 +52,20 @@ export default function LoginPage() {
       // Cancel the loader — we need to show the error
       setLoginStarted(false);
     }
-    setApiDone(true);
   };
 
   const handleAnimationComplete = () => {
-    redirectRef.current();
+    if (loginSuccess) redirectRef.current();
   };
+
+  useEffect(() => {
+    if (!loginStarted || !loginSuccess) return;
+    // Fallback for environments where animation completion callback may not fire reliably.
+    const t = setTimeout(() => {
+      redirectRef.current();
+    }, 1800);
+    return () => clearTimeout(t);
+  }, [loginStarted, loginSuccess]);
 
   return (
     <div className="relative min-h-screen flex items-center justify-center p-4 overflow-hidden" dir={dir}>
@@ -167,7 +176,7 @@ export default function LoginPage() {
       {loginStarted && (
         <MRFLoader
           variant="login"
-          visible={!apiDone}
+          visible={loginStarted}
           onAnimationComplete={handleAnimationComplete}
         />
       )}
