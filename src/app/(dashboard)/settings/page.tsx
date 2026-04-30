@@ -26,6 +26,76 @@ type SettingsProductsReadSnapshot = {
   products: any[];
 };
 
+function applyQueuedMutationsToUsers(baseRows: any[], queueItems: any[]) {
+  if (!Array.isArray(baseRows) || !Array.isArray(queueItems) || queueItems.length === 0) return baseRows;
+  let next = [...baseRows];
+  for (const q of queueItems) {
+    const method = String(q?.method || "").toUpperCase();
+    if (!["PUT", "PATCH", "DELETE"].includes(method)) continue;
+    const url = String(q?.url || "");
+    if (!url.startsWith("/api/v1/users/")) continue;
+    const match = url.match(/^\/api\/v1\/users\/([^/?#]+)/);
+    const userId = match?.[1];
+    if (!userId) continue;
+    if (method === "DELETE") {
+      next = next.filter((row: any) => String(row?.id || "") !== userId);
+      continue;
+    }
+    let patch: any = {};
+    try {
+      patch = JSON.parse(String(q?.body || "{}"));
+    } catch {
+      patch = {};
+    }
+    next = next.map((row: any) =>
+      String(row?.id || "") === userId
+        ? {
+            ...row,
+            fullName: patch?.fullName ?? row?.fullName,
+            isActive: typeof patch?.isActive === "boolean" ? patch.isActive : row?.isActive,
+            _pending: true,
+          }
+        : row
+    );
+  }
+  return next;
+}
+
+function applyQueuedMutationsToProducts(baseRows: any[], queueItems: any[]) {
+  if (!Array.isArray(baseRows) || !Array.isArray(queueItems) || queueItems.length === 0) return baseRows;
+  let next = [...baseRows];
+  for (const q of queueItems) {
+    const method = String(q?.method || "").toUpperCase();
+    if (!["PUT", "PATCH", "DELETE"].includes(method)) continue;
+    const url = String(q?.url || "");
+    if (!url.startsWith("/api/v1/products/")) continue;
+    const match = url.match(/^\/api\/v1\/products\/([^/?#]+)/);
+    const productId = match?.[1];
+    if (!productId) continue;
+    if (method === "DELETE") {
+      next = next.filter((row: any) => String(row?.id || "") !== productId);
+      continue;
+    }
+    let patch: any = {};
+    try {
+      patch = JSON.parse(String(q?.body || "{}"));
+    } catch {
+      patch = {};
+    }
+    next = next.map((row: any) =>
+      String(row?.id || "") === productId
+        ? {
+            ...row,
+            name: patch?.name ?? row?.name,
+            isActive: typeof patch?.isActive === "boolean" ? patch.isActive : row?.isActive,
+            _pending: true,
+          }
+        : row
+    );
+  }
+  return next;
+}
+
 type SettingsCitiesReadSnapshot = {
   cities: any[];
 };
@@ -243,7 +313,8 @@ function UsersTab() {
     setLoading(true);
     const r = await apiCall("/api/v1/users", { params: { limit: 100 } });
     if (r.success) {
-      const nextRows = [...getPendingUsers(queuedItems as any), ...((r.data as any[]) || [])];
+      let nextRows = [...getPendingUsers(queuedItems as any), ...((r.data as any[]) || [])];
+      nextRows = applyQueuedMutationsToUsers(nextRows, queuedItems as any[]);
       setUsers(nextRows);
       mergeSnapshot({ users: nextRows });
       setShowOfflineSnapshot(false);
@@ -251,7 +322,8 @@ function UsersTab() {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.users?.length) {
         const cleanedUsers = pruneStalePendingRows(snapshot.users as any[], queuedItems as any[], "/users");
-        setUsers(cleanedUsers);
+        const mergedSnapshotUsers = applyQueuedMutationsToUsers(cleanedUsers, queuedItems as any[]);
+        setUsers(mergedSnapshotUsers);
         setShowOfflineSnapshot(true);
       }
     }
@@ -495,7 +567,8 @@ function ProductsTab() {
     setLoading(true);
     const r = await apiCall("/api/v1/products", { params: { limit: 100 } });
     if (r.success) {
-      const nextRows = [...getPendingProducts(queuedItems as any), ...((r.data as any[]) || [])];
+      let nextRows = [...getPendingProducts(queuedItems as any), ...((r.data as any[]) || [])];
+      nextRows = applyQueuedMutationsToProducts(nextRows, queuedItems as any[]);
       setProducts(nextRows);
       mergeSnapshot({ products: nextRows });
       setShowOfflineSnapshot(false);
@@ -503,7 +576,8 @@ function ProductsTab() {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.products?.length) {
         const cleanedProducts = pruneStalePendingRows(snapshot.products as any[], queuedItems as any[], "/products");
-        setProducts(cleanedProducts);
+        const mergedSnapshotProducts = applyQueuedMutationsToProducts(cleanedProducts, queuedItems as any[]);
+        setProducts(mergedSnapshotProducts);
         setShowOfflineSnapshot(true);
       }
     }

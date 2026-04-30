@@ -16,6 +16,42 @@ type GodownsReadSnapshot = {
   cities: any[];
 };
 
+function applyQueuedMutationsToGodowns(baseRows: any[], queueItems: any[]) {
+  if (!Array.isArray(baseRows) || !Array.isArray(queueItems) || queueItems.length === 0) return baseRows;
+  let next = [...baseRows];
+  for (const q of queueItems) {
+    const method = String(q?.method || "").toUpperCase();
+    if (!["PUT", "PATCH", "DELETE"].includes(method)) continue;
+    const url = String(q?.url || "");
+    if (!url.startsWith("/api/v1/godowns/")) continue;
+    const match = url.match(/^\/api\/v1\/godowns\/([^/?#]+)/);
+    const godownId = match?.[1];
+    if (!godownId) continue;
+    if (method === "DELETE") {
+      next = next.filter((row: any) => String(row?.id || "") !== godownId);
+      continue;
+    }
+    let patch: any = {};
+    try {
+      patch = JSON.parse(String(q?.body || "{}"));
+    } catch {
+      patch = {};
+    }
+    next = next.map((row: any) =>
+      String(row?.id || "") === godownId
+        ? {
+            ...row,
+            name: patch?.name ?? row?.name,
+            cityId: patch?.cityId ?? row?.cityId,
+            isActive: typeof patch?.isActive === "boolean" ? patch.isActive : row?.isActive,
+            _pending: true,
+          }
+        : row
+    );
+  }
+  return next;
+}
+
 export default function GodownsPage() {
   const { user } = useAuth();
   const { t } = useLang();
@@ -55,7 +91,8 @@ export default function GodownsPage() {
     setLoading(true);
     const result = await apiCall("/api/v1/godowns", { params: { limit: 100, is_active: "true" } });
     if (result.success) {
-      const nextRows = [...getPendingGodowns(queuedItems as any), ...((result.data as any[]) || [])];
+      let nextRows = [...getPendingGodowns(queuedItems as any), ...((result.data as any[]) || [])];
+      nextRows = applyQueuedMutationsToGodowns(nextRows, queuedItems as any[]);
       setGodowns(nextRows);
       mergeSnapshot({ godowns: nextRows });
       setShowOfflineSnapshot(false);
@@ -63,7 +100,8 @@ export default function GodownsPage() {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.godowns?.length) {
         const cleanedGodowns = pruneStalePendingRows(snapshot.godowns as any[], queuedItems as any[], "/godowns");
-        setGodowns(cleanedGodowns);
+        const mergedSnapshotGodowns = applyQueuedMutationsToGodowns(cleanedGodowns, queuedItems as any[]);
+        setGodowns(mergedSnapshotGodowns);
         setShowOfflineSnapshot(true);
       }
     }

@@ -19,6 +19,42 @@ type IntermediariesReadSnapshot = {
   ledgerByIntermediary: Record<string, any>;
 };
 
+function applyQueuedMutationsToIntermediaries(baseRows: any[], queueItems: any[]) {
+  if (!Array.isArray(baseRows) || !Array.isArray(queueItems) || queueItems.length === 0) return baseRows;
+  let next = [...baseRows];
+  for (const q of queueItems) {
+    const method = String(q?.method || "").toUpperCase();
+    if (!["PUT", "PATCH", "DELETE"].includes(method)) continue;
+    const url = String(q?.url || "");
+    if (!url.startsWith("/api/v1/intermediaries/")) continue;
+    const match = url.match(/^\/api\/v1\/intermediaries\/([^/?#]+)/);
+    const intermediaryId = match?.[1];
+    if (!intermediaryId) continue;
+    if (method === "DELETE") {
+      next = next.filter((row: any) => String(row?.id || "") !== intermediaryId);
+      continue;
+    }
+    let patch: any = {};
+    try {
+      patch = JSON.parse(String(q?.body || "{}"));
+    } catch {
+      patch = {};
+    }
+    next = next.map((row: any) =>
+      String(row?.id || "") === intermediaryId
+        ? {
+            ...row,
+            name: patch?.name ?? row?.name,
+            notes: patch?.notes ?? row?.notes,
+            isActive: typeof patch?.isActive === "boolean" ? patch.isActive : row?.isActive,
+            _pending: true,
+          }
+        : row
+    );
+  }
+  return next;
+}
+
 const EMPTY_DEPOSIT = {
   depositDate: new Date().toISOString().split("T")[0],
   amount: "",
@@ -136,7 +172,8 @@ export default function IntermediariesPage() {
     setLoading(true);
     const r = await apiCall("/api/v1/intermediaries");
     if (r.success) {
-      const nextRows = [...getPendingIntermediaries(queuedItems as any), ...((r.data as any[]) || [])];
+      let nextRows = [...getPendingIntermediaries(queuedItems as any), ...((r.data as any[]) || [])];
+      nextRows = applyQueuedMutationsToIntermediaries(nextRows, queuedItems as any[]);
       setIntermediaries(nextRows);
       mergeSnapshot({ intermediaries: nextRows });
       setShowOfflineSnapshot(false);
@@ -144,7 +181,8 @@ export default function IntermediariesPage() {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.intermediaries?.length) {
         const cleanedIntermediaries = pruneStalePendingRows(snapshot.intermediaries as any[], queuedItems as any[], "/intermediaries");
-        setIntermediaries(cleanedIntermediaries);
+        const mergedSnapshotIntermediaries = applyQueuedMutationsToIntermediaries(cleanedIntermediaries, queuedItems as any[]);
+        setIntermediaries(mergedSnapshotIntermediaries);
         setShowOfflineSnapshot(true);
       }
     }
