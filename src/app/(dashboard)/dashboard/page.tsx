@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
@@ -147,9 +147,9 @@ export default function DashboardPage() {
   const [selectedCountry, setSelectedCountry] = useState<string>("");
   const [showOperationalDetails, setShowOperationalDetails] = useState(true);
   const [quickAction, setQuickAction] = useState<{ title: string; src: string } | null>(null);
+  const [quickFrameLoading, setQuickFrameLoading] = useState(false);
 
-  useEffect(() => {
-    const load = async () => {
+  const loadDashboard = useCallback(async () => {
       setLoading(true);
       const snapshot = readOfflineReadSnapshot<DashboardReadSnapshot>(DASHBOARD_READ_CACHE_KEY)?.data;
       const treasuryRequest = user?.role === "city_admin" ? apiCall("/api/v1/treasury") : Promise.resolve(null);
@@ -211,18 +211,28 @@ export default function DashboardPage() {
       }
       setShowOfflineSnapshot(usedSnapshot);
       setLoading(false);
-    };
-    load();
-  }, [isOnline, queuedItems, user?.role]);
+    }, [isOnline, queuedItems, user?.role]);
+
+  useEffect(() => {
+    loadDashboard();
+  }, [loadDashboard]);
+
+  const openQuickForm = useCallback((title: string, src: string) => {
+    setQuickFrameLoading(true);
+    setQuickAction({ title, src });
+  }, []);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
-      if (event.data?.type === "dashboard-quick-close") setQuickAction(null);
+      if (event.data?.type === "dashboard-quick-close") {
+        setQuickAction(null);
+        loadDashboard();
+      }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, []);
+  }, [loadDashboard]);
 
   useEffect(() => {
     if (!quickAction) return;
@@ -280,28 +290,28 @@ export default function DashboardPage() {
             title="New Sale" 
             src="/sales?create=1&embed=1"
             color="blue"
-            onClick={() => setQuickAction({ title: "New Sale", src: "/sales?create=1&embed=1" })}
+            onClick={() => openQuickForm("New Sale", "/sales?create=1&embed=1")}
           />
           <QuickActionCard 
             icon={Banknote} 
             title="Receive Payment" 
             src="/payments?create=payment&embed=1"
             color="green"
-            onClick={() => setQuickAction({ title: "Receive Payment", src: "/payments?create=payment&embed=1" })}
+            onClick={() => openQuickForm("Receive Payment", "/payments?create=payment&embed=1")}
           />
           <QuickActionCard 
             icon={Receipt} 
             title="Record Expense" 
             src="/expenses?create=1&embed=1"
             color="red"
-            onClick={() => setQuickAction({ title: "Record Expense", src: "/expenses?create=1&embed=1" })}
+            onClick={() => openQuickForm("Record Expense", "/expenses?create=1&embed=1")}
           />
           <QuickActionCard 
             icon={Wallet} 
             title="Withdrawal" 
             src="/personal-withdrawals?create=1&embed=1"
             color="purple"
-            onClick={() => setQuickAction({ title: "Personal Withdrawal", src: "/personal-withdrawals?create=1&embed=1" })}
+            onClick={() => openQuickForm("Personal Withdrawal", "/personal-withdrawals?create=1&embed=1")}
           />
         </div>
 
@@ -312,14 +322,14 @@ export default function DashboardPage() {
             title="Haji Transfer" 
             src="/haji-transfers?create=1&embed=1"
             color="orange"
-            onClick={() => setQuickAction({ title: "Haji Transfer", src: "/haji-transfers?create=1&embed=1" })}
+            onClick={() => openQuickForm("Haji Transfer", "/haji-transfers?create=1&embed=1")}
           />
           <QuickActionCard 
             icon={Users} 
             title="New Customer" 
             src="/customers?create=1&embed=1"
             color="teal"
-            onClick={() => setQuickAction({ title: "New Customer", src: "/customers?create=1&embed=1" })}
+            onClick={() => openQuickForm("New Customer", "/customers?create=1&embed=1")}
           />
           <Link href="/inventory" className="sm:col-span-2 lg:col-span-4">
             <QuickActionCard icon={Package} title="Move Stock" color="amber" />
@@ -525,11 +535,16 @@ export default function DashboardPage() {
               >
                 <X className="h-5 w-5" />
               </button>
-              <div className="h-[min(92vh,920px)] w-full max-w-6xl overflow-hidden rounded-2xl">
+              <div className="h-[min(92vh,920px)] w-full max-w-6xl overflow-hidden rounded-2xl bg-white">
+                <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+                  <h2 className="text-sm font-semibold text-gray-800">{quickAction.title}</h2>
+                  {quickFrameLoading && <span className="text-xs text-gray-500">Loading form...</span>}
+                </div>
                 <iframe
                   src={quickAction.src}
                   title={`${quickAction.title} form`}
-                  className="h-full w-full border-0 bg-transparent"
+                  onLoad={() => setQuickFrameLoading(false)}
+                  className="h-[calc(100%-49px)] w-full border-0 bg-transparent"
                 />
               </div>
             </div>
