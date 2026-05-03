@@ -178,6 +178,25 @@ export default function Sidebar() {
   const isRTL = dir === "rtl";
   const [mobileOpen, setMobileOpen] = useState(false);
   const [pendingTransfers, setPendingTransfers] = useState(0);
+  const currentQuery = searchParams.toString();
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname, currentQuery]);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [mobileOpen]);
 
   useEffect(() => {
     if (user?.role !== "city_admin") return;
@@ -205,7 +224,6 @@ export default function Sidebar() {
     }))
     .filter((g) => g.items.length > 0);
 
-  const currentQuery = searchParams.toString();
   const currentRoute = currentQuery ? `${pathname}?${currentQuery}` : pathname;
   const isHrefActive = (href: string) => {
     if (href.includes("?")) return currentRoute === href;
@@ -370,6 +388,8 @@ export default function Sidebar() {
     </div>
   );
 
+  const mobileLabel = user.role === "super_admin" ? "Super Admin" : `${user.cityName} Admin`;
+
   return (
     <>
       {/* Mobile hamburger */}
@@ -394,12 +414,28 @@ export default function Sidebar() {
       {/* Mobile sidebar */}
       <aside
         className={cn(
-          "lg:hidden fixed top-0 z-50 h-full w-72 bg-[linear-gradient(180deg,#0b111d_0%,#121a28_46%,#0f1520_100%)] border-r border-white/10 shadow-2xl transform transition-transform duration-300",
+          "lg:hidden fixed top-0 z-50 h-full w-[86vw] max-w-[320px] bg-[linear-gradient(180deg,#0b111d_0%,#121a28_46%,#0f1520_100%)] border-r border-white/10 shadow-2xl transform transition-transform duration-300",
           isRTL ? "right-0" : "left-0",
           mobileOpen ? "translate-x-0" : isRTL ? "translate-x-full" : "-translate-x-full"
         )}
       >
-        {navContent}
+        <div className="flex h-full flex-col">
+          <div className="flex items-center justify-between px-3 py-3 border-b border-white/10 bg-white/[0.02]">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#7f8aa0]">Navigation</p>
+              <p className="text-sm font-medium text-white truncate">{mobileLabel}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMobileOpen(false)}
+              aria-label="Close menu"
+              className="rounded-xl border border-white/10 bg-white/[0.06] p-2 text-[#c2cede] hover:text-white hover:bg-white/[0.1] transition-colors"
+            >
+              <ChevronLeft className={cn("w-4 h-4", isRTL && "rotate-180")} />
+            </button>
+          </div>
+          <div className="min-h-0 flex-1">{navContent}</div>
+        </div>
       </aside>
 
       {/* Desktop sidebar */}
