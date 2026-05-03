@@ -1055,7 +1055,7 @@ export default function SalesPage() {
         {formError && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{formError}</div>}
         <div className="space-y-2 mb-3">
           {correctItems.map((item, i) => (
-            <div key={i} className="grid grid-cols-4 gap-2 items-end">
+            <div key={i} className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-end">
               <div><label className="block text-xs text-gray-500 mb-1">{t("product")}</label><select value={item.productId} onChange={e => { const v = parseInt(e.target.value); setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, productId: v } : c)); }} className="select-field text-sm"><option value={0}>{t("select_product")}</option>{products.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
               <div><label className="block text-xs text-gray-500 mb-1">{t("cartons")}</label><input type="number" value={item.qty || ""} onChange={e => { const v = parseFloat(e.target.value) || 0; setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, qty: v } : c)); }} className="input-field text-sm" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">{t("rate_per_carton")}</label><input type="number" value={item.ratePerCarton || ""} onChange={e => { const v = parseFloat(e.target.value) || 0; setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, ratePerCarton: v } : c)); }} className="input-field text-sm" /></div>

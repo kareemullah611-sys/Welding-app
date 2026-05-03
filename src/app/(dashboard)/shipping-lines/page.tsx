@@ -333,7 +333,7 @@ export default function ShippingLinesPage() {
 
       {/* Summary cards */}
       {lines.length > 0 && (
-        <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
           <StatsCard title="Total Billed (USD)" icon="🚢"
             value={`$${formatNumber(lines.reduce((s, l) => s + (l.billedUsd || 0), 0))}`} color="blue" />
           <StatsCard title="Total Paid (USD)" icon="💰"
@@ -444,7 +444,7 @@ export default function ShippingLinesPage() {
           ? <div className="py-8 text-center"><div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto" /></div>
           : ledger ? (
           <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <StatsCard title="Total Billed (USD)" value={`$${formatNumber(ledger.summary.totalBilledUsd)}`} icon="🚢" color="blue" />
               <StatsCard title="Total Paid (USD)"   value={`$${formatNumber(ledger.summary.totalPaidUsd)}`}   icon="💰" color="green" />
               <StatsCard title="Balance Owed (USD)" value={`$${formatNumber(ledger.summary.balanceOwedUsd)}`} icon="📋" color="red" />

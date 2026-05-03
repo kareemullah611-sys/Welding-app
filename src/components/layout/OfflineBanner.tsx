@@ -27,7 +27,7 @@ export default function OfflineBanner() {
   if (dismissed && isOnline && queueCount === 0) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 max-w-sm">
+    <div className="fixed bottom-4 right-4 z-40 max-w-sm">
       {/* Offline banner */}
       {!isOnline && (
         <div className="bg-orange-600 text-white rounded-xl shadow-lg px-4 py-3 mb-2 flex items-center gap-3">

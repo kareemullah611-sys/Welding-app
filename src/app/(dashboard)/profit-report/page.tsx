@@ -146,7 +146,7 @@ function PeriodReport({ data }: { data: any }) {
       {data.supplierAccount && (
         <div className="card mb-6">
           <h3 className="text-sm font-semibold text-gray-500 mb-3">{t("supplier_account_label")}</h3>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="bg-blue-50 rounded-lg p-3"><div className="text-xs text-gray-500">{t("purchased_label")}</div><div className="text-lg font-bold text-blue-700">${data.supplierAccount.totalPurchasedUsd.toLocaleString("en-US")}</div></div>
             <div className="bg-green-50 rounded-lg p-3"><div className="text-xs text-gray-500">{t("paid_label")}</div><div className="text-lg font-bold text-green-700">${data.supplierAccount.totalPaidUsd.toLocaleString("en-US")}</div></div>
             <div className={`rounded-lg p-3 ${data.supplierAccount.balanceOwedUsd > 0 ? "bg-red-50" : "bg-green-50"}`}><div className="text-xs text-gray-500">{t("balance_owed")}</div><div className={`text-lg font-bold ${data.supplierAccount.balanceOwedUsd > 0 ? "text-red-700" : "text-green-700"}`}>${data.supplierAccount.balanceOwedUsd.toLocaleString("en-US")}</div></div>

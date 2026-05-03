@@ -127,7 +127,7 @@ export default function ChequesPage() {
       }
     }
     setLoading(false);
-  }, [buildPendingChequeRows, isOnline, page, readSnapshot, searchQuery, writeSnapshot]);
+  }, [buildPendingChequeRows, isOnline, page, queuedItems, readSnapshot, searchQuery, writeSnapshot]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [searchQuery]);

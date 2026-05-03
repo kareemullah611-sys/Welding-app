@@ -611,7 +611,7 @@ export default function SuppliersPage() {
 
       <Modal open={showLedger} onClose={() => setShowLedger(false)} title={`${t("supplier")}: ${selected?.name || ""}`} size="lg">
         {!ledgerData ? <div className="py-8 text-center text-gray-400">{t("loading")}</div> : <>
-          <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
             <StatsCard title={t("total_purchased")} value={`$${formatNumber(ledgerData.totalPurchasedUsd)}`} icon="📦" color="blue" />
             <StatsCard title={t("total_paid")} value={`$${formatNumber(ledgerData.totalPaidUsd)}`} icon="💰" color="green" />
             <StatsCard title={t("balance_owed")} value={`$${formatNumber(ledgerData.balanceOwed)}`} icon={ledgerData.balanceOwed > 0 ? "⚠️" : "✅"} color={ledgerData.balanceOwed > 0 ? "red" : "green"} />
@@ -739,12 +739,12 @@ export default function SuppliersPage() {
               </select>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("date")} *</label><input type="date" value={paymentForm.paymentDate} onChange={(e) => setPaymentForm((f) => ({ ...f, paymentDate: e.target.value }))} className="input-field" /></div>
             <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("amount_usd")} *</label><input type="number" step="0.01" value={paymentForm.amountUsd || ""} onChange={(e) => setPaymentForm((f) => ({ ...f, amountUsd: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} /></div>
             <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("method")} *</label><select value={paymentForm.paymentMethod} onChange={(e) => setPaymentForm((f) => ({ ...f, paymentMethod: e.target.value }))} className="select-field">{METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}</select></div>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("exchange_rate")} {paymentForm.paidVia === "bank" ? "*" : ""}</label><input type="number" step="0.01" value={paymentForm.exchangeRate || ""} onChange={(e) => setPaymentForm((f) => ({ ...f, exchangeRate: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} /></div>
             <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("local_amount")}</label><input type="number" step="0.01" value={paymentForm.amountLocal || ""} onChange={(e) => setPaymentForm((f) => ({ ...f, amountLocal: parseFloat(e.target.value) || 0 }))} className="input-field" readOnly={paymentForm.paidVia === "bank"} onWheel={e => e.currentTarget.blur()} /></div>
             <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("reference")}</label><input value={paymentForm.reference} onChange={(e) => setPaymentForm((f) => ({ ...f, reference: e.target.value }))} className="input-field" /></div>

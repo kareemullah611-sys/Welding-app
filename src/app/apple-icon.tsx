@@ -8,25 +8,27 @@ export default function AppleIcon() {
     (
       <div
         style={{
-          background: "#0F172A",
+          background: "linear-gradient(160deg, #6B0F1A 0%, #4A0A12 100%)",
           width: "100%",
           height: "100%",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           borderRadius: "22%",
+          border: "4px solid #D4AF37",
         }}
       >
         <div
           style={{
-            color: "#60A5FA",
-            fontSize: 100,
+            color: "#F5E6D3",
+            fontSize: 64,
             fontWeight: "bold",
-            fontFamily: "sans-serif",
+            fontFamily: "Georgia, serif",
             lineHeight: 1,
+            letterSpacing: "-0.02em",
           }}
         >
-          W
+          MRF
         </div>
       </div>
     ),

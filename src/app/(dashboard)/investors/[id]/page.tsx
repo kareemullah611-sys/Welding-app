@@ -388,7 +388,7 @@ export default function InvestorLedgerPage() {
       {acc && (
         <>
           {/* ── Balance summary ── */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="bg-blue-50 rounded-2xl px-4 py-3 text-center">
               <p className="text-[10px] font-semibold text-blue-400 uppercase tracking-wide mb-0.5">Total Credits</p>
               <p className="text-base font-bold text-blue-800">{sym} {fmt(acc.totalDeposits)}</p>

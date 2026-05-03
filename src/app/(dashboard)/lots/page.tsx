@@ -910,7 +910,7 @@ export default function LotsPage() {
         {formError && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{formError}</div>}
 
         {/* ── Header row ── */}
-        <div className="grid grid-cols-3 gap-3 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{t("date")} *</label>
             <input type="date" value={createForm.lotDate}
@@ -1141,7 +1141,7 @@ export default function LotsPage() {
               <StatsCard title={t("expenses")} value={formatNumber(selectedLot.summary?.totalExpenses || 0)} icon="E" color="yellow" />
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <StatsCard title="Total Cartons" value={formatNumber(selectedLot.stockSummary?.totalCartons || selectedLot.products?.reduce((s: number, p: any) => s + Number(p.totalQty || 0), 0) || 0)} icon="T" color="blue" />
               <StatsCard title="Sold Cartons" value={formatNumber(selectedLot.stockSummary?.soldCartons || selectedLot.products?.reduce((s: number, p: any) => s + Number(p.soldQty || 0), 0) || 0)} icon="S" color="green" />
               <StatsCard title="Remaining Cartons" value={formatNumber(selectedLot.stockSummary?.remainingCartons || selectedLot.products?.reduce((s: number, p: any) => s + Number(p.remainingQty || 0), 0) || 0)} icon="R" color="yellow" />
