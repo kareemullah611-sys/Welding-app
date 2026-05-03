@@ -8,6 +8,7 @@ import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { applyPendingDashboardMetrics } from "@/lib/offline-dashboard";
 import Link from "next/link";
+import { cn } from "@/lib/utils";
 import { 
   ShoppingCart, 
   Banknote, 
@@ -20,6 +21,7 @@ import {
   TrendingDown,
   Building2,
   ChevronRight,
+  ChevronDown,
   AlertCircle,
   CheckCircle2,
   X,
@@ -444,6 +446,10 @@ export default function DashboardPage() {
                         <span className="text-gray-600">Direct to Haji</span>
                         <span className="font-semibold text-amber-700">{formatNumber(cashPosition.directToHaji || 0)}</span>
                       </div>
+                      <div className="flex justify-between items-center text-sm pt-2 border-t border-gray-100">
+                        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Total In</span>
+                        <span className="font-bold text-emerald-700 tabular-nums">{formatNumber((cashPosition.incomingToHand?.cash || 0) + (cashPosition.incomingToHand?.cheque || 0) + (cashPosition.incomingToHand?.bankTransfer || 0) + (cashPosition.incomingToHand?.online || 0) + (cashPosition.directToHaji || 0))}</span>
+                      </div>
                     </div>
                   </div>
                   <div className="space-y-3">
@@ -461,8 +467,25 @@ export default function DashboardPage() {
                         <span className="text-gray-600">Haji Transfers</span>
                         <span className="font-semibold text-orange-700">{formatNumber(cashPosition.outgoing?.hajiTransfers || 0)}</span>
                       </div>
+                      <div className="flex justify-between items-center text-sm pt-2 border-t border-gray-100">
+                        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Total Out</span>
+                        <span className="font-bold text-rose-700 tabular-nums">{formatNumber((cashPosition.outgoing?.expenses || 0) + (cashPosition.outgoing?.personalWithdrawals || 0) + (cashPosition.outgoing?.hajiTransfers || 0))}</span>
+                      </div>
                     </div>
                   </div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Net Position</span>
+                  {(() => {
+                    const incoming = (cashPosition.incomingToHand?.cash || 0) + (cashPosition.incomingToHand?.cheque || 0) + (cashPosition.incomingToHand?.bankTransfer || 0) + (cashPosition.incomingToHand?.online || 0) + (cashPosition.directToHaji || 0);
+                    const outgoing = (cashPosition.outgoing?.expenses || 0) + (cashPosition.outgoing?.personalWithdrawals || 0) + (cashPosition.outgoing?.hajiTransfers || 0);
+                    const net = incoming - outgoing;
+                    return (
+                      <span className={cn("text-sm font-bold tabular-nums", net >= 0 ? "text-emerald-700" : "text-rose-700")}>
+                        {net >= 0 ? "+" : ""}{formatNumber(net)}
+                      </span>
+                    );
+                  })()}
                 </div>
               </SectionCard>
             )}
@@ -497,7 +520,7 @@ export default function DashboardPage() {
             {data?.ongoingLots?.length > 0 && (
               <SectionCard 
                 title="Ongoing Lots" 
-                action={<span className="text-xs text-gray-400">{data.ongoingLots.length} active</span>}
+                action={<Link href="/lots" className="text-xs text-gray-500 hover:text-blue-600 transition-colors">{data.ongoingLots.length} active · View all →</Link>}
               >
                 <div className="space-y-2">
                   {data.ongoingLots.map((l: any) => (
@@ -521,6 +544,7 @@ export default function DashboardPage() {
             onClick={() => setShowOperationalDetails((v) => !v)}
             className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1.5 transition-colors"
           >
+            <ChevronDown className={cn("w-4 h-4 transition-transform duration-200", !showOperationalDetails && "-rotate-90")} />
             {showOperationalDetails ? 'Hide details' : 'Show more details'}
           </button>
         </div>
@@ -672,7 +696,7 @@ export default function DashboardPage() {
           ))}
 
           {/* City Breakdown Table */}
-          <SectionCard title={`${activeCountry} — City Breakdown`}>
+          <SectionCard title={`${activeCountry} — City Breakdown`} action={<span className="text-xs text-gray-400">{countryCities.length} {countryCities.length === 1 ? "city" : "cities"}</span>}>
             <DataTable columns={[
               { key: "cityName", label: t("city"), render: (c: any) => (
                 <div className="flex items-center gap-2">
@@ -722,6 +746,48 @@ export default function DashboardPage() {
                 </span>
               )},
             ]} data={countryCities} loading={false} />
+            {countryCities.length > 0 && (
+              <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50/70 p-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-4 gap-y-2">
+                  <div className="col-span-full sm:col-span-3 lg:col-span-1 text-xs font-semibold text-gray-500 uppercase tracking-wide lg:text-right">Totals</div>
+                  <div className="text-sm">
+                    <span className="text-xs text-gray-400">Outstanding</span>
+                    {Object.entries(countryCities.reduce((acc: Record<string, number>, c: any) => {
+                      for (const [cur, amt] of Object.entries(c.outstandingByCurrency || {})) acc[cur] = (acc[cur] || 0) + (amt as number);
+                      return acc;
+                    }, {})).map(([cc, amt]) => (
+                      <div key={cc} className="font-bold text-rose-700 tabular-nums">{cc} {formatNumber(amt)}</div>
+                    ))}
+                  </div>
+                  <div className="text-sm">
+                    <span className="text-xs text-gray-400">Owed to Haji</span>
+                    {Object.entries(countryCities.reduce((acc: Record<string, number>, c: any) => {
+                      for (const [cur, amt] of Object.entries(c.hajiByCurrency || {})) acc[cur] = (acc[cur] || 0) + (amt as number);
+                      return acc;
+                    }, {})).map(([cc, amt]) => (
+                      <div key={cc} className="font-bold text-amber-700 tabular-nums">{cc} {formatNumber(amt)}</div>
+                    ))}
+                  </div>
+                  <div className="text-sm">
+                    <span className="text-xs text-gray-400">Cartons</span>
+                    <div className="font-bold text-blue-700 tabular-nums">{formatNumber(countryCities.reduce((s: number, c: any) => s + c.cartonsSold, 0))}</div>
+                  </div>
+                  <div className="text-sm">
+                    <span className="text-xs text-gray-400">Withdrawals</span>
+                    {Object.entries(countryCities.reduce((acc: Record<string, number>, c: any) => {
+                      for (const [cur, amt] of Object.entries(c.withdrawalByCurrency || {})) acc[cur] = (acc[cur] || 0) + (amt as number);
+                      return acc;
+                    }, {})).map(([cc, amt]) => (
+                      <div key={cc} className="font-bold text-amber-600 tabular-nums">{cc} {formatNumber(amt)}</div>
+                    ))}
+                  </div>
+                  <div className="text-sm">
+                    <span className="text-xs text-gray-400">Active Lots</span>
+                    <div className="font-bold text-blue-700 tabular-nums">{countryCities.reduce((s: number, c: any) => s + (c.activeLots || 0), 0)}</div>
+                  </div>
+                </div>
+              </div>
+            )}
           </SectionCard>
         </div>
       )}
