@@ -546,6 +546,7 @@ export default function DashboardPage() {
                   {quickFrameLoading && <span className="text-xs text-gray-500">Loading form...</span>}
                 </div>
                 <iframe
+                  key={quickAction.src}
                   src={quickAction.src}
                   title={`${quickAction.title} form`}
                   onLoad={() => setQuickFrameLoading(false)}

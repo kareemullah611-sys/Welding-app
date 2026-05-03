@@ -12,7 +12,7 @@ import {
   BookOpen, Receipt, Wallet, Users, Warehouse, ClipboardList,
   ArrowLeftRight, TrendingUp, BarChart2, FileText, Search,
   Activity, Settings, LogOut, ChevronLeft, ChevronRight,
-  Menu, FileCheck, Landmark, BotMessageSquare, PiggyBank, type LucideIcon,
+  Menu, FileCheck, Landmark, BotMessageSquare, PiggyBank, X, type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -416,7 +416,7 @@ export default function Sidebar() {
         className={cn(
           "lg:hidden fixed top-0 z-50 h-full w-[86vw] max-w-[320px] bg-[linear-gradient(180deg,#0b111d_0%,#121a28_46%,#0f1520_100%)] border-r border-white/10 shadow-2xl transform transition-transform duration-300",
           isRTL ? "right-0" : "left-0",
-          mobileOpen ? "translate-x-0" : isRTL ? "translate-x-full" : "-translate-x-full"
+          mobileOpen ? "translate-x-0 pointer-events-auto" : isRTL ? "translate-x-full pointer-events-none" : "-translate-x-full pointer-events-none"
         )}
       >
         <div className="flex h-full flex-col">
@@ -431,7 +431,7 @@ export default function Sidebar() {
               aria-label="Close menu"
               className="rounded-xl border border-white/10 bg-white/[0.06] p-2 text-[#c2cede] hover:text-white hover:bg-white/[0.1] transition-colors"
             >
-              <ChevronLeft className={cn("w-4 h-4", isRTL && "rotate-180")} />
+              <X className="w-4 h-4" />
             </button>
           </div>
           <div className="min-h-0 flex-1">{navContent}</div>
