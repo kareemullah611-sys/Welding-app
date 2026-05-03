@@ -756,7 +756,7 @@ export default function DashboardPage() {
                       for (const [cur, amt] of Object.entries(c.outstandingByCurrency || {})) acc[cur] = (acc[cur] || 0) + (amt as number);
                       return acc;
                     }, {})).map(([cc, amt]) => (
-                      <div key={cc} className="font-bold text-rose-700 tabular-nums">{cc} {formatNumber(amt)}</div>
+                      <div key={cc} className="font-bold text-rose-700 tabular-nums">{cc} {formatNumber(amt as number)}</div>
                     ))}
                   </div>
                   <div className="text-sm">
@@ -765,7 +765,7 @@ export default function DashboardPage() {
                       for (const [cur, amt] of Object.entries(c.hajiByCurrency || {})) acc[cur] = (acc[cur] || 0) + (amt as number);
                       return acc;
                     }, {})).map(([cc, amt]) => (
-                      <div key={cc} className="font-bold text-amber-700 tabular-nums">{cc} {formatNumber(amt)}</div>
+                      <div key={cc} className="font-bold text-amber-700 tabular-nums">{cc} {formatNumber(amt as number)}</div>
                     ))}
                   </div>
                   <div className="text-sm">
@@ -778,7 +778,7 @@ export default function DashboardPage() {
                       for (const [cur, amt] of Object.entries(c.withdrawalByCurrency || {})) acc[cur] = (acc[cur] || 0) + (amt as number);
                       return acc;
                     }, {})).map(([cc, amt]) => (
-                      <div key={cc} className="font-bold text-amber-600 tabular-nums">{cc} {formatNumber(amt)}</div>
+                      <div key={cc} className="font-bold text-amber-600 tabular-nums">{cc} {formatNumber(amt as number)}</div>
                     ))}
                   </div>
                   <div className="text-sm">
