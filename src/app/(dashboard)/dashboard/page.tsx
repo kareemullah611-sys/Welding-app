@@ -213,6 +213,12 @@ export default function DashboardPage() {
       setLoading(false);
     }, [isOnline, queuedItems, user?.role]);
 
+  const closeQuickForm = useCallback(() => {
+    setQuickAction(null);
+    setQuickFrameLoading(false);
+    loadDashboard();
+  }, [loadDashboard]);
+
   useEffect(() => {
     loadDashboard();
   }, [loadDashboard]);
@@ -226,27 +232,26 @@ export default function DashboardPage() {
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
       if (event.data?.type === "dashboard-quick-close") {
-        setQuickAction(null);
-        loadDashboard();
+        closeQuickForm();
       }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [loadDashboard]);
+  }, [closeQuickForm]);
 
   useEffect(() => {
     if (!quickAction) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setQuickAction(null);
+      if (event.key === "Escape") closeQuickForm();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [quickAction]);
+  }, [closeQuickForm, quickAction]);
 
   if (loading) {
     return (
@@ -524,12 +529,12 @@ export default function DashboardPage() {
             <button
               aria-label="Close quick form"
               className="absolute inset-0 bg-black/55 backdrop-blur-sm"
-              onClick={() => setQuickAction(null)}
+              onClick={closeQuickForm}
             />
             <div className="relative z-[91] mx-auto flex h-[100dvh] w-full items-center justify-center p-2 sm:p-4">
               <button
                 type="button"
-                onClick={() => setQuickAction(null)}
+                onClick={closeQuickForm}
                 className="absolute right-4 top-4 rounded-lg bg-white/90 p-1.5 text-gray-600 shadow transition-colors hover:bg-white hover:text-gray-800"
                 aria-label="Close"
               >
