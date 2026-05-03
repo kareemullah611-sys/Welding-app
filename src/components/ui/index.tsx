@@ -634,17 +634,25 @@ export function Modal({
 
   if (inline) {
     return (
-      <div className="h-[100dvh] w-full overflow-y-auto overscroll-contain p-2 sm:p-4">
-        <div className={cn("relative mx-auto w-full bg-white rounded-xl sm:rounded-2xl shadow-2xl min-h-[calc(100dvh-1rem)] sm:min-h-0 sm:max-h-[calc(100dvh-2rem)] flex flex-col", sizes[size])}>
+      <div className="h-[100dvh] w-full overflow-y-auto overscroll-contain p-0 sm:p-4 flex items-end sm:items-center justify-center">
+        <div className={cn("relative w-full bg-white shadow-2xl flex flex-col max-h-[92dvh] rounded-t-2xl sm:rounded-2xl", sizes[size])}>
           {!hideHeader && (
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
+            <div className="sticky top-0 z-10 flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-gray-200 bg-white/95 backdrop-blur flex-shrink-0">
               <h2 className="text-base font-semibold text-gray-900">{title}</h2>
-              <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 transition-colors">
+              <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
                 <X className="w-5 h-5 text-gray-500" />
               </button>
             </div>
           )}
-          <div onKeyDownCapture={handleFormKeyNav} className={cn("overflow-y-auto overscroll-contain flex-1", bodyClassName || "p-4 sm:p-6")}>{children}</div>
+          <div
+            onKeyDownCapture={handleFormKeyNav}
+            className={cn(
+              "overflow-y-auto overscroll-contain flex-1 pb-[max(1rem,env(safe-area-inset-bottom))]",
+              bodyClassName || "p-4 sm:p-6"
+            )}
+          >
+            {children}
+          </div>
         </div>
       </div>
     );
