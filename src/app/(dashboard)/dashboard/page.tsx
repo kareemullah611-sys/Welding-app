@@ -50,6 +50,7 @@ const QuickActionCard = ({
     blue: { bg: "bg-blue-50", border: "border-blue-200", icon: "text-blue-600", text: "text-blue-900", hover: "hover:bg-blue-100" },
     green: { bg: "bg-emerald-50", border: "border-emerald-200", icon: "text-emerald-600", text: "text-emerald-900", hover: "hover:bg-emerald-100" },
     red: { bg: "bg-rose-50", border: "border-rose-200", icon: "text-rose-600", text: "text-rose-900", hover: "hover:bg-rose-100" },
+    amber: { bg: "bg-amber-50", border: "border-amber-200", icon: "text-amber-700", text: "text-amber-900", hover: "hover:bg-amber-100" },
     purple: { bg: "bg-violet-50", border: "border-violet-200", icon: "text-violet-600", text: "text-violet-900", hover: "hover:bg-violet-100" },
     orange: { bg: "bg-amber-50", border: "border-amber-200", icon: "text-amber-600", text: "text-amber-900", hover: "hover:bg-amber-100" },
     teal: { bg: "bg-teal-50", border: "border-teal-200", icon: "text-teal-600", text: "text-teal-900", hover: "hover:bg-teal-100" },
@@ -528,29 +529,29 @@ export default function DashboardPage() {
           <div className="fixed inset-0 z-[90]">
             <button
               aria-label="Close quick form"
-              className="absolute inset-0 bg-black/55 backdrop-blur-sm"
+              className="absolute inset-0 bg-[#0b1220]/62 backdrop-blur-[2px]"
               onClick={closeQuickForm}
             />
-            <div className="relative z-[91] mx-auto flex h-[100dvh] w-full items-center justify-center p-2 sm:p-4">
+            <div className="relative z-[91] mx-auto flex h-[100dvh] w-full items-center justify-center p-2.5 sm:p-5">
               <button
                 type="button"
                 onClick={closeQuickForm}
-                className="absolute right-4 top-4 rounded-lg bg-white/90 p-1.5 text-gray-600 shadow transition-colors hover:bg-white hover:text-gray-800"
+                className="absolute right-5 top-5 rounded-xl border border-white/75 bg-white/95 p-1.5 text-gray-600 shadow-[0_10px_28px_-14px_rgba(22,18,14,0.55)] transition-colors hover:bg-white hover:text-gray-800"
                 aria-label="Close"
               >
                 <X className="h-5 w-5" />
               </button>
-              <div className="h-[min(92vh,920px)] w-full max-w-6xl overflow-hidden rounded-2xl bg-white">
-                <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
-                  <h2 className="text-sm font-semibold text-gray-800">{quickAction.title}</h2>
-                  {quickFrameLoading && <span className="text-xs text-gray-500">Loading form...</span>}
+              <div className="h-[min(92vh,920px)] w-full max-w-6xl overflow-hidden rounded-[1.65rem] border border-white/65 bg-[linear-gradient(165deg,rgba(255,255,255,0.98),rgba(248,242,233,0.96))] shadow-[0_38px_100px_-42px_rgba(12,18,29,0.8)]">
+                <div className="flex items-center justify-between border-b border-[#e8dccf] px-5 py-3.5">
+                  <h2 className="text-sm font-semibold tracking-[0.01em] text-[#2f241c]">{quickAction.title}</h2>
+                  {quickFrameLoading && <span className="text-xs font-medium text-[#8d7561]">Loading form...</span>}
                 </div>
                 <iframe
                   key={quickAction.src}
                   src={quickAction.src}
                   title={`${quickAction.title} form`}
                   onLoad={() => setQuickFrameLoading(false)}
-                  className="h-[calc(100%-49px)] w-full border-0 bg-transparent"
+                  className="h-[calc(100%-53px)] w-full border-0 bg-transparent"
                 />
               </div>
             </div>

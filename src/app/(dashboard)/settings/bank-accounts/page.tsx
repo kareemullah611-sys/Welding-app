@@ -345,14 +345,14 @@ export default function BankAccountsPage() {
               setActionMenuDirection("down");
               setOpenActionId((current) => current === acc.id ? null : acc.id);
             }}
-            className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-lg leading-none text-gray-600 hover:bg-gray-100 sm:h-auto sm:w-auto sm:px-2 sm:py-1"
           >
             ⋯
           </button>
           {openActionId === acc.id && (
-            <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
-              <button onClick={() => { setOpenActionId(null); openEdit(acc); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
-              <button onClick={() => { setOpenActionId(null); toggleActive(acc); }} className={`w-full rounded-lg px-3 py-2 text-left text-xs hover:bg-gray-50 ${acc.isActive ? "text-gray-600" : "text-green-700 hover:bg-green-50"}`}>
+            <div className={`absolute right-0 z-50 w-44 sm:w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
+              <button onClick={() => { setOpenActionId(null); openEdit(acc); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
+              <button onClick={() => { setOpenActionId(null); toggleActive(acc); }} className={`w-full rounded-lg px-3 py-2.5 text-left text-sm hover:bg-gray-50 sm:py-2 sm:text-xs ${acc.isActive ? "text-gray-600" : "text-green-700 hover:bg-green-50"}`}>
                 {acc.isActive ? t("deactivate") : t("reactivate")}
               </button>
             </div>

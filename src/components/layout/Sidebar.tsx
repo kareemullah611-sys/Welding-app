@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
@@ -178,6 +178,7 @@ export default function Sidebar() {
   const isRTL = dir === "rtl";
   const [mobileOpen, setMobileOpen] = useState(false);
   const [pendingTransfers, setPendingTransfers] = useState(0);
+  const touchStartX = useRef(0);
   const currentQuery = searchParams.toString();
 
   useEffect(() => {
@@ -336,7 +337,7 @@ export default function Sidebar() {
       </nav>
 
       {/* ── User Footer ── */}
-      <div className="border-t border-sidebar-border flex-shrink-0 p-2 space-y-0.5">
+      <div className="border-t border-sidebar-border flex-shrink-0 p-2 pb-[max(1rem,env(safe-area-inset-bottom,1rem))] space-y-0.5">
         {/* User info */}
         {!collapsed ? (
           <div className="flex items-center gap-2.5 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-3">
@@ -413,6 +414,11 @@ export default function Sidebar() {
 
       {/* Mobile sidebar */}
       <aside
+        onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX; }}
+        onTouchEnd={(e) => {
+          const dx = e.changedTouches[0].clientX - touchStartX.current;
+          if ((isRTL && dx > 50) || (!isRTL && dx < -50)) setMobileOpen(false);
+        }}
         className={cn(
           "lg:hidden fixed top-0 z-50 h-full w-[86vw] max-w-[320px] bg-[linear-gradient(180deg,#0b111d_0%,#121a28_46%,#0f1520_100%)] border-r border-white/10 shadow-2xl transform transition-transform duration-300",
           isRTL ? "right-0" : "left-0",

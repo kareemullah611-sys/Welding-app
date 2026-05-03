@@ -306,6 +306,7 @@ export default function HajiTransfersPage() {
       ...f, transferDate: new Date().toISOString().split("T")[0],
       amount: 0, detail: "", sourceType: "cash_office",
       bankAccountId: 0, chequePaymentId: 0, chequePaymentIds: [], cashAmount: 0, transferredTo: shouldUseSuperAdminTarget ? PAKISTAN_HAJI_TARGET : "", notes: "", lotId: 0,
+      currencyId: f.currencyId || currencies[0]?.id || 0,
       ...preset,
     }));
     setShowCreate(true); setError("");
@@ -664,14 +665,14 @@ export default function HajiTransfersPage() {
                       setActionMenuDirection("down");
                       setOpenActionId((current) => current === tr.id ? null : tr.id);
                     }}
-                    className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-lg leading-none text-gray-600 hover:bg-gray-100 sm:h-auto sm:w-auto sm:px-2 sm:py-1"
                   >
                     ⋯
                   </button>
                   {openActionId === tr.id && (
-                    <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
-                      <button onClick={() => { setOpenActionId(null); openEdit(tr); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
-                      <button onClick={() => { setOpenActionId(null); handleDelete(tr); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("delete")}</button>
+                    <div className={`absolute right-0 z-50 w-44 sm:w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
+                      <button onClick={() => { setOpenActionId(null); openEdit(tr); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
+                      <button onClick={() => { setOpenActionId(null); handleDelete(tr); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("delete")}</button>
                     </div>
                   )}
                 </>
@@ -801,7 +802,7 @@ export default function HajiTransfersPage() {
             <input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 {form.sourceType === "mixed_cash_cheque" ? "Cash Amount" : t("amount")} {form.sourceType === "cheque" ? <span className="text-gray-400 font-normal">(auto from cheque)</span> : "*"}
@@ -816,6 +817,21 @@ export default function HajiTransfersPage() {
                 readOnly={form.sourceType === "cheque"}
                 onWheel={e => e.currentTarget.blur()}
               />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")} *</label>
+              <select
+                value={form.currencyId || 0}
+                onChange={e => setForm((f: any) => ({ ...f, currencyId: parseInt(e.target.value, 10) || 0 }))}
+                className="select-field"
+              >
+                <option value={0}>— Select currency —</option>
+                {currencies.map((c: any) => (
+                  <option key={c.id} value={c.id}>
+                    {c.code} {c.symbol ? `(${c.symbol})` : ""}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("lot")}</label>

@@ -8,7 +8,7 @@ import OfflineBanner from "@/components/layout/OfflineBanner";
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
+  maximumScale: 5,
   themeColor: "#6B0F1A",
 };
 

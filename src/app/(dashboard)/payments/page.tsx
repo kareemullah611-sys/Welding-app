@@ -1033,27 +1033,27 @@ export default function PaymentsPage() {
                 setOpenActionId((current) => current === actionKey ? null : actionKey);
               }}
               aria-label="Open actions"
-              className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-lg leading-none text-gray-600 hover:bg-gray-100 sm:h-auto sm:w-auto sm:px-2 sm:py-1"
             >
               ⋯
             </button>
             {openActionId === getActionKey(item) && (
-              <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
-                <button onClick={() => { setOpenActionId(null); openEdit(item); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("edit")}</button>
+              <div className={`absolute right-0 z-50 w-44 sm:w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
+                <button onClick={() => { setOpenActionId(null); openEdit(item); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
                 {item.type === "payment" && item.status === "active" && (
-                  <button onClick={() => { setOpenActionId(null); handleDelete(item); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("cancel")}</button>
+                  <button onClick={() => { setOpenActionId(null); handleDelete(item); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("cancel")}</button>
                 )}
                 {item.type !== "payment" && (
-                  <button onClick={() => { setOpenActionId(null); handleDelete(item); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("delete")}</button>
+                  <button onClick={() => { setOpenActionId(null); handleDelete(item); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("delete")}</button>
                 )}
                 {item.type === "payment" && user?.role === "super_admin" && !getPendingQueueId(item?.id) && (
-                  <button onClick={() => { setOpenActionId(null); openHardDelete(item); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-800 hover:bg-red-50">{t("hard_delete")}</button>
+                  <button onClick={() => { setOpenActionId(null); openHardDelete(item); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-800 hover:bg-red-50 sm:py-2 sm:text-xs">{t("hard_delete")}</button>
                 )}
                 {item.type === "withdrawal" && item.status === "pending" && user?.role === "super_admin" && (
-                  <button onClick={() => { setOpenActionId(null); handleApproveWithdrawal(item); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-green-700 hover:bg-green-50">Approve</button>
+                  <button onClick={() => { setOpenActionId(null); handleApproveWithdrawal(item); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-green-700 hover:bg-green-50 sm:py-2 sm:text-xs">Approve</button>
                 )}
                 {item.type === "payment" && item.status === "active" && item.raw?.paymentMethod === "cheque" && item.raw?.chequeStatus === "in_hand" && (
-                  <button onClick={() => { setOpenActionId(null); setBounceTarget(item); setShowBounce(true); setError(""); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-amber-700 hover:bg-amber-50">{t("mark_bounced")}</button>
+                  <button onClick={() => { setOpenActionId(null); setBounceTarget(item); setShowBounce(true); setError(""); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-amber-700 hover:bg-amber-50 sm:py-2 sm:text-xs">{t("mark_bounced")}</button>
                 )}
               </div>
             )}

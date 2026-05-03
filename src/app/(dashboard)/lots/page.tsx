@@ -852,7 +852,7 @@ export default function LotsPage() {
                   setActionMenuDirection("down");
                   setOpenActionId((current) => current === l.id ? null : l.id);
                 }}
-                className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-lg leading-none text-gray-600 hover:bg-gray-100 sm:h-auto sm:w-auto sm:px-2 sm:py-1"
                 aria-label="Open actions"
               >
                 ⋯
@@ -861,17 +861,17 @@ export default function LotsPage() {
                 <div className={`absolute right-0 z-50 w-44 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}>
                   {!getPendingQueueId(l?.id) && (
                     <>
-                      <button onClick={() => { setOpenActionId(null); openEditLot(l); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">Edit Lot</button>
-                      <button onClick={() => { setOpenActionId(null); openDistribute(l); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-blue-700 hover:bg-blue-50">Distribute</button>
+                      <button onClick={() => { setOpenActionId(null); openEditLot(l); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">Edit Lot</button>
+                      <button onClick={() => { setOpenActionId(null); openDistribute(l); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-blue-700 hover:bg-blue-50 sm:py-2 sm:text-xs">Distribute</button>
                       {l.status === "ongoing" && (
-                        <button onClick={() => { setOpenActionId(null); handleComplete(l); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-green-700 hover:bg-green-50">Complete</button>
+                        <button onClick={() => { setOpenActionId(null); handleComplete(l); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-green-700 hover:bg-green-50 sm:py-2 sm:text-xs">Complete</button>
                       )}
                       {l.status === "completed" && (
-                        <button onClick={() => { setOpenActionId(null); handleReopen(l); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-amber-700 hover:bg-amber-50">Reopen</button>
+                        <button onClick={() => { setOpenActionId(null); handleReopen(l); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-amber-700 hover:bg-amber-50 sm:py-2 sm:text-xs">Reopen</button>
                       )}
                     </>
                   )}
-                  <button onClick={() => { setOpenActionId(null); handleDeleteLot(l); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">Delete</button>
+                  <button onClick={() => { setOpenActionId(null); handleDeleteLot(l); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">Delete</button>
                 </div>
               )}
             </>

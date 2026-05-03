@@ -725,17 +725,17 @@ export default function PersonalWithdrawalsPage() {
                     setActionMenuDirection("down");
                     setOpenActionId((current) => current === w.id ? null : w.id);
                   }}
-                  className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-lg leading-none text-gray-600 hover:bg-gray-100 sm:h-auto sm:w-auto sm:px-2 sm:py-1"
                 >
                   ⋯
                 </button>
                 {openActionId === w.id && (
-                  <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
+                  <div className={`absolute right-0 z-50 w-44 sm:w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
                     {!w.approvedAt && (
                       <>
                         <button
                           onClick={() => { setOpenActionId(null); openEdit(w); }}
-                          className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50"
+                          className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs"
                         >
                           {t("edit")}
                         </button>
@@ -743,14 +743,14 @@ export default function PersonalWithdrawalsPage() {
                           <button
                             onClick={() => { setOpenActionId(null); handleApprove(w); }}
                             disabled={approvingId === w.id}
-                            className="w-full rounded-lg px-3 py-2 text-left text-xs text-green-700 hover:bg-green-50 disabled:opacity-50"
+                            className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-green-700 hover:bg-green-50 disabled:opacity-50 sm:py-2 sm:text-xs"
                           >
                             {approvingId === w.id ? "Approving..." : "Approve"}
                           </button>
                         )}
                         <button
                           onClick={() => { setOpenActionId(null); handleDelete(w); }}
-                          className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50"
+                          className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs"
                         >
                           {t("delete")}
                         </button>

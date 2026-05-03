@@ -90,7 +90,7 @@ export function PageHeader({
         <h1 className="text-2xl font-bold text-[#241a13] tracking-tight sm:text-3xl">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-[#7b6857]">{subtitle}</p>}
       </div>
-      {action && <div className="flex-shrink-0 flex gap-2">{action}</div>}
+      {action && <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:flex-shrink-0 sm:justify-end">{action}</div>}
       </div>
     </div>
   );
@@ -333,7 +333,7 @@ export function DataTable<T extends Record<string, any>>({
   return (
     <div className="rounded-[1.4rem] border border-white/70 bg-white/85 shadow-[0_26px_70px_-42px_rgba(51,42,33,0.35)] backdrop-blur-xl">
       {searchable && (
-        <div className="flex flex-col gap-1 border-b border-[#efe2d3] bg-[#fbf6ef]/80 px-4 py-3">
+        <div className="flex flex-col gap-1 border-b border-[#efe2d3] bg-[#fbf6ef]/80 px-3 py-3 sm:px-4">
           <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center">
             <input
               type="search"
@@ -356,7 +356,7 @@ export function DataTable<T extends Record<string, any>>({
                 });
               }}
               placeholder={searchPlaceholder}
-              className="input-field h-9 w-full sm:max-w-sm"
+              className="input-field h-10 w-full text-base sm:h-9 sm:max-w-sm sm:text-sm"
             />
             <select
               value={selectedSearchColumn}
@@ -364,7 +364,7 @@ export function DataTable<T extends Record<string, any>>({
                 setSelectedSearchColumn(event.target.value);
                 setActiveMatchIndex(-1);
               }}
-              className="input-field h-9 w-full text-sm sm:w-56"
+              className="input-field h-10 w-full text-base sm:h-9 sm:w-56 sm:text-sm"
               aria-label="Search specific column"
             >
               <option value="__all__">All Columns</option>
@@ -414,7 +414,7 @@ export function DataTable<T extends Record<string, any>>({
               <TableRow>
                 <TableCell colSpan={columns.length} className="py-16 text-center">
                   <div className="flex flex-col items-center gap-2">
-                    <span className="text-3xl opacity-30">📋</span>
+                    <div className="h-10 w-10 rounded-xl border border-[#eadfce] bg-[#f9f2e8]" />
                     <p className="text-sm text-muted-foreground">{emptyMessage}</p>
                   </div>
                 </TableCell>
@@ -499,7 +499,7 @@ export function PaginationBar({
           size="sm"
           onClick={() => pagination.onPageChange(pagination.page - 1)}
           disabled={pagination.page <= 1}
-          className="h-8 px-3 text-xs"
+          className="h-9 px-3 text-xs sm:h-8"
         >
           Previous
         </Button>
@@ -514,7 +514,7 @@ export function PaginationBar({
               type="button"
               onClick={() => pagination.onPageChange(item)}
               className={cn(
-                "h-8 min-w-8 rounded-md border px-2 text-xs font-semibold transition-colors",
+                "h-9 min-w-9 rounded-md border px-2 text-xs font-semibold transition-colors sm:h-8 sm:min-w-8",
                 item === pagination.page
                   ? "border-[#1f2a44] bg-[#111a30] text-white shadow-sm"
                   : "border-[#e8ddcf] bg-white text-[#374151] hover:border-[#cdbca6] hover:bg-[#f8efe2]"
@@ -529,7 +529,7 @@ export function PaginationBar({
           size="sm"
           onClick={() => pagination.onPageChange(pagination.page + 1)}
           disabled={pagination.page >= pagination.totalPages}
-          className="h-8 px-3 text-xs"
+          className="h-9 px-3 text-xs sm:h-8"
         >
           Next
         </Button>
@@ -635,11 +635,11 @@ export function Modal({
   if (inline) {
     return (
       <div className="h-[100dvh] w-full overflow-y-auto overscroll-contain p-0 sm:p-4 flex items-end sm:items-center justify-center">
-        <div className={cn("relative w-full bg-white shadow-2xl flex flex-col max-h-[92dvh] rounded-t-2xl sm:rounded-2xl", sizes[size])}>
+        <div className={cn("relative w-full border border-[#eadfce] bg-[linear-gradient(168deg,rgba(255,255,255,0.99),rgba(249,243,234,0.97))] shadow-[0_32px_80px_-42px_rgba(23,18,14,0.72)] flex flex-col max-h-[92dvh] rounded-t-2xl sm:rounded-[1.35rem]", sizes[size])}>
           {!hideHeader && (
-            <div className="sticky top-0 z-10 flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-gray-200 bg-white/95 backdrop-blur flex-shrink-0">
-              <h2 className="text-base font-semibold text-gray-900">{title}</h2>
-              <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+            <div className="sticky top-0 z-10 flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-[#e6d8c7] bg-[rgba(255,253,250,0.96)] backdrop-blur flex-shrink-0">
+              <h2 className="text-base font-semibold tracking-[0.01em] text-[#2f241c]">{title}</h2>
+              <button onClick={onClose} className="p-1.5 rounded-lg border border-transparent hover:border-[#e6d8c8] hover:bg-white transition-colors">
                 <X className="w-5 h-5 text-gray-500" />
               </button>
             </div>
@@ -660,10 +660,10 @@ export function Modal({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className={cn("w-full gap-0 p-0 overflow-hidden", sizes[size])}>
+      <DialogContent className={cn("w-full gap-0 p-0 overflow-hidden border border-[#eadfce] bg-[linear-gradient(168deg,rgba(255,255,255,0.99),rgba(249,243,234,0.97))] shadow-[0_32px_80px_-42px_rgba(23,18,14,0.72)]", sizes[size])}>
         {!hideHeader && (
-          <DialogHeader className="px-6 py-4 border-b border-border flex-shrink-0">
-            <DialogTitle asChild><div className="text-base font-semibold text-gray-900">{title}</div></DialogTitle>
+          <DialogHeader className="px-6 py-4 border-b border-[#e6d8c7] bg-[rgba(255,253,250,0.96)] flex-shrink-0">
+            <DialogTitle asChild><div className="text-base font-semibold tracking-[0.01em] text-[#2f241c]">{title}</div></DialogTitle>
           </DialogHeader>
         )}
         <div onKeyDownCapture={handleFormKeyNav} className={cn("overflow-y-auto max-h-[75vh]", hideHeader ? "" : "px-6 py-5", bodyClassName)}>{children}</div>

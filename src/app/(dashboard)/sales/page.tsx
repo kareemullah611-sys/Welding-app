@@ -810,21 +810,21 @@ export default function SalesPage() {
                 setActionMenuDirection("down");
                 setOpenActionId((current) => current === s.id ? null : s.id);
               }}
-              className="rounded-lg px-2 py-1 text-lg leading-none text-gray-600 hover:bg-gray-100"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-lg leading-none text-gray-600 hover:bg-gray-100 sm:h-auto sm:w-auto sm:px-2 sm:py-1"
             >
               ⋯
             </button>
             {openActionId === s.id && (
-              <div className={`absolute right-0 z-50 w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
+              <div className={`absolute right-0 z-50 w-44 sm:w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
                 {s.status === "active" && (
                   <>
-                    <button onClick={() => { setOpenActionId(null); openCorrect(s); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-primary-700 hover:bg-primary-50">{t("correct_sale")}</button>
-                    <button onClick={() => { setOpenActionId(null); openDiscount(s); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-yellow-700 hover:bg-yellow-50">{t("discount")}</button>
-                    <button onClick={() => { setOpenActionId(null); openCancel(s); }} className="w-full rounded-lg px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{t("cancel")}</button>
+                    <button onClick={() => { setOpenActionId(null); openCorrect(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("correct_sale")}</button>
+                    <button onClick={() => { setOpenActionId(null); openDiscount(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-yellow-700 hover:bg-yellow-50 sm:py-2 sm:text-xs">{t("discount")}</button>
+                    <button onClick={() => { setOpenActionId(null); openCancel(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("cancel")}</button>
                   </>
                 )}
                 {user?.role === "super_admin" && !String(s.id || "").startsWith("pending-") && (
-                  <button onClick={() => { setOpenActionId(null); openHardDelete(s); }} className="w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-red-800 hover:bg-red-50">{t("hard_delete")}</button>
+                  <button onClick={() => { setOpenActionId(null); openHardDelete(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-red-800 hover:bg-red-50 sm:py-2 sm:text-xs">{t("hard_delete")}</button>
                 )}
               </div>
             )}
