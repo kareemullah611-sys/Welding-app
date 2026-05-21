@@ -1,4 +1,5 @@
-const { app, BrowserWindow, shell, ipcMain } = require("electron");
+const { app, BrowserWindow, shell, ipcMain, dialog } = require("electron");
+// shell used to wake Render in the system browser
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
@@ -244,6 +245,44 @@ function startServer() {
   });
 }
 
+function probeRemoteHealth() {
+  return new Promise(function (resolve) {
+    let remoteParsed;
+    try {
+      remoteParsed = new URL(REMOTE_URL);
+    } catch {
+      resolve(false);
+      return;
+    }
+    const isHttps = remoteParsed.protocol === "https:";
+    const transport = isHttps ? https : http;
+    const req = transport.request(
+      {
+        hostname: remoteParsed.hostname,
+        port: remoteParsed.port || (isHttps ? 443 : 80),
+        path: "/api/health",
+        method: "GET",
+        timeout: 20000,
+      },
+      function (res) {
+        let body = "";
+        res.on("data", function (chunk) { body += chunk; });
+        res.on("end", function () {
+          resolve(res.statusCode === 200 && body.includes('"ok":true'));
+        });
+      }
+    );
+    req.on("timeout", function () {
+      req.destroy();
+      resolve(false);
+    });
+    req.on("error", function () {
+      resolve(false);
+    });
+    req.end();
+  });
+}
+
 // ── Electron window ───────────────────────────────────────────────────────────
 function createWindow(localPort) {
   const win = new BrowserWindow({
@@ -306,6 +345,31 @@ app.whenReady().then(async () => {
       return false;
     }
   });
+
+  ipcMain.handle("electron:open-remote-in-browser", async () => {
+    await shell.openExternal(REMOTE_URL);
+    return true;
+  });
+
+  const serverHealthy = await probeRemoteHealth();
+  if (!serverHealthy) {
+    const choice = await dialog.showMessageBox({
+      type: "warning",
+      title: "Server not ready",
+      message: "Cannot reach the welding-app server",
+      detail:
+        REMOTE_URL +
+        " is not responding (Render may be waking, suspended, or the last deploy failed).\n\n" +
+        "1. Open Render Dashboard → welding-app → confirm Latest Deploy is Live\n" +
+        "2. Set JWT_SECRET and DATABASE_URL\n" +
+        "3. Open the URL in Safari until login works, then reopen this app",
+      buttons: ["Open in Browser", "Continue Offline Shell"],
+      defaultId: 0,
+    });
+    if (choice.response === 0) {
+      await shell.openExternal(REMOTE_URL);
+    }
+  }
 
   createWindow(localPort);
 

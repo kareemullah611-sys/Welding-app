@@ -13,6 +13,7 @@ export default function LoginPage() {
   const { login } = useAuth();
   const router = useRouter();
   const { t, dir } = useLang();
+  const [isElectron, setIsElectron] = useState(false);
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -26,6 +27,10 @@ export default function LoginPage() {
   // Photo slideshow
   const hasPhotos = LOGIN_PHOTOS.length > 0;
   const [currentIdx, setCurrentIdx] = useState(0);
+
+  useEffect(() => {
+    setIsElectron(typeof window !== "undefined" && window.platformInfo?.runtime === "electron");
+  }, []);
 
   useEffect(() => {
     if (!hasPhotos || LOGIN_PHOTOS.length < 2) return;
@@ -121,8 +126,29 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-              {error}
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm space-y-2">
+              <p>{error}</p>
+              {isElectron && (
+                <div className="flex flex-col gap-2 pt-1">
+                  <button
+                    type="button"
+                    className="text-left text-xs font-semibold text-red-800 underline"
+                    onClick={() => void window.platformInfo?.openRemoteInBrowser?.()}
+                  >
+                    Open server in browser (wake Render)
+                  </button>
+                  <button
+                    type="button"
+                    className="text-left text-xs font-semibold text-red-800 underline"
+                    onClick={async () => {
+                      const ok = await window.platformInfo?.retryRemoteLoad?.();
+                      if (!ok) setError("Could not load online app. Open welding-app.onrender.com in Safari first.");
+                    }}
+                  >
+                    Switch to online mode (same as browser)
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

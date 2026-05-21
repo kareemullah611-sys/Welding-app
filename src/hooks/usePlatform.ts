@@ -6,7 +6,11 @@ export type PlatformRuntime = "electron" | "capacitor" | "browser";
 
 declare global {
   interface Window {
-    platformInfo?: { runtime: string };
+    platformInfo?: {
+      runtime: string;
+      openRemoteInBrowser?: () => Promise<boolean>;
+      retryRemoteLoad?: () => Promise<boolean>;
+    };
     Capacitor?: { getPlatform: () => string };
   }
 }
