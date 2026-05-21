@@ -107,7 +107,7 @@ export async function getFullSyncDataForApiRequest<T = unknown>(
   const raw = await getSyncedModuleData(moduleKey);
   if (!Array.isArray(raw)) return null;
 
-  const filtered = filterSyncedListRows(raw, params) as T[];
+  const filtered = filterSyncedListRows(raw, params);
   const { data, pagination } = paginateSyncedList(filtered, params);
-  return { data, pagination };
+  return { data: data as T, pagination };
 }
