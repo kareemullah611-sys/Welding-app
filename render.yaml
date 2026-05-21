@@ -18,7 +18,7 @@ services:
       - key: JWT_SECRET
         sync: false
       - key: NEXT_PUBLIC_APP_URL
-        value: https://welding-app.onrender.com
+        value: https://welding-app-jhhc.onrender.com
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
       - key: CLOUDINARY_API_KEY

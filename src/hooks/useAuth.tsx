@@ -30,7 +30,7 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 const RETRYABLE_STATUSES = new Set([502, 503, 504]);
-const PRODUCTION_APP_URL = "https://welding-app.onrender.com";
+const PRODUCTION_APP_URL = "https://welding-app-jhhc.onrender.com";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));

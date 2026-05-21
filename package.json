@@ -72,8 +72,8 @@
     "typescript": "^5.9.3"
   },
   "build": {
-    "appId": "com.mrf.kandahar",
-    "productName": "MRF Kandahar",
+    "appId": "com.mrf.hardware",
+    "productName": "MRF Hardware",
     "directories": {
       "output": "release/mac"
     },

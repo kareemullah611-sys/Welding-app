@@ -142,7 +142,7 @@ export default function LoginPage() {
                     className="text-left text-xs font-semibold text-red-800 underline"
                     onClick={async () => {
                       const ok = await window.platformInfo?.retryRemoteLoad?.();
-                      if (!ok) setError("Could not load online app. Open welding-app.onrender.com in Safari first.");
+                      if (!ok) setError("Could not load online app. Open welding-app-jhhc.onrender.com in Safari first.");
                     }}
                   >
                     Switch to online mode (same as browser)
