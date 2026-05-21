@@ -51,6 +51,15 @@ function isCsrfSafe(request: NextRequest): boolean {
 
   if (appOrigin && requestOrigin === appOrigin) return true;
 
+  // Electron desktop proxies API via 127.0.0.1 (rewrites Origin; keep fallback for forwarded requests)
+  if (
+    appOrigin &&
+    (requestOrigin.startsWith("http://127.0.0.1") || requestOrigin.startsWith("http://localhost")) &&
+    request.headers.get("x-forwarded-proto")
+  ) {
+    return true;
+  }
+
   // Allow same host (covers both http and https variants when behind a proxy)
   const requestHost = new URL(requestOrigin).hostname;
   const host = request.headers.get("host");

@@ -80,65 +80,111 @@ function serveStatic(res, filePath) {
 }
 
 // ── API proxy to remote ───────────────────────────────────────────────────────
-function proxyApiRequest(clientReq, clientRes) {
-  const remoteParsed = new URL(REMOTE_URL);
-  const isHttps = remoteParsed.protocol === "https:";
-  const transport = isHttps ? https : http;
+function readRequestBody(req) {
+  return new Promise(function (resolve, reject) {
+    const chunks = [];
+    req.on("data", function (chunk) { chunks.push(chunk); });
+    req.on("end", function () { resolve(Buffer.concat(chunks)); });
+    req.on("error", reject);
+  });
+}
 
-  const options = {
-    hostname: remoteParsed.hostname,
-    port: remoteParsed.port || (isHttps ? 443 : 80),
-    path: clientReq.url,
-    method: clientReq.method,
-    headers: {},
-  };
-
-  for (const [key, val] of Object.entries(clientReq.headers)) {
-    if (key === "host") continue;
-    options.headers[key] = val;
+function rewriteToRemoteUrl(headerValue, remoteOrigin) {
+  if (!headerValue) return undefined;
+  try {
+    const parsed = new URL(headerValue);
+    return remoteOrigin + parsed.pathname + parsed.search;
+  } catch {
+    return remoteOrigin;
   }
+}
 
-  const proxyReq = transport.request(options, (proxyRes) => {
-    const responseHeaders = { ...proxyRes.headers };
+function sendProxyError(clientRes, statusCode, message) {
+  if (clientRes.headersSent) return;
+  clientRes.writeHead(statusCode, { "Content-Type": "application/json" });
+  clientRes.end(JSON.stringify({
+    success: false,
+    error: { code: "PROXY_ERROR", message: message },
+    _offline: true,
+  }));
+}
 
-    // Strip Domain from Set-Cookie so browser accepts cookies for localhost
-    if (responseHeaders["set-cookie"]) {
-      const cookies = Array.isArray(responseHeaders["set-cookie"])
-        ? responseHeaders["set-cookie"]
-        : [responseHeaders["set-cookie"]];
-      responseHeaders["set-cookie"] = cookies.map(function (c) {
-        return c
-          .replace(/;\s*Domain=[^;]+/gi, "")
-          .replace(/;\s*Secure/gi, "");
+function proxyApiRequest(clientReq, clientRes) {
+  readRequestBody(clientReq)
+    .then(function (body) {
+      const remoteParsed = new URL(REMOTE_URL);
+      const isHttps = remoteParsed.protocol === "https:";
+      const transport = isHttps ? https : http;
+      const remoteOrigin = remoteParsed.origin;
+
+      const headers = {};
+      for (const [key, val] of Object.entries(clientReq.headers)) {
+        const lower = key.toLowerCase();
+        if (lower === "host" || lower === "connection" || lower === "content-length") continue;
+        headers[key] = val;
+      }
+
+      // Remote server must see its own host/origin (CSRF + cookies), not 127.0.0.1.
+      headers.host = remoteParsed.host;
+      headers.origin = remoteOrigin;
+      if (clientReq.headers.referer) {
+        headers.referer = rewriteToRemoteUrl(clientReq.headers.referer, remoteOrigin);
+      }
+      headers["x-forwarded-host"] = clientReq.headers.host || "127.0.0.1";
+      headers["x-forwarded-proto"] = "http";
+
+      const options = {
+        hostname: remoteParsed.hostname,
+        port: remoteParsed.port || (isHttps ? 443 : 80),
+        path: clientReq.url,
+        method: clientReq.method,
+        headers: headers,
+      };
+
+      const proxyReq = transport.request(options, function (proxyRes) {
+        const responseHeaders = { ...proxyRes.headers };
+
+        if (responseHeaders["set-cookie"]) {
+          const cookies = Array.isArray(responseHeaders["set-cookie"])
+            ? responseHeaders["set-cookie"]
+            : [responseHeaders["set-cookie"]];
+          responseHeaders["set-cookie"] = cookies.map(function (c) {
+            return c
+              .replace(/;\s*Domain=[^;]+/gi, "")
+              .replace(/;\s*Secure/gi, "");
+          });
+        }
+
+        clientRes.writeHead(proxyRes.statusCode, responseHeaders);
+        proxyRes.pipe(clientRes);
       });
-    }
 
-    clientRes.writeHead(proxyRes.statusCode, responseHeaders);
-    proxyRes.pipe(clientRes);
-  });
+      proxyReq.on("timeout", function () {
+        proxyReq.destroy();
+        sendProxyError(clientRes, 504, "Connection to server timed out. Check your internet and try again.");
+      });
 
-  proxyReq.on("timeout", function () {
-    proxyReq.destroy();
-    clientRes.writeHead(200, { "Content-Type": "application/json" });
-    clientRes.end(JSON.stringify({
-      success: false,
-      error: { code: "OFFLINE", message: "Connection timed out" },
-      _offline: true,
-    }));
-  });
+      proxyReq.on("error", function (err) {
+        console.error("Electron API proxy error:", err.message);
+        sendProxyError(
+          clientRes,
+          502,
+          "Could not reach server. Check your internet connection."
+        );
+      });
 
-  proxyReq.on("error", function () {
-    if (clientRes.headersSent) return;
-    clientRes.writeHead(200, { "Content-Type": "application/json" });
-    clientRes.end(JSON.stringify({
-      success: false,
-      error: { code: "OFFLINE", message: "You are offline. Data not available." },
-      _offline: true,
-    }));
-  });
+      proxyReq.setTimeout(30000);
 
-  proxyReq.setTimeout(15000);
-  clientReq.pipe(proxyReq);
+      if (body.length > 0) {
+        headers["content-length"] = String(body.length);
+        proxyReq.write(body);
+      }
+      proxyReq.end();
+    })
+    .catch(function (err) {
+      console.error("Electron API proxy body read error:", err.message);
+      sendProxyError(clientRes, 400, "Invalid request body");
+    });
 }
 
 // ── API proxy allowlist ─────────────────────────────────────────────────────────

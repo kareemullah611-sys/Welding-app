@@ -40,7 +40,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const checkAuth = useCallback(async (retries = 3) => {
     try {
-      const res = await fetch("/api/v1/auth/me");
+      const res = await fetch("/api/v1/auth/me", { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
@@ -81,11 +81,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch("/api/v1/auth/login", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
-      const data = await res.json();
-      if (data.success) {
+      let data: { success?: boolean; data?: { user: User }; error?: { message?: string } | string };
+      try {
+        data = await res.json();
+      } catch {
+        return { success: false, error: `Server error (${res.status}). Try again.` };
+      }
+      if (data.success && data.data?.user) {
         setUser(data.data.user);
         writeOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null, {
           username: username.trim().toLowerCase(),
@@ -103,7 +109,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(cached.user);
         return { success: true };
       }
-      return { success: false, error: data.error?.message || "Login failed" };
+      const errMsg = typeof data.error === "string"
+        ? data.error
+        : data.error?.message;
+      return { success: false, error: errMsg || "Login failed" };
     } catch {
       const cached = readOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
       if (cached &&
@@ -120,7 +129,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     clearOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
     try {
-      await fetch("/api/v1/auth/logout", { method: "POST" });
+      await fetch("/api/v1/auth/logout", { method: "POST", credentials: "include" });
     } catch {
       // Keep local logout deterministic even when offline.
     }

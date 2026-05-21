@@ -247,8 +247,16 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // ── Service worker ──
+  // ── Service worker (browser/PWA only — breaks API proxy in Electron) ──
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const isElectron = window.platformInfo?.runtime === "electron";
+    if (isElectron) {
+      void navigator.serviceWorker?.getRegistrations?.().then((regs) => {
+        regs.forEach((r) => void r.unregister());
+      });
+      return;
+    }
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js")
         .then(() => setIsServiceWorkerReady(true))
