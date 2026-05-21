@@ -133,6 +133,10 @@ function proxyApiRequest(clientReq, clientRes) {
       headers["x-forwarded-host"] = clientReq.headers.host || "127.0.0.1";
       headers["x-forwarded-proto"] = "http";
 
+      if (body.length > 0) {
+        headers["content-length"] = String(body.length);
+      }
+
       const options = {
         hostname: remoteParsed.hostname,
         port: remoteParsed.port || (isHttps ? 443 : 80),
@@ -176,7 +180,6 @@ function proxyApiRequest(clientReq, clientRes) {
       proxyReq.setTimeout(30000);
 
       if (body.length > 0) {
-        headers["content-length"] = String(body.length);
         proxyReq.write(body);
       }
       proxyReq.end();

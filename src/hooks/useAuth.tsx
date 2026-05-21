@@ -29,6 +29,44 @@ const AuthContext = createContext<AuthContextType>({
   logout: async () => {},
 });
 
+const RETRYABLE_STATUSES = new Set([502, 503, 504]);
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithWarmupRetry(url: string, init: RequestInit, attempts = 4): Promise<Response> {
+  let lastRes: Response | null = null;
+  for (let i = 0; i < attempts; i++) {
+    if (i === 0 && typeof window !== "undefined" && window.platformInfo?.runtime === "electron") {
+      try {
+        await fetch("/api/health", { credentials: "include" });
+      } catch {
+        // Render cold start — health ping may fail before login retry succeeds.
+      }
+    }
+    lastRes = await fetch(url, init);
+    if (!RETRYABLE_STATUSES.has(lastRes.status) || i === attempts - 1) return lastRes;
+    await sleep(1500 * (i + 1));
+  }
+  return lastRes!;
+}
+
+async function parseAuthJson(res: Response): Promise<{
+  data?: { success?: boolean; data?: { user: User }; error?: { message?: string } | string };
+  error?: string;
+}> {
+  const text = await res.text();
+  try {
+    return { data: JSON.parse(text) };
+  } catch {
+    if (RETRYABLE_STATUSES.has(res.status)) {
+      return { error: "Server is starting up. Wait a few seconds and try again." };
+    }
+    return { error: `Server error (${res.status}). Try again.` };
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -79,18 +117,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (username: string, password: string) => {
     try {
-      const res = await fetch("/api/v1/auth/login", {
+      const res = await fetchWithWarmupRetry("/api/v1/auth/login", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
-      let data: { success?: boolean; data?: { user: User }; error?: { message?: string } | string };
-      try {
-        data = await res.json();
-      } catch {
-        return { success: false, error: `Server error (${res.status}). Try again.` };
-      }
+      const parsed = await parseAuthJson(res);
+      if (parsed.error) return { success: false, error: parsed.error };
+      const data = parsed.data!;
       if (data.success && data.data?.user) {
         setUser(data.data.user);
         writeOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null, {
@@ -112,6 +147,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const errMsg = typeof data.error === "string"
         ? data.error
         : data.error?.message;
+      if (RETRYABLE_STATUSES.has(res.status)) {
+        return { success: false, error: errMsg || "Server is starting up. Wait a few seconds and try again." };
+      }
       return { success: false, error: errMsg || "Login failed" };
     } catch {
       const cached = readOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
