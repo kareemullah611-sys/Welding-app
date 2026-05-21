@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     region: singapore
-    buildCommand: npm ci --include=dev && npm run verify
+    buildCommand: npm ci --include=dev && npx prisma generate && npm run build
     startCommand: npm run start
     healthCheckPath: /api/health
     autoDeploy: true

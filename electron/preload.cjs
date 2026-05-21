@@ -6,4 +6,5 @@ contextBridge.exposeInMainWorld("platformInfo", {
   getRemoteUrl: () => ipcRenderer.invoke("electron:get-remote-url"),
   getLocalPort: () => ipcRenderer.invoke("electron:get-local-port"),
   hasLocalBuild: () => ipcRenderer.invoke("electron:has-local-build"),
+  openRemoteInBrowser: () => ipcRenderer.invoke("electron:open-remote-in-browser"),
 });

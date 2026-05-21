@@ -30,24 +30,39 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 const RETRYABLE_STATUSES = new Set([502, 503, 504]);
+const PRODUCTION_APP_URL = "https://welding-app.onrender.com";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchWithWarmupRetry(url: string, init: RequestInit, attempts = 4): Promise<Response> {
+function serverNotReadyMessage(): string {
+  return `Cannot reach the server at ${PRODUCTION_APP_URL}. Open that URL in Safari and wait until the login page loads. If it never loads, open Render Dashboard → welding-app and confirm the latest deploy succeeded, then try again.`;
+}
+
+async function waitForServerReady(maxMs = 120000): Promise<boolean> {
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch("/api/health", { credentials: "include", cache: "no-store" });
+      if (res.ok) {
+        const json = await res.json().catch(() => null);
+        if (json?.ok) return true;
+      }
+    } catch {
+      // Render waking or proxy not ready yet.
+    }
+    await sleep(4000);
+  }
+  return false;
+}
+
+async function fetchWithWarmupRetry(url: string, init: RequestInit, attempts = 6): Promise<Response> {
   let lastRes: Response | null = null;
   for (let i = 0; i < attempts; i++) {
-    if (i === 0 && typeof window !== "undefined" && window.platformInfo?.runtime === "electron") {
-      try {
-        await fetch("/api/health", { credentials: "include" });
-      } catch {
-        // Render cold start — health ping may fail before login retry succeeds.
-      }
-    }
     lastRes = await fetch(url, init);
     if (!RETRYABLE_STATUSES.has(lastRes.status) || i === attempts - 1) return lastRes;
-    await sleep(1500 * (i + 1));
+    await sleep(2000 * (i + 1));
   }
   return lastRes!;
 }
@@ -61,7 +76,7 @@ async function parseAuthJson(res: Response): Promise<{
     return { data: JSON.parse(text) };
   } catch {
     if (RETRYABLE_STATUSES.has(res.status)) {
-      return { error: "Server is starting up. Wait a few seconds and try again." };
+      return { error: serverNotReadyMessage() };
     }
     return { error: `Server error (${res.status}). Try again.` };
   }
@@ -117,6 +132,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (username: string, password: string) => {
     try {
+      const isElectron = typeof window !== "undefined" && window.platformInfo?.runtime === "electron";
+      if (isElectron) {
+        const ready = await waitForServerReady(120000);
+        if (!ready) return { success: false, error: serverNotReadyMessage() };
+      }
+
       const res = await fetchWithWarmupRetry("/api/v1/auth/login", {
         method: "POST",
         credentials: "include",
@@ -148,7 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         ? data.error
         : data.error?.message;
       if (RETRYABLE_STATUSES.has(res.status)) {
-        return { success: false, error: errMsg || "Server is starting up. Wait a few seconds and try again." };
+        return { success: false, error: errMsg || serverNotReadyMessage() };
       }
       return { success: false, error: errMsg || "Login failed" };
     } catch {
