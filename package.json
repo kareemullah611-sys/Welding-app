@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
+    "build:electron": "mv src/app/api src/app/_api && ELECTRON_BUILD=true prisma generate && ELECTRON_BUILD=true next build && mv src/app/_api src/app/api",
     "start": "tsx scripts/bootstrap.ts && next start -H 0.0.0.0 -p ${PORT:-3000}",
     "lint": "next lint",
     "verify": "npm run lint && npm run test:smoke && npm run test:offline-gate && npm run build",
@@ -27,7 +28,7 @@
     "package:android:sync": "npx cap sync android",
     "package:android:open": "npx cap open android",
     "package:mac:dev": "electron electron/main.cjs",
-    "package:mac:dist": "electron-builder --mac dmg --publish never"
+    "package:mac:dist": "npm run build:electron && electron-builder --mac dmg --publish never"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.3",
@@ -76,6 +77,11 @@
     "directories": {
       "output": "release/mac"
     },
+    "files": [
+      "electron/**/*",
+      "out/**/*",
+      "package.json"
+    ],
     "mac": {
       "target": [
         "dmg"

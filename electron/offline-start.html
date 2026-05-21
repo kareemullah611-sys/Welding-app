@@ -21,6 +21,7 @@
         background: rgba(7, 13, 24, 0.8);
         box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
         padding: 28px;
+        text-align: center;
       }
       h1 { margin: 0 0 10px; font-size: 22px; }
       p { margin: 0 0 10px; color: #d3d8e4; line-height: 1.5; }
@@ -37,34 +38,69 @@
         cursor: pointer;
       }
       button:disabled { opacity: 0.7; cursor: wait; }
+      .spinner {
+        display: inline-block;
+        width: 18px;
+        height: 18px;
+        border: 2px solid rgba(255,255,255,0.3);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: spin 0.6s linear infinite;
+        margin-right: 8px;
+        vertical-align: middle;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
     </style>
   </head>
   <body>
     <main class="card">
-      <h1>Starting local workspace</h1>
-      <p>The app now starts locally first on every launch.</p>
-      <p>If internet is available, it will connect to the remote service automatically.</p>
-      <button id="retryBtn" type="button">Retry connection</button>
+      <h1 id="title">Starting MRF Hardware</h1>
+      <p id="message">Loading app...</p>
+      <button id="retryBtn" type="button" style="display:none">Retry connection</button>
       <p class="meta" id="targetUrl"></p>
     </main>
     <script>
-      const targetUrl = new URLSearchParams(window.location.search).get("appUrl") || "";
-      const targetUrlEl = document.getElementById("targetUrl");
-      if (targetUrlEl && targetUrl) targetUrlEl.textContent = targetUrl;
-      const retryBtn = document.getElementById("retryBtn");
-      const tryRemote = async () => {
-        if (!window.platformInfo?.retryRemoteLoad) return;
-        retryBtn.disabled = true;
-        retryBtn.textContent = "Trying...";
-        const ok = await window.platformInfo.retryRemoteLoad();
-        if (!ok) {
-          retryBtn.disabled = false;
-          retryBtn.textContent = "Retry connection";
+      (async () => {
+        const titleEl = document.getElementById("title");
+        const msgEl = document.getElementById("message");
+        const retryBtn = document.getElementById("retryBtn");
+        const targetUrlEl = document.getElementById("targetUrl");
+
+        if (!window.platformInfo?.retryRemoteLoad) {
+          titleEl.textContent = "Cannot connect";
+          msgEl.textContent = "This app must run inside the MRF desktop application.";
+          return;
         }
-      };
-      retryBtn?.addEventListener("click", tryRemote);
-      window.setTimeout(() => { void tryRemote(); }, 500);
-      window.addEventListener("online", () => { void tryRemote(); });
+
+        // Try loading via local server first
+        try {
+          const localPort = await window.platformInfo.getLocalPort();
+          if (localPort) {
+            const localUrl = "http://127.0.0.1:" + localPort;
+            targetUrlEl.textContent = localUrl;
+            window.location.replace(localUrl);
+            return;
+          }
+        } catch {}
+
+        const remoteUrl = await window.platformInfo.getRemoteUrl();
+        targetUrlEl.textContent = remoteUrl || "";
+
+        // Try remote load
+        const tryRemote = async () => {
+          retryBtn.style.display = "none";
+          msgEl.innerHTML = '<span class="spinner"></span> Connecting to remote...';
+          const ok = await window.platformInfo.retryRemoteLoad();
+          if (!ok) {
+            msgEl.textContent = "Unable to connect. Check your internet connection and try again.";
+            retryBtn.style.display = "inline-block";
+          }
+        };
+
+        retryBtn.addEventListener("click", tryRemote);
+        setTimeout(tryRemote, 500);
+        window.addEventListener("online", () => tryRemote());
+      })();
     </script>
   </body>
 </html>

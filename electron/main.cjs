@@ -1,7 +1,10 @@
 const { app, BrowserWindow, shell, ipcMain } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const http = require("http");
+const https = require("https");
 
+// ── Config ────────────────────────────────────────────────────────────────────
 function readConfiguredUrl() {
   try {
     const cfgPath = path.join(__dirname, "app-config.json");
@@ -13,14 +16,187 @@ function readConfiguredUrl() {
   }
 }
 
-const APP_URL = process.env.ELECTRON_START_URL || readConfiguredUrl() || "http://localhost:3000";
+const REMOTE_URL = process.env.ELECTRON_START_URL || readConfiguredUrl() || "http://localhost:3000";
+const STATIC_DIR = path.join(__dirname, "..", "out");
 
-function loadOfflineFallback(win) {
-  const fallbackPath = path.join(__dirname, "offline-start.html");
-  return win.loadFile(fallbackPath, { query: { appUrl: APP_URL } });
+const MIME_TYPES = {
+  ".html": "text/html",
+  ".js": "application/javascript",
+  ".css": "text/css",
+  ".json": "application/json",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".webmanifest": "application/manifest+json",
+};
+
+function hasLocalBuild() {
+  return fs.existsSync(path.join(STATIC_DIR, "index.html"));
 }
 
-function createWindow() {
+// ── Static file serving ───────────────────────────────────────────────────────
+function resolveStaticFile(pathname) {
+  if (pathname === "/") return path.join(STATIC_DIR, "index.html");
+
+  let filePath = path.join(STATIC_DIR, pathname);
+
+  if (!path.extname(filePath)) {
+    const htmlPath = filePath + ".html";
+    if (fs.existsSync(htmlPath)) return htmlPath;
+    const indexPath = path.join(filePath, "index.html");
+    if (fs.existsSync(indexPath)) return indexPath;
+    return path.join(STATIC_DIR, "index.html");
+  }
+
+  return filePath;
+}
+
+function serveStatic(res, filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  const contentType = MIME_TYPES[ext] || "application/octet-stream";
+
+  fs.readFile(filePath, (err, data) => {
+    if (err) {
+      fs.readFile(path.join(STATIC_DIR, "index.html"), (err2, fallback) => {
+        if (err2) {
+          res.writeHead(404, { "Content-Type": "text/plain" });
+          res.end("Not Found");
+          return;
+        }
+        res.writeHead(200, { "Content-Type": "text/html", "Cache-Control": "no-cache" });
+        res.end(fallback);
+      });
+      return;
+    }
+    res.writeHead(200, { "Content-Type": contentType, "Cache-Control": "no-cache" });
+    res.end(data);
+  });
+}
+
+// ── API proxy to remote ───────────────────────────────────────────────────────
+function proxyApiRequest(clientReq, clientRes) {
+  const remoteParsed = new URL(REMOTE_URL);
+  const isHttps = remoteParsed.protocol === "https:";
+  const transport = isHttps ? https : http;
+
+  const options = {
+    hostname: remoteParsed.hostname,
+    port: remoteParsed.port || (isHttps ? 443 : 80),
+    path: clientReq.url,
+    method: clientReq.method,
+    headers: {},
+  };
+
+  for (const [key, val] of Object.entries(clientReq.headers)) {
+    if (key === "host") continue;
+    options.headers[key] = val;
+  }
+
+  const proxyReq = transport.request(options, (proxyRes) => {
+    const responseHeaders = { ...proxyRes.headers };
+
+    // Strip Domain from Set-Cookie so browser accepts cookies for localhost
+    if (responseHeaders["set-cookie"]) {
+      const cookies = Array.isArray(responseHeaders["set-cookie"])
+        ? responseHeaders["set-cookie"]
+        : [responseHeaders["set-cookie"]];
+      responseHeaders["set-cookie"] = cookies.map(function (c) {
+        return c
+          .replace(/;\s*Domain=[^;]+/gi, "")
+          .replace(/;\s*Secure/gi, "");
+      });
+    }
+
+    clientRes.writeHead(proxyRes.statusCode, responseHeaders);
+    proxyRes.pipe(clientRes);
+  });
+
+  proxyReq.on("timeout", function () {
+    proxyReq.destroy();
+    clientRes.writeHead(200, { "Content-Type": "application/json" });
+    clientRes.end(JSON.stringify({
+      success: false,
+      error: { code: "OFFLINE", message: "Connection timed out" },
+      _offline: true,
+    }));
+  });
+
+  proxyReq.on("error", function () {
+    if (clientRes.headersSent) return;
+    clientRes.writeHead(200, { "Content-Type": "application/json" });
+    clientRes.end(JSON.stringify({
+      success: false,
+      error: { code: "OFFLINE", message: "You are offline. Data not available." },
+      _offline: true,
+    }));
+  });
+
+  proxyReq.setTimeout(15000);
+  clientReq.pipe(proxyReq);
+}
+
+// ── API proxy allowlist ─────────────────────────────────────────────────────────
+const ALLOWED_API_PREFIXES = [
+  "/api/v1/auth/", "/api/v1/dashboard", "/api/v1/cash-position", "/api/v1/treasury",
+  "/api/v1/sales", "/api/v1/payments", "/api/v1/expenses", "/api/v1/customers",
+  "/api/v1/personal-withdrawals", "/api/v1/haji-transfers", "/api/v1/bank-deposits",
+  "/api/v1/suppliers", "/api/v1/supplier-payments", "/api/v1/agents",
+  "/api/v1/agent-payments", "/api/v1/shipping-lines", "/api/v1/shipping-line-payments",
+  "/api/v1/intermediaries", "/api/v1/intermediary-deposits", "/api/v1/intermediary-exchanges",
+  "/api/v1/investors", "/api/v1/lots", "/api/v1/lot-costs", "/api/v1/lot-purchases",
+  "/api/v1/godowns", "/api/v1/products", "/api/v1/inventory", "/api/v1/openings",
+  "/api/v1/city-transfers", "/api/v1/cities", "/api/v1/countries", "/api/v1/currencies",
+  "/api/v1/bank-accounts", "/api/v1/super-admin-personal-expenses", "/api/v1/offline/",
+  "/api/v1/notifications", "/api/v1/activity-feed", "/api/v1/search", "/api/v1/sessions",
+  "/api/v1/users", "/api/v1/finance/", "/api/v1/financial-reports", "/api/v1/city-ledger",
+  "/api/v1/profit-report", "/api/v1/accounting", "/api/v1/analytics", "/api/v1/reports/",
+  "/api/v1/discounts", "/api/v1/admin-cleanup", "/api/health", "/api/v1/upload",
+  "/api/v1/cheques", "/api/v1/godown-permissions",
+];
+
+function isApiPathAllowed(pathname) {
+  return ALLOWED_API_PREFIXES.some(function (p) { return pathname.startsWith(p); });
+}
+
+// ── Local server ──────────────────────────────────────────────────────────────
+function createLocalServer() {
+  return http.createServer((req, res) => {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+
+    if (url.pathname.startsWith("/api/")) {
+      if (!isApiPathAllowed(url.pathname)) {
+        res.writeHead(403, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: { code: "FORBIDDEN", message: "API path not allowed via proxy" } }));
+        return;
+      }
+      proxyApiRequest(req, res);
+      return;
+    }
+
+    const filePath = resolveStaticFile(url.pathname);
+    serveStatic(res, filePath);
+  });
+}
+
+function startServer() {
+  return new Promise((resolve, reject) => {
+    const server = createLocalServer();
+    server.listen(0, "127.0.0.1", () => {
+      const port = server.address().port;
+      resolve({ server, port });
+    });
+    server.on("error", reject);
+  });
+}
+
+// ── Electron window ───────────────────────────────────────────────────────────
+function createWindow(localPort) {
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -35,33 +211,62 @@ function createWindow() {
     },
   });
 
-  // Local-first boot: always open the bundled local shell first.
-  loadOfflineFallback(win).catch(() => {});
+  if (localPort) {
+    win.loadURL(`http://127.0.0.1:${localPort}`);
+  } else {
+    win.loadURL(REMOTE_URL).catch(() => {
+      const fallbackPath = path.join(__dirname, "offline-start.html");
+      win.loadFile(fallbackPath, { query: { appUrl: REMOTE_URL } }).catch(() => {});
+    });
+  }
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
   });
+
+  return win;
 }
 
-app.whenReady().then(() => {
+// ── App lifecycle ─────────────────────────────────────────────────────────────
+let localServer = null;
+let localPort = null;
+
+app.whenReady().then(async () => {
+  if (hasLocalBuild()) {
+    try {
+      const result = await startServer();
+      localServer = result.server;
+      localPort = result.port;
+    } catch {
+      localPort = null;
+    }
+  }
+
+  ipcMain.handle("electron:get-local-port", () => localPort);
+  ipcMain.handle("electron:get-remote-url", () => REMOTE_URL);
+  ipcMain.handle("electron:has-local-build", () => hasLocalBuild());
+
   ipcMain.handle("electron:retry-remote-load", async (event) => {
     const senderWindow = BrowserWindow.fromWebContents(event.sender);
     if (!senderWindow || senderWindow.isDestroyed()) return false;
     try {
-      await senderWindow.loadURL(APP_URL);
+      await senderWindow.loadURL(REMOTE_URL);
       return true;
     } catch {
       return false;
     }
   });
 
-  ipcMain.handle("electron:get-remote-url", () => APP_URL);
+  createWindow(localPort);
 
-  createWindow();
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) createWindow(localPort);
   });
+});
+
+app.on("before-quit", () => {
+  if (localServer) localServer.close();
 });
 
 app.on("window-all-closed", () => {

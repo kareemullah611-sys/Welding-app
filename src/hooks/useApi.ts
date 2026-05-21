@@ -21,6 +21,7 @@ import {
   mergeReadModelRows,
   normalizeReadModelPath,
 } from "@/lib/offline-local-read-model";
+import { getFullSyncDataForApiRequest } from "@/lib/offline-full-sync-read";
 
 interface FetchOptions {
   method?: string;
@@ -104,6 +105,12 @@ function openOfflineDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(OFFLINE_ID_MAP_STORE)) {
         db.createObjectStore(OFFLINE_ID_MAP_STORE, { keyPath: "key" });
+      }
+      if (!db.objectStoreNames.contains("full_sync_data")) {
+        db.createObjectStore("full_sync_data", { keyPath: "key" });
+      }
+      if (!db.objectStoreNames.contains("full_sync_meta")) {
+        db.createObjectStore("full_sync_meta", { keyPath: "key" });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -224,6 +231,27 @@ async function applyQueuedMutationLocalReadModel(url: string, method: string, bo
   await cacheLocalReadModel(listPath, undefined, nextData as unknown[]);
 }
 
+async function readOfflineGetCache<T>(
+  url: string,
+  params?: Record<string, string | number | undefined>
+): Promise<{ data: T; pagination?: unknown } | null> {
+  const cached = await getCachedApiResponse<T>(url, params);
+  const local = await getLocalReadModel<T>(url, params);
+  if (cached && local) {
+    const mergedData = mergeReadModelRows(
+      cached.data,
+      Array.isArray(local.data) ? (local.data as unknown[]) : []
+    );
+    return { data: mergedData as T, pagination: cached.pagination ?? local.pagination };
+  }
+  if (cached) return { data: cached.data, pagination: cached.pagination };
+  if (local) return { data: local.data as T, pagination: local.pagination };
+
+  const fullSync = await getFullSyncDataForApiRequest<T>(url, params);
+  if (fullSync) return { data: fullSync.data, pagination: fullSync.pagination };
+  return null;
+}
+
 async function enqueueOfflineWrite(
   url: string,
   method: string,
@@ -281,20 +309,10 @@ export function useApi<T = unknown>() {
       }
 
       if (method === "GET" && typeof window !== "undefined" && !navigator.onLine) {
-        const cached = await getCachedApiResponse<T>(url, options.params);
-        const local = await getLocalReadModel<T>(url, options.params);
-        if (cached && local) {
-          const mergedData = mergeReadModelRows(cached.data, Array.isArray(local.data) ? (local.data as unknown[]) : []);
-          setState({ data: mergedData as T, loading: false, error: null });
-          return { success: true, data: mergedData as T, pagination: cached.pagination ?? local.pagination, cached: true };
-        }
-        if (cached) {
-          setState({ data: cached.data, loading: false, error: null });
-          return { success: true, data: cached.data, pagination: cached.pagination, cached: true };
-        }
-        if (local) {
-          setState({ data: local.data as T, loading: false, error: null });
-          return { success: true, data: local.data as T, pagination: local.pagination, cached: true };
+        const offlineRead = await readOfflineGetCache<T>(url, options.params);
+        if (offlineRead) {
+          setState({ data: offlineRead.data, loading: false, error: null });
+          return { success: true, data: offlineRead.data, pagination: offlineRead.pagination, cached: true };
         }
       }
 
@@ -331,20 +349,10 @@ export function useApi<T = unknown>() {
       } else {
         const error = data.error?.message || "Request failed";
         if (method === "GET") {
-          const cached = await getCachedApiResponse<T>(url, options.params);
-          const local = await getLocalReadModel<T>(url, options.params);
-          if (cached && local) {
-            const mergedData = mergeReadModelRows(cached.data, Array.isArray(local.data) ? (local.data as unknown[]) : []);
-            setState({ data: mergedData as T, loading: false, error: null });
-            return { success: true, data: mergedData as T, pagination: cached.pagination ?? local.pagination, cached: true };
-          }
-          if (cached) {
-            setState({ data: cached.data, loading: false, error: null });
-            return { success: true, data: cached.data, pagination: cached.pagination, cached: true };
-          }
-          if (local) {
-            setState({ data: local.data as T, loading: false, error: null });
-            return { success: true, data: local.data as T, pagination: local.pagination, cached: true };
+          const offlineRead = await readOfflineGetCache<T>(url, options.params);
+          if (offlineRead) {
+            setState({ data: offlineRead.data, loading: false, error: null });
+            return { success: true, data: offlineRead.data, pagination: offlineRead.pagination, cached: true };
           }
         }
         setState({ data: null, loading: false, error });
@@ -372,20 +380,10 @@ export function useApi<T = unknown>() {
         };
       }
       if (method === "GET") {
-        const cached = await getCachedApiResponse<T>(url, options.params);
-        const local = await getLocalReadModel<T>(url, options.params);
-        if (cached && local) {
-          const mergedData = mergeReadModelRows(cached.data, Array.isArray(local.data) ? (local.data as unknown[]) : []);
-          setState({ data: mergedData as T, loading: false, error: null });
-          return { success: true, data: mergedData as T, pagination: cached.pagination ?? local.pagination, cached: true };
-        }
-        if (cached) {
-          setState({ data: cached.data, loading: false, error: null });
-          return { success: true, data: cached.data, pagination: cached.pagination, cached: true };
-        }
-        if (local) {
-          setState({ data: local.data as T, loading: false, error: null });
-          return { success: true, data: local.data as T, pagination: local.pagination, cached: true };
+        const offlineRead = await readOfflineGetCache<T>(url, options.params);
+        if (offlineRead) {
+          setState({ data: offlineRead.data, loading: false, error: null });
+          return { success: true, data: offlineRead.data, pagination: offlineRead.pagination, cached: true };
         }
       }
       const error = "Network error";
@@ -426,17 +424,9 @@ export async function apiCall<T = unknown>(
     }
 
     if (method === "GET" && typeof window !== "undefined" && !navigator.onLine) {
-      const cached = await getCachedApiResponse<T>(url, options.params);
-      const local = await getLocalReadModel<T>(url, options.params);
-      if (cached && local) {
-        const mergedData = mergeReadModelRows(cached.data, Array.isArray(local.data) ? (local.data as unknown[]) : []);
-        return { success: true, data: mergedData as T, pagination: cached.pagination ?? local.pagination, cached: true };
-      }
-      if (cached) {
-        return { success: true, data: cached.data, pagination: cached.pagination, cached: true };
-      }
-      if (local) {
-        return { success: true, data: local.data as T, pagination: local.pagination, cached: true };
+      const offlineRead = await readOfflineGetCache<T>(url, options.params);
+      if (offlineRead) {
+        return { success: true, data: offlineRead.data, pagination: offlineRead.pagination, cached: true };
       }
     }
 
@@ -451,17 +441,9 @@ export async function apiCall<T = unknown>(
       return { success: true, data: data.data as T, pagination: data.pagination };
     }
     if (method === "GET") {
-      const cached = await getCachedApiResponse<T>(url, options.params);
-      const local = await getLocalReadModel<T>(url, options.params);
-      if (cached && local) {
-        const mergedData = mergeReadModelRows(cached.data, Array.isArray(local.data) ? (local.data as unknown[]) : []);
-        return { success: true, data: mergedData as T, pagination: cached.pagination ?? local.pagination, cached: true };
-      }
-      if (cached) {
-        return { success: true, data: cached.data, pagination: cached.pagination, cached: true };
-      }
-      if (local) {
-        return { success: true, data: local.data as T, pagination: local.pagination, cached: true };
+      const offlineRead = await readOfflineGetCache<T>(url, options.params);
+      if (offlineRead) {
+        return { success: true, data: offlineRead.data, pagination: offlineRead.pagination, cached: true };
       }
     }
     return { success: false, error: data.error?.message || "Request failed" };
@@ -477,17 +459,9 @@ export async function apiCall<T = unknown>(
       return { success: true, data: { queued: true, queueId } as T, queued: true };
     }
     if (method === "GET") {
-      const cached = await getCachedApiResponse<T>(url, options.params);
-      const local = await getLocalReadModel<T>(url, options.params);
-      if (cached && local) {
-        const mergedData = mergeReadModelRows(cached.data, Array.isArray(local.data) ? (local.data as unknown[]) : []);
-        return { success: true, data: mergedData as T, pagination: cached.pagination ?? local.pagination, cached: true };
-      }
-      if (cached) {
-        return { success: true, data: cached.data, pagination: cached.pagination, cached: true };
-      }
-      if (local) {
-        return { success: true, data: local.data as T, pagination: local.pagination, cached: true };
+      const offlineRead = await readOfflineGetCache<T>(url, options.params);
+      if (offlineRead) {
+        return { success: true, data: offlineRead.data, pagination: offlineRead.pagination, cached: true };
       }
     }
     return { success: false, error: "Network error" };

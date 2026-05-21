@@ -22,6 +22,15 @@ import {
   reconcileIdsInReadModel,
 } from "@/lib/offline-id-reconciliation";
 import { isAlreadySyncedResponse } from "@/lib/offline-sync-classifier";
+import {
+  performFullSync,
+  getSyncMeta,
+  isFullSyncStale,
+  type SyncMeta,
+} from "@/lib/offline-full-sync";
+
+const FULL_SYNC_DATA_STORE = "full_sync_data";
+const FULL_SYNC_META_STORE = "full_sync_meta";
 
 type QueueSyncStatus = "pending" | "syncing" | "failed" | "conflict";
 
@@ -77,6 +86,8 @@ interface OfflineContextType {
   getCachedApiResponse: (url: string, params?: Record<string, string | number | undefined>) => Promise<{ data: unknown; pagination?: unknown; cachedAt: number } | null>;
   exportOfflineBundle: () => Promise<string>;
   importOfflineBundle: (bundleJson: string) => Promise<void>;
+  fullSyncMeta: SyncMeta | null;
+  triggerFullSync: () => Promise<boolean>;
 }
 
 const OfflineContext = createContext<OfflineContextType>({
@@ -98,6 +109,8 @@ const OfflineContext = createContext<OfflineContextType>({
   getCachedApiResponse: async () => null,
   exportOfflineBundle: async () => "{}",
   importOfflineBundle: async () => {},
+  fullSyncMeta: null,
+  triggerFullSync: async () => false,
 });
 
 // ── IndexedDB helpers ──────────────────────────────────────────────────────────
@@ -134,6 +147,10 @@ function openDB(): Promise<IDBDatabase> {
         db.createObjectStore(LOCAL_READ_MODEL_STORE, { keyPath: "key" });
       if (!db.objectStoreNames.contains(ID_MAP_STORE))
         db.createObjectStore(ID_MAP_STORE, { keyPath: "key" });
+      if (!db.objectStoreNames.contains("full_sync_data"))
+        db.createObjectStore("full_sync_data", { keyPath: "key" });
+      if (!db.objectStoreNames.contains("full_sync_meta"))
+        db.createObjectStore("full_sync_meta", { keyPath: "key" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -213,6 +230,8 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
   const [queuedItems, setQueuedItems]     = useState<QueuedRequest[]>([]);
   const [isSyncing, setIsSyncing]         = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState<{ synced: number; failed: number } | null>(null);
+  const [fullSyncMeta, setFullSyncMeta] = useState<SyncMeta | null>(null);
+  const fullSyncLockRef = useRef(false);
   const syncLockRef = useRef(false);
 
   // ── Online / Offline ──
@@ -300,12 +319,17 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
   const clearOfflineData = useCallback(async () => {
     const db = await openDB();
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction([QUEUE_STORE, STOCK_STORE, API_CACHE_STORE, LOCAL_READ_MODEL_STORE, ID_MAP_STORE], "readwrite");
+      const tx = db.transaction(
+        [QUEUE_STORE, STOCK_STORE, API_CACHE_STORE, LOCAL_READ_MODEL_STORE, ID_MAP_STORE, FULL_SYNC_DATA_STORE, FULL_SYNC_META_STORE],
+        "readwrite"
+      );
       tx.objectStore(QUEUE_STORE).clear();
       tx.objectStore(STOCK_STORE).clear();
       tx.objectStore(API_CACHE_STORE).clear();
       tx.objectStore(LOCAL_READ_MODEL_STORE).clear();
       tx.objectStore(ID_MAP_STORE).clear();
+      tx.objectStore(FULL_SYNC_DATA_STORE).clear();
+      tx.objectStore(FULL_SYNC_META_STORE).clear();
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
@@ -323,12 +347,14 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
   }, [refreshQueueState]);
 
   const exportOfflineBundle = useCallback(async () => {
-    const [queue, stock, apiCache, localReadModel, idMap] = await Promise.all([
+    const [queue, stock, apiCache, localReadModel, idMap, fullSyncData, fullSyncMeta] = await Promise.all([
       dbGetAll<any>(QUEUE_STORE),
       dbGetAll<any>(STOCK_STORE),
       dbGetAll<any>(API_CACHE_STORE),
       dbGetAll<any>(LOCAL_READ_MODEL_STORE),
       dbGetAll<any>(ID_MAP_STORE),
+      dbGetAll<any>(FULL_SYNC_DATA_STORE),
+      dbGetAll<any>(FULL_SYNC_META_STORE),
     ]);
     const localStorageData: Record<string, string> = {};
     if (typeof window !== "undefined") {
@@ -342,9 +368,9 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
       }
     }
     return JSON.stringify({
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
-      stores: { queue, stock, apiCache, localReadModel, idMap },
+      stores: { queue, stock, apiCache, localReadModel, idMap, fullSyncData, fullSyncMeta },
       localStorage: localStorageData,
     });
   }, []);
@@ -354,12 +380,17 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     const stores = parsed?.stores || {};
     const db = await openDB();
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction([QUEUE_STORE, STOCK_STORE, API_CACHE_STORE, LOCAL_READ_MODEL_STORE, ID_MAP_STORE], "readwrite");
+      const tx = db.transaction(
+        [QUEUE_STORE, STOCK_STORE, API_CACHE_STORE, LOCAL_READ_MODEL_STORE, ID_MAP_STORE, FULL_SYNC_DATA_STORE, FULL_SYNC_META_STORE],
+        "readwrite"
+      );
       tx.objectStore(QUEUE_STORE).clear();
       tx.objectStore(STOCK_STORE).clear();
       tx.objectStore(API_CACHE_STORE).clear();
       tx.objectStore(LOCAL_READ_MODEL_STORE).clear();
       tx.objectStore(ID_MAP_STORE).clear();
+      tx.objectStore(FULL_SYNC_DATA_STORE).clear();
+      tx.objectStore(FULL_SYNC_META_STORE).clear();
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
@@ -368,6 +399,8 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     for (const row of Array.isArray(stores.apiCache) ? stores.apiCache : []) await dbPut(API_CACHE_STORE, row);
     for (const row of Array.isArray(stores.localReadModel) ? stores.localReadModel : []) await dbPut(LOCAL_READ_MODEL_STORE, row);
     for (const row of Array.isArray(stores.idMap) ? stores.idMap : []) await dbPut(ID_MAP_STORE, row);
+    for (const row of Array.isArray(stores.fullSyncData) ? stores.fullSyncData : []) await dbPut(FULL_SYNC_DATA_STORE, row);
+    for (const row of Array.isArray(stores.fullSyncMeta) ? stores.fullSyncMeta : []) await dbPut(FULL_SYNC_META_STORE, row);
 
     if (typeof window !== "undefined") {
       const keysToRemove: string[] = [];
@@ -384,6 +417,8 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
       window.dispatchEvent(new Event("mrf-offline-queue-updated"));
     }
     await refreshQueueState();
+    const meta = await getSyncMeta();
+    setFullSyncMeta(meta);
   }, [refreshQueueState]);
 
   // ── Stock cache ──
@@ -518,11 +553,52 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(t);
   }, [isOnline, queueCount, syncQueue]);
 
+  // ── Full data sync ──
+  useEffect(() => {
+    getSyncMeta().then(setFullSyncMeta);
+    const onFullSyncComplete = () => { getSyncMeta().then(setFullSyncMeta); };
+    window.addEventListener("mrf-offline-full-sync-complete", onFullSyncComplete);
+    return () => window.removeEventListener("mrf-offline-full-sync-complete", onFullSyncComplete);
+  }, []);
+
+  const triggerFullSync = useCallback(async (): Promise<boolean> => {
+    if (fullSyncLockRef.current) return false;
+    fullSyncLockRef.current = true;
+    try {
+      const result = await performFullSync((_mod, _idx, _total) => {
+        // progress updates could be exposed here
+      });
+      const meta = await getSyncMeta();
+      setFullSyncMeta(meta);
+      return result.success;
+    } finally {
+      fullSyncLockRef.current = false;
+    }
+  }, []);
+
+  // When online: push queued writes first, then refresh local archive if stale.
+  useEffect(() => {
+    if (!isOnline) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      if (cancelled) return;
+      await syncQueue();
+      if (cancelled) return;
+      const stale = await isFullSyncStale();
+      if (stale) await triggerFullSync();
+    }, 3000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [isOnline, syncQueue, triggerFullSync]);
+
   return (
     <OfflineContext.Provider value={{
       isOnline, isServiceWorkerReady, queueCount, syncQueue, isSyncing, lastSyncResult, queuedItems,
       enqueue, updateQueuedItem, retryQueuedItem, discardQueuedItem, clearOfflineData, cacheGodownStock, getCachedGodownStock, cacheApiResponse, getCachedApiResponse,
       exportOfflineBundle, importOfflineBundle,
+      fullSyncMeta, triggerFullSync,
     }}>
       {children}
     </OfflineContext.Provider>
