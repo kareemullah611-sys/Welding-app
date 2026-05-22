@@ -58,7 +58,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
 
-  if (loading) {
+  if (loading && !user) {
     return <MRFLoader variant="global" visible />;
   }
 
