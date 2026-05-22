@@ -4,7 +4,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, StatsCard, formatNumber, DataTable, formatDate } from "@/components/ui";
-import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { applyPendingDashboardMetrics } from "@/lib/offline-dashboard";
@@ -36,115 +35,103 @@ type DashboardReadSnapshot = {
   treasury: any | null;
 };
 
-const QuickActionCard = ({
-  icon: Icon,
-  title,
-  src,
-  color,
-  onClick,
-}: {
-  icon: React.ElementType;
-  title: string;
-  src?: string;
-  color: string;
+const QuickActionCard = ({ 
+  icon: Icon, 
+  title, 
+  src, 
+  color, 
+  onClick 
+}: { 
+  icon: React.ElementType; 
+  title: string; 
+  src?: string; 
+  color: string; 
   onClick?: () => void;
 }) => {
-  const tones: Record<string, { ring: string; icon: string; iconBg: string }> = {
-    blue:   { ring: "hover:ring-[hsl(var(--info)/0.5)]",        icon: "text-[hsl(var(--info))]",        iconBg: "bg-[hsl(var(--info)/0.12)]" },
-    green:  { ring: "hover:ring-[hsl(var(--success)/0.5)]",     icon: "text-[hsl(var(--success))]",     iconBg: "bg-[hsl(var(--success)/0.12)]" },
-    red:    { ring: "hover:ring-[hsl(var(--destructive)/0.5)]", icon: "text-[hsl(var(--destructive))]", iconBg: "bg-[hsl(var(--destructive)/0.10)]" },
-    amber:  { ring: "hover:ring-[hsl(var(--warning)/0.5)]",     icon: "text-[hsl(var(--warning))]",     iconBg: "bg-[hsl(var(--warning)/0.14)]" },
-    orange: { ring: "hover:ring-[hsl(var(--warning)/0.5)]",     icon: "text-[hsl(var(--warning))]",     iconBg: "bg-[hsl(var(--warning)/0.14)]" },
-    purple: { ring: "hover:ring-[hsl(268_50%_60%/0.5)]",        icon: "text-[hsl(268_50%_50%)] dark:text-[hsl(268_55%_70%)]", iconBg: "bg-[hsl(268_50%_94%)] dark:bg-[hsl(268_30%_20%)]" },
-    teal:   { ring: "hover:ring-[hsl(170_50%_40%/0.5)]",        icon: "text-[hsl(170_55%_36%)] dark:text-[hsl(170_55%_60%)]", iconBg: "bg-[hsl(170_50%_92%)] dark:bg-[hsl(170_30%_18%)]" },
+  const colors: Record<string, { bg: string; border: string; icon: string; text: string; hover: string }> = {
+    blue: { bg: "bg-blue-50", border: "border-blue-200", icon: "text-blue-600", text: "text-blue-900", hover: "hover:bg-blue-100" },
+    green: { bg: "bg-emerald-50", border: "border-emerald-200", icon: "text-emerald-600", text: "text-emerald-900", hover: "hover:bg-emerald-100" },
+    red: { bg: "bg-rose-50", border: "border-rose-200", icon: "text-rose-600", text: "text-rose-900", hover: "hover:bg-rose-100" },
+    amber: { bg: "bg-amber-50", border: "border-amber-200", icon: "text-amber-700", text: "text-amber-900", hover: "hover:bg-amber-100" },
+    purple: { bg: "bg-violet-50", border: "border-violet-200", icon: "text-violet-600", text: "text-violet-900", hover: "hover:bg-violet-100" },
+    orange: { bg: "bg-amber-50", border: "border-amber-200", icon: "text-amber-600", text: "text-amber-900", hover: "hover:bg-amber-100" },
+    teal: { bg: "bg-teal-50", border: "border-teal-200", icon: "text-teal-600", text: "text-teal-900", hover: "hover:bg-teal-100" },
   };
-  const t = tones[color] || tones.blue;
-
+  const c = colors[color] || colors.blue;
+  
   const content = (
-    <div className={cn("group surface-glass hover-lift cursor-pointer rounded-2xl p-4 ring-1 ring-transparent transition-all duration-200", t.ring)}>
+    <div className={`${c.bg} ${c.border} border rounded-2xl p-4 cursor-pointer transition-all duration-200 ${c.hover} group`}>
       <div className="flex items-center gap-3">
-        <div className={cn("flex h-10 w-10 items-center justify-center rounded-xl ring-soft", t.iconBg, t.icon)}>
-          <Icon className="h-[18px] w-[18px]" />
+        <div className={`${c.icon} p-2.5 rounded-xl bg-white/80 shadow-sm`}>
+          <Icon className="w-5 h-5" />
         </div>
-        <span className="text-sm font-semibold text-[hsl(var(--foreground))] transition-transform group-hover:translate-x-0.5">
+        <span className={`text-sm font-semibold ${c.text} group-hover:translate-x-0.5 transition-transform`}>
           {title}
         </span>
-        <ChevronRight className={cn("ml-auto h-4 w-4 opacity-0 transition-opacity group-hover:opacity-100", t.icon)} />
+        <ChevronRight className={`w-4 h-4 ml-auto ${c.icon} opacity-0 group-hover:opacity-100 transition-opacity`} />
       </div>
     </div>
   );
-
+  
   if (src) return <button onClick={onClick} className="w-full text-left">{content}</button>;
   return content;
 };
 
-const MetricCard = ({
-  title,
-  value,
-  subtitle,
+const MetricCard = ({ 
+  title, 
+  value, 
+  subtitle, 
   trend,
   icon: Icon,
-  color,
-}: {
-  title: string;
-  value: string | number;
+  color 
+}: { 
+  title: string; 
+  value: string | number; 
   subtitle?: string;
   trend?: 'up' | 'down' | null;
   icon: React.ElementType;
   color: string;
 }) => {
-  const tones: Record<string, { icon: string; iconBg: string; value: string }> = {
-    green:  { icon: "text-[hsl(var(--success))]",     iconBg: "bg-[hsl(var(--success)/0.12)]",     value: "text-[hsl(var(--foreground))]" },
-    red:    { icon: "text-[hsl(var(--destructive))]", iconBg: "bg-[hsl(var(--destructive)/0.10)]", value: "text-[hsl(var(--foreground))]" },
-    blue:   { icon: "text-[hsl(var(--info))]",        iconBg: "bg-[hsl(var(--info)/0.12)]",        value: "text-[hsl(var(--foreground))]" },
-    yellow: { icon: "text-[hsl(var(--warning))]",     iconBg: "bg-[hsl(var(--warning)/0.14)]",     value: "text-[hsl(var(--foreground))]" },
-    orange: { icon: "text-[hsl(var(--warning))]",     iconBg: "bg-[hsl(var(--warning)/0.14)]",     value: "text-[hsl(var(--foreground))]" },
-    purple: { icon: "text-[hsl(268_50%_50%)] dark:text-[hsl(268_55%_70%)]", iconBg: "bg-[hsl(268_50%_94%)] dark:bg-[hsl(268_30%_20%)]", value: "text-[hsl(var(--foreground))]" },
+  const colors: Record<string, { bg: string; icon: string; value: string }> = {
+    green: { bg: "from-emerald-50 to-white", icon: "text-emerald-600", value: "text-emerald-700" },
+    red: { bg: "from-rose-50 to-white", icon: "text-rose-600", value: "text-rose-700" },
+    blue: { bg: "from-blue-50 to-white", icon: "text-blue-600", value: "text-blue-700" },
+    yellow: { bg: "from-amber-50 to-white", icon: "text-amber-600", value: "text-amber-700" },
+    purple: { bg: "from-violet-50 to-white", icon: "text-violet-600", value: "text-violet-700" },
   };
-  const c = tones[color] || tones.blue;
-
+  const c = colors[color] || colors.blue;
+  
   return (
-    <div className="stat-card p-5">
-      <div className="mb-3 flex items-start justify-between">
-        <div className={cn("flex h-10 w-10 items-center justify-center rounded-xl ring-soft", c.iconBg)}>
-          <Icon className={cn("h-[18px] w-[18px]", c.icon)} />
+    <div className="bg-gradient-to-br bg-white border border-gray-100 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow">
+      <div className="flex items-start justify-between mb-3">
+        <div className={`p-2.5 rounded-xl bg-gradient-to-br ${c.bg} shadow-sm`}>
+          <Icon className={`w-5 h-5 ${c.icon}`} />
         </div>
         {trend && (
-          <div className={cn(
-            "flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold",
-            trend === 'up'
-              ? "border-[hsl(var(--success)/0.25)] bg-[hsl(var(--success)/0.10)] text-[hsl(var(--success))]"
-              : "border-[hsl(var(--destructive)/0.25)] bg-[hsl(var(--destructive)/0.10)] text-[hsl(var(--destructive))]"
-          )}>
-            {trend === 'up' ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+          <div className={`flex items-center gap-1 text-xs font-medium ${trend === 'up' ? 'text-emerald-600' : 'text-rose-600'}`}>
+            {trend === 'up' ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
           </div>
         )}
       </div>
-      <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[hsl(var(--muted-foreground))]">
-        {title}
-      </p>
-      <p className={cn("text-xl font-semibold tracking-tight tabular-nums", c.value)}>
-        {typeof value === "number"
-          ? <AnimatedNumber value={value} format={formatNumber} />
-          : value}
-      </p>
-      {subtitle && <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">{subtitle}</p>}
+      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">{title}</p>
+      <p className={`text-xl font-bold ${c.value} tabular-nums`}>{value}</p>
+      {subtitle && <p className="text-xs text-gray-400 mt-1">{subtitle}</p>}
     </div>
   );
 };
 
-const SectionCard = ({
-  title,
-  children,
-  action,
-}: {
-  title: string;
-  children: React.ReactNode;
+const SectionCard = ({ 
+  title, 
+  children, 
+  action 
+}: { 
+  title: string; 
+  children: React.ReactNode; 
   action?: React.ReactNode;
 }) => (
-  <div className="surface-glass overflow-hidden rounded-2xl">
-    <div className="flex items-center justify-between divider-glass px-5 py-3.5">
-      <h3 className="text-sm font-semibold tracking-tight text-[hsl(var(--foreground))]">{title}</h3>
+  <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
+    <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+      <h3 className="text-sm font-semibold text-gray-800">{title}</h3>
       {action}
     </div>
     <div className="p-5">{children}</div>

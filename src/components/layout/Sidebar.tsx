@@ -7,7 +7,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { LangSwitcher, useLang } from "@/lib/lang";
 import { apiCall } from "@/hooks/useApi";
 import NotificationBell from "@/components/layout/NotificationBell";
-import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import {
   LayoutDashboard, Package, Factory, Banknote, Handshake,
   BookOpen, Receipt, Wallet, Users, Warehouse, ClipboardList,
@@ -243,11 +242,11 @@ export default function Sidebar() {
       {/* ── Logo ── */}
       <div
         className={cn(
-          "flex items-center flex-shrink-0 border-b border-white/[0.06]",
+          "flex items-center flex-shrink-0 border-b border-sidebar-border",
           collapsed ? "px-3 py-5 justify-center" : "px-4 py-5 gap-3"
         )}
       >
-        <div className="w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-2xl bg-gradient-to-br from-white/[0.08] to-white/[0.02] ring-1 ring-white/[0.08] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+        <div className="w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-2xl bg-white/[0.06] ring-1 ring-white/10">
           <svg viewBox="0 0 120 130" fill="none" className="w-8 h-8">
             <path d="M60 6 L110 22 L110 76 Q110 108 60 124 Q10 108 10 76 L10 22 Z" fill="#6B0F1A" />
             <path d="M60 6 L110 22 L110 76 Q110 108 60 124 Q10 108 10 76 L10 22 Z" stroke="#D4AF37" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
@@ -256,8 +255,8 @@ export default function Sidebar() {
         </div>
         {!collapsed && (
           <div className="min-w-0">
-            <p className="text-white font-semibold text-sm leading-tight tracking-tight">MRF Hardware</p>
-            <p className="text-[#8f9ab1] text-[10px] uppercase tracking-[0.22em] mt-1 font-medium">Operations Suite</p>
+            <p className="text-white font-bold text-sm leading-tight tracking-tight">MRF Hardware</p>
+            <p className="text-[#8f9ab1] text-[10px] uppercase tracking-[0.24em] mt-0.5">Operations Suite</p>
           </div>
         )}
       </div>
@@ -338,10 +337,10 @@ export default function Sidebar() {
       </nav>
 
       {/* ── User Footer ── */}
-      <div className="border-t border-white/[0.06] flex-shrink-0 p-2 pb-[max(1rem,env(safe-area-inset-bottom,1rem))] space-y-1">
+      <div className="border-t border-sidebar-border flex-shrink-0 p-2 pb-[max(1rem,env(safe-area-inset-bottom,1rem))] space-y-0.5">
         {/* User info */}
         {!collapsed ? (
-          <div className="flex items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-gradient-to-br from-white/[0.06] to-white/[0.02] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+          <div className="flex items-center gap-2.5 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-3">
             <UserAvatar name={user.fullName} />
             <div className="min-w-0 flex-1">
               <p className="text-white text-xs font-semibold truncate leading-tight">{user.fullName}</p>
@@ -360,17 +359,6 @@ export default function Sidebar() {
         {!collapsed && (
           <div className="px-2 pb-0.5">
             <LangSwitcher />
-          </div>
-        )}
-
-        {/* Theme toggle */}
-        {!collapsed ? (
-          <div className="px-2 pb-0.5">
-            <ThemeToggle />
-          </div>
-        ) : (
-          <div className="flex justify-center py-1">
-            <ThemeToggle compact />
           </div>
         )}
 

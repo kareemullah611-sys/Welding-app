@@ -84,20 +84,15 @@ export function PageHeader({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-      <div className="min-w-0">
-        <h1 className="text-balance text-2xl font-semibold tracking-tight text-[hsl(var(--foreground))] sm:text-[1.75rem]">
-          {title}
-        </h1>
-        {subtitle && (
-          <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">{subtitle}</p>
-        )}
+    <div className="mb-6 overflow-hidden rounded-[1.6rem] border border-white/75 bg-[linear-gradient(135deg,rgba(255,248,239,0.95),rgba(245,233,219,0.82))] px-5 py-5 shadow-[0_28px_70px_-42px_rgba(51,42,33,0.38)]">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#9a7b5b]">Workspace</p>
+        <h1 className="text-2xl font-bold text-[#241a13] tracking-tight sm:text-3xl">{title}</h1>
+        {subtitle && <p className="mt-1 text-sm text-[#7b6857]">{subtitle}</p>}
       </div>
-      {action && (
-        <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:flex-shrink-0 sm:justify-end">
-          {action}
-        </div>
-      )}
+      {action && <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:flex-shrink-0 sm:justify-end">{action}</div>}
+      </div>
     </div>
   );
 }
@@ -106,11 +101,11 @@ export function PageHeader({
 // STATS CARD
 // ============================================================
 const colorMap = {
-  blue:   { iconBg: "bg-[hsl(var(--info)/0.12)]",        iconText: "text-[hsl(var(--info))]",        valueTxt: "text-[hsl(var(--foreground))]" },
-  green:  { iconBg: "bg-[hsl(var(--success)/0.12)]",     iconText: "text-[hsl(var(--success))]",     valueTxt: "text-[hsl(var(--foreground))]" },
-  red:    { iconBg: "bg-[hsl(var(--destructive)/0.10)]", iconText: "text-[hsl(var(--destructive))]", valueTxt: "text-[hsl(var(--foreground))]" },
-  yellow: { iconBg: "bg-[hsl(var(--warning)/0.14)]",     iconText: "text-[hsl(var(--warning))]",     valueTxt: "text-[hsl(var(--foreground))]" },
-  purple: { iconBg: "bg-[hsl(268_50%_94%)] dark:bg-[hsl(268_30%_20%)]", iconText: "text-[hsl(268_45%_45%)] dark:text-[hsl(268_55%_70%)]", valueTxt: "text-[hsl(var(--foreground))]" },
+  blue:   { iconBg: "bg-[#dff1f6]",   iconText: "text-[#176b83]",   accent: "from-[#edf8fb] to-white",   valueTxt: "text-[#14596d]", ring: "ring-[#d2e9ef]" },
+  green:  { iconBg: "bg-[#e4f3e9]",   iconText: "text-[#2e7755]",   accent: "from-[#f1fbf4] to-white",   valueTxt: "text-[#2a6248]", ring: "ring-[#d7ebdd]" },
+  red:    { iconBg: "bg-[#fde9e4]",   iconText: "text-[#b2452d]",   accent: "from-[#fff3ef] to-white",   valueTxt: "text-[#97331d]", ring: "ring-[#f2d9d1]" },
+  yellow: { iconBg: "bg-[#fff1d6]",   iconText: "text-[#a36a12]",   accent: "from-[#fff9eb] to-white",   valueTxt: "text-[#89550e]", ring: "ring-[#f5e6c4]" },
+  purple: { iconBg: "bg-[#efe6ff]",   iconText: "text-[#7046b7]",   accent: "from-[#f7f1ff] to-white",   valueTxt: "text-[#5f399e]", ring: "ring-[#e5daf7]" },
 };
 
 export function StatsCard({
@@ -128,26 +123,22 @@ export function StatsCard({
 }) {
   const c = colorMap[color];
   return (
-    <div className="stat-card p-4 sm:p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] leading-snug line-clamp-2 text-[hsl(var(--muted-foreground))]">
-            {title}
-          </p>
-          <p className={cn("mt-2 text-base sm:text-xl font-semibold tracking-tight leading-tight tabular-nums", c.valueTxt)}>
-            {value}
-          </p>
-          {subtitle && (
-            <p className="mt-1.5 text-xs leading-snug text-[hsl(var(--muted-foreground))]">{subtitle}</p>
+    <Card className={cn("border-0 bg-transparent shadow-none")}>
+      <CardContent className={cn("stat-card bg-gradient-to-br", c.accent, c.ring, "ring-1 p-4 sm:p-5")}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8b7763] leading-snug line-clamp-2">{title}</p>
+            <p className={cn("text-sm sm:text-lg font-bold mt-1.5 leading-tight tabular-nums", c.valueTxt)}>{value}</p>
+            {subtitle && <p className="mt-1.5 text-xs leading-snug text-[#8e7e71]">{subtitle}</p>}
+          </div>
+          {icon && (
+            <div className={cn("hidden sm:flex h-11 w-11 rounded-2xl items-center justify-center text-xl flex-shrink-0 shadow-inner", c.iconBg, c.iconText)}>
+              {icon}
+            </div>
           )}
         </div>
-        {icon && (
-          <div className={cn("hidden sm:flex h-10 w-10 rounded-xl items-center justify-center text-lg flex-shrink-0", c.iconBg, c.iconText)}>
-            {icon}
-          </div>
-        )}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -341,9 +332,9 @@ export function DataTable<T extends Record<string, any>>({
   };
 
   return (
-    <div className="table-container">
+    <div className="rounded-[1.4rem] border border-white/70 bg-white/85 shadow-[0_26px_70px_-42px_rgba(51,42,33,0.35)] backdrop-blur-xl">
       {searchable && (
-        <div className="divider-glass flex flex-col gap-1 px-3 py-3 sm:px-4">
+        <div className="flex flex-col gap-1 border-b border-[#efe2d3] bg-[#fbf6ef]/80 px-3 py-3 sm:px-4">
           <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center">
             <input
               type="search"
@@ -374,7 +365,7 @@ export function DataTable<T extends Record<string, any>>({
                 setSelectedSearchColumn(event.target.value);
                 setActiveMatchIndex(-1);
               }}
-              className="select-field h-10 w-full text-base sm:h-9 sm:w-56 sm:text-sm"
+              className="input-field h-10 w-full text-base sm:h-9 sm:w-56 sm:text-sm"
               aria-label="Search specific column"
             >
               <option value="__all__">All Columns</option>
@@ -386,12 +377,12 @@ export function DataTable<T extends Record<string, any>>({
             </select>
           </div>
           {showSearchMeta && activeSearch.length < minChars && (
-            <p className="text-[11px] text-[hsl(var(--muted-foreground))]">
+            <p className="text-[11px] text-gray-500">
               Type at least {minChars} characters to filter this list.
             </p>
           )}
           {showSearchMeta && activeSearch.length >= minChars && (
-            <p className="text-[11px] text-[hsl(var(--muted-foreground))]">
+            <p className="text-[11px] text-gray-500">
               Showing {filteredData.length} matching record{filteredData.length === 1 ? "" : "s"}
               {activeMatchIndex >= 0 ? ` · Selected ${activeMatchIndex + 1}/${filteredData.length}` : ""}.
             </p>
@@ -401,16 +392,9 @@ export function DataTable<T extends Record<string, any>>({
       <div className="overflow-visible">
         <Table>
           <TableHeader>
-            <TableRow className="divider-glass bg-[hsl(var(--muted)/0.55)] hover:bg-[hsl(var(--muted)/0.55)]">
+            <TableRow className="border-b border-[#efe2d3] bg-[#faf3ea]/90 hover:bg-[#faf3ea]/90">
               {columns.map((col) => (
-                <TableHead
-                  key={col.key}
-                  className={cn(
-                    "py-3 text-[11px] font-semibold uppercase tracking-[0.12em]",
-                    "text-[hsl(var(--muted-foreground))]",
-                    col.className
-                  )}
-                >
+                <TableHead key={col.key} className={cn("text-xs font-semibold text-gray-500 uppercase tracking-wider py-3", col.className)}>
                   {col.label}
                 </TableHead>
               ))}
@@ -430,11 +414,9 @@ export function DataTable<T extends Record<string, any>>({
             ) : filteredData.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={columns.length} className="py-16 text-center">
-                  <div className="flex flex-col items-center gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/0.4)]">
-                      <span className="text-lg text-[hsl(var(--muted-foreground))]">∅</span>
-                    </div>
-                    <p className="text-sm text-[hsl(var(--muted-foreground))]">{emptyMessage}</p>
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="h-10 w-10 rounded-xl border border-[#eadfce] bg-[#f9f2e8]" />
+                    <p className="text-sm text-muted-foreground">{emptyMessage}</p>
                   </div>
                 </TableCell>
               </TableRow>
@@ -445,26 +427,17 @@ export function DataTable<T extends Record<string, any>>({
                   ref={(node) => { rowRefs.current[idx] = node; }}
                   onClick={() => onRowClick?.(item)}
                   className={cn(
-                    "border-b border-[hsl(var(--border)/0.4)] transition-colors",
-                    stripedRows && idx % 2 === 1 && "bg-[hsl(var(--muted)/0.25)]",
-                    onRowClick
-                      ? "cursor-pointer hover:bg-[hsl(var(--primary)/0.06)]"
-                      : "hover:bg-[hsl(var(--muted)/0.4)]",
-                    rowClassName?.(item, idx)
+                    "border-b border-[#f3e8db] transition-colors",
+                    stripedRows && idx % 2 === 1 && "bg-[#fbf8f3]",
+                    onRowClick ? "cursor-pointer hover:bg-[#fff4ea]" : "hover:bg-[#fcf6ef]"
+                    ,rowClassName?.(item, idx)
                   )}
                 >
                   {columns.map((col) => {
                     const isDate = !col.render && col.key.toLowerCase().includes("date") && typeof item[col.key] === "string" && item[col.key]?.match(/^\d{4}-\d{2}-\d{2}/);
                     const displayValue = isDate ? formatDate(item[col.key]) : item[col.key];
                     return (
-                      <TableCell
-                        key={col.key}
-                        className={cn(
-                          "py-3 text-sm text-[hsl(var(--foreground))]",
-                          isDate && "whitespace-nowrap tabular-nums",
-                          col.className
-                        )}
-                      >
+                      <TableCell key={col.key} className={cn("text-sm text-gray-700 py-3", isDate && "whitespace-nowrap", col.className)}>
                         {(() => {
                           const renderedValue = col.render ? col.render(item) : displayValue;
                           const shouldHighlight =
@@ -513,26 +486,27 @@ export function PaginationBar({
   return (
     <div
       className={cn(
-        "flex flex-col gap-3 bg-[hsl(var(--muted)/0.4)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between",
-        bordered && "border-t border-[hsl(var(--border)/0.6)]",
+        "flex flex-col gap-3 bg-[#fbf6ef]/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between",
+        bordered && "border-t border-[#efe2d3]",
         className
       )}
     >
-      <p className="text-xs text-[hsl(var(--muted-foreground))]">
-        Showing <span className="font-medium text-[hsl(var(--foreground))] tabular-nums">{range.start}-{range.end}</span> of <span className="font-medium text-[hsl(var(--foreground))] tabular-nums">{pagination.total}</span>
+      <p className="text-xs italic text-[#6b7280]">
+        Showing {range.start}-{range.end} of {pagination.total} transactions
       </p>
-      <div className="flex flex-wrap items-center gap-1">
-        <button
-          type="button"
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
           onClick={() => pagination.onPageChange(pagination.page - 1)}
           disabled={pagination.page <= 1}
-          className="h-8 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 text-xs font-medium text-[hsl(var(--foreground))] transition-colors hover:bg-[hsl(var(--muted))] disabled:opacity-40 disabled:cursor-not-allowed"
+          className="h-9 px-3 text-xs sm:h-8"
         >
           Previous
-        </button>
+        </Button>
         {pageItems.map((item, index) =>
           item === "..." ? (
-            <span key={`ellipsis-${index}`} className="px-1.5 text-xs text-[hsl(var(--muted-foreground))]">
+            <span key={`ellipsis-${index}`} className="px-1.5 text-xs text-gray-400">
               ...
             </span>
           ) : (
@@ -541,24 +515,25 @@ export function PaginationBar({
               type="button"
               onClick={() => pagination.onPageChange(item)}
               className={cn(
-                "h-8 min-w-8 rounded-lg px-2 text-xs font-semibold transition-all tabular-nums",
+                "h-9 min-w-9 rounded-md border px-2 text-xs font-semibold transition-colors sm:h-8 sm:min-w-8",
                 item === pagination.page
-                  ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] shadow-[0_4px_12px_-4px_hsl(var(--primary)/0.5)]"
-                  : "border border-[hsl(var(--border))] bg-[hsl(var(--card))] text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))]"
+                  ? "border-[#1f2a44] bg-[#111a30] text-white shadow-sm"
+                  : "border-[#e8ddcf] bg-white text-[#374151] hover:border-[#cdbca6] hover:bg-[#f8efe2]"
               )}
             >
               {item}
             </button>
           )
         )}
-        <button
-          type="button"
+        <Button
+          variant="outline"
+          size="sm"
           onClick={() => pagination.onPageChange(pagination.page + 1)}
           disabled={pagination.page >= pagination.totalPages}
-          className="h-8 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 text-xs font-medium text-[hsl(var(--foreground))] transition-colors hover:bg-[hsl(var(--muted))] disabled:opacity-40 disabled:cursor-not-allowed"
+          className="h-9 px-3 text-xs sm:h-8"
         >
           Next
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -689,21 +664,14 @@ export function Modal({
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent
         hideCloseButton={suppressHeader}
-        className={cn("w-full gap-0 p-0 overflow-hidden", sizes[size])}
+        className={cn("w-full gap-0 p-0 overflow-hidden border border-[#eadfce] bg-[linear-gradient(168deg,rgba(255,255,255,0.99),rgba(249,243,234,0.97))] shadow-[0_32px_80px_-42px_rgba(23,18,14,0.72)]", sizes[size])}
       >
         {!suppressHeader && (
-          <DialogHeader className="divider-glass flex-shrink-0 bg-[hsl(var(--card)/0.6)] px-6 py-4">
-            <DialogTitle asChild>
-              <div className="text-base font-semibold tracking-tight text-[hsl(var(--foreground))]">{title}</div>
-            </DialogTitle>
+          <DialogHeader className="px-6 py-4 border-b border-[#e6d8c7] bg-[rgba(255,253,250,0.96)] flex-shrink-0">
+            <DialogTitle asChild><div className="text-base font-semibold tracking-[0.01em] text-[#2f241c]">{title}</div></DialogTitle>
           </DialogHeader>
         )}
-        <div
-          onKeyDownCapture={handleFormKeyNav}
-          className={cn("overflow-y-auto max-h-[75vh]", suppressHeader ? "" : "px-6 py-5", bodyClassName)}
-        >
-          {children}
-        </div>
+        <div onKeyDownCapture={handleFormKeyNav} className={cn("overflow-y-auto max-h-[75vh]", suppressHeader ? "" : "px-6 py-5", bodyClassName)}>{children}</div>
       </DialogContent>
     </Dialog>
   );
