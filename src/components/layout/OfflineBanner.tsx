@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useOffline } from "@/hooks/useOffline";
 
 export default function OfflineBanner() {
-  const { isOnline, queueCount, syncQueue, isSyncing, lastSyncResult } = useOffline();
+  const { offlineEnabled, isOnline, queueCount, syncQueue, isSyncing, lastSyncResult } = useOffline();
   const [showResult, setShowResult] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
@@ -22,6 +22,7 @@ export default function OfflineBanner() {
     if (!isOnline) setDismissed(false);
   }, [isOnline]);
 
+  if (!offlineEnabled) return null;
   // Nothing to show
   if (isOnline && queueCount === 0 && !showResult) return null;
   if (dismissed && isOnline && queueCount === 0) return null;
@@ -37,8 +38,8 @@ export default function OfflineBanner() {
             </svg>
           </div>
           <div className="flex-1">
-            <p className="font-medium text-sm">You are offline</p>
-            <p className="text-xs text-orange-200">Changes will be saved and synced when you reconnect</p>
+            <p className="font-medium text-sm">Server unavailable</p>
+            <p className="text-xs text-orange-200">Working from local data — changes sync when the server is back</p>
           </div>
         </div>
       )}
@@ -55,7 +56,7 @@ export default function OfflineBanner() {
                 {queueCount} pending change{queueCount !== 1 ? "s" : ""}
               </p>
               <p className="text-xs text-gray-500">
-                {isOnline ? "Ready to sync" : "Will sync when online"}
+                {isOnline ? "Ready to sync" : "Will sync when server is reachable"}
               </p>
             </div>
             {isOnline && (

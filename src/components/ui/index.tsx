@@ -638,13 +638,7 @@ export function Modal({
   if (!mounted) return null;
 
   if (inlineMode) {
-    if (!open) {
-      return (
-        <div className="flex min-h-[12rem] flex-1 items-center justify-center p-6" aria-busy="true">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#e8dccf] border-t-[#a54425]" />
-        </div>
-      );
-    }
+    if (!open) return null;
     return (
       <div
         onKeyDownCapture={handleFormKeyNav}

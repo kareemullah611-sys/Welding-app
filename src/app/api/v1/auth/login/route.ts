@@ -3,7 +3,7 @@ import prisma from "@/lib/prisma";
 import { comparePassword, generateToken } from "@/lib/auth";
 import { loginSchema } from "@/lib/validations";
 import { successResponse, validationError, errorResponse } from "@/lib/api-response";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, rejectIfRateLimited } from "@/lib/rate-limit";
 import { allowSuperAdminInLockedDeployment, isAllowedCityName, isCityLockedDeployment } from "@/lib/deployment-profile";
 import crypto from "crypto";
 
@@ -47,11 +47,8 @@ export async function POST(request: NextRequest) {
 
     const { username, password } = parsed.data;
 
-    // Check rate limit BEFORE DB query so a locked-out IP is rejected fast
-    // But we only INCREMENT the counter on actual auth failures (wrong password /
-    // unknown user), not on DB/server errors — so a sleeping DB never locks users out.
-    const limited = checkRateLimit(`login-check:${ip}`, 10, 15 * 60 * 1000);
-    if (limited) return limited;
+    const blocked = rejectIfRateLimited(`login:${ip}`, 10, 15 * 60 * 1000);
+    if (blocked) return blocked;
 
     let user;
     try {

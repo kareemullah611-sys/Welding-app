@@ -11,7 +11,10 @@ import {
   buildOfflineAuditMeta,
   buildApiCacheKey,
   shouldQueueOfflineWriteNow,
+  shouldQueueOfflineWriteOnNetworkFailure,
+  shouldUseOfflineApiCache,
 } from "@/lib/offline-cache";
+import { setPackagedServerReachable } from "@/lib/offline-reachability";
 import { OFFLINE_ID_MAP_STORE } from "@/lib/offline-id-reconciliation";
 import {
   applyQueuedMutationToReadModel,
@@ -27,6 +30,27 @@ interface FetchOptions {
   method?: string;
   body?: unknown;
   params?: Record<string, string | number | undefined>;
+}
+
+const RETRYABLE_HTTP_STATUSES = new Set([502, 503, 504]);
+
+async function queuePackagedOfflineWrite<T>(
+  url: string,
+  method: string,
+  body: unknown,
+  params: Record<string, string | number | undefined> | undefined,
+  applyState?: (data: T | { queued: true; queueId: string }) => void
+): Promise<{ success: true; data: { queued: true; queueId: string }; queued: true }> {
+  const queueId = await enqueueOfflineWrite(url, method, body);
+  await upsertPendingLocalReadModelRow(url, method, body, queueId);
+  await applyQueuedMutationLocalReadModel(url, method, body);
+  const payload = { queued: true as const, queueId };
+  if (applyState) {
+    const local = await getLocalReadModel<T>(url, params);
+    if (local) applyState(local.data as T);
+    else applyState(payload);
+  }
+  return { success: true, data: payload, queued: true };
 }
 
 interface ApiState<T> {
@@ -308,7 +332,7 @@ export function useApi<T = unknown>() {
         fetchOptions.body = JSON.stringify(options.body);
       }
 
-      if (method === "GET" && typeof window !== "undefined" && !navigator.onLine) {
+      if (method === "GET" && typeof window !== "undefined" && shouldUseOfflineApiCache()) {
         const offlineRead = await readOfflineGetCache<T>(url, options.params);
         if (offlineRead) {
           setState({ data: offlineRead.data, loading: false, error: null });
@@ -316,24 +340,15 @@ export function useApi<T = unknown>() {
         }
       }
 
-      if (
-        typeof window !== "undefined" &&
-        shouldQueueOfflineWriteNow(url, method, navigator.onLine)
-      ) {
-        const queueId = await enqueueOfflineWrite(url, method, options.body);
-        await upsertPendingLocalReadModelRow(url, method, options.body, queueId);
-        await applyQueuedMutationLocalReadModel(url, method, options.body);
-        const local = await getLocalReadModel<T>(url, options.params);
-        if (local) {
-          setState({ data: local.data as T, loading: false, error: null });
-        } else {
-          setState((prev) => ({ ...prev, loading: false, error: null }));
-        }
-        return {
-          success: true,
-          data: { queued: true, queueId } as T,
-          queued: true,
-        };
+      if (typeof window !== "undefined" && shouldQueueOfflineWriteNow(url, method)) {
+        const queued = await queuePackagedOfflineWrite<T>(
+          url,
+          method,
+          options.body,
+          options.params,
+          (data) => setState({ data: data as T, loading: false, error: null })
+        );
+        return queued;
       }
 
       const res = await fetch(fullUrl, fetchOptions);
@@ -348,6 +363,21 @@ export function useApi<T = unknown>() {
         return { success: true, data: data.data as T, pagination: data.pagination };
       } else {
         const error = data.error?.message || "Request failed";
+        if (
+          typeof window !== "undefined" &&
+          shouldQueueOfflineWriteOnNetworkFailure(url, method) &&
+          RETRYABLE_HTTP_STATUSES.has(res.status)
+        ) {
+          setPackagedServerReachable(false);
+          const queued = await queuePackagedOfflineWrite<T>(
+            url,
+            method,
+            options.body,
+            options.params,
+            (d) => setState({ data: d as T, loading: false, error: null })
+          );
+          return queued;
+        }
         if (method === "GET") {
           const offlineRead = await readOfflineGetCache<T>(url, options.params);
           if (offlineRead) {
@@ -360,24 +390,16 @@ export function useApi<T = unknown>() {
       }
     } catch (err) {
       const method = options.method || "GET";
-      if (
-        typeof window !== "undefined" &&
-        shouldQueueOfflineWriteNow(url, method, navigator.onLine)
-      ) {
-        const queueId = await enqueueOfflineWrite(url, method, options.body);
-        await upsertPendingLocalReadModelRow(url, method, options.body, queueId);
-        await applyQueuedMutationLocalReadModel(url, method, options.body);
-        const local = await getLocalReadModel<T>(url, options.params);
-        if (local) {
-          setState({ data: local.data as T, loading: false, error: null });
-        } else {
-          setState((prev) => ({ ...prev, loading: false, error: null }));
-        }
-        return {
-          success: true,
-          data: { queued: true, queueId } as T,
-          queued: true,
-        };
+      if (typeof window !== "undefined" && shouldQueueOfflineWriteOnNetworkFailure(url, method)) {
+        setPackagedServerReachable(false);
+        const queued = await queuePackagedOfflineWrite<T>(
+          url,
+          method,
+          options.body,
+          options.params,
+          (d) => setState({ data: d as T, loading: false, error: null })
+        );
+        return queued;
       }
       if (method === "GET") {
         const offlineRead = await readOfflineGetCache<T>(url, options.params);
@@ -413,17 +435,12 @@ export async function apiCall<T = unknown>(
       fetchOptions.body = JSON.stringify(options.body);
     }
 
-    if (
-      typeof window !== "undefined" &&
-      shouldQueueOfflineWriteNow(url, method, navigator.onLine)
-    ) {
-      const queueId = await enqueueOfflineWrite(url, method, options.body);
-      await upsertPendingLocalReadModelRow(url, method, options.body, queueId);
-      await applyQueuedMutationLocalReadModel(url, method, options.body);
-      return { success: true, data: { queued: true, queueId } as T, queued: true };
+    if (typeof window !== "undefined" && shouldQueueOfflineWriteNow(url, method)) {
+      const queued = await queuePackagedOfflineWrite<T>(url, method, options.body, options.params);
+      return { ...queued, data: queued.data as unknown as T };
     }
 
-    if (method === "GET" && typeof window !== "undefined" && !navigator.onLine) {
+    if (method === "GET" && typeof window !== "undefined" && shouldUseOfflineApiCache()) {
       const offlineRead = await readOfflineGetCache<T>(url, options.params);
       if (offlineRead) {
         return { success: true, data: offlineRead.data, pagination: offlineRead.pagination, cached: true };
@@ -440,6 +457,15 @@ export async function apiCall<T = unknown>(
       }
       return { success: true, data: data.data as T, pagination: data.pagination };
     }
+    if (
+      typeof window !== "undefined" &&
+      shouldQueueOfflineWriteOnNetworkFailure(url, method) &&
+      RETRYABLE_HTTP_STATUSES.has(res.status)
+    ) {
+      setPackagedServerReachable(false);
+      const queued = await queuePackagedOfflineWrite<T>(url, method, options.body, options.params);
+      return { ...queued, data: queued.data as unknown as T };
+    }
     if (method === "GET") {
       const offlineRead = await readOfflineGetCache<T>(url, options.params);
       if (offlineRead) {
@@ -449,14 +475,10 @@ export async function apiCall<T = unknown>(
     return { success: false, error: data.error?.message || "Request failed" };
   } catch {
     const method = options.method || "GET";
-    if (
-      typeof window !== "undefined" &&
-      shouldQueueOfflineWriteNow(url, method, navigator.onLine)
-    ) {
-      const queueId = await enqueueOfflineWrite(url, method, options.body);
-      await upsertPendingLocalReadModelRow(url, method, options.body, queueId);
-      await applyQueuedMutationLocalReadModel(url, method, options.body);
-      return { success: true, data: { queued: true, queueId } as T, queued: true };
+    if (typeof window !== "undefined" && shouldQueueOfflineWriteOnNetworkFailure(url, method)) {
+      setPackagedServerReachable(false);
+      const queued = await queuePackagedOfflineWrite<T>(url, method, options.body, options.params);
+      return { ...queued, data: queued.data as unknown as T };
     }
     if (method === "GET") {
       const offlineRead = await readOfflineGetCache<T>(url, options.params);

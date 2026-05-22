@@ -1,3 +1,5 @@
+import { getPackagedServerReachable } from "@/lib/offline-reachability";
+
 export const OFFLINE_DB_NAME = "mrf-offline";
 export const OFFLINE_DB_VERSION = 6;
 export const OFFLINE_QUEUE_STORE = "queue";
@@ -222,6 +224,17 @@ export function buildApiCacheKey(
   return `${url}?${qs}`;
 }
 
+/** Electron DMG or Capacitor APK — browser uses live API only. */
+export function isPackagedOfflineRuntime(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.platformInfo?.runtime === "electron" || Boolean(window.Capacitor);
+}
+
+export function shouldUseOfflineApiCache(): boolean {
+  if (!isPackagedOfflineRuntime()) return false;
+  return !getPackagedServerReachable();
+}
+
 export function shouldAutoQueueOfflineWrite(url: string, method: string): boolean {
   const normalizedMethod = String(method || "GET").toUpperCase();
   if (normalizedMethod !== "POST") return false;
@@ -233,7 +246,15 @@ export function shouldAutoQueueOfflineWrite(url: string, method: string): boolea
   return OFFLINE_WRITE_QUEUE_DYNAMIC_ALLOWLIST.some((pattern) => pattern.test(path));
 }
 
-export function shouldQueueOfflineWriteNow(url: string, method: string, isOnline: boolean): boolean {
-  if (isOnline) return false;
+/** Queue before attempting network when the server is unreachable (packaged apps only). */
+export function shouldQueueOfflineWriteNow(url: string, method: string): boolean {
+  if (!isPackagedOfflineRuntime()) return false;
+  if (getPackagedServerReachable()) return false;
+  return shouldAutoQueueOfflineWrite(url, method);
+}
+
+/** Queue after a failed request when packaged (Wi‑Fi may be on but server is not). */
+export function shouldQueueOfflineWriteOnNetworkFailure(url: string, method: string): boolean {
+  if (!isPackagedOfflineRuntime()) return false;
   return shouldAutoQueueOfflineWrite(url, method);
 }

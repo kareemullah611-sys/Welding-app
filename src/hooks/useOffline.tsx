@@ -9,7 +9,12 @@ import {
   OFFLINE_QUEUE_STORE,
   OFFLINE_STOCK_STORE,
   buildApiCacheKey,
+  isPackagedOfflineRuntime,
 } from "@/lib/offline-cache";
+import {
+  probeServerReachable,
+  setPackagedServerReachable,
+} from "@/lib/offline-reachability";
 import {
   canApplyCreateToReadModel,
   getReadModelKey,
@@ -66,6 +71,8 @@ interface EnqueueRequest {
 }
 
 interface OfflineContextType {
+  /** True on Electron / Capacitor APK; false in browser (live API only). */
+  offlineEnabled: boolean;
   isOnline: boolean;
   isServiceWorkerReady: boolean;
   queueCount: number;
@@ -91,6 +98,7 @@ interface OfflineContextType {
 }
 
 const OfflineContext = createContext<OfflineContextType>({
+  offlineEnabled: false,
   isOnline: true,
   isServiceWorkerReady: false,
   queueCount: 0,
@@ -224,6 +232,7 @@ async function reconcileSyncedIds(item: QueuedRequest, responsePayload: unknown)
 
 // ── Provider ───────────────────────────────────────────────────────────────────
 export function OfflineProvider({ children }: { children: React.ReactNode }) {
+  const [offlineEnabled, setOfflineEnabled] = useState(false);
   const [isOnline, setIsOnline]           = useState(true);
   const [isServiceWorkerReady, setIsServiceWorkerReady] = useState(false);
   const [queueCount, setQueueCount]       = useState(0);
@@ -234,18 +243,42 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
   const fullSyncLockRef = useRef(false);
   const syncLockRef = useRef(false);
 
-  // ── Online / Offline ──
   useEffect(() => {
-    setIsOnline(navigator.onLine);
-    const up   = () => setIsOnline(true);
-    const down = () => setIsOnline(false);
-    window.addEventListener("online",  up);
-    window.addEventListener("offline", down);
-    return () => {
-      window.removeEventListener("online",  up);
-      window.removeEventListener("offline", down);
-    };
+    setOfflineEnabled(isPackagedOfflineRuntime());
   }, []);
+
+  // Packaged apps: isOnline = server reachable (not Wi‑Fi). Browser stays always online.
+  useEffect(() => {
+    if (!offlineEnabled) {
+      setPackagedServerReachable(true);
+      setIsOnline(true);
+      return;
+    }
+
+    let cancelled = false;
+    const refresh = async () => {
+      const ok = await probeServerReachable();
+      if (cancelled) return;
+      setPackagedServerReachable(ok);
+      setIsOnline(ok);
+    };
+
+    void refresh();
+    const interval = setInterval(() => { void refresh(); }, 12000);
+    const onNavigatorOffline = () => {
+      setPackagedServerReachable(false);
+      setIsOnline(false);
+    };
+    const onNavigatorOnline = () => { void refresh(); };
+    window.addEventListener("offline", onNavigatorOffline);
+    window.addEventListener("online", onNavigatorOnline);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener("offline", onNavigatorOffline);
+      window.removeEventListener("online", onNavigatorOnline);
+    };
+  }, [offlineEnabled]);
 
   // ── Service worker (browser/PWA only — breaks API proxy in Electron) ──
   useEffect(() => {
@@ -584,9 +617,9 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // When online: push queued writes first, then refresh local archive if stale.
+  // When online (packaged app): push queued writes first, then refresh local archive if stale.
   useEffect(() => {
-    if (!isOnline) return;
+    if (!offlineEnabled || !isOnline) return;
     let cancelled = false;
     const timer = setTimeout(async () => {
       if (cancelled) return;
@@ -599,11 +632,11 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [isOnline, syncQueue, triggerFullSync]);
+  }, [offlineEnabled, isOnline, syncQueue, triggerFullSync]);
 
   return (
     <OfflineContext.Provider value={{
-      isOnline, isServiceWorkerReady, queueCount, syncQueue, isSyncing, lastSyncResult, queuedItems,
+      offlineEnabled, isOnline, isServiceWorkerReady, queueCount, syncQueue, isSyncing, lastSyncResult, queuedItems,
       enqueue, updateQueuedItem, retryQueuedItem, discardQueuedItem, clearOfflineData, cacheGodownStock, getCachedGodownStock, cacheApiResponse, getCachedApiResponse,
       exportOfflineBundle, importOfflineBundle,
       fullSyncMeta, triggerFullSync,

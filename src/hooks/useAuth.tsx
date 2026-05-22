@@ -2,6 +2,8 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { clearOfflineAuthCache, readOfflineAuthCache, writeOfflineAuthCache } from "@/lib/offline-auth-cache";
+import { isPackagedOfflineRuntime } from "@/lib/offline-cache";
+import { probeServerReachable, setPackagedServerReachable } from "@/lib/offline-reachability";
 
 interface User {
   id: number;
@@ -131,11 +133,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [checkAuth]);
 
   const login = async (username: string, password: string) => {
+    const normalizedUsername = username.trim().toLowerCase();
+    const cached = readOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
+    const cacheMatches = Boolean(
+      cached &&
+        cached.username === normalizedUsername &&
+        cached.password === password &&
+        cached.user
+    );
+
     try {
+      const packaged = isPackagedOfflineRuntime();
+      if (packaged && cacheMatches) {
+        const reachable = await probeServerReachable();
+        if (!reachable) {
+          setPackagedServerReachable(false);
+          setUser(cached!.user);
+          return { success: true };
+        }
+      }
+
       const isElectron = typeof window !== "undefined" && window.platformInfo?.runtime === "electron";
       if (isElectron) {
         const ready = await waitForServerReady(120000);
-        if (!ready) return { success: false, error: serverNotReadyMessage() };
+        if (!ready) {
+          if (packaged && cacheMatches) {
+            setPackagedServerReachable(false);
+            setUser(cached!.user);
+            return { success: true };
+          }
+          return { success: false, error: serverNotReadyMessage() };
+        }
       }
 
       const res = await fetchWithWarmupRetry("/api/v1/auth/login", {
@@ -157,12 +185,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
         return { success: true };
       }
-      const cached = readOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
-      if (!navigator.onLine && cached &&
-        cached.username === username.trim().toLowerCase() &&
-        cached.password === password &&
-        cached.user) {
-        setUser(cached.user);
+      if (isPackagedOfflineRuntime() && cacheMatches) {
+        setPackagedServerReachable(false);
+        setUser(cached!.user);
         return { success: true };
       }
       const errMsg = typeof data.error === "string"
@@ -173,12 +198,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       return { success: false, error: errMsg || "Login failed" };
     } catch {
-      const cached = readOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
-      if (cached &&
-        cached.username === username.trim().toLowerCase() &&
-        cached.password === password &&
-        cached.user) {
-        setUser(cached.user);
+      if (isPackagedOfflineRuntime() && cacheMatches) {
+        setPackagedServerReachable(false);
+        setUser(cached!.user);
         return { success: true };
       }
       return { success: false, error: "Network error" };

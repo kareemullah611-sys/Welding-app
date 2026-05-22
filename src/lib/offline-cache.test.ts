@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildApiCacheKey, buildOfflineAuditMeta, shouldAutoQueueOfflineWrite, shouldQueueOfflineWriteNow } from "@/lib/offline-cache";
+import {
+  buildApiCacheKey,
+  buildOfflineAuditMeta,
+  isPackagedOfflineRuntime,
+  shouldAutoQueueOfflineWrite,
+  shouldQueueOfflineWriteNow,
+  shouldQueueOfflineWriteOnNetworkFailure,
+  shouldUseOfflineApiCache,
+} from "@/lib/offline-cache";
+import { setPackagedServerReachable } from "@/lib/offline-reachability";
 
 test("buildApiCacheKey sorts params deterministically", () => {
   const keyA = buildApiCacheKey("/api/v1/sales", { limit: 20, page: 2, q: "abc" });
@@ -104,19 +113,59 @@ test("buildOfflineAuditMeta falls back to generic metadata for unknown routes", 
   assert.equal(meta.entityDetail, "POST /api/v1/unknown-create");
 });
 
-test("shouldQueueOfflineWriteNow requires offline state and allowlisted route", () => {
-  assert.equal(shouldQueueOfflineWriteNow("/api/v1/payments", "POST", true), false);
-  assert.equal(shouldQueueOfflineWriteNow("/api/v1/payments", "POST", false), true);
-  assert.equal(shouldQueueOfflineWriteNow("/api/v1/openings", "POST", false), true);
-  assert.equal(shouldQueueOfflineWriteNow("/api/v1/lots", "POST", false), true);
-  assert.equal(shouldQueueOfflineWriteNow("/api/v1/lot-purchases", "POST", false), true);
-  assert.equal(shouldQueueOfflineWriteNow("/api/v1/products", "POST", false), true);
-  assert.equal(shouldQueueOfflineWriteNow("/api/v1/shipping-lines", "POST", false), true);
-  assert.equal(shouldQueueOfflineWriteNow("/api/v1/agents", "POST", false), true);
-  assert.equal(shouldQueueOfflineWriteNow("/api/v1/bank-accounts", "POST", false), true);
-  assert.equal(shouldQueueOfflineWriteNow("/api/v1/city-transfers", "POST", false), true);
-  assert.equal(shouldQueueOfflineWriteNow("/api/v1/godowns/transfers", "POST", false), true);
-  assert.equal(shouldQueueOfflineWriteNow("/api/v1/intermediaries/9/deposits", "POST", false), true);
-  assert.equal(shouldQueueOfflineWriteNow("/api/v1/intermediaries/9/exchanges", "POST", false), true);
-  assert.equal(shouldQueueOfflineWriteNow("/api/v1/investors/3/transactions", "POST", false), true);
+test("shouldQueueOfflineWriteNow is disabled in browser even when server unreachable", () => {
+  const g = globalThis as typeof globalThis & { window?: Window };
+  const prev = g.window;
+  g.window = { platformInfo: undefined, Capacitor: undefined } as Window;
+  setPackagedServerReachable(false);
+  try {
+    assert.equal(isPackagedOfflineRuntime(), false);
+    assert.equal(shouldQueueOfflineWriteNow("/api/v1/payments", "POST"), false);
+  } finally {
+    g.window = prev;
+    setPackagedServerReachable(true);
+  }
+});
+
+test("shouldQueueOfflineWriteNow requires packaged app, unreachable server, and allowlisted route", () => {
+  const g = globalThis as typeof globalThis & { window?: Window };
+  const prev = g.window;
+  g.window = { platformInfo: { runtime: "electron" } } as Window;
+  setPackagedServerReachable(true);
+  try {
+    assert.equal(isPackagedOfflineRuntime(), true);
+    assert.equal(shouldQueueOfflineWriteNow("/api/v1/payments", "POST"), false);
+    setPackagedServerReachable(false);
+    assert.equal(shouldQueueOfflineWriteNow("/api/v1/payments", "POST"), true);
+  assert.equal(shouldQueueOfflineWriteNow("/api/v1/openings", "POST"), true);
+  assert.equal(shouldQueueOfflineWriteNow("/api/v1/lots", "POST"), true);
+  assert.equal(shouldQueueOfflineWriteOnNetworkFailure("/api/v1/payments", "POST"), true);
+  assert.equal(shouldQueueOfflineWriteOnNetworkFailure("/api/v1/payments", "PUT"), false);
+  } finally {
+    g.window = prev;
+    setPackagedServerReachable(true);
+  }
+});
+
+test("shouldUseOfflineApiCache is packaged + unreachable server only", () => {
+  const g = globalThis as typeof globalThis & { window?: Window };
+  const prev = g.window;
+  g.window = { platformInfo: { runtime: "electron" } } as Window;
+  setPackagedServerReachable(true);
+  try {
+    assert.equal(shouldUseOfflineApiCache(), false);
+    setPackagedServerReachable(false);
+    assert.equal(shouldUseOfflineApiCache(), true);
+  } finally {
+    g.window = prev;
+    setPackagedServerReachable(true);
+  }
+  g.window = {} as Window;
+  setPackagedServerReachable(false);
+  try {
+    assert.equal(shouldUseOfflineApiCache(), false);
+  } finally {
+    g.window = prev;
+    setPackagedServerReachable(true);
+  }
 });

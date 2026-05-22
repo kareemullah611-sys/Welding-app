@@ -46,6 +46,36 @@ export function rateLimit(
   return { allowed: entry.count <= limit, remaining, resetAt: entry.resetAt };
 }
 
+/** Returns 429 when the bucket is already over limit (does not increment). */
+export function rejectIfRateLimited(
+  key: string,
+  limit: number,
+  windowMs: number
+): Response | null {
+  const now = Date.now();
+  const entry = store.get(key);
+  if (!entry || entry.resetAt <= now) return null;
+  if (entry.count <= limit) return null;
+  const retryAfterSec = Math.ceil((entry.resetAt - now) / 1000);
+  return new Response(
+    JSON.stringify({
+      success: false,
+      error: "RATE_LIMITED",
+      message: `Too many requests. Please try again in ${retryAfterSec} seconds.`,
+    }),
+    {
+      status: 429,
+      headers: {
+        "Content-Type": "application/json",
+        "Retry-After": String(retryAfterSec),
+        "X-RateLimit-Limit": String(limit),
+        "X-RateLimit-Remaining": "0",
+        "X-RateLimit-Reset": String(Math.ceil(entry.resetAt / 1000)),
+      },
+    }
+  );
+}
+
 /**
  * Convenience helper: returns a 429 Response when the limit is exceeded,
  * or null when the request is allowed.
