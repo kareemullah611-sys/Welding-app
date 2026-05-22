@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal } from "@/components/ui";
 import { useLang } from "@/lib/lang";
@@ -61,7 +62,7 @@ export default function CustomersPage() {
   const { t } = useLang();
   const { isOnline, enqueue, updateQueuedItem, retryQueuedItem, discardQueuedItem, syncQueue, queuedItems, lastSyncResult } = useOffline();
   const searchParams = useSearchParams();
-  const isEmbed = searchParams.get("embed") === "1";
+  const isEmbed = useQuickformEmbed();
   const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -112,6 +113,10 @@ export default function CustomersPage() {
   }, [readSnapshot]);
 
   const load = useCallback(async () => {
+    if (isEmbed) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     const params: any = { page, limit: 20 };
     const normalizedQuery = searchQuery.trim();
@@ -153,7 +158,7 @@ export default function CustomersPage() {
       }
     }
     setLoading(false);
-  }, [isOnline, mergeSnapshot, page, queuedItems, readSnapshot, searchQuery, user?.cityId]);
+  }, [isEmbed, isOnline, mergeSnapshot, page, queuedItems, readSnapshot, searchQuery, user?.cityId]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (lastSyncResult && lastSyncResult.synced > 0) load();
@@ -163,6 +168,7 @@ export default function CustomersPage() {
     if (prefillHandled || user?.role !== "city_admin") return;
     if (searchParams.get("create") !== "1") return;
     setPrefillHandled(true);
+    setShowCreate(true);
     openCreate();
     window.history.replaceState({}, "", isEmbed ? "/customers?embed=1" : "/customers");
   }, [prefillHandled, searchParams, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -444,7 +450,7 @@ export default function CustomersPage() {
   }, [isEmbed, queuedItems, searchParams, user?.cityId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div>
+    <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
       {!isEmbed && <PageHeader title={t("customers")} subtitle={`${total} ${t("customers").toLowerCase()}`} />}
       {!isEmbed && showOfflineSnapshot && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
@@ -519,14 +525,17 @@ export default function CustomersPage() {
       ]} data={customers} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />}
 
       {/* CREATE */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={t("new_customer")} size="md" inline={isEmbed}>
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={t("new_customer")} size="md" inline={isEmbed} hideHeader={isEmbed}>
         {formError && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{formError}</div>}
         <div className="space-y-3">
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("name")} *</label><input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="input-field" /></div>
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("phone")}</label><input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} className="input-field" /></div>
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("address")}</label><input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} className="input-field" /></div>
+          <div><label className="block mb-1">{t("name")} *</label><input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="input-field" placeholder="Customer name" autoFocus /></div>
+          <div><label className="block mb-1">{t("phone")}</label><input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} className="input-field" placeholder="Phone (optional)" /></div>
         </div>
-        <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("create")}</button></div>
+        <div className={isEmbed ? "pt-4 mt-3 border-t border-[#e8dccf]" : "flex justify-end gap-3 pt-4 mt-4 border-t"}>
+          <button onClick={handleCreate} disabled={submitting} className={isEmbed ? "w-full h-10 rounded-xl text-sm font-semibold text-white bg-[linear-gradient(135deg,#6B0F1A_0%,#8B1A1A_100%)] disabled:opacity-60" : "btn-primary text-sm"}>
+            {submitting ? "Saving…" : t("create")}
+          </button>
+        </div>
       </Modal>
 
       {/* EDIT */}

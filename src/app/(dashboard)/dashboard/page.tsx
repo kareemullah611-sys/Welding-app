@@ -550,34 +550,44 @@ export default function DashboardPage() {
         </div>
 
         {quickAction && (
-          <div className="fixed inset-0 z-[90]">
+          <div className="fixed inset-0 z-[90] flex flex-col sm:items-center sm:justify-center sm:p-4">
             <button
-              aria-label="Close quick form"
-              className="absolute inset-0 bg-[#0b1220]/62 backdrop-blur-[2px]"
+              type="button"
+              aria-label="Close"
+              className="absolute inset-0 bg-[#0b1220]/50 sm:bg-[#0b1220]/55"
               onClick={closeQuickForm}
             />
-            <div className="relative z-[91] mx-auto flex h-[100dvh] w-full items-center justify-center p-2.5 sm:p-5">
-              <button
-                type="button"
-                onClick={closeQuickForm}
-                className="absolute right-3 top-3 sm:right-5 sm:top-5 rounded-xl border border-white/75 bg-white/95 p-1.5 text-gray-600 shadow-[0_10px_28px_-14px_rgba(22,18,14,0.55)] transition-colors hover:bg-white hover:text-gray-800"
-                aria-label="Close"
-              >
-                <X className="h-5 w-5" />
-              </button>
-              <div className="flex flex-col h-[min(92vh,920px)] w-full max-w-6xl overflow-hidden rounded-[1.65rem] border border-white/65 bg-[linear-gradient(165deg,rgba(255,255,255,0.98),rgba(248,242,233,0.96))] shadow-[0_38px_100px_-42px_rgba(12,18,29,0.8)]">
-                <div className="flex items-center justify-between border-b border-[#e8dccf] px-5 py-3.5 flex-shrink-0">
-                  <h2 className="text-sm font-semibold tracking-[0.01em] text-[#2f241c]">{quickAction.title}</h2>
-                  {quickFrameLoading && <span className="text-xs font-medium text-[#8d7561]">Loading form...</span>}
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="quickform-title"
+              className="relative z-[91] flex h-[100dvh] w-full flex-col overflow-hidden bg-[#faf6f0] sm:h-[min(92dvh,760px)] sm:max-w-xl sm:rounded-2xl sm:border sm:border-[#e8dccf] sm:shadow-[0_24px_64px_-28px_rgba(12,18,29,0.65)]"
+            >
+              <div className="flex flex-shrink-0 items-center gap-3 border-b border-[#e8dccf] bg-white px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+                <div className="min-w-0 flex-1">
+                  <h2 id="quickform-title" className="truncate text-base font-semibold text-[#2f241c] sm:text-lg">
+                    {quickAction.title}
+                  </h2>
+                  {quickFrameLoading && (
+                    <p className="text-xs text-[#8d7561]">Loading form…</p>
+                  )}
                 </div>
-                <iframe
-                  key={quickAction.src}
-                  src={quickAction.src}
-                  title={`${quickAction.title} form`}
-                  onLoad={() => setQuickFrameLoading(false)}
-                  className="flex-1 min-h-0 w-full border-0 bg-transparent"
-                />
+                <button
+                  type="button"
+                  onClick={closeQuickForm}
+                  className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl border border-[#e8dccf] text-[#5c4a3a] hover:bg-[#f5efe6] active:bg-[#ebe3d8]"
+                  aria-label="Close form"
+                >
+                  <X className="h-5 w-5" />
+                </button>
               </div>
+              <iframe
+                key={quickAction.src}
+                src={quickAction.src}
+                title={`${quickAction.title} form`}
+                onLoad={() => setQuickFrameLoading(false)}
+                className="min-h-0 flex-1 w-full border-0 bg-[#faf6f0]"
+              />
             </div>
           </div>
         )}

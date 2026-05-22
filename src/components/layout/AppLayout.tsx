@@ -5,21 +5,20 @@ import { useAuth } from "@/hooks/useAuth";
 import Sidebar, { SidebarContext, useSidebar } from "@/components/layout/Sidebar";
 import { LangProvider, useLang } from "@/lib/lang";
 import { cn } from "@/lib/utils";
-import { useSearchParams } from "next/navigation";
 import MRFLoader from "@/components/ui/MRFLoader";
+import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 
 function AppInner({ children }: { children: React.ReactNode }) {
   const { dir } = useLang();
   const { collapsed } = useSidebar();
   const isRTL = dir === "rtl";
-  const searchParams = useSearchParams();
-  const isEmbed = searchParams.get("embed") === "1";
+  const isEmbed = useQuickformEmbed();
 
   if (isEmbed) {
     return (
-      <div className="min-h-screen bg-transparent" dir={dir}>
-        <main className="min-h-screen">
-          <div className="px-0 py-0">{children}</div>
+      <div className="quickform-embed h-[100dvh] min-h-0 overflow-hidden bg-[#faf6f0]" dir={dir}>
+        <main className="flex h-full min-h-0 flex-col">
+          <div className="flex min-h-0 flex-1 flex-col px-0 py-0">{children}</div>
         </main>
       </div>
     );

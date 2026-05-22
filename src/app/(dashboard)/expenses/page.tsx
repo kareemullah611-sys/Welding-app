@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, formatDate } from "@/components/ui";
@@ -69,7 +70,7 @@ export default function ExpensesPage() {
   const { user } = useAuth();
   const { t } = useLang();
   const searchParams = useSearchParams();
-  const isEmbed = searchParams.get("embed") === "1";
+  const isEmbed = useQuickformEmbed();
   const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
   const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, discardQueuedItem, syncQueue } = useOffline();
   const [expenses, setExpenses] = useState<any[]>([]);
@@ -111,6 +112,10 @@ export default function ExpensesPage() {
   }, [total, totalPages]);
 
   const load = useCallback(async () => {
+    if (isEmbed) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     const params: any = { page, limit: 20 };
     const normalizedQuery = searchQuery.trim();
@@ -160,13 +165,14 @@ export default function ExpensesPage() {
       }
     }
     setLoading(false);
-  }, [isOnline, page, queuedItems, searchQuery]);
+  }, [isEmbed, isOnline, page, queuedItems, searchQuery]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [searchQuery]);
   useEffect(() => {
     if (prefillHandled || user?.role !== "city_admin") return;
     if (searchParams.get("create") !== "1") return;
     setPrefillHandled(true);
+    setShowCreate(true);
     openCreate();
     window.history.replaceState({}, "", isEmbed ? "/expenses?embed=1" : "/expenses");
   }, [prefillHandled, searchParams, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -478,7 +484,7 @@ export default function ExpensesPage() {
   };
 
   return (
-    <div>
+    <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
       {!isEmbed && <PageHeader
         title={t("expenses")}
         subtitle={`${total} ${t("records").toLowerCase()}`}
@@ -528,19 +534,19 @@ export default function ExpensesPage() {
       ]} data={expenses} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />}
 
       {/* CREATE MODAL */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={t("record_expense")} size="md" inline={isEmbed}>
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={t("record_expense")} size="md" inline={isEmbed} hideHeader={isEmbed}>
         {formError && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{formError}</div>}
         <div className="space-y-3">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
+            <label className="block mb-1">{t("date")} *</label>
             <input type="date" value={form.expenseDate} onChange={e => setForm((f: any) => ({ ...f, expenseDate: e.target.value }))} className="input-field" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("detail")} *</label>
-            <input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" />
+            <label className="block mb-1">{t("detail")} *</label>
+            <input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" placeholder="What was this expense for?" autoFocus />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
+            <label className="block mb-1">{t("amount")} *</label>
             <input
               type="number"
               value={form.amount || ""}
@@ -550,34 +556,35 @@ export default function ExpensesPage() {
               onWheel={e => e.currentTarget.blur()}
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("lot")}</label>
-            <select value={form.lotId} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
-              <option value={0}>{t("auto_fifo")}</option>
-              {lots.map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
-            <input value={form.notes} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" />
-          </div>
-
-          {/* Paid From */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("paid_from")}</label>
-            {isAfghanistanCity ? (
-              <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
-                💵 Cash from Office only for Afghanistan city operations
+          {!isEmbed && (
+            <>
+              <div>
+                <label className="block mb-1">{t("lot")}</label>
+                <select value={form.lotId} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
+                  <option value={0}>{t("auto_fifo")}</option>
+                  {lots.map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}</option>)}
+                </select>
               </div>
+              <div>
+                <label className="block mb-1">{t("notes")}</label>
+                <input value={form.notes} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" />
+              </div>
+            </>
+          )}
+
+          <div>
+            <label className="block mb-1">{t("paid_from")}</label>
+            {isAfghanistanCity ? (
+              <p className="text-sm text-green-800 bg-green-50 border border-green-200 rounded-lg px-3 py-2">Cash from office</p>
             ) : (
               <select
                 value={form.paidFrom}
                 onChange={e => setForm((f: any) => ({ ...f, paidFrom: e.target.value, bankAccountId: 0, chequePaymentId: 0 }))}
                 className="select-field"
               >
-                <option value="cash_office">💵 {t("cash_from_office")}</option>
-                <option value="bank_account">🏦 {t("bank_account")}</option>
-                <option value="cheque">🧾 {t("cheque")}</option>
+                <option value="cash_office">{t("cash_from_office")}</option>
+                <option value="bank_account">{t("bank_account")}</option>
+                <option value="cheque">{t("cheque")}</option>
               </select>
             )}
           </div>
@@ -634,8 +641,14 @@ export default function ExpensesPage() {
           )}
         </div>
 
-        <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("record_expense")}</button>
+        <div className={isEmbed ? "pt-4 mt-3 border-t border-[#e8dccf]" : "flex justify-end gap-3 pt-4 mt-4 border-t"}>
+          <button
+            onClick={handleCreate}
+            disabled={submitting}
+            className={isEmbed ? "w-full h-10 rounded-xl text-sm font-semibold text-white bg-[linear-gradient(135deg,#6B0F1A_0%,#8B1A1A_100%)] disabled:opacity-60" : "btn-primary text-sm"}
+          >
+            {submitting ? "Saving…" : t("record_expense")}
+          </button>
         </div>
       </Modal>
 

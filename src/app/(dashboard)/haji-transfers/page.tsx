@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
@@ -84,7 +85,7 @@ export default function HajiTransfersPage() {
   const { t } = useLang();
   const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, discardQueuedItem, syncQueue } = useOffline();
   const searchParams = useSearchParams();
-  const isEmbed = searchParams.get("embed") === "1";
+  const isEmbed = useQuickformEmbed();
   const shouldUseSuperAdminTarget = user?.role === "city_admin" && user?.countryName === "Pakistan";
   const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
   const [items, setItems] = useState<any[]>([]);
@@ -137,6 +138,10 @@ export default function HajiTransfersPage() {
   const mixedSlipTotal = Number(form.cashAmount || 0) + selectedChequeTotal;
 
   const load = useCallback(async () => {
+    if (isEmbed) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     const params: any = { page, limit: 20 };
     if (filterFrom) params.date_from = filterFrom;
@@ -187,7 +192,7 @@ export default function HajiTransfersPage() {
       }
     }
     setLoading(false);
-  }, [filterFrom, filterTo, isOnline, page, queuedItems, searchQuery]);
+  }, [filterFrom, filterTo, isEmbed, isOnline, page, queuedItems, searchQuery]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (lastSyncResult && lastSyncResult.synced > 0) load();
@@ -197,6 +202,7 @@ export default function HajiTransfersPage() {
     if (prefillHandled || user?.role !== "city_admin") return;
     if (searchParams.get("create") !== "1") return;
     setPrefillHandled(true);
+    setShowCreate(true);
     openCreate();
     window.history.replaceState({}, "", isEmbed ? "/haji-transfers?embed=1" : "/haji-transfers");
   }, [prefillHandled, searchParams, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -578,7 +584,7 @@ export default function HajiTransfersPage() {
   }
 
   return (
-    <div>
+    <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
       {!isEmbed && <PageHeader
         title={t("haji_transfers")}
         subtitle={`${total} ${t("records").toLowerCase()}`}
@@ -683,7 +689,7 @@ export default function HajiTransfersPage() {
       ]} data={items} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />}
 
       {/* CREATE MODAL */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={t("record_haji_transfer")} size="md" inline={isEmbed}>
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={t("record_haji_transfer")} size="md" inline={isEmbed} hideHeader={isEmbed}>
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
@@ -848,14 +854,22 @@ export default function HajiTransfersPage() {
             </div>
           )}
 
+          {!isEmbed && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
             <input value={form.notes} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" />
           </div>
+          )}
 
         </div>
-        <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("record")}</button>
+        <div className={isEmbed ? "pt-4 mt-3 border-t border-[#e8dccf]" : "flex justify-end gap-3 pt-4 mt-4 border-t"}>
+          <button
+            onClick={handleCreate}
+            disabled={submitting}
+            className={isEmbed ? "w-full h-10 rounded-xl text-sm font-semibold text-white bg-[linear-gradient(135deg,#6B0F1A_0%,#8B1A1A_100%)] disabled:opacity-60" : "btn-primary text-sm"}
+          >
+            {submitting ? "Saving…" : t("record")}
+          </button>
         </div>
       </Modal>
 

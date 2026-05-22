@@ -295,3 +295,19 @@ input[type="number"] { -moz-appearance: textfield; }
     size: A4 landscape;
   }
 }
+
+/* Dashboard quickform embed (iframe) — compact, single-purpose forms */
+.quickform-embed .input-field,
+.quickform-embed .select-field {
+  @apply h-11 py-2 text-base rounded-lg sm:h-9 sm:text-sm;
+}
+.quickform-embed label {
+  @apply text-xs font-semibold uppercase tracking-wide text-[#5c4a3a];
+}
+.quickform-embed .btn-primary,
+.quickform-embed button[class*="rounded-xl"][class*="font-semibold"] {
+  @apply min-h-11 text-base sm:min-h-10 sm:text-sm;
+}
+.quickform-embed > main > div > div {
+  @apply flex min-h-0 flex-1 flex-col;
+}

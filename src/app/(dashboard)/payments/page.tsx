@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, StatusBadge, formatDate } from "@/components/ui";
@@ -127,7 +128,7 @@ export default function PaymentsPage() {
   const { user } = useAuth();
   const { t } = useLang();
   const searchParams = useSearchParams();
-  const isEmbed = searchParams.get("embed") === "1";
+  const isEmbed = useQuickformEmbed();
   const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, discardQueuedItem, syncQueue } = useOffline();
   const canCreateRecords = user?.role === "city_admin";
   const isAfghanistanCity = user?.countryName === "Afghanistan";
@@ -431,6 +432,7 @@ export default function PaymentsPage() {
     const customerId = parseInt(searchParams.get("customer_id") || "0");
     if (create !== "payment" && !customerId) return;
     prefillHandledRef.current = true;
+    setShowCreate(true);
     const customerName = searchParams.get("customer_name") || "";
     openCreate("payment", {
       customerId: Number.isFinite(customerId) ? customerId : 0,
@@ -1076,7 +1078,7 @@ export default function PaymentsPage() {
   const showSuperAdminBankAccountSelect = needsBankAccountSelection && form.destination === "haji";
 
   return (
-    <div>
+    <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
       {!isEmbed && <PageHeader
         title={isSuperAdmin ? "Payments" : t("payments")}
         subtitle={isSuperAdmin ? `City settlements received by super admin · ${total} ${t("records").toLowerCase()}` : `${total} ${t("records").toLowerCase()}`}
@@ -1144,7 +1146,7 @@ export default function PaymentsPage() {
       />}
 
       {/* ── CREATE MODAL ───────────────────────────────────────────────────── */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={createTitle} size="md" inline={isEmbed}>
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={createTitle} size="md" inline={isEmbed} hideHeader={isEmbed}>
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
           {/* ── DATE — always first ── */}
@@ -1195,10 +1197,24 @@ export default function PaymentsPage() {
           </div>
 
           {createType === "payment" && (
-            <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50/70 p-4">
+            <div className={isEmbed ? "space-y-3" : "space-y-3 rounded-xl border border-gray-200 bg-gray-50/70 p-4"}>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">How was the payment received?</label>
-                {!isAfghanistanCity ? (
+                <label className="block mb-1">{isEmbed ? "Payment type" : "How was the payment received?"}</label>
+                {isEmbed || isAfghanistanCity ? (
+                  isAfghanistanCity ? (
+                    <p className="text-sm text-green-800 bg-green-50 border border-green-200 rounded-lg px-3 py-2">Cash</p>
+                  ) : (
+                    <select
+                      value={form.paymentMethod || "cash"}
+                      onChange={e => setForm((f: any) => ({ ...f, paymentMethod: e.target.value, bankAccountId: 0, superAdminBankAccountId: 0 }))}
+                      className="select-field"
+                    >
+                      {PAYMENT_METHOD_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  )
+                ) : (
                   <div className="grid grid-cols-2 gap-2">
                     {PAYMENT_METHOD_OPTIONS.map((option) => (
                       <button
@@ -1216,40 +1232,49 @@ export default function PaymentsPage() {
                       </button>
                     ))}
                   </div>
-                ) : (
-                  <div className="rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-gray-700">
-                    <div className="font-semibold text-gray-900">Cash</div>
-                    <div className="mt-1 text-xs text-gray-500">Afghanistan city operations are cash-only.</div>
-                  </div>
                 )}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Where should this payment go?</label>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {DESTINATION_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => setForm((f: any) => ({ ...f, destination: option.value, bankAccountId: 0, superAdminBankAccountId: 0 }))}
-                      className={`rounded-xl border px-3 py-3 text-left transition-colors ${
-                        form.destination === option.value
-                          ? "border-primary-500 bg-white shadow-sm"
-                          : "border-gray-200 bg-white hover:border-primary-300"
-                      }`}
-                    >
-                      <div className="text-sm font-semibold text-gray-900">{option.label}</div>
-                      <div className="mt-1 text-xs text-gray-500">{option.hint}</div>
-                    </button>
-                  ))}
-                </div>
+                <label className="block mb-1">{isEmbed ? "Send to" : "Where should this payment go?"}</label>
+                {isEmbed ? (
+                  <select
+                    value={form.destination || "haji"}
+                    onChange={e => setForm((f: any) => ({ ...f, destination: e.target.value, bankAccountId: 0, superAdminBankAccountId: 0 }))}
+                    className="select-field"
+                  >
+                    {DESTINATION_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {DESTINATION_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setForm((f: any) => ({ ...f, destination: option.value, bankAccountId: 0, superAdminBankAccountId: 0 }))}
+                        className={`rounded-xl border px-3 py-3 text-left transition-colors ${
+                          form.destination === option.value
+                            ? "border-primary-500 bg-white shadow-sm"
+                            : "border-gray-200 bg-white hover:border-primary-300"
+                        }`}
+                      >
+                        <div className="text-sm font-semibold text-gray-900">{option.label}</div>
+                        <div className="mt-1 text-xs text-gray-500">{option.hint}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
+              {!isEmbed && (
               <div className="rounded-lg border border-dashed border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
                 Method: <strong>{isAfghanistanCity ? "Cash" : selectedMethod?.label || "Cash"}</strong>
                 {" · "}
                 Destination: <strong>{selectedDestination?.label || "Send to Haji"}</strong>
               </div>
+              )}
 
               {showCityBankAccountSelect && (
                 <div>
@@ -1311,7 +1336,7 @@ export default function PaymentsPage() {
             </div>
           )}
 
-          {createType === "payment" && form.paymentMethod === "cheque" && (
+          {createType === "payment" && form.paymentMethod === "cheque" && !isEmbed && (
             <div className="space-y-3">
               <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm text-blue-800">
                 <p className="font-semibold">Cheque details</p>
@@ -1340,14 +1365,16 @@ export default function PaymentsPage() {
             </div>
           )}
 
+          {!isEmbed && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
             <input value={form.notes || ""} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" />
           </div>
+          )}
 
         </div>
         {/* ── Batch queue (payment only) ── */}
-        {createType === "payment" && paymentQueue.length > 0 && (
+        {!isEmbed && createType === "payment" && paymentQueue.length > 0 && (
           <div className="mt-4 border-t pt-3 space-y-2">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Queued ({paymentQueue.length})</p>
             {/* Header row */}
@@ -1373,8 +1400,16 @@ export default function PaymentsPage() {
           </div>
         )}
 
-        <div className="flex justify-end gap-2 pt-4 mt-4 border-t">
-          {createType === "payment" ? (
+        <div className={isEmbed ? "pt-4 mt-3 border-t border-[#e8dccf]" : "flex justify-end gap-2 pt-4 mt-4 border-t"}>
+          {isEmbed ? (
+            <button
+              onClick={() => handleCreate()}
+              disabled={submitting}
+              className="w-full h-10 rounded-xl text-sm font-semibold text-white bg-[linear-gradient(135deg,#6B0F1A_0%,#8B1A1A_100%)] disabled:opacity-60"
+            >
+              {submitting ? "Saving…" : "Save payment"}
+            </button>
+          ) : createType === "payment" ? (
             <>
               <button onClick={addToQueue} disabled={submitting}
                 className="bg-gray-700 hover:bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-medium">

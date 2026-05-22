@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, StatusBadge, formatCurrency, formatDate } from "@/components/ui";
@@ -113,7 +114,7 @@ export default function SalesPage() {
   const { user } = useAuth();
   const { t } = useLang();
   const searchParams = useSearchParams();
-  const isEmbed = searchParams.get("embed") === "1";
+  const isEmbed = useQuickformEmbed();
   const { isOnline, enqueue, cacheGodownStock, getCachedGodownStock, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, discardQueuedItem, syncQueue } = useOffline();
   const [sales, setSales] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -253,6 +254,7 @@ export default function SalesPage() {
     if (prefillHandled || user?.role !== "city_admin") return;
     if (searchParams.get("create") !== "1") return;
     setPrefillHandled(true);
+    setShowCreate(true);
     openCreate();
     window.history.replaceState({}, "", isEmbed ? "/sales?embed=1" : "/sales");
   }, [prefillHandled, searchParams, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -720,7 +722,7 @@ export default function SalesPage() {
   };
 
   return (
-    <div>
+    <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
       {!isEmbed && <PageHeader title={t("sales")} subtitle={`${total} ${t("records").toLowerCase()}`} />}
       {!isEmbed && (
       <>
@@ -835,7 +837,7 @@ export default function SalesPage() {
       </>
       )}
       {/* ========== CREATE SALE MODAL ========== */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); setShortConfirmed(false); setFormError(""); if (isEmbed) closeEmbed(); }} title={t("new_sale")} size="xl" inline={isEmbed}>
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); setShortConfirmed(false); setFormError(""); if (isEmbed) closeEmbed(); }} title={t("new_sale")} size={isEmbed ? "lg" : "xl"} inline={isEmbed} hideHeader={isEmbed}>
         {formError && (
           <div className={`mb-4 p-3 rounded-lg text-sm border ${shortConfirmed ? "bg-amber-50 border-amber-300 text-amber-800" : "bg-red-50 border-red-200 text-red-700"}`}>
             {formError}
@@ -847,12 +849,14 @@ export default function SalesPage() {
           <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
           <input type="date" value={form.saleDate} onChange={(e) => setForm((f) => ({ ...f, saleDate: e.target.value }))} className="input-field" autoFocus />
         </div>
-        <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50/80 p-4">
+        <div className={isEmbed ? "mb-3 space-y-3" : "mb-4 rounded-xl border border-gray-200 bg-gray-50/80 p-4"}>
+          {!isEmbed && (
           <div className="mb-3">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Step 1</p>
             <h3 className="text-sm font-semibold text-gray-900 mt-1">Choose customer and stock source</h3>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("customer")} *</label>
             <CustomerSearch
@@ -884,6 +888,7 @@ export default function SalesPage() {
           </div>
         </div>
 
+        {!isEmbed && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("lot")}</label>
@@ -905,12 +910,13 @@ export default function SalesPage() {
             <input type="text" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" />
           </div>
         </div>
+        )}
 
         {/* GODOWN STOCK INFO */}
         {form.godownId > 0 && (
-          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <h4 className="text-sm font-semibold text-blue-800 mb-2">
-              📦 {t("available")} — {godowns.find((g: any) => g.id === form.godownId)?.name || t("godown")}
+          <div className={isEmbed ? "mb-3 p-2 bg-blue-50 border border-blue-200 rounded-lg text-xs" : "mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg"}>
+            <h4 className={isEmbed ? "font-semibold text-blue-800 mb-1" : "text-sm font-semibold text-blue-800 mb-2"}>
+              {isEmbed ? t("available") : `📦 ${t("available")}`} — {godowns.find((g: any) => g.id === form.godownId)?.name || t("godown")}
               {godowns.find((g: any) => g.id === form.godownId)?.cityId !== user?.cityId && (
                 <span className="ml-2 text-xs font-normal text-orange-600">({godowns.find((g: any) => g.id === form.godownId)?.cityName})</span>
               )}
@@ -934,11 +940,13 @@ export default function SalesPage() {
         )}
 
         {/* LINE ITEMS */}
-        <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50/80 p-4">
+        <div className={isEmbed ? "mb-3 space-y-2" : "mb-4 rounded-xl border border-gray-200 bg-gray-50/80 p-4"}>
+          {!isEmbed && (
           <div className="mb-3">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Step 2</p>
             <h3 className="text-sm font-semibold text-gray-900 mt-1">Add products and selling rates</h3>
           </div>
+          )}
           <div className="flex items-center justify-between mb-2">
             <label className="text-sm font-medium text-gray-700">{t("product")} *</label>
             <button onClick={addItem} className="text-primary-600 text-sm font-medium hover:text-primary-700">+ {t("add_item")}</button>
@@ -985,6 +993,7 @@ export default function SalesPage() {
           </div>
         </div>
 
+        {!isEmbed && (
         <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-4">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Step 3</p>
           <h3 className="text-sm font-semibold text-blue-900 mt-1">Review before saving</h3>
@@ -1010,9 +1019,26 @@ export default function SalesPage() {
             After saving, you can go straight to Payments if the customer paid on the spot.
           </p>
         </div>
+        )}
 
-        <div className="flex justify-end gap-3 pt-4 border-t">
-          <button onClick={handleSubmit} disabled={submitting} className={`text-sm font-medium px-4 py-2 rounded-lg transition-colors ${shortConfirmed ? "bg-amber-500 hover:bg-amber-600 text-white" : "btn-primary"}`}>{submitting ? "..." : shortConfirmed ? "⚠ Confirm Short Sale" : t("new_sale")}</button>
+        {isEmbed && (
+          <p className="mb-3 text-sm font-semibold text-[#2f241c] text-right">
+            Total: {totalAmount.toLocaleString("en-US")}
+          </p>
+        )}
+
+        <div className={isEmbed ? "pt-3 border-t border-[#e8dccf]" : "flex justify-end gap-3 pt-4 border-t"}>
+          <button
+            onClick={handleSubmit}
+            disabled={submitting}
+            className={
+              isEmbed
+                ? `w-full h-10 rounded-xl text-sm font-semibold text-white disabled:opacity-60 ${shortConfirmed ? "bg-amber-500" : "bg-[linear-gradient(135deg,#6B0F1A_0%,#8B1A1A_100%)]"}`
+                : `text-sm font-medium px-4 py-2 rounded-lg transition-colors ${shortConfirmed ? "bg-amber-500 hover:bg-amber-600 text-white" : "btn-primary"}`
+            }
+          >
+            {submitting ? "Saving…" : shortConfirmed ? "Confirm short sale" : isEmbed ? "Save sale" : t("new_sale")}
+          </button>
         </div>
       </Modal>
 

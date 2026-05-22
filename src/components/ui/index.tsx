@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { getEmbedFromLocation } from "@/lib/quickform-embed";
 import {
   Dialog,
   DialogContent,
@@ -562,6 +563,11 @@ export function Modal({
   bodyClassName?: string;
 }) {
   const [mounted, setMounted] = useState(false);
+  const searchParams = useSearchParams();
+  const embedRoute = getEmbedFromLocation() || searchParams.get("embed") === "1";
+  const inlineMode = inline || embedRoute;
+  const suppressHeader = hideHeader || embedRoute;
+
   useEffect(() => setMounted(true), []);
 
   const handleFormKeyNav = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -630,43 +636,42 @@ export function Modal({
   };
 
   if (!mounted) return null;
-  if (!open) return null;
 
-  if (inline) {
-    return (
-      <div className="h-[100dvh] w-full overflow-y-auto overscroll-contain p-0 sm:p-4 flex items-end sm:items-center justify-center">
-        <div className={cn("relative w-full border border-[#eadfce] bg-[linear-gradient(168deg,rgba(255,255,255,0.99),rgba(249,243,234,0.97))] shadow-[0_32px_80px_-42px_rgba(23,18,14,0.72)] flex flex-col max-h-[92dvh] rounded-t-2xl sm:rounded-[1.35rem]", sizes[size])}>
-          {!hideHeader && (
-            <div className="sticky top-0 z-10 flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-[#e6d8c7] bg-[rgba(255,253,250,0.96)] backdrop-blur flex-shrink-0">
-              <h2 className="text-base font-semibold tracking-[0.01em] text-[#2f241c]">{title}</h2>
-              <button onClick={onClose} className="p-1.5 rounded-lg border border-transparent hover:border-[#e6d8c8] hover:bg-white transition-colors">
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
-            </div>
-          )}
-          <div
-            onKeyDownCapture={handleFormKeyNav}
-            className={cn(
-              "overflow-y-auto overscroll-contain flex-1 pb-[max(1rem,env(safe-area-inset-bottom))]",
-              bodyClassName || "p-4 sm:p-6"
-            )}
-          >
-            {children}
-          </div>
+  if (inlineMode) {
+    if (!open) {
+      return (
+        <div className="flex min-h-[12rem] flex-1 items-center justify-center p-6" aria-busy="true">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#e8dccf] border-t-[#a54425]" />
         </div>
+      );
+    }
+    return (
+      <div
+        onKeyDownCapture={handleFormKeyNav}
+        className={cn(
+          "h-full min-h-0 w-full overflow-y-auto overscroll-contain",
+          bodyClassName || "px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4 sm:py-4"
+        )}
+      >
+        {children}
       </div>
     );
   }
 
+  if (!open) return null;
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className={cn("w-full gap-0 p-0 overflow-hidden border border-[#eadfce] bg-[linear-gradient(168deg,rgba(255,255,255,0.99),rgba(249,243,234,0.97))] shadow-[0_32px_80px_-42px_rgba(23,18,14,0.72)]", sizes[size])}>
-        {!hideHeader && (
+      <DialogContent
+        hideCloseButton={suppressHeader}
+        className={cn("w-full gap-0 p-0 overflow-hidden border border-[#eadfce] bg-[linear-gradient(168deg,rgba(255,255,255,0.99),rgba(249,243,234,0.97))] shadow-[0_32px_80px_-42px_rgba(23,18,14,0.72)]", sizes[size])}
+      >
+        {!suppressHeader && (
           <DialogHeader className="px-6 py-4 border-b border-[#e6d8c7] bg-[rgba(255,253,250,0.96)] flex-shrink-0">
             <DialogTitle asChild><div className="text-base font-semibold tracking-[0.01em] text-[#2f241c]">{title}</div></DialogTitle>
           </DialogHeader>
         )}
-        <div onKeyDownCapture={handleFormKeyNav} className={cn("overflow-y-auto max-h-[75vh]", hideHeader ? "" : "px-6 py-5", bodyClassName)}>{children}</div>
+        <div onKeyDownCapture={handleFormKeyNav} className={cn("overflow-y-auto max-h-[75vh]", suppressHeader ? "" : "px-6 py-5", bodyClassName)}>{children}</div>
       </DialogContent>
     </Dialog>
   );

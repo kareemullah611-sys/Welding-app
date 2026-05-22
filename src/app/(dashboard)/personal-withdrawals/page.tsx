@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
@@ -87,7 +88,7 @@ export default function PersonalWithdrawalsPage() {
   const { t } = useLang();
   const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, discardQueuedItem, syncQueue } = useOffline();
   const searchParams = useSearchParams();
-  const isEmbed = searchParams.get("embed") === "1";
+  const isEmbed = useQuickformEmbed();
   const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
   const [items, setItems] = useState<any[]>([]);
   const [counts, setCounts] = useState({ all: 0, pending: 0, approved: 0 });
@@ -142,6 +143,10 @@ export default function PersonalWithdrawalsPage() {
   }, []);
 
   const load = useCallback(async () => {
+    if (isEmbed) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     const params: any = { page, limit: 20 };
     if (statusFilter !== "all") params.approval_status = statusFilter;
@@ -216,7 +221,7 @@ export default function PersonalWithdrawalsPage() {
       });
     }
     setLoading(false);
-  }, [isOnline, page, queuedItems, searchQuery, statusFilter]);
+  }, [isEmbed, isOnline, page, queuedItems, searchQuery, statusFilter]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -227,6 +232,7 @@ export default function PersonalWithdrawalsPage() {
     if (prefillHandled || user?.role !== "city_admin") return;
     if (searchParams.get("create") !== "1") return;
     setPrefillHandled(true);
+    setShowCreate(true);
     openCreate();
     window.history.replaceState({}, "", isEmbed ? "/personal-withdrawals?embed=1" : "/personal-withdrawals");
   }, [prefillHandled, searchParams, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -615,7 +621,7 @@ export default function PersonalWithdrawalsPage() {
   };
 
   return (
-    <div>
+    <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
       {!isEmbed && <PageHeader
         title={t("personal_withdrawals")}
         subtitle={`${total} ${t("records").toLowerCase()}`}
@@ -771,7 +777,7 @@ export default function PersonalWithdrawalsPage() {
       />}
 
       {/* CREATE */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={t("record_withdrawal")} size="md" inline={isEmbed}>
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={t("record_withdrawal")} size="md" inline={isEmbed} hideHeader={isEmbed}>
         {formError && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{formError}</div>}
         <div className="space-y-3">
           <div className="relative" ref={withdraweeMenuRef}>
@@ -890,13 +896,21 @@ export default function PersonalWithdrawalsPage() {
               🧾 This withdrawal will consume the selected in-hand cheque.
             </div>
           )}
+          {!isEmbed && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
             <input value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" />
           </div>
+          )}
         </div>
-        <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("record")}</button>
+        <div className={isEmbed ? "pt-4 mt-3 border-t border-[#e8dccf]" : "flex justify-end gap-3 pt-4 mt-4 border-t"}>
+          <button
+            onClick={handleCreate}
+            disabled={submitting}
+            className={isEmbed ? "w-full h-10 rounded-xl text-sm font-semibold text-white bg-[linear-gradient(135deg,#6B0F1A_0%,#8B1A1A_100%)] disabled:opacity-60" : "btn-primary text-sm"}
+          >
+            {submitting ? "Saving…" : t("record")}
+          </button>
         </div>
       </Modal>
 
