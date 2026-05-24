@@ -46,7 +46,13 @@ test("shouldAutoQueueOfflineWrite only queues allowlisted POST create routes", (
   assert.equal(shouldAutoQueueOfflineWrite("/api/v1/intermediaries/9/deposits", "POST"), true);
   assert.equal(shouldAutoQueueOfflineWrite("/api/v1/intermediaries/9/exchanges", "POST"), true);
   assert.equal(shouldAutoQueueOfflineWrite("/api/v1/investors/7/transactions", "POST"), true);
-  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/customers/1", "PUT"), false);
+  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/investors", "POST"), true);
+  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/investors/3", "PATCH"), true);
+  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/customers/1", "DELETE"), true);
+  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/payments/10", "PATCH"), true);
+  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/lots/1/complete", "PUT"), true);
+  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/auth/reset-password", "PUT"), false);
+  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/dashboard", "GET"), false);
   assert.equal(shouldAutoQueueOfflineWrite("/api/v1/auth/login", "POST"), false);
   assert.equal(shouldAutoQueueOfflineWrite("/api/v1/auth/me", "GET"), false);
   assert.equal(shouldAutoQueueOfflineWrite("/api/v1/payments", "GET"), false);
@@ -106,6 +112,20 @@ test("buildOfflineAuditMeta maps allowlisted routes to concrete entity metadata"
   assert.equal(investorTxnMeta.entityDetail, "Type: deposit");
 });
 
+test("buildOfflineAuditMeta maps update and delete mutations", () => {
+  const updateMeta = buildOfflineAuditMeta("/api/v1/customers/5", "PUT", { name: "Ali" });
+  assert.equal(updateMeta.action, "update");
+  assert.equal(updateMeta.entityType, "customer");
+
+  const deleteMeta = buildOfflineAuditMeta("/api/v1/sales/9/cancel", "PUT", { reason: "wrong qty" });
+  assert.equal(deleteMeta.action, "update");
+  assert.equal(deleteMeta.entityType, "sale");
+
+  const patchMeta = buildOfflineAuditMeta("/api/v1/payments/10", "PATCH", { action: "bounce_cheque" });
+  assert.equal(patchMeta.action, "update");
+  assert.equal(patchMeta.entityType, "payment");
+});
+
 test("buildOfflineAuditMeta falls back to generic metadata for unknown routes", () => {
   const meta = buildOfflineAuditMeta("/api/v1/unknown-create", "POST", { kind: "cash" });
   assert.equal(meta.entityType, "offline_entry");
@@ -140,6 +160,7 @@ test("shouldQueueOfflineWriteNow requires packaged app, unreachable server, and 
   assert.equal(shouldQueueOfflineWriteNow("/api/v1/openings", "POST"), true);
   assert.equal(shouldQueueOfflineWriteNow("/api/v1/lots", "POST"), true);
   assert.equal(shouldQueueOfflineWriteOnNetworkFailure("/api/v1/payments", "POST"), true);
+  assert.equal(shouldQueueOfflineWriteOnNetworkFailure("/api/v1/payments/10", "PATCH"), true);
   assert.equal(shouldQueueOfflineWriteOnNetworkFailure("/api/v1/payments", "PUT"), false);
   } finally {
     g.window = prev;

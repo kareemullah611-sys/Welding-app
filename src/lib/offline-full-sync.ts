@@ -18,6 +18,7 @@ const SYNC_MODULES = [
   "intermediaryDeposits", "intermediaryExchanges",
   "investorDeposits", "investorWithdrawals",
   "superAdminExpenses", "voucherSequences",
+  "lotPurchases", "lotCosts", "godownTransfers",
 ] as const;
 
 export interface SyncMeta {
@@ -26,6 +27,7 @@ export interface SyncMeta {
   status: "idle" | "syncing" | "completed" | "failed";
   error: string | null;
   moduleCounts: Record<string, number> | null;
+  seedSource?: "bundled" | "live" | null;
 }
 
 function openDB(): Promise<IDBDatabase> {

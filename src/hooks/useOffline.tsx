@@ -15,6 +15,7 @@ import {
   probeServerReachable,
   setPackagedServerReachable,
 } from "@/lib/offline-reachability";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import {
   canApplyCreateToReadModel,
   getReadModelKey,
@@ -31,11 +32,14 @@ import {
   performFullSync,
   getSyncMeta,
   isFullSyncStale,
+  isFullSyncCompleted,
   type SyncMeta,
 } from "@/lib/offline-full-sync";
+import { tryBootstrapBundledOfflineSeed } from "@/lib/offline-seed-bootstrap";
 
 const FULL_SYNC_DATA_STORE = "full_sync_data";
 const FULL_SYNC_META_STORE = "full_sync_meta";
+const PACKAGED_SYNC_TIMEOUT_MS = 8000;
 
 type QueueSyncStatus = "pending" | "syncing" | "failed" | "conflict";
 
@@ -499,6 +503,40 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const triggerFullSync = useCallback(async (): Promise<boolean> => {
+    if (fullSyncLockRef.current) return false;
+    fullSyncLockRef.current = true;
+    try {
+      const result = await performFullSync((_mod, _idx, _total) => {
+        // progress updates could be exposed here
+      });
+      const meta = await getSyncMeta();
+      setFullSyncMeta(meta);
+      return result.success;
+    } finally {
+      fullSyncLockRef.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    getSyncMeta().then(setFullSyncMeta);
+    const onFullSyncComplete = () => { getSyncMeta().then(setFullSyncMeta); };
+    window.addEventListener("mrf-offline-full-sync-complete", onFullSyncComplete);
+    window.addEventListener("mrf-offline-seed-applied", onFullSyncComplete);
+    return () => {
+      window.removeEventListener("mrf-offline-full-sync-complete", onFullSyncComplete);
+      window.removeEventListener("mrf-offline-seed-applied", onFullSyncComplete);
+    };
+  }, []);
+
+  // Packaged first launch: import bundled offline seed before any network sync.
+  useEffect(() => {
+    if (!offlineEnabled) return;
+    void tryBootstrapBundledOfflineSeed().then((result) => {
+      if (result.applied) void getSyncMeta().then(setFullSyncMeta);
+    });
+  }, [offlineEnabled]);
+
   // ── Sync queue (FIFO) when back online ──
   const syncQueue = useCallback(async () => {
     if (syncLockRef.current || !isOnline) return;
@@ -518,7 +556,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
         try {
           await dbPut(QUEUE_STORE, { ...item, syncStatus: "syncing", lastError: null, nextRetryAt: null });
           const deviceId = getOrCreateDeviceId();
-          const res  = await fetch(item.url, {
+          const fetchInit: RequestInit = {
             method:  item.method,
             headers: {
               ...item.headers,
@@ -526,7 +564,10 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
               "x-sync-device-id": deviceId,
             },
             body:    item.method !== "GET" ? item.body : undefined,
-          });
+          };
+          const res  = offlineEnabled
+            ? await fetchWithTimeout(item.url, fetchInit, PACKAGED_SYNC_TIMEOUT_MS)
+            : await fetch(item.url, fetchInit);
           const isJson = res.headers.get("content-type")?.includes("application/json");
           const data = isJson ? await res.json() : null;
           if (res.ok && data?.success) {
@@ -571,11 +612,18 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
 
       setLastSyncResult({ synced, failed });
       await refreshQueueState();
+      if (synced > 0 && offlineEnabled) {
+        const completed = await isFullSyncCompleted();
+        const stale = await isFullSyncStale();
+        if (!completed || stale) {
+          void triggerFullSync();
+        }
+      }
     } finally {
       syncLockRef.current = false;
       setIsSyncing(false);
     }
-  }, [isOnline, refreshQueueState]);
+  }, [isOnline, refreshQueueState, offlineEnabled, triggerFullSync]);
 
   // Auto-sync 2 s after coming back online
   useEffect(() => {
@@ -594,28 +642,19 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(t);
   }, [isOnline, queueCount, syncQueue]);
 
-  // ── Full data sync ──
+  // First packaged boot while online: pull full archive if never synced.
   useEffect(() => {
-    getSyncMeta().then(setFullSyncMeta);
-    const onFullSyncComplete = () => { getSyncMeta().then(setFullSyncMeta); };
-    window.addEventListener("mrf-offline-full-sync-complete", onFullSyncComplete);
-    return () => window.removeEventListener("mrf-offline-full-sync-complete", onFullSyncComplete);
-  }, []);
-
-  const triggerFullSync = useCallback(async (): Promise<boolean> => {
-    if (fullSyncLockRef.current) return false;
-    fullSyncLockRef.current = true;
-    try {
-      const result = await performFullSync((_mod, _idx, _total) => {
-        // progress updates could be exposed here
-      });
-      const meta = await getSyncMeta();
-      setFullSyncMeta(meta);
-      return result.success;
-    } finally {
-      fullSyncLockRef.current = false;
-    }
-  }, []);
+    if (!offlineEnabled || !isOnline) return;
+    let cancelled = false;
+    void (async () => {
+      const completed = await isFullSyncCompleted();
+      if (cancelled || completed) return;
+      await triggerFullSync();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [offlineEnabled, isOnline, triggerFullSync]);
 
   // When online (packaged app): push queued writes first, then refresh local archive if stale.
   useEffect(() => {

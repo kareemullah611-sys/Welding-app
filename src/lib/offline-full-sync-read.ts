@@ -1,4 +1,5 @@
 import { getSyncedModuleData } from "@/lib/offline-full-sync";
+import { getOfflineAggregateForApiRequest, getOfflineSpecialApiRequest } from "@/lib/offline-aggregate-prefetch";
 
 /** Re-pull server data when online if last full sync is older than this. */
 export const FULL_SYNC_STALE_MS = 12 * 60 * 60 * 1000;
@@ -94,13 +95,49 @@ export function paginateSyncedList<T>(
 
 export function getModuleKeyForApiPath(url: string): string | null {
   const path = normalizeApiPath(url);
-  return API_PATH_TO_MODULE[path] ?? null;
+  const listMatch = path.match(/^(\/api\/v1\/[^/]+)(?:\/|$)/);
+  const listPath = listMatch?.[1] ?? path;
+  return API_PATH_TO_MODULE[listPath] ?? null;
+}
+
+function findSyncedEntityById(rows: unknown[], entityId: string): unknown | null {
+  if (!Array.isArray(rows)) return null;
+  return rows.find((row) => String((row as { id?: unknown })?.id ?? "") === entityId) ?? null;
+}
+
+export async function getFullSyncDetailForApiRequest<T = unknown>(
+  url: string
+): Promise<{ data: T } | null> {
+  const path = normalizeApiPath(url);
+  const detailMatch = path.match(/^(\/api\/v1\/[^/]+)\/([^/]+)$/);
+  if (!detailMatch) return null;
+
+  const listPath = detailMatch[1];
+  const entityId = detailMatch[2];
+  if (!entityId || entityId === "hard-delete") return null;
+
+  const moduleKey = API_PATH_TO_MODULE[listPath];
+  if (!moduleKey) return null;
+
+  const raw = await getSyncedModuleData(moduleKey);
+  const found = findSyncedEntityById(Array.isArray(raw) ? raw : [], entityId);
+  if (!found) return null;
+  return { data: found as T };
 }
 
 export async function getFullSyncDataForApiRequest<T = unknown>(
   url: string,
   params?: Record<string, string | number | undefined>
 ): Promise<{ data: T; pagination?: { total: number; totalPages: number; page: number; limit: number } } | null> {
+  const aggregate = getOfflineAggregateForApiRequest<T>(url, params);
+  if (aggregate) return aggregate;
+
+  const special = await getOfflineSpecialApiRequest<T>(url, params);
+  if (special) return special;
+
+  const detail = await getFullSyncDetailForApiRequest<T>(url);
+  if (detail) return detail;
+
   const moduleKey = getModuleKeyForApiPath(url);
   if (!moduleKey) return null;
 

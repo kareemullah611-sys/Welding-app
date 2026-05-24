@@ -7,6 +7,8 @@ import {
 } from "@/lib/offline-cache";
 import { getReadModelKey } from "@/lib/offline-local-read-model";
 import { writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { hydrateFormCachesFromSyncData } from "@/lib/offline-form-cache-hydrate";
+import { prefetchOfflineAggregateSnapshots } from "@/lib/offline-aggregate-prefetch";
 const SNAPSHOT_KEYS = {
   customers: "mrf-customers-read-cache-v1",
   sales: "mrf-sales-read-cache-v1",
@@ -128,6 +130,8 @@ async function hydrateApiCaches(data: Record<string, unknown>) {
     ["/api/v1/godowns", "godowns"],
     ["/api/v1/products", "products"],
     ["/api/v1/cities", "cities"],
+    ["/api/v1/currencies", "currencies"],
+    ["/api/v1/countries", "countries"],
     ["/api/v1/lots", "lots"],
     ["/api/v1/suppliers", "suppliers"],
     ["/api/v1/agents", "agents"],
@@ -174,6 +178,8 @@ async function hydrateApiCaches(data: Record<string, unknown>) {
 export async function hydrateOfflineCachesFromSyncPayload(data: Record<string, unknown>): Promise<void> {
   await hydrateApiCaches(data);
   hydrateReadSnapshots(data);
+  hydrateFormCachesFromSyncData(data);
+  await prefetchOfflineAggregateSnapshots();
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event("mrf-offline-full-sync-complete"));
   }

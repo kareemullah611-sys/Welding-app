@@ -32,6 +32,7 @@ const OFFLINE_WRITE_QUEUE_ALLOWLIST = [
   "/api/v1/bank-accounts",
   "/api/v1/city-transfers",
   "/api/v1/godowns/transfers",
+  "/api/v1/investors",
 ] as const;
 
 const OFFLINE_WRITE_QUEUE_DYNAMIC_ALLOWLIST = [
@@ -39,6 +40,29 @@ const OFFLINE_WRITE_QUEUE_DYNAMIC_ALLOWLIST = [
   /^\/api\/v1\/intermediaries\/\d+\/exchanges$/,
   /^\/api\/v1\/investors\/\d+\/transactions$/,
 ];
+
+/** PUT/PATCH/DELETE on entity routes not covered by POST allowlist prefixes. */
+const OFFLINE_MUTATION_EXTRA_PATTERNS = [
+  /^\/api\/v1\/investors\/\d+$/,
+  /^\/api\/v1\/investors\/\d+\/transactions\/\d+$/,
+] as const;
+
+const OFFLINE_QUEUE_BLOCKED_PREFIXES = [
+  "/api/v1/auth/",
+  "/api/v1/offline/",
+  "/api/v1/activity-feed",
+  "/api/v1/search",
+  "/api/v1/analytics",
+  "/api/v1/dashboard",
+  "/api/v1/cash-position",
+  "/api/v1/treasury",
+  "/api/v1/inventory",
+  "/api/v1/notifications",
+  "/api/v1/sessions",
+  "/api/v1/godown-permissions",
+  "/api/v1/health",
+  "/api/ping",
+] as const;
 
 function normalizeApiPath(url: string): string {
   const raw = String(url || "").trim();
@@ -54,7 +78,7 @@ function normalizeApiPath(url: string): string {
 }
 
 export interface OfflineAuditMeta {
-  action: "create";
+  action: "create" | "update" | "delete";
   entityType: string;
   entityLabel: string;
   entityDetail: string;
@@ -85,6 +109,7 @@ const OFFLINE_AUDIT_META_BY_PATH: Record<string, { entityType: string; entityLab
   "/api/v1/bank-accounts": { entityType: "bank_account", entityLabel: "Bank Account" },
   "/api/v1/city-transfers": { entityType: "city_transfer", entityLabel: "City Transfer" },
   "/api/v1/godowns/transfers": { entityType: "godown_transfer", entityLabel: "Godown Transfer" },
+  "/api/v1/investors": { entityType: "investor", entityLabel: "Investor" },
 };
 
 function getDynamicAuditMeta(path: string): { entityType: string; entityLabel: string } | null {
@@ -185,13 +210,28 @@ function detailFromBody(path: string, body: unknown): string | null {
     const kind = typeof record.kind === "string" && record.kind.trim() ? record.kind.trim() : "entry";
     return `Kind: ${kind}`;
   }
+  if (path === "/api/v1/investors" && typeof record.name === "string" && record.name.trim()) {
+    return `Investor: ${record.name.trim()}`;
+  }
   return null;
+}
+
+function getAuditMetaForMutationPath(path: string): { entityType: string; entityLabel: string } | null {
+  const listMatch = path.match(/^(\/api\/v1\/[^/]+)(?:\/|$)/);
+  const listPath = listMatch?.[1];
+  if (!listPath) return null;
+  if (OFFLINE_AUDIT_META_BY_PATH[listPath]) return OFFLINE_AUDIT_META_BY_PATH[listPath];
+  return getDynamicAuditMeta(path);
+}
+
+function mutationActionLabel(method: string): "update" | "delete" {
+  return method === "DELETE" ? "delete" : "update";
 }
 
 export function buildOfflineAuditMeta(url: string, method: string, body: unknown): OfflineAuditMeta {
   const normalizedMethod = String(method || "POST").toUpperCase();
   const path = normalizeApiPath(url);
-  const mapped = OFFLINE_AUDIT_META_BY_PATH[path] ?? getDynamicAuditMeta(path);
+  const mapped = OFFLINE_AUDIT_META_BY_PATH[path] ?? getDynamicAuditMeta(path) ?? getAuditMetaForMutationPath(path);
   if (normalizedMethod === "POST" && mapped) {
     return {
       action: "create",
@@ -200,12 +240,37 @@ export function buildOfflineAuditMeta(url: string, method: string, body: unknown
       entityDetail: detailFromBody(path, body) || `Queued offline ${mapped.entityLabel.toLowerCase()} entry`,
     };
   }
+  if (["PUT", "PATCH", "DELETE"].includes(normalizedMethod) && mapped) {
+    const verb = normalizedMethod === "DELETE" ? "Delete" : "Update";
+    return {
+      action: mutationActionLabel(normalizedMethod),
+      entityType: mapped.entityType,
+      entityLabel: mapped.entityLabel,
+      entityDetail: detailFromBody(path, body) || `Queued offline ${verb.toLowerCase()} ${mapped.entityLabel.toLowerCase()}`,
+    };
+  }
   return {
-    action: "create",
+    action: normalizedMethod === "DELETE" ? "delete" : normalizedMethod === "POST" ? "create" : "update",
     entityType: "offline_entry",
     entityLabel: "Offline Entry",
     entityDetail: `${normalizedMethod} ${url}`,
   };
+}
+
+export function isOfflineQueueBlockedPath(path: string): boolean {
+  return OFFLINE_QUEUE_BLOCKED_PREFIXES.some((blocked) => {
+    if (blocked.endsWith("/")) return path.startsWith(blocked);
+    return path === blocked || path.startsWith(`${blocked}/`);
+  });
+}
+
+export function isAllowlistedOfflineMutationPath(path: string): boolean {
+  if (isOfflineQueueBlockedPath(path)) return false;
+  if (OFFLINE_MUTATION_EXTRA_PATTERNS.some((pattern) => pattern.test(path))) return true;
+  for (const base of OFFLINE_WRITE_QUEUE_ALLOWLIST) {
+    if (path.startsWith(`${base}/`)) return true;
+  }
+  return OFFLINE_WRITE_QUEUE_DYNAMIC_ALLOWLIST.some((pattern) => pattern.test(path));
 }
 
 export function buildApiCacheKey(
@@ -236,13 +301,22 @@ export function shouldUseOfflineApiCache(): boolean {
 
 export function shouldAutoQueueOfflineWrite(url: string, method: string): boolean {
   const normalizedMethod = String(method || "GET").toUpperCase();
-  if (normalizedMethod !== "POST") return false;
   const path = normalizeApiPath(url);
   if (!path.startsWith("/api/v1/")) return false;
   if (path.startsWith("/api/v1/auth/")) return false;
   if (path === "/api/v1/auth/logout") return false;
-  if (OFFLINE_WRITE_QUEUE_ALLOWLIST.includes(path as (typeof OFFLINE_WRITE_QUEUE_ALLOWLIST)[number])) return true;
-  return OFFLINE_WRITE_QUEUE_DYNAMIC_ALLOWLIST.some((pattern) => pattern.test(path));
+  if (isOfflineQueueBlockedPath(path)) return false;
+
+  if (normalizedMethod === "POST") {
+    if (OFFLINE_WRITE_QUEUE_ALLOWLIST.includes(path as (typeof OFFLINE_WRITE_QUEUE_ALLOWLIST)[number])) return true;
+    return OFFLINE_WRITE_QUEUE_DYNAMIC_ALLOWLIST.some((pattern) => pattern.test(path));
+  }
+
+  if (["PUT", "PATCH", "DELETE"].includes(normalizedMethod)) {
+    return isAllowlistedOfflineMutationPath(path);
+  }
+
+  return false;
 }
 
 /** Queue before attempting network when the server is unreachable (packaged apps only). */

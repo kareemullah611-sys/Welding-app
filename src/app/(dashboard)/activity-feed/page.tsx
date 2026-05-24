@@ -240,9 +240,14 @@ export default function ActivityFeedPage() {
       setTotalPages(res.data.pagination.totalPages);
       setTotal(res.data.pagination.total);
       setPage(p);
+    } else if (offlineEnabled && !isOnline && p === 1) {
+      setItems([]);
+      setTotalPages(1);
+      setTotal(0);
+      setPage(1);
     }
     setLoading(false);
-  }, [filterCityId]);
+  }, [filterCityId, offlineEnabled, isOnline]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -252,7 +257,7 @@ export default function ActivityFeedPage() {
     return () => clearInterval(interval);
   }, [autoRefresh, page, load]);
 
-  const localQueueItems: ActivityItem[] = user?.role === "city_admin" && page === 1
+  const localQueueItems: ActivityItem[] = user && page === 1
     ? queuedItems.map((entry) => ({
         ...(function buildQueueValues() {
           const parsed = safeParseQueueBody(entry.body);
@@ -558,11 +563,12 @@ export default function ActivityFeedPage() {
                           >
                             {timeAgo(item.createdAt, t)}
                           </span>
-                          {item.isLocalQueue && item.queueId && (item.syncStatus === "failed" || item.syncStatus === "conflict") && (
-                            <div className="flex justify-end gap-2 pt-0.5">
+                          {item.isLocalQueue && item.queueId && (
+                            <div className="flex justify-end gap-2 pt-0.5 flex-wrap">
                               {(() => {
                                 const path = getQueueResolvePath(item.entityType);
                                 if (!path) return null;
+                                if (item.syncStatus !== "failed" && item.syncStatus !== "conflict") return null;
                                 return (
                                   <Link
                                     href={`${path}?resolve=1&queue_id=${encodeURIComponent(item.queueId!)}`}
@@ -572,6 +578,8 @@ export default function ActivityFeedPage() {
                                   </Link>
                                 );
                               })()}
+                              {(item.syncStatus === "failed" || item.syncStatus === "conflict") && (
+                                <>
                               <button
                                 disabled={queueActionId === item.queueId}
                                 onClick={async () => {
@@ -595,6 +603,20 @@ export default function ActivityFeedPage() {
                               >
                                 {conflictHint?.recommended === "discard" ? "Discard (Recommended)" : "Discard"}
                               </button>
+                                </>
+                              )}
+                              {item.syncStatus === "pending" && item.action === "update" && (() => {
+                                const path = getQueueResolvePath(item.entityType);
+                                if (!path) return null;
+                                return (
+                                  <Link
+                                    href={`${path}?resolve=1&queue_id=${encodeURIComponent(item.queueId!)}`}
+                                    className="text-[11px] text-gray-600 hover:underline"
+                                  >
+                                    Review edit
+                                  </Link>
+                                );
+                              })()}
                             </div>
                           )}
                         </div>
