@@ -24,10 +24,14 @@ export interface OfflineAuthCache {
   updatedAt: string;
 }
 
-/** @deprecated Legacy cache shape — migrated on read, never written. */
-interface LegacyOfflineAuthCache extends Omit<Partial<OfflineAuthCache>, "passwordVerifier"> {
+/** Parsed from localStorage — may include legacy plaintext password. */
+type StoredOfflineAuthCache = {
+  username: string;
+  passwordVerifier?: string;
   password?: string;
-}
+  user: OfflineAuthUser;
+  updatedAt: string;
+};
 
 function canUseStorage(storage: Storage | null | undefined): storage is Storage {
   return !!storage;
@@ -37,7 +41,7 @@ export async function buildOfflinePasswordVerifier(password: string): Promise<st
   return bcrypt.hash(password, OFFLINE_BCRYPT_ROUNDS);
 }
 
-export async function verifyOfflinePassword(password: string, cache: OfflineAuthCache | LegacyOfflineAuthCache): Promise<boolean> {
+export async function verifyOfflinePassword(password: string, cache: StoredOfflineAuthCache): Promise<boolean> {
   if (cache.passwordVerifier) {
     return bcrypt.compare(password, cache.passwordVerifier);
   }
@@ -47,15 +51,15 @@ export async function verifyOfflinePassword(password: string, cache: OfflineAuth
   return false;
 }
 
-export function readOfflineAuthCache(storage: Storage | null | undefined): OfflineAuthCache | null {
+export function readOfflineAuthCache(storage: Storage | null | undefined): StoredOfflineAuthCache | null {
   if (!canUseStorage(storage)) return null;
   try {
     const raw = storage.getItem(OFFLINE_AUTH_CACHE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as OfflineAuthCache | LegacyOfflineAuthCache;
+    const parsed = JSON.parse(raw) as StoredOfflineAuthCache;
     if (!parsed?.username || !parsed?.user) return null;
     if (!parsed.passwordVerifier && !parsed.password) return null;
-    return parsed as OfflineAuthCache;
+    return parsed;
   } catch {
     return null;
   }

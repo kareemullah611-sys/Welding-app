@@ -330,6 +330,8 @@ export default function Sidebar() {
     [persistOpenGroups]
   );
 
+  if (!user) return null;
+
   const renderNavItem = (item: NavItemDef, nested = false) => {
     const Icon = item.icon;
     const isActive = item.href === activeHref;
@@ -386,7 +388,7 @@ export default function Sidebar() {
     );
   };
 
-  const renderNavContent = (navRef: React.RefObject<HTMLElement | null>) => (
+  const renderNavContent = (navRef: React.Ref<HTMLElement>) => (
     <div className="flex flex-col h-full">
       {/* ── Logo ── */}
       <div
@@ -550,8 +552,6 @@ export default function Sidebar() {
       </div>
     </div>
   );
-
-  if (!user) return null;
 
   const mobileLabel = user.role === "super_admin" ? "Super Admin" : `${user.cityName} Admin`;
 
