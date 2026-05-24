@@ -1,17 +1,17 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { getEmbedFromLocation } from "@/lib/quickform-embed";
 
 /** Stable embed flag (avoids full AppLayout flash before searchParams hydrate). */
 export function useQuickformEmbed(): boolean {
   const searchParams = useSearchParams();
-  const [embed, setEmbed] = useState(getEmbedFromLocation);
+  const [embed, setEmbed] = useState(false);
 
-  useEffect(() => {
-    setEmbed(searchParams.get("embed") === "1");
+  useLayoutEffect(() => {
+    setEmbed(searchParams.get("embed") === "1" || getEmbedFromLocation());
   }, [searchParams]);
 
-  return embed;
+  return embed || searchParams.get("embed") === "1";
 }

@@ -12,6 +12,7 @@ import { safeParseQueuedBody } from "@/lib/queue-resolve";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { getEmbedQuickformPath } from "@/lib/quickform-embed";
 
 const SALES_FORM_CACHE_KEY = "mrf-sales-form-cache-v1";
 const SALES_READ_CACHE_KEY = "mrf-sales-read-cache-v1";
@@ -256,7 +257,7 @@ export default function SalesPage() {
     setPrefillHandled(true);
     setShowCreate(true);
     openCreate();
-    window.history.replaceState({}, "", isEmbed ? "/sales?embed=1" : "/sales");
+    window.history.replaceState({}, "", getEmbedQuickformPath("/sales"));
   }, [prefillHandled, searchParams, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reload from server after pending entries sync successfully
@@ -537,7 +538,7 @@ export default function SalesPage() {
       });
       setResolvingQueueId(queueId);
       setFormError("Resolving queued sale. Save to update and re-sync.");
-      window.history.replaceState({}, "", isEmbed ? "/sales?embed=1" : "/sales");
+      window.history.replaceState({}, "", getEmbedQuickformPath("/sales"));
     } catch {
       // ignore malformed queued payload
     }

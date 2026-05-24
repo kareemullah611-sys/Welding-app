@@ -29,7 +29,9 @@
     "package:android:open": "npx cap open android",
     "package:mac:dev": "electron electron/main.cjs",
     "package:mac:dist": "npm run build:electron && electron-builder --mac dmg --publish never",
-    "offline-seed:generate": "tsx scripts/generate-offline-seed.ts"
+    "offline-seed:generate": "tsx scripts/generate-offline-seed.ts",
+    "offline-seed:generate:lahore": "tsx scripts/generate-offline-seed.ts -- --city=Lahore",
+    "package:mac:dist:lahore": "npm run offline-seed:generate:lahore && npm run build:electron && electron-builder --mac dmg --publish never -c.productName=\"MRF Hardware - Lahore\" -c.mac.artifactName='MRF-Hardware-Lahore-${version}.${ext}'"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.3",

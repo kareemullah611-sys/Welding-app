@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { Search } from "lucide-react";
 import { apiCall } from "@/hooks/useApi";
 
 interface Props {
@@ -15,8 +16,10 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [selectedName, setSelectedName] = useState("");
+  const [focused, setFocused] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [activeIndex, setActiveIndex] = useState(0);
 
   // When value is cleared from outside (form reset), clear internal state
@@ -39,7 +42,7 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
   const WALKIN_NAME = "Walk-in Customer";
 
   const search = useCallback(async (q: string) => {
-    if (!q.trim()) { setResults([]); setOpen(false); return; }
+    if (!q.trim()) { setResults([]); return; }
     setLoading(true);
     const r = await apiCall("/api/v1/customers", { params: { search: q, limit: 10, is_active: "true" } });
     setLoading(false);
@@ -47,14 +50,23 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
       const list = r.data as any[];
       setResults(list);
       setActiveIndex(list.length > 0 ? 1 : 0);
-      setOpen(true);
     }
   }, []);
 
   const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const q = e.target.value;
     setQuery(q);
-    if (!q) { onChange(0, ""); setSelectedName(""); setResults([]); setOpen(false); setActiveIndex(0); return; }
+    if (value && q !== selectedName) {
+      onChange(0, "");
+      setSelectedName("");
+    }
+    if (!q.trim()) {
+      onChange(0, "");
+      setSelectedName("");
+      setResults([]);
+      setActiveIndex(0);
+      return;
+    }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => search(q), 250);
   };
@@ -87,6 +99,7 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
     if (e.key === "Escape") {
       e.preventDefault();
       setOpen(false);
+      inputRef.current?.blur();
     }
   };
 
@@ -96,6 +109,8 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
     setQuery("");
     setResults([]);
     setOpen(false);
+    setFocused(false);
+    inputRef.current?.blur();
   };
 
   const selectWalkin = () => {
@@ -104,40 +119,65 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
     setQuery("");
     setResults([]);
     setOpen(false);
+    setFocused(false);
+    inputRef.current?.blur();
   };
+
+  const handleFocus = () => {
+    setFocused(true);
+    setOpen(true);
+    if (value) {
+      setQuery(selectedName);
+      requestAnimationFrame(() => inputRef.current?.select());
+    }
+  };
+
+  const handleBlur = () => {
+    window.setTimeout(() => {
+      if (wrapperRef.current?.contains(document.activeElement)) return;
+      setOpen(false);
+      setFocused(false);
+      if (value) setQuery("");
+    }, 120);
+  };
+
+  const hasSelection = value !== 0;
+  const inputValue = focused || !hasSelection ? query : selectedName;
+  const showDropdown = open && (focused || !hasSelection || query.length > 0);
+  const isWalkin = value === WALKIN_ID;
 
   return (
     <div ref={wrapperRef} className={`relative ${className}`}>
-      {selectedName ? (
-        <div className={`input-field flex items-center justify-between gap-2 cursor-default ${value === WALKIN_ID ? "bg-orange-50 border-orange-200" : ""}`}>
-          <span className="truncate text-gray-800">
-            {value === WALKIN_ID && <span className="text-orange-600 mr-1.5">🚶</span>}
-            {selectedName}
-          </span>
-          <button
-            type="button"
-            onClick={() => { onChange(0, ""); setSelectedName(""); setQuery(""); }}
-            className="text-gray-400 hover:text-red-500 flex-shrink-0 text-base leading-none"
-          >×</button>
-        </div>
-      ) : (
+      <div className="relative">
         <input
+          ref={inputRef}
           type="text"
-          value={query}
+          value={inputValue}
           onChange={handleInput}
           onKeyDown={handleInputKeyDown}
-          onFocus={() => { setOpen(true); }}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
           placeholder={placeholder}
-          className="input-field w-full"
+          className={`input-field w-full pr-10 ${
+            hasSelection && !focused
+              ? isWalkin
+                ? "bg-orange-50 border-orange-200 text-orange-900"
+                : "bg-primary-50/40 border-primary-200 text-gray-900"
+              : ""
+          }`}
           autoComplete="off"
           data-modal-nav="local"
         />
-      )}
+        <Search
+          className={`pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 ${
+            hasSelection && !focused ? "text-primary-500/70" : "text-gray-400"
+          }`}
+          aria-hidden
+        />
+      </div>
 
-      {/* Dropdown */}
-      {open && !selectedName && (
+      {showDropdown && (
         <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-52 overflow-y-auto">
-          {/* Walk-in option always at top */}
           <button
             type="button"
             onMouseDown={(e) => { e.preventDefault(); selectWalkin(); }}
@@ -150,8 +190,10 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
           {!loading && query && results.length === 0 && (
             <div className="px-3 py-2 text-sm text-gray-400">No customers found</div>
           )}
-          {!query && !loading && (
-            <div className="px-3 py-2 text-xs text-gray-400">Type to search customers…</div>
+          {!loading && !query && (
+            <div className="px-3 py-2 text-xs text-gray-400">
+              {hasSelection && focused ? "Type to search for a different customer…" : "Type to search customers…"}
+            </div>
           )}
           {results.map((c, idx) => (
             <button

@@ -6,6 +6,7 @@ import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
+import { getEmbedQuickformPath } from "@/lib/quickform-embed";
 import Link from "next/link";
 import { useOffline } from "@/hooks/useOffline";
 import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
@@ -204,7 +205,7 @@ export default function HajiTransfersPage() {
     setPrefillHandled(true);
     setShowCreate(true);
     openCreate();
-    window.history.replaceState({}, "", isEmbed ? "/haji-transfers?embed=1" : "/haji-transfers");
+    window.history.replaceState({}, "", getEmbedQuickformPath("/haji-transfers"));
   }, [prefillHandled, searchParams, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -436,7 +437,7 @@ export default function HajiTransfersPage() {
       openCreate(parsed);
       setResolvingQueueId(queueId);
       setError("Resolving queued transfer. Save to update and re-sync.");
-      window.history.replaceState({}, "", isEmbed ? "/haji-transfers?embed=1" : "/haji-transfers");
+      window.history.replaceState({}, "", getEmbedQuickformPath("/haji-transfers"));
     } catch {
       // ignore malformed queued payload
     }

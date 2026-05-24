@@ -12,6 +12,7 @@ import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { useSearchParams } from "next/navigation";
+import { getEmbedQuickformPath } from "@/lib/quickform-embed";
 
 
 const TYPE_CONFIG: Record<string, { label: string; color: string; amountColor: string }> = {
@@ -439,7 +440,7 @@ export default function PaymentsPage() {
       customerName,
       detail: searchParams.get("detail") || "",
     });
-    window.history.replaceState({}, "", isEmbed ? "/payments?embed=1" : "/payments");
+    window.history.replaceState({}, "", getEmbedQuickformPath("/payments"));
   }, [canCreateRecords, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -466,7 +467,7 @@ export default function PaymentsPage() {
     openCreate(nextType, parsedBody);
     setResolvingQueueId(queueId);
     setError("Resolving queued entry. Save to update and re-sync.");
-    window.history.replaceState({}, "", isEmbed ? "/payments?embed=1" : "/payments");
+    window.history.replaceState({}, "", getEmbedQuickformPath("/payments"));
   }, [canCreateRecords, isEmbed, queuedItems, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCreate = async (forceVoucher = false) => {

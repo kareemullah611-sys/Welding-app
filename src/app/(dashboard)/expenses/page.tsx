@@ -7,6 +7,7 @@ import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
+import { getEmbedQuickformPath } from "@/lib/quickform-embed";
 import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
@@ -174,7 +175,7 @@ export default function ExpensesPage() {
     setPrefillHandled(true);
     setShowCreate(true);
     openCreate();
-    window.history.replaceState({}, "", isEmbed ? "/expenses?embed=1" : "/expenses");
+    window.history.replaceState({}, "", getEmbedQuickformPath("/expenses"));
   }, [prefillHandled, searchParams, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reload after queued entries sync
@@ -366,7 +367,7 @@ export default function ExpensesPage() {
       openCreate(parsed);
       setResolvingQueueId(queueId);
       setFormError("Resolving queued expense. Save to update and re-sync.");
-      window.history.replaceState({}, "", isEmbed ? "/expenses?embed=1" : "/expenses");
+      window.history.replaceState({}, "", getEmbedQuickformPath("/expenses"));
     } catch {
       // ignore malformed queued payload
     }

@@ -6,6 +6,7 @@ import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
+import { getEmbedQuickformPath } from "@/lib/quickform-embed";
 import { useOffline } from "@/hooks/useOffline";
 import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
@@ -234,7 +235,7 @@ export default function PersonalWithdrawalsPage() {
     setPrefillHandled(true);
     setShowCreate(true);
     openCreate();
-    window.history.replaceState({}, "", isEmbed ? "/personal-withdrawals?embed=1" : "/personal-withdrawals");
+    window.history.replaceState({}, "", getEmbedQuickformPath("/personal-withdrawals"));
   }, [prefillHandled, searchParams, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     setStatusFilter(user?.role === "super_admin" ? "pending" : "all");
@@ -427,7 +428,7 @@ export default function PersonalWithdrawalsPage() {
       openCreate(parsed);
       setResolvingQueueId(queueId);
       setFormError("Resolving queued withdrawal. Save to update and re-sync.");
-      window.history.replaceState({}, "", isEmbed ? "/personal-withdrawals?embed=1" : "/personal-withdrawals");
+      window.history.replaceState({}, "", getEmbedQuickformPath("/personal-withdrawals"));
     } catch {
       // ignore malformed queued payload
     }

@@ -8,6 +8,7 @@ import { useLang } from "@/lib/lang";
 import { isEditableCustomerQueuedPayload, safeParseQueuedBody } from "@/lib/queue-resolve";
 import { applyPendingCustomerLedger } from "@/lib/offline-customer-ledger";
 import { useSearchParams } from "next/navigation";
+import { getEmbedQuickformPath } from "@/lib/quickform-embed";
 import { useOffline } from "@/hooks/useOffline";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
@@ -170,7 +171,7 @@ export default function CustomersPage() {
     setPrefillHandled(true);
     setShowCreate(true);
     openCreate();
-    window.history.replaceState({}, "", isEmbed ? "/customers?embed=1" : "/customers");
+    window.history.replaceState({}, "", getEmbedQuickformPath("/customers"));
   }, [prefillHandled, searchParams, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -443,7 +444,7 @@ export default function CustomersPage() {
       });
       setResolvingQueueId(queueId);
       setFormError("Resolving queued customer entry. Save to update and re-sync.");
-      window.history.replaceState({}, "", isEmbed ? "/customers?embed=1" : "/customers");
+      window.history.replaceState({}, "", getEmbedQuickformPath("/customers"));
     } catch {
       // ignore malformed queued payload
     }
