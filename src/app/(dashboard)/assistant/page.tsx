@@ -30,6 +30,15 @@ function formatTime(date?: Date) {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function TypingIndicator() {
   return (
     <div className="flex items-end gap-2 px-4 py-1">
@@ -53,7 +62,7 @@ function MessageBubble({ msg }: { msg: Message }) {
   const renderContent = (text: string) => {
     const lines = text.split("\n");
     return lines.map((line, i) => {
-      const formatted = line.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+      const formatted = escapeHtml(line).replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
       if (line.startsWith("•") || line.startsWith("-")) {
         return (
           <div key={i} className="flex gap-2 mt-1">

@@ -1,9 +1,10 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { clearOfflineAuthCache, readOfflineAuthCache, writeOfflineAuthCache } from "@/lib/offline-auth-cache";
+import { clearOfflineAuthCache, readOfflineAuthCache, writeOfflineAuthCache, buildOfflinePasswordVerifier, verifyOfflinePassword } from "@/lib/offline-auth-cache";
 import { isPackagedOfflineRuntime } from "@/lib/offline-cache";
 import { probeServerReachable, setPackagedServerReachable } from "@/lib/offline-reachability";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 
 interface User {
   id: number;
@@ -32,39 +33,27 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 const RETRYABLE_STATUSES = new Set([502, 503, 504]);
-const PRODUCTION_APP_URL = "https://welding-app-jhhc.onrender.com";
+const PACKAGED_AUTH_TIMEOUT_MS = 8000;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function serverNotReadyMessage(): string {
-  return `Cannot reach the server at ${PRODUCTION_APP_URL}. Open that URL in Safari and wait until the login page loads. If it never loads, open Render Dashboard → welding-app and confirm the latest deploy succeeded, then try again.`;
-}
-
-async function waitForServerReady(maxMs = 120000): Promise<boolean> {
-  const deadline = Date.now() + maxMs;
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch("/api/health", { credentials: "include", cache: "no-store" });
-      if (res.ok) {
-        const json = await res.json().catch(() => null);
-        if (json?.ok) return true;
-      }
-    } catch {
-      // Render waking or proxy not ready yet.
-    }
-    await sleep(4000);
-  }
-  return false;
-}
-
-async function fetchWithWarmupRetry(url: string, init: RequestInit, attempts = 6): Promise<Response> {
+async function fetchWithWarmupRetry(url: string, init: RequestInit, attempts = 3): Promise<Response> {
   let lastRes: Response | null = null;
+  const useTimeout = isPackagedOfflineRuntime();
   for (let i = 0; i < attempts; i++) {
-    lastRes = await fetch(url, init);
+    try {
+      lastRes = useTimeout
+        ? await fetchWithTimeout(url, init, PACKAGED_AUTH_TIMEOUT_MS)
+        : await fetch(url, init);
+    } catch {
+      if (i === attempts - 1) throw new Error("Network error");
+      await sleep(1500 * (i + 1));
+      continue;
+    }
     if (!RETRYABLE_STATUSES.has(lastRes.status) || i === attempts - 1) return lastRes;
-    await sleep(2000 * (i + 1));
+    await sleep(1500 * (i + 1));
   }
   return lastRes!;
 }
@@ -78,7 +67,7 @@ async function parseAuthJson(res: Response): Promise<{
     return { data: JSON.parse(text) };
   } catch {
     if (RETRYABLE_STATUSES.has(res.status)) {
-      return { error: serverNotReadyMessage() };
+      return { error: "Server is waking up. You can keep working offline." };
     }
     return { error: `Server error (${res.status}). Try again.` };
   }
@@ -88,37 +77,66 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const cached = readOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
-    if (cached?.user) setUser(cached.user);
-  }, []);
-
-  const checkAuth = useCallback(async (retries = 3) => {
+  const refreshOnlineSession = useCallback(async () => {
     try {
-      const res = await fetch("/api/v1/auth/me", { credentials: "include" });
+      const res = await fetchWithTimeout(
+        "/api/v1/auth/me",
+        { credentials: "include", cache: "no-store" },
+        PACKAGED_AUTH_TIMEOUT_MS
+      );
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
           setUser(data.data);
+          setPackagedServerReachable(true);
           return;
         }
       }
-      // If 500 (server/db error), retry - don't logout
-      if (res.status >= 500 && retries > 0) {
-        setTimeout(() => checkAuth(retries - 1), 2000);
-        return;
-      }
-      // Only clear user on 401 (actually unauthorized)
       if (res.status === 401) {
         setUser(null);
       }
     } catch {
-      const cached = readOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
-      if (cached?.user) {
-        setUser(cached.user);
+      setPackagedServerReachable(false);
+    }
+  }, []);
+
+  const checkAuth = useCallback(async (retries = 3) => {
+    const packaged = isPackagedOfflineRuntime();
+    const cached = readOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
+
+    if (packaged && cached?.user) {
+      setUser(cached.user);
+      setPackagedServerReachable(false);
+      setLoading(false);
+      void refreshOnlineSession();
+      return;
+    }
+
+    try {
+      const res = packaged
+        ? await fetchWithTimeout("/api/v1/auth/me", { credentials: "include", cache: "no-store" }, PACKAGED_AUTH_TIMEOUT_MS)
+        : await fetch("/api/v1/auth/me", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setUser(data.data);
+          if (packaged) setPackagedServerReachable(true);
+          return;
+        }
+      }
+      if (res.status >= 500 && retries > 0) {
+        setTimeout(() => checkAuth(retries - 1), 2000);
         return;
       }
-      // Network error - retry
+      if (res.status === 401) {
+        setUser(null);
+      }
+    } catch {
+      if (cached?.user) {
+        setUser(cached.user);
+        if (packaged) setPackagedServerReachable(false);
+        return;
+      }
       if (retries > 0) {
         setTimeout(() => checkAuth(retries - 1), 2000);
         return;
@@ -126,46 +144,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [refreshOnlineSession]);
 
   useEffect(() => {
-    checkAuth();
+    const cached = readOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
+    if (cached?.user) setUser(cached.user);
+    void checkAuth();
   }, [checkAuth]);
 
-  const login = async (username: string, password: string) => {
-    const normalizedUsername = username.trim().toLowerCase();
-    const cached = readOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
-    const cacheMatches = Boolean(
-      cached &&
-        cached.username === normalizedUsername &&
-        cached.password === password &&
-        cached.user
-    );
-
+  const tryOnlineLogin = useCallback(async (username: string, password: string): Promise<{ ok: boolean; user?: User; error?: string }> => {
     try {
-      const packaged = isPackagedOfflineRuntime();
-      if (packaged && cacheMatches) {
-        const reachable = await probeServerReachable();
-        if (!reachable) {
-          setPackagedServerReachable(false);
-          setUser(cached!.user);
-          return { success: true };
-        }
-      }
-
-      const isElectron = typeof window !== "undefined" && window.platformInfo?.runtime === "electron";
-      if (isElectron) {
-        const ready = await waitForServerReady(120000);
-        if (!ready) {
-          if (packaged && cacheMatches) {
-            setPackagedServerReachable(false);
-            setUser(cached!.user);
-            return { success: true };
-          }
-          return { success: false, error: serverNotReadyMessage() };
-        }
-      }
-
       const res = await fetchWithWarmupRetry("/api/v1/auth/login", {
         method: "POST",
         credentials: "include",
@@ -173,38 +161,71 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ username, password }),
       });
       const parsed = await parseAuthJson(res);
-      if (parsed.error) return { success: false, error: parsed.error };
+      if (parsed.error) return { ok: false, error: parsed.error };
       const data = parsed.data!;
       if (data.success && data.data?.user) {
-        setUser(data.data.user);
-        writeOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null, {
-          username: username.trim().toLowerCase(),
-          password,
-          user: data.data.user,
-          updatedAt: new Date().toISOString(),
-        });
-        return { success: true };
+        setPackagedServerReachable(true);
+        return { ok: true, user: data.data.user };
       }
-      if (isPackagedOfflineRuntime() && cacheMatches) {
-        setPackagedServerReachable(false);
-        setUser(cached!.user);
-        return { success: true };
-      }
-      const errMsg = typeof data.error === "string"
-        ? data.error
-        : data.error?.message;
-      if (RETRYABLE_STATUSES.has(res.status)) {
-        return { success: false, error: errMsg || serverNotReadyMessage() };
-      }
-      return { success: false, error: errMsg || "Login failed" };
+      const errMsg = typeof data.error === "string" ? data.error : data.error?.message;
+      return { ok: false, error: errMsg || "Login failed" };
     } catch {
-      if (isPackagedOfflineRuntime() && cacheMatches) {
-        setPackagedServerReachable(false);
-        setUser(cached!.user);
-        return { success: true };
-      }
-      return { success: false, error: "Network error" };
+      return { ok: false, error: "Network error" };
     }
+  }, []);
+
+  const login = async (username: string, password: string) => {
+    const normalizedUsername = username.trim().toLowerCase();
+    const cached = readOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
+    const cacheMatches = Boolean(
+      cached &&
+        cached.username === normalizedUsername &&
+        cached.user &&
+        (await verifyOfflinePassword(password, cached))
+    );
+
+    const packaged = isPackagedOfflineRuntime();
+
+    if (packaged && cacheMatches) {
+      setPackagedServerReachable(false);
+      setUser(cached!.user);
+      void (async () => {
+        const online = await tryOnlineLogin(username, password);
+        if (online.ok && online.user) {
+          setUser(online.user);
+          writeOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null, {
+            username: normalizedUsername,
+            passwordVerifier: await buildOfflinePasswordVerifier(password),
+            user: online.user,
+            updatedAt: new Date().toISOString(),
+          });
+        } else {
+          const reachable = await probeServerReachable();
+          setPackagedServerReachable(reachable);
+        }
+      })();
+      return { success: true };
+    }
+
+    const online = await tryOnlineLogin(username, password);
+    if (online.ok && online.user) {
+      setUser(online.user);
+      writeOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null, {
+        username: normalizedUsername,
+        passwordVerifier: await buildOfflinePasswordVerifier(password),
+        user: online.user,
+        updatedAt: new Date().toISOString(),
+      });
+      return { success: true };
+    }
+
+    if (packaged && cacheMatches) {
+      setPackagedServerReachable(false);
+      setUser(cached!.user);
+      return { success: true };
+    }
+
+    return { success: false, error: online.error || "Login failed" };
   };
 
   const logout = async () => {
@@ -221,7 +242,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Auto-logout after 30 minutes of inactivity
   useEffect(() => {
     if (!user) return;
-    const IDLE_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+    const IDLE_TIMEOUT = 30 * 60 * 1000;
     let timer: NodeJS.Timeout;
 
     const resetTimer = () => {

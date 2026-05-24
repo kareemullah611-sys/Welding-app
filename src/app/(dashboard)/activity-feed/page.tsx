@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { getQueueResolvePath } from "@/lib/queue-resolve";
 import { getOfflineConflictHint } from "@/lib/offline-conflict-hints";
+import { OFFLINE_CONFLICT_RULES } from "@/lib/offline-conflict-rules";
 
 interface ActivityItem {
   id: number | string;
@@ -207,7 +208,7 @@ function UserAvatar({ name }: { name: string }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function ActivityFeedPage() {
   const { user } = useAuth();
-  const { queuedItems, retryQueuedItem, discardQueuedItem, syncQueue, clearOfflineData, exportOfflineBundle, importOfflineBundle } = useOffline();
+  const { offlineEnabled, isOnline, isSyncing, queuedItems, retryQueuedItem, discardQueuedItem, syncQueue, clearOfflineData, exportOfflineBundle, importOfflineBundle } = useOffline();
   const { t } = useLang();
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -220,6 +221,7 @@ export default function ActivityFeedPage() {
   const [queueActionId, setQueueActionId] = useState<string | null>(null);
   const [resettingOffline, setResettingOffline] = useState(false);
   const [importingOffline, setImportingOffline] = useState(false);
+  const [showConflictRules, setShowConflictRules] = useState(false);
 
   useEffect(() => {
     if (user?.role === "super_admin") {
@@ -335,8 +337,37 @@ export default function ActivityFeedPage() {
           </div>
         }
       />
+      {offlineEnabled && (
+        <div className="mb-4 rounded-xl border border-[#e4e4e7] bg-white/90 p-3 shadow-[0_12px_30px_-24px_rgba(42,6,8,0.2)]">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.15em] text-gray-500">Background sync</p>
+              <p className="text-sm text-gray-700 mt-1">
+                {isOnline ? (isSyncing ? "Syncing with server…" : "Server reachable — sync runs silently in the background.") : "Working offline from local data. Server sync will resume when reachable."}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowConflictRules((v) => !v)}
+              className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
+            >
+              {showConflictRules ? "Hide conflict rules" : "Conflict rules"}
+            </button>
+          </div>
+          {showConflictRules && (
+            <ul className="mt-3 space-y-2 border-t border-gray-100 pt-3">
+              {OFFLINE_CONFLICT_RULES.map((rule) => (
+                <li key={rule.id} className="text-sm text-gray-700">
+                  <span className="font-semibold text-gray-900">{rule.title}:</span> {rule.rule}{" "}
+                  <span className="text-gray-500">→ {rule.action}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
       {user?.role === "city_admin" && (
-        <div className="mb-4 rounded-xl border border-[#efe2d3] bg-white/90 p-3 shadow-[0_12px_30px_-24px_rgba(51,42,33,0.35)]">
+        <div className="mb-4 rounded-xl border border-[#e4e4e7] bg-white/90 p-3 shadow-[0_12px_30px_-24px_rgba(42,6,8,0.2)]">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.15em] text-gray-500">Offline Queue Health</p>
@@ -578,7 +609,7 @@ export default function ActivityFeedPage() {
           {/* Pagination */}
           {totalPages > 1 && (
             <div className="pt-4">
-              <div className="rounded-[1.1rem] border border-[#efe2d3] bg-white/80 shadow-[0_16px_40px_-30px_rgba(51,42,33,0.35)]">
+              <div className="rounded-[1.1rem] border border-[#e4e4e7] bg-white/80 shadow-[0_16px_40px_-30px_rgba(42,6,8,0.2)]">
                 <PaginationBar
                   bordered={false}
                   pagination={{

@@ -2,26 +2,28 @@ name: Uptime Monitor
 
 on:
   schedule:
+    # Every 5 minutes — keeps Render free-tier web service awake (~720 h/month).
     - cron: "*/5 * * * *"
   workflow_dispatch:
 
 jobs:
-  health-check:
+  keep-alive:
     runs-on: ubuntu-latest
     steps:
       - name: Validate configuration
         run: |
-          if [ -z "${HEALTH_URL}" ]; then
-            echo "Missing HEALTH_URL secret. Set HEALTH_URL in GitHub repository secrets."
+          if [ -z "${PING_URL}" ]; then
+            echo "Missing PING_URL secret."
+            echo "Set PING_URL=https://welding-app-jhhc.onrender.com/api/ping in GitHub repo secrets."
             exit 1
           fi
         env:
-          HEALTH_URL: ${{ secrets.HEALTH_URL }}
+          PING_URL: ${{ secrets.PING_URL }}
 
-      - name: Call health endpoint
+      - name: Ping Render (keep-alive)
         run: |
-          response="$(curl -fsS --max-time 15 "${HEALTH_URL}")"
-          echo "Health response: ${response}"
-          RESPONSE="${response}" node -e 'const r=JSON.parse(process.env.RESPONSE||"{}"); if(r.ok!==true||r.db!=="up"){console.error("Health check failed", r); process.exit(1)}'
+          response="$(curl -fsS --max-time 20 "${PING_URL}")"
+          echo "Ping response: ${response}"
+          RESPONSE="${response}" node -e 'const r=JSON.parse(process.env.RESPONSE||"{}"); if(r.ok!==true){console.error("Keep-alive ping failed", r); process.exit(1)}'
         env:
-          HEALTH_URL: ${{ secrets.HEALTH_URL }}
+          PING_URL: ${{ secrets.PING_URL }}

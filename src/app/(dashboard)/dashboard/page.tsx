@@ -153,8 +153,18 @@ export default function DashboardPage() {
   const [quickFrameLoading, setQuickFrameLoading] = useState(false);
 
   const loadDashboard = useCallback(async () => {
-      setLoading(true);
       const snapshot = readOfflineReadSnapshot<DashboardReadSnapshot>(DASHBOARD_READ_CACHE_KEY)?.data;
+      const hasSnapshot = Boolean(snapshot?.data || snapshot?.cashPosition || snapshot?.treasury);
+      if (hasSnapshot) {
+        setData(snapshot!.data ?? null);
+        setCashPosition(snapshot!.cashPosition ?? null);
+        setTreasury(snapshot!.treasury ?? null);
+        setShowOfflineSnapshot(true);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
+
       const treasuryRequest = user?.role === "city_admin" ? apiCall("/api/v1/treasury") : Promise.resolve(null);
       const [dashRes, cashRes, treasuryRes] = await Promise.all([
         apiCall("/api/v1/dashboard"),
@@ -561,21 +571,21 @@ export default function DashboardPage() {
               role="dialog"
               aria-modal="true"
               aria-labelledby="quickform-title"
-              className="relative z-[91] flex h-[100dvh] w-full flex-col overflow-hidden bg-[#faf6f0] sm:h-[min(92dvh,760px)] sm:max-w-xl sm:rounded-2xl sm:border sm:border-[#e8dccf] sm:shadow-[0_24px_64px_-28px_rgba(12,18,29,0.65)]"
+              className="relative z-[91] flex h-[100dvh] w-full flex-col overflow-hidden bg-[#f0f0f2] sm:h-[min(92dvh,760px)] sm:max-w-xl sm:rounded-2xl sm:border sm:border-[#d4d4d8] sm:shadow-[0_24px_64px_-28px_rgba(42,6,8,0.35)]"
             >
-              <div className="flex flex-shrink-0 items-center gap-3 border-b border-[#e8dccf] bg-white px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+              <div className="flex flex-shrink-0 items-center gap-3 border-b border-[#e4e4e7] bg-white px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
                 <div className="min-w-0 flex-1">
-                  <h2 id="quickform-title" className="truncate text-base font-semibold text-[#2f241c] sm:text-lg">
+                  <h2 id="quickform-title" className="truncate text-base font-semibold text-[#2A0608] sm:text-lg">
                     {quickAction.title}
                   </h2>
                   {quickFrameLoading && (
-                    <p className="text-xs text-[#8d7561]">Loading form…</p>
+                    <p className="text-xs text-[#52525b]">Loading form…</p>
                   )}
                 </div>
                 <button
                   type="button"
                   onClick={closeQuickForm}
-                  className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl border border-[#e8dccf] text-[#5c4a3a] hover:bg-[#f5efe6] active:bg-[#ebe3d8]"
+                  className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl border border-[#d4d4d8] text-[#6B0F1A] hover:bg-[#f5e8eb] active:bg-[#ececee]"
                   aria-label="Close form"
                 >
                   <X className="h-5 w-5" />
@@ -586,7 +596,7 @@ export default function DashboardPage() {
                 src={quickAction.src}
                 title={`${quickAction.title} form`}
                 onLoad={() => setQuickFrameLoading(false)}
-                className="min-h-0 flex-1 w-full border-0 bg-[#faf6f0]"
+                className="min-h-0 flex-1 w-full border-0 bg-[#f0f0f2]"
               />
             </div>
           </div>

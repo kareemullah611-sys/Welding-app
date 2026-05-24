@@ -5,6 +5,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
 import { useLang, LangSwitcher } from "@/lib/lang";
 import MRFLoader from "@/components/ui/MRFLoader";
+import { MIN_LOGIN_DURATION, ProcessingSpinner } from "@/components/ui/ProcessingLoader";
+import BrandLogo from "@/components/brand/BrandLogo";
 import { LOGIN_PHOTOS } from "@/config/loginPhotos";
 
 const SLIDE_INTERVAL = 5000; // 5 seconds
@@ -65,10 +67,10 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!loginStarted || !loginSuccess) return;
-    // Fallback for environments where animation completion callback may not fire reliably.
+    // Fallback if ProcessingLoader completion callback does not fire (must match MIN_LOGIN_DURATION).
     const t = setTimeout(() => {
       redirectRef.current();
-    }, 1800);
+    }, MIN_LOGIN_DURATION + 400);
     return () => clearTimeout(t);
   }, [loginStarted, loginSuccess]);
 
@@ -101,19 +103,13 @@ export default function LoginPage() {
 
         {/* Brand mark */}
         <div className="text-center mb-8">
-          {/* Shield badge mark */}
-          <div className="mx-auto mb-4 w-20 h-22 flex items-center justify-center">
-            <svg viewBox="0 0 120 130" fill="none" className="w-20 h-20 drop-shadow-2xl">
-              <path d="M60 6 L110 22 L110 76 Q110 108 60 124 Q10 108 10 76 L10 22 Z" fill="#6B0F1A" />
-              <path d="M60 6 L110 22 L110 76 Q110 108 60 124 Q10 108 10 76 L10 22 Z" stroke="#D4AF37" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M60 14 L102 28 L102 74 Q102 103 60 117 Q18 103 18 74 L18 28 Z" stroke="#D4AF37" strokeWidth="1" opacity="0.4" strokeLinecap="round" strokeLinejoin="round" />
-              <text x="60" y="76" textAnchor="middle" dominantBaseline="central" fontFamily="Georgia, 'Times New Roman', serif" fontWeight="bold" fontSize="34" fill="#F5E6D3" letterSpacing="2">MRF</text>
-              <line x1="26" y1="46" x2="94" y2="46" stroke="#D4AF37" strokeWidth="0.8" opacity="0.5" />
-              <line x1="26" y1="100" x2="94" y2="100" stroke="#D4AF37" strokeWidth="0.8" opacity="0.5" />
-            </svg>
+          <div className="mx-auto mb-4 flex justify-center">
+            <div className="rounded-2xl bg-white p-2 shadow-2xl">
+              <BrandLogo size="lg" showBadge={false} />
+            </div>
           </div>
           <h1 className="text-2xl font-bold text-white tracking-wide">MRF Hardware</h1>
-          <p className="text-slate-300 text-sm mt-1 tracking-widest uppercase" style={{ fontSize: "10px", letterSpacing: "3px", color: "#D4AF37" }}>
+          <p className="text-slate-300 text-sm mt-1 tracking-widest uppercase" style={{ fontSize: "10px", letterSpacing: "3px", color: "#93C5FD" }}>
             Management System
           </p>
         </div>
@@ -186,7 +182,7 @@ export default function LoginPage() {
             >
               {loginStarted ? (
                 <span className="flex items-center justify-center gap-2">
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <ProcessingSpinner size="sm" className="!gap-0 [&_.processing-spinner__label]:hidden" />
                   {t("signing_in")}
                 </span>
               ) : (
@@ -202,7 +198,9 @@ export default function LoginPage() {
       {loginStarted && (
         <MRFLoader
           variant="login"
-          visible={loginStarted}
+          visible={!loginSuccess}
+          productImageSrc="/products/cutting-disc.png"
+          label="Processing"
           onAnimationComplete={handleAnimationComplete}
         />
       )}

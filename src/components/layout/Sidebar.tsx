@@ -1,18 +1,20 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useRef } from "react";
+import React, { createContext, useContext, useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { LangSwitcher, useLang } from "@/lib/lang";
 import { apiCall } from "@/hooks/useApi";
 import NotificationBell from "@/components/layout/NotificationBell";
+import BrandLogo from "@/components/brand/BrandLogo";
+import { useUnreadNotificationCount } from "@/hooks/useUnreadNotificationCount";
 import {
   LayoutDashboard, Package, Factory, Banknote, Handshake,
   BookOpen, Receipt, Wallet, Users, Warehouse, ClipboardList,
   ArrowLeftRight, TrendingUp, BarChart2, FileText, Search,
   Activity, Settings, LogOut, ChevronLeft, ChevronRight,
-  Menu, FileCheck, Landmark, BotMessageSquare, PiggyBank, X, type LucideIcon,
+  Menu, FileCheck, Landmark, BotMessageSquare, PiggyBank, X, ChevronDown, type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +28,12 @@ export const SidebarContext = createContext<SidebarCtx>({
   setCollapsed: () => {},
 });
 export const useSidebar = () => useContext(SidebarContext);
+
+const SIDEBAR_NAV_SCROLL_KEY = "mrf-sidebar-nav-scroll";
+const SIDEBAR_OPEN_GROUPS_KEY = "mrf-sidebar-open-groups";
+
+const SIDEBAR_SHELL =
+  "bg-[#F0F0F2] border-[#D4D4D8] shadow-[4px_0_28px_-8px_rgba(42,6,8,0.1)]";
 
 // ─── Nav Config ───────────────────────────────────────────────────────────────
 interface NavItemDef {
@@ -159,7 +167,7 @@ function UserAvatar({ name, size = "md" }: { name: string; size?: "sm" | "md" })
   return (
     <div
       className={cn(
-        "rounded-full bg-gradient-to-br from-[#9a3a22] via-[#b7562c] to-[#d4873e] text-white font-bold flex items-center justify-center flex-shrink-0 shadow-[0_10px_24px_-16px_rgba(154,58,34,0.85)]",
+        "rounded-full bg-gradient-to-br from-[#6B0F1A] via-[#7A1420] to-[#8B1A1A] text-white font-bold flex items-center justify-center flex-shrink-0 shadow-[0_10px_24px_-16px_rgba(107,15,26,0.75)]",
         size === "md" ? "w-8 h-8 text-[11px]" : "w-7 h-7 text-[10px]"
       )}
     >
@@ -171,19 +179,42 @@ function UserAvatar({ name, size = "md" }: { name: string; size?: "sm" | "md" })
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 export default function Sidebar() {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const { user, logout } = useAuth();
   const { t, dir } = useLang();
   const { collapsed, setCollapsed } = useSidebar();
   const isRTL = dir === "rtl";
   const [mobileOpen, setMobileOpen] = useState(false);
   const [pendingTransfers, setPendingTransfers] = useState(0);
+  const [routeQuery, setRouteQuery] = useState("");
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set());
   const touchStartX = useRef(0);
-  const currentQuery = searchParams.toString();
+  const desktopNavRef = useRef<HTMLElement>(null);
+  const mobileNavRef = useRef<HTMLElement>(null);
+  const unreadNotifications = useUnreadNotificationCount();
+
+  useEffect(() => {
+    setRouteQuery(typeof window !== "undefined" ? window.location.search.replace(/^\?/, "") : "");
+  }, [pathname]);
+
+  const restoreNavScroll = useCallback(() => {
+    const saved = Number(sessionStorage.getItem(SIDEBAR_NAV_SCROLL_KEY) || "0");
+    if (!saved) return;
+    for (const el of [desktopNavRef.current, mobileNavRef.current]) {
+      if (el) el.scrollTop = saved;
+    }
+  }, []);
+
+  const handleNavScroll = useCallback((event: React.UIEvent<HTMLElement>) => {
+    sessionStorage.setItem(SIDEBAR_NAV_SCROLL_KEY, String(event.currentTarget.scrollTop));
+  }, []);
+
+  useLayoutEffect(() => {
+    restoreNavScroll();
+  }, [pathname, routeQuery, restoreNavScroll]);
 
   useEffect(() => {
     setMobileOpen(false);
-  }, [pathname, currentQuery]);
+  }, [pathname, routeQuery]);
 
   useEffect(() => {
     if (!mobileOpen) return;
@@ -209,142 +240,273 @@ export default function Sidebar() {
     return () => clearInterval(interval);
   }, [user]);
 
-  if (!user) return null;
-
-  const isAfghanistan = user.countryName === "Afghanistan";
+  const isAfghanistan = user?.countryName === "Afghanistan";
   const afghHide = ["cheque_register", "bank_deposits", "bank_accounts"];
 
-  const navGroups = user.role === "city_admin" ? cityAdminNavGroups : superAdminNavGroups;
+  const navGroups = user?.role === "city_admin" ? cityAdminNavGroups : superAdminNavGroups;
 
-  const filteredGroups = navGroups
-    .map((g) => ({
-      ...g,
-      items: g.items.filter(
-        (i) => i.roles.includes(user.role) && !(isAfghanistan && afghHide.includes(i.key))
-      ),
-    }))
-    .filter((g) => g.items.length > 0);
+  const filteredGroups = useMemo(() => {
+    if (!user) return [];
+    return navGroups
+      .map((g) => ({
+        ...g,
+        items: g.items.filter(
+          (i) => i.roles.includes(user.role) && !(isAfghanistan && afghHide.includes(i.key))
+        ),
+      }))
+      .filter((g) => g.items.length > 0);
+  }, [user, navGroups, isAfghanistan]);
 
-  const currentRoute = currentQuery ? `${pathname}?${currentQuery}` : pathname;
-  const isHrefActive = (href: string) => {
-    if (href.includes("?")) return currentRoute === href;
-    return pathname === href || pathname.startsWith(href + "/");
+  const currentRoute = routeQuery ? `${pathname}?${routeQuery}` : pathname;
+
+  const activeHref = useMemo(() => {
+    const isHrefActive = (href: string) => {
+      if (href.includes("?")) return currentRoute === href;
+      return pathname === href || pathname.startsWith(href + "/");
+    };
+    return (
+      filteredGroups
+        .flatMap((group) => group.items.map((item) => item.href))
+        .filter((href) => isHrefActive(href))
+        .sort((a, b) => b.length - a.length)[0] || null
+    );
+  }, [filteredGroups, currentRoute, pathname]);
+
+  const groupContainsActive = useCallback(
+    (group: (typeof filteredGroups)[number]) =>
+      group.items.some((item) => item.href === activeHref),
+    [activeHref]
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !user) return;
+    try {
+      const raw = sessionStorage.getItem(SIDEBAR_OPEN_GROUPS_KEY);
+      if (!raw) return;
+      const stored = JSON.parse(raw) as string[];
+      const valid = stored.filter((label) => filteredGroups.some((g) => g.label === label));
+      if (valid.length > 0) setOpenGroups(new Set(valid));
+    } catch {
+      /* ignore */
+    }
+  }, [user?.role]);
+
+  const persistOpenGroups = useCallback((next: Set<string>) => {
+    sessionStorage.setItem(SIDEBAR_OPEN_GROUPS_KEY, JSON.stringify([...next]));
+  }, []);
+
+  /** On navigation: keep only the section that contains the current page open */
+  useEffect(() => {
+    if (!user) return;
+    const activeLabels = filteredGroups
+      .filter((g) => g.items.length > 1 && groupContainsActive(g))
+      .map((g) => g.label);
+    setOpenGroups((prev) => {
+      const next = new Set(activeLabels);
+      const same =
+        prev.size === next.size && [...prev].every((label) => next.has(label));
+      if (same) return prev;
+      persistOpenGroups(next);
+      return next;
+    });
+  }, [pathname, routeQuery, activeHref, user, filteredGroups, groupContainsActive, persistOpenGroups]);
+
+  const toggleGroup = useCallback(
+    (label: string) => {
+      setOpenGroups((prev) => {
+        const isOpen = prev.has(label);
+        if (isOpen) {
+          const next = new Set(prev);
+          next.delete(label);
+          persistOpenGroups(next);
+          return next;
+        }
+        // Accordion: opening one section closes all others
+        const next = new Set([label]);
+        persistOpenGroups(next);
+        return next;
+      });
+    },
+    [persistOpenGroups]
+  );
+
+  const renderNavItem = (item: NavItemDef, nested = false) => {
+    const Icon = item.icon;
+    const isActive = item.href === activeHref;
+    const label =
+      (() => {
+        const translated = t(item.key);
+        return translated === item.key ? item.label : translated;
+      })();
+
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        scroll={false}
+        onClick={() => setMobileOpen(false)}
+        title={collapsed ? label : undefined}
+        className={cn(
+          "group relative flex items-center rounded-xl text-[13px] font-semibold transition-all duration-200",
+          collapsed ? "justify-center px-0 py-2.5 mx-0" : cn("gap-2.5", nested ? "pl-3 pr-3 ml-1 py-2" : "px-3 py-2.5"),
+          isActive
+            ? "bg-[linear-gradient(135deg,#6B0F1A_0%,#8B1A1A_100%)] text-white shadow-[0_8px_20px_-8px_rgba(107,15,26,0.45)]"
+            : "text-[#3f3f46] bg-white border border-[#E4E4E7] hover:text-[#18181b] hover:border-[#A1A1AA] hover:shadow-sm"
+        )}
+      >
+        {isActive && !collapsed && (
+          <span
+            className={cn(
+              "absolute inset-y-2 w-[3px] rounded-full bg-[#3B82F6]",
+              isRTL ? "right-0" : "left-0"
+            )}
+          />
+        )}
+        <div className="relative flex-shrink-0">
+          <Icon
+            className={cn(
+              nested ? "w-[15px] h-[15px]" : "w-[17px] h-[17px]",
+              "transition-colors",
+              isActive ? "text-white" : "text-[#6B0F1A] group-hover:text-[#6B0F1A]"
+            )}
+          />
+          {item.href === "/city-transfers" && pendingTransfers > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-[14px] bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
+              {pendingTransfers > 9 ? "9+" : pendingTransfers}
+            </span>
+          )}
+        </div>
+        {!collapsed && <span className="truncate flex-1 leading-none">{label}</span>}
+        {!collapsed && item.href === "/city-transfers" && pendingTransfers > 0 && (
+          <span className="ml-auto bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none flex-shrink-0">
+            {pendingTransfers > 99 ? "99+" : pendingTransfers}
+          </span>
+        )}
+      </Link>
+    );
   };
 
-  const activeHref =
-    filteredGroups
-      .flatMap((group) => group.items.map((item) => item.href))
-      .filter((href) => isHrefActive(href))
-      .sort((a, b) => b.length - a.length)[0] || null;
-
-  const navContent = (
+  const renderNavContent = (navRef: React.RefObject<HTMLElement | null>) => (
     <div className="flex flex-col h-full">
       {/* ── Logo ── */}
       <div
         className={cn(
-          "flex items-center flex-shrink-0 border-b border-sidebar-border",
+          "flex items-center flex-shrink-0 border-b border-[#D4D4D8] bg-white",
           collapsed ? "px-3 py-5 justify-center" : "px-4 py-5 gap-3"
         )}
       >
-        <div className="w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-2xl bg-white/[0.06] ring-1 ring-white/10">
-          <svg viewBox="0 0 120 130" fill="none" className="w-8 h-8">
-            <path d="M60 6 L110 22 L110 76 Q110 108 60 124 Q10 108 10 76 L10 22 Z" fill="#6B0F1A" />
-            <path d="M60 6 L110 22 L110 76 Q110 108 60 124 Q10 108 10 76 L10 22 Z" stroke="#D4AF37" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
-            <text x="60" y="76" textAnchor="middle" dominantBaseline="central" fontFamily="Georgia, serif" fontWeight="bold" fontSize="40" fill="#F5E6D3">MRF</text>
-          </svg>
+        <div className="flex-shrink-0 rounded-2xl bg-white p-1 ring-1 ring-[#E4E4E7] shadow-sm">
+          <BrandLogo
+            size={collapsed ? "sm" : "md"}
+            badgeCount={unreadNotifications}
+          />
         </div>
         {!collapsed && (
           <div className="min-w-0">
-            <p className="text-white font-bold text-sm leading-tight tracking-tight">MRF Hardware</p>
-            <p className="text-[#8f9ab1] text-[10px] uppercase tracking-[0.24em] mt-0.5">Operations Suite</p>
+            <p className="text-[#2A0608] font-bold text-sm leading-tight tracking-tight">MRF Hardware</p>
+            <p className="text-[#71717a] text-[10px] uppercase tracking-[0.24em] mt-0.5">Operations Suite</p>
           </div>
         )}
       </div>
 
       {/* ── Navigation ── */}
-      <nav className="flex-1 overflow-y-auto py-4 px-2.5 space-y-0.5">
-        {filteredGroups.map((group, gi) => (
-          <div key={group.label} className={gi > 0 ? "mt-4" : ""}>
-            {/* Section label */}
-            {!collapsed ? (
-              <p className="px-2 pt-1 pb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#6f7b93] select-none">
-                {group.label}
-              </p>
-            ) : (
-              gi > 0 && <div className="mx-2 mb-2 mt-2 h-px bg-white/10" />
-            )}
+      <nav
+        ref={navRef}
+        onScroll={handleNavScroll}
+        className="flex-1 overflow-y-auto overscroll-contain py-4 px-2.5 space-y-1"
+      >
+        {filteredGroups.map((group, gi) => {
+          const isMulti = group.items.length > 1;
+          const isOpen = openGroups.has(group.label);
+          const sectionActive = groupContainsActive(group);
 
-            {/* Items */}
-            {group.items.map((item) => {
-              const Icon = item.icon;
-              const isActive = item.href === activeHref;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setMobileOpen(false)}
-                  title={collapsed ? item.label : undefined}
+          if (collapsed) {
+            return (
+              <div key={group.label} className={gi > 0 ? "mt-3" : ""}>
+                {gi > 0 && <div className="mx-2 mb-2 h-px bg-[#D4D4D8]" />}
+                <div className="space-y-0.5">{group.items.map((item) => renderNavItem(item))}</div>
+              </div>
+            );
+          }
+
+          if (!isMulti) {
+            return (
+              <div key={group.label} className={gi > 0 ? "mt-2" : ""}>
+                {renderNavItem(group.items[0])}
+              </div>
+            );
+          }
+
+          return (
+            <div
+              key={group.label}
+              className={cn(
+                "rounded-xl border transition-colors duration-200",
+                gi > 0 ? "mt-2" : "",
+                isOpen ? "border-[#D4D4D8] bg-white" : "border-transparent"
+              )}
+            >
+              <button
+                type="button"
+                onClick={() => toggleGroup(group.label)}
+                aria-expanded={isOpen}
+                className={cn(
+                  "w-full flex items-center gap-2 rounded-xl px-2.5 py-2.5 text-left transition-colors duration-200",
+                  isOpen || sectionActive
+                    ? "bg-[#E4E4E7] text-[#6B0F1A]"
+                    : "text-[#52525b] hover:bg-[#E4E4E7] hover:text-[#6B0F1A]"
+                )}
+              >
+                <span className="flex-1 text-[10px] font-bold uppercase tracking-[0.2em] truncate">
+                  {group.label}
+                </span>
+                <span
                   className={cn(
-                    "group relative flex items-center rounded-2xl text-[13px] font-medium transition-all duration-200",
-                    collapsed ? "justify-center px-0 py-2.5 mx-0" : "gap-2.5 px-3 py-2",
-                    isActive
-                      ? "bg-[linear-gradient(135deg,rgba(154,58,34,0.95),rgba(207,127,66,0.92))] text-white shadow-[0_18px_36px_-24px_rgba(183,86,44,0.9)]"
-                      : "text-[#98a4bc] hover:text-white hover:bg-white/[0.06]"
+                    "flex h-5 min-w-[1.25rem] items-center justify-center rounded-md px-1 text-[10px] font-semibold tabular-nums",
+                    sectionActive ? "bg-[#6B0F1A] text-white" : "bg-[#D4D4D8] text-[#52525b]"
                   )}
                 >
-                  {/* Active left accent */}
-                  {isActive && !collapsed && (
-                    <span
-                      className={cn(
-                        "absolute inset-y-2 w-[3px] rounded-full bg-violet-400",
-                        isRTL ? "right-0" : "left-0"
-                      )}
-                    />
+                  {group.items.length}
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "w-4 h-4 flex-shrink-0 text-[#6B0F1A] transition-transform duration-200",
+                    isOpen && "rotate-180"
                   )}
-                  <div className="relative flex-shrink-0">
-                    <Icon
-                      className={cn(
-                        "w-[16px] h-[16px] transition-colors",
-                        isActive
-                          ? "text-[#fff4dc]"
-                          : "text-[#657089] group-hover:text-[#d4deef]"
-                      )}
-                    />
-                    {item.href === "/city-transfers" && pendingTransfers > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-[14px] bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
-                        {pendingTransfers > 9 ? "9+" : pendingTransfers}
-                      </span>
+                />
+              </button>
+
+              <div
+                className={cn(
+                  "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
+                  isOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+                )}
+              >
+                <div className="overflow-hidden">
+                  <div
+                    className={cn(
+                      "space-y-0.5 pb-2 pt-0.5",
+                      isRTL ? "pr-1 pl-2 border-r-2 border-[#D4D4D8] mr-2" : "pl-1 pr-2 border-l-2 border-[#D4D4D8] ml-2"
                     )}
+                  >
+                    {group.items.map((item) => renderNavItem(item, true))}
                   </div>
-                  {!collapsed && (
-                    <span className="truncate flex-1 leading-none">
-                      {(() => {
-                        const translated = t(item.key);
-                        return translated === item.key ? item.label : translated;
-                      })()}
-                    </span>
-                  )}
-                  {!collapsed && item.href === "/city-transfers" && pendingTransfers > 0 && (
-                    <span className="ml-auto bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none flex-shrink-0">
-                      {pendingTransfers > 99 ? "99+" : pendingTransfers}
-                    </span>
-                  )}
-                </Link>
-              );
-            })}
-          </div>
-        ))}
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </nav>
 
       {/* ── User Footer ── */}
-      <div className="border-t border-sidebar-border flex-shrink-0 p-2 pb-[max(1rem,env(safe-area-inset-bottom,1rem))] space-y-0.5">
+      <div className="border-t border-[#D4D4D8] bg-white flex-shrink-0 p-2.5 pb-[max(1rem,env(safe-area-inset-bottom,1rem))] space-y-1">
         {/* User info */}
         {!collapsed ? (
-          <div className="flex items-center gap-2.5 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-3">
+          <div className="flex items-center gap-2.5 rounded-xl border border-[#D4D4D8] bg-[#FAFAFA] px-3 py-3">
             <UserAvatar name={user.fullName} />
             <div className="min-w-0 flex-1">
-              <p className="text-white text-xs font-semibold truncate leading-tight">{user.fullName}</p>
-              <p className="text-[#8f9ab1] text-[10px] truncate mt-0.5">
+              <p className="text-[#18181b] text-xs font-semibold truncate leading-tight">{user.fullName}</p>
+              <p className="text-[#71717a] text-[10px] truncate mt-0.5">
                 {user.role === "super_admin" ? "Super Admin" : `${user.cityName} Admin`}
               </p>
             </div>
@@ -378,7 +540,7 @@ export default function Sidebar() {
           onClick={logout}
           title={collapsed ? "Logout" : undefined}
           className={cn(
-            "w-full flex items-center rounded-2xl text-[13px] text-[#8f9ab1] hover:text-red-300 hover:bg-red-500/10 transition-all duration-150",
+            "w-full flex items-center rounded-xl text-[13px] font-medium text-[#52525b] hover:text-red-600 hover:bg-red-50 transition-all duration-150",
             collapsed ? "justify-center px-0 py-2.5" : "gap-2.5 px-3 py-2"
           )}
         >
@@ -389,6 +551,8 @@ export default function Sidebar() {
     </div>
   );
 
+  if (!user) return null;
+
   const mobileLabel = user.role === "super_admin" ? "Super Admin" : `${user.cityName} Admin`;
 
   return (
@@ -397,7 +561,7 @@ export default function Sidebar() {
       <button
         onClick={() => setMobileOpen(true)}
         className={cn(
-          "lg:hidden fixed top-4 z-50 rounded-2xl border border-white/10 bg-[#111722]/90 p-2.5 text-[#c2cede] shadow-2xl backdrop-blur-xl hover:text-white transition-colors",
+          "lg:hidden fixed top-4 z-50 rounded-2xl border border-[#D4D4D8] bg-white p-2.5 text-[#6B0F1A] shadow-lg hover:bg-[#FAFAFA] transition-colors",
           isRTL ? "right-3" : "left-3"
         )}
       >
@@ -420,46 +584,46 @@ export default function Sidebar() {
           if ((isRTL && dx > 50) || (!isRTL && dx < -50)) setMobileOpen(false);
         }}
         className={cn(
-          "lg:hidden fixed top-0 z-50 h-full w-[86vw] max-w-[320px] bg-[linear-gradient(180deg,#0b111d_0%,#121a28_46%,#0f1520_100%)] border-r border-white/10 shadow-2xl transform transition-transform duration-300",
+          cn("lg:hidden fixed top-0 z-50 h-full w-[86vw] max-w-[320px] border-r shadow-2xl transform transition-transform duration-300", SIDEBAR_SHELL),
           isRTL ? "right-0" : "left-0",
           mobileOpen ? "translate-x-0 pointer-events-auto" : isRTL ? "translate-x-full pointer-events-none" : "-translate-x-full pointer-events-none"
         )}
       >
         <div className="flex h-full flex-col">
-          <div className="flex items-center justify-between px-3 py-3 border-b border-white/10 bg-white/[0.02]">
+          <div className="flex items-center justify-between px-3 py-3 border-b border-[#D4D4D8] bg-white">
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#7f8aa0]">Navigation</p>
-              <p className="text-sm font-medium text-white truncate">{mobileLabel}</p>
+              <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#6B0F1A]">Navigation</p>
+              <p className="text-sm font-semibold text-[#18181b] truncate">{mobileLabel}</p>
             </div>
             <button
               type="button"
               onClick={() => setMobileOpen(false)}
               aria-label="Close menu"
-              className="rounded-xl border border-white/10 bg-white/[0.06] p-2 text-[#c2cede] hover:text-white hover:bg-white/[0.1] transition-colors"
+              className="rounded-xl border border-[#D4D4D8] bg-[#F0F0F2] p-2 text-[#52525b] hover:text-[#6B0F1A] hover:bg-white transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
-          <div className="min-h-0 flex-1">{navContent}</div>
+          <div className="min-h-0 flex-1">{renderNavContent(mobileNavRef)}</div>
         </div>
       </aside>
 
       {/* Desktop sidebar */}
       <aside
         className={cn(
-          "hidden lg:block fixed top-0 h-full bg-[linear-gradient(180deg,#0a111b_0%,#111826_55%,#0f1520_100%)] border-r border-white/10 transition-all duration-300 z-30 shadow-[24px_0_80px_-54px_rgba(7,10,18,0.9)]",
+          cn("hidden lg:block fixed top-0 h-full border-r transition-all duration-300 z-30", SIDEBAR_SHELL),
           isRTL ? "right-0" : "left-0",
           collapsed ? "w-16" : "w-60"
         )}
       >
-        {navContent}
+        {renderNavContent(desktopNavRef)}
 
         {/* Collapse toggle button */}
         <button
           onClick={() => setCollapsed(!collapsed)}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           className={cn(
-            "absolute top-[4.75rem] h-6 w-6 rounded-full border border-white/10 bg-[#111722] flex items-center justify-center text-[#95a1b9] hover:text-white hover:bg-[#a54425] transition-all duration-150 shadow-lg z-10",
+            "absolute top-[4.75rem] h-6 w-6 rounded-full border border-[#D4D4D8] bg-white flex items-center justify-center text-[#71717a] hover:text-white hover:bg-[#6B0F1A] hover:border-[#6B0F1A] transition-all duration-150 shadow-md z-10",
             isRTL ? "-left-2.5" : "-right-2.5"
           )}
         >

@@ -85,8 +85,8 @@ export default function NotificationBell({ sidebarMode = false, compact = false 
           title="Notifications"
           className={
             compact
-              ? "relative rounded-2xl p-2 text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
-              : "w-full flex items-center gap-3 rounded-2xl px-3 py-2.5 text-[13px] font-medium text-slate-300 hover:text-white hover:bg-white/10 transition-all duration-150"
+              ? "relative rounded-xl p-2 text-[#52525b] hover:text-[#6B0F1A] hover:bg-[#F0F0F2] transition-colors"
+              : "w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-semibold text-[#3f3f46] hover:text-[#6B0F1A] hover:bg-[#F0F0F2] transition-all duration-150"
           }
         >
           <span className="relative flex-shrink-0">

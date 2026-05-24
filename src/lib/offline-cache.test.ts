@@ -147,25 +147,24 @@ test("shouldQueueOfflineWriteNow requires packaged app, unreachable server, and 
   }
 });
 
-test("shouldUseOfflineApiCache is packaged + unreachable server only", () => {
+test("shouldUseOfflineApiCache is true for all packaged runtimes", () => {
   const g = globalThis as typeof globalThis & { window?: Window };
   const prev = g.window;
   g.window = { platformInfo: { runtime: "electron" } } as Window;
   setPackagedServerReachable(true);
   try {
-    assert.equal(shouldUseOfflineApiCache(), false);
+    assert.equal(shouldUseOfflineApiCache(), true);
     setPackagedServerReachable(false);
     assert.equal(shouldUseOfflineApiCache(), true);
   } finally {
     g.window = prev;
-    setPackagedServerReachable(true);
+    setPackagedServerReachable(false);
   }
   g.window = {} as Window;
-  setPackagedServerReachable(false);
   try {
     assert.equal(shouldUseOfflineApiCache(), false);
   } finally {
     g.window = prev;
-    setPackagedServerReachable(true);
+    setPackagedServerReachable(false);
   }
 });

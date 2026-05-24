@@ -453,12 +453,12 @@ export default function BankAccountsPage() {
 
       <Modal open={showLedger} onClose={() => setShowLedger(false)} title={`Ledger — ${ledgerAccount?.bankName || ""}`} size="xl">
         <div className="space-y-4">
-          <div className="rounded-xl border border-[#e8dccd] bg-[#fbf6ef]/80 p-3">
+          <div className="rounded-xl border border-[#d4d4d8] bg-[#f4f4f5]/90 p-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-3 text-sm">
               {Object.keys(ledgerBalanceByCurrency || {}).length > 0 ? (
                 Object.entries(ledgerBalanceByCurrency).map(([code, amount]) => (
-                  <span key={code} className="rounded-lg border border-[#e5d7c4] bg-white px-2.5 py-1 font-medium text-[#3c2d20]">
+                  <span key={code} className="rounded-lg border border-[#d4d4d8] bg-white px-2.5 py-1 font-medium text-[#2A0608]">
                     {code} {formatNumber(Number(amount || 0))}
                   </span>
                 ))
@@ -476,7 +476,7 @@ export default function BankAccountsPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="bg-[#f8f1e7]">
+                  <tr className="bg-[#f4f4f5]">
                     <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">Date</th>
                     <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">Type</th>
                     <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">Detail</th>
@@ -494,7 +494,7 @@ export default function BankAccountsPage() {
                     <tr><td colSpan={7} className="py-10 text-center text-gray-400">No ledger entries</td></tr>
                   )}
                   {!ledgerLoading && ledgerRows.map((row: any) => (
-                    <tr key={row.key} className="border-t border-[#f3e8db]">
+                    <tr key={row.key} className="border-t border-[#e4e4e7]">
                       <td className="px-3 py-2.5 whitespace-nowrap text-xs text-gray-600">{formatDate(row.date)}</td>
                       <td className="px-3 py-2.5 text-xs font-medium text-gray-700">{row.type}</td>
                       <td className="px-3 py-2.5 text-sm text-gray-800">{row.detail}</td>

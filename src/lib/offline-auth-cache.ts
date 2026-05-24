@@ -1,4 +1,9 @@
+import bcrypt from "bcryptjs";
+
 export const OFFLINE_AUTH_CACHE_KEY = "mrf-offline-auth-cache-v1";
+
+/** Client-only verifier rounds (not stored on server). */
+const OFFLINE_BCRYPT_ROUNDS = 8;
 
 export interface OfflineAuthUser {
   id: number;
@@ -14,13 +19,32 @@ export interface OfflineAuthUser {
 
 export interface OfflineAuthCache {
   username: string;
-  password: string;
+  passwordVerifier: string;
   user: OfflineAuthUser;
   updatedAt: string;
 }
 
+/** @deprecated Legacy cache shape — migrated on read, never written. */
+interface LegacyOfflineAuthCache extends Omit<Partial<OfflineAuthCache>, "passwordVerifier"> {
+  password?: string;
+}
+
 function canUseStorage(storage: Storage | null | undefined): storage is Storage {
   return !!storage;
+}
+
+export async function buildOfflinePasswordVerifier(password: string): Promise<string> {
+  return bcrypt.hash(password, OFFLINE_BCRYPT_ROUNDS);
+}
+
+export async function verifyOfflinePassword(password: string, cache: OfflineAuthCache | LegacyOfflineAuthCache): Promise<boolean> {
+  if (cache.passwordVerifier) {
+    return bcrypt.compare(password, cache.passwordVerifier);
+  }
+  if (cache.password) {
+    return cache.password === password;
+  }
+  return false;
 }
 
 export function readOfflineAuthCache(storage: Storage | null | undefined): OfflineAuthCache | null {
@@ -28,9 +52,10 @@ export function readOfflineAuthCache(storage: Storage | null | undefined): Offli
   try {
     const raw = storage.getItem(OFFLINE_AUTH_CACHE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as OfflineAuthCache;
-    if (!parsed?.username || !parsed?.password || !parsed?.user) return null;
-    return parsed;
+    const parsed = JSON.parse(raw) as OfflineAuthCache | LegacyOfflineAuthCache;
+    if (!parsed?.username || !parsed?.user) return null;
+    if (!parsed.passwordVerifier && !parsed.password) return null;
+    return parsed as OfflineAuthCache;
   } catch {
     return null;
   }

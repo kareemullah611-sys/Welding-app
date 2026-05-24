@@ -231,8 +231,7 @@ export function isPackagedOfflineRuntime(): boolean {
 }
 
 export function shouldUseOfflineApiCache(): boolean {
-  if (!isPackagedOfflineRuntime()) return false;
-  return !getPackagedServerReachable();
+  return isPackagedOfflineRuntime();
 }
 
 export function shouldAutoQueueOfflineWrite(url: string, method: string): boolean {

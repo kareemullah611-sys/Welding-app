@@ -776,10 +776,10 @@ export default function IntermediariesPage() {
 
       <Modal open={showLedger} onClose={() => setShowLedger(false)} title={`Ledger — ${selected?.name}`} size="xl">
         <div className="space-y-4">
-          <div className="flex items-center justify-between rounded-xl border border-[#e8dccd] bg-[#fbf6ef]/80 px-3 py-2.5">
+          <div className="flex items-center justify-between rounded-xl border border-[#d4d4d8] bg-[#f4f4f5]/90 px-3 py-2.5">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#8d755f]">Intermediary Ledger</p>
-              <p className="text-sm font-medium text-[#3a2b1e]">{selected?.name}</p>
+              <p className="text-sm font-medium text-[#2A0608]">{selected?.name}</p>
             </div>
             <div className="flex items-center gap-2">
               <button onClick={exportIntermediaryLedgerXlsx} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100">Export XLSX</button>
@@ -901,7 +901,7 @@ export default function IntermediariesPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="bg-[#f8f1e7]">
+                      <tr className="bg-[#f4f4f5]">
                         <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">Date</th>
                         <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">Particulars</th>
                         <th className="w-16 px-2 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wider text-gray-500">Ccy</th>
@@ -916,7 +916,7 @@ export default function IntermediariesPage() {
                         <tr><td colSpan={7} className="py-8 text-center text-sm text-gray-400">No ledger entries</td></tr>
                       )}
                       {(ledgerCurrencyFilter ? ledger.ledger?.filter((e: any) => e.currencyCode === ledgerCurrencyFilter) : ledger.ledger)?.map((entry: any, i: number) => (
-                        <tr key={i} className="border-t border-[#f3e8db] hover:bg-[#fff8ef]">
+                        <tr key={i} className="border-t border-[#e4e4e7] hover:bg-[#f5e8eb]">
                           <td className="whitespace-nowrap px-3 py-2.5 text-xs text-gray-600">{formatDate(entry.date)}</td>
                           <td className="max-w-xs px-3 py-2.5 text-sm text-gray-800">
                             <span className="line-clamp-1">{entry.description}</span>

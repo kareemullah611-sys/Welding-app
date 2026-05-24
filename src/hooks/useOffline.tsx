@@ -233,7 +233,7 @@ async function reconcileSyncedIds(item: QueuedRequest, responsePayload: unknown)
 // ── Provider ───────────────────────────────────────────────────────────────────
 export function OfflineProvider({ children }: { children: React.ReactNode }) {
   const [offlineEnabled, setOfflineEnabled] = useState(false);
-  const [isOnline, setIsOnline]           = useState(true);
+  const [isOnline, setIsOnline]           = useState(false);
   const [isServiceWorkerReady, setIsServiceWorkerReady] = useState(false);
   const [queueCount, setQueueCount]       = useState(0);
   const [queuedItems, setQueuedItems]     = useState<QueuedRequest[]>([]);

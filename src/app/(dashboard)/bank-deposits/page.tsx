@@ -444,7 +444,7 @@ export default function BankDepositsPage() {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="mt-6 rounded-[1.1rem] border border-[#efe2d3] bg-white/80 shadow-[0_16px_40px_-30px_rgba(51,42,33,0.35)]">
+        <div className="mt-6 rounded-[1.1rem] border border-[#e4e4e7] bg-white/80 shadow-[0_16px_40px_-30px_rgba(42,6,8,0.2)]">
           <PaginationBar
             bordered={false}
             pagination={{ page, totalPages, total, pageSize: 20, onPageChange: setPage }}

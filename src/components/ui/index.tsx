@@ -20,7 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { ProcessingSpinner } from "@/components/ui/ProcessingLoader";
 import { cn } from "@/lib/utils";
 import { buildPaginationItems, getPaginationRange } from "@/lib/pagination";
 import { X } from "lucide-react";
@@ -87,9 +87,9 @@ export function PageHeader({
     <div className="mb-6 overflow-hidden rounded-[1.6rem] border border-white/75 bg-[linear-gradient(135deg,rgba(255,248,239,0.95),rgba(245,233,219,0.82))] px-5 py-5 shadow-[0_28px_70px_-42px_rgba(51,42,33,0.38)]">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#9a7b5b]">Workspace</p>
-        <h1 className="text-2xl font-bold text-[#241a13] tracking-tight sm:text-3xl">{title}</h1>
-        {subtitle && <p className="mt-1 text-sm text-[#7b6857]">{subtitle}</p>}
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#71717a]">Workspace</p>
+        <h1 className="text-2xl font-bold text-[#2A0608] tracking-tight sm:text-3xl">{title}</h1>
+        {subtitle && <p className="mt-1 text-sm text-[#52525b]">{subtitle}</p>}
       </div>
       {action && <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:flex-shrink-0 sm:justify-end">{action}</div>}
       </div>
@@ -127,9 +127,9 @@ export function StatsCard({
       <CardContent className={cn("stat-card bg-gradient-to-br", c.accent, c.ring, "ring-1 p-4 sm:p-5")}>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8b7763] leading-snug line-clamp-2">{title}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#71717a] leading-snug line-clamp-2">{title}</p>
             <p className={cn("text-sm sm:text-lg font-bold mt-1.5 leading-tight tabular-nums", c.valueTxt)}>{value}</p>
-            {subtitle && <p className="mt-1.5 text-xs leading-snug text-[#8e7e71]">{subtitle}</p>}
+            {subtitle && <p className="mt-1.5 text-xs leading-snug text-[#52525b]">{subtitle}</p>}
           </div>
           {icon && (
             <div className={cn("hidden sm:flex h-11 w-11 rounded-2xl items-center justify-center text-xl flex-shrink-0 shadow-inner", c.iconBg, c.iconText)}>
@@ -334,7 +334,7 @@ export function DataTable<T extends Record<string, any>>({
   return (
     <div className="rounded-[1.4rem] border border-white/70 bg-white/85 shadow-[0_26px_70px_-42px_rgba(51,42,33,0.35)] backdrop-blur-xl">
       {searchable && (
-        <div className="flex flex-col gap-1 border-b border-[#efe2d3] bg-[#fbf6ef]/80 px-3 py-3 sm:px-4">
+        <div className="flex flex-col gap-1 border-b border-[#e4e4e7] bg-[#f4f4f5]/90 px-3 py-3 sm:px-4">
           <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center">
             <input
               type="search"
@@ -392,7 +392,7 @@ export function DataTable<T extends Record<string, any>>({
       <div className="overflow-visible">
         <Table>
           <TableHeader>
-            <TableRow className="border-b border-[#efe2d3] bg-[#faf3ea]/90 hover:bg-[#faf3ea]/90">
+            <TableRow className="border-b border-[#e4e4e7] bg-[#f4f4f5]/95 hover:bg-[#f4f4f5]/95">
               {columns.map((col) => (
                 <TableHead key={col.key} className={cn("text-xs font-semibold text-gray-500 uppercase tracking-wider py-3", col.className)}>
                   {col.label}
@@ -402,20 +402,18 @@ export function DataTable<T extends Record<string, any>>({
           </TableHeader>
           <TableBody>
             {loading ? (
-              Array.from({ length: 6 }).map((_, i) => (
-                <TableRow key={i} className="hover:bg-transparent">
-                  {columns.map((col) => (
-                    <TableCell key={col.key}>
-                      <Skeleton className="h-4 w-3/4 rounded" />
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={columns.length} className="py-14">
+                  <div className="flex justify-center">
+                    <ProcessingSpinner size="md" label="Loading" />
+                  </div>
+                </TableCell>
+              </TableRow>
             ) : filteredData.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={columns.length} className="py-16 text-center">
                   <div className="flex flex-col items-center gap-2">
-                    <div className="h-10 w-10 rounded-xl border border-[#eadfce] bg-[#f9f2e8]" />
+                    <div className="h-10 w-10 rounded-xl border border-[#d4d4d8] bg-[#f4f4f5]" />
                     <p className="text-sm text-muted-foreground">{emptyMessage}</p>
                   </div>
                 </TableCell>
@@ -427,9 +425,9 @@ export function DataTable<T extends Record<string, any>>({
                   ref={(node) => { rowRefs.current[idx] = node; }}
                   onClick={() => onRowClick?.(item)}
                   className={cn(
-                    "border-b border-[#f3e8db] transition-colors",
-                    stripedRows && idx % 2 === 1 && "bg-[#fbf8f3]",
-                    onRowClick ? "cursor-pointer hover:bg-[#fff4ea]" : "hover:bg-[#fcf6ef]"
+                    "border-b border-[#e4e4e7] transition-colors",
+                    stripedRows && idx % 2 === 1 && "bg-[#fafafa]",
+                    onRowClick ? "cursor-pointer hover:bg-[#f5e8eb]" : "hover:bg-[#fafafa]"
                     ,rowClassName?.(item, idx)
                   )}
                 >
@@ -486,8 +484,8 @@ export function PaginationBar({
   return (
     <div
       className={cn(
-        "flex flex-col gap-3 bg-[#fbf6ef]/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between",
-        bordered && "border-t border-[#efe2d3]",
+        "flex flex-col gap-3 bg-[#f4f4f5]/90 px-4 py-3 sm:flex-row sm:items-center sm:justify-between",
+        bordered && "border-t border-[#e4e4e7]",
         className
       )}
     >
@@ -517,8 +515,8 @@ export function PaginationBar({
               className={cn(
                 "h-9 min-w-9 rounded-md border px-2 text-xs font-semibold transition-colors sm:h-8 sm:min-w-8",
                 item === pagination.page
-                  ? "border-[#1f2a44] bg-[#111a30] text-white shadow-sm"
-                  : "border-[#e8ddcf] bg-white text-[#374151] hover:border-[#cdbca6] hover:bg-[#f8efe2]"
+                  ? "border-primary-700 bg-primary-600 text-white shadow-sm"
+                  : "border-[#d4d4d8] bg-white text-[#374151] hover:border-[#a1a1aa] hover:bg-[#f5e8eb]"
               )}
             >
               {item}
@@ -658,11 +656,11 @@ export function Modal({
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent
         hideCloseButton={suppressHeader}
-        className={cn("w-full gap-0 p-0 overflow-hidden border border-[#eadfce] bg-[linear-gradient(168deg,rgba(255,255,255,0.99),rgba(249,243,234,0.97))] shadow-[0_32px_80px_-42px_rgba(23,18,14,0.72)]", sizes[size])}
+        className={cn("w-full gap-0 p-0 overflow-hidden border border-[#d4d4d8] bg-[linear-gradient(168deg,rgba(255,255,255,0.99),rgba(244,244,245,0.97))] shadow-[0_32px_80px_-42px_rgba(42,6,8,0.35)]", sizes[size])}
       >
         {!suppressHeader && (
-          <DialogHeader className="px-6 py-4 border-b border-[#e6d8c7] bg-[rgba(255,253,250,0.96)] flex-shrink-0">
-            <DialogTitle asChild><div className="text-base font-semibold tracking-[0.01em] text-[#2f241c]">{title}</div></DialogTitle>
+          <DialogHeader className="px-6 py-4 border-b border-[#e4e4e7] bg-[rgba(255,255,255,0.96)] flex-shrink-0">
+            <DialogTitle asChild><div className="text-base font-semibold tracking-[0.01em] text-[#2A0608]">{title}</div></DialogTitle>
           </DialogHeader>
         )}
         <div onKeyDownCapture={handleFormKeyNav} className={cn("overflow-y-auto max-h-[75vh]", suppressHeader ? "" : "px-6 py-5", bodyClassName)}>{children}</div>
@@ -708,6 +706,10 @@ export function formatNumber(num: number | null | undefined): string {
   if (num === null || num === undefined || isNaN(num as number)) return "0";
   return (num as number).toLocaleString("en-US");
 }
+
+export { ProcessingSpinner } from "@/components/ui/ProcessingLoader";
+export { default as ProcessingLoader } from "@/components/ui/ProcessingLoader";
+export { default as CuttingDiscSpinner, DEFAULT_CUTTING_DISC_SRC } from "@/components/ui/CuttingDiscSpinner";
 
 export function formatDate(dateStr: string | Date | null | undefined): string {
   if (!dateStr) return "-";

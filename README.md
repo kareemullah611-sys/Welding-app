@@ -187,10 +187,10 @@ This repo now includes a [render.yaml](/Users/kareemullah/Desktop/welding-app/re
 Notes:
 - The app starts with `npm run start`, which runs `scripts/bootstrap.ts` (production uses `prisma migrate deploy` with fallback handling) before `next start`.
 - Update the service and database names in [render.yaml](/Users/kareemullah/Desktop/welding-app/render.yaml) if you want different names on Render.
-- Free Render services can sleep and have cold starts, so this is best for testing, demos, or low-traffic use.
-- Render build gate now uses `npm run verify` and health check path is `/api/health`.
+- Free Render services can sleep; use `/api/ping` keep-alive (see operations doc) for ~24/7 within 750 h/month.
+- Render build gate now uses `npm run verify`. Full health: `/api/health`. Keep-alive: `/api/ping`.
 - Operational runbook: [docs/operations-hardening.md](/Users/kareemullah/Desktop/welding-app/docs/operations-hardening.md)
-- Set GitHub secret `HEALTH_URL` to enable scheduled uptime monitoring (`.github/workflows/uptime-monitor.yml`).
+- Set GitHub secret `PING_URL` to `https://welding-app-jhhc.onrender.com/api/ping` for keep-alive every 5 min (`.github/workflows/uptime-monitor.yml`).
 - Offline-first migration spec: [docs/offline-first-architecture.md](/Users/kareemullah/Desktop/welding-app/docs/offline-first-architecture.md)
 - Offline feature gate: [docs/offline-feature-gate.md](/Users/kareemullah/Desktop/welding-app/docs/offline-feature-gate.md)
 

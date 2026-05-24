@@ -10,11 +10,13 @@ import {
   OFFLINE_STOCK_STORE,
   buildOfflineAuditMeta,
   buildApiCacheKey,
+  isPackagedOfflineRuntime,
   shouldQueueOfflineWriteNow,
   shouldQueueOfflineWriteOnNetworkFailure,
   shouldUseOfflineApiCache,
 } from "@/lib/offline-cache";
 import { setPackagedServerReachable } from "@/lib/offline-reachability";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { OFFLINE_ID_MAP_STORE } from "@/lib/offline-id-reconciliation";
 import {
   applyQueuedMutationToReadModel,
@@ -33,6 +35,14 @@ interface FetchOptions {
 }
 
 const RETRYABLE_HTTP_STATUSES = new Set([502, 503, 504]);
+const PACKAGED_FETCH_TIMEOUT_MS = 8000;
+
+async function appFetch(url: string, init?: RequestInit): Promise<Response> {
+  if (typeof window !== "undefined" && isPackagedOfflineRuntime()) {
+    return fetchWithTimeout(url, init, PACKAGED_FETCH_TIMEOUT_MS);
+  }
+  return fetch(url, init);
+}
 
 async function queuePackagedOfflineWrite<T>(
   url: string,
@@ -351,7 +361,7 @@ export function useApi<T = unknown>() {
         return queued;
       }
 
-      const res = await fetch(fullUrl, fetchOptions);
+      const res = await appFetch(fullUrl, fetchOptions);
       const data = await res.json();
 
       if (data.success) {
@@ -388,10 +398,12 @@ export function useApi<T = unknown>() {
         setState({ data: null, loading: false, error });
         return { success: false, error };
       }
-    } catch (err) {
+    } catch {
       const method = options.method || "GET";
-      if (typeof window !== "undefined" && shouldQueueOfflineWriteOnNetworkFailure(url, method)) {
+      if (typeof window !== "undefined" && isPackagedOfflineRuntime()) {
         setPackagedServerReachable(false);
+      }
+      if (typeof window !== "undefined" && shouldQueueOfflineWriteOnNetworkFailure(url, method)) {
         const queued = await queuePackagedOfflineWrite<T>(
           url,
           method,
@@ -447,7 +459,7 @@ export async function apiCall<T = unknown>(
       }
     }
 
-    const res = await fetch(fullUrl, fetchOptions);
+      const res = await appFetch(fullUrl, fetchOptions);
     const data = await res.json();
 
     if (data.success) {
@@ -475,8 +487,10 @@ export async function apiCall<T = unknown>(
     return { success: false, error: data.error?.message || "Request failed" };
   } catch {
     const method = options.method || "GET";
-    if (typeof window !== "undefined" && shouldQueueOfflineWriteOnNetworkFailure(url, method)) {
+    if (typeof window !== "undefined" && isPackagedOfflineRuntime()) {
       setPackagedServerReachable(false);
+    }
+    if (typeof window !== "undefined" && shouldQueueOfflineWriteOnNetworkFailure(url, method)) {
       const queued = await queuePackagedOfflineWrite<T>(url, method, options.body, options.params);
       return { ...queued, data: queued.data as unknown as T };
     }

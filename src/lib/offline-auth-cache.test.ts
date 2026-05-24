@@ -2,8 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   OFFLINE_AUTH_CACHE_KEY,
+  buildOfflinePasswordVerifier,
   clearOfflineAuthCache,
   readOfflineAuthCache,
+  verifyOfflinePassword,
   writeOfflineAuthCache,
 } from "@/lib/offline-auth-cache";
 
@@ -14,26 +16,31 @@ class MemoryStorage {
   removeItem(key: string) { this.map.delete(key); }
 }
 
-test("writes and reads offline auth cache", () => {
+const sampleUser = {
+  id: 1,
+  username: "demo",
+  fullName: "Demo",
+  role: "city_admin" as const,
+  cityId: 10,
+  cityName: "Kandahar",
+  countryId: 2,
+  countryName: "Afghanistan",
+};
+
+test("writes and reads offline auth cache with bcrypt verifier", async () => {
   const storage = new MemoryStorage();
+  const passwordVerifier = await buildOfflinePasswordVerifier("secret");
   writeOfflineAuthCache(storage as unknown as Storage, {
     username: "demo",
-    password: "secret",
+    passwordVerifier,
     updatedAt: "2026-04-29T00:00:00.000Z",
-    user: {
-      id: 1,
-      username: "demo",
-      fullName: "Demo",
-      role: "city_admin",
-      cityId: 10,
-      cityName: "Kandahar",
-      countryId: 2,
-      countryName: "Afghanistan",
-    },
+    user: sampleUser,
   });
   const cached = readOfflineAuthCache(storage as unknown as Storage);
   assert.equal(cached?.username, "demo");
   assert.equal(cached?.user.fullName, "Demo");
+  assert.equal(await verifyOfflinePassword("secret", cached!), true);
+  assert.equal(await verifyOfflinePassword("wrong", cached!), false);
 });
 
 test("clear removes offline auth cache", () => {
@@ -42,4 +49,3 @@ test("clear removes offline auth cache", () => {
   clearOfflineAuthCache(storage as unknown as Storage);
   assert.equal(storage.getItem(OFFLINE_AUTH_CACHE_KEY), null);
 });
-

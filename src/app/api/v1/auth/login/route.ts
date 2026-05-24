@@ -5,11 +5,7 @@ import { loginSchema } from "@/lib/validations";
 import { successResponse, validationError, errorResponse } from "@/lib/api-response";
 import { checkRateLimit, rejectIfRateLimited } from "@/lib/rate-limit";
 import { allowSuperAdminInLockedDeployment, isAllowedCityName, isCityLockedDeployment } from "@/lib/deployment-profile";
-import crypto from "crypto";
-
-function hashToken(token: string): string {
-  return crypto.createHash("sha256").update(token).digest("hex");
-}
+import { hashToken } from "@/lib/session";
 
 function parseUserAgent(ua: string | null): string {
   if (!ua) return "Unknown device";
@@ -117,7 +113,6 @@ export async function POST(request: NextRequest) {
 
     // Set cookie for web app
     const response = successResponse({
-      token,
       user: {
         id: user.id,
         username: user.username,

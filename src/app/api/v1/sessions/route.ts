@@ -3,11 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth } from "@/lib/middleware";
 import { successResponse, serverError } from "@/lib/api-response";
 import { JWTPayload, getTokenFromRequest } from "@/lib/auth";
-import crypto from "crypto";
-
-function hashToken(token: string): string {
-  return crypto.createHash("sha256").update(token).digest("hex");
-}
+import { hashToken } from "@/lib/session";
 
 // GET /api/v1/sessions — list all active sessions for the current user
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {

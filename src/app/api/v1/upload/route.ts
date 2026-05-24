@@ -14,6 +14,31 @@ const ALLOWED_TYPES: Record<string, string> = {
 };
 const MAX_SIZE = 8 * 1024 * 1024; // 8MB
 
+async function assertEntityUploadAccess(
+  entityType: string,
+  entityId: number,
+  user: JWTPayload
+): Promise<Response | null> {
+  if (user.role === "super_admin") return null;
+
+  if (entityType === "payment") {
+    const row = await prisma.payment.findUnique({ where: { id: entityId }, select: { cityId: true } });
+    if (!row) return errorResponse("NOT_FOUND", "Payment not found", 404);
+    if (row.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not allowed", 403);
+    return null;
+  }
+  if (entityType === "expense") {
+    const row = await prisma.expense.findUnique({ where: { id: entityId }, select: { cityId: true } });
+    if (!row) return errorResponse("NOT_FOUND", "Expense not found", 404);
+    if (row.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not allowed", 403);
+    return null;
+  }
+  const row = await prisma.hajiTransfer.findUnique({ where: { id: entityId }, select: { cityId: true } });
+  if (!row) return errorResponse("NOT_FOUND", "Haji transfer not found", 404);
+  if (row.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not allowed", 403);
+  return null;
+}
+
 // POST /api/v1/upload
 // Body: multipart/form-data with fields: file, entityType (payment|expense|haji_transfer), entityId
 export const POST = withAuth(async (request: NextRequest, _context, user: JWTPayload) => {
@@ -28,6 +53,9 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       return errorResponse("VALIDATION_ERROR", "Invalid entityType");
     const entityId = parseInt(entityIdStr || "");
     if (!entityId) return errorResponse("VALIDATION_ERROR", "Invalid entityId");
+
+    const accessError = await assertEntityUploadAccess(entityType, entityId, user);
+    if (accessError) return accessError;
 
     const ext = ALLOWED_TYPES[file.type];
     if (!ext) return errorResponse("VALIDATION_ERROR", "Only JPEG, PNG, WebP and PDF allowed");

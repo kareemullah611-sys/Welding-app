@@ -1,7 +1,7 @@
 // Service Worker for MRF Hardware Management System
 // Provides offline caching and background sync
 
-const CACHE_NAME = "mrf-hardware-v2";
+const CACHE_NAME = "mrf-hardware-v3";
 const API_CACHE_NAME = "mrf-hardware-api-v1";
 
 // Static assets to precache
@@ -143,21 +143,19 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Static assets (JS, CSS, images) — stale while revalidate
+  // Static assets (JS, CSS, images) — network-first so design changes apply immediately
+  // when online; cache is only used as offline fallback.
   if (url.pathname.startsWith("/_next/") || url.pathname.startsWith("/favicon")) {
     event.respondWith(
-      caches.match(event.request).then((cached) => {
-        const fetchPromise = fetch(event.request)
-          .then((response) => {
-            if (response.ok) {
-              const clone = response.clone();
-              caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-            }
-            return response;
-          })
-          .catch(() => cached);
-        return cached || fetchPromise;
-      })
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request))
     );
     return;
   }

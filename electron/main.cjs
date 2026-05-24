@@ -18,7 +18,7 @@ function readConfiguredUrl() {
 }
 
 const REMOTE_URL = process.env.ELECTRON_START_URL || readConfiguredUrl() || "http://localhost:3000";
-const STATIC_DIR = path.join(__dirname, "..", "out");
+const STATIC_DIR = path.resolve(path.join(__dirname, "..", "out"));
 
 const MIME_TYPES = {
   ".html": "text/html",
@@ -45,7 +45,12 @@ function hasLocalBuild() {
 function resolveStaticFile(pathname) {
   if (pathname === "/") return path.join(STATIC_DIR, "index.html");
 
-  let filePath = path.join(STATIC_DIR, pathname);
+  const relativePath = pathname.replace(/^\/+/, "");
+  let filePath = path.resolve(STATIC_DIR, relativePath);
+  const staticRoot = STATIC_DIR.endsWith(path.sep) ? STATIC_DIR : STATIC_DIR + path.sep;
+  if (!filePath.startsWith(staticRoot)) {
+    return path.join(STATIC_DIR, "index.html");
+  }
 
   if (!path.extname(filePath)) {
     const htmlPath = filePath + ".html";
@@ -206,7 +211,7 @@ const ALLOWED_API_PREFIXES = [
   "/api/v1/notifications", "/api/v1/activity-feed", "/api/v1/search", "/api/v1/sessions",
   "/api/v1/users", "/api/v1/finance/", "/api/v1/financial-reports", "/api/v1/city-ledger",
   "/api/v1/profit-report", "/api/v1/accounting", "/api/v1/analytics", "/api/v1/reports/",
-  "/api/v1/discounts", "/api/v1/admin-cleanup", "/api/health", "/api/v1/upload",
+  "/api/v1/discounts", "/api/v1/admin-cleanup", "/api/health", "/api/ping", "/api/v1/upload",
   "/api/v1/cheques", "/api/v1/godown-permissions",
 ];
 

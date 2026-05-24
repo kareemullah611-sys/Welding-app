@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
-import { getUserFromRequest, JWTPayload } from "@/lib/auth";
+import { getTokenFromRequest, JWTPayload, verifyToken } from "@/lib/auth";
+import { isSessionActive } from "@/lib/session";
 import { unauthorizedResponse, forbiddenResponse } from "@/lib/api-response";
 import prisma from "@/lib/prisma";
 import { Prisma, PrismaClient } from "@prisma/client";
@@ -19,7 +20,7 @@ export type ApiHandler = (
 // ============================================================
 const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
-function isCsrfSafe(request: NextRequest): boolean {
+export function isCsrfSafe(request: NextRequest): boolean {
   // Only mutation methods need CSRF protection
   if (!MUTATION_METHODS.has(request.method)) return true;
 
@@ -79,9 +80,12 @@ function csrfError(): Response {
 export function withAuth(handler: ApiHandler) {
   return async (request: NextRequest, context: { params: Record<string, string> }) => {
     if (!isCsrfSafe(request)) return csrfError();
-    const user = getUserFromRequest(request);
-    if (!user) {
-      return unauthorizedResponse("Invalid or expired token");
+    const token = getTokenFromRequest(request);
+    if (!token) return unauthorizedResponse("Invalid or expired token");
+    const user = verifyToken(token);
+    if (!user) return unauthorizedResponse("Invalid or expired token");
+    if (!(await isSessionActive(token))) {
+      return unauthorizedResponse("Session expired or revoked");
     }
     return handler(request, context, user);
   };

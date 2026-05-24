@@ -1,9 +1,12 @@
 /** Server reachability for packaged apps (Electron / Capacitor). Wi‑Fi state is ignored. */
 
-const PROBE_URL = "/api/health";
-const PROBE_TIMEOUT_MS = 6000;
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 
-let packagedServerReachable = true;
+const PROBE_URL = "/api/health";
+const PROBE_TIMEOUT_MS = 4000;
+
+/** Assume offline until a quick health probe succeeds (offline-first startup). */
+let packagedServerReachable = false;
 
 export function getPackagedServerReachable(): boolean {
   return packagedServerReachable;
@@ -16,20 +19,16 @@ export function setPackagedServerReachable(reachable: boolean): void {
 export async function probeServerReachable(): Promise<boolean> {
   if (typeof window === "undefined") return true;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
   try {
-    const res = await fetch(PROBE_URL, {
-      credentials: "include",
-      cache: "no-store",
-      signal: controller.signal,
-    });
+    const res = await fetchWithTimeout(
+      PROBE_URL,
+      { credentials: "include", cache: "no-store" },
+      PROBE_TIMEOUT_MS
+    );
     if (!res.ok) return false;
     const json = await res.json().catch(() => null);
     return Boolean(json?.ok);
   } catch {
     return false;
-  } finally {
-    clearTimeout(timeout);
   }
 }

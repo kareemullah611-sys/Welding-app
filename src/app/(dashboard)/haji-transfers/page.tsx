@@ -568,9 +568,9 @@ export default function HajiTransfersPage() {
           title={t("haji_transfers")}
           subtitle="Consolidated under Payments for super admin operations"
         />
-        <div className="rounded-xl border border-[#e8dccd] bg-[#fbf6ef]/80 p-5">
-          <p className="text-sm font-semibold text-[#3a2b1e]">Use Payments as the single settlement module</p>
-          <p className="mt-1 text-sm text-[#6d5a47]">
+        <div className="rounded-xl border border-[#d4d4d8] bg-[#f4f4f5]/90 p-5">
+          <p className="text-sm font-semibold text-[#2A0608]">Use Payments as the single settlement module</p>
+          <p className="mt-1 text-sm text-[#52525b]">
             Super admin incoming settlements from city admins are managed in Payments. This keeps one clean workflow and avoids duplicate modules.
           </p>
           <div className="mt-4">

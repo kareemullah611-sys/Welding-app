@@ -1,14 +1,28 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { getUserFromRequest, comparePassword, hashPassword } from "@/lib/auth";
+import { getTokenFromRequest, comparePassword, hashPassword, verifyToken } from "@/lib/auth";
 import { changePasswordSchema } from "@/lib/validations";
 import { successResponse, unauthorizedResponse, validationError, errorResponse, serverError } from "@/lib/api-response";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { isCsrfSafe } from "@/lib/middleware";
+import { isSessionActive } from "@/lib/session";
 
 export async function PUT(request: NextRequest) {
   try {
-    const payload = getUserFromRequest(request);
+    if (!isCsrfSafe(request)) {
+      return new Response(
+        JSON.stringify({ success: false, error: "CSRF_ERROR", message: "Cross-site request blocked" }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    const token = getTokenFromRequest(request);
+    if (!token) return unauthorizedResponse();
+    const payload = verifyToken(token);
     if (!payload) return unauthorizedResponse();
+    if (!(await isSessionActive(token))) {
+      return unauthorizedResponse("Session expired or revoked");
+    }
 
     // Rate limit: 5 password-change attempts per user per 15 minutes
     const limited = checkRateLimit(`chpwd:${payload.userId}`, 5, 15 * 60 * 1000);

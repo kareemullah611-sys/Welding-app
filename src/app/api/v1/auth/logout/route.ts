@@ -2,11 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getTokenFromRequest } from "@/lib/auth";
 import { successResponse } from "@/lib/api-response";
-import crypto from "crypto";
-
-function hashToken(token: string): string {
-  return crypto.createHash("sha256").update(token).digest("hex");
-}
+import { hashToken } from "@/lib/session";
 
 export async function POST(request: NextRequest) {
   // Deactivate the session
