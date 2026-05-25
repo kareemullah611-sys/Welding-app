@@ -7,17 +7,18 @@ import { LangProvider, useLang } from "@/lib/lang";
 import { cn } from "@/lib/utils";
 import MRFLoader from "@/components/ui/MRFLoader";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
+import { getEmbedFromLocation } from "@/lib/quickform-embed";
 
 function AppInner({ children }: { children: React.ReactNode }) {
   const { dir } = useLang();
   const { collapsed } = useSidebar();
   const isRTL = dir === "rtl";
-  const isEmbed = useQuickformEmbed();
+  const isEmbed = useQuickformEmbed() || getEmbedFromLocation();
 
   if (isEmbed) {
     return (
-      <div className="quickform-embed min-h-screen overflow-y-auto bg-[#f0f0f2]" dir={dir}>
-        <main className="flex min-h-screen flex-col">
+      <div className="quickform-embed h-[100dvh] min-h-0 overflow-hidden bg-[#f0f0f2]" dir={dir}>
+        <main className="flex h-full min-h-0 flex-col">
           <div className="flex min-h-0 flex-1 flex-col px-0 py-0">{children}</div>
         </main>
       </div>

@@ -641,7 +641,7 @@ export function Modal({
       <div
         onKeyDownCapture={handleFormKeyNav}
         className={cn(
-          "w-full min-h-screen overflow-y-auto overscroll-contain",
+          "h-full min-h-0 w-full overflow-y-auto overscroll-contain",
           bodyClassName || "px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4 sm:py-4"
         )}
       >

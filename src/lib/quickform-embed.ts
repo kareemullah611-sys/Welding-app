@@ -7,7 +7,11 @@ export function getEmbedFromLocation(): boolean {
 
 /** Preserve embed=1 when clearing create/prefill params (read URL directly — hook may lag). */
 export function getEmbedQuickformPath(pathname: string): string {
-  if (!getEmbedFromLocation()) return pathname;
+  if (typeof window === "undefined") return pathname;
+  const embedded =
+    new URLSearchParams(window.location.search).get("embed") === "1" ||
+    getEmbedFromLocation();
+  if (!embedded) return pathname;
   return `${pathname}?embed=1`;
 }
 

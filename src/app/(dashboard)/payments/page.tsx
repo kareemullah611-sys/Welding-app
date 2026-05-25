@@ -12,7 +12,7 @@ import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { useSearchParams } from "next/navigation";
-import { getEmbedQuickformPath } from "@/lib/quickform-embed";
+import { getEmbedFromLocation, getEmbedQuickformPath } from "@/lib/quickform-embed";
 
 
 const TYPE_CONFIG: Record<string, { label: string; color: string; amountColor: string }> = {
@@ -209,7 +209,8 @@ export default function PaymentsPage() {
   }, []);
 
   const load = useCallback(async () => {
-    if (isEmbed) {
+    const embedRoute = isEmbed || getEmbedFromLocation();
+    if (embedRoute) {
       setLoading(false);
       return;
     }
