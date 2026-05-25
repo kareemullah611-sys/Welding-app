@@ -6,24 +6,47 @@ on:
     - cron: "*/5 * * * *"
   workflow_dispatch:
 
+env:
+  # Fallback if PING_URL secret is missing or malformed (trim quotes/newlines in secret if needed).
+  DEFAULT_PING_URL: https://welding-app-jhhc.onrender.com/api/ping
+
 jobs:
   keep-alive:
     runs-on: ubuntu-latest
     steps:
-      - name: Validate configuration
-        run: |
-          if [ -z "${PING_URL}" ]; then
-            echo "Missing PING_URL secret."
-            echo "Set PING_URL=https://welding-app-jhhc.onrender.com/api/ping in GitHub repo secrets."
-            exit 1
-          fi
-        env:
-          PING_URL: ${{ secrets.PING_URL }}
-
       - name: Ping Render (keep-alive)
         run: |
-          response="$(curl -fsS --max-time 20 "${PING_URL}")"
+          set -euo pipefail
+          raw="${PING_URL:-}"
+          ping_url="$(printf '%s' "$raw" | tr -d '\n\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^["'\'']//' -e 's/["'\'']$//')"
+          if [ -z "$ping_url" ]; then
+            ping_url="${DEFAULT_PING_URL}"
+            echo "PING_URL secret empty — using default."
+          fi
+          case "$ping_url" in
+            http://*|https://*) ;;
+            *)
+              echo "PING_URL is not a valid URL (got length ${#ping_url})."
+              echo "Set GitHub secret PING_URL to: ${DEFAULT_PING_URL}"
+              echo "No quotes, no spaces, no trailing newline."
+              exit 1
+              ;;
+          esac
+          echo "Pinging: ${ping_url}"
+          response=""
+          for attempt in 1 2 3; do
+            if response="$(curl -fsS --max-time 45 "$ping_url" 2>/dev/null)"; then
+              break
+            fi
+            echo "Attempt ${attempt} failed (server may be waking); retrying in 15s..."
+            sleep 15
+          done
+          if [ -z "$response" ]; then
+            echo "Keep-alive ping failed after 3 attempts."
+            exit 1
+          fi
           echo "Ping response: ${response}"
           RESPONSE="${response}" node -e 'const r=JSON.parse(process.env.RESPONSE||"{}"); if(r.ok!==true){console.error("Keep-alive ping failed", r); process.exit(1)}'
         env:
           PING_URL: ${{ secrets.PING_URL }}
+          DEFAULT_PING_URL: ${{ env.DEFAULT_PING_URL }}

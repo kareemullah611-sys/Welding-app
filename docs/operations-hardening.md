@@ -40,7 +40,10 @@ Setup:
 
 1. GitHub repo → **Settings → Secrets and variables → Actions**
 2. New secret: `PING_URL` = `https://welding-app-jhhc.onrender.com/api/ping`
+   - **No quotes**, no spaces, no trailing newline (a bad secret causes `curl: URL rejected`).
 3. **Actions → Uptime Monitor → Run workflow** to verify
+
+If the secret is missing or malformed, the workflow falls back to the default URL above.
 
 Enable failure alerts: GitHub repo settings → notify on Actions failures.
 

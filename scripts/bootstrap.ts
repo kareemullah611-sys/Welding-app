@@ -91,6 +91,34 @@ async function main() {
         AND "cheque_number" IS NOT NULL
   `);
 
+  // Compatibility guard: some production DBs were baselined without this column.
+  // Treasury reads supplier payments by bank account, so ensure schema parity.
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "supplier_payments"
+      ADD COLUMN IF NOT EXISTS "bank_account_id" INTEGER
+  `);
+  await prisma.$executeRawUnsafe(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'supplier_payments_bank_account_id_fkey'
+      ) THEN
+        ALTER TABLE "supplier_payments"
+          ADD CONSTRAINT "supplier_payments_bank_account_id_fkey"
+          FOREIGN KEY ("bank_account_id")
+          REFERENCES "bank_accounts"("id")
+          ON DELETE SET NULL
+          ON UPDATE CASCADE;
+      END IF;
+    END $$;
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "supplier_payments_bank_account_id_idx"
+      ON "supplier_payments" ("bank_account_id")
+  `);
+
   const userCount = await prisma.user.count();
   if (userCount === 0) {
     console.log("No users found. Running initial seed...");

@@ -11,7 +11,9 @@ const nextConfig = {
   } : {
     async headers() {
       const securityHeaders = [
-        { key: "X-Frame-Options", value: "DENY" },
+        // Dashboard quickforms render same-origin pages in an iframe (?embed=1),
+        // so DENY blocks them completely.
+        { key: "X-Frame-Options", value: "SAMEORIGIN" },
         { key: "X-Content-Type-Options", value: "nosniff" },
         { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
         { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },

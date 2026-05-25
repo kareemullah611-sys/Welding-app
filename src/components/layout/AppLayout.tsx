@@ -16,8 +16,8 @@ function AppInner({ children }: { children: React.ReactNode }) {
 
   if (isEmbed) {
     return (
-      <div className="quickform-embed h-[100dvh] min-h-0 overflow-hidden bg-[#f0f0f2]" dir={dir}>
-        <main className="flex h-full min-h-0 flex-col">
+      <div className="quickform-embed min-h-screen overflow-y-auto bg-[#f0f0f2]" dir={dir}>
+        <main className="flex min-h-screen flex-col">
           <div className="flex min-h-0 flex-1 flex-col px-0 py-0">{children}</div>
         </main>
       </div>
