@@ -10,6 +10,7 @@ import * as XLSX from "xlsx";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingLots } from "@/lib/offline-queue-overlays";
 import { computeLotLandedCostPkr, lotCostToPkr } from "@/lib/landed-cost-pkr";
+import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { applyQueuedMutationsToLots } from "@/lib/offline-remaining-mutations";
 
 const LOTS_READ_CACHE_KEY = "mrf-lots-read-cache-v1";

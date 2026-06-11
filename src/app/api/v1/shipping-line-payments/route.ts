@@ -6,6 +6,7 @@ import { journalShippingLinePayment } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { validatePaymentSource } from "@/lib/payment-source-validation";
 import { settlementAmountToPkr } from "@/lib/payment-currencies";
+import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 
 const SHIPPING_LINE_PAYMENT_SYNC_MODULE = "shipping_line_payments";
 const SUPERADMIN_SYNC_CITY_ID = 0;

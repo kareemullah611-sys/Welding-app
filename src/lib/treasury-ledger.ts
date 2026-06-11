@@ -132,7 +132,7 @@ export async function computeCityTreasuryNet(
     for (const c of rows) codeById[c.id] = c.code;
   };
 
-  const mapRows = async (rows: { currencyId: number; _sum: { amount?: unknown; cashAmount?: unknown } | null }[], field: "amount" | "cashAmount" = "amount") => {
+  const mapRows = async (rows: { currencyId: number; _sum?: { amount?: unknown; cashAmount?: unknown } | null }[], field: "amount" | "cashAmount" = "amount") => {
     await resolveCodes(rows.map((r) => r.currencyId));
     return toBalanceMap(
       rows.map((r) => ({

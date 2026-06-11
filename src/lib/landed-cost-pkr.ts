@@ -1,9 +1,9 @@
 /** PKR-normalized landed cost — shared by Lots page, profit-report API, and COGS journals. */
 
 export type LotCostLike = {
-  amount?: number | string | null;
+  amount?: unknown;
   currencyCode?: string | null;
-  exchangeRate?: number | string | null;
+  exchangeRate?: unknown;
   costType?: string | null;
 };
 
@@ -66,7 +66,7 @@ export function lotExpensesByCurrencyToPkr(
 }
 
 export function groupExpensesByCurrency(
-  expenses: Array<{ amount?: number | string | null; currency?: { code?: string | null } | null }>
+  expenses: Array<{ amount?: unknown; currency?: { code?: string | null } | null }>
 ): Record<string, number> {
   const out: Record<string, number> = {};
   for (const e of expenses) {
