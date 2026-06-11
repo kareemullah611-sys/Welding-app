@@ -103,7 +103,6 @@ export const POST = withSuperAdmin(async (request: NextRequest, _ctx: any, _user
     await prisma.investor.deleteMany();
     await prisma.journalEntry.deleteMany();
     await prisma.auditLog.deleteMany();
-    await prisma.notification.deleteMany();
     await prisma.attachment.deleteMany();
     await prisma.saleItem.deleteMany();
     await prisma.saleDiscount.deleteMany();

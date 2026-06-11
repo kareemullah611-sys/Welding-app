@@ -5,7 +5,7 @@ import { successResponse, validationError, errorResponse, serverError } from "@/
 import { journalShippingLinePayment } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { validatePaymentSource } from "@/lib/payment-source-validation";
-import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import { settlementAmountToPkr } from "@/lib/payment-currencies";
 
 const SHIPPING_LINE_PAYMENT_SYNC_MODULE = "shipping_line_payments";
 const SUPERADMIN_SYNC_CITY_ID = 0;
@@ -14,7 +14,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
   const syncMeta = getSyncRequestMeta(request);
   try {
     const body = await request.json();
-    const { shippingLineId, lotId, paymentDate, amountUsd, exchangeRate, reference, notes, bankAccountId, intermediaryId } = body;
+    const { shippingLineId, lotId, paymentDate, amountUsd, settlementCurrency, exchangeRate, reference, notes, bankAccountId, intermediaryId } = body;
     const parsedShippingLineId = Number(shippingLineId);
     const parsedLotId = lotId ? Number(lotId) : null;
 
@@ -51,7 +51,12 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
       }
     }
 
-    const amountPkr = exchangeRate ? Math.round(Number(amountUsd) * Number(exchangeRate) * 100) / 100 : null;
+    const amountPkrValue = settlementAmountToPkr(
+      Number(amountUsd),
+      String(settlementCurrency || "USD"),
+      exchangeRate ? Number(exchangeRate) : 0
+    );
+    const amountPkr = amountPkrValue > 0 ? Math.round(amountPkrValue * 100) / 100 : null;
 
     const payment = await prisma.$transaction(async (tx) => {
       const created = await tx.shippingLinePayment.create({

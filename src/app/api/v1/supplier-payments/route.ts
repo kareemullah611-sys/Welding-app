@@ -127,9 +127,11 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
 
       await journalSupplierPaid({
         id: created.id, supplierId: parsed.data.supplierId, amountUsd: parsed.data.amountUsd,
+        amountLocal: computedLocal,
         paymentDate: created.paymentDate, createdBy: user.userId,
         bankAccountId: source.bankAccountId,
         intermediaryId: source.intermediaryId,
+        settlementCurrencyCode: source.bankAccountId ? "PKR" : null,
       }, tx);
       return created;
     });

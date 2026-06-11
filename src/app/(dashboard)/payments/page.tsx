@@ -13,6 +13,7 @@ import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { useSearchParams } from "next/navigation";
 import { getEmbedFromLocation, getEmbedQuickformPath } from "@/lib/quickform-embed";
+import { formatCityAmount, formatCityPot } from "@/lib/city-money-format";
 
 
 const TYPE_CONFIG: Record<string, { label: string; color: string; amountColor: string }> = {
@@ -140,6 +141,7 @@ export default function PaymentsPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [currentBalanceByCurrency, setCurrentBalanceByCurrency] = useState<Record<string, number>>({});
   const defaultDateRange = getCurrentMonthDateRange();
   const [fromDate, setFromDate] = useState(defaultDateRange.from);
   const [toDate, setToDate] = useState(defaultDateRange.to);
@@ -263,6 +265,10 @@ export default function PaymentsPage() {
       setItems(nextItems);
       setTotalPages((r.pagination as any)?.totalPages || 1);
       setTotal((r.pagination as any)?.total || 0);
+      const meta = r.meta as { currentBalanceByCurrency?: Record<string, number> } | undefined;
+      if (meta?.currentBalanceByCurrency) {
+        setCurrentBalanceByCurrency(meta.currentBalanceByCurrency);
+      }
       writeOfflineReadSnapshot<PaymentsReadSnapshot>(PAYMENTS_READ_CACHE_KEY, {
         items: nextItems,
         totalPages: (r.pagination as any)?.totalPages || 1,
@@ -1018,7 +1024,7 @@ export default function PaymentsPage() {
       label: "Running Balance",
       render: (item: any) => (
         <span className="text-sm font-medium text-gray-700">
-          {item.currencyCode} {Number(item.runningBalance || 0).toLocaleString("en-US")}
+          {formatCityAmount(user, item.runningBalance || 0, item.currencyCode)}
         </span>
       ),
     },
@@ -1083,7 +1089,18 @@ export default function PaymentsPage() {
     <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
       {!isEmbed && <PageHeader
         title={isSuperAdmin ? "Payments" : t("payments")}
-        subtitle={isSuperAdmin ? `City settlements received by super admin · ${total} ${t("records").toLowerCase()}` : `${total} ${t("records").toLowerCase()}`}
+        subtitle={
+          isSuperAdmin
+            ? `City settlements received by super admin · ${total} ${t("records").toLowerCase()}`
+            : [
+                `${total} ${t("records").toLowerCase()}`,
+                Object.keys(currentBalanceByCurrency).length > 0
+                  ? `Net balance ${formatCityPot(user, currentBalanceByCurrency)} (matches dashboard)`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+        }
         action={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <input

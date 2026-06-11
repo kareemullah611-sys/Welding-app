@@ -9,7 +9,7 @@ import { Pencil, Package, CheckCircle, RotateCcw, Trash2, Warehouse } from "luci
 import * as XLSX from "xlsx";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingLots } from "@/lib/offline-queue-overlays";
-import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
+import { computeLotLandedCostPkr, lotCostToPkr } from "@/lib/landed-cost-pkr";
 import { applyQueuedMutationsToLots } from "@/lib/offline-remaining-mutations";
 
 const LOTS_READ_CACHE_KEY = "mrf-lots-read-cache-v1";
@@ -130,23 +130,6 @@ export default function LotsPage() {
     });
   }, [readSnapshot]);
 
-  const lotCostToPkr = (cost: any, usdPkrRate: number) => {
-    const amount = Number(cost?.amount || 0);
-    const code = String(cost?.currencyCode || "PKR").toUpperCase();
-    if (!amount) return 0;
-    if (code === "PKR") return amount;
-    if (code === "AFN") {
-      const afnPkrRate = Number(cost?.exchangeRate || 0);
-      return afnPkrRate > 0 ? amount * afnPkrRate : 0;
-    }
-    if (code === "USD") {
-      const rate = Number(cost?.exchangeRate || 0) > 0 ? Number(cost.exchangeRate) : usdPkrRate;
-      return rate > 0 ? amount * rate : 0;
-    }
-    const legacyRate = Number(cost?.exchangeRate || 0);
-    if (legacyRate <= 0 || usdPkrRate <= 0) return 0;
-    return (amount / legacyRate) * usdPkrRate;
-  };
 
   const loadLots = useCallback(async () => {
     setLoading(true);
@@ -1248,22 +1231,18 @@ export default function LotsPage() {
               const rate = selectedLot.pkrExchangeRate || Number(pkrRateInput) || 0;
               const purchaseUsd = selectedLot.costSummary?.totalPurchaseUsd || 0;
               const costRows = selectedLot.costSummary?.costBreakdown || [];
-              const freightUsd = costRows
-                .filter((c: any) => c.costType === "freight")
-                .reduce((s: number, c: any) => s + Number(c.amount || 0), 0);
-              const afnPkrRate = costRows
-                .filter((c: any) => String(c.currencyCode || "").toUpperCase() === "AFN" && Number(c.exchangeRate || 0) > 0)
-                .slice(-1)[0]?.exchangeRate || 0;
-              const nonFreightPkr = costRows
-                .filter((c: any) => c.costType !== "freight")
-                .reduce((s: number, c: any) => s + lotCostToPkr(c, rate), 0);
-              const lotExpenseByCurrency = selectedLot.costSummary?.lotExpensesByCurrency || {};
-              const lotExpensesPkr =
-                Number(lotExpenseByCurrency["PKR"] || 0) +
-                Number(lotExpenseByCurrency["USD"] || 0) * rate +
-                Number(lotExpenseByCurrency["AFN"] || 0) * Number(afnPkrRate || 0);
-              const directPkr = nonFreightPkr + lotExpensesPkr;
-              const totalCostPkr = rate > 0 ? (purchaseUsd + freightUsd) * rate + directPkr : 0;
+              const totalCartons = (selectedLot.products || []).reduce(
+                (s: number, p: any) => s + Number(p.totalQty || 0),
+                0
+              );
+              const landed = computeLotLandedCostPkr({
+                totalPurchaseUsd: purchaseUsd,
+                totalCartons,
+                lotCosts: costRows,
+                lotExpensesByCurrency: selectedLot.costSummary?.lotExpensesByCurrency || {},
+                usdPkrRate: rate,
+              });
+              const totalCostPkr = landed.totalLandedCostPkr;
               const isAfg = selectedLot.country?.code === "AFG";
               const revenuePkr = rate > 0 ? (isAfg ? (selectedLot.summary?.totalPayments || 0) * rate : (selectedLot.summary?.totalPayments || 0)) : 0;
               const profitPkr  = rate > 0 ? revenuePkr - totalCostPkr : 0;
@@ -1296,12 +1275,12 @@ export default function LotsPage() {
                     <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                       <div className="rounded-lg border border-emerald-100 bg-white p-2 text-center">
                         <p className="text-xs text-gray-400">Purchase Cost (PKR)</p>
-                        <p className="font-bold text-gray-800">Rs. {Math.round(purchaseUsd * rate).toLocaleString("en-US")}</p>
+                        <p className="font-bold text-gray-800">Rs. {Math.round(landed.purchasePkr).toLocaleString("en-US")}</p>
                       </div>
                       <div className="rounded-lg border border-emerald-100 bg-white p-2 text-center">
                         <p className="text-xs text-gray-400">Other Costs (PKR)</p>
-                        <p className="font-bold text-gray-800">Rs. {Math.round(freightUsd * rate + directPkr).toLocaleString("en-US")}</p>
-                        {Number(lotExpenseByCurrency["AFN"] || 0) > 0 && !afnPkrRate && (
+                        <p className="font-bold text-gray-800">Rs. {Math.round(landed.freightPkr + landed.nonFreightCostsPkr + landed.lotExpensesPkr).toLocaleString("en-US")}</p>
+                        {landed.lotExpensesPkr > 0 && landed.afnToPkrRate <= 0 && Number((selectedLot.costSummary?.lotExpensesByCurrency || {}).AFN || 0) > 0 && (
                           <p className="text-[11px] text-amber-600">AFN expenses not converted (missing AFN→PKR rate)</p>
                         )}
                       </div>

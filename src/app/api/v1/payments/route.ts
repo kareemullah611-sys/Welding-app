@@ -313,6 +313,10 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         id: createdPayment.id, customerId: createdPayment.customerId, cityId: createdPayment.cityId, lotId: createdPayment.lotId,
         amount: Number(createdPayment.amount), currencyCode: createdPayment.currency.code,
         paymentDate: createdPayment.paymentDate, createdBy: user.userId,
+        destination: createdPayment.destination,
+        superAdminBankAccountId: (createdPayment as any).superAdminBankAccountId ?? null,
+        bankAccountId: (createdPayment as any).bankAccountId ?? null,
+        paymentMethod: createdPayment.paymentMethod,
       }, tx);
 
       if (syncMeta) {

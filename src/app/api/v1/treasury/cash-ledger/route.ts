@@ -1,0 +1,211 @@
+import { NextRequest } from "next/server";
+import prisma from "@/lib/prisma";
+import { withAuth, getCityScope } from "@/lib/middleware";
+import { successResponse, errorResponse, serverError } from "@/lib/api-response";
+import { JWTPayload } from "@/lib/auth";
+
+// Chronological "Cash in Office" ledger. Every row here moves the SAME pot that
+// /api/v1/treasury computes as `cashInOffice`, using identical filters, so the
+// final running balance per currency reconciles exactly with that endpoint:
+//
+//   cashInOffice = openingCash + cashPayments
+//                - hajiTransfers(cash_office)
+//                - expenses(cash_office)
+//                - bankDeposits(cashAmount)
+//                - withdrawals(cash_office)
+
+type LedgerRow = {
+  key: string;
+  date: Date;
+  createdAt: Date;
+  type: string;
+  detail: string;
+  reference: string | null;
+  currencyId: number;
+  credit: number;
+  debit: number;
+  runningBalance?: number;
+  currencyCode?: string;
+};
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayload) => {
+  try {
+    const searchParams = request.nextUrl.searchParams;
+    const requestedCityId = searchParams.get("cityId")
+      ? parseInt(searchParams.get("cityId")!)
+      : undefined;
+    const cityId = getCityScope(user, requestedCityId);
+
+    if (!cityId) {
+      return errorResponse(
+        "VALIDATION_ERROR",
+        "cityId is required for super_admin when not filtering by city"
+      );
+    }
+
+    const [openingCash, cashPayments, hajiOut, expenseOut, deposits, withdrawalsOut] =
+      await Promise.all([
+        prisma.openingCash.findMany({
+          where: { cityId },
+          select: { id: true, openingDate: true, createdAt: true, amount: true, currencyId: true, notes: true },
+        }),
+        prisma.payment.findMany({
+          where: {
+            cityId,
+            paymentMethod: "cash",
+            destination: "our_account",
+            status: "active",
+          },
+          select: {
+            id: true,
+            paymentDate: true,
+            createdAt: true,
+            amount: true,
+            currencyId: true,
+            detail: true,
+            manualVoucherNo: true,
+          },
+        }),
+        prisma.hajiTransfer.findMany({
+          where: { cityId, sourceType: "cash_office" },
+          select: { id: true, transferDate: true, createdAt: true, amount: true, currencyId: true, detail: true },
+        }),
+        prisma.expense.findMany({
+          where: { cityId, paidFrom: "cash_office", deletedAt: null },
+          select: { id: true, expenseDate: true, createdAt: true, amount: true, currencyId: true, detail: true },
+        }),
+        prisma.bankDeposit.findMany({
+          where: { cityId },
+          select: { id: true, depositDate: true, createdAt: true, cashAmount: true, currencyId: true, slipNumber: true },
+        }),
+        prisma.personalWithdrawal.findMany({
+          where: { cityId, sourceType: "cash_office" } as any,
+          select: { id: true, withdrawalDate: true, createdAt: true, amount: true, currencyId: true, detail: true },
+        }),
+      ]);
+
+    const rows: LedgerRow[] = [];
+
+    for (const o of openingCash) {
+      rows.push({
+        key: `open-${o.id}`,
+        date: new Date(o.openingDate),
+        createdAt: new Date(o.createdAt),
+        type: "Opening Cash",
+        detail: o.notes || "Opening cash balance",
+        reference: null,
+        currencyId: o.currencyId,
+        credit: Number(o.amount),
+        debit: 0,
+      });
+    }
+    for (const p of cashPayments) {
+      rows.push({
+        key: `pay-${p.id}`,
+        date: new Date(p.paymentDate),
+        createdAt: new Date(p.createdAt),
+        type: "Cash Received",
+        detail: p.detail || "Customer payment",
+        reference: p.manualVoucherNo || null,
+        currencyId: p.currencyId,
+        credit: Number(p.amount),
+        debit: 0,
+      });
+    }
+    for (const h of hajiOut) {
+      rows.push({
+        key: `haji-${h.id}`,
+        date: new Date(h.transferDate),
+        createdAt: new Date(h.createdAt),
+        type: "Haji Transfer",
+        detail: h.detail || "Transfer to Haji",
+        reference: null,
+        currencyId: h.currencyId,
+        credit: 0,
+        debit: Number(h.amount),
+      });
+    }
+    for (const e of expenseOut) {
+      rows.push({
+        key: `exp-${e.id}`,
+        date: new Date(e.expenseDate),
+        createdAt: new Date(e.createdAt),
+        type: "Expense",
+        detail: e.detail || "Expense",
+        reference: null,
+        currencyId: e.currencyId,
+        credit: 0,
+        debit: Number(e.amount),
+      });
+    }
+    for (const d of deposits) {
+      // Positive cashAmount = cash leaving office into bank (debit).
+      // Negative cashAmount = cash withdrawn from bank back to office (credit).
+      const cash = Number(d.cashAmount || 0);
+      rows.push({
+        key: `dep-${d.id}`,
+        date: new Date(d.depositDate),
+        createdAt: new Date(d.createdAt),
+        type: cash < 0 ? "Cash from Bank" : "Bank Deposit",
+        detail: cash < 0 ? "Cash withdrawn from bank" : "Cash deposited to bank",
+        reference: d.slipNumber || null,
+        currencyId: d.currencyId,
+        credit: cash < 0 ? Math.abs(cash) : 0,
+        debit: cash > 0 ? cash : 0,
+      });
+    }
+    for (const w of withdrawalsOut) {
+      rows.push({
+        key: `wd-${w.id}`,
+        date: new Date(w.withdrawalDate),
+        createdAt: new Date(w.createdAt),
+        type: "Withdrawal",
+        detail: w.detail || "Personal withdrawal",
+        reference: null,
+        currencyId: w.currencyId,
+        credit: 0,
+        debit: Number(w.amount),
+      });
+    }
+
+    // Resolve currency codes
+    const currencyIds = Array.from(new Set(rows.map((r) => r.currencyId)));
+    const currencies =
+      currencyIds.length > 0
+        ? await prisma.currency.findMany({
+            where: { id: { in: currencyIds } },
+            select: { id: true, code: true },
+          })
+        : [];
+    const codeById: Record<number, string> = {};
+    for (const c of currencies) codeById[c.id] = c.code;
+    for (const r of rows) r.currencyCode = codeById[r.currencyId] ?? String(r.currencyId);
+
+    // Chronological running balance per currency (oldest first), then newest-first for display.
+    const asc = [...rows].sort((a, b) => {
+      const dateDiff = a.date.getTime() - b.date.getTime();
+      if (dateDiff !== 0) return dateDiff;
+      return a.createdAt.getTime() - b.createdAt.getTime();
+    });
+    const runningByCurrency: Record<string, number> = {};
+    for (const row of asc) {
+      const curr = row.currencyCode!;
+      const next = round2((runningByCurrency[curr] || 0) + row.credit - row.debit);
+      runningByCurrency[curr] = next;
+      row.runningBalance = next;
+    }
+
+    const ledger = asc
+      .reverse()
+      .map(({ currencyId: _omit, ...rest }) => rest);
+
+    return successResponse({
+      ledger,
+      balanceByCurrency: runningByCurrency,
+    });
+  } catch (error) {
+    return serverError();
+  }
+});

@@ -7,6 +7,9 @@ import { PageHeader, StatsCard, formatNumber, DataTable, formatDate } from "@/co
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { applyPendingDashboardMetrics } from "@/lib/offline-dashboard";
+import { formatCityAmount, isSingleCurrencyCityAdmin } from "@/lib/city-money-format";
+import BalanceHub from "@/components/dashboard/BalanceHub";
+import StockSummary from "@/components/dashboard/StockSummary";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { 
@@ -166,9 +169,10 @@ export default function DashboardPage() {
       }
 
       const treasuryRequest = user?.role === "city_admin" ? apiCall("/api/v1/treasury") : Promise.resolve(null);
+      const cashPositionRequest = user?.role === "city_admin" ? apiCall("/api/v1/cash-position") : Promise.resolve(null);
       const [dashRes, cashRes, treasuryRes] = await Promise.all([
         apiCall("/api/v1/dashboard"),
-        apiCall("/api/v1/cash-position"),
+        cashPositionRequest,
         treasuryRequest,
       ]);
       let usedSnapshot = false;
@@ -186,7 +190,7 @@ export default function DashboardPage() {
         usedSnapshot = true;
       }
 
-      if (cashRes.success) {
+      if (cashRes?.success) {
         nextCashPosition = cashRes.data;
         setCashPosition(cashRes.data);
         usedLive = true;
@@ -280,14 +284,7 @@ export default function DashboardPage() {
   // ─── CITY ADMIN DASHBOARD ─────────────────────────────────────────────────
   if (user?.role === "city_admin") {
     const isAfghanistanCityAdmin = user?.countryName === "Afghanistan";
-    const hasTreasury = treasury && (treasury.hasBankAccounts || treasury.cashInOffice || treasury.chequesInHand);
-    const formatPot = (pot: Record<string, number> | undefined) => {
-      if (!pot) return "0";
-      const entries = Object.entries(pot).filter(([, v]) => Number(v) !== 0);
-      if (entries.length === 0) return "0";
-      if (entries.length === 1) return formatNumber(entries[0][1]);
-      return entries.map(([cc, amt]) => `${cc} ${formatNumber(amt)}`).join(" · ");
-    };
+    const singleCurrency = isSingleCurrencyCityAdmin(user);
 
     return (
       <div className="space-y-6">
@@ -349,54 +346,22 @@ export default function DashboardPage() {
             color="teal"
             onClick={() => openQuickForm("New Customer", "/customers?create=1&embed=1")}
           />
-          <Link href="/inventory" className="sm:col-span-2 lg:col-span-4">
-            <QuickActionCard icon={Package} title="Move Stock" color="amber" />
-          </Link>
         </div>
+
+        {/* Net balance hub (cash + cheques + bank) with drill-down ledgers */}
+        <BalanceHub user={user} treasury={treasury} />
+
+        <StockSummary totalCartonsSold={data?.totalCartonsSold} />
 
         {/* Key Metrics */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {hasTreasury ? (
-            <>
-              <MetricCard 
-                title="Cash in Office" 
-                value={formatPot(treasury.cashInOffice)} 
-                icon={Banknote} 
-                color="green" 
-              />
-              {!isAfghanistanCityAdmin && (treasury.hasBankAccounts || Object.values(treasury.chequesInHand || {}).some(v => Number(v) > 0)) && (
-                <MetricCard 
-                  title="Cheques in Hand" 
-                  value={formatPot(treasury.chequesInHand)} 
-                  icon={Receipt} 
-                  color="yellow" 
-                />
-              )}
-              {!isAfghanistanCityAdmin && treasury.hasBankAccounts && (
-                <MetricCard 
-                  title="Bank Balance" 
-                  value={formatPot(treasury.bankBalance)} 
-                  icon={Building2} 
-                  color="blue" 
-                />
-              )}
-            </>
-          ) : (
-            <MetricCard 
-              title="Cash in Hand" 
-              value={formatNumber(cashPosition?.netCashInHand || 0)} 
-              icon={Banknote} 
-              color="green" 
-            />
-          )}
-          
           {/* Outstanding */}
           {Object.entries(data?.outstandingByCurrency || {}).length > 0
             ? Object.entries(data.outstandingByCurrency).map(([cc, amt]: [string, any]) => (
                 <MetricCard 
                   key={`out-${cc}`} 
-                  title={`Outstanding (${cc})`} 
-                  value={`${cc} ${formatNumber(amt || 0)}`}
+                  title={singleCurrency ? "Outstanding" : `Outstanding (${cc})`} 
+                  value={formatCityAmount(user, amt || 0, cc)}
                   icon={AlertCircle}
                   color="red"
                 />
@@ -416,8 +381,8 @@ export default function DashboardPage() {
             ? Object.entries(data.hajiByCurrency).map(([cc, amt]: [string, any]) => (
                 <MetricCard 
                   key={`haji-${cc}`} 
-                  title={`Owed to Haji (${cc})`} 
-                  value={`${cc} ${formatNumber(amt || 0)}`}
+                  title={singleCurrency ? "Owed to Haji" : `Owed to Haji (${cc})`} 
+                  value={formatCityAmount(user, amt || 0, cc)}
                   icon={ArrowRightLeft}
                   color="orange"
                 />
@@ -429,103 +394,6 @@ export default function DashboardPage() {
         {/* Operational Details */}
         {showOperationalDetails && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Cash Flow Breakdown */}
-            {cashPosition && (
-              <SectionCard title="Cash Flow">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-3">
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Incoming</p>
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center text-sm">
-                        <span className="text-gray-600">Cash Received</span>
-                        <span className="font-semibold text-emerald-700">{formatNumber(cashPosition.incomingToHand?.cash || 0)}</span>
-                      </div>
-                      {!isAfghanistanCityAdmin && (
-                        <div className="flex justify-between items-center text-sm">
-                          <span className="text-gray-600">Cheques</span>
-                          <span className="font-semibold text-blue-700">{formatNumber(cashPosition.incomingToHand?.cheque || 0)}</span>
-                        </div>
-                      )}
-                      {!isAfghanistanCityAdmin && (
-                        <div className="flex justify-between items-center text-sm">
-                          <span className="text-gray-600">Bank/Online</span>
-                          <span className="font-semibold text-violet-700">{formatNumber((cashPosition.incomingToHand?.bankTransfer || 0) + (cashPosition.incomingToHand?.online || 0))}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between items-center text-sm">
-                        <span className="text-gray-600">Direct to Haji</span>
-                        <span className="font-semibold text-amber-700">{formatNumber(cashPosition.directToHaji || 0)}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-sm pt-2 border-t border-gray-100">
-                        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Total In</span>
-                        <span className="font-bold text-emerald-700 tabular-nums">{formatNumber((cashPosition.incomingToHand?.cash || 0) + (cashPosition.incomingToHand?.cheque || 0) + (cashPosition.incomingToHand?.bankTransfer || 0) + (cashPosition.incomingToHand?.online || 0) + (cashPosition.directToHaji || 0))}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Outgoing</p>
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center text-sm">
-                        <span className="text-gray-600">Expenses</span>
-                        <span className="font-semibold text-rose-700">{formatNumber(cashPosition.outgoing?.expenses || 0)}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-sm">
-                        <span className="text-gray-600">Withdrawals</span>
-                        <span className="font-semibold text-amber-700">{formatNumber(cashPosition.outgoing?.personalWithdrawals || 0)}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-sm">
-                        <span className="text-gray-600">Haji Transfers</span>
-                        <span className="font-semibold text-orange-700">{formatNumber(cashPosition.outgoing?.hajiTransfers || 0)}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-sm pt-2 border-t border-gray-100">
-                        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Total Out</span>
-                        <span className="font-bold text-rose-700 tabular-nums">{formatNumber((cashPosition.outgoing?.expenses || 0) + (cashPosition.outgoing?.personalWithdrawals || 0) + (cashPosition.outgoing?.hajiTransfers || 0))}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Net Position</span>
-                  {(() => {
-                    const incoming = (cashPosition.incomingToHand?.cash || 0) + (cashPosition.incomingToHand?.cheque || 0) + (cashPosition.incomingToHand?.bankTransfer || 0) + (cashPosition.incomingToHand?.online || 0) + (cashPosition.directToHaji || 0);
-                    const outgoing = (cashPosition.outgoing?.expenses || 0) + (cashPosition.outgoing?.personalWithdrawals || 0) + (cashPosition.outgoing?.hajiTransfers || 0);
-                    const net = incoming - outgoing;
-                    return (
-                      <span className={cn("text-sm font-bold tabular-nums", net >= 0 ? "text-emerald-700" : "text-rose-700")}>
-                        {net >= 0 ? "+" : ""}{formatNumber(net)}
-                      </span>
-                    );
-                  })()}
-                </div>
-              </SectionCard>
-            )}
-
-            {/* Bank Accounts */}
-            {treasury?.hasBankAccounts && treasury.bankAccounts?.length > 1 && (
-              <SectionCard title="Bank Accounts">
-                <div className="space-y-3">
-                  {treasury.bankAccounts.map((ba: any) => (
-                    <div key={ba.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-blue-100 rounded-lg">
-                          <Building2 className="w-4 h-4 text-blue-600" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-900">{ba.bankName}</p>
-                          <p className="text-xs text-gray-500">{ba.accountNumber}</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        {Object.entries(ba.balance || {}).filter(([, v]) => Number(v) !== 0).map(([cc, amt]: [string, any]) => (
-                          <p key={cc} className="text-sm font-bold text-blue-700">{cc} {formatNumber(amt)}</p>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </SectionCard>
-            )}
-
             {/* Ongoing Lots */}
             {data?.ongoingLots?.length > 0 && (
               <SectionCard 

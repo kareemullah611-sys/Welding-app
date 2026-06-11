@@ -57,7 +57,6 @@ const OFFLINE_QUEUE_BLOCKED_PREFIXES = [
   "/api/v1/cash-position",
   "/api/v1/treasury",
   "/api/v1/inventory",
-  "/api/v1/notifications",
   "/api/v1/sessions",
   "/api/v1/godown-permissions",
   "/api/v1/health",

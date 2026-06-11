@@ -202,6 +202,10 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           currencyCode: payment.currency.code,
           paymentDate: payment.paymentDate,
           createdBy: user.userId,
+          destination: (payment as any).destination,
+          superAdminBankAccountId: (payment as any).superAdminBankAccountId ?? null,
+          bankAccountId: (payment as any).bankAccountId ?? null,
+          paymentMethod: (payment as any).paymentMethod,
         }, tx);
       }
 

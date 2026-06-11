@@ -119,6 +119,76 @@ async function main() {
       ON "supplier_payments" ("bank_account_id")
   `);
 
+  // Compatibility guard (extended): baseline-fallback DBs can lack columns that
+  // the treasury / bank-account ledger / intermediary / super-admin reports query
+  // by relation. Missing any of these makes those endpoints 500. All wrapped in a
+  // single DO block (one statement) so it is safe for $executeRawUnsafe and idempotent.
+  await prisma.$executeRawUnsafe(`
+    DO $$
+    BEGIN
+      ALTER TABLE "agent_payments"    ADD COLUMN IF NOT EXISTS "bank_account_id" INTEGER;
+      ALTER TABLE "agent_payments"    ADD COLUMN IF NOT EXISTS "intermediary_id" INTEGER;
+      ALTER TABLE "expenses"          ADD COLUMN IF NOT EXISTS "cheque_payment_id" INTEGER;
+      ALTER TABLE "lot_costs"         ADD COLUMN IF NOT EXISTS "bank_account_id" INTEGER;
+      ALTER TABLE "lot_costs"         ADD COLUMN IF NOT EXISTS "intermediary_id" INTEGER;
+      ALTER TABLE "lot_costs"         ADD COLUMN IF NOT EXISTS "shipping_line_id" INTEGER;
+      ALTER TABLE "lot_costs"         ADD COLUMN IF NOT EXISTS "super_admin_bank_account_id" INTEGER;
+      ALTER TABLE "lot_costs"         ADD COLUMN IF NOT EXISTS "supplier_id" INTEGER;
+      ALTER TABLE "supplier_payments" ADD COLUMN IF NOT EXISTS "intermediary_id" INTEGER;
+
+      CREATE INDEX IF NOT EXISTS "agent_payments_bank_account_id_idx" ON "agent_payments" ("bank_account_id");
+      CREATE INDEX IF NOT EXISTS "agent_payments_intermediary_id_idx" ON "agent_payments" ("intermediary_id");
+      CREATE INDEX IF NOT EXISTS "lot_costs_supplier_id_idx" ON "lot_costs" ("supplier_id");
+      CREATE INDEX IF NOT EXISTS "lot_costs_bank_account_id_idx" ON "lot_costs" ("bank_account_id");
+      CREATE INDEX IF NOT EXISTS "lot_costs_super_admin_bank_account_id_idx" ON "lot_costs" ("super_admin_bank_account_id");
+      CREATE INDEX IF NOT EXISTS "lot_costs_intermediary_id_idx" ON "lot_costs" ("intermediary_id");
+      CREATE INDEX IF NOT EXISTS "supplier_payments_intermediary_id_idx" ON "supplier_payments" ("intermediary_id");
+
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'expenses_cheque_payment_id_fkey') THEN
+        ALTER TABLE "expenses" ADD CONSTRAINT "expenses_cheque_payment_id_fkey"
+          FOREIGN KEY ("cheque_payment_id") REFERENCES "payments"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'agent_payments_bank_account_id_fkey') THEN
+        ALTER TABLE "agent_payments" ADD CONSTRAINT "agent_payments_bank_account_id_fkey"
+          FOREIGN KEY ("bank_account_id") REFERENCES "bank_accounts"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'agent_payments_intermediary_id_fkey') THEN
+        ALTER TABLE "agent_payments" ADD CONSTRAINT "agent_payments_intermediary_id_fkey"
+          FOREIGN KEY ("intermediary_id") REFERENCES "intermediaries"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'lot_costs_supplier_id_fkey') THEN
+        ALTER TABLE "lot_costs" ADD CONSTRAINT "lot_costs_supplier_id_fkey"
+          FOREIGN KEY ("supplier_id") REFERENCES "suppliers"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'lot_costs_shipping_line_id_fkey') THEN
+        ALTER TABLE "lot_costs" ADD CONSTRAINT "lot_costs_shipping_line_id_fkey"
+          FOREIGN KEY ("shipping_line_id") REFERENCES "shipping_lines"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'lot_costs_bank_account_id_fkey') THEN
+        ALTER TABLE "lot_costs" ADD CONSTRAINT "lot_costs_bank_account_id_fkey"
+          FOREIGN KEY ("bank_account_id") REFERENCES "bank_accounts"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'lot_costs_super_admin_bank_account_id_fkey') THEN
+        ALTER TABLE "lot_costs" ADD CONSTRAINT "lot_costs_super_admin_bank_account_id_fkey"
+          FOREIGN KEY ("super_admin_bank_account_id") REFERENCES "super_admin_bank_accounts"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'lot_costs_intermediary_id_fkey') THEN
+        ALTER TABLE "lot_costs" ADD CONSTRAINT "lot_costs_intermediary_id_fkey"
+          FOREIGN KEY ("intermediary_id") REFERENCES "intermediaries"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'supplier_payments_intermediary_id_fkey') THEN
+        ALTER TABLE "supplier_payments" ADD CONSTRAINT "supplier_payments_intermediary_id_fkey"
+          FOREIGN KEY ("intermediary_id") REFERENCES "intermediaries"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+      END IF;
+    END $$;
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    INSERT INTO "currencies" ("code", "name", "symbol")
+    SELECT 'CNY', 'Chinese Yuan', '¥'
+    WHERE NOT EXISTS (SELECT 1 FROM "currencies" WHERE "code" = 'CNY')
+  `);
+
   const userCount = await prisma.user.count();
   if (userCount === 0) {
     console.log("No users found. Running initial seed...");

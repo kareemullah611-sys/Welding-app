@@ -1,5 +1,6 @@
 "use client";
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
@@ -60,6 +61,8 @@ function applyQueuedMutationsToSuppliers(baseRows: any[], queueItems: any[]) {
 export default function SuppliersPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const searchParams = useSearchParams();
+  const deepLinkHandled = useRef(false);
   const { isOnline, queuedItems, updateQueuedItem, discardQueuedItem } = useOffline();
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -161,6 +164,16 @@ export default function SuppliersPage() {
   }, [isOnline, mergeSnapshot, queuedItems, readSnapshot]);
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    if (deepLinkHandled.current || loading || suppliers.length === 0) return;
+    const supplierId = searchParams.get("supplier_id");
+    if (!supplierId) return;
+    const supplier = suppliers.find((row) => String(row.id) === supplierId);
+    if (!supplier || isPendingSupplier(supplier)) return;
+    deepLinkHandled.current = true;
+    void openLedger(supplier, { openPayment: searchParams.get("create") === "1" });
+  }, [loading, suppliers, searchParams]);
+
   const handleCreate = async () => {
     if (!form.name.trim()) { setError(t("name") + " required"); return; }
     setSubmitting(true);
@@ -227,7 +240,7 @@ export default function SuppliersPage() {
     else { alert(r.error || "Failed to delete"); }
   };
 
-  const openLedger = async (s: any) => {
+  const openLedger = async (s: any, opts?: { openPayment?: boolean }) => {
     if (isPendingSupplier(s)) {
       setError("Pending supplier is not synced yet. Please sync first.");
       return;
@@ -285,6 +298,23 @@ export default function SuppliersPage() {
         setIntermediaries(snapshot.intermediaries);
         setShowOfflineSnapshot(true);
       }
+    }
+    if (opts?.openPayment) {
+      setPaymentForm({
+        lotId: 0,
+        paymentDate: new Date().toISOString().split("T")[0],
+        amountUsd: 0,
+        exchangeRate: 0,
+        amountLocal: 0,
+        paymentMethod: "bank_transfer",
+        paidVia: "bank",
+        bankAccountId: 0,
+        intermediaryId: 0,
+        reference: "",
+        notes: "",
+      });
+      setError("");
+      setShowPaymentCreate(true);
     }
   };
 

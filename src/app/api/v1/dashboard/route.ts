@@ -184,7 +184,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     // ── Cities overview (super admin) ─────────────────────────────────────────
     // Single batch of 6 cross-city groupBy queries instead of N×6 per-city queries
     if (user.role === "super_admin") {
-      const [cities, cSales, cPayments, cExpenses, cHaji, cWd, cOpeningCash, cOpeningCustomer] = await Promise.all([
+      const [cities, cSales, cPayments, cExpenses, cHaji, cWd, cOpeningCash, cOpeningCustomer, ongoingLotRows] = await Promise.all([
         prisma.city.findMany({ where: { isActive: true }, include: { country: true } }),
         prisma.sale.groupBy({
           by: ["cityId", "currencyId"],
@@ -217,7 +217,16 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           by: ["currencyId", "customerId"],
           _sum: { amount: true },
         }),
+        prisma.lotCityDistribution.findMany({
+          where: { lot: { status: "ongoing" } },
+          select: { cityId: true, lotId: true },
+          distinct: ["cityId", "lotId"],
+        }),
       ]);
+      const activeLotsByCity: Record<number, number> = {};
+      for (const row of ongoingLotRows) {
+        activeLotsByCity[row.cityId] = (activeLotsByCity[row.cityId] || 0) + 1;
+      }
       const customerCityById = Object.fromEntries(
         (
           await prisma.customer.findMany({
@@ -306,7 +315,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           owedToHaji: Object.values(hajiByCurr).reduce((s, v) => s + v, 0),
           personalWithdrawals: Object.values(wdByCurr).reduce((s, v) => s + v, 0),
           currency: city.country.code === "PK" ? "PKR" : "AFN",
-          activeLots: 0,
+          activeLots: activeLotsByCity[cid] || 0,
         };
       });
     }

@@ -54,9 +54,11 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
 
       await journalSupplierPaid({
         id, supplierId: existing.supplierId, amountUsd: Number(payment.amountUsd),
+        amountLocal: payment.amountLocal ? Number(payment.amountLocal) : null,
         paymentDate: payment.paymentDate, createdBy: user.userId,
         bankAccountId: (existing as any).bankAccountId || null,
         intermediaryId: (existing as any).intermediaryId || null,
+        settlementCurrencyCode: existing.bankAccountId ? "PKR" : null,
       }, tx);
 
       await createAuditLog(user.userId, null, "supplier_payments", id, "update",

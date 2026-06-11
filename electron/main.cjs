@@ -208,9 +208,9 @@ const ALLOWED_API_PREFIXES = [
   "/api/v1/godowns", "/api/v1/products", "/api/v1/inventory", "/api/v1/openings",
   "/api/v1/city-transfers", "/api/v1/cities", "/api/v1/countries", "/api/v1/currencies",
   "/api/v1/bank-accounts", "/api/v1/super-admin-personal-expenses", "/api/v1/offline/",
-  "/api/v1/notifications", "/api/v1/activity-feed", "/api/v1/search", "/api/v1/sessions",
+  "/api/v1/activity-feed", "/api/v1/search", "/api/v1/sessions",
   "/api/v1/users", "/api/v1/finance/", "/api/v1/financial-reports", "/api/v1/city-ledger",
-  "/api/v1/profit-report", "/api/v1/accounting", "/api/v1/analytics", "/api/v1/reports/",
+  "/api/v1/profit-report", "/api/v1/analytics", "/api/v1/reports/",
   "/api/v1/discounts", "/api/v1/admin-cleanup", "/api/health", "/api/ping", "/api/v1/upload",
   "/api/v1/cheques", "/api/v1/godown-permissions",
 ];

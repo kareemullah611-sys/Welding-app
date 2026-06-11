@@ -4,6 +4,7 @@ import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, paginatedResponse, errorResponse, serverError, getPaginationParams, getDateRange } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import { journalSuperAdminPersonalExpense, reverseJournalEntries } from "@/lib/accounting";
 
 const SUPER_ADMIN_EXPENSE_SYNC_MODULE = "super_admin_personal_expenses";
 const SUPERADMIN_SYNC_CITY_ID = 0;
@@ -175,6 +176,16 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
         getClientIP(request),
         tx
       );
+
+      await journalSuperAdminPersonalExpense({
+        id: created.id,
+        amount,
+        currencyCode: bankAccount.currency.code,
+        detail,
+        expenseDate: created.expenseDate,
+        createdBy: user.userId,
+        bankAccountId,
+      }, tx);
 
       if (syncMeta) {
         await tx.syncRequest.create({

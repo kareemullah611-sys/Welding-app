@@ -370,7 +370,7 @@ export function useApi<T = unknown>() {
           await cacheLocalReadModel(url, options.params, data.data as T, data.pagination);
         }
         setState({ data: data.data as T, loading: false, error: null });
-        return { success: true, data: data.data as T, pagination: data.pagination };
+        return { success: true, data: data.data as T, pagination: data.pagination, meta: data.meta };
       } else {
         const error = data.error?.message || "Request failed";
         if (
@@ -433,7 +433,7 @@ export function useApi<T = unknown>() {
 export async function apiCall<T = unknown>(
   url: string,
   options: FetchOptions = {}
-): Promise<{ success: boolean; data?: T; error?: string; pagination?: unknown; cached?: boolean; queued?: boolean }> {
+): Promise<{ success: boolean; data?: T; error?: string; pagination?: unknown; meta?: unknown; cached?: boolean; queued?: boolean }> {
   try {
     const method = options.method || "GET";
     const fullUrl = buildFullUrl(url, options.params);
@@ -467,7 +467,7 @@ export async function apiCall<T = unknown>(
         await cacheApiResponse(url, options.params, data.data as T, data.pagination);
         await cacheLocalReadModel(url, options.params, data.data as T, data.pagination);
       }
-      return { success: true, data: data.data as T, pagination: data.pagination };
+      return { success: true, data: data.data as T, pagination: data.pagination, meta: data.meta };
     }
     if (
       typeof window !== "undefined" &&

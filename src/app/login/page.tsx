@@ -105,7 +105,7 @@ export default function LoginPage() {
         <div className="text-center mb-8">
           <div className="mx-auto mb-4 flex justify-center">
             <div className="rounded-2xl bg-white p-2 shadow-2xl">
-              <BrandLogo size="lg" showBadge={false} />
+              <BrandLogo size="lg" />
             </div>
           </div>
           <h1 className="text-2xl font-bold text-white tracking-wide">MRF Hardware</h1>

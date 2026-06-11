@@ -5,6 +5,7 @@ import { successResponse, errorResponse, validationError, serverError } from "@/
 import { JWTPayload } from "@/lib/auth";
 import { OpeningLiabilityType } from "@prisma/client";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import { journalOpeningLiability, reverseJournalEntries } from "@/lib/accounting";
 
 function dateOnly(value?: string | null): Date {
   if (!value) return new Date();
@@ -18,6 +19,8 @@ function getScopedCityId(user: JWTPayload, requestedCityId?: unknown): number | 
 }
 
 const OPENINGS_SYNC_MODULE = "openings";
+const OPENING_LIABILITY_SYNC_MODULE = "opening_liabilities";
+const SUPERADMIN_SYNC_CITY_ID = 0;
 
 export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayload) => {
   try {
@@ -346,25 +349,69 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       const where: any = { currencyId, [partyField]: partyId };
       const existing = await prisma.openingLiability.findFirst({ where });
 
-      const row = existing
-        ? await prisma.openingLiability.update({
-            where: { id: existing.id },
-            data: { liabilityType, amount, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
-          })
-        : await prisma.openingLiability.create({
+      if (syncMeta) {
+        const existingSync = await prisma.syncRequest.findUnique({
+          where: {
+            unique_sync_request_per_city_module: {
+              cityId: SUPERADMIN_SYNC_CITY_ID,
+              module: OPENING_LIABILITY_SYNC_MODULE,
+              requestId: syncMeta.requestId,
+            },
+          },
+        });
+        if (existingSync?.entityId) {
+          return successResponse({ id: existingSync.entityId }, "Opening liability already synced");
+        }
+      }
+
+      const row = await prisma.$transaction(async (tx) => {
+        const saved = existing
+          ? await tx.openingLiability.update({
+              where: { id: existing.id },
+              data: { liabilityType, amount, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
+            })
+          : await tx.openingLiability.create({
+              data: {
+                liabilityType,
+                currencyId,
+                amount,
+                openingDate: dateOnly(body.openingDate),
+                notes: body.notes || null,
+                createdBy: user.userId,
+                supplierId: liabilityType === "supplier" ? partyId : null,
+                shippingLineId: liabilityType === "shipping_line" ? partyId : null,
+                agentId: liabilityType === "agent" ? partyId : null,
+                intermediaryId: liabilityType === "intermediary" ? partyId : null,
+              },
+            });
+
+        await reverseJournalEntries(`OPENLIAB-${saved.id}`, user.userId, tx);
+        await journalOpeningLiability({
+          id: saved.id,
+          liabilityType,
+          partyId,
+          amount: Number(saved.amount),
+          currencyCode: currency.code,
+          openingDate: saved.openingDate,
+          createdBy: user.userId,
+        }, tx);
+
+        if (syncMeta) {
+          await tx.syncRequest.create({
             data: {
-              liabilityType,
-              currencyId,
-              amount,
-              openingDate: dateOnly(body.openingDate),
-              notes: body.notes || null,
+              cityId: SUPERADMIN_SYNC_CITY_ID,
+              module: OPENING_LIABILITY_SYNC_MODULE,
+              requestId: syncMeta.requestId,
+              deviceId: syncMeta.deviceId,
+              entityType: "opening_liabilities",
+              entityId: saved.id,
               createdBy: user.userId,
-              supplierId: liabilityType === "supplier" ? partyId : null,
-              shippingLineId: liabilityType === "shipping_line" ? partyId : null,
-              agentId: liabilityType === "agent" ? partyId : null,
-              intermediaryId: liabilityType === "intermediary" ? partyId : null,
             },
           });
+        }
+
+        return saved;
+      });
 
       await createAuditLog(user.userId, null, "opening_liabilities", row.id, "update", undefined, { liabilityType, amount }, getClientIP(request));
       return successResponse({ id: row.id }, "Opening liability saved");
@@ -372,6 +419,20 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
 
     return validationError("Invalid opening kind");
   } catch (error) {
+    if (syncMeta && kind === "liability" && isSyncRequestDuplicateError(error)) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: OPENING_LIABILITY_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        return successResponse({ id: existingSync.entityId }, "Opening liability already synced");
+      }
+    }
     if (
       syncMeta &&
       cityId &&

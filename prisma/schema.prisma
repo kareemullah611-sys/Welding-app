@@ -193,7 +193,6 @@ model City {
   voucherSequence    VoucherSequence?
   auditLogs          AuditLog[]
   lotSettlementOverflows LotSettlementOverflow[]
-  notifications      Notification[]
   cityTransfersFrom  CityTransfer[] @relation("TransferFromCity")
   cityTransfersTo    CityTransfer[] @relation("TransferToCity")
   accounts           Account[]
@@ -268,7 +267,6 @@ model User {
   saleDiscounts      SaleDiscount[]
   paymentLotTransfers PaymentLotTransfer[]
   lotSettlementOverflows LotSettlementOverflow[]
-  notifications      Notification[]
   purchasesCreated   LotPurchase[]  @relation("PurchaseCreatedBy")
   openingCashes      OpeningCash[]
   openingCustomerBalances OpeningCustomerBalance[]
@@ -1432,30 +1430,6 @@ model InventoryThreshold {
 
   @@unique([cityId, productId])
   @@map("inventory_thresholds")
-}
-
-// ============================================================
-// NOTIFICATIONS
-// ============================================================
-
-model Notification {
-  id        Int      @id @default(autoincrement())
-  cityId    Int?     @map("city_id")
-  userId    Int?     @map("user_id")
-  type      String   @db.VarChar(50)
-  title     String   @db.VarChar(200)
-  message   String   @db.Text
-  data      Json?
-  isRead    Boolean  @default(false) @map("is_read")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  city City? @relation(fields: [cityId], references: [id])
-  user User? @relation(fields: [userId], references: [id])
-
-  @@index([cityId])
-  @@index([userId])
-  @@index([isRead])
-  @@map("notifications")
 }
 
 // ============================================================

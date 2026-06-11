@@ -4,6 +4,7 @@ import { withAuth, getCityScope } from "@/lib/middleware";
 import { successResponse, paginatedResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { getPaymentHajiAuditStateMap, isHajiAuditEligible } from "@/lib/payment-audit";
+import { computeCityTreasuryNet, computeRunningBalances } from "@/lib/treasury-ledger";
 
 export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayload) => {
   try {
@@ -275,27 +276,17 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
       openingCashByCurrency[code] = (openingCashByCurrency[code] || 0) + Number(row.amount || 0);
     }
 
-    // Build running treasury balance in chronological order:
-    // keep-in-office payments increase it, expenses/withdrawals/haji transfers reduce it.
-    combined.sort((a, b) => {
-      if (a.date !== b.date) return a.date.localeCompare(b.date);
-      return a.id - b.id;
-    });
+    const { itemsWithBalance } = computeRunningBalances(combined, openingCashByCurrency);
+    const balanceById = new Map(itemsWithBalance.map((item) => [`${item.type}:${item.id}`, item.runningBalance]));
+    combined = combined.map((item) => ({
+      ...item,
+      runningBalance: balanceById.get(`${item.type}:${item.id}`) ?? 0,
+    }));
 
-    const runningByCurrency: Record<string, number> = { ...openingCashByCurrency };
-    combined = combined.map((item) => {
-      const currencyCode = item.currencyCode || "";
-      let delta = 0;
-      if (item.type === "payment") {
-        delta = item.raw?.destination === "our_account" ? Number(item.amount || 0) : 0;
-      } else if (item.type === "expense" || item.type === "withdrawal" || item.type === "haji_transfer") {
-        delta = -Number(item.amount || 0);
-      }
-      runningByCurrency[currencyCode] = (runningByCurrency[currencyCode] || 0) + delta;
-      return {
-        ...item,
-        runningBalance: Math.round((runningByCurrency[currencyCode] || 0) * 100) / 100,
-      };
+    // Newest first for the payments list UI.
+    combined.sort((a, b) => {
+      if (a.date !== b.date) return b.date.localeCompare(a.date);
+      return b.id - a.id;
     });
 
     if (shouldApplySearch) {
@@ -349,7 +340,12 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
     const skip = (page - 1) * limit;
     const items = combined.slice(skip, skip + limit);
 
-    return paginatedResponse(items, total, page, limit);
+    const currentBalanceByCurrency =
+      cityId != null ? await computeCityTreasuryNet(prisma, cityId) : {};
+
+    return paginatedResponse(items, total, page, limit, undefined, {
+      currentBalanceByCurrency,
+    });
   } catch (error) {
     console.error("Finance combined error:", error);
     return serverError();

@@ -29,7 +29,8 @@ export function paginatedResponse<T>(
   total: number,
   page: number,
   limit: number,
-  message?: string
+  message?: string,
+  meta?: Record<string, unknown>
 ): NextResponse {
   return NextResponse.json({
     success: true,
@@ -41,6 +42,7 @@ export function paginatedResponse<T>(
       total,
       totalPages: limit > 0 ? Math.ceil(total / limit) : 1,
     },
+    ...(meta ? { meta } : {}),
   });
 }
 

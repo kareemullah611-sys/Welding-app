@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, StatsCard, formatNumber, formatDate } from "@/components/ui";
-import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { SETTLEMENT_CURRENCY_CODES, settlementAmountToPkr } from "@/lib/payment-currencies";
 import { getPendingShippingLines } from "@/lib/offline-queue-overlays";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 
@@ -76,7 +76,7 @@ export default function ShippingLinesPage() {
 
   // Add payment
   const [showPayment, setShowPayment] = useState(false);
-  const [payForm, setPayForm] = useState({ paymentDate: new Date().toISOString().split("T")[0], amountUsd: "", exchangeRate: "", reference: "", notes: "", paidFrom: "bank", bankAccountId: "", intermediaryId: "" });
+  const [payForm, setPayForm] = useState({ paymentDate: new Date().toISOString().split("T")[0], amountUsd: "", settlementCurrency: "USD", exchangeRate: "", reference: "", notes: "", paidFrom: "bank", bankAccountId: "", intermediaryId: "" });
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
   const [intermediaries, setIntermediaries] = useState<any[]>([]);
   const [openActionId, setOpenActionId] = useState<number | string | null>(null);
@@ -201,7 +201,7 @@ export default function ShippingLinesPage() {
       return;
     }
     setSelected(sl);
-    setPayForm({ paymentDate: new Date().toISOString().split("T")[0], amountUsd: "", exchangeRate: "", reference: "", notes: "", paidFrom: "bank", bankAccountId: "", intermediaryId: "" });
+    setPayForm({ paymentDate: new Date().toISOString().split("T")[0], amountUsd: "", settlementCurrency: "USD", exchangeRate: "", reference: "", notes: "", paidFrom: "bank", bankAccountId: "", intermediaryId: "" });
     setError(""); setShowPayment(true);
     // Load bank accounts and intermediaries
     const [baRes, intRes] = await Promise.all([
@@ -235,6 +235,10 @@ export default function ShippingLinesPage() {
 
   const handleAddPayment = async () => {
     if (!payForm.amountUsd || Number(payForm.amountUsd) <= 0) { setError("Amount required"); return; }
+    if (payForm.settlementCurrency !== "PKR" && !(Number(payForm.exchangeRate) > 0)) {
+      setError(`${payForm.settlementCurrency} → PKR exchange rate is required`);
+      return;
+    }
     if (payForm.paidFrom === "bank" && !payForm.bankAccountId) { setError("Select a bank account"); return; }
     if (payForm.paidFrom === "intermediary" && !payForm.intermediaryId) { setError("Select an intermediary"); return; }
     setSubmitting(true);
@@ -244,7 +248,8 @@ export default function ShippingLinesPage() {
         shippingLineId: selected.id,
         paymentDate:    payForm.paymentDate,
         amountUsd:      Number(payForm.amountUsd),
-        exchangeRate:   payForm.exchangeRate ? Number(payForm.exchangeRate) : null,
+        settlementCurrency: payForm.settlementCurrency,
+        exchangeRate:   payForm.settlementCurrency === "PKR" ? null : Number(payForm.exchangeRate),
         bankAccountId:  payForm.paidFrom === "bank" && payForm.bankAccountId ? Number(payForm.bankAccountId) : null,
         intermediaryId: payForm.paidFrom === "intermediary" && payForm.intermediaryId ? Number(payForm.intermediaryId) : null,
         reference:      payForm.reference || null,
@@ -384,18 +389,26 @@ export default function ShippingLinesPage() {
           <div className="grid grid-cols-2 gap-3">
             <div><label className="block text-sm font-medium text-gray-700 mb-1">Date *</label>
               <input type="date" value={payForm.paymentDate} onChange={e => setPayForm(f => ({ ...f, paymentDate: e.target.value }))} className="input-field" /></div>
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">Amount USD *</label>
-              <input type="number" value={payForm.amountUsd} onChange={e => setPayForm(f => ({ ...f, amountUsd: e.target.value }))} className="input-field" placeholder="0.00" min="0.01" step="0.01" onWheel={e => e.currentTarget.blur()} /></div>
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">Settlement Currency *</label>
+              <select value={payForm.settlementCurrency} onChange={e => setPayForm(f => ({ ...f, settlementCurrency: e.target.value }))} className="select-field">
+                {SETTLEMENT_CURRENCY_CODES.map((code) => <option key={code} value={code}>{code}</option>)}
+              </select></div>
           </div>
           <div className="grid grid-cols-2 gap-3">
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">Amount ({payForm.settlementCurrency}) *</label>
+              <input type="number" value={payForm.amountUsd} onChange={e => setPayForm(f => ({ ...f, amountUsd: e.target.value }))} className="input-field" placeholder="0.00" min="0.01" step="0.01" onWheel={e => e.currentTarget.blur()} /></div>
+            {payForm.settlementCurrency !== "PKR" && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Settlement Exchange Rate</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{payForm.settlementCurrency} → PKR Rate *</label>
               <input type="number" value={payForm.exchangeRate} onChange={e => setPayForm(f => ({ ...f, exchangeRate: e.target.value }))} className="input-field" placeholder="e.g. 278.50" min="0.01" step="0.01" onWheel={e => e.currentTarget.blur()} />
             </div>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col justify-end">
-              {payForm.amountUsd && payForm.exchangeRate && (
+              {payForm.amountUsd && (payForm.settlementCurrency === "PKR" || payForm.exchangeRate) && (
                 <div className="p-2 bg-green-50 border border-green-200 rounded text-sm text-green-800">
-                  PKR equiv: <strong>Rs. {(Number(payForm.amountUsd) * Number(payForm.exchangeRate)).toLocaleString("en-US", { maximumFractionDigits: 0 })}</strong>
+                  PKR equiv: <strong>Rs. {settlementAmountToPkr(Number(payForm.amountUsd), payForm.settlementCurrency, Number(payForm.exchangeRate || 1)).toLocaleString("en-US", { maximumFractionDigits: 0 })}</strong>
                 </div>
               )}
             </div>

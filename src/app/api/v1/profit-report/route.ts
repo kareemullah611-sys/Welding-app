@@ -3,6 +3,105 @@ import prisma from "@/lib/prisma";
 import { withAuth } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import {
+  computeLotLandedCostPkr,
+  groupExpensesByCurrency,
+  type LotCostLike,
+} from "@/lib/landed-cost-pkr";
+
+const REPORTING_CURRENCY = "PKR";
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function num(value: unknown): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function cartonsFromPurchase(p: { qty: unknown; weightPerCartonKg: unknown }): number {
+  const wtPerCrt = num(p.weightPerCartonKg);
+  const qtyMt = num(p.qty);
+  return wtPerCrt > 0 ? Math.round((qtyMt * 1000) / wtPerCrt) : 0;
+}
+
+type LotProfitInputs = {
+  lotId: number;
+  pkrExchangeRate: number | null;
+  purchases: Array<{
+    productId: number;
+    qty: unknown;
+    weightPerCartonKg: unknown;
+    unitPriceUsd: unknown;
+    totalPriceUsd: unknown;
+    product: { name: string };
+    supplier: { name: string };
+  }>;
+  lotCosts: LotCostLike[];
+  lotExpensesByCurrency: Record<string, number>;
+  totalCartonsBought: number;
+};
+
+function buildLotProfitMetrics(input: LotProfitInputs) {
+  const usdPkrRate = num(input.pkrExchangeRate);
+  const totalPurchaseUsd = input.purchases.reduce((s, p) => s + num(p.totalPriceUsd), 0);
+  const totalLotCostsNative = input.lotCosts.reduce((s, c) => s + num(c.amount), 0);
+  const totalLotExpensesNative = Object.values(input.lotExpensesByCurrency).reduce((s, v) => s + v, 0);
+
+  const landed = computeLotLandedCostPkr({
+    totalPurchaseUsd,
+    totalCartons: input.totalCartonsBought,
+    lotCosts: input.lotCosts,
+    lotExpensesByCurrency: input.lotExpensesByCurrency,
+    usdPkrRate,
+  });
+
+  const additionalCostPkr =
+    landed.freightPkr + landed.nonFreightCostsPkr + landed.lotExpensesPkr;
+
+  const costBreakdown: Record<string, number> = {};
+  for (const c of input.lotCosts) {
+    const key = String(c.costType || "other");
+    costBreakdown[key] = (costBreakdown[key] || 0) + num(c.amount);
+  }
+
+  const productCosts = input.purchases.map((p) => {
+    const cartons = cartonsFromPurchase(p);
+    const purchaseCostPkr = num(p.totalPriceUsd) * usdPkrRate;
+    const additionalCostShare =
+      input.totalCartonsBought > 0 ? (cartons / input.totalCartonsBought) * additionalCostPkr : 0;
+    const totalLandedCostPkr = purchaseCostPkr + additionalCostShare;
+    const landedPerCarton = cartons > 0 ? totalLandedCostPkr / cartons : 0;
+    return {
+      productId: p.productId,
+      productName: p.product.name,
+      supplierName: p.supplier.name,
+      qtyMt: num(p.qty),
+      cartons,
+      unitPriceUsd: num(p.unitPriceUsd),
+      purchaseCostUsd: num(p.totalPriceUsd),
+      purchaseCostPkr: round2(purchaseCostPkr),
+      additionalCostShare: round2(additionalCostShare),
+      totalLandedCostUsd: round2(num(p.totalPriceUsd)),
+      totalLandedCostPkr: round2(totalLandedCostPkr),
+      landedCostPerCartonUsd: round2(landedPerCarton / (usdPkrRate || 1)),
+      landedCostPerCartonPkr: round2(landedPerCarton),
+      landedCostPerCarton: round2(landedPerCarton),
+    };
+  });
+
+  return {
+    usdPkrRate,
+    totalPurchaseUsd,
+    totalLotCostsNative,
+    totalLotExpensesNative,
+    landed,
+    additionalCostPkr,
+    costBreakdown,
+    productCosts,
+  };
+}
 
 // GET /api/v1/profit-report?lot_id=X or ?year=2026 or ?date_from=&date_to=
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
@@ -13,14 +112,12 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const dateFrom = sp.get("date_from");
     const dateTo = sp.get("date_to");
 
-    // LOT-LEVEL PROFIT
-    if (lotId) {
-      return await lotProfitReport(lotId, user);
-    }
-
-    // YEAR-END / DATE RANGE PROFIT
+    if (lotId) return await lotProfitReport(lotId, user);
     return await periodProfitReport(user, year, dateFrom, dateTo);
-  } catch (error) { console.error("Profit report error:", error); return serverError(); }
+  } catch (error) {
+    console.error("Profit report error:", error);
+    return serverError();
+  }
 });
 
 async function lotProfitReport(lotId: number, user: JWTPayload) {
@@ -30,45 +127,31 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
   });
   if (!lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
 
-  // Purchase costs
-  const purchases = await prisma.lotPurchase.findMany({ where: { lotId }, include: { product: true, supplier: true } });
-  const totalPurchaseUsd = purchases.reduce((s, p) => s + Number(p.totalPriceUsd), 0);
-  const totalCartonsBought = lot.lotProducts.reduce((s, lp) => s + Number(lp.totalQty), 0);
+  const [purchases, costs, lotExpenses] = await Promise.all([
+    prisma.lotPurchase.findMany({ where: { lotId }, include: { product: true, supplier: true } }),
+    prisma.lotCost.findMany({ where: { lotId } }),
+    prisma.expense.findMany({
+      where: { lotId, deletedAt: null },
+      include: { currency: true },
+    }),
+  ]);
 
-  // Additional costs (customs, freight, transport, etc.)
-  const costs = await prisma.lotCost.findMany({ where: { lotId } });
-  const totalLotCosts = costs.reduce((s, c) => s + Number(c.amount), 0);
-  const costBreakdown: Record<string, number> = {};
-  for (const c of costs) { costBreakdown[c.costType] = (costBreakdown[c.costType] || 0) + Number(c.amount); }
-
-  // Lot-tagged expenses also count as overhead (freight, misc paid as expenses)
-  const lotExpensesAgg = await prisma.expense.aggregate({ where: { lotId, deletedAt: null }, _sum: { amount: true } });
-  const totalLotExpenses = Number(lotExpensesAgg._sum.amount || 0);
-  const totalAdditionalCosts = totalLotCosts + totalLotExpenses;
-
-  // Total landed cost (purchases + ALL overheads including tagged expenses)
-  const totalLandedCostUsd = totalPurchaseUsd + totalAdditionalCosts;
-  const landedCostPerCarton = totalCartonsBought > 0 ? totalLandedCostUsd / totalCartonsBought : 0;
-
-  // Per product breakdown
-  const productCosts = purchases.map((p) => {
-    const qtyMt = Number(p.qty);
-    const wtPerCrt = p.weightPerCartonKg ? Number(p.weightPerCartonKg) : null;
-    const cartons = wtPerCrt && wtPerCrt > 0 ? Math.round((qtyMt * 1000) / wtPerCrt) : 0;
-    const purchaseCost = Number(p.totalPriceUsd);
-    const additionalCostShare = totalCartonsBought > 0 ? (cartons / totalCartonsBought) * totalAdditionalCosts : 0;
-    const landedCost = purchaseCost + additionalCostShare;
-    const landedPerCarton = cartons > 0 ? landedCost / cartons : 0;
-    return {
-      productId: p.productId, productName: p.product.name, supplierName: p.supplier.name,
-      qtyMt, cartons, unitPriceUsd: Number(p.unitPriceUsd), purchaseCostUsd: purchaseCost,
-      additionalCostShare: Math.round(additionalCostShare * 100) / 100,
-      totalLandedCostUsd: Math.round(landedCost * 100) / 100,
-      landedCostPerCartonUsd: Math.round(landedPerCarton * 100) / 100,
-    };
+  const lotExpensesByCurrency = groupExpensesByCurrency(lotExpenses);
+  const totalCartonsBought = lot.lotProducts.reduce((s, lp) => s + num(lp.totalQty), 0);
+  const metrics = buildLotProfitMetrics({
+    lotId,
+    pkrExchangeRate: lot.pkrExchangeRate ? num(lot.pkrExchangeRate) : null,
+    purchases,
+    lotCosts: costs.map((c) => ({
+      amount: c.amount,
+      currencyCode: c.currencyCode,
+      exchangeRate: c.exchangeRate,
+      costType: c.costType,
+    })),
+    lotExpensesByCurrency,
+    totalCartonsBought,
   });
 
-  // Sales revenue
   const salesWhere: any = { lotId, status: "active" };
   if (user.role === "city_admin") salesWhere.cityId = user.cityId;
 
@@ -82,72 +165,92 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
   for (const sale of sales) {
     for (const item of sale.items) {
       const pid = item.productId;
-      if (!salesByProduct[pid]) salesByProduct[pid] = { qty: 0, revenue: 0, productName: item.product.name };
-      salesByProduct[pid].qty += Number(item.qty);
-      salesByProduct[pid].revenue += Number(item.amount);
-      totalRevenue += Number(item.amount);
+      if (!salesByProduct[pid]) {
+        salesByProduct[pid] = { qty: 0, revenue: 0, productName: item.product.name };
+      }
+      salesByProduct[pid].qty += num(item.qty);
+      salesByProduct[pid].revenue += num(item.amount);
+      totalRevenue += num(item.amount);
     }
   }
 
-  // Discounts applied against this lot — reduce effective revenue
   const discountWhere: any = { appliedToLotId: lotId };
   if (user.role === "city_admin") discountWhere.sale = { cityId: user.cityId };
-  const discountsAgg = await prisma.saleDiscount.aggregate({ where: discountWhere, _sum: { discountAmount: true } });
-  const totalDiscounts = Number(discountsAgg._sum.discountAmount || 0);
+  const discountsAgg = await prisma.saleDiscount.aggregate({
+    where: discountWhere,
+    _sum: { discountAmount: true },
+  });
+  const totalDiscounts = num(discountsAgg._sum.discountAmount);
   const netRevenue = totalRevenue - totalDiscounts;
 
-  // City expenses for this lot (exclude soft-deleted)
-  const expWhere: any = { lotId, deletedAt: null };
-  if (user.role === "city_admin") expWhere.cityId = user.cityId;
-  const expenses = await prisma.expense.aggregate({ where: expWhere, _sum: { amount: true } });
-  const totalExpenses = Number(expenses._sum.amount || 0);
+  // Operational expenses only — lot-tagged expenses are already in landed cost / COGS.
+  const operationalExpWhere: any = { deletedAt: null, lotId: null };
+  if (user.role === "city_admin") operationalExpWhere.cityId = user.cityId;
+  const operationalExpenses = await prisma.expense.aggregate({
+    where: operationalExpWhere,
+    _sum: { amount: true },
+  });
+  const totalOperationalExpenses = num(operationalExpenses._sum.amount);
 
-  // Profit per product
-  const productProfits = productCosts.map((pc) => {
+  const productProfits = metrics.productCosts.map((pc) => {
     const soldData = salesByProduct[pc.productId];
     const cartonsSold = soldData?.qty || 0;
     const grossRevenue = soldData?.revenue || 0;
-    // Allocate discounts proportionally by revenue share
     const discountShare = totalRevenue > 0 ? (grossRevenue / totalRevenue) * totalDiscounts : 0;
     const revenue = grossRevenue - discountShare;
-    const costOfSold = cartonsSold * pc.landedCostPerCartonUsd;
+    const costOfSold = cartonsSold * pc.landedCostPerCartonPkr;
     const grossProfit = revenue - costOfSold;
     return {
-      ...pc, cartonsSold, revenue: Math.round(revenue * 100) / 100,
-      costOfGoodsSold: Math.round(costOfSold * 100) / 100,
-      grossProfit: Math.round(grossProfit * 100) / 100,
+      ...pc,
+      cartonsSold,
+      revenue: round2(revenue),
+      costOfGoodsSold: round2(costOfSold),
+      grossProfit: round2(grossProfit),
       cartonsRemaining: pc.cartons - cartonsSold,
-      unsoldValue: Math.round((pc.cartons - cartonsSold) * pc.landedCostPerCartonUsd * 100) / 100,
+      unsoldValue: round2((pc.cartons - cartonsSold) * pc.landedCostPerCartonPkr),
     };
   });
 
   const totalGrossProfit = productProfits.reduce((s, p) => s + p.grossProfit, 0);
-  const netProfit = totalGrossProfit - totalExpenses;
+  const netProfit = totalGrossProfit - totalOperationalExpenses;
 
   return successResponse({
-    lot: { id: lot.id, lotNumber: lot.lotNumber, lotDate: lot.lotDate.toISOString().split("T")[0], country: lot.country.name, status: lot.status },
+    reportingCurrency: REPORTING_CURRENCY,
+    lot: {
+      id: lot.id,
+      lotNumber: lot.lotNumber,
+      lotDate: lot.lotDate.toISOString().split("T")[0],
+      country: lot.country.name,
+      status: lot.status,
+      pkrExchangeRate: metrics.usdPkrRate || null,
+    },
     costSummary: {
-      totalPurchaseUsd: Math.round(totalPurchaseUsd * 100) / 100,
-      totalLotCosts: Math.round(totalLotCosts * 100) / 100,
-      totalLotExpenses: Math.round(totalLotExpenses * 100) / 100,
-      totalAdditionalCosts: Math.round(totalAdditionalCosts * 100) / 100,
-      costBreakdown,
-      totalLandedCostUsd: Math.round(totalLandedCostUsd * 100) / 100,
+      totalPurchaseUsd: round2(metrics.totalPurchaseUsd),
+      totalLotCosts: round2(metrics.totalLotCostsNative),
+      totalLotExpenses: round2(metrics.totalLotExpensesNative),
+      totalAdditionalCosts: round2(metrics.additionalCostPkr),
+      costBreakdown: metrics.costBreakdown,
+      totalLandedCostUsd: round2(metrics.totalPurchaseUsd + metrics.totalLotCostsNative),
+      totalLandedCostPkr: metrics.landed.totalLandedCostPkr,
       totalCartons: totalCartonsBought,
-      landedCostPerCarton: Math.round(landedCostPerCarton * 100) / 100,
+      landedCostPerCarton: metrics.landed.landedCostPerCartonPkr,
+      landedCostPerCartonPkr: metrics.landed.landedCostPerCartonPkr,
+      purchasePkr: metrics.landed.purchasePkr,
+      freightPkr: metrics.landed.freightPkr,
+      otherCostsPkr: round2(metrics.landed.nonFreightCostsPkr + metrics.landed.lotExpensesPkr),
     },
     productCosts: productProfits,
     profitSummary: {
-      grossRevenue: Math.round(totalRevenue * 100) / 100,
-      totalDiscounts: Math.round(totalDiscounts * 100) / 100,
-      netRevenue: Math.round(netRevenue * 100) / 100,
-      totalCOGS: Math.round(productProfits.reduce((s, p) => s + p.costOfGoodsSold, 0) * 100) / 100,
-      totalGrossProfit: Math.round(totalGrossProfit * 100) / 100,
-      totalExpenses: Math.round(totalExpenses * 100) / 100,
-      netProfit: Math.round(netProfit * 100) / 100,
-      unsoldInventoryValue: Math.round(productProfits.reduce((s, p) => s + p.unsoldValue, 0) * 100) / 100,
-      // backward-compat alias
-      totalRevenue: Math.round(netRevenue * 100) / 100,
+      grossRevenue: round2(totalRevenue),
+      totalDiscounts: round2(totalDiscounts),
+      netRevenue: round2(netRevenue),
+      totalCOGS: round2(productProfits.reduce((s, p) => s + p.costOfGoodsSold, 0)),
+      totalGrossProfit: round2(totalGrossProfit),
+      totalExpenses: round2(totalOperationalExpenses),
+      lotExpensesInLandedCost: round2(metrics.landed.lotExpensesPkr),
+      netProfit: round2(netProfit),
+      unsoldInventoryValue: round2(productProfits.reduce((s, p) => s + p.unsoldValue, 0)),
+      totalRevenue: round2(netRevenue),
     },
   });
 }
@@ -158,11 +261,17 @@ function parseDate(s: string | null | undefined): Date | undefined {
   return isNaN(d.getTime()) ? undefined : d;
 }
 
-async function periodProfitReport(user: JWTPayload, year?: number, dateFrom?: string | null, dateTo?: string | null) {
+async function periodProfitReport(
+  user: JWTPayload,
+  year?: number,
+  dateFrom?: string | null,
+  dateTo?: string | null
+) {
   const saleWhere: any = { status: "active" };
   if (user.role === "city_admin") saleWhere.cityId = user.cityId;
-  if (year) { saleWhere.saleDate = { gte: new Date(`${year}-01-01`), lte: new Date(`${year}-12-31`) }; }
-  else if (dateFrom || dateTo) {
+  if (year) {
+    saleWhere.saleDate = { gte: new Date(`${year}-01-01`), lte: new Date(`${year}-12-31`) };
+  } else if (dateFrom || dateTo) {
     saleWhere.saleDate = {};
     const from = parseDate(dateFrom);
     const to = parseDate(dateTo);
@@ -170,87 +279,128 @@ async function periodProfitReport(user: JWTPayload, year?: number, dateFrom?: st
     if (to) saleWhere.saleDate.lte = to;
   }
 
-  // Get all lots with purchases
   const lots = await prisma.lot.findMany({
     include: {
-      lotPurchases: true, lotProducts: true, lotCosts: true, country: true,
+      lotPurchases: true,
+      lotProducts: true,
+      lotCosts: true,
+      country: true,
       sales: { where: saleWhere, include: { items: true } },
-      expenses: { where: user.role === "city_admin" ? { cityId: user.cityId!, deletedAt: null } : { deletedAt: null } },
+      expenses: {
+        where: user.role === "city_admin" ? { cityId: user.cityId!, deletedAt: null } : { deletedAt: null },
+        include: { currency: true },
+      },
     },
   });
 
-  let totalRevenue = 0, totalCOGS = 0, totalExpenses = 0, totalCartonsSold = 0;
+  let totalRevenue = 0;
+  let totalCOGS = 0;
+  let totalCartonsSold = 0;
   const lotSummaries = [];
 
-  // Fetch discounts for all lots in one query
   const allDiscounts = await prisma.saleDiscount.findMany({
     where: user.role === "city_admin" ? { sale: { cityId: user.cityId! } } : {},
     select: { appliedToLotId: true, discountAmount: true },
   });
   const discountByLot: Record<number, number> = {};
   for (const d of allDiscounts) {
-    discountByLot[d.appliedToLotId] = (discountByLot[d.appliedToLotId] || 0) + Number(d.discountAmount);
+    discountByLot[d.appliedToLotId] = (discountByLot[d.appliedToLotId] || 0) + num(d.discountAmount);
   }
 
   for (const lot of lots) {
     if (!lot.sales.length && !lot.lotPurchases.length) continue;
 
-    const purchaseTotal = lot.lotPurchases.reduce((s, p) => s + Number(p.totalPriceUsd), 0);
-    const costsTotal = lot.lotCosts.reduce((s, c) => s + Number(c.amount), 0);
-    // Include lot-tagged expenses in the overhead (same as lot-level report)
-    const lotExpenses = lot.expenses.reduce((s, e) => s + Number(e.amount), 0);
-    const totalCartons = (lot.lotProducts as any[]).reduce((s: number, lp: any) => s + Number(lp.totalQty), 0);
-    const landedCostPerCarton = totalCartons > 0 ? (purchaseTotal + costsTotal + lotExpenses) / totalCartons : 0;
+    const totalCartons = lot.lotProducts.reduce((s, lp) => s + num(lp.totalQty), 0);
+    const lotExpensesByCurrency = groupExpensesByCurrency(lot.expenses);
+    const metrics = buildLotProfitMetrics({
+      lotId: lot.id,
+      pkrExchangeRate: lot.pkrExchangeRate ? num(lot.pkrExchangeRate) : null,
+      purchases: lot.lotPurchases.map((p) => ({
+        ...p,
+        product: { name: "" },
+        supplier: { name: "" },
+      })),
+      lotCosts: lot.lotCosts.map((c) => ({
+        amount: c.amount,
+        currencyCode: c.currencyCode,
+        exchangeRate: c.exchangeRate,
+        costType: c.costType,
+      })),
+      lotExpensesByCurrency,
+      totalCartonsBought: totalCartons,
+    });
 
-    let grossLotRevenue = 0, lotCartonsSold = 0;
+    let grossLotRevenue = 0;
+    let lotCartonsSold = 0;
     for (const sale of lot.sales) {
-      for (const item of sale.items) { grossLotRevenue += Number(item.amount); lotCartonsSold += Number(item.qty); }
+      for (const item of sale.items) {
+        grossLotRevenue += num(item.amount);
+        lotCartonsSold += num(item.qty);
+      }
     }
-    // Subtract discounts from revenue
+
     const lotDiscounts = discountByLot[lot.id] || 0;
     const lotRevenue = grossLotRevenue - lotDiscounts;
-    const lotCOGS = lotCartonsSold * landedCostPerCarton;
+    const lotCOGS = lotCartonsSold * metrics.landed.landedCostPerCartonPkr;
 
     totalRevenue += lotRevenue;
     totalCOGS += lotCOGS;
-    totalExpenses += lotExpenses;
     totalCartonsSold += lotCartonsSold;
 
     if (grossLotRevenue > 0 || lotCartonsSold > 0) {
       lotSummaries.push({
-        lotId: lot.id, lotNumber: lot.lotNumber, country: lot.country.name,
-        landedCostPerCarton: Math.round(landedCostPerCarton * 100) / 100,
+        lotId: lot.id,
+        lotNumber: lot.lotNumber,
+        country: lot.country.name,
+        landedCostPerCarton: metrics.landed.landedCostPerCartonPkr,
+        landedCostPerCartonPkr: metrics.landed.landedCostPerCartonPkr,
         cartonsSold: lotCartonsSold,
-        grossRevenue: Math.round(grossLotRevenue * 100) / 100,
-        discounts: Math.round(lotDiscounts * 100) / 100,
-        revenue: Math.round(lotRevenue * 100) / 100,
-        cogs: Math.round(lotCOGS * 100) / 100, expenses: Math.round(lotExpenses * 100) / 100,
-        grossProfit: Math.round((lotRevenue - lotCOGS) * 100) / 100,
-        netProfit: Math.round((lotRevenue - lotCOGS - lotExpenses) * 100) / 100,
+        grossRevenue: round2(grossLotRevenue),
+        discounts: round2(lotDiscounts),
+        revenue: round2(lotRevenue),
+        cogs: round2(lotCOGS),
+        expenses: 0,
+        grossProfit: round2(lotRevenue - lotCOGS),
+        netProfit: round2(lotRevenue - lotCOGS),
       });
     }
   }
 
-  // Supplier balance
+  const operationalExpWhere: any = { deletedAt: null, lotId: null };
+  if (user.role === "city_admin") operationalExpWhere.cityId = user.cityId;
+  const operationalExpenses = await prisma.expense.aggregate({
+    where: operationalExpWhere,
+    _sum: { amount: true },
+  });
+  const totalOperationalExpenses = num(operationalExpenses._sum.amount);
+
   const totalPurchased = await prisma.lotPurchase.aggregate({ _sum: { totalPriceUsd: true } });
   const totalPaid = await prisma.supplierPayment.aggregate({ _sum: { amountUsd: true } });
 
   return successResponse({
-    period: year ? `Year ${year}` : dateFrom || dateTo ? `${dateFrom || "start"} to ${dateTo || "now"}` : "All Time",
+    reportingCurrency: REPORTING_CURRENCY,
+    period: year
+      ? `Year ${year}`
+      : dateFrom || dateTo
+        ? `${dateFrom || "start"} to ${dateTo || "now"}`
+        : "All Time",
     profitAndLoss: {
-      totalRevenue: Math.round(totalRevenue * 100) / 100,
-      totalCOGS: Math.round(totalCOGS * 100) / 100,
-      grossProfit: Math.round((totalRevenue - totalCOGS) * 100) / 100,
-      grossMarginPercent: totalRevenue > 0 ? Math.round((totalRevenue - totalCOGS) / totalRevenue * 10000) / 100 : 0,
-      totalExpenses: Math.round(totalExpenses * 100) / 100,
-      netProfit: Math.round((totalRevenue - totalCOGS - totalExpenses) * 100) / 100,
-      netMarginPercent: totalRevenue > 0 ? Math.round((totalRevenue - totalCOGS - totalExpenses) / totalRevenue * 10000) / 100 : 0,
+      totalRevenue: round2(totalRevenue),
+      totalCOGS: round2(totalCOGS),
+      grossProfit: round2(totalRevenue - totalCOGS),
+      grossMarginPercent: totalRevenue > 0 ? round2(((totalRevenue - totalCOGS) / totalRevenue) * 100) : 0,
+      totalExpenses: round2(totalOperationalExpenses),
+      netProfit: round2(totalRevenue - totalCOGS - totalOperationalExpenses),
+      netMarginPercent:
+        totalRevenue > 0
+          ? round2(((totalRevenue - totalCOGS - totalOperationalExpenses) / totalRevenue) * 100)
+          : 0,
     },
     cartonsSold: totalCartonsSold,
     supplierAccount: {
-      totalPurchasedUsd: Number(totalPurchased._sum.totalPriceUsd || 0),
-      totalPaidUsd: Number(totalPaid._sum.amountUsd || 0),
-      balanceOwedUsd: Number(totalPurchased._sum.totalPriceUsd || 0) - Number(totalPaid._sum.amountUsd || 0),
+      totalPurchasedUsd: num(totalPurchased._sum.totalPriceUsd),
+      totalPaidUsd: num(totalPaid._sum.amountUsd),
+      balanceOwedUsd: num(totalPurchased._sum.totalPriceUsd) - num(totalPaid._sum.amountUsd),
     },
     lotBreakdown: lotSummaries,
   });

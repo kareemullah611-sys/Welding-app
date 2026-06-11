@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { journalSuperAdminPersonalExpense, reverseJournalEntries } from "@/lib/accounting";
 
 export const PUT = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -25,10 +26,23 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     if (!amount || Number.isNaN(amount) || amount <= 0) return errorResponse("VALIDATION_ERROR", "Amount must be greater than zero");
     if (!detail) return errorResponse("VALIDATION_ERROR", "Detail is required");
 
-    const updated = await prisma.superAdminPersonalExpense.update({
-      where: { id },
-      data: { amount, detail, notes },
-      include: { bankAccount: { include: { currency: true } } },
+    const updated = await prisma.$transaction(async (tx) => {
+      await reverseJournalEntries(`SAEXP-${id}`, user.userId, tx);
+      const row = await tx.superAdminPersonalExpense.update({
+        where: { id },
+        data: { amount, detail, notes },
+        include: { bankAccount: { include: { currency: true } } },
+      });
+      await journalSuperAdminPersonalExpense({
+        id: row.id,
+        amount: Number(row.amount),
+        currencyCode: row.bankAccount.currency.code,
+        detail: row.detail,
+        expenseDate: row.expenseDate,
+        createdBy: user.userId,
+        bankAccountId: row.bankAccountId,
+      }, tx);
+      return row;
     });
 
     await createAuditLog(
@@ -58,9 +72,12 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
     const expense = await prisma.superAdminPersonalExpense.findUnique({ where: { id } });
     if (!expense || expense.deletedAt !== null) return errorResponse("NOT_FOUND", "Expense not found", 404);
 
-    await prisma.superAdminPersonalExpense.update({
-      where: { id },
-      data: { deletedAt: new Date() },
+    await prisma.$transaction(async (tx) => {
+      await reverseJournalEntries(`SAEXP-${id}`, user.userId, tx);
+      await tx.superAdminPersonalExpense.update({
+        where: { id },
+        data: { deletedAt: new Date() },
+      });
     });
 
     await createAuditLog(

@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { AccountType, Prisma, PrismaClient } from "@prisma/client";
+import { computeLotLandedCostPkr, groupExpensesByCurrency } from "@/lib/landed-cost-pkr";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -59,6 +60,7 @@ export async function getSalesRevenueAccountId(db: DbClient = prisma): Promise<n
 export async function getCOGSAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("4001", "Cost of Goods Sold", "cogs", undefined, db); }
 export async function getOwnerWithdrawalAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("6002", "Owner Withdrawals", "equity", undefined, db); }
 export async function getHajiAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("6003", "Haji Account", "equity", undefined, db); }
+export async function getOpeningBalanceAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("3900", "Opening Balances", "equity", undefined, db); }
 export async function getBankAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("1050", "Bank Account (USD)", "asset", undefined, db); }
 
 export async function getExpenseAccountId(costType: string, db: DbClient = prisma): Promise<number> {
@@ -75,7 +77,7 @@ export async function getExpenseAccountId(costType: string, db: DbClient = prism
   return getOrCreateAccount(entry.code, entry.name, "expense", undefined, db);
 }
 
-interface JournalLine { accountId: number; debit: number; credit: number; description: string; }
+interface JournalLine { accountId: number; debit: number; credit: number; description: string; currencyCode?: string; }
 
 export async function createJournalEntries(
   transactionId: string, lines: JournalLine[],
@@ -86,7 +88,7 @@ export async function createJournalEntries(
     .filter((line) => line.debit !== 0 || line.credit !== 0)
     .map((line) => ({
       transactionId, accountId: line.accountId, debit: line.debit, credit: line.credit,
-      currencyCode: meta.currencyCode, exchangeRate: meta.exchangeRate || null, description: line.description,
+      currencyCode: line.currencyCode || meta.currencyCode, exchangeRate: meta.exchangeRate || null, description: line.description,
       entityType: meta.entityType, entityId: meta.entityId, lotId: meta.lotId || null,
       cityId: meta.cityId || null, entryDate: meta.entryDate, createdBy: meta.createdBy,
     }));
@@ -104,10 +106,29 @@ export async function journalSaleCreated(sale: { id: number; customerId: number;
   await createJournalEntries(`SALE-${sale.id}`, lines, { currencyCode: sale.currencyCode, entityType: "sale", entityId: sale.id, lotId: sale.lotId, cityId: sale.cityId, entryDate: sale.saleDate, createdBy: sale.createdBy }, db);
 }
 
-// PAYMENT RECEIVED (cash / bank transfer / online)
-export async function journalPaymentReceived(p: { id: number; customerId: number; cityId: number; lotId: number; amount: number; currencyCode: string; paymentDate: Date; createdBy: number; }, db: DbClient = prisma) {
+// PAYMENT RECEIVED (cash / bank transfer / online / direct-to-haji)
+export async function journalPaymentReceived(
+  p: {
+    id: number; customerId: number; cityId: number; lotId: number;
+    amount: number; currencyCode: string; paymentDate: Date; createdBy: number;
+    destination?: string | null; superAdminBankAccountId?: number | null;
+    bankAccountId?: number | null; paymentMethod?: string | null;
+  },
+  db: DbClient = prisma
+) {
+  let debitAccId: number;
+  if (p.destination === "haji" && p.superAdminBankAccountId) {
+    debitAccId = await getSuperAdminBankGLAccountId(p.superAdminBankAccountId, db);
+  } else if (p.destination === "haji") {
+    debitAccId = await getHajiAccountId(db);
+  } else if (p.bankAccountId && p.paymentMethod === "bank_transfer") {
+    debitAccId = await getBankGLAccountId(p.bankAccountId, db);
+  } else {
+    debitAccId = await getCashAccountId(p.cityId, db);
+  }
+
   await createJournalEntries(`PAY-${p.id}`, [
-    { accountId: await getCashAccountId(p.cityId, db), debit: p.amount, credit: 0, description: `Payment #${p.id}` },
+    { accountId: debitAccId, debit: p.amount, credit: 0, description: `Payment #${p.id}` },
     { accountId: await getCustomerAccountId(p.customerId, db), debit: 0, credit: p.amount, description: `Payment #${p.id}` },
   ], { currencyCode: p.currencyCode, entityType: "payment", entityId: p.id, lotId: p.lotId, cityId: p.cityId, entryDate: p.paymentDate, createdBy: p.createdBy }, db);
 }
@@ -161,22 +182,35 @@ export async function journalLotPurchase(p: { id: number; supplierId: number; lo
   ], { currencyCode: "USD", entityType: "lot_purchase", entityId: p.id, lotId: p.lotId, entryDate: new Date(), createdBy: p.createdBy }, db);
 }
 
-// SUPPLIER PAID
+// SUPPLIER PAID — supplier debit in USD; bank credit in settlement currency (PKR when paid from PKR bank)
 export async function journalSupplierPaid(
-  p: { id: number; supplierId: number; amountUsd: number; paymentDate: Date; createdBy: number; bankAccountId?: number | null; intermediaryId?: number | null; },
+  p: {
+    id: number; supplierId: number; amountUsd: number; amountLocal?: number | null;
+    paymentDate: Date; createdBy: number;
+    bankAccountId?: number | null; intermediaryId?: number | null;
+    settlementCurrencyCode?: string | null;
+  },
   db: DbClient = prisma
 ) {
   let creditAccId: number;
+  let creditAmount = p.amountUsd;
+  let creditCurrency = "USD";
+
   if (p.intermediaryId) {
     creditAccId = await getIntermediaryAccountId(p.intermediaryId, db);
   } else if (p.bankAccountId) {
     creditAccId = await getBankGLAccountId(p.bankAccountId, db);
+    if (p.amountLocal && Number(p.amountLocal) > 0) {
+      creditAmount = Number(p.amountLocal);
+      creditCurrency = p.settlementCurrencyCode || "PKR";
+    }
   } else {
     creditAccId = await getBankAccountId(db);
   }
+
   await createJournalEntries(`SUPPPAY-${p.id}`, [
-    { accountId: await getSupplierAccountId(p.supplierId, db), debit: p.amountUsd, credit: 0, description: `Payment to supplier` },
-    { accountId: creditAccId, debit: 0, credit: p.amountUsd, description: p.intermediaryId ? `Through intermediary` : `Bank to supplier` },
+    { accountId: await getSupplierAccountId(p.supplierId, db), debit: p.amountUsd, credit: 0, description: `Payment to supplier`, currencyCode: "USD" },
+    { accountId: creditAccId, debit: 0, credit: creditAmount, description: p.intermediaryId ? `Through intermediary` : `Bank to supplier`, currencyCode: creditCurrency },
   ], { currencyCode: "USD", entityType: "supplier_payment", entityId: p.id, entryDate: p.paymentDate, createdBy: p.createdBy }, db);
 }
 
@@ -351,6 +385,62 @@ export async function journalIntermediaryExchange(e: {
   });
 }
 
+// OPENING LIABILITY — pre-go-live payables flow into party GL accounts
+export async function journalOpeningLiability(
+  p: {
+    id: number;
+    liabilityType: string;
+    partyId: number;
+    amount: number;
+    currencyCode: string;
+    openingDate: Date;
+    createdBy: number;
+  },
+  db: DbClient = prisma
+) {
+  let creditAccId: number;
+  if (p.liabilityType === "supplier") creditAccId = await getSupplierAccountId(p.partyId, db);
+  else if (p.liabilityType === "shipping_line") creditAccId = await getShippingLineAccountId(p.partyId, db);
+  else if (p.liabilityType === "agent") creditAccId = await getAgentAccountId(p.partyId, db);
+  else creditAccId = await getIntermediaryAccountId(p.partyId, db);
+
+  await createJournalEntries(`OPENLIAB-${p.id}`, [
+    { accountId: await getOpeningBalanceAccountId(db), debit: p.amount, credit: 0, description: `Opening liability` },
+    { accountId: creditAccId, debit: 0, credit: p.amount, description: `Opening liability` },
+  ], {
+    currencyCode: p.currencyCode,
+    entityType: "opening_liability",
+    entityId: p.id,
+    entryDate: p.openingDate,
+    createdBy: p.createdBy,
+  }, db);
+}
+
+// SUPER ADMIN PERSONAL / HOME EXPENSE — debited from SA bank GL
+export async function journalSuperAdminPersonalExpense(
+  e: {
+    id: number;
+    amount: number;
+    currencyCode: string;
+    detail: string;
+    expenseDate: Date;
+    createdBy: number;
+    bankAccountId: number;
+  },
+  db: DbClient = prisma
+) {
+  await createJournalEntries(`SAEXP-${e.id}`, [
+    { accountId: await getExpenseAccountId("office", db), debit: e.amount, credit: 0, description: e.detail },
+    { accountId: await getSuperAdminBankGLAccountId(e.bankAccountId, db), debit: 0, credit: e.amount, description: e.detail },
+  ], {
+    currencyCode: e.currencyCode,
+    entityType: "super_admin_personal_expense",
+    entityId: e.id,
+    entryDate: e.expenseDate,
+    createdBy: e.createdBy,
+  }, db);
+}
+
 // SHIPPING LINE PAID
 // Source priority: intermediary → specific bank → generic bank
 export async function journalShippingLinePayment(p: { id: number; shippingLineId: number; amountUsd: number; paymentDate: Date; createdBy: number; bankAccountId?: number | null; intermediaryId?: number | null; }) {
@@ -377,28 +467,41 @@ export async function journalSaleCOGS(params: {
 }, db: DbClient = prisma) {
   const { saleId, lotId, totalQtySold, saleDate, cityId, createdBy } = params;
 
-  const [purchases, costs, lotProducts] = await Promise.all([
+  const [lot, purchases, costs, lotProducts, lotExpenses] = await Promise.all([
+    db.lot.findUnique({ where: { id: lotId }, select: { pkrExchangeRate: true } }),
     db.lotPurchase.aggregate({ where: { lotId }, _sum: { totalPriceUsd: true } }),
-    db.lotCost.aggregate({ where: { lotId }, _sum: { amount: true } }),
+    db.lotCost.findMany({
+      where: { lotId },
+      select: { amount: true, currencyCode: true, exchangeRate: true, costType: true },
+    }),
     db.lotProduct.aggregate({ where: { lotId }, _sum: { totalQty: true } }),
+    db.expense.findMany({
+      where: { lotId, deletedAt: null },
+      select: { amount: true, currency: { select: { code: true } } },
+    }),
   ]);
 
-  const totalPurchaseUsd = Number(purchases._sum.totalPriceUsd || 0);
-  const totalCostsUsd = Number(costs._sum.amount || 0);
+  const usdPkrRate = Number(lot?.pkrExchangeRate || 0);
   const totalCartons = Number(lotProducts._sum.totalQty || 0);
+  if (totalCartons === 0 || totalQtySold === 0 || usdPkrRate <= 0) return;
 
-  if (totalCartons === 0 || totalQtySold === 0) return;
-  const totalLandedCost = totalPurchaseUsd + totalCostsUsd;
-  if (totalLandedCost === 0) return;
+  const landed = computeLotLandedCostPkr({
+    totalPurchaseUsd: Number(purchases._sum.totalPriceUsd || 0),
+    totalCartons,
+    lotCosts: costs,
+    lotExpensesByCurrency: groupExpensesByCurrency(lotExpenses),
+    usdPkrRate,
+  });
 
-  const costPerCarton = totalLandedCost / totalCartons;
-  const cogsAmount = Math.round(totalQtySold * costPerCarton * 100) / 100;
+  if (landed.landedCostPerCartonPkr <= 0) return;
+
+  const cogsAmount = Math.round(totalQtySold * landed.landedCostPerCartonPkr * 100) / 100;
   if (cogsAmount <= 0) return;
 
   await createJournalEntries(`COGS-${saleId}`, [
     { accountId: await getCOGSAccountId(db), debit: cogsAmount, credit: 0, description: `COGS — Sale #${saleId}` },
     { accountId: await getInventoryAccountId(db), debit: 0, credit: cogsAmount, description: `Inventory reduction — Sale #${saleId}` },
-  ], { currencyCode: "USD", entityType: "sale", entityId: saleId, lotId, cityId, entryDate: saleDate, createdBy }, db);
+  ], { currencyCode: "PKR", entityType: "sale", entityId: saleId, lotId, cityId, entryDate: saleDate, createdBy }, db);
 }
 
 // REVERSE (for cancellations)

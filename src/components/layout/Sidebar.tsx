@@ -6,9 +6,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { LangSwitcher, useLang } from "@/lib/lang";
 import { apiCall } from "@/hooks/useApi";
-import NotificationBell from "@/components/layout/NotificationBell";
 import BrandLogo from "@/components/brand/BrandLogo";
-import { useUnreadNotificationCount } from "@/hooks/useUnreadNotificationCount";
 import {
   LayoutDashboard, Package, Factory, Banknote, Handshake,
   BookOpen, Receipt, Wallet, Users, Warehouse, ClipboardList,
@@ -133,9 +131,7 @@ const cityAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
   {
     label: "Stock",
     items: [
-      { label: "Inventory",      key: "inventory",      href: "/inventory",      icon: ClipboardList, roles: ["city_admin"] },
-      { label: "Godowns",        key: "godowns",        href: "/godowns",        icon: Warehouse,     roles: ["city_admin"] },
-      { label: "City Transfers", key: "city_transfers", href: "/city-transfers", icon: ArrowLeftRight,roles: ["city_admin"] },
+      { label: "Inventory", key: "inventory", href: "/inventory", icon: ClipboardList, roles: ["city_admin"] },
     ],
   },
   {
@@ -190,7 +186,6 @@ export default function Sidebar() {
   const touchStartX = useRef(0);
   const desktopNavRef = useRef<HTMLElement>(null);
   const mobileNavRef = useRef<HTMLElement>(null);
-  const unreadNotifications = useUnreadNotificationCount();
 
   useEffect(() => {
     setRouteQuery(typeof window !== "undefined" ? window.location.search.replace(/^\?/, "") : "");
@@ -398,10 +393,7 @@ export default function Sidebar() {
         )}
       >
         <div className="flex-shrink-0 rounded-2xl bg-white p-1 ring-1 ring-[#E4E4E7] shadow-sm">
-          <BrandLogo
-            size={collapsed ? "sm" : "md"}
-            badgeCount={unreadNotifications}
-          />
+          <BrandLogo size={collapsed ? "sm" : "md"} />
         </div>
         {!collapsed && (
           <div className="min-w-0">
@@ -523,17 +515,6 @@ export default function Sidebar() {
         {!collapsed && (
           <div className="px-2 pb-0.5">
             <LangSwitcher />
-          </div>
-        )}
-
-        {/* Notification Bell */}
-        {!collapsed ? (
-          <div className="px-2 pb-0.5">
-            <NotificationBell sidebarMode />
-          </div>
-        ) : (
-          <div className="flex justify-center py-1">
-            <NotificationBell sidebarMode compact />
           </div>
         )}
 

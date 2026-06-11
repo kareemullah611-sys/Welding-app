@@ -125,22 +125,30 @@ export default function ProfitReportPage() {
   );
 }
 
+function pkr(value: number | string | null | undefined) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  return `PKR ${formatNumber(n)}`;
+}
+
 function PeriodReport({ data }: { data: any }) {
   const { t } = useLang();
   const pl = data.profitAndLoss;
+  const currency = data.reportingCurrency || "PKR";
   return (
     <>
+      <div className="mb-3 text-xs text-gray-500">All amounts in {currency}</div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <StatsCard title={t("revenue_label")} value={formatNumber(pl.totalRevenue)} icon="🧾" color="blue" />
-        <StatsCard title={t("cost_of_goods")} value={formatNumber(pl.totalCOGS)} icon="📦" color="red" />
-        <StatsCard title={t("gross_profit_label")} value={formatNumber(pl.grossProfit)} icon="📈" color={pl.grossProfit >= 0 ? "green" : "red"} />
-        <StatsCard title={t("net_profit_label")} value={formatNumber(pl.netProfit)} icon="💰" color={pl.netProfit >= 0 ? "green" : "red"} />
+        <StatsCard title={t("revenue_label")} value={pkr(pl.totalRevenue)} icon="🧾" color="blue" />
+        <StatsCard title={t("cost_of_goods")} value={pkr(pl.totalCOGS)} icon="📦" color="red" />
+        <StatsCard title={t("gross_profit_label")} value={pkr(pl.grossProfit)} icon="📈" color={pl.grossProfit >= 0 ? "green" : "red"} />
+        <StatsCard title={t("net_profit_label")} value={pkr(pl.netProfit)} icon="💰" color={pl.netProfit >= 0 ? "green" : "red"} />
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <StatsCard title={t("gross_margin_label")} value={`${pl.grossMarginPercent}%`} icon="📊" color="blue" />
         <StatsCard title={t("net_margin_label")} value={`${pl.netMarginPercent}%`} icon="📊" color="blue" />
         <StatsCard title={t("cartons_sold_label")} value={formatNumber(data.cartonsSold)} icon="📦" color="blue" />
-        <StatsCard title={t("expenses")} value={formatNumber(pl.totalExpenses)} icon="💸" color="red" />
+        <StatsCard title={t("expenses")} value={pkr(pl.totalExpenses)} icon="💸" color="red" />
       </div>
 
       {data.supplierAccount && (
@@ -159,12 +167,12 @@ function PeriodReport({ data }: { data: any }) {
         <DataTable columns={[
           { key: "lotNumber", label: t("lot") },
           { key: "country", label: t("country") },
-          { key: "landedCostPerCarton", label: t("cost_per_carton"), render: (l: any) => `$${l.landedCostPerCarton}` },
+          { key: "landedCostPerCarton", label: t("cost_per_carton"), render: (l: any) => pkr(l.landedCostPerCartonPkr ?? l.landedCostPerCarton) },
           { key: "cartonsSold", label: t("sold"), render: (l: any) => formatNumber(l.cartonsSold) },
-          { key: "revenue", label: t("revenue"), render: (l: any) => formatNumber(l.revenue) },
-          { key: "cogs", label: t("cogs"), render: (l: any) => <span className="text-red-600">{formatNumber(l.cogs)}</span> },
-          { key: "grossProfit", label: t("gross_profit_label"), render: (l: any) => <span className={l.grossProfit >= 0 ? "text-green-600 font-medium" : "text-red-600 font-medium"}>{formatNumber(l.grossProfit)}</span> },
-          { key: "netProfit", label: t("net_profit_label"), render: (l: any) => <span className={l.netProfit >= 0 ? "text-green-700 font-bold" : "text-red-700 font-bold"}>{formatNumber(l.netProfit)}</span> },
+          { key: "revenue", label: t("revenue"), render: (l: any) => pkr(l.revenue) },
+          { key: "cogs", label: t("cogs"), render: (l: any) => <span className="text-red-600">{pkr(l.cogs)}</span> },
+          { key: "grossProfit", label: t("gross_profit_label"), render: (l: any) => <span className={l.grossProfit >= 0 ? "text-green-600 font-medium" : "text-red-600 font-medium"}>{pkr(l.grossProfit)}</span> },
+          { key: "netProfit", label: t("net_profit_label"), render: (l: any) => <span className={l.netProfit >= 0 ? "text-green-700 font-bold" : "text-red-700 font-bold"}>{pkr(l.netProfit)}</span> },
         ]} data={data.lotBreakdown || []} loading={false} />
       </div>
     </>
@@ -175,18 +183,21 @@ function LotReport({ data }: { data: any }) {
   const { t } = useLang();
   const cs = data.costSummary;
   const ps = data.profitSummary;
+  const currency = data.reportingCurrency || "PKR";
   return (
     <>
       <div className="mb-4 p-3 bg-gray-50 border rounded-lg text-sm">
         <strong>{data.lot.lotNumber}</strong> — {data.lot.country} — {formatDate(data.lot.lotDate)} — {t("status")}: <span className={data.lot.status === "ongoing" ? "text-green-600" : "text-gray-500"}>{data.lot.status}</span>
+        {data.lot.pkrExchangeRate ? <span className="ml-3 text-xs text-gray-500">USD/PKR: {data.lot.pkrExchangeRate}</span> : null}
       </div>
+      <div className="mb-3 text-xs text-gray-500">Landed cost & profit in {currency}</div>
 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
-        <StatsCard title={t("purchase_cost")} value={`$${formatNumber(cs.totalPurchaseUsd)}`} icon="📦" color="blue" />
-        <StatsCard title={t("additional_costs")} value={`$${formatNumber(cs.totalAdditionalCosts)}`} icon="💸" color="red" />
-        <StatsCard title={t("total_landed")} value={`$${formatNumber(cs.totalLandedCostUsd)}`} icon="🏷️" color="yellow" />
+        <StatsCard title={t("purchase_cost")} value={pkr(cs.purchasePkr ?? cs.totalPurchaseUsd)} icon="📦" color="blue" />
+        <StatsCard title={t("additional_costs")} value={pkr(cs.otherCostsPkr ?? cs.totalAdditionalCosts)} icon="💸" color="red" />
+        <StatsCard title={t("total_landed")} value={pkr(cs.totalLandedCostPkr ?? cs.totalLandedCostUsd)} icon="🏷️" color="yellow" />
         <StatsCard title={t("cartons")} value={formatNumber(cs.totalCartons)} icon="📦" color="blue" />
-        <StatsCard title={t("cost_per_carton")} value={`$${cs.landedCostPerCarton}`} icon="💰" color="green" />
+        <StatsCard title={t("cost_per_carton")} value={pkr(cs.landedCostPerCartonPkr ?? cs.landedCostPerCarton)} icon="💰" color="green" />
       </div>
 
       {Object.keys(cs.costBreakdown).length > 0 && (
@@ -199,25 +210,30 @@ function LotReport({ data }: { data: any }) {
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
-        <StatsCard title={t("revenue_label")} value={formatNumber(ps.totalRevenue)} icon="🧾" color="blue" />
-        <StatsCard title={t("cogs")} value={formatNumber(ps.totalCOGS)} icon="📦" color="red" />
-        <StatsCard title={t("gross_profit_label")} value={formatNumber(ps.totalGrossProfit)} icon="📈" color={ps.totalGrossProfit >= 0 ? "green" : "red"} />
-        <StatsCard title={t("expenses")} value={formatNumber(ps.totalExpenses)} icon="💸" color="red" />
-        <StatsCard title={t("net_profit_label")} value={formatNumber(ps.netProfit)} icon="💰" color={ps.netProfit >= 0 ? "green" : "red"} />
-        <StatsCard title={t("unsold_value")} value={`$${formatNumber(ps.unsoldInventoryValue)}`} icon="📋" color="yellow" />
+        <StatsCard title={t("revenue_label")} value={pkr(ps.totalRevenue)} icon="🧾" color="blue" />
+        <StatsCard title={t("cogs")} value={pkr(ps.totalCOGS)} icon="📦" color="red" />
+        <StatsCard title={t("gross_profit_label")} value={pkr(ps.totalGrossProfit)} icon="📈" color={ps.totalGrossProfit >= 0 ? "green" : "red"} />
+        <StatsCard title={t("expenses")} value={pkr(ps.totalExpenses)} icon="💸" color="red" />
+        <StatsCard title={t("net_profit_label")} value={pkr(ps.netProfit)} icon="💰" color={ps.netProfit >= 0 ? "green" : "red"} />
+        <StatsCard title={t("unsold_value")} value={pkr(ps.unsoldInventoryValue)} icon="📋" color="yellow" />
       </div>
+      {ps.lotExpensesInLandedCost > 0 && (
+        <p className="mb-4 text-xs text-gray-500">
+          PKR {formatNumber(ps.lotExpensesInLandedCost)} of lot-tagged city expenses are included in landed cost (not subtracted again).
+        </p>
+      )}
 
       <div className="card">
         <h3 className="text-sm font-semibold text-gray-500 mb-3">{t("product_profitability")}</h3>
         <DataTable columns={[
           { key: "productName", label: t("product") },
           { key: "qty", label: t("bought") },
-          { key: "landedCostPerCartonUsd", label: t("cost_per_carton"), render: (p: any) => `$${p.landedCostPerCartonUsd}` },
+          { key: "landedCostPerCartonUsd", label: t("cost_per_carton"), render: (p: any) => pkr(p.landedCostPerCartonPkr ?? p.landedCostPerCartonUsd) },
           { key: "cartonsSold", label: t("sold") },
           { key: "cartonsRemaining", label: t("remaining"), render: (p: any) => p.cartonsRemaining > 0 ? <span className="text-yellow-600">{p.cartonsRemaining}</span> : "0" },
-          { key: "revenue", label: t("revenue"), render: (p: any) => formatNumber(p.revenue) },
-          { key: "costOfGoodsSold", label: t("cogs"), render: (p: any) => <span className="text-red-600">{formatNumber(p.costOfGoodsSold)}</span> },
-          { key: "grossProfit", label: t("profit"), render: (p: any) => <span className={p.grossProfit >= 0 ? "text-green-600 font-bold" : "text-red-600 font-bold"}>{formatNumber(p.grossProfit)}</span> },
+          { key: "revenue", label: t("revenue"), render: (p: any) => pkr(p.revenue) },
+          { key: "costOfGoodsSold", label: t("cogs"), render: (p: any) => <span className="text-red-600">{pkr(p.costOfGoodsSold)}</span> },
+          { key: "grossProfit", label: t("profit"), render: (p: any) => <span className={p.grossProfit >= 0 ? "text-green-600 font-bold" : "text-red-600 font-bold"}>{pkr(p.grossProfit)}</span> },
         ]} data={data.productCosts || []} loading={false} />
       </div>
     </>

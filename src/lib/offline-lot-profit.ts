@@ -1,5 +1,6 @@
 import { getSyncedModuleData } from "@/lib/offline-full-sync";
 import { readOfflineAuthCache } from "@/lib/offline-auth-cache";
+import { computeLotLandedCostPkr, groupExpensesByCurrency } from "@/lib/landed-cost-pkr";
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
@@ -68,15 +69,32 @@ export function buildOfflineLotProfitFromModules(input: {
     return true;
   });
 
-  const totalPurchaseUsd = purchases.reduce((s: number, p) => s + num((p as { totalPriceUsd?: number }).totalPriceUsd), 0);
-  const totalLotCosts = costs.reduce((s: number, c) => s + num((c as { amount?: number }).amount), 0);
-  const totalLotExpenses = lotExpenses.reduce((s: number, e) => s + num((e as { amount?: number }).amount), 0);
-  const totalAdditionalCosts = totalLotCosts + totalLotExpenses;
-  const totalLandedCostUsd = totalPurchaseUsd + totalAdditionalCosts;
-
   const lotProducts = asArray(lot.products).length ? asArray(lot.products) : asArray((lot as { lotProducts?: unknown[] }).lotProducts);
+  const totalPurchaseUsd = purchases.reduce((s: number, p) => s + num((p as { totalPriceUsd?: number }).totalPriceUsd), 0);
+  const lotExpensesByCurrency = groupExpensesByCurrency(
+    lotExpenses.map((e) => ({
+      amount: (e as { amount?: number }).amount,
+      currency: (e as { currency?: { code?: string } }).currency,
+    }))
+  );
+  const usdPkrRate = num(lot.pkrExchangeRate);
   const totalCartonsBought = lotProducts.reduce((s: number, lp) => s + num((lp as { totalQty?: number }).totalQty), 0);
-  const landedCostPerCarton = totalCartonsBought > 0 ? totalLandedCostUsd / totalCartonsBought : 0;
+  const landed = computeLotLandedCostPkr({
+    totalPurchaseUsd,
+    totalCartons: totalCartonsBought,
+    lotCosts: costs.map((c) => ({
+      amount: (c as { amount?: number }).amount,
+      currencyCode: (c as { currencyCode?: string }).currencyCode,
+      exchangeRate: (c as { exchangeRate?: number }).exchangeRate,
+      costType: (c as { costType?: string }).costType,
+    })),
+    lotExpensesByCurrency,
+    usdPkrRate,
+  });
+  const totalAdditionalCostsPkr =
+    landed.freightPkr + landed.nonFreightCostsPkr + landed.lotExpensesPkr;
+  const totalLandedCostPkr = landed.totalLandedCostPkr;
+  const landedCostPerCarton = landed.landedCostPerCartonPkr;
 
   const costBreakdown: Record<string, number> = {};
   for (const c of costs) {
@@ -97,10 +115,10 @@ export function buildOfflineLotProfitFromModules(input: {
     const wtPerCrt = num(row.weightPerCartonKg);
     const qtyMt = num(row.qty);
     const cartons = wtPerCrt > 0 ? Math.round((qtyMt * 1000) / wtPerCrt) : 0;
-    const purchaseCost = num(row.totalPriceUsd);
-    const additionalCostShare = totalCartonsBought > 0 ? (cartons / totalCartonsBought) * totalAdditionalCosts : 0;
-    const landedCost = purchaseCost + additionalCostShare;
-    const landedPerCarton = cartons > 0 ? landedCost / cartons : 0;
+    const purchaseCostPkr = num(row.totalPriceUsd) * usdPkrRate;
+    const additionalCostShare = totalCartonsBought > 0 ? (cartons / totalCartonsBought) * totalAdditionalCostsPkr : 0;
+    const landedCostPkr = purchaseCostPkr + additionalCostShare;
+    const landedPerCarton = cartons > 0 ? landedCostPkr / cartons : 0;
     return {
       productId: row.productId,
       productName: row.product?.name ?? "",
@@ -108,10 +126,12 @@ export function buildOfflineLotProfitFromModules(input: {
       qtyMt,
       cartons,
       unitPriceUsd: num(row.unitPriceUsd),
-      purchaseCostUsd: purchaseCost,
+      purchaseCostUsd: num(row.totalPriceUsd),
       additionalCostShare: Math.round(additionalCostShare * 100) / 100,
-      totalLandedCostUsd: Math.round(landedCost * 100) / 100,
-      landedCostPerCartonUsd: Math.round(landedPerCarton * 100) / 100,
+      totalLandedCostUsd: Math.round(num(row.totalPriceUsd) * 100) / 100,
+      totalLandedCostPkr: Math.round(landedCostPkr * 100) / 100,
+      landedCostPerCartonPkr: Math.round(landedPerCarton * 100) / 100,
+      landedCostPerCartonUsd: Math.round(landedPerCarton / (usdPkrRate || 1) * 100) / 100,
     };
   });
 
@@ -144,7 +164,7 @@ export function buildOfflineLotProfitFromModules(input: {
   }
 
   const netRevenue = totalRevenue - totalDiscounts;
-  const totalExpenses = totalLotExpenses;
+  const totalOperationalExpenses = 0;
 
   const productProfits = productCosts.map((pc) => {
     const soldData = salesByProduct[Number(pc.productId)];
@@ -152,7 +172,7 @@ export function buildOfflineLotProfitFromModules(input: {
     const grossRevenue = soldData?.revenue || 0;
     const discountShare = totalRevenue > 0 ? (grossRevenue / totalRevenue) * totalDiscounts : 0;
     const revenue = grossRevenue - discountShare;
-    const costOfSold = cartonsSold * pc.landedCostPerCartonUsd;
+    const costOfSold = cartonsSold * pc.landedCostPerCartonPkr;
     const grossProfit = revenue - costOfSold;
     return {
       ...pc,
@@ -161,14 +181,15 @@ export function buildOfflineLotProfitFromModules(input: {
       costOfGoodsSold: Math.round(costOfSold * 100) / 100,
       grossProfit: Math.round(grossProfit * 100) / 100,
       cartonsRemaining: pc.cartons - cartonsSold,
-      unsoldValue: Math.round((pc.cartons - cartonsSold) * pc.landedCostPerCartonUsd * 100) / 100,
+      unsoldValue: Math.round((pc.cartons - cartonsSold) * pc.landedCostPerCartonPkr * 100) / 100,
     };
   });
 
   const totalGrossProfit = productProfits.reduce((s, p) => s + p.grossProfit, 0);
-  const netProfit = totalGrossProfit - totalExpenses;
+  const netProfit = totalGrossProfit - totalOperationalExpenses;
 
   return {
+    reportingCurrency: "PKR",
     lot: {
       id: lot.id,
       lotNumber: lot.lotNumber,
@@ -178,13 +199,15 @@ export function buildOfflineLotProfitFromModules(input: {
     },
     costSummary: {
       totalPurchaseUsd: Math.round(totalPurchaseUsd * 100) / 100,
-      totalLotCosts: Math.round(totalLotCosts * 100) / 100,
-      totalLotExpenses: Math.round(totalLotExpenses * 100) / 100,
-      totalAdditionalCosts: Math.round(totalAdditionalCosts * 100) / 100,
+      purchasePkr: landed.purchasePkr,
+      totalLotExpenses: Math.round(landed.lotExpensesPkr * 100) / 100,
+      totalAdditionalCosts: Math.round(totalAdditionalCostsPkr * 100) / 100,
+      otherCostsPkr: Math.round((landed.freightPkr + landed.nonFreightCostsPkr + landed.lotExpensesPkr) * 100) / 100,
       costBreakdown,
-      totalLandedCostUsd: Math.round(totalLandedCostUsd * 100) / 100,
+      totalLandedCostPkr: Math.round(totalLandedCostPkr * 100) / 100,
       totalCartons: totalCartonsBought,
       landedCostPerCarton: Math.round(landedCostPerCarton * 100) / 100,
+      landedCostPerCartonPkr: Math.round(landedCostPerCarton * 100) / 100,
     },
     productCosts: productProfits,
     profitSummary: {
@@ -193,7 +216,8 @@ export function buildOfflineLotProfitFromModules(input: {
       netRevenue: Math.round(netRevenue * 100) / 100,
       totalCOGS: Math.round(productProfits.reduce((s, p) => s + p.costOfGoodsSold, 0) * 100) / 100,
       totalGrossProfit: Math.round(totalGrossProfit * 100) / 100,
-      totalExpenses: Math.round(totalExpenses * 100) / 100,
+      totalExpenses: Math.round(totalOperationalExpenses * 100) / 100,
+      lotExpensesInLandedCost: Math.round(landed.lotExpensesPkr * 100) / 100,
       netProfit: Math.round(netProfit * 100) / 100,
       unsoldInventoryValue: Math.round(productProfits.reduce((s, p) => s + p.unsoldValue, 0) * 100) / 100,
       totalRevenue: Math.round(netRevenue * 100) / 100,

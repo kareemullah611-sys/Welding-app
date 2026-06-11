@@ -45,9 +45,9 @@ test.describe("operations smoke flows", () => {
   test("super admin supplier payment deep link opens the unified create flow", async ({ page }) => {
     await loginAsSuperAdmin(page);
 
-    await page.goto("/supplier-payments?supplier_id=1&create=1");
-    await expect(page.getByRole("heading", { name: /company payments/i })).toBeVisible();
-    await expect(page.getByText(/record payment to company/i)).toBeVisible();
+    await page.goto("/suppliers?supplier_id=1&create=1");
+    await expect(page.getByRole("heading", { name: /suppliers/i })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: /record payment/i })).toBeVisible();
     await expect(page.getByText(/paid via/i)).toBeVisible();
     await expect(page.getByRole("button", { name: /bank account/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /intermediary/i })).toBeVisible();
