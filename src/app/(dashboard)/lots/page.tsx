@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, DataTable, Modal, StatsCard, StatusBadge, formatNumber, formatDate } from "@/components/ui";
+import { PageHeader, DataTable, Modal, StatsCard, StatusBadge, formatNumber, formatDate, RowActionMenu } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { Pencil, Package, CheckCircle, RotateCcw, Trash2, Warehouse } from "lucide-react";
 import * as XLSX from "xlsx";
@@ -101,7 +101,6 @@ export default function LotsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [formError,  setFormError]  = useState("");
   const [openActionId, setOpenActionId] = useState<number | null>(null);
-  const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
   const selectedLotCountryCode = String(selectedLot?.country?.code || selectedLot?.countryCode || "").toUpperCase();
   const nonFreightCostCurrency = selectedLotCountryCode === "AFG" ? "AFN" : "PKR";
   const getPendingQueueId = (id: unknown) => {
@@ -825,45 +824,31 @@ export default function LotsPage() {
     {
       key: "actions", label: t("actions"),
       render: (l: any) => (
-        <div className="relative" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} data-action-menu-root="true">
+        <>
           {user?.role === "super_admin" && (
-            <>
-              <button
-                type="button"
-                onPointerDown={(event) => { event.stopPropagation(); }}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setActionMenuDirection("down");
-                  setOpenActionId((current) => current === l.id ? null : l.id);
-                }}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-lg leading-none text-gray-600 hover:bg-gray-100 sm:h-auto sm:w-auto sm:px-2 sm:py-1"
-                aria-label="Open actions"
-              >
-                ⋯
-              </button>
-              {openActionId === l.id && (
-                <div className={`absolute right-0 z-50 w-44 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}>
-                  {!getPendingQueueId(l?.id) && (
-                    <>
-                      <button onClick={() => { setOpenActionId(null); openEditLot(l); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">Edit Lot</button>
-                      <button onClick={() => { setOpenActionId(null); openDistribute(l); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-blue-700 hover:bg-blue-50 sm:py-2 sm:text-xs">Distribute</button>
-                      {l.status === "ongoing" && (
-                        <button onClick={() => { setOpenActionId(null); handleComplete(l); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-green-700 hover:bg-green-50 sm:py-2 sm:text-xs">Complete</button>
-                      )}
-                      {l.status === "completed" && (
-                        <button onClick={() => { setOpenActionId(null); handleReopen(l); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-amber-700 hover:bg-amber-50 sm:py-2 sm:text-xs">Reopen</button>
-                      )}
-                    </>
+            <RowActionMenu
+              open={openActionId === l.id}
+              onOpenChange={(open) => setOpenActionId(open ? l.id : null)}
+            >
+              {!getPendingQueueId(l?.id) && (
+                <>
+                  <button onClick={() => { setOpenActionId(null); openEditLot(l); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">Edit Lot</button>
+                  <button onClick={() => { setOpenActionId(null); openDistribute(l); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-blue-700 hover:bg-blue-50 sm:py-2 sm:text-xs">Distribute</button>
+                  {l.status === "ongoing" && (
+                    <button onClick={() => { setOpenActionId(null); handleComplete(l); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-green-700 hover:bg-green-50 sm:py-2 sm:text-xs">Complete</button>
                   )}
-                  <button onClick={() => { setOpenActionId(null); handleDeleteLot(l); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">Delete</button>
-                </div>
+                  {l.status === "completed" && (
+                    <button onClick={() => { setOpenActionId(null); handleReopen(l); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-amber-700 hover:bg-amber-50 sm:py-2 sm:text-xs">Reopen</button>
+                  )}
+                </>
               )}
-            </>
+              <button onClick={() => { setOpenActionId(null); handleDeleteLot(l); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">Delete</button>
+            </RowActionMenu>
           )}
           {user?.role === "city_admin" && (
             <span className="text-xs text-gray-400 italic">Use Inventory page to assign godowns</span>
           )}
-        </div>
+        </>
       ),
     },
   ];

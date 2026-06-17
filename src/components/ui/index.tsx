@@ -707,6 +707,7 @@ export function formatNumber(num: number | null | undefined): string {
   return (num as number).toLocaleString("en-US");
 }
 
+export { RowActionMenu } from "@/components/ui/RowActionMenu";
 export { ProcessingSpinner } from "@/components/ui/ProcessingLoader";
 export { default as ProcessingLoader } from "@/components/ui/ProcessingLoader";
 export { default as CuttingDiscSpinner, DEFAULT_CUTTING_DISC_SRC } from "@/components/ui/CuttingDiscSpinner";

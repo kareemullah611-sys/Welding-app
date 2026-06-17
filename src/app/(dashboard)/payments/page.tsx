@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, DataTable, Modal, StatusBadge, formatDate } from "@/components/ui";
+import { PageHeader, DataTable, Modal, StatusBadge, formatDate, RowActionMenu } from "@/components/ui";
 import CustomerSearch from "@/components/CustomerSearch";
 import { useLang } from "@/lib/lang";
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
@@ -178,11 +178,17 @@ export default function PaymentsPage() {
   const [bounceTarget, setBounceTarget] = useState<any>(null);
   const [bounceSubmitting, setBounceSubmitting] = useState(false);
 
+  // Cancel / delete combined ledger row
+  const [showDelete, setShowDelete] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+
   // Voucher duplicate warning
   const [voucherWarning, setVoucherWarning] = useState<{ matches: any[] } | null>(null);
   const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
   const [openActionId, setOpenActionId] = useState<string | null>(null);
-  const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
 
   // ── Batch payment queue ──────────────────────────────────────────────────
   const [paymentQueue, setPaymentQueue] = useState<Array<{ tempId: string; customerName: string; voucherNo: string; amount: number; currencySymbol: string; detail: string; date: string; body: any }>>([]);
@@ -730,14 +736,26 @@ export default function PaymentsPage() {
     else setHardDeleteError(result.error || "Failed to delete");
   };
 
-  const handleDelete = async (item: any) => {
+  const openDelete = (item: any) => {
+    setOpenActionId(null);
+    setDeleteTarget(item);
+    setDeleteReason("");
+    setDeleteError("");
+    setShowDelete(true);
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    const item = deleteTarget;
     const typeLabel = TYPE_CONFIG[item.type]?.label || item.type;
-    const reason = window.prompt(`Cancel / Delete reason (${typeLabel}):`);
-    if (reason === null) return;
-    if (!reason.trim()) { alert(t("reason_required")); return; }
+    if (!deleteReason.trim()) {
+      setDeleteError(t("reason_required"));
+      return;
+    }
+    const reason = deleteReason.trim();
     const endpoint = item.type === "payment" ? `/api/v1/payments/${item.id}/cancel` : item.type === "expense" ? `/api/v1/expenses/${item.id}` : item.type === "haji_transfer" ? `/api/v1/haji-transfers/${item.id}` : `/api/v1/personal-withdrawals/${item.id}`;
     const method = item.type === "payment" ? "PUT" : "DELETE";
-    const body = item.type === "payment" ? { reason: reason.trim() } : undefined;
+    const body = item.type === "payment" ? { reason } : undefined;
     if (!isOnline) {
       const pendingQueueId = getPendingQueueId(item?.id);
       if (pendingQueueId) {
@@ -747,8 +765,11 @@ export default function PaymentsPage() {
           persistPaymentsSnapshot(next);
           return next;
         });
+        setShowDelete(false);
+        setDeleteTarget(null);
         return;
       }
+      setDeleteSubmitting(true);
       await enqueue({
         url: endpoint,
         method,
@@ -771,7 +792,7 @@ export default function PaymentsPage() {
                     ...row,
                     status: "cancelled",
                     _pending: true,
-                    raw: { ...(row.raw || {}), cancellationReason: reason.trim() },
+                    raw: { ...(row.raw || {}), cancellationReason: reason },
                   }
                 : null
               : row
@@ -780,10 +801,22 @@ export default function PaymentsPage() {
         persistPaymentsSnapshot(next);
         return next;
       });
+      setDeleteSubmitting(false);
+      setShowDelete(false);
+      setDeleteTarget(null);
       return;
     }
-    await apiCall(endpoint, { method, body });
-    load();
+    setDeleteSubmitting(true);
+    setDeleteError("");
+    const r = await apiCall(endpoint, { method, body });
+    setDeleteSubmitting(false);
+    if (r.success) {
+      setShowDelete(false);
+      setDeleteTarget(null);
+      load();
+    } else {
+      setDeleteError(r.error || `Failed to ${item.type === "payment" ? "cancel" : "delete"} ${typeLabel.toLowerCase()}`);
+    }
   };
 
   const handleApproveWithdrawal = async (item: any) => {
@@ -1031,43 +1064,29 @@ export default function PaymentsPage() {
     {
       key: "actions", label: "",
       render: (item: any) => {
+        const actionKey = getActionKey(item);
         return (
-          <div className="relative" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} data-action-menu-root="true">
-            <button
-              type="button"
-              onPointerDown={(event) => { event.stopPropagation(); }}
-              onClick={(event) => {
-                event.stopPropagation();
-                setActionMenuDirection("down");
-                const actionKey = getActionKey(item);
-                setOpenActionId((current) => current === actionKey ? null : actionKey);
-              }}
-              aria-label="Open actions"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-lg leading-none text-gray-600 hover:bg-gray-100 sm:h-auto sm:w-auto sm:px-2 sm:py-1"
-            >
-              ⋯
-            </button>
-            {openActionId === getActionKey(item) && (
-              <div className={`absolute right-0 z-50 w-44 sm:w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
-                <button onClick={() => { setOpenActionId(null); openEdit(item); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
-                {item.type === "payment" && item.status === "active" && (
-                  <button onClick={() => { setOpenActionId(null); handleDelete(item); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("cancel")}</button>
-                )}
-                {item.type !== "payment" && (
-                  <button onClick={() => { setOpenActionId(null); handleDelete(item); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("delete")}</button>
-                )}
-                {item.type === "payment" && user?.role === "super_admin" && !getPendingQueueId(item?.id) && (
-                  <button onClick={() => { setOpenActionId(null); openHardDelete(item); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-800 hover:bg-red-50 sm:py-2 sm:text-xs">{t("hard_delete")}</button>
-                )}
-                {item.type === "withdrawal" && item.status === "pending" && user?.role === "super_admin" && (
-                  <button onClick={() => { setOpenActionId(null); handleApproveWithdrawal(item); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-green-700 hover:bg-green-50 sm:py-2 sm:text-xs">Approve</button>
-                )}
-                {item.type === "payment" && item.status === "active" && item.raw?.paymentMethod === "cheque" && item.raw?.chequeStatus === "in_hand" && (
-                  <button onClick={() => { setOpenActionId(null); setBounceTarget(item); setShowBounce(true); setError(""); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-amber-700 hover:bg-amber-50 sm:py-2 sm:text-xs">{t("mark_bounced")}</button>
-                )}
-              </div>
+          <RowActionMenu
+            open={openActionId === actionKey}
+            onOpenChange={(open) => setOpenActionId(open ? actionKey : null)}
+          >
+            <button onClick={() => { setOpenActionId(null); openEdit(item); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
+            {item.type === "payment" && item.status === "active" && (
+              <button type="button" onClick={() => openDelete(item)} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("cancel")}</button>
             )}
-          </div>
+            {item.type !== "payment" && (
+              <button type="button" onClick={() => openDelete(item)} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("delete")}</button>
+            )}
+            {item.type === "payment" && user?.role === "super_admin" && !getPendingQueueId(item?.id) && (
+              <button onClick={() => { setOpenActionId(null); openHardDelete(item); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-800 hover:bg-red-50 sm:py-2 sm:text-xs">{t("hard_delete")}</button>
+            )}
+            {item.type === "withdrawal" && item.status === "pending" && user?.role === "super_admin" && (
+              <button onClick={() => { setOpenActionId(null); handleApproveWithdrawal(item); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-green-700 hover:bg-green-50 sm:py-2 sm:text-xs">Approve</button>
+            )}
+            {item.type === "payment" && item.status === "active" && item.raw?.paymentMethod === "cheque" && item.raw?.chequeStatus === "in_hand" && (
+              <button onClick={() => { setOpenActionId(null); setBounceTarget(item); setShowBounce(true); setError(""); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-amber-700 hover:bg-amber-50 sm:py-2 sm:text-xs">{t("mark_bounced")}</button>
+            )}
+          </RowActionMenu>
         );
       },
     },
@@ -1507,6 +1526,46 @@ export default function PaymentsPage() {
             <button onClick={() => setShowHardDelete(false)} className="btn-secondary text-sm">{t("cancel")}</button>
             <button onClick={handleHardDelete} disabled={hardDeleteSubmitting} className="bg-red-700 hover:bg-red-800 text-white px-4 py-2 rounded-lg text-sm font-semibold">
               {hardDeleteSubmitting ? t("deleting") : t("permanently_delete")}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── CANCEL / DELETE MODAL ─────────────────────────────────────────────── */}
+      <Modal
+        open={showDelete}
+        onClose={() => { if (!deleteSubmitting) { setShowDelete(false); setDeleteTarget(null); setDeleteError(""); } }}
+        title={deleteTarget?.type === "payment" ? t("cancel") + " payment" : t("delete")}
+        size="sm"
+      >
+        <div className="space-y-4">
+          {deleteTarget && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm">
+              <p className="font-medium text-gray-900">{deleteTarget.person || deleteTarget.detail || TYPE_CONFIG[deleteTarget.type]?.label}</p>
+              {deleteTarget.detail && deleteTarget.person && (
+                <p className="text-gray-500 mt-0.5">{deleteTarget.detail}</p>
+              )}
+              <p className="font-semibold text-gray-800 mt-1">
+                {formatCityAmount(user, deleteTarget.amount, deleteTarget.currencyCode)}
+              </p>
+            </div>
+          )}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t("cancel_reason")} *</label>
+            <textarea
+              value={deleteReason}
+              onChange={(e) => setDeleteReason(e.target.value)}
+              className="input-field"
+              rows={3}
+              autoFocus
+              placeholder={deleteTarget?.type === "payment" ? "Why is this payment being cancelled?" : "Reason for deletion"}
+            />
+          </div>
+          {deleteError && <p className="text-sm text-red-600">{deleteError}</p>}
+          <div className="flex justify-end gap-3 pt-2 border-t">
+            <button type="button" onClick={() => { setShowDelete(false); setDeleteTarget(null); setDeleteError(""); }} className="btn-secondary text-sm" disabled={deleteSubmitting}>{t("cancel")}</button>
+            <button type="button" onClick={handleDelete} disabled={deleteSubmitting} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-semibold">
+              {deleteSubmitting ? "..." : deleteTarget?.type === "payment" ? t("cancel") : t("delete")}
             </button>
           </div>
         </div>

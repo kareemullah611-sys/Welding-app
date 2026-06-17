@@ -9,7 +9,6 @@ import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline
 import { applyPendingDashboardMetrics } from "@/lib/offline-dashboard";
 import { formatCityAmount, isSingleCurrencyCityAdmin } from "@/lib/city-money-format";
 import BalanceHub from "@/components/dashboard/BalanceHub";
-import StockSummary from "@/components/dashboard/StockSummary";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { 
@@ -350,8 +349,6 @@ export default function DashboardPage() {
 
         {/* Net balance hub (cash + cheques + bank) with drill-down ledgers */}
         <BalanceHub user={user} treasury={treasury} />
-
-        <StockSummary totalCartonsSold={data?.totalCartonsSold} />
 
         {/* Key Metrics */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

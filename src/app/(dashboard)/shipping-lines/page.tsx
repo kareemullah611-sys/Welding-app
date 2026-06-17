@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, DataTable, Modal, StatsCard, formatNumber, formatDate } from "@/components/ui";
+import { PageHeader, DataTable, Modal, StatsCard, formatNumber, formatDate, RowActionMenu } from "@/components/ui";
 import { SETTLEMENT_CURRENCY_CODES, settlementAmountToPkr } from "@/lib/payment-currencies";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingShippingLines } from "@/lib/offline-queue-overlays";
@@ -81,7 +81,6 @@ export default function ShippingLinesPage() {
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
   const [intermediaries, setIntermediaries] = useState<any[]>([]);
   const [openActionId, setOpenActionId] = useState<number | string | null>(null);
-  const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -281,48 +280,34 @@ export default function ShippingLinesPage() {
     {
       key: "actions", label: "",
       render: (sl: any) => (
-        <div className="relative" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} data-action-menu-root="true">
-          <button
-            type="button"
-            onPointerDown={(event) => { event.stopPropagation(); }}
-            onClick={(event) => {
-              event.stopPropagation();
-              setActionMenuDirection("down");
-              setOpenActionId((current) => current === sl.id ? null : sl.id);
-            }}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-lg leading-none text-gray-600 hover:bg-gray-100 sm:h-auto sm:w-auto sm:px-2 sm:py-1"
-            aria-label="Open actions"
-          >
-            ⋯
-          </button>
-          {openActionId === sl.id && (
-            <div className={`absolute right-0 z-50 w-44 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}>
-              {!getPendingQueueId(sl?.id) && (
-                <>
-                  <button onClick={() => { setOpenActionId(null); openLedger(sl); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">Open Ledger</button>
-                  <button onClick={() => { setOpenActionId(null); openAddPayment(sl); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-green-700 hover:bg-green-50 sm:py-2 sm:text-xs">Record Settlement</button>
-                </>
-              )}
-              <button onClick={() => { setOpenActionId(null); openEdit(sl); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 sm:py-2 sm:text-xs">Edit</button>
-              {typeof sl.id === "string" && sl.id.startsWith("pending-") && (
-                <button
-                  onClick={async () => {
-                    setOpenActionId(null);
-                    const pendingQueueId = getPendingQueueId(sl.id);
-                    if (!pendingQueueId) return;
-                    await discardQueuedItem(pendingQueueId);
-                    const nextRows = lines.filter((row) => row.id !== sl.id);
-                    setLines(nextRows);
-                    mergeSnapshot({ lines: nextRows });
-                  }}
-                  className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-700 hover:bg-red-50 sm:py-2 sm:text-xs"
-                >
-                  Delete Pending
-                </button>
-              )}
-            </div>
+        <RowActionMenu
+          open={openActionId === sl.id}
+          onOpenChange={(open) => setOpenActionId(open ? sl.id : null)}
+        >
+          {!getPendingQueueId(sl?.id) && (
+            <>
+              <button onClick={() => { setOpenActionId(null); openLedger(sl); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">Open Ledger</button>
+              <button onClick={() => { setOpenActionId(null); openAddPayment(sl); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-green-700 hover:bg-green-50 sm:py-2 sm:text-xs">Record Settlement</button>
+            </>
           )}
-        </div>
+          <button onClick={() => { setOpenActionId(null); openEdit(sl); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 sm:py-2 sm:text-xs">Edit</button>
+          {typeof sl.id === "string" && sl.id.startsWith("pending-") && (
+            <button
+              onClick={async () => {
+                setOpenActionId(null);
+                const pendingQueueId = getPendingQueueId(sl.id);
+                if (!pendingQueueId) return;
+                await discardQueuedItem(pendingQueueId);
+                const nextRows = lines.filter((row) => row.id !== sl.id);
+                setLines(nextRows);
+                mergeSnapshot({ lines: nextRows });
+              }}
+              className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-700 hover:bg-red-50 sm:py-2 sm:text-xs"
+            >
+              Delete Pending
+            </button>
+          )}
+        </RowActionMenu>
       ),
     },
   ];

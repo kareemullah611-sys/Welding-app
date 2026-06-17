@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
 import { applyPendingBankLedger } from "@/lib/offline-bank-ledger";
-import { PageHeader, DataTable, Modal, formatDate, formatNumber } from "@/components/ui";
+import { PageHeader, DataTable, Modal, formatDate, formatNumber, RowActionMenu } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import * as XLSX from "xlsx";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
@@ -33,7 +33,6 @@ export default function BankAccountsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [openActionId, setOpenActionId] = useState<number | null>(null);
-  const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
   const [showLedger, setShowLedger] = useState(false);
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledgerRows, setLedgerRows] = useState<any[]>([]);
@@ -336,28 +335,15 @@ export default function BankAccountsPage() {
     {
       key: "actions", label: "",
       render: (acc: any) => (
-        <div className="relative" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} data-action-menu-root="true">
-          <button
-            type="button"
-            onPointerDown={(event) => { event.stopPropagation(); }}
-            onClick={(event) => {
-              event.stopPropagation();
-              setActionMenuDirection("down");
-              setOpenActionId((current) => current === acc.id ? null : acc.id);
-            }}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-lg leading-none text-gray-600 hover:bg-gray-100 sm:h-auto sm:w-auto sm:px-2 sm:py-1"
-          >
-            ⋯
+        <RowActionMenu
+          open={openActionId === acc.id}
+          onOpenChange={(open) => setOpenActionId(open ? acc.id : null)}
+        >
+          <button onClick={() => { setOpenActionId(null); openEdit(acc); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
+          <button onClick={() => { setOpenActionId(null); toggleActive(acc); }} className={`w-full rounded-lg px-3 py-2.5 text-left text-sm hover:bg-gray-50 sm:py-2 sm:text-xs ${acc.isActive ? "text-gray-600" : "text-green-700 hover:bg-green-50"}`}>
+            {acc.isActive ? t("deactivate") : t("reactivate")}
           </button>
-          {openActionId === acc.id && (
-            <div className={`absolute right-0 z-50 w-44 sm:w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
-              <button onClick={() => { setOpenActionId(null); openEdit(acc); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
-              <button onClick={() => { setOpenActionId(null); toggleActive(acc); }} className={`w-full rounded-lg px-3 py-2.5 text-left text-sm hover:bg-gray-50 sm:py-2 sm:text-xs ${acc.isActive ? "text-gray-600" : "text-green-700 hover:bg-green-50"}`}>
-                {acc.isActive ? t("deactivate") : t("reactivate")}
-              </button>
-            </div>
-          )}
-        </div>
+        </RowActionMenu>
       ),
     },
   ];

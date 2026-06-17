@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, DataTable, Modal, StatusBadge, formatCurrency, formatDate } from "@/components/ui";
+import { PageHeader, DataTable, Modal, StatusBadge, formatCurrency, formatDate, RowActionMenu } from "@/components/ui";
 import CustomerSearch from "@/components/CustomerSearch";
 import { useLang } from "@/lib/lang";
 import { safeParseQueuedBody } from "@/lib/queue-resolve";
@@ -137,7 +137,6 @@ export default function SalesPage() {
   const [hardDeleteError, setHardDeleteError] = useState("");
   const [hardDeleteSubmitting, setHardDeleteSubmitting] = useState(false);
   const [openActionId, setOpenActionId] = useState<number | null>(null);
-  const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
 
   // Dropdowns
   const [customers, setCustomers] = useState<any[]>([]);
@@ -413,6 +412,8 @@ export default function SalesPage() {
   };
 
   const totalAmount = form.items.reduce((sum, i) => sum + i.qty * i.ratePerCarton, 0);
+  const selectedCurrency = currencies.find((c) => c.id === form.currencyId);
+  const amountPrefix = selectedCurrency?.symbol ? `${selectedCurrency.symbol} ` : "";
 
   const handleSubmit = async () => {
     setFormError("");
@@ -804,34 +805,21 @@ export default function SalesPage() {
           </div>
         )},
         { key: "actions", label: "", render: (s: any) => (
-          <div className="relative" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} data-action-menu-root="true">
-            <button
-              type="button"
-              onPointerDown={(event) => { event.stopPropagation(); }}
-              onClick={(event) => {
-                event.stopPropagation();
-                setActionMenuDirection("down");
-                setOpenActionId((current) => current === s.id ? null : s.id);
-              }}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-lg leading-none text-gray-600 hover:bg-gray-100 sm:h-auto sm:w-auto sm:px-2 sm:py-1"
-            >
-              ⋯
-            </button>
-            {openActionId === s.id && (
-              <div className={`absolute right-0 z-50 w-44 sm:w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
-                {s.status === "active" && (
-                  <>
-                    <button onClick={() => { setOpenActionId(null); openCorrect(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("correct_sale")}</button>
-                    <button onClick={() => { setOpenActionId(null); openDiscount(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-yellow-700 hover:bg-yellow-50 sm:py-2 sm:text-xs">{t("discount")}</button>
-                    <button onClick={() => { setOpenActionId(null); openCancel(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("cancel")}</button>
-                  </>
-                )}
-                {user?.role === "super_admin" && !String(s.id || "").startsWith("pending-") && (
-                  <button onClick={() => { setOpenActionId(null); openHardDelete(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-red-800 hover:bg-red-50 sm:py-2 sm:text-xs">{t("hard_delete")}</button>
-                )}
-              </div>
+          <RowActionMenu
+            open={openActionId === s.id}
+            onOpenChange={(open) => setOpenActionId(open ? s.id : null)}
+          >
+            {s.status === "active" && (
+              <>
+                <button onClick={() => { setOpenActionId(null); openCorrect(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("correct_sale")}</button>
+                <button onClick={() => { setOpenActionId(null); openDiscount(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-yellow-700 hover:bg-yellow-50 sm:py-2 sm:text-xs">{t("discount")}</button>
+                <button onClick={() => { setOpenActionId(null); openCancel(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("cancel")}</button>
+              </>
             )}
-          </div>
+            {user?.role === "super_admin" && !String(s.id || "").startsWith("pending-") && (
+              <button onClick={() => { setOpenActionId(null); openHardDelete(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-red-800 hover:bg-red-50 sm:py-2 sm:text-xs">{t("hard_delete")}</button>
+            )}
+          </RowActionMenu>
         )},
       ]} data={sales} loading={loading} emptyMessage={t("no_data")} pagination={{ page, totalPages, total, onPageChange: setPage }} />
 
@@ -889,6 +877,15 @@ export default function SalesPage() {
           </div>
         </div>
 
+        {currencies.length > 1 && (
+          <div className={isEmbed ? "mb-3" : "mb-4"}>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
+            <select value={form.currencyId} onChange={(e) => setForm((f) => ({ ...f, currencyId: parseInt(e.target.value) }))} className="select-field">
+              {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code} ({c.symbol})</option>)}
+            </select>
+          </div>
+        )}
+
         {!isEmbed && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div>
@@ -898,14 +895,6 @@ export default function SalesPage() {
               {lots.map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}</option>)}
             </select>
           </div>
-          {currencies.length > 1 && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
-              <select value={form.currencyId} onChange={(e) => setForm((f) => ({ ...f, currencyId: parseInt(e.target.value) }))} className="select-field">
-                {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code} ({c.symbol})</option>)}
-              </select>
-            </div>
-          )}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
             <input type="text" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" />
@@ -981,7 +970,7 @@ export default function SalesPage() {
                   </div>
                   <div className="w-28 text-right">
                     {idx === 0 && <label className="block text-xs text-gray-500 mb-1">{t("amount")}</label>}
-                    <p className="py-2 text-sm font-medium">{(item.qty * item.ratePerCarton).toLocaleString("en-US")}</p>
+                    <p className="py-2 text-sm font-medium">{amountPrefix}{(item.qty * item.ratePerCarton).toLocaleString("en-US")}</p>
                   </div>
                   {form.items.length > 1 && <button onClick={() => removeItem(idx)} className="text-red-500 hover:text-red-700 pb-2 text-lg">×</button>}
                 </div>
@@ -990,7 +979,7 @@ export default function SalesPage() {
           </div>
           <div className="mt-3 text-right">
             <span className="text-sm text-gray-500">{t("total")}: </span>
-            <span className="text-lg font-bold text-gray-900">{totalAmount.toLocaleString("en-US")}</span>
+            <span className="text-lg font-bold text-gray-900">{amountPrefix}{totalAmount.toLocaleString("en-US")}</span>
           </div>
         </div>
 
@@ -1024,7 +1013,7 @@ export default function SalesPage() {
 
         {isEmbed && (
           <p className="mb-3 text-sm font-semibold text-[#2f241c] text-right">
-            Total: {totalAmount.toLocaleString("en-US")}
+            Total: {amountPrefix}{totalAmount.toLocaleString("en-US")}
           </p>
         )}
 

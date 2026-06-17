@@ -3,7 +3,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, DataTable, Modal } from "@/components/ui";
+import { PageHeader, DataTable, Modal, RowActionMenu } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingGodowns } from "@/lib/offline-queue-overlays";
@@ -67,7 +67,6 @@ export default function GodownsPage() {
   const [formError, setFormError] = useState("");
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [openActionId, setOpenActionId] = useState<number | null>(null);
-  const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
 
   const getPendingQueueId = useCallback((id: any) => {
     const str = String(id || "");
@@ -211,30 +210,17 @@ export default function GodownsPage() {
         { key: "countryName", label: t("country") },
         { key: "isActive", label: t("status"), render: (g: any) => <span className={g.isActive ? "badge-active" : "badge-cancelled"}>{g.isActive ? t("active") : t("inactive")}</span> },
         { key: "actions", label: "", render: (g: any) => (
-          <div className="relative" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} data-action-menu-root="true">
-            <button
-              type="button"
-              onPointerDown={(event) => { event.stopPropagation(); }}
-              onClick={(event) => {
-                event.stopPropagation();
-                setActionMenuDirection("down");
-                setOpenActionId((current) => current === g.id ? null : g.id);
-              }}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-lg leading-none text-gray-600 hover:bg-gray-100 sm:h-auto sm:w-auto sm:px-2 sm:py-1"
-            >
-              ⋯
-            </button>
-            {openActionId === g.id && (
-              <div className={`absolute right-0 z-50 w-44 sm:w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
-                <button onClick={() => { setOpenActionId(null); openEdit(g); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
-                {g.isActive ? (
-                  <button onClick={() => { setOpenActionId(null); handleDeactivate(g); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("deactivate")}</button>
-                ) : (
-                  <button onClick={() => { setOpenActionId(null); handleDeleteGodown(g); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("delete")}</button>
-                )}
-              </div>
+          <RowActionMenu
+            open={openActionId === g.id}
+            onOpenChange={(open) => setOpenActionId(open ? g.id : null)}
+          >
+            <button onClick={() => { setOpenActionId(null); openEdit(g); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
+            {g.isActive ? (
+              <button onClick={() => { setOpenActionId(null); handleDeactivate(g); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("deactivate")}</button>
+            ) : (
+              <button onClick={() => { setOpenActionId(null); handleDeleteGodown(g); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("delete")}</button>
             )}
-          </div>
+          </RowActionMenu>
         )},
       ]} data={godowns} loading={loading} />
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t("new_godown")} size="md">

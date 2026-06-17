@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, DataTable, Modal, StatsCard, formatNumber } from "@/components/ui";
+import { PageHeader, DataTable, Modal, StatsCard, formatNumber, RowActionMenu } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
@@ -83,7 +83,6 @@ export default function AgentsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [openActionId, setOpenActionId] = useState<number | null>(null);
-  const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
   const filteredBankAccounts = bankAccounts.filter((b: any) => !payForm.cityId || b.cityId === payForm.cityId);
   const agentTypeFilter = String(searchParams.get("agentType") || "").toLowerCase();
   const showOnlyCustomAgents = agentTypeFilter === "customs";
@@ -260,41 +259,27 @@ export default function AgentsPage() {
         { key: "balance", label: t("balance_owed"), render: (a: any) => <div>{Object.entries(a.balance || {}).map(([cc, bal]: [string, any]) => <div key={cc} className={`text-sm font-medium ${bal > 0 ? "text-red-600" : "text-green-600"}`}>{cc} {bal.toLocaleString("en-US")}</div>)}</div> },
         {
           key: "actions", label: "", render: (a: any) => (
-            <div className="relative" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} data-action-menu-root="true">
-              <button
-                type="button"
-                onPointerDown={(event) => { event.stopPropagation(); }}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setActionMenuDirection("down");
-                  setOpenActionId((current) => current === a.id ? null : a.id);
-                }}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-lg leading-none text-gray-600 hover:bg-gray-100 sm:h-auto sm:w-auto sm:px-2 sm:py-1"
-                aria-label="Open actions"
-              >
-                ⋯
-              </button>
-              {openActionId === a.id && (
-                <div className={`absolute right-0 z-50 w-44 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}>
-                  <button onClick={() => { setOpenActionId(null); openLedger(a); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">Open Ledger</button>
-                  <button onClick={() => { setOpenActionId(null); openPayment(a); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-green-700 hover:bg-green-50 sm:py-2 sm:text-xs">{t("pay_agent")}</button>
-                  {getPendingQueueId(a?.id) && (
-                    <button
-                      onClick={async () => {
-                        setOpenActionId(null);
-                        const queueId = getPendingQueueId(a?.id);
-                        if (!queueId) return;
-                        await discardQueuedItem(queueId);
-                        setAgents((prev) => prev.filter((row: any) => row.id !== a.id));
-                      }}
-                      className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-700 hover:bg-red-50 sm:py-2 sm:text-xs"
-                    >
-                      Delete Pending
-                    </button>
-                  )}
-                </div>
+            <RowActionMenu
+              open={openActionId === a.id}
+              onOpenChange={(open) => setOpenActionId(open ? a.id : null)}
+            >
+              <button onClick={() => { setOpenActionId(null); openLedger(a); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">Open Ledger</button>
+              <button onClick={() => { setOpenActionId(null); openPayment(a); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-green-700 hover:bg-green-50 sm:py-2 sm:text-xs">{t("pay_agent")}</button>
+              {getPendingQueueId(a?.id) && (
+                <button
+                  onClick={async () => {
+                    setOpenActionId(null);
+                    const queueId = getPendingQueueId(a?.id);
+                    if (!queueId) return;
+                    await discardQueuedItem(queueId);
+                    setAgents((prev) => prev.filter((row: any) => row.id !== a.id));
+                  }}
+                  className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-700 hover:bg-red-50 sm:py-2 sm:text-xs"
+                >
+                  Delete Pending
+                </button>
               )}
-            </div>
+            </RowActionMenu>
           ),
         },
       ]} data={visibleAgents} loading={loading} />

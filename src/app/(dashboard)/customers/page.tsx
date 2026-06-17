@@ -3,7 +3,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, DataTable, Modal } from "@/components/ui";
+import { PageHeader, DataTable, Modal, RowActionMenu } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { isEditableCustomerQueuedPayload, safeParseQueuedBody } from "@/lib/queue-resolve";
 import { applyPendingCustomerLedger } from "@/lib/offline-customer-ledger";
@@ -85,7 +85,6 @@ export default function CustomersPage() {
   const [hardDeleteError, setHardDeleteError] = useState("");
   const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
   const [openActionId, setOpenActionId] = useState<number | string | null>(null);
-  const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
   const getPendingQueueId = useCallback((row: any): string | null => {
     if (!row) return null;
     if (typeof row._queueId === "string" && row._queueId) return row._queueId;
@@ -493,35 +492,22 @@ export default function CustomersPage() {
           return <span>-</span>;
         }},
         { key: "actions", label: "", render: (c: any) => (
-          <div className="relative" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} data-action-menu-root="true">
-            <button
-              type="button"
-              onPointerDown={(event) => { event.stopPropagation(); }}
-              onClick={(event) => {
-                event.stopPropagation();
-                setActionMenuDirection("down");
-                setOpenActionId((current) => current === c.id ? null : c.id);
-              }}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-lg leading-none text-gray-600 hover:bg-gray-100 sm:h-auto sm:w-auto sm:px-2 sm:py-1"
-            >
-              ⋯
-            </button>
-            {openActionId === c.id && (
-              <div className={`absolute right-0 z-50 w-44 sm:w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`} data-action-menu-root="true">
-                {c.isActive && (
-                  <button onClick={() => { setOpenActionId(null); openEdit(c); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
-                )}
-                {c.isActive ? (
-                  <button onClick={() => { setOpenActionId(null); handleDelete(c); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("deactivate")}</button>
-                ) : (
-                  <button onClick={() => { setOpenActionId(null); handleReactivate(c); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-green-700 hover:bg-green-50 sm:py-2 sm:text-xs">{t("reactivate")}</button>
-                )}
-                {user?.role === "super_admin" && (
-                  <button onClick={() => { setOpenActionId(null); openHardDelete(c); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-red-800 hover:bg-red-50 sm:py-2 sm:text-xs">{t("hard_delete")}</button>
-                )}
-              </div>
+          <RowActionMenu
+            open={openActionId === c.id}
+            onOpenChange={(open) => setOpenActionId(open ? c.id : null)}
+          >
+            {c.isActive && (
+              <button onClick={() => { setOpenActionId(null); openEdit(c); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
             )}
-          </div>
+            {c.isActive ? (
+              <button onClick={() => { setOpenActionId(null); handleDelete(c); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("deactivate")}</button>
+            ) : (
+              <button onClick={() => { setOpenActionId(null); handleReactivate(c); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-green-700 hover:bg-green-50 sm:py-2 sm:text-xs">{t("reactivate")}</button>
+            )}
+            {user?.role === "super_admin" && (
+              <button onClick={() => { setOpenActionId(null); openHardDelete(c); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-red-800 hover:bg-red-50 sm:py-2 sm:text-xs">{t("hard_delete")}</button>
+            )}
+          </RowActionMenu>
         )},
       ]} data={customers} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />}
 

@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { DataTable, Modal, PageHeader, formatDate, formatNumber } from "@/components/ui";
+import { DataTable, Modal, PageHeader, formatDate, formatNumber, RowActionMenu } from "@/components/ui";
 import Link from "next/link";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingSuperAdminPersonalExpenses } from "@/lib/offline-queue-overlays";
@@ -76,7 +76,6 @@ export default function SuperAdminPersonalExpensesPage() {
   const [submitting, setSubmitting] = useState(false);
   const [expenseForm, setExpenseForm] = useState<any>({ expenseDate: new Date().toISOString().split("T")[0], detail: "", amount: 0, notes: "", bankAccountId: 0 });
   const [openActionId, setOpenActionId] = useState<number | string | null>(null);
-  const [actionMenuDirection, setActionMenuDirection] = useState<"up" | "down">("down");
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
 
   const readSnapshot = useCallback(() => {
@@ -310,27 +309,13 @@ export default function SuperAdminPersonalExpensesPage() {
             { key: "notes", label: "Notes", render: (e: any) => e.notes || "—" },
             {
               key: "actions", label: "", render: (e: any) => (
-                <div className="relative" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()} data-action-menu-root="true">
-                  <button
-                    type="button"
-                    onPointerDown={(event) => { event.stopPropagation(); }}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setActionMenuDirection("down");
-                      setOpenActionId((current) => current === e.id ? null : e.id);
-                    }}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-lg leading-none text-gray-600 hover:bg-gray-100 sm:h-auto sm:w-auto sm:px-2 sm:py-1"
-                    aria-label="Open actions"
-                  >
-                    ⋯
-                  </button>
-                  {openActionId === e.id && (
-                    <div className={`absolute right-0 z-50 w-44 sm:w-40 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg ${actionMenuDirection === "up" ? "bottom-full mb-1" : "top-full mt-1"}`}>
-                      <button onClick={() => { setOpenActionId(null); openEditExpense(e); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">Edit</button>
-                      <button onClick={() => { setOpenActionId(null); deleteExpense(e); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">Delete</button>
-                    </div>
-                  )}
-                </div>
+                <RowActionMenu
+                  open={openActionId === e.id}
+                  onOpenChange={(open) => setOpenActionId(open ? e.id : null)}
+                >
+                  <button onClick={() => { setOpenActionId(null); openEditExpense(e); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">Edit</button>
+                  <button onClick={() => { setOpenActionId(null); deleteExpense(e); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">Delete</button>
+                </RowActionMenu>
               ),
             },
           ]}
