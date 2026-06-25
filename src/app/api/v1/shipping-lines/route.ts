@@ -14,7 +14,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, _context, _user: 
     const [lines, total] = await Promise.all([
       prisma.shippingLine.findMany({
         where: { isActive: true },
-        orderBy: { name: "asc" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         skip, take: limit,
         include: { _count: { select: { payments: true, lotCosts: true } } },
       }),

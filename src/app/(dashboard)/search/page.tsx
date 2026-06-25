@@ -109,7 +109,7 @@ export default function SearchPage() {
 
   return (
     <div>
-      <PageHeader title={t("search")} subtitle={t("search_subtitle")} />
+      <PageHeader title={t("search")} />
       {showOfflineSnapshot && (
         <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           Showing last synced data (offline mode).
@@ -118,7 +118,7 @@ export default function SearchPage() {
 
       <div className="card mb-6">
         <div className="flex flex-wrap gap-3 items-end">
-          <div className="flex-1 min-w-[200px]">
+          <div className="min-w-[10rem] flex-1">
             <label className="block text-xs font-medium text-gray-500 mb-1">{t("search")}</label>
             <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={handleKeyDown}
               placeholder="Customer name, voucher no, detail..." className="input-field" autoFocus />

@@ -1,3 +1,5 @@
+import { formatExchangeLedgerDescription } from "@/lib/intermediary-ledger";
+
 type QueuedRequestLike = {
   id: string;
   url: string;
@@ -107,10 +109,11 @@ export function applyPendingIntermediaryLedger(base: any, queuedItems: QueuedReq
             notes: parsed?.notes || null,
             _pending: true,
           });
+          const description = formatExchangeLedgerDescription(fromCode, toCode, exchangeRate, parsed?.notes);
           pendingEntries.push({
             id: `pending-${queued.id}-out`,
             date: parsed?.exchangeDate || new Date().toISOString().split("T")[0],
-            description: parsed?.notes ? `Pending exchange out - ${parsed.notes}` : "Pending exchange out",
+            description,
             currencyCode: fromCode,
             debit: 0,
             credit: fromAmount,
@@ -121,7 +124,7 @@ export function applyPendingIntermediaryLedger(base: any, queuedItems: QueuedReq
           pendingEntries.push({
             id: `pending-${queued.id}-in`,
             date: parsed?.exchangeDate || new Date().toISOString().split("T")[0],
-            description: parsed?.notes ? `Pending exchange in - ${parsed.notes}` : "Pending exchange in",
+            description,
             currencyCode: toCode,
             debit: toAmount,
             credit: 0,

@@ -115,12 +115,11 @@ export function computeLotLandedCostPkr(input: LotLandedCostPkrInput): LotLanded
   const cnyToPkrRate = resolveCnyToPkrRate(costs);
 
   const purchaseUsd = num(input.totalPurchaseUsd);
-  const freightUsd = costs
+  const freightPkr = costs
     .filter((c) => c.costType === "freight")
-    .reduce((s, c) => s + num(c.amount), 0);
+    .reduce((s, c) => s + lotCostToPkr(c, rate), 0);
 
   const purchasePkr = purchaseUsd * rate;
-  const freightPkr = freightUsd * rate;
   const nonFreightCostsPkr = costs
     .filter((c) => c.costType !== "freight")
     .reduce((s, c) => s + lotCostToPkr(c, rate), 0);

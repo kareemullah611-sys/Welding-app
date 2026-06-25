@@ -60,10 +60,6 @@ async function getGodownStock(
     where: { godownId, productId },
     _sum: { qty: true },
   });
-  const opening = await db.openingStock.aggregate({
-    where: { godownId, productId },
-    _sum: { qty: true },
-  });
 
   // Sold stock (active + marked_short — both consume physical stock)
   const sold = await db.saleItem.aggregate({
@@ -86,13 +82,12 @@ async function getGodownStock(
     _sum: { qty: true },
   });
 
-  const opn = Number(opening._sum.qty || 0);
   const rcv = Number(received._sum.qty || 0);
   const sld = Number(sold._sum.qty || 0);
   const out = Number(transferredOut._sum.qty || 0);
   const inn = Number(transferredIn._sum.qty || 0);
 
-  return opn + rcv - sld - out + inn;
+  return rcv - sld - out + inn;
 }
 
 function formatSaleCreateResponse(

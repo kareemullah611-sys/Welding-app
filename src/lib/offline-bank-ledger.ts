@@ -1,3 +1,5 @@
+import { sortLedgerNewestFirst } from "@/lib/ledger-display";
+
 type QueuedRequestLike = {
   id: string;
   url: string;
@@ -9,12 +11,23 @@ type LedgerRow = {
   date: string;
   type: string;
   detail: string;
+  currencyCode?: string;
   reference?: string;
   debit?: number;
   credit?: number;
   runningBalance?: number;
+  createdAt?: Date | string;
   _pending?: boolean;
 };
+
+function normalizeLedgerRow(row: LedgerRow) {
+  return {
+    ...row,
+    currencyCode: row.currencyCode || "PKR",
+    credit: Number(row.credit || 0),
+    debit: Number(row.debit || 0),
+  };
+}
 
 function safeParse(body: string): any {
   try {
@@ -24,11 +37,12 @@ function safeParse(body: string): any {
   }
 }
 
-function pushPendingRow(rows: LedgerRow[], payload: Partial<LedgerRow>) {
+function pushPendingRow(rows: LedgerRow[], payload: Partial<LedgerRow> & { currencyCode?: string }) {
   rows.push({
     date: payload.date || new Date().toISOString().slice(0, 10),
     type: payload.type || "Pending",
     detail: payload.detail || "Pending offline entry",
+    currencyCode: payload.currencyCode || "PKR",
     reference: payload.reference || "—",
     debit: Number(payload.debit || 0),
     credit: Number(payload.credit || 0),
@@ -63,6 +77,7 @@ export function applyPendingBankLedger(
         date: parsed?.paymentDate,
         type: "Payment",
         detail: "Pending offline payment to bank",
+        currencyCode: currency,
         credit: amount,
       });
       balanceByCurrency[currency] = Number(balanceByCurrency[currency] || 0) + amount;
@@ -78,6 +93,7 @@ export function applyPendingBankLedger(
         date: parsed?.expenseDate,
         type: "Expense",
         detail: "Pending offline expense from bank",
+        currencyCode: currency,
         debit: amount,
       });
       balanceByCurrency[currency] = Number(balanceByCurrency[currency] || 0) - amount;
@@ -93,6 +109,7 @@ export function applyPendingBankLedger(
         date: parsed?.date,
         type: "Haji",
         detail: "Pending offline haji transfer from bank",
+        currencyCode: currency,
         debit: amount,
       });
       balanceByCurrency[currency] = Number(balanceByCurrency[currency] || 0) - amount;
@@ -108,6 +125,7 @@ export function applyPendingBankLedger(
         date: parsed?.withdrawalDate,
         type: "Withdrawal",
         detail: "Pending offline withdrawal from bank",
+        currencyCode: currency,
         debit: amount,
       });
       balanceByCurrency[currency] = Number(balanceByCurrency[currency] || 0) - amount;
@@ -124,6 +142,7 @@ export function applyPendingBankLedger(
         date: parsed?.depositDate,
         type: "Deposit",
         detail: "Pending offline bank deposit",
+        currencyCode: currency,
         credit: total,
       });
       balanceByCurrency[currency] = Number(balanceByCurrency[currency] || 0) + total;
@@ -131,8 +150,6 @@ export function applyPendingBankLedger(
     }
   }
 
-  const pendingRows = rows.filter((r) => r._pending);
-  const existingRows = rows.filter((r) => !r._pending);
-  return { rows: [...pendingRows, ...existingRows], balanceByCurrency };
+  return { rows: sortLedgerNewestFirst(rows.map(normalizeLedgerRow)), balanceByCurrency };
 }
 

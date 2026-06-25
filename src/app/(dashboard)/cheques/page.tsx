@@ -7,6 +7,7 @@ import { PageHeader, DataTable, Modal, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { applyQueuedMutationsToCheques } from "@/lib/offline-remaining-mutations";
+import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
 
 const CHEQUES_READ_CACHE_KEY = "mrf-cheques-read-cache-v1";
 
@@ -40,7 +41,7 @@ export default function ChequesPage() {
   const [total, setTotal] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
-  const PAGE_SIZE = 50;
+  
 
   const buildPendingChequeRows = useCallback(() => {
     return (queuedItems || [])
@@ -90,7 +91,7 @@ export default function ChequesPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const params: any = { type: "payment", page, limit: PAGE_SIZE };
+    const params: any = { type: "payment", page, limit: DEFAULT_LIST_PAGE_SIZE };
     const normalizedQuery = searchQuery.trim();
     if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     const r = await apiCall("/api/v1/finance/combined", { params });
@@ -235,10 +236,7 @@ export default function ChequesPage() {
 
   return (
     <div>
-      <PageHeader
-        title={t("cheque_register")}
-        subtitle="All cheques received from customers"
-      />
+      <PageHeader title={t("cheque_register")} />
       {showOfflineSnapshot && (
         <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           Showing last synced data (offline mode).
@@ -270,7 +268,6 @@ export default function ChequesPage() {
       <DataTable
         searchValue={searchQuery}
         onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}
-        searchPlaceholder="Search cheques (min 2 chars)"
         columns={columns}
         data={filtered}
         loading={loading}

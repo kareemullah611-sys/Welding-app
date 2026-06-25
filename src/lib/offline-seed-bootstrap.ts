@@ -1,4 +1,4 @@
-import { isPackagedOfflineRuntime } from "@/lib/offline-cache";
+import { isPackagedOfflineActive } from "@/lib/offline-cache";
 import { importOfflineSyncPayload, isOfflineSyncStoreEmpty } from "@/lib/offline-seed-import";
 
 export const OFFLINE_SEED_URL = "/offline-seed.json";
@@ -27,7 +27,7 @@ function extractModules(bundle: OfflineSeedBundle): Record<string, unknown> | nu
 /** On first packaged launch, import bundled seed if local archive is empty. */
 export async function tryBootstrapBundledOfflineSeed(): Promise<{ applied: boolean; reason?: string }> {
   if (typeof window === "undefined") return { applied: false, reason: "no window" };
-  if (!isPackagedOfflineRuntime()) return { applied: false, reason: "not packaged" };
+  if (!isPackagedOfflineActive()) return { applied: false, reason: "offline disabled" };
   if (window.localStorage.getItem(OFFLINE_SEED_APPLIED_KEY)) {
     return { applied: false, reason: "already applied" };
   }

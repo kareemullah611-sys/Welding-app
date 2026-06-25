@@ -8,6 +8,7 @@ import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingGodowns } from "@/lib/offline-queue-overlays";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
+import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
 
 const GODOWNS_READ_CACHE_KEY = "mrf-godowns-read-cache-v1";
 
@@ -58,6 +59,9 @@ export default function GodownsPage() {
   const { isOnline, queuedItems, updateQueuedItem, discardQueuedItem } = useOffline();
   const [godowns, setGodowns] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [selected, setSelected] = useState<any>(null);
@@ -88,11 +92,13 @@ export default function GodownsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const result = await apiCall("/api/v1/godowns", { params: { limit: 100, is_active: "true" } });
+    const result = await apiCall("/api/v1/godowns", { params: { page, limit: DEFAULT_LIST_PAGE_SIZE, is_active: "true" } });
     if (result.success) {
       let nextRows = [...getPendingGodowns(queuedItems as any), ...((result.data as any[]) || [])];
       nextRows = applyQueuedMutationsToGodowns(nextRows, queuedItems as any[]);
       setGodowns(nextRows);
+      setTotalPages((result.pagination as any)?.totalPages || 1);
+      setTotal((result.pagination as any)?.total || 0);
       mergeSnapshot({ godowns: nextRows });
       setShowOfflineSnapshot(false);
     } else if (!isOnline) {
@@ -101,11 +107,13 @@ export default function GodownsPage() {
         const cleanedGodowns = pruneStalePendingRows(snapshot.godowns as any[], queuedItems as any[], "/godowns");
         const mergedSnapshotGodowns = applyQueuedMutationsToGodowns(cleanedGodowns, queuedItems as any[]);
         setGodowns(mergedSnapshotGodowns);
+        setTotalPages(1);
+        setTotal(mergedSnapshotGodowns.length);
         setShowOfflineSnapshot(true);
       }
     }
     setLoading(false);
-  }, [isOnline, mergeSnapshot, queuedItems, readSnapshot]);
+  }, [isOnline, mergeSnapshot, page, queuedItems, readSnapshot]);
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
@@ -198,7 +206,7 @@ export default function GodownsPage() {
 
   return (
     <div>
-      <PageHeader title={t("godowns")} subtitle={`${godowns.length} ${t("godowns").toLowerCase()}`} action={<button onClick={openCreate} className="btn-primary text-sm">+ {t("new_godown")}</button>} />
+      <PageHeader title={t("godowns")} action={<button onClick={openCreate} className="btn-primary text-sm">+ {t("new_godown")}</button>} />
       {showOfflineSnapshot && (
         <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           Showing last synced data (offline mode).
@@ -222,7 +230,7 @@ export default function GodownsPage() {
             )}
           </RowActionMenu>
         )},
-      ]} data={godowns} loading={loading} />
+      ]} data={godowns} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t("new_godown")} size="md">
         {formError && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{formError}</div>}
         <div className="space-y-3">

@@ -3,6 +3,24 @@ import prisma from "@/lib/prisma";
 import { withSuperAdmin } from "@/lib/middleware";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { buildIntermediaryLedgerEntries, paginateIntermediaryLedger } from "@/lib/intermediary-ledger";
+
+function applyDateRange(
+  target: Record<string, unknown>,
+  field: string,
+  startDate: string | null,
+  endDate: string | null,
+) {
+  if (!startDate && !endDate) return;
+  const range: Record<string, Date> = {};
+  if (startDate) range.gte = new Date(startDate);
+  if (endDate) {
+    const eod = new Date(endDate);
+    eod.setHours(23, 59, 59, 999);
+    range.lte = eod;
+  }
+  target[field] = range;
+}
 
 export const GET = withSuperAdmin(async (request: NextRequest, context: any, _user: JWTPayload) => {
   const id = parseInt(context.params.id);
@@ -15,54 +33,31 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, _us
   const intermediary = await prisma.intermediary.findUnique({ where: { id } });
   if (!intermediary) return errorResponse("NOT_FOUND", "Not found", 404);
 
-  const whereDeposits: any = { intermediaryId: id };
-  const wherePayments: any = { intermediaryId: id };
-  const whereExchanges: any = { intermediaryId: id, isActive: true };
+  const whereDeposits: Record<string, unknown> = { intermediaryId: id };
+  const wherePayments: Record<string, unknown> = { intermediaryId: id };
+  const whereExchanges: Record<string, unknown> = { intermediaryId: id, isActive: true };
+  const whereHajiTransfers: Record<string, unknown> = {
+    intermediaryId: id,
+    settlementDestination: "intermediary",
+  };
+  const whereHajiCashReceipts: Record<string, unknown> = { intermediaryId: id };
 
-  if (startDate || endDate) {
-    if (startDate) {
-      if (!whereDeposits.depositDate) whereDeposits.depositDate = {};
-      whereDeposits.depositDate.gte = new Date(startDate);
-      if (!wherePayments.paymentDate) wherePayments.paymentDate = {};
-      wherePayments.paymentDate.gte = new Date(startDate);
-      if (!whereExchanges.exchangeDate) whereExchanges.exchangeDate = {};
-      whereExchanges.exchangeDate.gte = new Date(startDate);
-    }
-    if (endDate) {
-      const eod = new Date(endDate);
-      eod.setHours(23, 59, 59, 999);
-      if (!whereDeposits.depositDate) whereDeposits.depositDate = {};
-      whereDeposits.depositDate.lte = eod;
-      if (!wherePayments.paymentDate) wherePayments.paymentDate = {};
-      wherePayments.paymentDate.lte = eod;
-      if (!whereExchanges.exchangeDate) whereExchanges.exchangeDate = {};
-      whereExchanges.exchangeDate.lte = eod;
-    }
-  }
+  applyDateRange(whereDeposits, "depositDate", startDate, endDate);
+  applyDateRange(wherePayments, "paymentDate", startDate, endDate);
+  applyDateRange(whereExchanges, "exchangeDate", startDate, endDate);
+  applyDateRange(whereHajiTransfers, "transferDate", startDate, endDate);
+  applyDateRange(whereHajiCashReceipts, "receiptDate", startDate, endDate);
 
-  const [totalDeposits, totalPayments, totalExchanges] = await Promise.all([
-    prisma.intermediaryDeposit.count({ where: whereDeposits }),
-    prisma.supplierPayment.count({ where: wherePayments }),
-    prisma.intermediaryExchange.count({ where: whereExchanges }),
-  ]);
-  const totalEntries = totalDeposits + totalPayments + (totalExchanges * 2);
-  const totalPages = Math.ceil(totalEntries / limit);
-  const skip = (page - 1) * limit;
-
-  const [deposits, payments, exchanges] = await Promise.all([
+  const [deposits, payments, exchanges, hajiTransfers, hajiCashReceipts] = await Promise.all([
     prisma.intermediaryDeposit.findMany({
       where: whereDeposits,
       include: { currency: true, city: true, bankAccount: true, superAdminBankAccount: true, creator: { select: { fullName: true } } },
       orderBy: { depositDate: "asc" },
-      skip,
-      take: limit,
     }),
     prisma.supplierPayment.findMany({
       where: wherePayments,
       include: { supplier: true, creator: { select: { fullName: true } } },
       orderBy: { paymentDate: "asc" },
-      skip,
-      take: limit,
     }),
     prisma.intermediaryExchange.findMany({
       where: whereExchanges,
@@ -74,64 +69,27 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, _us
         creator: { select: { fullName: true } },
       },
       orderBy: { exchangeDate: "asc" },
-      skip,
-      take: limit,
+    }),
+    prisma.hajiTransfer.findMany({
+      where: whereHajiTransfers,
+      include: {
+        currency: true,
+        city: true,
+      },
+      orderBy: { transferDate: "asc" },
+    }),
+    prisma.hajiCashReceipt.findMany({
+      where: whereHajiCashReceipts,
+      include: {
+        currency: true,
+        superAdminCashAccount: { select: { bankName: true } },
+      },
+      orderBy: { receiptDate: "asc" },
     }),
   ]);
 
-  type LedgerEntry = {
-    date: Date; type: "deposit" | "payment" | "exchange_out" | "exchange_in"; id: number;
-    description: string; currencyCode: string; debit: number; credit: number;
-    sourceType?: string;
-    currencyId?: number;
-    superAdminBankAccountId?: number | null;
-    notes?: string | null;
-  };
-
-  const entries: LedgerEntry[] = [
-    ...deposits.map((d) => ({
-      date: d.depositDate, type: "deposit" as const, id: d.id,
-      description: `Deposit${d.city ? ` (${d.city.name})` : ""}${d.bankAccount ? ` via ${d.bankAccount.bankName}` : ""}${d.superAdminBankAccount ? ` via ${d.superAdminBankAccount.bankName}` : ""}${d.notes ? ` — ${d.notes}` : ""}`,
-      currencyCode: d.currency.code, debit: 0, credit: Number(d.amount),
-      sourceType: d.sourceType,
-      currencyId: d.currencyId,
-      superAdminBankAccountId: d.superAdminBankAccountId,
-      notes: d.notes,
-    })),
-    ...payments.map((p) => ({
-      date: p.paymentDate, type: "payment" as const, id: p.id,
-      description: `Supplier payment — ${p.supplier.name}${p.notes ? ` — ${p.notes}` : ""}`,
-      currencyCode: "USD", debit: Number(p.amountUsd), credit: 0,
-    })),
-    ...exchanges.flatMap((e) => ([
-      {
-        date: e.exchangeDate,
-        type: "exchange_out" as const,
-        id: e.id,
-        description: `FX ${e.fromCurrency.code} → ${e.toCurrency.code} (1 ${(e.baseCurrency?.code || e.fromCurrency.code)} = ${Number(e.exchangeRate).toLocaleString("en-US", { maximumFractionDigits: 6 })} ${(e.quoteCurrency?.code || e.toCurrency.code)})${e.notes ? ` — ${e.notes}` : ""}`,
-        currencyCode: e.fromCurrency.code,
-        debit: 0,
-        credit: Number(e.fromAmount),
-      },
-      {
-        date: e.exchangeDate,
-        type: "exchange_in" as const,
-        id: e.id,
-        description: `FX ${e.fromCurrency.code} → ${e.toCurrency.code} (1 ${(e.baseCurrency?.code || e.fromCurrency.code)} = ${Number(e.exchangeRate).toLocaleString("en-US", { maximumFractionDigits: 6 })} ${(e.quoteCurrency?.code || e.toCurrency.code)})${e.notes ? ` — ${e.notes}` : ""}`,
-        currencyCode: e.toCurrency.code,
-        debit: Number(e.toAmount),
-        credit: 0,
-      },
-    ])),
-  ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-  const balances: Record<string, number> = {};
-  const ledger = entries.map((e) => {
-    balances[e.currencyCode] = (balances[e.currencyCode] || 0) + e.debit - e.credit;
-    return { ...e, balance: balances[e.currencyCode] };
-  });
-  
-  const paginatedLedger = ledger.slice(skip, skip + limit);
+  const entries = buildIntermediaryLedgerEntries({ deposits, payments, exchanges, hajiTransfers, hajiCashReceipts });
+  const { ledger, balances, pagination } = paginateIntermediaryLedger(entries, page, limit);
 
   const exchangeHistory = exchanges.map((e) => ({
     id: e.id,
@@ -151,7 +109,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, _us
     createdByName: e.creator?.fullName || null,
   }));
 
-  return successResponse({ intermediary, ledger: paginatedLedger, balances, exchangeHistory, pagination: { page, limit, totalPages, total: totalEntries } });
+  return successResponse({ intermediary, ledger, balances, exchangeHistory, pagination });
 });
 
 export const PUT = withSuperAdmin(async (request: NextRequest, context: any, _user: JWTPayload) => {

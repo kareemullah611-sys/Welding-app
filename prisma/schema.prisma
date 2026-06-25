@@ -64,10 +64,22 @@ enum HajiSourceType {
   bank_transfer
 }
 
+enum HajiSettlementDestination {
+  standard
+  intermediary
+  super_admin_cash
+}
+
+enum SuperAdminAccountKind {
+  bank
+  cash
+}
+
 enum IntermediarySourceType {
   city_cash
   bank_account
   super_admin_bank_account
+  super_admin_cash
 }
 
 enum ExpensePaidFrom {
@@ -167,6 +179,10 @@ model Currency {
   openingCashes         OpeningCash[]
   openingCustomerBalances OpeningCustomerBalance[]
   openingLiabilities    OpeningLiability[]
+  openingBankBalances   OpeningBankBalance[]
+  openingCheques        OpeningCheque[]
+  openingHajiBalances   OpeningHajiBalance[]
+  hajiCashReceipts      HajiCashReceipt[]
 
   @@map("currencies")
 }
@@ -205,6 +221,9 @@ model City {
   intermediaryDeposits   IntermediaryDeposit[]
   openingCashes          OpeningCash[]
   openingStocks          OpeningStock[]
+  openingBankBalances    OpeningBankBalance[]
+  openingCheques         OpeningCheque[]
+  openingHajiBalances    OpeningHajiBalance[]
 
   @@unique([countryId, name])
   @@index([countryId])
@@ -272,6 +291,9 @@ model User {
   openingCustomerBalances OpeningCustomerBalance[]
   openingStocks      OpeningStock[]
   openingLiabilities OpeningLiability[]
+  openingBankBalances OpeningBankBalance[]
+  openingCheques     OpeningCheque[]
+  openingHajiBalances OpeningHajiBalance[]
   costsCreated       LotCost[]      @relation("CostCreatedBy")
   supplierPaymentsCreated    SupplierPayment[]    @relation("SupplierPaymentCreatedBy")
   shippingLinePaymentsCreated ShippingLinePayment[] @relation("ShippingLinePaymentCreatedBy")
@@ -285,6 +307,7 @@ model User {
   investorWithdrawalsCreated InvestorWithdrawal[]
   profitAllocationsCreated     ProfitAllocation[]
   intermediaryDepositsCreated  IntermediaryDeposit[]
+  hajiCashReceiptsCreated      HajiCashReceipt[]
   intermediaryExchangesCreated IntermediaryExchange[] @relation("IntermediaryExchangeCreatedBy")
   intermediaryExchangesDeleted IntermediaryExchange[] @relation("IntermediaryExchangeDeletedBy")
   superAdminBankAccountsCreated SuperAdminBankAccount[]
@@ -439,6 +462,27 @@ model OpeningCash {
   @@map("opening_cashes")
 }
 
+model OpeningHajiBalance {
+  id          Int      @id @default(autoincrement())
+  cityId      Int      @map("city_id")
+  currencyId  Int      @map("currency_id")
+  amount      Decimal  @db.Decimal(15, 2)
+  openingDate DateTime @map("opening_date") @db.Date
+  notes       String?  @db.Text
+  createdBy   Int      @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  city     City     @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  currency Currency @relation(fields: [currencyId], references: [id])
+  creator  User     @relation(fields: [createdBy], references: [id])
+
+  @@unique([cityId, currencyId], name: "unique_opening_haji_city_currency")
+  @@index([cityId])
+  @@index([openingDate])
+  @@map("opening_haji_balances")
+}
+
 model OpeningCustomerBalance {
   id          Int      @id @default(autoincrement())
   customerId  Int      @map("customer_id")
@@ -483,6 +527,50 @@ model OpeningStock {
   @@map("opening_stocks")
 }
 
+model OpeningBankBalance {
+  id            Int      @id @default(autoincrement())
+  cityId        Int      @map("city_id")
+  bankAccountId Int      @map("bank_account_id")
+  currencyId    Int      @map("currency_id")
+  amount        Decimal  @db.Decimal(15, 2)
+  openingDate   DateTime @map("opening_date") @db.Date
+  notes         String?  @db.Text
+  createdBy     Int      @map("created_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  city        City        @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  bankAccount BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  currency    Currency    @relation(fields: [currencyId], references: [id])
+  creator     User        @relation(fields: [createdBy], references: [id])
+
+  @@unique([bankAccountId, currencyId], name: "unique_opening_bank_account_currency")
+  @@index([cityId])
+  @@map("opening_bank_balances")
+}
+
+model OpeningCheque {
+  id            Int       @id @default(autoincrement())
+  cityId        Int       @map("city_id")
+  currencyId    Int       @map("currency_id")
+  amount        Decimal   @db.Decimal(15, 2)
+  chequeNumber  String    @map("cheque_number") @db.VarChar(50)
+  chequeBank    String?   @map("cheque_bank") @db.VarChar(100)
+  chequeDueDate DateTime? @map("cheque_due_date") @db.Date
+  openingDate   DateTime  @map("opening_date") @db.Date
+  notes         String?   @db.Text
+  createdBy     Int       @map("created_by")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  city     City     @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  currency Currency @relation(fields: [currencyId], references: [id])
+  creator  User     @relation(fields: [createdBy], references: [id])
+
+  @@index([cityId])
+  @@map("opening_cheques")
+}
+
 // ============================================================
 // LOTS
 // ============================================================
@@ -495,6 +583,7 @@ model Lot {
   notes           String?  @db.Text
   pkrExchangeRate Decimal? @map("pkr_exchange_rate") @db.Decimal(12, 4) // USD/PKR rate for profit calc
   status          LotStatus @default(ongoing)
+  isLegacyStock   Boolean   @default(false) @map("is_legacy_stock")
   createdBy   Int       @map("created_by")
   completedBy Int?      @map("completed_by")
   completedAt DateTime? @map("completed_at")
@@ -611,6 +700,7 @@ model Sale {
   currencyId        Int        @map("currency_id")
   notes             String?    @db.Text
   status            SaleStatus @default(active)
+  isOpeningImport   Boolean    @default(false) @map("is_opening_import")
   stockShortFlag    Boolean    @default(false) @map("stock_short_flag")
   cancellationReason String?   @map("cancellation_reason") @db.Text
   cancelledAt       DateTime?  @map("cancelled_at")
@@ -859,6 +949,9 @@ model HajiTransfer {
   notes         String?          @db.Text
   // Treasury: where the money came from
   sourceType       HajiSourceType @default(cash_office) @map("source_type")
+  settlementDestination HajiSettlementDestination @default(standard) @map("settlement_destination")
+  intermediaryId        Int?                      @map("intermediary_id")
+  superAdminCashAccountId Int?                    @map("super_admin_cash_account_id")
   bankAccountId    Int?           @map("bank_account_id")
   chequePaymentId  Int?           @unique @map("cheque_payment_id")
   createdBy     Int              @map("created_by")
@@ -871,6 +964,8 @@ model HajiTransfer {
   creator       User         @relation(fields: [createdBy], references: [id])
   bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id])
   chequePayment Payment?     @relation("HajiCheque", fields: [chequePaymentId], references: [id])
+  intermediary  Intermediary? @relation(fields: [intermediaryId], references: [id])
+  superAdminCashAccount SuperAdminBankAccount? @relation("HajiSuperAdminCash", fields: [superAdminCashAccountId], references: [id])
 
   withdrawalSource PersonalWithdrawal?
   attachments      Attachment[]
@@ -879,6 +974,8 @@ model HajiTransfer {
   @@index([lotId])
   @@index([transferDate])
   @@index([transferredTo])
+  @@index([intermediaryId])
+  @@index([superAdminCashAccountId])
   @@map("haji_transfers")
 }
 
@@ -927,6 +1024,7 @@ model BankAccount {
   agentPayments           AgentPayment[]           @relation("AgentPaymentBankAccount")
   intermediaryDeposits    IntermediaryDeposit[]
   incomingPayments        Payment[]                @relation("PaymentBankAccount")
+  openingBankBalances     OpeningBankBalance[]
 
   @@index([cityId])
   @@map("bank_accounts")
@@ -960,6 +1058,7 @@ model SuperAdminBankAccount {
   bankName      String   @map("bank_name") @db.VarChar(100)
   accountNumber String?  @map("account_number") @db.VarChar(50)
   currencyId    Int      @map("currency_id")
+  accountKind   SuperAdminAccountKind @default(bank) @map("account_kind")
   isActive      Boolean  @default(true) @map("is_active")
   createdBy     Int      @map("created_by")
   createdAt     DateTime @default(now()) @map("created_at")
@@ -971,6 +1070,13 @@ model SuperAdminBankAccount {
   lotCosts LotCost[]
   incomingHajiPayments Payment[] @relation("PaymentSuperAdminBankAccount")
   intermediaryDeposits IntermediaryDeposit[]
+  intermediaryDepositsFromCash IntermediaryDeposit[] @relation("IntermediaryDepositSuperAdminCash")
+  supplierPayments SupplierPayment[] @relation("SupplierPaymentSuperAdminBank")
+  supplierPaymentsFromCash SupplierPayment[] @relation("SupplierPaymentSuperAdminCash")
+  agentPaymentsFromCash AgentPayment[] @relation("AgentPaymentSuperAdminCash")
+  shippingLinePaymentsFromCash ShippingLinePayment[] @relation("ShippingLinePaymentSuperAdminCash")
+  hajiTransferReceipts HajiTransfer[] @relation("HajiSuperAdminCash")
+  hajiCashReceipts HajiCashReceipt[]
 
   @@index([currencyId])
   @@index([createdBy])
@@ -1099,6 +1205,7 @@ model AgentPayment {
   paymentMethod String   @map("payment_method") @db.VarChar(50)
   bankAccountId  Int?    @map("bank_account_id")  // if paid from bank
   intermediaryId Int?    @map("intermediary_id")   // if paid through intermediary
+  superAdminCashAccountId Int? @map("super_admin_cash_account_id")
   reference     String?  @db.VarChar(200)
   notes         String?  @db.Text
   createdBy     Int      @map("created_by")
@@ -1108,6 +1215,7 @@ model AgentPayment {
   city         City          @relation(fields: [cityId], references: [id])
   bankAccount  BankAccount?  @relation("AgentPaymentBankAccount", fields: [bankAccountId], references: [id])
   intermediary Intermediary? @relation("AgentPaymentIntermediary", fields: [intermediaryId], references: [id])
+  superAdminCashAccount SuperAdminBankAccount? @relation("AgentPaymentSuperAdminCash", fields: [superAdminCashAccountId], references: [id])
   creator      User          @relation("AgentPaymentCreatedBy", fields: [createdBy], references: [id])
 
   @@index([agentId])
@@ -1115,6 +1223,7 @@ model AgentPayment {
   @@index([paymentDate])
   @@index([bankAccountId])
   @@index([intermediaryId])
+  @@index([superAdminCashAccountId])
   @@map("agent_payments")
 }
 
@@ -1259,7 +1368,9 @@ model SupplierPayment {
   id            Int                   @id @default(autoincrement())
   supplierId      Int                   @map("supplier_id")
   lotId           Int?                  @map("lot_id") // optional - link to specific lot
-  bankAccountId   Int?                  @map("bank_account_id") // which bank account the payment was sent from
+  bankAccountId   Int?                  @map("bank_account_id") // legacy city bank
+  superAdminBankAccountId Int?          @map("super_admin_bank_account_id")
+  superAdminCashAccountId Int?          @map("super_admin_cash_account_id")
   intermediaryId  Int?                  @map("intermediary_id") // paid through hawala intermediary
   paymentDate   DateTime              @map("payment_date") @db.Date
   amountUsd     Decimal               @map("amount_usd") @db.Decimal(15, 2)
@@ -1275,12 +1386,16 @@ model SupplierPayment {
   supplier      Supplier      @relation(fields: [supplierId], references: [id])
   lot           Lot?          @relation(fields: [lotId], references: [id])
   bankAccount   BankAccount?  @relation("SupplierPaymentBankAccount", fields: [bankAccountId], references: [id])
+  superAdminBankAccount SuperAdminBankAccount? @relation("SupplierPaymentSuperAdminBank", fields: [superAdminBankAccountId], references: [id])
+  superAdminCashAccount SuperAdminBankAccount? @relation("SupplierPaymentSuperAdminCash", fields: [superAdminCashAccountId], references: [id])
   intermediary  Intermediary? @relation(fields: [intermediaryId], references: [id])
   creator       User          @relation("SupplierPaymentCreatedBy", fields: [createdBy], references: [id])
 
   @@index([supplierId])
   @@index([lotId])
   @@index([bankAccountId])
+  @@index([superAdminBankAccountId])
+  @@index([superAdminCashAccountId])
   @@index([intermediaryId])
   @@index([paymentDate])
   @@map("supplier_payments")
@@ -1322,17 +1437,20 @@ model ShippingLinePayment {
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   intermediaryId Int? @map("intermediary_id")  // paid through intermediary (alternative to bank)
+  superAdminCashAccountId Int? @map("super_admin_cash_account_id")
 
   shippingLine ShippingLine @relation(fields: [shippingLineId], references: [id])
   lot          Lot?         @relation(fields: [lotId], references: [id])
   bankAccount  BankAccount? @relation("ShippingLinePaymentBankAccount", fields: [bankAccountId], references: [id])
   intermediary Intermediary? @relation("ShippingLinePaymentIntermediary", fields: [intermediaryId], references: [id])
+  superAdminCashAccount SuperAdminBankAccount? @relation("ShippingLinePaymentSuperAdminCash", fields: [superAdminCashAccountId], references: [id])
   creator      User         @relation("ShippingLinePaymentCreatedBy", fields: [createdBy], references: [id])
 
   @@index([shippingLineId])
   @@index([lotId])
   @@index([bankAccountId])
   @@index([intermediaryId])
+  @@index([superAdminCashAccountId])
   @@map("shipping_line_payments")
 }
 
@@ -1529,6 +1647,8 @@ model Intermediary {
   shippingLinePayments ShippingLinePayment[] @relation("ShippingLinePaymentIntermediary")
   agentPayments        AgentPayment[]        @relation("AgentPaymentIntermediary")
   openingLiabilities   OpeningLiability[]
+  hajiTransfers        HajiTransfer[]
+  hajiCashReceipts     HajiCashReceipt[]
 
   @@map("intermediaries")
 }
@@ -1543,6 +1663,7 @@ model IntermediaryDeposit {
   cityId         Int?                   @map("city_id")         // if city_cash
   bankAccountId  Int?                   @map("bank_account_id") // if bank_account
   superAdminBankAccountId Int?          @map("super_admin_bank_account_id") // if super_admin_bank_account
+  superAdminCashAccountId Int?          @map("super_admin_cash_account_id") // if super_admin_cash
   notes          String?                @db.Text
   createdBy      Int                    @map("created_by")
   createdAt      DateTime               @default(now()) @map("created_at")
@@ -1553,12 +1674,37 @@ model IntermediaryDeposit {
   city         City?        @relation(fields: [cityId], references: [id])
   bankAccount  BankAccount? @relation(fields: [bankAccountId], references: [id])
   superAdminBankAccount SuperAdminBankAccount? @relation(fields: [superAdminBankAccountId], references: [id])
+  superAdminCashAccount SuperAdminBankAccount? @relation("IntermediaryDepositSuperAdminCash", fields: [superAdminCashAccountId], references: [id])
   creator      User         @relation(fields: [createdBy], references: [id])
 
   @@index([intermediaryId])
   @@index([depositDate])
   @@index([superAdminBankAccountId])
+  @@index([superAdminCashAccountId])
   @@map("intermediary_deposits")
+}
+
+model HajiCashReceipt {
+  id                      Int      @id @default(autoincrement())
+  superAdminCashAccountId Int      @map("super_admin_cash_account_id")
+  intermediaryId          Int      @map("intermediary_id")
+  receiptDate             DateTime @map("receipt_date") @db.Date
+  amount                  Decimal  @db.Decimal(15, 2)
+  currencyId              Int      @map("currency_id")
+  notes                   String?  @db.Text
+  createdBy               Int      @map("created_by")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  superAdminCashAccount SuperAdminBankAccount @relation(fields: [superAdminCashAccountId], references: [id])
+  intermediary          Intermediary          @relation(fields: [intermediaryId], references: [id])
+  currency              Currency              @relation(fields: [currencyId], references: [id])
+  creator               User                  @relation(fields: [createdBy], references: [id])
+
+  @@index([superAdminCashAccountId])
+  @@index([intermediaryId])
+  @@index([receiptDate])
+  @@map("haji_cash_receipts")
 }
 
 model IntermediaryExchange {

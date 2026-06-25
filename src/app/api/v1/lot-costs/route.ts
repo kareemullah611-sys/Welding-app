@@ -5,8 +5,12 @@ import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { createLotCostSchema } from "@/lib/validations";
 import { successResponse, validationError, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
-import { validatePaymentSource } from "@/lib/payment-source-validation";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import {
+  resolveLotCostCurrency,
+  resolveLotCostExchangeRate,
+} from "@/lib/lot-cost-currency";
+import { validateLotCostSettlement } from "@/lib/settlement-validation";
 
 const LOT_COST_SYNC_MODULE = "lot_costs";
 const SUPERADMIN_SYNC_CITY_ID = 0;
@@ -57,42 +61,26 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     const superAdminBankAccountId = input.superAdminBankAccountId ? Number(input.superAdminBankAccountId) : null;
     const intermediaryId = input.intermediaryId ? Number(input.intermediaryId) : null;
     const paidFromCash = input.paidFromCash === true;
-    const requestedCurrency = String(input.currencyCode || "").toUpperCase();
     const lotCountryCode = String(lot.country?.code || "").toUpperCase();
-    const nonFreightCurrency = lotCountryCode === "AFG" ? "AFN" : "PKR";
 
     if (paidFromCash) {
       return validationError("Cash / Direct debit channel is no longer allowed for lot costs. Use a bank account instead.");
     }
 
-    // Business rule:
-    // - Freight is entered in USD and must carry a costing exchange rate (USD→PKR)
-    // - Non-freight follows lot country:
-    //   - Pakistan lots: PKR
-    //   - Afghanistan lots: AFN (+ AFN→PKR rate for PKR reporting)
-    const currencyCode = isFreight ? "USD" : nonFreightCurrency;
-    let exchangeRate: number | null = null;
-    if (isFreight) {
-      if (requestedCurrency && requestedCurrency !== "USD") {
-        return validationError("Freight must be recorded in USD");
-      }
-      const parsedRate = Number(input.exchangeRate);
-      if (!Number.isFinite(parsedRate) || parsedRate <= 0) {
-        return validationError("Costing exchange rate is required for freight");
-      }
-      exchangeRate = parsedRate;
-    } else {
-      if (requestedCurrency && requestedCurrency !== nonFreightCurrency) {
-        return validationError(`Only freight can be USD. Non-freight costs for ${lot.country?.name || "this lot"} must be in ${nonFreightCurrency}`);
-      }
-      if (nonFreightCurrency === "AFN") {
-        const afnToPkrRate = Number(input.exchangeRate);
-        if (!Number.isFinite(afnToPkrRate) || afnToPkrRate <= 0) {
-          return validationError("AFN→PKR exchange rate is required for Afghanistan non-freight costs");
-        }
-        exchangeRate = afnToPkrRate;
-      }
-    }
+    const currencyResult = resolveLotCostCurrency({
+      isFreight,
+      lotCountryCode,
+      requestedCurrency: input.currencyCode,
+    });
+    if (!currencyResult.ok) return validationError(currencyResult.message);
+    const currencyCode = currencyResult.currencyCode;
+
+    const rateResult = resolveLotCostExchangeRate({
+      currencyCode,
+      exchangeRate: input.exchangeRate ?? undefined,
+    });
+    if (!rateResult.ok) return validationError(rateResult.message);
+    const exchangeRate = rateResult.exchangeRate;
 
     if (isFreight) {
       if (!shippingLineId) return validationError("Shipping line is required for freight");
@@ -120,16 +108,6 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { id: true, isActive: true } });
         if (!agent?.isActive) return errorResponse("NOT_FOUND", "Agent not found", 404);
       }
-      if (bankAccountId || intermediaryId) {
-        const source = await validatePaymentSource({
-          bankAccountId,
-          intermediaryId,
-          requireSelection: true,
-        });
-        if (!source.ok) {
-          return errorResponse(source.code, source.message, source.status || 400);
-        }
-      }
       if (superAdminBankAccountId) {
         const account = await prisma.superAdminBankAccount.findUnique({
           where: { id: superAdminBankAccountId },
@@ -137,6 +115,23 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         });
         if (!account) return errorResponse("NOT_FOUND", "Super admin bank account not found", 404);
         if (!account.isActive) return validationError("Selected super admin bank account is inactive");
+      }
+      if (bankAccountId) {
+        return validationError("City bank accounts are not allowed for lot costs. Use a super admin bank account.");
+      }
+    }
+
+    if (superAdminBankAccountId || intermediaryId) {
+      const settlement = await validateLotCostSettlement({
+        amount,
+        currencyCode,
+        superAdminBankAccountId,
+        intermediaryId,
+        exchangeRate,
+        liabilityCurrencyCode: currencyCode,
+      });
+      if (!settlement.ok) {
+        return errorResponse(settlement.code, settlement.message, settlement.status || 400);
       }
     }
 

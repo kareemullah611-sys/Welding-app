@@ -1,37 +1,34 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
 import { useLang, LangSwitcher } from "@/lib/lang";
-import MRFLoader from "@/components/ui/MRFLoader";
-import { MIN_LOGIN_DURATION, ProcessingSpinner } from "@/components/ui/ProcessingLoader";
+import { InlineSpinner } from "@/components/ui/BrandLoader";
 import BrandLogo from "@/components/brand/BrandLogo";
 import { LOGIN_PHOTOS } from "@/config/loginPhotos";
+import { EmbedAuthRecovery } from "@/components/quickform/EmbedAuthRecovery";
 
-const SLIDE_INTERVAL = 5000; // 5 seconds
+const SLIDE_INTERVAL = 5000;
 
 export default function LoginPage() {
   const { login } = useAuth();
   const router = useRouter();
   const { t, dir } = useLang();
   const [isElectron, setIsElectron] = useState(false);
+  const [inIframe, setInIframe] = useState(false);
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  // Loading state — drives the MRF animation
-  const [loginStarted, setLoginStarted] = useState(false);
-  const [loginSuccess, setLoginSuccess] = useState(false);
-  const redirectRef = useRef<() => void>(() => {});
-
-  // Photo slideshow
   const hasPhotos = LOGIN_PHOTOS.length > 0;
   const [currentIdx, setCurrentIdx] = useState(0);
 
   useEffect(() => {
     setIsElectron(typeof window !== "undefined" && window.platformInfo?.runtime === "electron");
+    setInIframe(typeof window !== "undefined" && window.self !== window.top);
   }, []);
 
   useEffect(() => {
@@ -45,39 +42,25 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    setLoginStarted(true);
-    setLoginSuccess(false);
+    setSubmitting(true);
 
     const result = await login(username, password);
 
     if (result.success) {
-      setLoginSuccess(true);
-      // Store redirect intent — MRFLoader will call this after animation
-      redirectRef.current = () => router.push("/dashboard");
-    } else {
-      setError(result.error || t("login_failed"));
-      // Cancel the loader — we need to show the error
-      setLoginStarted(false);
+      router.push("/dashboard");
+      return;
     }
+
+    setError(result.error || t("login_failed"));
+    setSubmitting(false);
   };
 
-  const handleAnimationComplete = () => {
-    if (loginSuccess) redirectRef.current();
-  };
-
-  useEffect(() => {
-    if (!loginStarted || !loginSuccess) return;
-    // Fallback if ProcessingLoader completion callback does not fire (must match MIN_LOGIN_DURATION).
-    const t = setTimeout(() => {
-      redirectRef.current();
-    }, MIN_LOGIN_DURATION + 400);
-    return () => clearTimeout(t);
-  }, [loginStarted, loginSuccess]);
+  if (inIframe) {
+    return <EmbedAuthRecovery />;
+  }
 
   return (
     <div className="relative min-h-screen flex items-center justify-center p-4 overflow-hidden" dir={dir}>
-
-      {/* ── Background: photo slideshow or gradient ── */}
       {hasPhotos ? (
         <div className="absolute inset-0 z-0">
           {LOGIN_PHOTOS.map((src, i) => (
@@ -90,18 +73,13 @@ export default function LoginPage() {
               style={{ opacity: i === currentIdx ? 1 : 0 }}
             />
           ))}
-          {/* Dark overlay for readability */}
           <div className="absolute inset-0 bg-black/35" />
         </div>
       ) : (
         <div className="absolute inset-0 z-0 bg-gradient-to-br from-slate-900 via-[#3D0808] to-slate-900" />
       )}
 
-      {/* ── Login card ── */}
-      {/* Hide login content while MRF overlay is showing */}
-      <div className="relative z-10 w-full max-w-md" style={{ visibility: loginStarted ? "hidden" : "visible" }}>
-
-        {/* Brand mark */}
+      <div className="relative z-10 w-full max-w-md">
         <div className="text-center mb-8">
           <div className="mx-auto mb-4 flex justify-center">
             <div className="rounded-2xl bg-white p-2 shadow-2xl">
@@ -114,7 +92,6 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* Form card */}
         <div className="bg-white rounded-2xl shadow-2xl p-8">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-semibold text-gray-900">{t("sign_in_to_account")}</h2>
@@ -159,7 +136,7 @@ export default function LoginPage() {
                 placeholder={t("enter_username")}
                 required
                 autoFocus
-                disabled={loginStarted}
+                disabled={submitting}
               />
             </div>
             <div>
@@ -171,18 +148,18 @@ export default function LoginPage() {
                 className="input-field"
                 placeholder={t("enter_password")}
                 required
-                disabled={loginStarted}
+                disabled={submitting}
               />
             </div>
             <button
               type="submit"
-              disabled={loginStarted}
-              className="w-full py-2.5 text-sm font-semibold rounded-lg text-white transition-all"
+              disabled={submitting}
+              className="w-full py-2.5 text-sm font-semibold rounded-lg text-white transition-all disabled:opacity-80"
               style={{ background: "linear-gradient(135deg, #6B0F1A 0%, #8B1A1A 100%)" }}
             >
-              {loginStarted ? (
+              {submitting ? (
                 <span className="flex items-center justify-center gap-2">
-                  <ProcessingSpinner size="sm" className="!gap-0 [&_.processing-spinner__label]:hidden" />
+                  <InlineSpinner />
                   {t("signing_in")}
                 </span>
               ) : (
@@ -191,19 +168,7 @@ export default function LoginPage() {
             </button>
           </form>
         </div>
-
       </div>
-
-      {/* ── MRF Loading overlay — plays full animation on login ── */}
-      {loginStarted && (
-        <MRFLoader
-          variant="login"
-          visible={!loginSuccess}
-          productImageSrc="/products/cutting-disc.png"
-          label="Processing"
-          onAnimationComplete={handleAnimationComplete}
-        />
-      )}
     </div>
   );
 }

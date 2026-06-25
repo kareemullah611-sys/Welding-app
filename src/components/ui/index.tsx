@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { getEmbedFromLocation } from "@/lib/quickform-embed";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -22,43 +23,29 @@ import {
 import { Button } from "@/components/ui/button";
 import { ProcessingSpinner } from "@/components/ui/ProcessingLoader";
 import { cn } from "@/lib/utils";
-import { buildPaginationItems, getPaginationRange } from "@/lib/pagination";
-import { X } from "lucide-react";
+import { buildPaginationItems, getPaginationRange, DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import {
+  handleSelectDropdownTab,
+  handleSelectEnter,
+  isModalEnterAdvanceField,
+  isSubmitLikeButton,
+  moveModalFocus,
+  openNativePicker,
+  focusFirstModalField,
+} from "@/lib/modal-keyboard";
+import { X, ChevronLeft, ChevronRight, Inbox } from "lucide-react";
 
-const MODAL_FOCUSABLE_SELECTOR = [
-  "input:not([type='hidden']):not([disabled])",
-  "select:not([disabled])",
-  "textarea:not([disabled])",
-  "button:not([disabled])",
-  "[tabindex]:not([tabindex='-1'])",
-].join(",");
-
-const SUBMIT_LABEL_REGEX = /(save|create|record|submit|apply|approve|send|confirm|delete|reset|complete|reopen|correct)/i;
-
-function isVisibleFocusable(el: HTMLElement) {
-  return !el.hasAttribute("disabled") && el.tabIndex !== -1 && el.getClientRects().length > 0;
+function usesNativeFieldKeyboard(el: HTMLElement) {
+  if (el instanceof HTMLSelectElement) return true;
+  if (el instanceof HTMLTextAreaElement) return true;
+  if (el instanceof HTMLInputElement) {
+    return ["date", "datetime-local", "time", "month", "week"].includes(el.type);
+  }
+  return false;
 }
 
-function getModalFocusableElements(container: HTMLElement) {
-  return Array.from(container.querySelectorAll<HTMLElement>(MODAL_FOCUSABLE_SELECTOR))
-    .filter(isVisibleFocusable);
-}
-
-function moveModalFocus(container: HTMLElement, direction: 1 | -1) {
-  const focusables = getModalFocusableElements(container);
-  if (!focusables.length) return;
-  const current = document.activeElement as HTMLElement | null;
-  const currentIndex = current ? focusables.indexOf(current) : -1;
-  const start = currentIndex >= 0 ? currentIndex : (direction === 1 ? -1 : 0);
-  const nextIndex = (start + direction + focusables.length) % focusables.length;
-  focusables[nextIndex].focus();
-}
-
-function isSubmitLikeButton(el: HTMLElement) {
-  if (!(el instanceof HTMLButtonElement) || el.disabled) return false;
-  if (el.dataset.formSubmit === "true") return true;
-  if (typeof el.className === "string" && el.className.includes("btn-primary")) return true;
-  return SUBMIT_LABEL_REGEX.test((el.textContent || "").trim());
+function handleModalFieldChange(_event: React.FormEvent<HTMLDivElement>) {
+  // Reserved for modal field change hooks (e.g. clearing custom picker state).
 }
 
 function normalizeForSearchValue(value: unknown): string {
@@ -69,6 +56,45 @@ function normalizeForSearchValue(value: unknown): string {
   if (Array.isArray(value)) return value.map(normalizeForSearchValue).join(" ");
   if (typeof value === "object") return Object.values(value as Record<string, unknown>).map(normalizeForSearchValue).join(" ");
   return "";
+}
+
+/** Columns that are display-only or not useful as search scopes in list tables. */
+const NON_SEARCHABLE_COLUMN_KEYS = new Set([
+  "actions",
+  "country",
+  "countryname",
+  "countrycode",
+  "utilization",
+  "distribution",
+  "products",
+  "balance",
+  "totalpurchases",
+  "totalpayments",
+  "salescount",
+  "hajitransferscount",
+  "amount",
+  "totalamount",
+  "debit",
+  "credit",
+  "currency",
+  "paymentmethod",
+  "destination",
+  "transfertype",
+  "percartonprice",
+  "runningcashinhand",
+  "discountamount",
+  "createdby",
+]);
+
+function isDefaultSearchableColumnKey(key: string): boolean {
+  const normalized = String(key || "").toLowerCase();
+  if (!normalized || normalized === "actions") return false;
+  if (NON_SEARCHABLE_COLUMN_KEYS.has(normalized)) return false;
+  if (normalized === "status" || normalized.endsWith("status")) return false;
+  if (normalized === "date" || normalized.endsWith("date")) return false;
+  if (normalized === "type" || normalized.endsWith("type")) return false;
+  if (normalized.endsWith("at") || normalized.endsWith("count")) return false;
+  return true;
 }
 
 // ============================================================
@@ -84,14 +110,13 @@ export function PageHeader({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="mb-6 overflow-hidden rounded-[1.6rem] border border-white/75 bg-[linear-gradient(135deg,rgba(255,248,239,0.95),rgba(245,233,219,0.82))] px-5 py-5 shadow-[0_28px_70px_-42px_rgba(51,42,33,0.38)]">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#71717a]">Workspace</p>
+    <div className="module-page mb-6 rounded-[1.6rem] border border-white/75 bg-[linear-gradient(135deg,rgba(255,248,239,0.95),rgba(245,233,219,0.82))] px-5 py-5 shadow-[0_28px_70px_-42px_rgba(51,42,33,0.38)]">
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
         <h1 className="text-2xl font-bold text-[#2A0608] tracking-tight sm:text-3xl">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-[#52525b]">{subtitle}</p>}
       </div>
-      {action && <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:flex-shrink-0 sm:justify-end">{action}</div>}
+      {action && <div className="flex w-full min-w-0 flex-wrap gap-2 sm:w-auto sm:flex-shrink-0 sm:justify-end">{action}</div>}
       </div>
     </div>
   );
@@ -143,6 +168,26 @@ export function StatsCard({
 }
 
 // ============================================================
+// EMPTY STATE
+// ============================================================
+export function EmptyState({
+  message = "No data found",
+  className,
+}: {
+  message?: string;
+  className?: string;
+}) {
+  return (
+    <div className={cn("flex flex-col items-center gap-3", className)}>
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-[#e4e4e7] bg-gradient-to-b from-white to-[#f4f4f5] shadow-sm">
+        <Inbox className="h-6 w-6 text-gray-400" strokeWidth={1.5} aria-hidden />
+      </div>
+      <p className="text-sm font-medium text-gray-500">{message}</p>
+    </div>
+  );
+}
+
+// ============================================================
 // DATA TABLE
 // ============================================================
 interface Column<T> {
@@ -150,6 +195,8 @@ interface Column<T> {
   label: string;
   render?: (item: T) => React.ReactNode;
   className?: string;
+  headerClassName?: string;
+  width?: string;
 }
 
 interface DataTableProps<T> {
@@ -166,6 +213,8 @@ interface DataTableProps<T> {
   onSearchChange?: (value: string) => void;
   pagination?: PaginationConfig;
   stripedRows?: boolean;
+  compact?: boolean;
+  tableClassName?: string;
   rowClassName?: (item: T, index: number) => string;
 }
 
@@ -176,13 +225,15 @@ export function DataTable<T extends Record<string, any>>({
   emptyMessage = "No data found",
   onRowClick,
   searchable = true,
-  searchPlaceholder = "Search all columns...",
+  searchPlaceholder = "Search…",
   searchMinChars = 2,
   searchColumnKeys,
   searchValue,
   onSearchChange,
   pagination,
   stripedRows = false,
+  compact = false,
+  tableClassName,
   rowClassName,
 }: DataTableProps<T>) {
   const [internalSearch, setInternalSearch] = useState("");
@@ -194,20 +245,17 @@ export function DataTable<T extends Record<string, any>>({
   const rowRefs = useRef<Array<HTMLTableRowElement | null>>([]);
   const minChars = Math.max(1, searchMinChars || 2);
   const activeSearch = (searchValue ?? internalSearch).trim();
+  const isServerSideSearch = onSearchChange !== undefined;
   const searchableColumns = useMemo(() => {
     const allowed = new Set(searchColumnKeys || []);
     const hasAllowList = allowed.size > 0;
     return columns.filter((col) => {
       if (!col.label || col.key === "actions") return false;
-      if (!hasAllowList) {
-        const key = String(col.key || "").toLowerCase();
-        if (key === "status" || key.endsWith("status")) return false;
-        if (key === "date" || key.endsWith("date")) return false;
-        return true;
-      }
-      return allowed.has(col.key);
+      if (hasAllowList) return allowed.has(col.key);
+      return isDefaultSearchableColumnKey(col.key);
     });
   }, [columns, searchColumnKeys]);
+  const showColumnSelector = searchable && !isServerSideSearch && searchableColumns.length > 1;
   const searchStorageKey = useMemo(() => {
     const normalizedPlaceholder = String(searchPlaceholder || "search")
       .toLowerCase()
@@ -261,7 +309,7 @@ export function DataTable<T extends Record<string, any>>({
   }, [columnStorageKey, searchable, selectedSearchColumn]);
 
   const filteredData = useMemo(() => {
-    if (!searchable || activeSearch.length < minChars) return data;
+    if (!searchable || activeSearch.length < minChars || isServerSideSearch) return data;
     const needle = activeSearch.toLowerCase();
     return data.filter((item) => {
       if (selectedSearchColumn !== "__all__") {
@@ -274,7 +322,7 @@ export function DataTable<T extends Record<string, any>>({
       if (byColumns.includes(needle)) return true;
       return false;
     });
-  }, [activeSearch, data, minChars, searchable, searchableColumns, selectedSearchColumn]);
+  }, [activeSearch, data, isServerSideSearch, minChars, searchable, searchableColumns, selectedSearchColumn]);
 
   useEffect(() => {
     if (!activeSearch || activeSearch.length < minChars || filteredData.length === 0) {
@@ -332,10 +380,10 @@ export function DataTable<T extends Record<string, any>>({
   };
 
   return (
-    <div className="rounded-[1.4rem] border border-white/70 bg-white/85 shadow-[0_26px_70px_-42px_rgba(51,42,33,0.35)] backdrop-blur-xl">
+    <div className="module-page rounded-[1.4rem] border border-white/70 bg-white/85 shadow-[0_26px_70px_-42px_rgba(51,42,33,0.35)] backdrop-blur-xl">
       {searchable && (
-        <div className="flex flex-col gap-1 border-b border-[#e4e4e7] bg-[#f4f4f5]/90 px-3 py-3 sm:px-4">
-          <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="border-b border-[#e4e4e7] bg-[#f4f4f5]/90 px-3 py-2 sm:px-4">
+          <div className="flex flex-wrap items-center gap-2">
             <input
               type="search"
               value={searchValue ?? internalSearch}
@@ -357,44 +405,59 @@ export function DataTable<T extends Record<string, any>>({
                 });
               }}
               placeholder={searchPlaceholder}
-              className="input-field h-10 w-full text-base sm:h-9 sm:max-w-sm sm:text-sm"
+              className="input-field h-8 min-w-[7rem] flex-1 text-sm sm:max-w-xs"
             />
-            <select
-              value={selectedSearchColumn}
-              onChange={(event) => {
-                setSelectedSearchColumn(event.target.value);
-                setActiveMatchIndex(-1);
-              }}
-              className="input-field h-10 w-full text-base sm:h-9 sm:w-56 sm:text-sm"
-              aria-label="Search specific column"
-            >
-              <option value="__all__">All Columns</option>
-              {searchableColumns.map((col) => (
-                <option key={col.key} value={col.key}>
-                  {col.label}
-                </option>
-              ))}
-            </select>
+            {showColumnSelector && (
+              <select
+                value={selectedSearchColumn}
+                onChange={(event) => {
+                  setSelectedSearchColumn(event.target.value);
+                  setActiveMatchIndex(-1);
+                }}
+                className="input-field h-8 w-auto max-w-[7.5rem] shrink-0 text-sm"
+                aria-label="Search specific column"
+              >
+                <option value="__all__">All fields</option>
+                {searchableColumns.map((col) => (
+                  <option key={col.key} value={col.key}>
+                    {col.label}
+                  </option>
+                ))}
+              </select>
+            )}
+            {showSearchMeta && !isServerSideSearch && activeSearch.length > 0 && activeSearch.length < minChars && (
+              <span className="text-[11px] text-gray-500">{minChars}+ chars</span>
+            )}
+            {showSearchMeta && !isServerSideSearch && activeSearch.length >= minChars && (
+              <span className="text-[11px] text-gray-500">
+                {filteredData.length} match{filteredData.length === 1 ? "" : "es"}
+                {activeMatchIndex >= 0 ? ` · ${activeMatchIndex + 1}/${filteredData.length}` : ""}
+              </span>
+            )}
           </div>
-          {showSearchMeta && activeSearch.length < minChars && (
-            <p className="text-[11px] text-gray-500">
-              Type at least {minChars} characters to filter this list.
-            </p>
-          )}
-          {showSearchMeta && activeSearch.length >= minChars && (
-            <p className="text-[11px] text-gray-500">
-              Showing {filteredData.length} matching record{filteredData.length === 1 ? "" : "s"}
-              {activeMatchIndex >= 0 ? ` · Selected ${activeMatchIndex + 1}/${filteredData.length}` : ""}.
-            </p>
-          )}
         </div>
       )}
-      <div className="overflow-visible">
-        <Table>
+      <div className="module-scroll-x">
+        <Table className={tableClassName}>
+          {columns.some((col) => col.width) && (
+            <colgroup>
+              {columns.map((col) => (
+                <col key={col.key} style={col.width ? { width: col.width } : undefined} />
+              ))}
+            </colgroup>
+          )}
           <TableHeader>
             <TableRow className="border-b border-[#e4e4e7] bg-[#f4f4f5]/95 hover:bg-[#f4f4f5]/95">
               {columns.map((col) => (
-                <TableHead key={col.key} className={cn("text-xs font-semibold text-gray-500 uppercase tracking-wider py-3", col.className)}>
+                <TableHead
+                  key={col.key}
+                  title={col.label ? String(col.label) : undefined}
+                  className={cn(
+                    "text-xs font-semibold text-gray-500 align-middle",
+                    compact ? "py-2 px-2 tracking-wide overflow-hidden text-ellipsis whitespace-nowrap uppercase" : "py-3 tracking-wider uppercase",
+                    col.headerClassName,
+                  )}
+                >
                   {col.label}
                 </TableHead>
               ))}
@@ -410,12 +473,9 @@ export function DataTable<T extends Record<string, any>>({
                 </TableCell>
               </TableRow>
             ) : filteredData.length === 0 ? (
-              <TableRow>
+              <TableRow className="hover:bg-transparent">
                 <TableCell colSpan={columns.length} className="py-16 text-center">
-                  <div className="flex flex-col items-center gap-2">
-                    <div className="h-10 w-10 rounded-xl border border-[#d4d4d8] bg-[#f4f4f5]" />
-                    <p className="text-sm text-muted-foreground">{emptyMessage}</p>
-                  </div>
+                  <EmptyState message={emptyMessage} />
                 </TableCell>
               </TableRow>
             ) : (
@@ -435,7 +495,7 @@ export function DataTable<T extends Record<string, any>>({
                     const isDate = !col.render && col.key.toLowerCase().includes("date") && typeof item[col.key] === "string" && item[col.key]?.match(/^\d{4}-\d{2}-\d{2}/);
                     const displayValue = isDate ? formatDate(item[col.key]) : item[col.key];
                     return (
-                      <TableCell key={col.key} className={cn("text-sm text-gray-700 py-3", isDate && "whitespace-nowrap", col.className)}>
+                      <TableCell key={col.key} className={cn(compact ? "text-xs text-gray-700 py-1.5" : "text-sm text-gray-700 py-3", isDate && "whitespace-nowrap", col.className)}>
                         {(() => {
                           const renderedValue = col.render ? col.render(item) : displayValue;
                           const shouldHighlight =
@@ -477,7 +537,7 @@ export function PaginationBar({
   className?: string;
   bordered?: boolean;
 }) {
-  const pageSize = pagination.pageSize || 20;
+  const pageSize = pagination.pageSize || DEFAULT_LIST_PAGE_SIZE;
   const pageItems = buildPaginationItems(pagination.page, pagination.totalPages);
   const range = getPaginationRange({ page: pagination.page, pageSize, total: pagination.total });
 
@@ -498,9 +558,10 @@ export function PaginationBar({
           size="sm"
           onClick={() => pagination.onPageChange(pagination.page - 1)}
           disabled={pagination.page <= 1}
-          className="h-9 px-3 text-xs sm:h-8"
+          className="h-9 w-9 p-0 sm:h-8 sm:w-8"
+          aria-label="Previous page"
         >
-          Previous
+          <ChevronLeft className="h-4 w-4" />
         </Button>
         {pageItems.map((item, index) =>
           item === "..." ? (
@@ -528,9 +589,10 @@ export function PaginationBar({
           size="sm"
           onClick={() => pagination.onPageChange(pagination.page + 1)}
           disabled={pagination.page >= pagination.totalPages}
-          className="h-9 px-3 text-xs sm:h-8"
+          className="h-9 w-9 p-0 sm:h-8 sm:w-8"
+          aria-label="Next page"
         >
-          Next
+          <ChevronRight className="h-4 w-4" />
         </Button>
       </div>
     </div>
@@ -561,12 +623,46 @@ export function Modal({
   bodyClassName?: string;
 }) {
   const [mounted, setMounted] = useState(false);
+  const modalBodyRef = useRef<HTMLDivElement>(null);
   const searchParams = useSearchParams();
   const embedRoute = getEmbedFromLocation() || searchParams.get("embed") === "1";
   const inlineMode = inline || embedRoute;
   const suppressHeader = hideHeader || embedRoute;
 
   useEffect(() => setMounted(true), []);
+
+  // Keep focused fields visible when the mobile keyboard opens (iOS / Android).
+  useEffect(() => {
+    if (!open || inlineMode) return;
+    const root = modalBodyRef.current;
+    if (!root) return;
+
+    const onFocusIn = (event: FocusEvent) => {
+      const target = event.target as HTMLElement;
+      if (!root.contains(target)) return;
+      if (
+        !(target instanceof HTMLInputElement) &&
+        !(target instanceof HTMLSelectElement) &&
+        !(target instanceof HTMLTextAreaElement)
+      ) {
+        return;
+      }
+      window.setTimeout(() => {
+        target.scrollIntoView({ block: "center", behavior: "smooth" });
+      }, 320);
+    };
+
+    root.addEventListener("focusin", onFocusIn);
+    return () => root.removeEventListener("focusin", onFocusIn);
+  }, [open, inlineMode]);
+
+  useEffect(() => {
+    if (!open) return;
+    const root = modalBodyRef.current;
+    if (!root) return;
+    const timer = window.setTimeout(() => focusFirstModalField(root), 0);
+    return () => window.clearTimeout(timer);
+  }, [open, inlineMode]);
 
   const handleFormKeyNav = (event: React.KeyboardEvent<HTMLDivElement>) => {
     const container = event.currentTarget;
@@ -575,10 +671,15 @@ export function Modal({
 
     if (hasLocalNav) return;
 
-    if (event.key === "Enter" && event.shiftKey) {
+    if (event.key === "Tab") {
+      if (target instanceof HTMLSelectElement && handleSelectDropdownTab(target, container, event.shiftKey)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
-      moveModalFocus(container, -1);
+      moveModalFocus(container, event.shiftKey ? -1 : 1);
       return;
     }
 
@@ -589,48 +690,60 @@ export function Modal({
         (target as HTMLButtonElement).click();
         return;
       }
-      event.preventDefault();
-      event.stopPropagation();
-      const focusables = getModalFocusableElements(container);
-      const currentIndex = focusables.indexOf(target);
-      const isLastField = currentIndex >= 0 && currentIndex === focusables.length - 1;
-      if (isLastField) {
-        const submitButton = focusables.find(isSubmitLikeButton);
-        if (submitButton) {
-          (submitButton as HTMLButtonElement).click();
-          return;
-        }
+      if (target instanceof HTMLButtonElement) {
+        event.preventDefault();
+        event.stopPropagation();
+        target.click();
+        return;
       }
-      moveModalFocus(container, 1);
+      if (target instanceof HTMLSelectElement) {
+        handleSelectEnter(target, event);
+        return;
+      }
+      if (
+        target instanceof HTMLInputElement &&
+        ["date", "datetime-local", "time", "month", "week"].includes(target.type)
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        openNativePicker(target);
+        return;
+      }
+      if (isModalEnterAdvanceField(target)) {
+        event.preventDefault();
+        event.stopPropagation();
+        moveModalFocus(container, 1);
+        return;
+      }
+      if (usesNativeFieldKeyboard(target)) {
+        return;
+      }
       return;
     }
 
-    if (event.key === "Tab") {
-      event.preventDefault();
-      event.stopPropagation();
-      moveModalFocus(container, event.shiftKey ? -1 : 1);
+    if (event.key === " " && target instanceof HTMLSelectElement) {
+      handleSelectEnter(target, event);
       return;
     }
 
-    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+    if (
+      event.key === "ArrowDown" ||
+      event.key === "ArrowRight" ||
+      event.key === "ArrowUp" ||
+      event.key === "ArrowLeft"
+    ) {
+      if (usesNativeFieldKeyboard(target)) return;
       event.preventDefault();
       event.stopPropagation();
-      moveModalFocus(container, 1);
-      return;
-    }
-
-    if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
-      event.preventDefault();
-      event.stopPropagation();
-      moveModalFocus(container, -1);
+      moveModalFocus(container, event.key === "ArrowDown" || event.key === "ArrowRight" ? 1 : -1);
     }
   };
 
   const sizes = {
-    sm: "max-w-md",
-    md: "max-w-lg",
-    lg: "max-w-2xl",
-    xl: "max-w-6xl",
+    sm: "sm:max-w-md",
+    md: "sm:max-w-lg",
+    lg: "sm:max-w-2xl",
+    xl: "sm:max-w-6xl",
   };
 
   if (!mounted) return null;
@@ -639,10 +752,13 @@ export function Modal({
     if (!open) return null;
     return (
       <div
+        ref={modalBodyRef}
+        data-modal-form-root
         onKeyDownCapture={handleFormKeyNav}
+        onChangeCapture={handleModalFieldChange}
         className={cn(
           "h-full min-h-0 w-full overflow-y-auto overscroll-contain",
-          bodyClassName || "px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4 sm:py-4"
+          bodyClassName || "px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-5 sm:py-5"
         )}
       >
         {children}
@@ -655,19 +771,50 @@ export function Modal({
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent
-        hideCloseButton={suppressHeader}
-        className={cn("w-full gap-0 p-0 overflow-hidden border border-[#d4d4d8] bg-[linear-gradient(168deg,rgba(255,255,255,0.99),rgba(244,244,245,0.97))] shadow-[0_32px_80px_-42px_rgba(42,6,8,0.35)]", sizes[size])}
+        hideCloseButton
+        className={cn(
+          "gap-0 p-0 overflow-hidden border border-[#d4d4d8] bg-[linear-gradient(168deg,rgba(255,255,255,0.99),rgba(244,244,245,0.97))] shadow-[0_32px_80px_-42px_rgba(42,6,8,0.35)]",
+          sizes[size]
+        )}
       >
         {!suppressHeader && (
-          <DialogHeader className="px-6 py-4 border-b border-[#e4e4e7] bg-[rgba(255,255,255,0.96)] flex-shrink-0">
-            <DialogTitle asChild><div className="text-base font-semibold tracking-[0.01em] text-[#2A0608]">{title}</div></DialogTitle>
+          <DialogHeader className="sticky top-0 z-10 flex flex-row items-center gap-3 border-b border-[#e4e4e7] bg-[rgba(255,255,255,0.98)] px-4 py-3 backdrop-blur-sm sm:px-6 sm:py-4">
+            <DialogTitle asChild>
+              <div className="min-w-0 flex-1 text-base font-semibold tracking-[0.01em] text-[#2A0608] sm:text-[1rem]">{title}</div>
+            </DialogTitle>
+            <DialogClose
+              className={cn(
+                "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#d4d4d8] bg-white text-[#2A0608] shadow-sm",
+                "hover:bg-[#f4f4f5] focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              )}
+            >
+              <X className="h-4 w-4" />
+              <span className="sr-only">Close</span>
+            </DialogClose>
           </DialogHeader>
         )}
-        <div onKeyDownCapture={handleFormKeyNav} className={cn("overflow-y-auto max-h-[75vh]", suppressHeader ? "" : "px-6 py-5", bodyClassName)}>{children}</div>
+        <div
+          ref={modalBodyRef}
+          data-modal-form-root
+          onKeyDownCapture={handleFormKeyNav}
+          onChangeCapture={handleModalFieldChange}
+          className={cn(
+            "modal-sheet-body touch-pan-y overflow-y-auto overscroll-contain",
+            suppressHeader
+              ? "max-h-[min(88dvh,100%)] px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-5"
+              : "max-h-[min(calc(92dvh-4.5rem),100%)] px-4 py-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:max-h-[75vh] sm:px-6 sm:py-5",
+            bodyClassName
+          )}
+        >
+          {children}
+        </div>
       </DialogContent>
     </Dialog>
   );
 }
+
+export { default as SelectField } from "@/components/ModalOptionSelect";
+export type { ModalOptionSelectOption } from "@/components/ModalOptionSelect";
 
 // ============================================================
 // STATUS BADGE
@@ -708,6 +855,7 @@ export function formatNumber(num: number | null | undefined): string {
 }
 
 export { RowActionMenu } from "@/components/ui/RowActionMenu";
+export { MobileDateInput } from "@/components/ui/MobileDateInput";
 export { ProcessingSpinner } from "@/components/ui/ProcessingLoader";
 export { default as ProcessingLoader } from "@/components/ui/ProcessingLoader";
 export { default as CuttingDiscSpinner, DEFAULT_CUTTING_DISC_SRC } from "@/components/ui/CuttingDiscSpinner";
@@ -719,5 +867,5 @@ export function formatDate(dateStr: string | Date | null | undefined): string {
   const dd = String(d.getDate()).padStart(2, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const yy = String(d.getFullYear()).slice(-2);
-  return `${dd}/${mm}/${yy}`;
+  return `${dd}-${mm}-${yy}`;
 }

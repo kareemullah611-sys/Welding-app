@@ -18,7 +18,7 @@ test("buildOfflineSearchResults filters by city scope", () => {
     {
       customers: [
         { id: 1, name: "Ali Traders", cityId: 5 },
-        { id: 2, name: "Ali Herat", cityId: 6 },
+        { id: 2, name: "Ali Abdul Khaliq", cityId: 6 },
       ],
     },
     { q: "ali", type: "customers", scopedCityId: 5 }

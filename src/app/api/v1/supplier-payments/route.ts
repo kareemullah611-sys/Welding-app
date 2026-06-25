@@ -5,8 +5,9 @@ import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { createSupplierPaymentSchema } from "@/lib/validations";
 import { successResponse, validationError, errorResponse, serverError, paginatedResponse, getPaginationParams } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
-import { validatePaymentSource } from "@/lib/payment-source-validation";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import { validateSupplierPaymentSettlement } from "@/lib/settlement-validation";
+import { assertSuperAdminCashHasFunds } from "@/lib/haji-cash-balance";
 
 const SUPPLIER_PAYMENT_SYNC_MODULE = "supplier_payments";
 const SUPERADMIN_SYNC_CITY_ID = 0;
@@ -38,6 +39,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
       amountLocal: p.amountLocal ? Number(p.amountLocal) : null,
       paymentMethod: p.paymentMethod, reference: p.reference, notes: p.notes,
       bankAccountId: p.bankAccountId ?? null,
+      superAdminBankAccountId: p.superAdminBankAccountId ?? null,
       intermediaryId: p.intermediaryId ?? null,
     })), total, page, limit);
   } catch (error) { return serverError(); }
@@ -65,13 +67,13 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       }
     }
 
-    const source = await validatePaymentSource({
-      bankAccountId: parsed.data.bankAccountId,
-      intermediaryId: parsed.data.intermediaryId,
-      requireSelection: true,
-    });
-    if (!source.ok) {
-      return errorResponse(source.code, source.message, source.status || 400);
+    const superAdminBankAccountId = parsed.data.superAdminBankAccountId || null;
+    const superAdminCashAccountId = parsed.data.superAdminCashAccountId || null;
+    const bankAccountId = parsed.data.bankAccountId || null;
+    const intermediaryId = parsed.data.intermediaryId || null;
+
+    if (Number(superAdminBankAccountId ? 1 : 0) + Number(superAdminCashAccountId ? 1 : 0) + Number(bankAccountId ? 1 : 0) + Number(intermediaryId ? 1 : 0) !== 1) {
+      return validationError("Choose exactly one funding source: super admin bank, haji cash, intermediary, or legacy city bank");
     }
 
     const supplier = await prisma.supplier.findUnique({ where: { id: parsed.data.supplierId } });
@@ -89,12 +91,36 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     }
 
     const exchangeRate = parsed.data.exchangeRate ? Number(parsed.data.exchangeRate) : null;
-    if (source.bankAccountId && (!exchangeRate || !Number.isFinite(exchangeRate) || exchangeRate <= 0)) {
-      return validationError("Exchange rate is required when paying from a bank account");
+
+    let computedLocal = parsed.data.amountLocal ? Number(parsed.data.amountLocal) : null;
+    let settlementCurrencyCode: string | null = null;
+
+    if (superAdminCashAccountId) {
+      const debitAmount = computedLocal && computedLocal > 0 ? computedLocal : Number(parsed.data.amountUsd);
+      const funds = await assertSuperAdminCashHasFunds(superAdminCashAccountId, debitAmount);
+      if (!funds.ok) return errorResponse("VALIDATION", funds.message, 400);
+      computedLocal = debitAmount;
+      const cashAcct = await prisma.superAdminBankAccount.findUnique({
+        where: { id: superAdminCashAccountId },
+        include: { currency: true },
+      });
+      settlementCurrencyCode = String(cashAcct?.currency?.code || "USD").toUpperCase();
+    } else {
+      const settlement = await validateSupplierPaymentSettlement({
+        amountUsd: Number(parsed.data.amountUsd),
+        superAdminBankAccountId,
+        bankAccountId,
+        intermediaryId,
+        exchangeRate,
+      });
+      if (!settlement.ok) {
+        return errorResponse(settlement.code, settlement.message, settlement.status || 400);
+      }
+      computedLocal = settlement.settlementCurrency === "PKR" && settlement.amountPkr
+        ? settlement.amountPkr
+        : (parsed.data.amountLocal ? Number(parsed.data.amountLocal) : null);
+      settlementCurrencyCode = settlement.settlementCurrency === "PKR" ? "PKR" : null;
     }
-    const computedLocal = source.bankAccountId && exchangeRate
-      ? round2(Number(parsed.data.amountUsd) * exchangeRate)
-      : (parsed.data.amountLocal ? Number(parsed.data.amountLocal) : null);
 
     const payment = await prisma.$transaction(async (tx) => {
       const created = await tx.supplierPayment.create({
@@ -104,8 +130,10 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
           exchangeRate, amountLocal: computedLocal,
           paymentMethod: parsed.data.paymentMethod as any, reference: parsed.data.reference,
           notes: parsed.data.notes, createdBy: user.userId,
-          bankAccountId: source.bankAccountId,
-          intermediaryId: source.intermediaryId,
+          bankAccountId: superAdminBankAccountId || superAdminCashAccountId ? null : bankAccountId,
+          superAdminBankAccountId,
+          superAdminCashAccountId,
+          intermediaryId,
         },
       });
 
@@ -129,9 +157,11 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         id: created.id, supplierId: parsed.data.supplierId, amountUsd: parsed.data.amountUsd,
         amountLocal: computedLocal,
         paymentDate: created.paymentDate, createdBy: user.userId,
-        bankAccountId: source.bankAccountId,
-        intermediaryId: source.intermediaryId,
-        settlementCurrencyCode: source.bankAccountId ? "PKR" : null,
+        bankAccountId: superAdminBankAccountId || superAdminCashAccountId ? null : bankAccountId,
+        superAdminBankAccountId,
+        superAdminCashAccountId,
+        intermediaryId,
+        settlementCurrencyCode,
       }, tx);
       return created;
     });

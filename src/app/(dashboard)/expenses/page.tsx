@@ -13,6 +13,8 @@ import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { getPendingQueueId } from "@/lib/queue-resolve";
+import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import { LedgerExportButtons } from "@/components/LedgerExportButtons";
 
 const EXPENSES_FORM_CACHE_KEY = "mrf-expenses-form-cache-v1";
 const EXPENSES_READ_CACHE_KEY = "mrf-expenses-read-cache-v1";
@@ -117,7 +119,7 @@ export default function ExpensesPage() {
       return;
     }
     setLoading(true);
-    const params: any = { page, limit: 20 };
+    const params: any = { page, limit: DEFAULT_LIST_PAGE_SIZE };
     const normalizedQuery = searchQuery.trim();
     if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     const result = await apiCall("/api/v1/expenses", { params });
@@ -237,14 +239,9 @@ export default function ExpensesPage() {
       apiCall("/api/v1/cities"),
     ];
     if (!isAfghanistanCity) {
-      requests.push(
-        apiCall("/api/v1/bank-accounts"),
-        apiCall("/api/v1/payments", {
-          params: { all: 1, status: "active", payment_method: "cheque", destination: "our_account", cheque_status: "in_hand" },
-        }),
-      );
+      requests.push(apiCall("/api/v1/bank-accounts"));
     }
-    const [lotRes, cityRes, baRes, chRes] = await Promise.all(requests);
+    const [lotRes, cityRes, baRes] = await Promise.all(requests);
     if (lotRes.success) setLots(lotRes.data as any[]);
     if (cityRes.success && user?.cityId) {
       const city = (cityRes.data as any[]).find((c: any) => c.id === user.cityId);
@@ -255,8 +252,6 @@ export default function ExpensesPage() {
     }
     if (!isAfghanistanCity && baRes?.success) setBankAccounts(baRes.data as any[]);
     else setBankAccounts([]);
-    if (!isAfghanistanCity && chRes?.success) setInHandCheques(chRes.data as any[]);
-    else setInHandCheques([]);
     const cachedCurrencies = cityRes.success && user?.cityId
       ? (((cityRes.data as any[]).find((c: any) => c.id === user.cityId)?.currencies) || [])
       : [];
@@ -265,7 +260,7 @@ export default function ExpensesPage() {
         lots: lotRes.success ? (lotRes.data as any[]) : [],
         currencies: cachedCurrencies,
         bankAccounts: !isAfghanistanCity && baRes?.success ? (baRes.data as any[]) : [],
-        inHandCheques: !isAfghanistanCity && chRes?.success ? (chRes.data as any[]) : [],
+        inHandCheques: [],
       });
     }
     setForm((f: any) => ({
@@ -279,8 +274,7 @@ export default function ExpensesPage() {
 
   const handleCreate = async () => {
     if (!form.amount || !form.detail) { setFormError(t("amount") + " " + t("and") + " " + t("detail") + " required"); return; }
-    if (form.paidFrom === "bank_account" && !form.bankAccountId) { setFormError("Please select a bank account"); return; }
-    if (form.paidFrom === "cheque" && !form.chequePaymentId) { setFormError("Please select a cheque"); return; }
+    if (form.paidFrom === "bank_account" && !form.bankAccountId) { setFormError(t("select") + " " + t("bank_account").toLowerCase()); return; }
 
     const resolvedCurrencyId = form.currencyId || currencies[0]?.id || 0;
     if (!resolvedCurrencyId) {
@@ -473,39 +467,68 @@ export default function ExpensesPage() {
     load();
   };
 
-  const renderPaidFrom = (e: any) => {
+  const getPaidFromLabel = (e: any) => {
     if (e.paidFrom === "bank_account" && e.bankAccount) {
-      return <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">🏦 {e.bankAccount.bankName}</span>;
+      return e.bankAccount.bankName;
     }
     if (e.paidFrom === "cheque") {
-      return <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded">🧾 Cheque in Hand</span>;
+      return t("cheques_in_hand");
     }
-    return <span className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded">💵 {t("cash_from_office")}</span>;
+    return t("cash_from_office");
+  };
+
+  const renderExpenseDetail = (e: any) => (
+    <div className="min-w-0 leading-tight">
+      <p className="text-[11px] font-medium text-gray-500">{getPaidFromLabel(e)}</p>
+      <p className="truncate text-sm text-gray-800" title={e.detail}>{e.detail}</p>
+    </div>
+  );
+
+  const activeCityBankAccounts = bankAccounts.filter((b: any) => b.isActive !== false);
+
+  const expenseFromValue =
+    form.paidFrom === "bank_account" && form.bankAccountId
+      ? `bank:${form.bankAccountId}`
+      : "cash_office";
+
+  const handleExpenseFromChange = (value: string) => {
+    if (value.startsWith("bank:")) {
+      const bankAccountId = parseInt(value.slice(5), 10) || 0;
+      setForm((f: any) => ({ ...f, paidFrom: "bank_account", bankAccountId, chequePaymentId: 0 }));
+      return;
+    }
+    setForm((f: any) => ({ ...f, paidFrom: "cash_office", bankAccountId: 0, chequePaymentId: 0 }));
   };
 
   return (
     <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
-      {!isEmbed && <PageHeader
-        title={t("expenses")}
-        subtitle={`${total} ${t("records").toLowerCase()}`}
-      />}
+      {!isEmbed && <PageHeader title={t("expenses")} />}
       {!isEmbed && showOfflineSnapshot && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
           Offline snapshot mode: showing last cached expenses data for this device.
         </div>
       )}
 
+      {!isEmbed && (
+        <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+          <LedgerExportButtons
+            type="expenses"
+            cityId={user?.cityId ?? undefined}
+            query={searchQuery}
+            disabled={!isOnline}
+          />
+        </div>
+      )}
+
       {!isEmbed && <DataTable
         searchValue={searchQuery}
         onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}
-        searchPlaceholder="Search expenses (min 2 chars)"
         columns={[
         { key: "expenseDate", label: t("date"), render: (e: any) => formatDate(e.expenseDate) },
-        { key: "detail", label: t("detail"), className: "max-w-xs" },
+        { key: "detail", label: t("detail"), className: "max-w-xs", render: (e: any) => renderExpenseDetail(e) },
         { key: "amount", label: t("amount"), render: (e: any) => <span className="font-medium text-red-600">{e.currency?.symbol} {e.amount.toLocaleString("en-US")}</span> },
         { key: "lot", label: t("lot"), render: (e: any) => e.lot?.lotNumber || e.lotNumber },
         { key: "notes", label: t("notes"), render: (e: any) => e.notes || "-", className: "max-w-xs truncate" },
-        { key: "source", label: t("paid_from"), render: (e: any) => renderPaidFrom(e) },
         {
           key: "actions", label: "",
           render: (e: any) => (
@@ -524,22 +547,38 @@ export default function ExpensesPage() {
       <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={t("record_expense")} size="md" inline={isEmbed} hideHeader={isEmbed}>
         {formError && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{formError}</div>}
         <div className="space-y-3">
-          <div>
-            <label className="block mb-1">{t("date")} *</label>
-            <input type="date" value={form.expenseDate} onChange={e => setForm((f: any) => ({ ...f, expenseDate: e.target.value }))} className="input-field" />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-gray-700">{t("date")} *</label>
+              <input type="date" value={form.expenseDate} onChange={e => setForm((f: any) => ({ ...f, expenseDate: e.target.value }))} className="input-field" autoFocus />
+            </div>
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-gray-700">{t("from")} *</label>
+              <select
+                value={expenseFromValue}
+                onChange={(e) => handleExpenseFromChange(e.target.value)}
+                className="select-field"
+              >
+                <option value="cash_office">{t("cash_from_office")}</option>
+                {activeCityBankAccounts.map((b: any) => (
+                  <option key={b.id} value={`bank:${b.id}`}>
+                    {b.bankName}{b.accountNumber ? ` (${b.accountNumber})` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
           <div>
-            <label className="block mb-1">{t("detail")} *</label>
-            <input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" placeholder="What was this expense for?" autoFocus />
+            <label className="mb-1 block text-sm font-medium text-gray-700">{t("detail")} *</label>
+            <input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" />
           </div>
           <div>
-            <label className="block mb-1">{t("amount")} *</label>
+            <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
             <input
               type="number"
               value={form.amount || ""}
               onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
               className="input-field"
-              readOnly={form.paidFrom === "cheque" && !!form.chequePaymentId}
               onWheel={e => e.currentTarget.blur()}
             />
           </div>
@@ -559,80 +598,13 @@ export default function ExpensesPage() {
             </>
           )}
 
-          <div>
-            <label className="block mb-1">{t("paid_from")}</label>
-            {isAfghanistanCity ? (
-              <p className="text-sm text-green-800 bg-green-50 border border-green-200 rounded-lg px-3 py-2">Cash from office</p>
-            ) : (
-              <select
-                value={form.paidFrom}
-                onChange={e => setForm((f: any) => ({ ...f, paidFrom: e.target.value, bankAccountId: 0, chequePaymentId: 0 }))}
-                className="select-field"
-              >
-                <option value="cash_office">{t("cash_from_office")}</option>
-                <option value="bank_account">{t("bank_account")}</option>
-                <option value="cheque">{t("cheque")}</option>
-              </select>
-            )}
-          </div>
-
-          {!isAfghanistanCity && form.paidFrom === "bank_account" && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("bank_account")} *</label>
-              {bankAccounts.length === 0 ? (
-                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-700">
-                  {t("no_bank_accounts")}. Add one in Settings → Bank Accounts.
-                </div>
-              ) : (
-                <select value={form.bankAccountId} onChange={e => setForm((f: any) => ({ ...f, bankAccountId: parseInt(e.target.value) }))} className="select-field">
-                  <option value={0}>— Select bank account —</option>
-                  {bankAccounts.map((b: any) => (
-                    <option key={b.id} value={b.id}>{b.bankName}{b.accountNumber ? ` (${b.accountNumber})` : ""}</option>
-                  ))}
-                </select>
-              )}
-            </div>
-          )}
-
-          {!isAfghanistanCity && form.paidFrom === "cheque" && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("cheque")} *</label>
-              {inHandCheques.length === 0 ? (
-                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-700">
-                  No cheques in hand. Record a cheque payment first.
-                </div>
-              ) : (
-                <select
-                  value={form.chequePaymentId || 0}
-                  onChange={e => {
-                    const id = parseInt(e.target.value);
-                    const sel = inHandCheques.find((c: any) => c.id === id);
-                    setForm((f: any) => ({
-                      ...f,
-                      chequePaymentId: id,
-                      amount: sel ? Number(sel.amount) : f.amount,
-                      currencyId: sel?.currency?.id || f.currencyId,
-                    }));
-                  }}
-                  className="select-field"
-                >
-                  <option value={0}>— Select a cheque —</option>
-                  {inHandCheques.map((c: any) => (
-                    <option key={c.id} value={c.id}>
-                      #{c.chequeNumber || c.manualVoucherNo || c.id} · {c.customer?.name} · {c.currency?.symbol || c.currency?.code || ""} {Number(c.amount || 0).toLocaleString("en-US")}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-          )}
         </div>
 
-        <div className={isEmbed ? "pt-4 mt-3 border-t border-[#e8dccf]" : "flex justify-end gap-3 pt-4 mt-4 border-t"}>
+        <div className={isEmbed ? "quickform-footer" : "flex justify-end gap-3 pt-4 mt-4 border-t"}>
           <button
             onClick={handleCreate}
             disabled={submitting}
-            className={isEmbed ? "w-full h-10 rounded-xl text-sm font-semibold text-white bg-[linear-gradient(135deg,#6B0F1A_0%,#8B1A1A_100%)] disabled:opacity-60" : "btn-primary text-sm"}
+            className={isEmbed ? "glass-btn glass-btn-primary w-full min-h-11 disabled:opacity-60" : "btn-primary text-sm"}
           >
             {submitting ? "Saving…" : t("record_expense")}
           </button>

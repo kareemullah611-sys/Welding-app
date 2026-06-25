@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import "./globals.css";
 import { AuthProvider } from "@/hooks/useAuth";
 import { LangProvider } from "@/lib/lang";
@@ -9,6 +10,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 5,
+  viewportFit: "cover",
   themeColor: "#6B0F1A",
 };
 
@@ -28,6 +30,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body suppressHydrationWarning>
+        {process.env.NODE_ENV === "development" && (
+          <Script id="dev-unregister-sw" strategy="beforeInteractive">
+            {`if(typeof navigator!=="undefined"&&"serviceWorker"in navigator){navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.unregister();});});}`}
+          </Script>
+        )}
         <LangProvider>
           <AuthProvider>
             <OfflineProvider>

@@ -3,6 +3,8 @@ import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { finalizeLedgerForDisplay } from "@/lib/ledger-display";
+import { getLedgerPaginationParams, paginateList } from "@/lib/pagination";
 
 type LedgerRow = {
   key: string;
@@ -21,25 +23,20 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const toCurrencyCode = (id: number, map: Record<number, string>) => map[id] || String(id);
 
-const finalizeLedger = (rows: LedgerRow[]) => {
-  const runningByCurrency: Record<string, number> = {};
-  const asc = [...rows].sort((a, b) => {
-    const dateDiff = a.date.getTime() - b.date.getTime();
-    if (dateDiff !== 0) return dateDiff;
-    return a.createdAt.getTime() - b.createdAt.getTime();
+function respondLedgerView(
+  searchParams: URLSearchParams,
+  account: Record<string, unknown>,
+  rows: LedgerRow[],
+) {
+  const { page, limit } = getLedgerPaginationParams(searchParams);
+  const { ledger, balanceByCurrency } = finalizeLedgerForDisplay(rows);
+  const { items: pagedLedger, pagination } = paginateList(ledger, page, limit);
+  return NextResponse.json({
+    success: true,
+    data: { account, ledger: pagedLedger, balanceByCurrency },
+    pagination,
   });
-  for (const row of asc) {
-    const curr = row.currencyCode;
-    const current = runningByCurrency[curr] || 0;
-    const next = round2(current + row.credit - row.debit);
-    runningByCurrency[curr] = next;
-    row.runningBalance = next;
-  }
-  return {
-    ledger: asc.reverse(),
-    balanceByCurrency: runningByCurrency,
-  };
-};
+}
 
 export const GET = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -59,6 +56,148 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         include: { currency: true },
       });
       if (!account) return errorResponse("NOT_FOUND", "Bank account not found", 404);
+
+      if (account.accountKind === "cash") {
+        const currencyCode = String(account.currency.code || "").toUpperCase();
+        const [
+          hajiTransfersIn,
+          cashReceipts,
+          intermediaryOut,
+          supplierPayments,
+          agentPayments,
+          shippingPayments,
+        ] = await Promise.all([
+          prisma.hajiTransfer.findMany({
+            where: {
+              superAdminCashAccountId: id,
+              settlementDestination: "super_admin_cash",
+              currencyId: account.currencyId,
+            },
+            include: {
+              city: { select: { name: true } },
+              currency: { select: { code: true } },
+            },
+            orderBy: [{ transferDate: "asc" }, { createdAt: "asc" }],
+          }),
+          prisma.hajiCashReceipt.findMany({
+            where: { superAdminCashAccountId: id },
+            include: { intermediary: { select: { name: true } }, currency: { select: { code: true } } },
+            orderBy: [{ receiptDate: "asc" }, { createdAt: "asc" }],
+          }),
+          prisma.intermediaryDeposit.findMany({
+            where: { superAdminCashAccountId: id },
+            include: { intermediary: { select: { name: true } }, currency: { select: { code: true } } },
+            orderBy: [{ depositDate: "asc" }, { createdAt: "asc" }],
+          }),
+          prisma.supplierPayment.findMany({
+            where: { superAdminCashAccountId: id },
+            include: { supplier: { select: { name: true } }, lot: { select: { lotNumber: true } } },
+            orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
+          }),
+          prisma.agentPayment.findMany({
+            where: { superAdminCashAccountId: id, currencyCode },
+            include: { agent: { select: { name: true, agentType: true } } },
+            orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
+          }),
+          prisma.shippingLinePayment.findMany({
+            where: { superAdminCashAccountId: id },
+            include: { shippingLine: { select: { name: true } }, lot: { select: { lotNumber: true } } },
+            orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
+          }),
+        ]);
+
+        const rows: LedgerRow[] = [];
+        for (const t of hajiTransfersIn) {
+          rows.push({
+            key: `ht-${t.id}`,
+            date: new Date(t.transferDate),
+            createdAt: new Date(t.createdAt),
+            type: "Haji Transfer",
+            detail: `${t.city?.name || "City"} — ${t.detail || "Transfer"}`,
+            reference: null,
+            currencyCode: t.currency.code,
+            credit: Number(t.amount),
+            debit: 0,
+          });
+        }
+        for (const r of cashReceipts) {
+          rows.push({
+            key: `hcr-${r.id}`,
+            date: new Date(r.receiptDate),
+            createdAt: new Date(r.createdAt),
+            type: "Receive",
+            detail: `From ${r.intermediary.name}`,
+            reference: r.notes || null,
+            currencyCode: r.currency.code,
+            credit: Number(r.amount),
+            debit: 0,
+          });
+        }
+        for (const d of intermediaryOut) {
+          rows.push({
+            key: `imdc-${d.id}`,
+            date: new Date(d.depositDate),
+            createdAt: new Date(d.createdAt),
+            type: "Send — Intermediary",
+            detail: `To ${d.intermediary.name}`,
+            reference: d.notes || null,
+            currencyCode: d.currency.code,
+            credit: 0,
+            debit: Number(d.amount),
+          });
+        }
+        for (const p of supplierPayments) {
+          const debit = Number(p.amountLocal || 0) > 0 ? Number(p.amountLocal) : Number(p.amountUsd);
+          rows.push({
+            key: `spc-${p.id}`,
+            date: new Date(p.paymentDate),
+            createdAt: new Date(p.createdAt),
+            type: "Send — Supplier",
+            detail: `${p.supplier.name}${p.lot?.lotNumber ? ` (${p.lot.lotNumber})` : ""}`,
+            reference: p.reference || null,
+            currencyCode,
+            credit: 0,
+            debit,
+          });
+        }
+        for (const p of agentPayments) {
+          rows.push({
+            key: `apc-${p.id}`,
+            date: new Date(p.paymentDate),
+            createdAt: new Date(p.createdAt),
+            type: p.agent.agentType === "customs" ? "Send — Customs Agent" : "Send — Clearing Agent",
+            detail: p.agent.name,
+            reference: p.reference || null,
+            currencyCode: p.currencyCode,
+            credit: 0,
+            debit: Number(p.amount),
+          });
+        }
+        for (const p of shippingPayments) {
+          const debit = Number(p.amountPkr || 0) > 0 ? Number(p.amountPkr) : Number(p.amountUsd);
+          rows.push({
+            key: `slpc-${p.id}`,
+            date: new Date(p.paymentDate),
+            createdAt: new Date(p.createdAt),
+            type: "Send — Shipping Line",
+            detail: `${p.shippingLine.name}${p.lot?.lotNumber ? ` (${p.lot.lotNumber})` : ""}`,
+            reference: p.reference || null,
+            currencyCode,
+            credit: 0,
+            debit,
+          });
+        }
+
+        return respondLedgerView(request.nextUrl.searchParams, {
+          id: account.id,
+          bankName: account.bankName,
+          accountNumber: account.accountNumber,
+          currencyCode: account.currency.code,
+          accountKind: account.accountKind,
+          currencyId: account.currencyId,
+          scope: "super_admin",
+        }, rows);
+      }
 
       const [incomingHajiPayments, expenses, intermediaryDeposits, lotCosts] = await Promise.all([
         prisma.payment.findMany({
@@ -157,18 +296,15 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         });
       }
 
-      const { ledger, balanceByCurrency } = finalizeLedger(rows);
-      return successResponse({
-        account: {
-          id: account.id,
-          bankName: account.bankName,
-          accountNumber: account.accountNumber,
-          currencyCode: account.currency.code,
-          scope: "super_admin",
-        },
-        ledger,
-        balanceByCurrency,
-      });
+      return respondLedgerView(request.nextUrl.searchParams, {
+        id: account.id,
+        bankName: account.bankName,
+        accountNumber: account.accountNumber,
+        currencyCode: account.currency.code,
+        accountKind: account.accountKind,
+        currencyId: account.currencyId,
+        scope: "super_admin",
+      }, rows);
     }
 
     const account = await prisma.bankAccount.findUnique({ where: { id } });
@@ -178,12 +314,12 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     const [paymentsIn, deposits, depositedCheques, expenses, hajiTransfers, supplierPayments, shippingLinePayments, agentPayments, lotCosts, intermediaryDeposits] =
       await Promise.all([
         prisma.payment.findMany({
-          where: { bankAccountId: id, destination: "our_account", status: "active" },
+          where: { bankAccountId: id, destination: "our_account", status: "active", cityId: account.cityId },
           select: { id: true, paymentDate: true, createdAt: true, amount: true, detail: true, manualVoucherNo: true, currencyId: true },
           orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
         }),
         prisma.bankDeposit.findMany({
-          where: { bankAccountId: id },
+          where: { bankAccountId: id, cityId: account.cityId },
           select: { id: true, depositDate: true, createdAt: true, cashAmount: true, slipNumber: true, notes: true, currencyId: true },
           orderBy: [{ depositDate: "asc" }, { createdAt: "asc" }],
         }),
@@ -192,6 +328,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
             bankDepositId: { not: null },
             paymentMethod: "cheque",
             status: "active",
+            cityId: account.cityId,
             OR: [
               { bankAccountId: id },
               { bankDeposit: { bankAccountId: id } },
@@ -201,12 +338,12 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
         }),
         prisma.expense.findMany({
-          where: { bankAccountId: id, deletedAt: null },
+          where: { bankAccountId: id, cityId: account.cityId, deletedAt: null },
           select: { id: true, expenseDate: true, createdAt: true, amount: true, detail: true, currencyId: true },
           orderBy: [{ expenseDate: "asc" }, { createdAt: "asc" }],
         }),
         prisma.hajiTransfer.findMany({
-          where: { bankAccountId: id, sourceType: "bank_transfer" },
+          where: { bankAccountId: id, cityId: account.cityId, sourceType: "bank_transfer" },
           select: { id: true, transferDate: true, createdAt: true, amount: true, detail: true, currencyId: true },
           orderBy: [{ transferDate: "asc" }, { createdAt: "asc" }],
         }),
@@ -375,18 +512,13 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       });
     }
 
-    const { ledger, balanceByCurrency } = finalizeLedger(rows);
-    return successResponse({
-      account: {
-        id: account.id,
-        cityId: account.cityId,
-        bankName: account.bankName,
-        accountNumber: account.accountNumber,
-        scope: "city",
-      },
-      ledger,
-      balanceByCurrency,
-    });
+    return respondLedgerView(request.nextUrl.searchParams, {
+      id: account.id,
+      cityId: account.cityId,
+      bankName: account.bankName,
+      accountNumber: account.accountNumber,
+      scope: "city",
+    }, rows);
   } catch (error) {
     return serverError();
   }

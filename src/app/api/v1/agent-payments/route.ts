@@ -5,6 +5,7 @@ import { withSuperAdmin } from "@/lib/middleware";
 import { successResponse, validationError, errorResponse, serverError, paginatedResponse, getPaginationParams } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { validatePaymentSource } from "@/lib/payment-source-validation";
+import { assertSuperAdminCashHasFunds } from "@/lib/haji-cash-balance";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 
 const AGENT_PAYMENT_SYNC_MODULE = "agent_payments";
@@ -47,12 +48,38 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       return errorResponse("VALIDATION_ERROR", "Settlement city must match the agent's city");
     }
 
-    const source = await validatePaymentSource({
-      bankAccountId: body.bankAccountId,
-      intermediaryId: body.intermediaryId,
-      cityId,
-    });
-    if (!source.ok) return errorResponse(source.code, source.message, source.status);
+    const superAdminCashAccountId = body.superAdminCashAccountId ? Number(body.superAdminCashAccountId) : null;
+    const currencyCode = String(body.currencyCode || "PKR").toUpperCase();
+
+    let bankAccountId: number | null = null;
+    let intermediaryId: number | null = null;
+
+    if (superAdminCashAccountId) {
+      if (body.bankAccountId || body.intermediaryId) {
+        return validationError("Choose either haji cash or another funding source, not both");
+      }
+      const funds = await assertSuperAdminCashHasFunds(superAdminCashAccountId, amount);
+      if (!funds.ok) return errorResponse("VALIDATION", funds.message, 400);
+      const cashAcct = await prisma.superAdminBankAccount.findUnique({
+        where: { id: superAdminCashAccountId },
+        include: { currency: true },
+      });
+      if (!cashAcct || cashAcct.accountKind !== "cash") {
+        return errorResponse("NOT_FOUND", "Haji cash account not found", 404);
+      }
+      if (String(cashAcct.currency.code || "").toUpperCase() !== currencyCode) {
+        return errorResponse("VALIDATION", "Payment currency must match haji cash account currency", 400);
+      }
+    } else {
+      const source = await validatePaymentSource({
+        bankAccountId: body.bankAccountId,
+        intermediaryId: body.intermediaryId,
+        cityId,
+      });
+      if (!source.ok) return errorResponse(source.code, source.message, source.status);
+      bankAccountId = source.bankAccountId;
+      intermediaryId = source.intermediaryId;
+    }
 
     if (syncMeta) {
       const existingSync = await prisma.syncRequest.findUnique({
@@ -76,8 +103,9 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
           paymentDate: new Date(body.paymentDate || new Date()),
           amount, currencyCode: body.currencyCode || "PKR",
           paymentMethod: body.paymentMethod || "cash",
-          bankAccountId: source.bankAccountId,
-          intermediaryId: source.intermediaryId,
+          bankAccountId,
+          intermediaryId,
+          superAdminCashAccountId,
           reference: body.reference, notes: body.notes, createdBy: user.userId,
         },
       });
@@ -105,8 +133,9 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         currencyCode: body.currencyCode || "PKR",
         paymentDate: new Date(body.paymentDate || new Date()),
         createdBy: user.userId,
-        bankAccountId: source.bankAccountId,
-        intermediaryId: source.intermediaryId,
+        bankAccountId,
+        intermediaryId,
+        superAdminCashAccountId,
       });
     } catch (e) { console.error("Journal entry error:", e); }
     return successResponse({ id: payment.id }, "Payment recorded", 201);

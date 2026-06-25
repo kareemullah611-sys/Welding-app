@@ -21,6 +21,9 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
       include: { lotProducts: true, country: { include: { cities: true } } },
     });
     if (!lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
+    if (lot.isLegacyStock) {
+      return errorResponse("VALIDATION_ERROR", "Use Openings → Stock to manage the OLD-STOCK legacy lot");
+    }
     if (lot.status === "completed") return errorResponse("VALIDATION_ERROR", "Cannot distribute a completed lot");
 
     // Validate each distribution entry has a positive qty

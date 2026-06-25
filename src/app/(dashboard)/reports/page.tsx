@@ -1,14 +1,18 @@
 "use client";
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, DataTable, StatsCard, formatNumber, formatDate } from "@/components/ui";
+import { PageHeader, DataTable, StatsCard, EmptyState, formatNumber, formatDate } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
-import { applyPendingCustomerLedger } from "@/lib/offline-customer-ledger";
+import { openLedgerExport } from "@/lib/ledger-export";
+import { GlassButton } from "@/components/ui/GlassButton";
+import { CalendarRange, FileSpreadsheet, Printer, Play } from "lucide-react";
 
-type ReportType = "sales" | "payments" | "expenses" | "haji_settlement" | "customer_ledger" | "city_ledger" | "discount_history";
+type ReportType = "haji_settlement" | "city_ledger" | "discount_history";
+type DatePreset = "month" | "last7" | "all" | "custom";
+
 const REPORTS_READ_CACHE_KEY = "mrf-reports-read-cache-v1";
 
 type ReportsReadSnapshot = {
@@ -17,6 +21,16 @@ type ReportsReadSnapshot = {
   reportsByType: Partial<Record<ReportType, { data: any[]; summary: any; filters: Record<string, string> }>>;
 };
 
+function formatInputDate(date: Date) {
+  return date.toISOString().split("T")[0];
+}
+
+function getCurrentMonthDateRange() {
+  const today = new Date();
+  const from = new Date(today.getFullYear(), today.getMonth(), 1);
+  return { from: formatInputDate(from), to: formatInputDate(today) };
+}
+
 const escapeHtml = (value: unknown) =>
   String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -24,6 +38,7 @@ const escapeHtml = (value: unknown) =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+
 const stripLegacyReportUrl = (value: unknown) =>
   String(value ?? "").replace(/https?:\/\/welding-app-jhhc\.onrender\.com\/reports/gi, "").trim();
 
@@ -31,15 +46,24 @@ export default function ReportsPage() {
   const { user } = useAuth();
   const { t } = useLang();
   const { isOnline, queuedItems } = useOffline();
-  const [reportType, setReportType] = useState<ReportType>("sales");
-  const [filters, setFilters] = useState({ date_from: "", date_to: "", customer_id: "", city_id: "" });
+  const defaultRange = getCurrentMonthDateRange();
+  const [reportType, setReportType] = useState<ReportType>("city_ledger");
+  const [filters, setFilters] = useState({
+    date_from: defaultRange.from,
+    date_to: defaultRange.to,
+    customer_id: "",
+    city_id: "",
+  });
+  const [datePreset, setDatePreset] = useState<DatePreset>("month");
   const [data, setData] = useState<any[]>([]);
   const [summary, setSummary] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [reportGenerated, setReportGenerated] = useState(false);
+  const [formError, setFormError] = useState("");
   const [customers, setCustomers] = useState<any[]>([]);
   const [cities, setCities] = useState<any[]>([]);
-  const [reportMode, setReportMode] = useState<"quick" | "advanced">("quick");
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
+  const [tableSearch, setTableSearch] = useState("");
 
   const readSnapshot = useCallback(() => {
     return readOfflineReadSnapshot<ReportsReadSnapshot>(REPORTS_READ_CACHE_KEY);
@@ -60,6 +84,7 @@ export default function ReportsPage() {
     if (!cached) return false;
     setData(cached.data || []);
     setSummary(cached.summary || null);
+    setReportGenerated(true);
     setShowOfflineSnapshot(true);
     return true;
   };
@@ -68,69 +93,29 @@ export default function ReportsPage() {
     try { return JSON.parse(body || "{}"); } catch { return {}; }
   };
 
-  const getPendingRowsForReport = useCallback((type: ReportType) => {
+  const getPendingHajiRows = useCallback(() => {
     const rows: any[] = [];
     for (const q of queuedItems as any[]) {
       if (String(q?.method || "").toUpperCase() !== "POST") continue;
+      if (q.url !== "/api/v1/haji-transfers") continue;
       const parsed = parseQueuedBody(String(q?.body || "{}"));
-      const pendingId = `pending-${q.id}`;
-      if (type === "sales" && q.url === "/api/v1/sales") {
-        const date = parsed?.saleDate || parsed?.date || new Date().toISOString().slice(0, 10);
-        const totalAmount = Number(parsed?.totalAmount || 0);
-        rows.push({
-          id: pendingId,
-          saleDate: date,
-          voucherNo: parsed?.voucherNo || "PENDING",
-          customer: { name: parsed?.customerName || "Pending Customer" },
-          status: "active",
-          totalAmount,
-          _pending: true,
-        });
-        continue;
-      }
-      if (type === "payments" && q.url === "/api/v1/payments") {
-        const date = parsed?.paymentDate || parsed?.date || new Date().toISOString().slice(0, 10);
-        const amount = Number(parsed?.amount || 0);
-        rows.push({
-          id: pendingId,
-          paymentDate: date,
-          customer: { name: parsed?.customerName || "Pending Customer" },
-          detail: parsed?.detail || "Pending offline payment",
-          amount,
-          paymentMethod: parsed?.paymentMethod || "cash",
-          destination: parsed?.destination || "our_account",
-          _pending: true,
-        });
-        continue;
-      }
-      if (type === "expenses" && q.url === "/api/v1/expenses") {
-        const date = parsed?.expenseDate || parsed?.date || new Date().toISOString().slice(0, 10);
-        rows.push({
-          id: pendingId,
-          expenseDate: date,
-          detail: parsed?.detail || "Pending offline expense",
-          amount: Number(parsed?.amount || 0),
-          _pending: true,
-        });
-        continue;
-      }
-      if (type === "haji_settlement" && q.url === "/api/v1/haji-transfers") {
-        const date = parsed?.transferDate || parsed?.date || new Date().toISOString().slice(0, 10);
-        rows.push({
-          id: pendingId,
-          transferDate: date,
-          detail: parsed?.detail || "Pending offline haji transfer",
-          amount: Number(parsed?.amount || 0),
-          transferType: parsed?.transferType || "from_in_hand",
-          _pending: true,
-        });
-      }
+      rows.push({
+        id: `pending-${q.id}`,
+        transferDate: parsed?.transferDate || parsed?.date || new Date().toISOString().slice(0, 10),
+        detail: parsed?.detail || "Pending offline haji transfer",
+        amount: Number(parsed?.amount || 0),
+        transferType: parsed?.transferType || "from_in_hand",
+        _pending: true,
+      });
     }
     return rows;
   }, [queuedItems]);
 
   const loadFilters = useCallback(async () => {
-    const [custRes, cityRes] = await Promise.all([apiCall("/api/v1/customers", { params: { limit: 200 } }), apiCall("/api/v1/cities")]);
+    const [custRes, cityRes] = await Promise.all([
+      apiCall("/api/v1/customers", { params: { limit: 200 } }),
+      apiCall("/api/v1/cities"),
+    ]);
     if (custRes.success) {
       setCustomers(custRes.data as any[]);
       mergeSnapshot({ customers: custRes.data as any[] });
@@ -156,30 +141,66 @@ export default function ReportsPage() {
   }, [isOnline, mergeSnapshot, readSnapshot]);
 
   useEffect(() => {
-    if (
-      reportType === "customer_ledger" ||
-      reportType === "city_ledger" ||
-      reportType === "discount_history" ||
-      user?.role === "super_admin"
-    ) {
-      loadFilters();
-    }
-  }, [loadFilters, reportType, user?.role]);
+    loadFilters();
+  }, [loadFilters]);
 
-  const showCityFilter = user?.role === "super_admin" && reportType !== "customer_ledger";
+  const showCityFilter = user?.role === "super_admin";
+  const reportLabels: Record<ReportType, string> = {
+    haji_settlement: t("haji_settlement"),
+    city_ledger: t("city_ledger"),
+    discount_history: t("discount_history"),
+  };
+
+  const dateRangeLabel = useMemo(() => {
+    if (filters.date_from && filters.date_to) return `${filters.date_from} — ${filters.date_to}`;
+    if (filters.date_from) return `From ${filters.date_from}`;
+    if (filters.date_to) return `Until ${filters.date_to}`;
+    return "All dates";
+  }, [filters.date_from, filters.date_to]);
+
+  const selectedCityName = useMemo(() => {
+    const cid = filters.city_id || (user?.role === "city_admin" ? String(user.cityId ?? "") : "");
+    if (!cid) return null;
+    return cities.find((c) => String(c.id) === String(cid))?.name || null;
+  }, [cities, filters.city_id, user?.cityId, user?.role]);
+
+  const applyDatePreset = (preset: DatePreset) => {
+    setDatePreset(preset);
+    if (preset === "custom") return;
+    const today = new Date();
+    if (preset === "all") {
+      setFilters((f) => ({ ...f, date_from: "", date_to: "" }));
+      return;
+    }
+    if (preset === "last7") {
+      const from = new Date(today);
+      from.setDate(from.getDate() - 6);
+      setFilters((f) => ({ ...f, date_from: formatInputDate(from), date_to: formatInputDate(today) }));
+      return;
+    }
+    const range = getCurrentMonthDateRange();
+    setFilters((f) => ({ ...f, date_from: range.from, date_to: range.to }));
+  };
+
+  const selectReportType = (type: ReportType) => {
+    setReportType(type);
+    setData([]);
+    setSummary(null);
+    setReportGenerated(false);
+    setFormError("");
+    setTableSearch("");
+  };
 
   const runReport = async () => {
-    setLoading(true); if (!customers.length) await loadFilters();
-    const params: any = { limit: 200, status: reportType === "sales" ? "active,marked_short" : "active" };
-    if (filters.date_from) params.date_from = filters.date_from;
-    if (filters.date_to) params.date_to = filters.date_to;
-    if (filters.city_id) params.city_id = filters.city_id;
+    setLoading(true);
+    setFormError("");
+    if (!customers.length) await loadFilters();
 
     if (reportType === "discount_history") {
-      const p: any = {};
+      const p: Record<string, string> = {};
       if (filters.date_from) p.date_from = filters.date_from;
-      if (filters.date_to)   p.date_to   = filters.date_to;
-      if (filters.city_id)   p.city_id   = filters.city_id;
+      if (filters.date_to) p.date_to = filters.date_to;
+      if (filters.city_id) p.city_id = filters.city_id;
       if (filters.customer_id) p.customer_id = filters.customer_id;
       const result = await apiCall("/api/v1/discounts", { params: p });
       if (result.success) {
@@ -196,14 +217,23 @@ export default function ReportsPage() {
             },
           },
         });
+        setReportGenerated(true);
         setShowOfflineSnapshot(false);
       } else if (!isOnline) {
         applyOfflineSnapshotReport("discount_history");
+      } else {
+        setFormError("Could not load discount history. Please try again.");
       }
     } else if (reportType === "city_ledger") {
       const cid = filters.city_id || (user?.role === "city_admin" ? String(user.cityId) : "");
-      if (!cid) { alert("Select a city"); setLoading(false); return; }
-      const result = await apiCall("/api/v1/city-ledger", { params: { city_id: cid, date_from: filters.date_from, date_to: filters.date_to } });
+      if (!cid) {
+        setFormError("Select a city before generating the city ledger report.");
+        setLoading(false);
+        return;
+      }
+      const result = await apiCall("/api/v1/city-ledger", {
+        params: { city_id: cid, date_from: filters.date_from, date_to: filters.date_to },
+      });
       if (result.success) {
         const d = result.data as any;
         setData(d.entries || []);
@@ -217,135 +247,153 @@ export default function ReportsPage() {
             },
           },
         });
+        setReportGenerated(true);
         setShowOfflineSnapshot(false);
       } else if (!isOnline) {
         applyOfflineSnapshotReport("city_ledger");
-      }
-    } else if (reportType === "customer_ledger") {
-      if (!filters.customer_id) { alert("Select a customer"); setLoading(false); return; }
-      const result = await apiCall(`/api/v1/customers/${filters.customer_id}`, {
-        params: {
-          ...(filters.date_from ? { date_from: filters.date_from } : {}),
-          ...(filters.date_to ? { date_to: filters.date_to } : {}),
-        },
-      });
-      if (result.success) {
-        const d = result.data as any;
-        const customerIdNum = Number(filters.customer_id || 0);
-        const merged = applyPendingCustomerLedger(
-          { ledger: d.ledger || [], balance: d.balance, balanceByCurrency: d.balanceByCurrency },
-          queuedItems as any,
-          customerIdNum,
-        );
-        const nextSummary = { balance: merged.balance, balanceByCurrency: merged.balanceByCurrency, name: d.name, isActive: d.isActive, countryCode: d.countryCode || null };
-        setData(merged.ledger || []);
-        setSummary(nextSummary);
-        mergeSnapshot({
-          reportsByType: {
-            customer_ledger: {
-              data: merged.ledger || [],
-              summary: nextSummary,
-              filters: { ...filters },
-            },
-          },
-        });
-        setShowOfflineSnapshot(false);
-      } else if (!isOnline) {
-        applyOfflineSnapshotReport("customer_ledger");
+      } else {
+        setFormError("Could not load city ledger. Please try again.");
       }
     } else {
-      const urls: Record<string, string> = { sales: "/api/v1/sales", payments: "/api/v1/payments", expenses: "/api/v1/expenses", haji_settlement: "/api/v1/haji-transfers", discount_history: "/api/v1/discounts" };
-      const result = await apiCall(urls[reportType], { params });
-      if (result.success) { const items = result.data as any[]; const nextItems = [...getPendingRowsForReport(reportType), ...items]; setData(nextItems);
-        let nextSummary: any = null;
-        if (reportType === "sales") nextSummary = { total: nextItems.reduce((s, i: any) => s + (i.totalAmount || 0), 0), count: nextItems.length };
-        else if (reportType === "payments") { const tot = nextItems.reduce((s, i: any) => s + (i.amount || 0), 0); const h = nextItems.filter((i: any) => i.destination === "haji").reduce((s, i: any) => s + (i.amount || 0), 0); nextSummary = { total: tot, haji: h, inHand: tot - h, count: nextItems.length }; }
-        else nextSummary = { total: nextItems.reduce((s, i: any) => s + (i.amount || 0), 0), count: nextItems.length };
+      const params: Record<string, string | number> = { limit: 200, status: "active" };
+      if (filters.date_from) params.date_from = filters.date_from;
+      if (filters.date_to) params.date_to = filters.date_to;
+      if (filters.city_id) params.city_id = filters.city_id;
+      const result = await apiCall("/api/v1/haji-transfers", { params });
+      if (result.success) {
+        const items = result.data as any[];
+        const nextItems = [...getPendingHajiRows(), ...items];
+        setData(nextItems);
+        const nextSummary = {
+          total: nextItems.reduce((s, i: any) => s + (i.amount || 0), 0),
+          count: nextItems.length,
+        };
         setSummary(nextSummary);
         mergeSnapshot({
           reportsByType: {
-            [reportType]: {
+            haji_settlement: {
               data: nextItems,
               summary: nextSummary,
               filters: { ...filters },
             },
           },
         });
+        setReportGenerated(true);
         setShowOfflineSnapshot(false);
       } else if (!isOnline) {
-        applyOfflineSnapshotReport(reportType);
+        applyOfflineSnapshotReport("haji_settlement");
+      } else {
+        setFormError("Could not load Haji settlement report. Please try again.");
       }
     }
     setLoading(false);
   };
 
   const exportXlsx = () => {
-    const tp = reportType === "city_ledger"
-      ? "ledger"
-      : reportType === "customer_ledger"
-      ? "customer_ledger"
-      : reportType === "haji_settlement"
-      ? "haji_transfers"
-      : reportType;
-    const p = new URLSearchParams({ type: tp });
-    if (filters.date_from) p.set("date_from", filters.date_from);
-    if (filters.date_to) p.set("date_to", filters.date_to);
-    if (filters.city_id) p.set("city_id", filters.city_id);
-    else if (user?.cityId) p.set("city_id", String(user.cityId));
-    if (reportType === "customer_ledger" && filters.customer_id) p.set("customer_id", filters.customer_id);
-    p.set("format", "xlsx");
-    window.open(`/api/v1/reports/export?${p.toString()}`, "_blank");
+    const exportType = reportType === "city_ledger" ? "ledger" : "haji_transfers";
+    openLedgerExport({
+      type: exportType,
+      dateFrom: filters.date_from || undefined,
+      dateTo: filters.date_to || undefined,
+      cityId: filters.city_id || user?.cityId || undefined,
+      query: tableSearch.trim().length >= 2 ? tableSearch.trim() : undefined,
+    });
   };
 
   const formatReportCell = (type: ReportType, row: any, key: string) => {
-    if (type === "sales") {
-      if (key === "saleDate") return formatDate(row.saleDate);
-      if (key === "customer") return row.customer?.name || "";
-      if (key === "status") return row.status === "marked_short" ? "Short" : "Active";
-      if (key === "totalAmount") return Number(row.totalAmount || 0).toLocaleString("en-US");
-    }
-    if (type === "payments") {
-      if (key === "paymentDate") return formatDate(row.paymentDate);
-      if (key === "customer") return row.customer?.name || "";
-      if (key === "amount") return Number(row.amount || 0).toLocaleString("en-US");
-      if (key === "destination") return row.destination === "haji" ? "Haji Account" : "Cash Office";
-    }
-    if (type === "expenses") {
-      if (key === "expenseDate") return formatDate(row.expenseDate);
-      if (key === "amount") return Number(row.amount || 0).toLocaleString("en-US");
-    }
     if (type === "haji_settlement") {
       if (key === "transferDate") return formatDate(row.transferDate);
       if (key === "amount") return Number(row.amount || 0).toLocaleString("en-US");
-    }
-    if (type === "customer_ledger") {
-      if (key === "date") return formatDate(row.date);
-      if (key === "type") return row.type === "sale" ? "Sales" : "Receipt";
-      if (key === "debit") return row.debit ? Number(row.debit).toLocaleString("en-US") : "";
-      if (key === "credit") return row.credit ? Number(row.credit).toLocaleString("en-US") : "";
-      if (key === "balance") return typeof row.balance === "number" && !isNaN(row.balance) ? Number(row.balance).toLocaleString("en-US") : "-";
     }
     if (type === "city_ledger") {
       if (key === "date") return formatDate(row.date);
       if (key === "type") return row.category || row.type || "";
       if (key === "debit") return row.debit ? Number(row.debit).toLocaleString("en-US") : "";
       if (key === "credit") return row.credit ? Number(row.credit).toLocaleString("en-US") : "";
-      if (key === "runningCashInHand") return row.runningCashInHand != null && !isNaN(row.runningCashInHand) ? Number(row.runningCashInHand).toLocaleString("en-US") : "—";
+      if (key === "runningCashInHand") {
+        return row.runningCashInHand != null && !isNaN(row.runningCashInHand)
+          ? Number(row.runningCashInHand).toLocaleString("en-US")
+          : "—";
+      }
     }
     if (type === "discount_history") {
       if (key === "discountDate") return formatDate(row.discountDate);
       if (key === "customer") return row.customer?.name || "";
       if (key === "saleDate") return formatDate(row.saleDate);
-      if (key === "discountAmount") return `${row.currency?.symbol || ""} ${Number(row.discountAmount || 0).toLocaleString("en-US")}`.trim();
+      if (key === "discountAmount") {
+        return `${row.currency?.symbol || ""} ${Number(row.discountAmount || 0).toLocaleString("en-US")}`.trim();
+      }
       if (key === "notes") return row.notes || "-";
     }
     return row?.[key] ?? "";
   };
 
+  const cols: Record<ReportType, any[]> = {
+    haji_settlement: [
+      { key: "transferDate", label: t("date"), render: (tr: any) => formatDate(tr.transferDate) },
+      { key: "detail", label: "Particulars", render: (tr: any) => stripLegacyReportUrl(tr.detail || "-") },
+      { key: "amount", label: t("amount"), render: (tr: any) => <span className="font-semibold tabular-nums text-amber-700">{tr.amount?.toLocaleString("en-US")}</span> },
+      { key: "transferType", label: "Transfer Category" },
+    ],
+    city_ledger: [
+      { key: "date", label: t("date"), render: (e: any) => formatDate(e.date) },
+      {
+        key: "type",
+        label: "Entry Type",
+        render: (e: any) => (
+          <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+            e.type === "sale" ? "border-blue-200 bg-blue-50 text-blue-900"
+            : e.type === "payment" ? "border-green-200 bg-green-50 text-green-900"
+            : e.type === "expense" ? "border-red-200 bg-red-50 text-red-900"
+            : "border-amber-200 bg-amber-50 text-amber-900"
+          }`}>
+            {e.category || e.type}
+          </span>
+        ),
+      },
+      { key: "description", label: "Particulars", className: "max-w-xs truncate", render: (e: any) => stripLegacyReportUrl(e.description || "-") },
+      { key: "currency", label: t("currency"), render: (e: any) => <span className="text-xs font-semibold text-gray-500">{e.currency}</span> },
+      { key: "debit", label: "Debit", render: (e: any) => (e.debit && !isNaN(e.debit)) ? <span className="font-semibold tabular-nums text-rose-700">{Number(e.debit).toLocaleString("en-US")}</span> : "" },
+      { key: "credit", label: "Credit", render: (e: any) => (e.credit && !isNaN(e.credit)) ? <span className="font-semibold tabular-nums text-emerald-700">{Number(e.credit).toLocaleString("en-US")}</span> : "" },
+      { key: "runningCashInHand", label: "Closing Cash Position", render: (e: any) => <span className="font-medium tabular-nums text-slate-800">{(e.runningCashInHand != null && !isNaN(e.runningCashInHand)) ? Number(e.runningCashInHand).toLocaleString("en-US") : "—"}</span> },
+    ],
+    discount_history: [
+      { key: "discountDate", label: t("date"), render: (d: any) => formatDate(d.discountDate) },
+      { key: "customer", label: t("customer"), render: (d: any) => d.customer?.name },
+      { key: "saleVoucherNo", label: t("sale_voucher") },
+      { key: "saleDate", label: t("sale_date"), render: (d: any) => formatDate(d.saleDate) },
+      { key: "lotNumber", label: t("lot") },
+      { key: "discountAmount", label: t("discount"), render: (d: any) => <span className="font-medium tabular-nums text-amber-700">{d.currency?.symbol} {d.discountAmount?.toLocaleString("en-US")}</span> },
+      { key: "notes", label: t("notes"), render: (d: any) => d.notes || "-" },
+      { key: "createdBy", label: t("by") },
+    ],
+  };
+
+  const activeColumns = cols[reportType];
+  const reportSearchColumnKeys: Record<ReportType, string[]> = {
+    haji_settlement: ["detail"],
+    city_ledger: ["description"],
+    discount_history: ["customer", "saleVoucherNo", "lotNumber", "notes"],
+  };
+  const supportsXlsxExport = reportType === "city_ledger" || reportType === "haji_settlement";
+
+  const filteredExportRows = useMemo(() => {
+    const needle = tableSearch.trim().toLowerCase();
+    if (needle.length < 2) return data;
+    const keys = reportSearchColumnKeys[reportType];
+    return data.filter((row) =>
+      keys.some((key) =>
+        stripLegacyReportUrl(formatReportCell(reportType, row, key))
+          .toLowerCase()
+          .includes(needle),
+      ),
+    );
+  }, [data, reportType, tableSearch]);
+
   const exportPDF = () => {
-    if (!data.length) return;
+    if (!filteredExportRows.length) return;
     const headers = activeColumns.map((col: any) => ({ key: String(col.key), label: String(col.label) }));
-    const rowsHtml = data.map((row: any, index: number) => `
+    const rowsHtml = filteredExportRows.map((row: any, index: number) => `
       <tr class="${index % 2 === 1 ? "alt-row" : ""}">
         ${headers.map((header) => {
           const val = stripLegacyReportUrl(formatReportCell(reportType, row, header.key));
@@ -361,13 +409,6 @@ export default function ReportsPage() {
       </tr>
     `).join("");
     const reportTitle = reportLabels[reportType];
-    const reportRange = filters.date_from && filters.date_to
-      ? `${filters.date_from} — ${filters.date_to}`
-      : filters.date_from
-      ? `From ${filters.date_from}`
-      : filters.date_to
-      ? `Until ${filters.date_to}`
-      : "All dates";
     const html = `
       <html>
         <head>
@@ -388,8 +429,7 @@ export default function ReportsPage() {
         </head>
         <body>
           <h1>MRF Hardware</h1>
-          <div class="meta">${escapeHtml(reportTitle)} · ${escapeHtml(reportRange)} · Generated ${escapeHtml(new Date().toLocaleString())}</div>
-          ${reportType === "customer_ledger" && summary?.name ? `<div class="meta">Customer: ${escapeHtml(summary.name)}</div>` : ""}
+          <div class="meta">${escapeHtml(reportTitle)} · ${escapeHtml(dateRangeLabel)}${tableSearch.trim() ? ` · Search: ${escapeHtml(tableSearch.trim())}` : ""} · Generated ${escapeHtml(new Date().toLocaleString())}</div>
           <table>
             <thead><tr>${headers.map((header) => `<th>${escapeHtml(header.label)}</th>`).join("")}</tr></thead>
             <tbody>${rowsHtml}</tbody>
@@ -420,124 +460,244 @@ export default function ReportsPage() {
     }, 200);
   };
 
-  const cols: Record<string, any[]> = {
-    sales: [{ key: "saleDate", label: t("date"), render: (s: any) => formatDate(s.saleDate) }, { key: "voucherNo", label: t("voucher") }, { key: "customer", label: t("customer"), render: (s: any) => s.customer?.name }, { key: "status", label: t("status"), render: (s: any) => s.status === "marked_short" ? <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-50 text-yellow-800 border border-yellow-200">Short</span> : <span className="text-xs px-1.5 py-0.5 rounded bg-green-50 text-green-800 border border-green-200">Active</span> }, { key: "totalAmount", label: t("amount"), render: (s: any) => <span className="font-semibold text-slate-800">{s.totalAmount?.toLocaleString("en-US")}</span> }],
-    payments: [{ key: "paymentDate", label: t("date"), render: (p: any) => formatDate(p.paymentDate) }, { key: "customer", label: t("customer"), render: (p: any) => p.customer?.name }, { key: "detail", label: "Particulars", render: (p: any) => stripLegacyReportUrl(p.detail || "-") }, { key: "amount", label: t("amount"), render: (p: any) => <span className="font-semibold text-[#166534]">{p.amount?.toLocaleString("en-US")}</span> }, { key: "paymentMethod", label: "Instrument" }, { key: "destination", label: "Applied To", render: (p: any) => p.destination === "haji" ? <span className="text-xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">Haji</span> : <span className="text-xs px-1.5 py-0.5 rounded bg-sky-50 text-sky-800 border border-sky-200">Cash Office</span> }],
-    expenses: [{ key: "expenseDate", label: t("date"), render: (e: any) => formatDate(e.expenseDate) }, { key: "detail", label: "Particulars", render: (e: any) => stripLegacyReportUrl(e.detail || "-") }, { key: "amount", label: t("amount"), render: (e: any) => <span className="font-semibold text-[#991b1b]">{e.amount?.toLocaleString("en-US")}</span> }],
-    haji_settlement: [{ key: "transferDate", label: t("date"), render: (tr: any) => formatDate(tr.transferDate) }, { key: "detail", label: "Particulars", render: (tr: any) => stripLegacyReportUrl(tr.detail || "-") }, { key: "amount", label: t("amount"), render: (tr: any) => <span className="font-semibold text-[#b45309]">{tr.amount?.toLocaleString("en-US")}</span> }, { key: "transferType", label: "Transfer Category" }],
-    customer_ledger: [{ key: "date", label: t("date"), render: (e: any) => formatDate(e.date) }, { key: "type", label: "Entry Type", render: (e: any) => <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${e.type === "sale" ? "border-blue-200 bg-blue-50 text-blue-900" : "border-green-200 bg-green-50 text-green-900"}`}>{e.type === "sale" ? "Sales" : "Receipt"}</span> }, { key: "detail", label: "Particulars", render: (e: any) => stripLegacyReportUrl(e.detail || "-") }, { key: "perCartonPrice", label: "Per Crt Price", className: "w-[112px] whitespace-nowrap", render: (e: any) => <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">{e.perCartonPrice || "-"}</span> }, { key: "currency", label: t("currency"), render: (e: any) => <span className="text-xs font-semibold text-gray-500">{e.currency}</span> }, { key: "debit", label: "Debit", render: (e: any) => e.debit ? <span className="text-[#991b1b] font-semibold">{e.debit.toLocaleString("en-US")}</span> : "" }, { key: "credit", label: "Credit", render: (e: any) => e.credit ? <span className="text-[#166534] font-semibold">{e.credit.toLocaleString("en-US")}</span> : "" }, { key: "balance", label: "Closing Balance", render: (e: any) => { const b = e.balance; return <span className="font-semibold text-slate-800">{(typeof b === "number" && !isNaN(b)) ? b.toLocaleString("en-US") : "-"}</span>; } }],
-    city_ledger: [{ key: "date", label: t("date"), render: (e: any) => formatDate(e.date) }, { key: "type", label: "Entry Type", render: (e: any) => <span className={`text-xs px-1.5 py-0.5 rounded border ${e.type === "sale" ? "bg-blue-50 text-blue-900 border-blue-200" : e.type === "payment" ? "bg-green-50 text-green-900 border-green-200" : e.type === "expense" ? "bg-red-50 text-red-900 border-red-200" : "bg-amber-50 text-amber-900 border-amber-200"}`}>{e.category || e.type}</span> }, { key: "description", label: "Particulars", className: "max-w-xs truncate", render: (e: any) => stripLegacyReportUrl(e.description || "-") }, { key: "currency", label: t("currency"), render: (e: any) => <span className="text-xs font-semibold text-gray-500">{e.currency}</span> }, { key: "debit", label: "Debit", render: (e: any) => (e.debit && !isNaN(e.debit)) ? <span className="text-[#991b1b] font-semibold">{Number(e.debit).toLocaleString("en-US")}</span> : "" }, { key: "credit", label: "Credit", render: (e: any) => (e.credit && !isNaN(e.credit)) ? <span className="text-[#166534] font-semibold">{Number(e.credit).toLocaleString("en-US")}</span> : "" }, { key: "runningCashInHand", label: "Closing Cash Position", render: (e: any) => <span className="font-medium text-slate-800">{(e.runningCashInHand != null && !isNaN(e.runningCashInHand)) ? Number(e.runningCashInHand).toLocaleString("en-US") : "—"}</span> }],
-    discount_history: [
-      { key: "discountDate", label: t("date"), render: (d: any) => formatDate(d.discountDate) },
-      { key: "customer",     label: t("customer"),    render: (d: any) => d.customer?.name },
-      { key: "saleVoucherNo",label: t("sale_voucher") },
-      { key: "saleDate",     label: t("sale_date"), render: (d: any) => formatDate(d.saleDate) },
-      { key: "lotNumber",    label: t("lot") },
-      { key: "discountAmount", label: t("discount"), render: (d: any) => <span className="font-medium text-yellow-700">{d.currency?.symbol} {d.discountAmount?.toLocaleString("en-US")}</span> },
-      { key: "notes",        label: t("notes"),       render: (d: any) => d.notes || "-" },
-      { key: "createdBy",    label: t("by") },
-    ],
-  };
-
-  const reportLabels: Record<ReportType, string> = {
-    sales: t("sales"), payments: t("payments"), expenses: t("expenses"),
-    haji_settlement: t("haji_settlement"), customer_ledger: t("customer_ledger"),
-    city_ledger: t("city_ledger"), discount_history: t("discount_history"),
-  };
-  const isPakistanCustomerLedger = reportType === "customer_ledger" && String(summary?.countryCode || "").toUpperCase() === "PK";
-  const activeColumns = (cols[reportType] || cols.sales).filter((col) => !(reportType === "customer_ledger" && isPakistanCustomerLedger && col.key === "currency"));
-
   return (
-    <div>
-      {/* Print-only header — hidden on screen, shown in PDF */}
+    <div className="space-y-6">
       {data.length > 0 && (
-        <div className="print-only mb-4 pb-3 border-b border-gray-300">
+        <div className="print-only mb-4 border-b border-gray-300 pb-3">
           <h1 className="text-lg font-bold text-gray-900">MRF Hardware</h1>
           <p className="text-sm font-semibold text-gray-700">{reportLabels[reportType]}</p>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {filters.date_from && filters.date_to
-              ? `${filters.date_from} — ${filters.date_to}`
-              : filters.date_from
-              ? `From ${filters.date_from}`
-              : filters.date_to
-              ? `Until ${filters.date_to}`
-              : "All dates"}
-            {reportType === "customer_ledger" && summary?.name ? ` · Customer: ${summary.name}` : ""}
-            {" · "}Generated {new Date().toLocaleString()}
+          <p className="mt-0.5 text-xs text-gray-500">
+            {dateRangeLabel} · Generated {new Date().toLocaleString()}
           </p>
         </div>
       )}
 
-      <PageHeader title={t("reports")} subtitle="Generate formal operational and ledger reports" />
+      <PageHeader
+        title={t("reports")}
+        subtitle="Cross-module analytical reports for city treasury, Haji settlement, and discount audit."
+      />
+
       {showOfflineSnapshot && (
-        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-          Offline snapshot mode: showing last cached report output for this device.
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Offline snapshot — showing the last cached report output for this device.
         </div>
       )}
-      <div className="card mb-6 no-print">
-        <div className="mb-4 flex flex-wrap gap-2">
-          <button onClick={() => setReportMode("quick")} className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${reportMode === "quick" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-600 border-gray-200"}`}>Quick Reports</button>
-          <button onClick={() => setReportMode("advanced")} className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${reportMode === "advanced" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-600 border-gray-200"}`}>Advanced Reports</button>
+
+      <section className="card no-print overflow-hidden p-0">
+        <div className="border-b border-[#ececee] bg-[#fafafa] px-5 py-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-[#3f3f46]">
+            <CalendarRange className="h-4 w-4 text-[#8B1A1A]" strokeWidth={1.75} />
+            Parameters
+          </div>
+          <p className="mt-1 text-xs text-[#71717a]">
+            Choose a report, set scope, then generate. Table search is included in exports.
+          </p>
         </div>
 
-        <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          {(reportMode === "quick"
-            ? (["sales", "payments", "expenses", "customer_ledger"] as ReportType[])
-            : (["haji_settlement", "city_ledger", "discount_history"] as ReportType[])
-          ).map((type) => (
-            <button
-              key={type}
-              onClick={() => { setReportType(type); setData([]); setSummary(null); }}
-              className={`rounded-xl border px-4 py-3 text-left transition-colors ${
-                reportType === type ? "border-primary-500 bg-primary-50" : "border-gray-200 bg-white hover:border-primary-300"
-              }`}
-            >
-              <div className="text-sm font-semibold text-gray-900">{reportLabels[type]}</div>
-              <div className="mt-1 text-xs text-gray-500">
-                {type === "sales" && "Daily sale history and totals"}
-                {type === "payments" && "Receipts and Haji split"}
-                {type === "expenses" && "Cost and office spending"}
-                {type === "customer_ledger" && "Single customer statement"}
-                {type === "haji_settlement" && "Transfers and Haji settlement trail"}
-                {type === "city_ledger" && "Full city cash and ledger view"}
-                {type === "discount_history" && "Discount audit history"}
+        <div className="space-y-4 px-5 py-5">
+          {formError && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {formError}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="sm:col-span-2 lg:col-span-1">
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-[#71717a]">Report type</label>
+              <select
+                value={reportType}
+                onChange={(e) => selectReportType(e.target.value as ReportType)}
+                className="select-field w-full"
+              >
+                <option value="city_ledger">{reportLabels.city_ledger}</option>
+                <option value="haji_settlement">{reportLabels.haji_settlement}</option>
+                <option value="discount_history">{reportLabels.discount_history}</option>
+              </select>
+            </div>
+            {showCityFilter && (
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-[#71717a]">{t("city")}</label>
+                <select
+                  value={filters.city_id}
+                  onChange={(e) => setFilters((f) => ({ ...f, city_id: e.target.value }))}
+                  className="select-field w-full"
+                >
+                  <option value="">{t("all_cities")}</option>
+                  {cities.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
               </div>
-            </button>
-          ))}
-        </div>
+            )}
 
-        <div className="flex flex-wrap gap-3 items-end">
-        {(reportType === "customer_ledger" || reportType === "discount_history") && <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("customer")}</label><select value={filters.customer_id} onChange={(e) => setFilters((f) => ({ ...f, customer_id: e.target.value }))} className="select-field w-auto"><option value="">{t("all_customers")}</option>{customers.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>}
-        {showCityFilter && <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("city")}</label><select value={filters.city_id} onChange={(e) => setFilters((f) => ({ ...f, city_id: e.target.value }))} className="select-field w-auto"><option value="">{t("all_cities")}</option>{cities.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>}
-        <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("from")}</label><input type="date" value={filters.date_from} onChange={(e) => setFilters((f) => ({ ...f, date_from: e.target.value }))} className="input-field w-auto" /></div>
-        <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("to")}</label><input type="date" value={filters.date_to} onChange={(e) => setFilters((f) => ({ ...f, date_to: e.target.value }))} className="input-field w-auto" /></div>
-        <button onClick={runReport} disabled={loading} className="btn-primary text-sm">{loading ? t("loading") : t("generate")}</button>
-        {data.length > 0 && <><button onClick={exportXlsx} className="bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2 rounded-lg text-sm font-medium">Export XLSX</button><button onClick={exportPDF} className="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium">Export PDF</button></>}
-      </div></div>
-      {summary && <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-        {reportType === "city_ledger" ? <>
-          {Object.entries(summary.cashInHand || {}).map(([cc, v]: [string, any]) => <StatsCard key={`cash-${cc}`} title={`Closing Cash Position (${cc})`} value={`${cc} ${formatNumber(v)}`} icon="💰" color="green" />)}
-          {Object.entries(summary.totalReceivables || {}).map(([cc, v]: [string, any]) => <StatsCard key={`rec-${cc}`} title={`${t("receivables")} (${cc})`} value={`${cc} ${formatNumber(v)}`} icon="📋" color="blue" />)}
-          {Object.entries(summary.totalHajiOwed || {}).map(([cc, v]: [string, any]) => <StatsCard key={`haji-${cc}`} title={`Liability to Haji (${cc})`} value={`${cc} ${formatNumber(v)}`} icon="↗️" color="yellow" />)}
-          {Object.entries(summary.totalSalesByCurrency || {}).map(([cc, v]: [string, any]) => <StatsCard key={`sales-${cc}`} title={`${t("total_sales")} (${cc})`} value={`${cc} ${formatNumber(v)}`} icon="🧾" color="blue" />)}
-        </>
-        : reportType === "customer_ledger" ? <><StatsCard title={t("customer")} value={summary.name} icon="👤" color="blue" />{summary.balanceByCurrency && Object.keys(summary.balanceByCurrency).length > 0 ? Object.entries(summary.balanceByCurrency).map(([cc, amt]: [string, any]) => <StatsCard key={cc} title={`Closing Balance (${cc})`} value={`${cc} ${formatNumber(Math.abs(amt || 0))}`} icon={amt > 0 ? "📋" : "✅"} color={amt > 0 ? "red" : "green"} />) : <StatsCard title="Closing Balance" value={formatNumber(typeof summary.balance === "number" && !isNaN(summary.balance) ? Math.abs(summary.balance) : 0)} icon={summary.balance > 0 ? "📋" : "✅"} color={summary.balance > 0 ? "red" : "green"} />}</>
-        : reportType === "discount_history"
-          ? <><StatsCard title={t("discounts_given")} value={formatNumber(summary.count)} icon="🏷️" color="yellow" />{Object.entries(summary.totalByCurrency || {}).map(([cc, amt]: [string, any]) => <StatsCard key={cc} title={`${t("total")} (${cc})`} value={`${cc} ${formatNumber(amt)}`} icon="💸" color="red" />)}</>
-          : <><StatsCard title="Entries" value={formatNumber(summary.count)} icon="📄" color="blue" /><StatsCard title={t("total")} value={formatNumber(summary.total)} icon="💰" color="green" />{summary.haji !== undefined && <StatsCard title="Transferred to Haji" value={formatNumber(summary.haji)} icon="↗️" color="yellow" />}{summary.inHand !== undefined && <StatsCard title="Cash Office Retention" value={formatNumber(summary.inHand)} icon="💰" color="green" />}</>}
-      </div>}
-      {reportType === "customer_ledger" && summary?.name && data.length > 0 && (
-        <div className="mb-3 rounded-xl border border-[#e5dccf] bg-[#f9f4ec] px-4 py-2.5 text-sm text-[#4b3b2b]">
-          <span className="font-semibold">Customer:</span> {summary.name}
+            {reportType === "discount_history" && (
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-[#71717a]">{t("customer")}</label>
+                <select
+                  value={filters.customer_id}
+                  onChange={(e) => setFilters((f) => ({ ...f, customer_id: e.target.value }))}
+                  className="select-field w-full"
+                >
+                  <option value="">{t("all_customers")}</option>
+                  {customers.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+            )}
+
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-[#71717a]">Period</label>
+              <select
+                value={datePreset}
+                onChange={(e) => applyDatePreset(e.target.value as DatePreset)}
+                className="select-field w-full"
+              >
+                <option value="month">This month</option>
+                <option value="last7">Last 7 days</option>
+                <option value="all">All dates</option>
+                <option value="custom">Custom range</option>
+              </select>
+            </div>
+
+            {datePreset === "custom" && (
+              <>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-[#71717a]">{t("from")}</label>
+                  <input
+                    type="date"
+                    value={filters.date_from}
+                    onChange={(e) => setFilters((f) => ({ ...f, date_from: e.target.value }))}
+                    className="input-field w-full"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-[#71717a]">{t("to")}</label>
+                  <input
+                    type="date"
+                    value={filters.date_to}
+                    onChange={(e) => setFilters((f) => ({ ...f, date_to: e.target.value }))}
+                    className="input-field w-full"
+                  />
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 border-t border-[#ececee] pt-4">
+            <GlassButton
+              type="button"
+              onClick={runReport}
+              disabled={loading}
+              className="px-5 py-2.5"
+            >
+              <Play className="h-4 w-4" strokeWidth={2} />
+              {loading ? t("loading") : t("generate")}
+            </GlassButton>
+            <p className="text-xs text-[#71717a]">
+              {dateRangeLabel}
+              {selectedCityName ? ` · ${selectedCityName}` : ""}
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {!reportGenerated && !loading && (
+        <div className="card flex min-h-[220px] items-center justify-center py-12 no-print">
+          <EmptyState message="Choose a report, set parameters, and click Generate to view results." />
         </div>
       )}
-      {data.length > 0 && (
-        <DataTable
-          columns={activeColumns}
-          data={data}
-          loading={loading}
-          stripedRows
-        />
+
+      {reportGenerated && summary && (
+        <section className="grid grid-cols-2 gap-3 sm:grid-cols-4 no-print">
+          {reportType === "city_ledger" ? (
+            <>
+              {Object.entries(summary.cashInHand || {}).map(([cc, v]: [string, any]) => (
+                <StatsCard key={`cash-${cc}`} title={`Closing Cash (${cc})`} value={`${cc} ${formatNumber(v)}`} icon="💰" color="green" />
+              ))}
+              {Object.entries(summary.totalReceivables || {}).map(([cc, v]: [string, any]) => (
+                <StatsCard key={`rec-${cc}`} title={`${t("receivables")} (${cc})`} value={`${cc} ${formatNumber(v)}`} icon="📋" color="blue" />
+              ))}
+              {Object.entries(summary.totalHajiOwed || {}).map(([cc, v]: [string, any]) => (
+                <StatsCard key={`haji-${cc}`} title={`Haji liability (${cc})`} value={`${cc} ${formatNumber(v)}`} icon="↗️" color="yellow" />
+              ))}
+              {Object.entries(summary.totalSalesByCurrency || {}).map(([cc, v]: [string, any]) => (
+                <StatsCard key={`sales-${cc}`} title={`${t("total_sales")} (${cc})`} value={`${cc} ${formatNumber(v)}`} icon="🧾" color="blue" />
+              ))}
+            </>
+          ) : reportType === "discount_history" ? (
+            <>
+              <StatsCard title={t("discounts_given")} value={formatNumber(summary.count)} icon="🏷️" color="yellow" />
+              {Object.entries(summary.totalByCurrency || {}).map(([cc, amt]: [string, any]) => (
+                <StatsCard key={cc} title={`${t("total")} (${cc})`} value={`${cc} ${formatNumber(amt)}`} icon="💸" color="red" />
+              ))}
+            </>
+          ) : (
+            <>
+              <StatsCard title="Entries" value={formatNumber(summary.count)} icon="📄" color="blue" />
+              <StatsCard title={t("total")} value={formatNumber(summary.total)} icon="💰" color="green" />
+            </>
+          )}
+        </section>
+      )}
+
+      {reportGenerated && (
+        <section className="card module-page no-print p-0">
+          <div className="flex flex-col gap-3 border-b border-[#ececee] bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-[#18181b]">{reportLabels[reportType]}</h2>
+              <p className="mt-0.5 text-xs text-[#71717a]">
+                {dateRangeLabel}
+                {selectedCityName ? ` · ${selectedCityName}` : ""}
+                {tableSearch.trim() ? ` · Search: ${tableSearch.trim()}` : ""}
+                {" · "}
+                {filteredExportRows.length.toLocaleString("en-US")} {filteredExportRows.length === 1 ? "row" : "rows"}
+              </p>
+            </div>
+            {filteredExportRows.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {supportsXlsxExport && (
+                  <GlassButton
+                    type="button"
+                    variant="xlsx"
+                    onClick={exportXlsx}
+                    disabled={!isOnline}
+                    title={!isOnline ? "Export requires an internet connection" : undefined}
+                    className="px-4 py-2"
+                  >
+                    <FileSpreadsheet className="h-4 w-4" strokeWidth={1.75} />
+                    Export XLSX
+                  </GlassButton>
+                )}
+                <GlassButton
+                  type="button"
+                  variant="pdf"
+                  onClick={exportPDF}
+                  className="px-4 py-2"
+                >
+                  <Printer className="h-4 w-4" strokeWidth={1.75} />
+                  Print / PDF
+                </GlassButton>
+              </div>
+            )}
+          </div>
+
+          <div className="p-1 sm:p-2">
+            <DataTable
+              columns={activeColumns}
+              data={data}
+              loading={loading}
+              stripedRows
+              searchValue={tableSearch}
+              onSearchChange={setTableSearch}
+              emptyMessage="No entries matched the selected filters."
+              searchColumnKeys={reportSearchColumnKeys[reportType]}
+              searchPlaceholder={
+                reportType === "city_ledger"
+                  ? "Search particulars…"
+                  : reportType === "discount_history"
+                  ? "Customer, voucher, lot, notes…"
+                  : "Search…"
+              }
+            />
+          </div>
+        </section>
       )}
     </div>
   );

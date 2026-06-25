@@ -76,17 +76,33 @@ async function main() {
     create: { countryId: pakistan.id, name: "Lahore" },
   });
 
-  const kabul = await prisma.city.upsert({
-    where: { countryId_name: { countryId: afghanistan.id, name: "Kabul" } },
-    update: {},
-    create: { countryId: afghanistan.id, name: "Kabul" },
-  });
+  const kabul = await (async () => {
+    const renamed = await prisma.city.findUnique({
+      where: { countryId_name: { countryId: afghanistan.id, name: "Saif Uddin" } },
+    });
+    if (renamed) return renamed;
+    const legacy = await prisma.city.findUnique({
+      where: { countryId_name: { countryId: afghanistan.id, name: "Kabul" } },
+    });
+    if (legacy) {
+      return prisma.city.update({ where: { id: legacy.id }, data: { name: "Saif Uddin" } });
+    }
+    return prisma.city.create({ data: { countryId: afghanistan.id, name: "Saif Uddin" } });
+  })();
 
-  const herat = await prisma.city.upsert({
-    where: { countryId_name: { countryId: afghanistan.id, name: "Herat" } },
-    update: {},
-    create: { countryId: afghanistan.id, name: "Herat" },
-  });
+  const herat = await (async () => {
+    const renamed = await prisma.city.findUnique({
+      where: { countryId_name: { countryId: afghanistan.id, name: "Abdul Khaliq" } },
+    });
+    if (renamed) return renamed;
+    const legacy = await prisma.city.findUnique({
+      where: { countryId_name: { countryId: afghanistan.id, name: "Herat" } },
+    });
+    if (legacy) {
+      return prisma.city.update({ where: { id: legacy.id }, data: { name: "Abdul Khaliq" } });
+    }
+    return prisma.city.create({ data: { countryId: afghanistan.id, name: "Abdul Khaliq" } });
+  })();
 
   const kandahar = await prisma.city.upsert({
     where: { countryId_name: { countryId: afghanistan.id, name: "Kandahar" } },
@@ -100,7 +116,7 @@ async function main() {
     create: { countryId: afghanistan.id, name: "Wesh Border" },
   });
 
-  console.log("✅ Cities: Quetta, Lahore, Kabul, Herat, Kandahar, Wesh Border");
+  console.log("✅ Cities: Quetta, Lahore, Saif Uddin, Abdul Khaliq, Kandahar, Wesh Border");
 
   // 4. City Currencies
   const cityCurrencyPairs = [
@@ -139,7 +155,7 @@ async function main() {
 
   // 6. Super Admin user
   const passwordHash = await bcrypt.hash("admin123", 12);
-  await prisma.user.upsert({
+  const superAdmin = await prisma.user.upsert({
     where: { username: "superadmin" },
     update: {},
     create: {
@@ -152,6 +168,10 @@ async function main() {
   });
 
   console.log("✅ Super Admin: superadmin / admin123");
+
+  const { ensureLegacyLotsForAllCountries } = await import("../src/lib/legacy-stock-lot");
+  await ensureLegacyLotsForAllCountries(superAdmin.id);
+  console.log("✅ Legacy OLD-STOCK lots (one per country)");
 
   // 7. City Admin users
   const cityAdminPassword = await bcrypt.hash("city123", 12);
@@ -177,8 +197,8 @@ async function main() {
   const cityAdmins = [
     { username: "quetta_admin",   fullName: "Quetta Admin",      cityId: quetta.id },
     { username: "lahore_admin",   fullName: "Lahore Admin",      cityId: lahore.id },
-    { username: "kabul_admin",    fullName: "Kabul Admin",       cityId: kabul.id },
-    { username: "herat_admin",    fullName: "Herat Admin",       cityId: herat.id },
+    { username: "kabul_admin",    fullName: "Saif Uddin Admin",   cityId: kabul.id },
+    { username: "herat_admin",    fullName: "Abdul Khaliq Admin", cityId: herat.id },
     { username: "kandahar_admin", fullName: "Kandahar Admin",    cityId: kandahar.id },
     { username: "wesh_admin",     fullName: "Wesh Border Admin", cityId: weshBorder.id },
   ];
@@ -235,12 +255,30 @@ async function main() {
     }
   }
 
+  for (const rename of [
+    { cityId: kabul.id, from: "Kabul Main Godown", to: "Saif Uddin Main Godown" },
+    { cityId: herat.id, from: "Herat Warehouse", to: "Abdul Khaliq Warehouse" },
+  ]) {
+    const oldGodown = await prisma.godown.findUnique({
+      where: { cityId_name: { cityId: rename.cityId, name: rename.from } },
+    });
+    const newGodown = await prisma.godown.findUnique({
+      where: { cityId_name: { cityId: rename.cityId, name: rename.to } },
+    });
+    if (oldGodown && !newGodown) {
+      await prisma.godown.update({
+        where: { id: oldGodown.id },
+        data: { name: rename.to },
+      });
+    }
+  }
+
   const godownData = [
     { cityId: quetta.id,     name: "Quetta Main Warehouse" },
     { cityId: quetta.id,     name: "Quetta City Godown" },
     { cityId: lahore.id,     name: "Lahore Central Godown" },
-    { cityId: kabul.id,      name: "Kabul Main Godown" },
-    { cityId: herat.id,      name: "Herat Warehouse" },
+    { cityId: kabul.id,      name: "Saif Uddin Main Godown" },
+    { cityId: herat.id,      name: "Abdul Khaliq Warehouse" },
     { cityId: kandahar.id,   name: "Kandahar Main Godown" },
     { cityId: weshBorder.id, name: "Wesh Border Godown" },
   ];

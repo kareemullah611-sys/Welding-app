@@ -97,7 +97,7 @@ export default function ProfitReportPage() {
 
   return (
     <div>
-      <PageHeader title={t("profit_report")} subtitle={t("profit_report_subtitle")} />
+      <PageHeader title={t("profit_report")} />
       {showOfflineSnapshot && (
         <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           Showing last synced data (offline mode).

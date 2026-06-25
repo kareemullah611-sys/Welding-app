@@ -4,6 +4,7 @@ import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middl
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import { getSuperAdminCashAccountBalance } from "@/lib/haji-cash-balance";
 
 const BANK_ACCOUNT_SYNC_MODULE = "bank_accounts";
 const SUPERADMIN_SYNC_CITY_ID = 0;
@@ -14,7 +15,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const scope = searchParams.get("scope");
 
     if (scope === "super_admin") {
-      const [incomingHajiPayments, expenses, intermediaryDeposits, lotCosts] = await Promise.all([
+      const [incomingHajiPayments, expenses, intermediaryDeposits, lotCosts, supplierPayments, hajiCashReceipts] = await Promise.all([
         prisma.payment.groupBy({
           by: ["superAdminBankAccountId", "currencyId"],
           where: {
@@ -42,6 +43,23 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
             amount: true,
           },
         }),
+        prisma.supplierPayment.findMany({
+          where: { superAdminBankAccountId: { not: null } },
+          select: {
+            superAdminBankAccountId: true,
+            amountLocal: true,
+            amountUsd: true,
+            exchangeRate: true,
+          },
+        }),
+        prisma.hajiTransfer.groupBy({
+          by: ["superAdminCashAccountId", "currencyId"],
+          where: {
+            superAdminCashAccountId: { not: null },
+            settlementDestination: "super_admin_cash",
+          },
+          _sum: { amount: true },
+        }),
       ]);
       const incomingMap = new Map<string, number>();
       for (const row of incomingHajiPayments) incomingMap.set(`${row.superAdminBankAccountId}:${row.currencyId}`, Number(row._sum.amount || 0));
@@ -49,6 +67,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       for (const row of expenses) expenseMap.set(row.bankAccountId, Number(row._sum.amount || 0));
       const intermediaryMap = new Map<string, number>();
       for (const row of intermediaryDeposits) intermediaryMap.set(`${row.superAdminBankAccountId}:${row.currencyId}`, Number(row._sum.amount || 0));
+      const hajiCashMap = new Map<string, number>();
+      for (const row of hajiCashReceipts) {
+        if (!row.superAdminCashAccountId) continue;
+        hajiCashMap.set(`${row.superAdminCashAccountId}:${row.currencyId}`, Number(row._sum.amount || 0));
+      }
 
       const accounts = await prisma.superAdminBankAccount.findMany({
         where: { isActive: true },
@@ -74,8 +97,28 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         lotCostDebitMap.set(key, (lotCostDebitMap.get(key) || 0) + Number(row.amount || 0));
       }
 
+      const supplierPaymentDebitMap = new Map<number, number>();
+      for (const row of supplierPayments) {
+        if (!row.superAdminBankAccountId) continue;
+        const local = Number(row.amountLocal || 0);
+        if (local > 0) {
+          supplierPaymentDebitMap.set(row.superAdminBankAccountId, (supplierPaymentDebitMap.get(row.superAdminBankAccountId) || 0) + local);
+        }
+      }
+
       return successResponse(
-        accounts.map((a) => ({
+        await Promise.all(accounts.map(async (a) => {
+          const isCash = a.accountKind === "cash";
+          const incoming = isCash
+            ? 0
+            : (incomingMap.get(`${a.id}:${a.currencyId}`) || 0);
+          const runningBalance = isCash
+            ? await getSuperAdminCashAccountBalance(a.id).catch((err) => {
+                console.error(`Cash balance fallback for account ${a.id}:`, err);
+                return Math.round((hajiCashMap.get(`${a.id}:${a.currencyId}`) || 0) * 100) / 100;
+              })
+            : Math.round((((incoming) - (expenseMap.get(a.id) || 0) - (intermediaryMap.get(`${a.id}:${a.currencyId}`) || 0) - (lotCostDebitMap.get(`${a.id}:${a.currencyId}`) || 0) - (supplierPaymentDebitMap.get(a.id) || 0)) * 100)) / 100;
+          return {
           id: a.id,
           cityId: null,
           cityName: "Super Admin",
@@ -83,6 +126,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           accountNumber: a.accountNumber,
           currencyId: a.currencyId,
           currency: a.currency,
+          accountKind: a.accountKind,
           isActive: a.isActive,
           createdAt: a.createdAt.toISOString(),
           _count: {
@@ -90,8 +134,9 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
             hajiTransfers: 0,
             expenses: a._count.expenses,
           },
-          runningBalance: Math.round((((incomingMap.get(`${a.id}:${a.currencyId}`) || 0) - (expenseMap.get(a.id) || 0) - (intermediaryMap.get(`${a.id}:${a.currencyId}`) || 0) - (lotCostDebitMap.get(`${a.id}:${a.currencyId}`) || 0)) * 100)) / 100,
+          runningBalance,
           accountScope: "super_admin",
+        };
         }))
       );
     }
@@ -307,6 +352,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       }))
     );
   } catch (error) {
+    console.error("List bank accounts:", error);
     return serverError();
   }
 });
@@ -322,6 +368,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
       const accountNumber: string | null = body.accountNumber ? String(body.accountNumber).trim() : null;
       const currencyId = Number(body.currencyId);
+      const accountKind = body.accountKind === "cash" ? "cash" : "bank";
       if (!currencyId || Number.isNaN(currencyId)) return errorResponse("VALIDATION_ERROR", "currencyId is required");
 
       const currency = await prisma.currency.findUnique({ where: { id: currencyId } });
@@ -368,6 +415,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
             bankName,
             accountNumber,
             currencyId,
+            accountKind,
             isActive: true,
             createdBy: user.userId,
           },
@@ -411,6 +459,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           accountNumber: account.accountNumber,
           currencyId: account.currencyId,
           currency: account.currency,
+          accountKind: account.accountKind,
           isActive: account.isActive,
           createdAt: account.createdAt.toISOString(),
           accountScope: "super_admin",
@@ -570,6 +619,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         }
       }
     }
+    console.error("Create bank account:", error);
     return serverError();
   }
 });

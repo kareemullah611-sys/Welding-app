@@ -3,25 +3,26 @@ import prisma from "@/lib/prisma";
 import { withAuth, withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { buildLotCostLedger } from "@/lib/lot-cost-ledger";
+import { computeLotLandedCostPkr } from "@/lib/landed-cost-pkr";
+import { buildCityLotAssignmentDetail } from "@/lib/city-lot-assignment";
 
 export const GET = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
     const id = parseInt(context.params.id);
 
+    if (user.role === "city_admin") {
+      if (!user.cityId) return errorResponse("FORBIDDEN", "City scope required", 403);
+      const result = await buildCityLotAssignmentDetail(id, user.cityId);
+      if (!result.ok) {
+        if (result.reason === "not_found") return errorResponse("NOT_FOUND", "Lot not found", 404);
+        return errorResponse("FORBIDDEN", "This lot is not assigned to your city", 403);
+      }
+      return successResponse(result.data);
+    }
+
     const lot = await prisma.lot.findUnique({ where: { id }, include: { country: true, creator: { select: { id: true, fullName: true } } } }) as any;
     if (!lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
-
-    if (user.role === "city_admin") {
-      if (!user.cityId || !user.countryId || lot.countryId !== user.countryId) {
-        return errorResponse("FORBIDDEN", "Lot not in your city scope", 403);
-      }
-      const cityDistributionCount = await prisma.lotCityDistribution.count({
-        where: { lotId: id, cityId: user.cityId },
-      });
-      if (cityDistributionCount === 0) {
-        return errorResponse("FORBIDDEN", "Lot not in your city", 403);
-      }
-    }
 
     // Separate safe queries
     let lotProducts: any[] = [];
@@ -30,7 +31,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     let distributions: any[] = [];
     try {
       const dists = await prisma.lotCityDistribution.findMany({
-        where: { lotId: id, ...(user.role === "city_admin" ? { cityId: user.cityId! } : {}) },
+        where: { lotId: id },
         include: { city: true, product: true, godownAllocations: { include: { godown: true } } },
       });
       distributions = dists.map((d: any) => ({
@@ -59,6 +60,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           exchangeRate: true,
           costDate: true,
           notes: true,
+          createdAt: true,
           paidFromCash: true,
           supplierId: true,
           bankAccountId: true,
@@ -250,9 +252,62 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         };
       });
 
+    const supplierIds = Array.from(new Set(lotPurchases.map((p: any) => Number(p.supplierId)).filter(Boolean)));
+    const supplierPaymentsForLot = supplierIds.length
+      ? await prisma.supplierPayment.findMany({
+          where: { lotId: id, supplierId: { in: supplierIds } },
+          select: { amountUsd: true, exchangeRate: true, paymentDate: true },
+          orderBy: { paymentDate: "asc" },
+        })
+      : [];
+
+    const ledgerBuilt = buildLotCostLedger({
+      lotDate: lot.lotDate.toISOString().split("T")[0],
+      lotCountryCode: lot.country?.code || "",
+      purchaseItems: lotPurchases.map((p: any) => ({
+        id: p.id,
+        supplierName: p.supplier?.name || "",
+        productName: p.product?.name || "",
+        totalPriceUsd: Number(p.totalPriceUsd),
+        createdAt: p.createdAt,
+      })),
+      lotCosts: costBreakdown.map((c: any) => ({
+        id: c.id,
+        costType: c.costType,
+        description: c.description,
+        amount: c.amount,
+        currencyCode: c.currencyCode,
+        exchangeRate: c.exchangeRate,
+        costDate: c.costDate,
+        createdAt: c.createdAt,
+        debitChannelLabel: c.debitChannelLabel,
+      })),
+      lotExpensesByCurrency,
+      supplierPaymentsForLot: supplierPaymentsForLot.map((p) => ({
+        amountUsd: Number(p.amountUsd),
+        exchangeRate: p.exchangeRate,
+        paymentDate: p.paymentDate,
+      })),
+    });
+
+    const landedCostPkr = lot.pkrExchangeRate
+      ? computeLotLandedCostPkr({
+          totalPurchaseUsd,
+          totalCartons,
+          lotCosts: lotCosts.map((c: any) => ({
+            amount: c.amount,
+            currencyCode: c.currencyCode,
+            exchangeRate: c.exchangeRate,
+            costType: c.costType,
+          })),
+          lotExpensesByCurrency,
+          usdPkrRate: Number(lot.pkrExchangeRate),
+        })
+      : null;
+
     return successResponse({
       id: lot.id, lotNumber: lot.lotNumber, lotDate: lot.lotDate.toISOString().split("T")[0],
-      status: lot.status, notes: lot.notes,
+      status: lot.status, isLegacyStock: lot.isLegacyStock, notes: lot.notes,
       pkrExchangeRate: lot.pkrExchangeRate ? Number(lot.pkrExchangeRate) : null,
       country: { id: lot.country.id, name: lot.country.name, code: lot.country.code },
       createdBy: lot.creator,
@@ -275,7 +330,11 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         totalLotExpenses: totalExpenses,
         lotExpensesByCurrency,
         costBreakdown,
+        otherCostsByCurrency: ledgerBuilt.costSummary.otherCostsByCurrency,
+        totalLandedCostPkr: ledgerBuilt.costSummary.totalLandedCostPkr,
+        landedCostPerCartonPkr: landedCostPkr?.landedCostPerCartonPkr ?? null,
       },
+      costLedger: ledgerBuilt.rows,
       stockSummary: { totalCartons, soldCartons, remainingCartons, byProduct: stockByProduct },
       summary: { totalSales, totalPayments, totalExpenses, totalHaji, outstanding: totalSales - totalPayments },
       recentSales: sales.map((s: any) => ({ ...s, totalAmount: Number(s.totalAmount), saleDate: s.saleDate.toISOString().split("T")[0] })),

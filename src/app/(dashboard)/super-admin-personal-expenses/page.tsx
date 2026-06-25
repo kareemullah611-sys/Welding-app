@@ -8,6 +8,7 @@ import Link from "next/link";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingSuperAdminPersonalExpenses } from "@/lib/offline-queue-overlays";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
+import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
 
 const SA_PERSONAL_EXPENSES_READ_CACHE_KEY = "mrf-sa-personal-expenses-read-cache-v1";
 
@@ -89,7 +90,7 @@ export default function SuperAdminPersonalExpensesPage() {
   const load = useCallback(async () => {
     if (!isSA) return;
     setLoading(true);
-    const expenseParams: any = { page, limit: 20 };
+    const expenseParams: any = { page, limit: DEFAULT_LIST_PAGE_SIZE };
     const normalizedQuery = searchQuery.trim();
     if (normalizedQuery.length >= 2) expenseParams.q = normalizedQuery;
     const [accountsRes, expensesRes] = await Promise.all([
@@ -256,7 +257,6 @@ export default function SuperAdminPersonalExpensesPage() {
     <div>
       <PageHeader
         title="Home Expenses"
-        subtitle="Record home expenses from super admin bank accounts"
         action={
           <div className="flex gap-2">
             <button onClick={openNewExpense} className="btn-primary text-sm">+ New Expense</button>
@@ -300,7 +300,6 @@ export default function SuperAdminPersonalExpensesPage() {
         <DataTable
           searchValue={searchQuery}
           onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}
-          searchPlaceholder="Search home expenses (min 2 chars)"
           columns={[
             { key: "expenseDate", label: "Date", render: (e: any) => formatDate(e.expenseDate) },
             { key: "detail", label: "Detail" },

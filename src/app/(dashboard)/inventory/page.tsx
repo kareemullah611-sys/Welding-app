@@ -4,14 +4,29 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, Modal, formatNumber } from "@/components/ui";
+import { PageHeader, Modal, formatNumber, MobileDateInput, RowActionMenu } from "@/components/ui";
+import { GlassButton } from "@/components/ui/GlassButton";
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
+import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
 import { countPendingInterGodownTransfers } from "@/lib/offline-inventory";
 import { applyQueuedMutationsToPendingTransfers } from "@/lib/offline-remaining-mutations";
-import { Warehouse } from "lucide-react";
+import { ArrowLeftRight, MessageSquare, PackagePlus, Repeat, Warehouse } from "lucide-react";
+import {
+  formatInventoryDate,
+  formatStockMovementType,
+  stockMovementTypeClass,
+} from "@/lib/stock-movement-display";
 
 const INVENTORY_READ_CACHE_KEY = "mrf-inventory-read-cache-v1";
+const CITY_TRANSFER_FORM_CACHE_KEY = "mrf-city-transfers-form-cache-v1";
+
+type CityTransferFormCache = {
+  cities: any[];
+  products: any[];
+  lots: any[];
+};
 
 type InventoryReadSnapshot = {
   data: any | null;
@@ -25,7 +40,7 @@ type InventoryReadSnapshot = {
 export default function InventoryPage() {
   const { user } = useAuth();
   const { t } = useLang();
-  const { isOnline, queuedItems } = useOffline();
+  const { isOnline, queuedItems, enqueue } = useOffline();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
@@ -76,6 +91,37 @@ export default function InventoryPage() {
   const [selectedLot, setSelectedLot] = useState<any>(null);
   const [godownSubmitting, setGodownSubmitting] = useState(false);
   const [godownError, setGodownError] = useState("");
+
+  const [showGodownManage, setShowGodownManage] = useState(false);
+  const [godownManageList, setGodownManageList] = useState<any[]>([]);
+  const [godownManageLoading, setGodownManageLoading] = useState(false);
+  const [godownOpenActionId, setGodownOpenActionId] = useState<number | null>(null);
+  const [showCreateGodown, setShowCreateGodown] = useState(false);
+  const [createGodownForm, setCreateGodownForm] = useState({ name: "" });
+  const [createGodownError, setCreateGodownError] = useState("");
+  const [createGodownSubmitting, setCreateGodownSubmitting] = useState(false);
+  const [showEditGodown, setShowEditGodown] = useState(false);
+  const [selectedGodown, setSelectedGodown] = useState<any>(null);
+  const [editGodownForm, setEditGodownForm] = useState({ name: "" });
+  const [editGodownError, setEditGodownError] = useState("");
+  const [editGodownSubmitting, setEditGodownSubmitting] = useState(false);
+
+  const [showNewGoods, setShowNewGoods] = useState(false);
+
+  const [showCityTransfer, setShowCityTransfer] = useState(false);
+  const [cityTransferLoading, setCityTransferLoading] = useState(false);
+  const [cityTransferSubmitting, setCityTransferSubmitting] = useState(false);
+  const [cityTransferError, setCityTransferError] = useState("");
+  const [cityTransferCities, setCityTransferCities] = useState<any[]>([]);
+  const [cityTransferProducts, setCityTransferProducts] = useState<any[]>([]);
+  const [cityTransferLots, setCityTransferLots] = useState<any[]>([]);
+  const [cityTransferForm, setCityTransferForm] = useState({
+    toCityId: 0,
+    productId: 0,
+    qty: 0,
+    lotId: 0,
+    transferDate: new Date().toISOString().split("T")[0],
+  });
 
   const readSnapshot = useCallback(() => {
     return readOfflineReadSnapshot<InventoryReadSnapshot>(INVENTORY_READ_CACHE_KEY);
@@ -374,16 +420,239 @@ export default function InventoryPage() {
     else { setGodownError(r.error || "Failed"); }
   };
 
+  const refreshGodownManageList = async () => {
+    setGodownManageLoading(true);
+    const r = await apiCall("/api/v1/godowns", { params: { limit: 100, is_active: "true" } });
+    if (r.success) {
+      const rows = (r.data as any[]).filter((g: any) => g.cityId === user?.cityId);
+      setGodownManageList(rows);
+      mergeSnapshot({ godownList: r.data as any[] });
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.godownList?.length) {
+        setGodownManageList(snapshot.godownList.filter((g: any) => g.cityId === user?.cityId && g.isActive));
+      }
+    }
+    setGodownManageLoading(false);
+  };
+
+  const openGodownManage = async () => {
+    setGodownOpenActionId(null);
+    setShowGodownManage(true);
+    await refreshGodownManageList();
+  };
+
+  const openCreateGodown = () => {
+    setCreateGodownForm({ name: "" });
+    setCreateGodownError("");
+    setShowCreateGodown(true);
+  };
+
+  const handleCreateGodown = async () => {
+    const name = createGodownForm.name.trim();
+    if (!name) {
+      setCreateGodownError(`${t("name")} ${t("reason_required").toLowerCase()}`);
+      return;
+    }
+    if (!user?.cityId) {
+      setCreateGodownError("City scope required");
+      return;
+    }
+    setCreateGodownSubmitting(true);
+    setCreateGodownError("");
+    const result = await apiCall("/api/v1/godowns", {
+      method: "POST",
+      body: { name, cityId: user.cityId },
+    });
+    setCreateGodownSubmitting(false);
+    if (result.success) {
+      setShowCreateGodown(false);
+      await loadLedgerHelpers();
+      await loadInventory();
+      await loadLots();
+      if (showGodownManage) await refreshGodownManageList();
+    } else {
+      setCreateGodownError(result.error || "Failed to create godown");
+    }
+  };
+
+  const openEditGodown = (g: any) => {
+    setSelectedGodown(g);
+    setEditGodownForm({ name: g.name });
+    setEditGodownError("");
+    setShowEditGodown(true);
+  };
+
+  const handleEditGodown = async () => {
+    if (!selectedGodown) return;
+    const name = editGodownForm.name.trim();
+    if (!name) {
+      setEditGodownError(`${t("name")} ${t("reason_required").toLowerCase()}`);
+      return;
+    }
+    setEditGodownSubmitting(true);
+    setEditGodownError("");
+    const result = await apiCall(`/api/v1/godowns/${selectedGodown.id}`, { method: "PUT", body: { name } });
+    setEditGodownSubmitting(false);
+    if (result.success) {
+      setShowEditGodown(false);
+      await loadLedgerHelpers();
+      await refreshGodownManageList();
+    } else {
+      setEditGodownError(result.error || "Failed to update godown");
+    }
+  };
+
+  const handleDeactivateGodown = async (g: any) => {
+    if (!confirm(`"${g.name}": ${t("confirm_deactivate_godown")}`)) return;
+    const result = await apiCall(`/api/v1/godowns/${g.id}`, { method: "PUT", body: { isActive: false } });
+    if (result.success) {
+      await loadLedgerHelpers();
+      await refreshGodownManageList();
+    } else {
+      alert(result.error || "Failed to deactivate godown");
+    }
+  };
+
+  const openNewGoods = async () => {
+    setShowAssignedRows(false);
+    setShowNewGoods(true);
+    if (!lots.length && !lotsLoading) await loadLots();
+  };
+
+  const loadCityTransferHelpers = async () => {
+    const [cR, pR, lR] = await Promise.all([
+      apiCall("/api/v1/cities", { params: { all: "true" } }),
+      apiCall("/api/v1/products", { params: { limit: 100 } }),
+      apiCall("/api/v1/lots", { params: { limit: 100 } }),
+    ]);
+    const nextCities = cR.success
+      ? (cR.data as any[]).filter((c: any) => c.id !== user?.cityId && c.countryName === user?.countryName)
+      : [];
+    const nextProducts = pR.success ? (pR.data as any[]).filter((p: any) => p.isActive !== false) : [];
+    const nextLots = lR.success ? (lR.data as any[]) : [];
+    if (cR.success) setCityTransferCities(nextCities);
+    if (pR.success) setCityTransferProducts(nextProducts);
+    if (lR.success) setCityTransferLots(nextLots);
+    if (nextCities.length > 0 && nextProducts.length > 0) {
+      writeOfflineFormCache<CityTransferFormCache>(CITY_TRANSFER_FORM_CACHE_KEY, {
+        cities: nextCities,
+        products: nextProducts,
+        lots: nextLots,
+      });
+    }
+    return { nextCities, nextProducts, nextLots };
+  };
+
+  const openCityTransfer = async () => {
+    setCityTransferError("");
+    setCityTransferForm({
+      toCityId: 0,
+      productId: 0,
+      qty: 0,
+      lotId: 0,
+      transferDate: new Date().toISOString().split("T")[0],
+    });
+    setShowCityTransfer(true);
+    setCityTransferLoading(true);
+
+    if (!isOnline) {
+      const cached = readOfflineFormCache<CityTransferFormCache>(CITY_TRANSFER_FORM_CACHE_KEY, ["cities", "products", "lots"]);
+      if (!cached) {
+        setCityTransferError(
+          getOfflineFormReadinessError({ isOnline, currencyCount: 0, moduleTitle: "City Transfer" }) || "Offline setup missing",
+        );
+        setCityTransferLoading(false);
+        return;
+      }
+      setCityTransferCities(cached.cities);
+      setCityTransferProducts(cached.products);
+      setCityTransferLots(cached.lots);
+      setCityTransferLoading(false);
+      return;
+    }
+
+    await loadCityTransferHelpers();
+    setCityTransferLoading(false);
+  };
+
+  const resolveCityTransferFromGodown = async (productId: number, qty: number): Promise<number | null> => {
+    const stockRes = await apiCall("/api/v1/inventory/godown-stock");
+    if (!stockRes.success) return godownList[0]?.id ?? null;
+    const rows = ((stockRes.data as any[]) || [])
+      .filter((row) => row.productId === productId && Number(row.available) >= qty)
+      .sort((a, b) => Number(b.available) - Number(a.available));
+    if (rows.length) return rows[0].godownId;
+    if (godownList.length === 1) return godownList[0].id;
+    return null;
+  };
+
+  const handleCityTransferSend = async () => {
+    setCityTransferError("");
+    if (!cityTransferForm.toCityId || !cityTransferForm.productId || !(cityTransferForm.qty > 0)) {
+      setCityTransferError(t("fill_required_fields"));
+      return;
+    }
+
+    const fromGodownId = await resolveCityTransferFromGodown(cityTransferForm.productId, cityTransferForm.qty);
+    if (!fromGodownId) {
+      setCityTransferError("No godown has enough stock for this product and quantity.");
+      return;
+    }
+
+    const body: any = {
+      toCityId: cityTransferForm.toCityId,
+      fromGodownId,
+      productId: cityTransferForm.productId,
+      qty: cityTransferForm.qty,
+      transferDate: cityTransferForm.transferDate,
+    };
+    if (cityTransferForm.lotId) body.lotId = cityTransferForm.lotId;
+
+    if (!isOnline) {
+      const toCity = cityTransferCities.find((c: any) => c.id === cityTransferForm.toCityId);
+      const product = cityTransferProducts.find((p: any) => p.id === cityTransferForm.productId);
+      const lot = cityTransferLots.find((l: any) => l.id === cityTransferForm.lotId);
+      await enqueue({
+        url: "/api/v1/city-transfers",
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        pathname: "/inventory",
+        auditMeta: {
+          action: "create",
+          entityType: "city_transfer",
+          entityLabel: "City Transfer (Pending)",
+          entityDetail: `${product?.name || "Product"} × ${Number(cityTransferForm.qty || 0).toLocaleString("en-US")} → ${toCity?.name || "City"}`,
+        },
+      });
+      setShowCityTransfer(false);
+      return;
+    }
+
+    setCityTransferSubmitting(true);
+    const r = await apiCall("/api/v1/city-transfers", { method: "POST", body });
+    setCityTransferSubmitting(false);
+    if (r.success) {
+      setShowCityTransfer(false);
+      await loadInventory();
+    } else {
+      setCityTransferError(r.error || "Failed to send transfer");
+    }
+  };
+
   if (loading || !data) {
     return (
       <div>
-        <PageHeader title={t("inventory")} subtitle={t("complete_stock_overview")} />
+        <PageHeader title={t("inventory")} />
         <div className="flex items-center justify-center h-64">
           <div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
         </div>
       </div>
     );
   }
+
+  const isCityAdmin = user?.role === "city_admin";
 
   const inventorySummaryRows = user?.role === "super_admin"
     ? [
@@ -429,22 +698,39 @@ export default function InventoryPage() {
   }
   const newAssignmentRows = lotAssignmentRows.filter((row) => !row.hasExistingAllocations);
   const existingAssignmentRows = lotAssignmentRows.filter((row) => row.hasExistingAllocations);
+  const pendingNewGoodsCount = newAssignmentRows.length;
 
   return (
     <div>
-      <PageHeader
-        title={t("inventory")}
-        subtitle={t("complete_stock_overview")}
-        action={
-          <div className="flex items-center gap-2">
-            {user?.role === "city_admin" && (
-              <button onClick={openInterGodownTransfer} className="btn-primary text-sm flex items-center gap-2">
-                ↔ Inter-Godown Transfer
-              </button>
+      <PageHeader title={t("inventory")} />
+      {isCityAdmin && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          <GlassButton variant="secondary" onClick={() => { void openCityTransfer(); }}>
+            <ArrowLeftRight className="h-3.5 w-3.5" strokeWidth={1.75} />
+            {t("city_transfers")}
+          </GlassButton>
+          <GlassButton variant="secondary" onClick={() => { void openGodownManage(); }}>
+            <Warehouse className="h-3.5 w-3.5" strokeWidth={1.75} />
+            {t("godown")}
+          </GlassButton>
+          <GlassButton variant="secondary" onClick={() => { void openInterGodownTransfer(); }}>
+            <Repeat className="h-3.5 w-3.5" strokeWidth={1.75} />
+            Inter-Godown
+          </GlassButton>
+          <div className="relative">
+            <GlassButton variant="secondary" onClick={() => { void openNewGoods(); }}>
+              <PackagePlus className="h-3.5 w-3.5" strokeWidth={1.75} />
+              New Goods
+            </GlassButton>
+            {pendingNewGoodsCount > 0 && (
+              <span className="pointer-events-none absolute -right-1.5 -top-1.5 flex items-center gap-0.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white shadow-sm">
+                <MessageSquare className="h-2.5 w-2.5" strokeWidth={2.5} />
+                {pendingNewGoodsCount > 99 ? "99+" : pendingNewGoodsCount}
+              </span>
             )}
           </div>
-        }
-      />
+        </div>
+      )}
       {showOfflineSnapshot && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
           Offline snapshot mode: showing last cached inventory data for this device.
@@ -509,7 +795,14 @@ export default function InventoryPage() {
 
       <div className="card mb-6">
         <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-gray-900">Inventory Summary</h2>
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">
+              {isCityAdmin ? "Stock Summary" : "Inventory Summary"}
+            </h2>
+            {isCityAdmin && user?.cityName && (
+              <p className="mt-0.5 text-xs text-gray-500">{user.cityName}</p>
+            )}
+          </div>
           {user?.role === "super_admin" && (
             <select
               value={superAdminSummaryView}
@@ -521,37 +814,51 @@ export default function InventoryPage() {
             </select>
           )}
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-200">
+        <div className="module-scroll-x">
+          <table className="w-full min-w-[520px] text-sm">
+            <thead className="border-b border-gray-200 bg-gray-50/90">
               <tr>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Category</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Name</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">City / Scope</th>
-                <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500">Stock</th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Category</th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                  {isCityAdmin ? "Item" : "Name"}
+                </th>
+                {!isCityAdmin && (
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Scope</th>
+                )}
+                <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500">Cartons</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {inventorySummaryRows.map((row: any, index: number) => (
-                  <tr key={`${row.type}-${row.name}-${index}`}>
-                    <td className="px-3 py-2">
-                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
+                  <tr key={`${row.type}-${row.name}-${index}`} className="hover:bg-gray-50/60">
+                    <td className="px-3 py-2.5">
+                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
                         row.type === "overall"
-                          ? "bg-primary-50 text-primary-700"
+                          ? "bg-primary-50 text-primary-700 border-primary-100"
                           : row.type === "product"
-                            ? "bg-gray-100 text-gray-700"
+                            ? "bg-gray-100 text-gray-700 border-gray-200"
                             : row.type === "country"
-                              ? "bg-indigo-50 text-indigo-700"
+                              ? "bg-indigo-50 text-indigo-700 border-indigo-100"
                               : row.type === "city"
-                                ? "bg-cyan-50 text-cyan-700"
-                            : "bg-blue-50 text-blue-700"
+                                ? "bg-cyan-50 text-cyan-700 border-cyan-100"
+                            : "bg-blue-50 text-blue-700 border-blue-100"
                       }`}>
-                        {row.type === "overall" ? "Overall" : row.type === "product" ? "Product" : row.type === "country" ? "Country" : row.type === "city" ? "City" : "Godown"}
+                        {row.type === "overall"
+                          ? (isCityAdmin ? "Total" : "Overall")
+                          : row.type === "product"
+                            ? "Product"
+                            : row.type === "country"
+                              ? "Country"
+                              : row.type === "city"
+                                ? "City"
+                                : "Godown"}
                       </span>
                     </td>
-                    <td className="px-3 py-2 font-medium text-gray-800">{row.name}</td>
-                    <td className="px-3 py-2 text-gray-500">{row.scopeName}</td>
-                    <td className="px-3 py-2 text-right font-semibold text-gray-900">{formatNumber(row.qty)}</td>
+                    <td className="px-3 py-2.5 font-medium text-gray-800">{row.name}</td>
+                    {!isCityAdmin && (
+                      <td className="px-3 py-2.5 text-gray-500">{row.scopeName}</td>
+                    )}
+                    <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-gray-900">{formatNumber(row.qty)}</td>
                   </tr>
                 ))}
             </tbody>
@@ -559,145 +866,76 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {user?.role === "city_admin" && (
-        <div className="card mb-6">
-          <div className="flex items-center justify-between gap-3 mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">{t("assign_to_godowns") || "Assign to Godowns"}</h2>
-            <button onClick={openInterGodownTransfer} className="btn-secondary text-sm">
-              ↔ Inter-Godown Transfer
-            </button>
-          </div>
-
-          {lotsLoading ? (
-            <div className="py-6 flex justify-center"><div className="w-6 h-6 border-2 border-primary-200 border-t-primary-600 rounded-full animate-spin" /></div>
-          ) : !lotAssignmentRows.length ? (
-            <p className="text-sm text-gray-400 py-4">{t("no_data")}</p>
-          ) : (
-            <div className="space-y-4">
-              <div>
-                <h3 className="mb-2 text-sm font-semibold text-gray-700">New Assignments</h3>
-                {newAssignmentRows.length === 0 ? (
-                  <p className="rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-400">No new assignments waiting.</p>
-                ) : (
-                  <div className="divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-200">
-                    {newAssignmentRows.map(({ lot, dist, assigned, remaining, isDone }, i) => (
-                      <div key={`new-${i}`} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-semibold text-gray-800">{dist.productName}</span>
-                            <span className="text-xs font-mono bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100">{lot.lotNumber}</span>
-                            {isDone
-                              ? <span className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full border border-green-100 font-medium">✓ Fully assigned</span>
-                              : <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full border border-amber-100 font-medium">{formatNumber(remaining)} unassigned</span>
-                            }
-                          </div>
-                          <p className="text-xs text-gray-400 mt-0.5">
-                            Allocated: <strong className="text-gray-600">{formatNumber(Number(dist.allocatedQty))}</strong>
-                            {" · "}Assigned: <strong className="text-gray-600">{formatNumber(assigned)}</strong>
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => openGodownAlloc(lot, dist)}
-                          className="flex shrink-0 items-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-medium text-teal-700 transition-colors hover:bg-teal-100"
-                        >
-                          <Warehouse size={13} /> Assign
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setShowAssignedRows((v) => !v)}
-                  className="text-sm font-semibold text-gray-700 hover:text-primary-700"
-                >
-                  {showAssignedRows ? "Hide Assigned / Reassignment" : "Show Assigned / Reassignment"}
-                </button>
-                {showAssignedRows && (
-                  <div className="mt-3 divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-200">
-                    {existingAssignmentRows.map(({ lot, dist, assigned, remaining, isDone }, i) => (
-                      <div key={`existing-${i}`} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-semibold text-gray-800">{dist.productName}</span>
-                            <span className="text-xs font-mono bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100">{lot.lotNumber}</span>
-                            {isDone
-                              ? <span className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full border border-green-100 font-medium">✓ Fully assigned</span>
-                              : <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full border border-amber-100 font-medium">{formatNumber(remaining)} unassigned</span>
-                            }
-                          </div>
-                          <p className="text-xs text-gray-400 mt-0.5">
-                            Allocated: <strong className="text-gray-600">{formatNumber(Number(dist.allocatedQty))}</strong>
-                            {" · "}Assigned: <strong className="text-gray-600">{formatNumber(assigned)}</strong>
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => openGodownAlloc(lot, dist)}
-                          className="flex shrink-0 items-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-medium text-teal-700 transition-colors hover:bg-teal-100"
-                        >
-                          <Warehouse size={13} /> Re-assign
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       <div className="card mt-6">
-        <div className="flex items-center justify-between gap-3 mb-4">
-          <h2 className="text-lg font-semibold text-gray-900">Stock Movement</h2>
+        <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Stock Movements</h2>
+            <p className="text-xs text-gray-500">Receipts, issues, transfers, and sales by godown.</p>
+          </div>
         </div>
-        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <select value={ledgerGodownId} onChange={e => setLedgerGodownId(parseInt(e.target.value))} className="select-field text-sm">
-            <option value={0}>All Godowns</option>
-            {godownList.map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
-          </select>
-          <select value={ledgerProductId} onChange={e => setLedgerProductId(parseInt(e.target.value))} className="select-field text-sm">
-            <option value={0}>All Products</option>
-            {productList.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          <input type="date" value={ledgerDateFrom} onChange={e => setLedgerDateFrom(e.target.value)} className="input-field text-sm" />
-          <input type="date" value={ledgerDateTo} onChange={e => setLedgerDateTo(e.target.value)} className="input-field text-sm" />
+        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Godown</label>
+            <select value={ledgerGodownId} onChange={e => setLedgerGodownId(parseInt(e.target.value))} className="select-field text-sm">
+              <option value={0}>All Godowns</option>
+              {godownList.map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Product</label>
+            <select value={ledgerProductId} onChange={e => setLedgerProductId(parseInt(e.target.value))} className="select-field text-sm">
+              <option value={0}>All Products</option>
+              {productList.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">From</label>
+            <input type="date" value={ledgerDateFrom} onChange={e => setLedgerDateFrom(e.target.value)} className="input-field text-sm" />
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">To</label>
+            <input type="date" value={ledgerDateTo} onChange={e => setLedgerDateTo(e.target.value)} className="input-field text-sm" />
+          </div>
         </div>
         {ledgerLoading ? (
           <div className="flex justify-center py-10"><div className="w-7 h-7 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" /></div>
         ) : ledger.length === 0 ? (
-          <p className="text-sm text-gray-400 py-8 text-center">No stock movements found.</p>
+          <p className="py-8 text-center text-sm text-gray-400">No stock movements found for the selected filters.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-200">
+          <div className="module-scroll-x rounded-xl border border-gray-200">
+            <table className="w-full min-w-[880px] text-sm">
+              <thead className="border-b border-gray-200 bg-gray-50/90">
                 <tr>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Date</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Type</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Ref</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Product</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500">Godown</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-green-600">In</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-red-600">Out</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-700">Running Stock</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Date</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Type</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Ref. No.</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Product</th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Godown</th>
+                  <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Qty In</th>
+                  <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-red-600">Qty Out</th>
+                  <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-600">Balance</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {ledger.map((row: any, index: number) => (
-                  <tr key={`${row.reference}-${index}`}>
-                    <td className="px-3 py-2">{row.date}</td>
-                    <td className="px-3 py-2">{row.type}</td>
-                    <td className="px-3 py-2 font-mono text-xs text-gray-500">{row.reference}</td>
-                    <td className="px-3 py-2">{row.productName}</td>
-                    <td className="px-3 py-2">{row.godownName}</td>
-                    <td className="px-3 py-2 text-right text-green-700">{row.qtyIn ? formatNumber(row.qtyIn) : "—"}</td>
-                    <td className="px-3 py-2 text-right text-red-600">{row.qtyOut ? formatNumber(row.qtyOut) : "—"}</td>
-                    <td className="px-3 py-2 text-right font-semibold text-gray-900">{formatNumber(row.runningStock || 0)}</td>
+                {ledger.map((row: any, index: number) => {
+                  const movementType = formatStockMovementType(row.type);
+                  return (
+                  <tr key={`${row.reference}-${index}`} className="hover:bg-gray-50/60">
+                    <td className="whitespace-nowrap px-3 py-2.5 text-gray-700">{formatInventoryDate(row.date)}</td>
+                    <td className="px-3 py-2.5">
+                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${stockMovementTypeClass[movementType.tone]}`}>
+                        {movementType.label}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 font-mono text-xs text-gray-600">{row.reference || "—"}</td>
+                    <td className="px-3 py-2.5 text-gray-800">{row.productName}</td>
+                    <td className="px-3 py-2.5 text-gray-700">{row.godownName}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700">{row.qtyIn ? formatNumber(row.qtyIn) : "—"}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-red-600">{row.qtyOut ? formatNumber(row.qtyOut) : "—"}</td>
+                    <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-gray-900">{formatNumber(row.runningStock || 0)}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -744,6 +982,95 @@ export default function InventoryPage() {
         </div>
       </Modal>
 
+      <Modal open={showCityTransfer} onClose={() => setShowCityTransfer(false)} title={t("send_goods_to_city")} size="md">
+        {cityTransferError && (
+          <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{cityTransferError}</div>
+        )}
+        {cityTransferLoading ? (
+          <div className="flex justify-center py-10">
+            <div className="h-7 w-7 animate-spin rounded-full border-4 border-primary-200 border-t-primary-600" />
+          </div>
+        ) : (
+          <>
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("date")} *</label>
+                  <MobileDateInput
+                    variant="field"
+                    value={cityTransferForm.transferDate}
+                    onChange={(transferDate) => setCityTransferForm((f) => ({ ...f, transferDate }))}
+                    placeholder={t("date")}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("to_city_label")} *</label>
+                  <select
+                    value={cityTransferForm.toCityId}
+                    onChange={(e) => setCityTransferForm((f) => ({ ...f, toCityId: parseInt(e.target.value, 10) || 0 }))}
+                    className="select-field"
+                  >
+                    <option value={0}>{t("select_city")}</option>
+                    {cityTransferCities.map((c: any) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("product")} *</label>
+                  <select
+                    value={cityTransferForm.productId}
+                    onChange={(e) => setCityTransferForm((f) => ({ ...f, productId: parseInt(e.target.value, 10) || 0 }))}
+                    className="select-field"
+                  >
+                    <option value={0}>{t("select")}</option>
+                    {cityTransferProducts.map((p: any) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("cartons")} *</label>
+                  <input
+                    type="number"
+                    min="0.01"
+                    value={cityTransferForm.qty || ""}
+                    onChange={(e) => setCityTransferForm((f) => ({ ...f, qty: parseFloat(e.target.value) || 0 }))}
+                    className="input-field"
+                    onWheel={(e) => e.currentTarget.blur()}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">{t("lot")}</label>
+                <select
+                  value={cityTransferForm.lotId}
+                  onChange={(e) => setCityTransferForm((f) => ({ ...f, lotId: parseInt(e.target.value, 10) || 0 }))}
+                  className="select-field"
+                >
+                  <option value={0}>{t("auto_fifo")}</option>
+                  {cityTransferLots
+                    .filter((lot: any) => lot.status === "ongoing")
+                    .map((lot: any) => (
+                      <option key={lot.id} value={lot.id}>{lot.lotNumber}</option>
+                    ))}
+                </select>
+              </div>
+            </div>
+            <p className="mt-3 rounded border border-blue-200 bg-blue-50 p-2 text-xs text-blue-700">
+              {t("send_goods_note")}
+            </p>
+            <div className="mt-4 flex justify-end border-t pt-4">
+              <GlassButton variant="primary" onClick={() => { void handleCityTransferSend(); }} disabled={cityTransferSubmitting}>
+                {cityTransferSubmitting ? "..." : t("save")}
+              </GlassButton>
+            </div>
+          </>
+        )}
+      </Modal>
+
       <Modal open={showInterGodownTransfer} onClose={() => setShowInterGodownTransfer(false)} title="Inter-Godown Transfer" size="md">
         {transferError && (
           <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{transferError}</div>
@@ -760,11 +1087,11 @@ export default function InventoryPage() {
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
-                <input
-                  type="date"
+                <MobileDateInput
+                  variant="field"
                   value={transferForm.transferDate}
-                  onChange={e => setTransferForm((f) => ({ ...f, transferDate: e.target.value }))}
-                  className="input-field"
+                  onChange={(transferDate) => setTransferForm((f) => ({ ...f, transferDate }))}
+                  placeholder={t("date")}
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -884,6 +1211,182 @@ export default function InventoryPage() {
         })() : <p className="text-sm text-gray-400">{t("no_godowns")}</p>}
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
           <button onClick={handleGodownAlloc} disabled={godownSubmitting} className="btn-primary text-sm">{godownSubmitting ? "..." : t("save")}</button>
+        </div>
+      </Modal>
+
+      <Modal open={showGodownManage} onClose={() => { setShowGodownManage(false); setGodownOpenActionId(null); }} title={t("godowns")} size="md">
+        <div className="mb-4 flex items-center justify-end">
+          <GlassButton variant="secondary" onClick={openCreateGodown}>
+            + {t("new_godown")}
+          </GlassButton>
+        </div>
+        {godownManageLoading ? (
+          <div className="flex justify-center py-10">
+            <div className="h-7 w-7 animate-spin rounded-full border-4 border-primary-200 border-t-primary-600" />
+          </div>
+        ) : godownManageList.length === 0 ? (
+          <p className="py-6 text-center text-sm text-gray-400">{t("no_godowns")}</p>
+        ) : (
+          <div className="divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-200">
+            {godownManageList.map((g: any) => (
+              <div key={g.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50/60">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-gray-800">{g.name}</p>
+                  <p className="text-xs text-gray-400">{g.cityName}</p>
+                </div>
+                <span className={g.isActive ? "badge-active" : "badge-cancelled"}>
+                  {g.isActive ? t("active") : t("inactive")}
+                </span>
+                <RowActionMenu
+                  open={godownOpenActionId === g.id}
+                  onOpenChange={(open) => setGodownOpenActionId(open ? g.id : null)}
+                >
+                  <button
+                    onClick={() => { setGodownOpenActionId(null); openEditGodown(g); }}
+                    className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs"
+                  >
+                    {t("edit")}
+                  </button>
+                  {g.isActive && (
+                    <button
+                      onClick={() => { setGodownOpenActionId(null); void handleDeactivateGodown(g); }}
+                      className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs"
+                    >
+                      {t("deactivate")}
+                    </button>
+                  )}
+                </RowActionMenu>
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={showEditGodown} onClose={() => setShowEditGodown(false)} title={`${t("edit")}: ${selectedGodown?.name || ""}`} size="md">
+        {editGodownError && (
+          <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{editGodownError}</div>
+        )}
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">{t("godown_name")} *</label>
+          <input
+            value={editGodownForm.name}
+            onChange={(e) => setEditGodownForm({ name: e.target.value })}
+            className="input-field"
+            autoFocus
+          />
+        </div>
+        <div className="mt-4 flex justify-end border-t pt-4">
+          <GlassButton variant="primary" onClick={() => { void handleEditGodown(); }} disabled={editGodownSubmitting}>
+            {editGodownSubmitting ? "..." : t("save")}
+          </GlassButton>
+        </div>
+      </Modal>
+
+      <Modal open={showNewGoods} onClose={() => setShowNewGoods(false)} title="New Goods" size="lg">
+        <p className="mb-4 text-xs text-gray-500">Incoming stock assigned to your city — allocate across godowns.</p>
+        {lotsLoading ? (
+          <div className="flex justify-center py-10">
+            <div className="h-7 w-7 animate-spin rounded-full border-4 border-primary-200 border-t-primary-600" />
+          </div>
+        ) : !lotAssignmentRows.length ? (
+          <p className="py-6 text-center text-sm text-gray-400">{t("no_data")}</p>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <h3 className="mb-2 text-sm font-semibold text-gray-700">New Assignments</h3>
+              {newAssignmentRows.length === 0 ? (
+                <p className="rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-400">No new assignments waiting.</p>
+              ) : (
+                <div className="divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-200">
+                  {newAssignmentRows.map(({ lot, dist, assigned, remaining, isDone }, i) => (
+                    <div key={`new-${i}`} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-gray-50">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-800">{dist.productName}</span>
+                          <span className="rounded border border-blue-100 bg-blue-50 px-1.5 py-0.5 font-mono text-xs text-blue-600">{lot.lotNumber}</span>
+                          {isDone
+                            ? <span className="rounded-full border border-green-100 bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">✓ Fully assigned</span>
+                            : <span className="rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">{formatNumber(remaining)} unassigned</span>
+                          }
+                        </div>
+                        <p className="mt-0.5 text-xs text-gray-400">
+                          Allocated: <strong className="text-gray-600">{formatNumber(Number(dist.allocatedQty))}</strong>
+                          {" · "}Assigned: <strong className="text-gray-600">{formatNumber(assigned)}</strong>
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => openGodownAlloc(lot, dist)}
+                        className="flex shrink-0 items-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-medium text-teal-700 transition-colors hover:bg-teal-100"
+                      >
+                        <Warehouse size={13} /> Assign
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowAssignedRows((v) => !v)}
+                className="text-sm font-semibold text-gray-700 hover:text-primary-700"
+              >
+                {showAssignedRows ? "Hide Assigned / Reassignment" : "Show Assigned / Reassignment"}
+              </button>
+              {showAssignedRows && (
+                <div className="mt-3 divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-200">
+                  {existingAssignmentRows.length === 0 ? (
+                    <p className="px-4 py-3 text-sm text-gray-400">No prior assignments yet.</p>
+                  ) : existingAssignmentRows.map(({ lot, dist, assigned, remaining, isDone }, i) => (
+                    <div key={`existing-${i}`} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-gray-50">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-800">{dist.productName}</span>
+                          <span className="rounded border border-blue-100 bg-blue-50 px-1.5 py-0.5 font-mono text-xs text-blue-600">{lot.lotNumber}</span>
+                          {isDone
+                            ? <span className="rounded-full border border-green-100 bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">✓ Fully assigned</span>
+                            : <span className="rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">{formatNumber(remaining)} unassigned</span>
+                          }
+                        </div>
+                        <p className="mt-0.5 text-xs text-gray-400">
+                          Allocated: <strong className="text-gray-600">{formatNumber(Number(dist.allocatedQty))}</strong>
+                          {" · "}Assigned: <strong className="text-gray-600">{formatNumber(assigned)}</strong>
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => openGodownAlloc(lot, dist)}
+                        className="flex shrink-0 items-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-medium text-teal-700 transition-colors hover:bg-teal-100"
+                      >
+                        <Warehouse size={13} /> Re-assign
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={showCreateGodown} onClose={() => setShowCreateGodown(false)} title={t("new_godown")} size="md">
+        {createGodownError && (
+          <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{createGodownError}</div>
+        )}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">{t("godown_name")} *</label>
+          <input
+            value={createGodownForm.name}
+            onChange={(e) => setCreateGodownForm((f) => ({ ...f, name: e.target.value }))}
+            className="input-field"
+            placeholder={t("godown_name")}
+            autoFocus
+          />
+        </div>
+        <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
+          <GlassButton variant="primary" onClick={() => { void handleCreateGodown(); }} disabled={createGodownSubmitting}>
+            {createGodownSubmitting ? "..." : t("save")}
+          </GlassButton>
         </div>
       </Modal>
     </div>

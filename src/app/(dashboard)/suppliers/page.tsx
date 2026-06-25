@@ -6,10 +6,11 @@ import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, StatsCard, formatNumber, RowActionMenu } from "@/components/ui";
 import { useLang } from "@/lib/lang";
-import * as XLSX from "xlsx";
+import { exportSupplierLedgerXlsx } from "@/lib/ledger-export";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingSuppliers } from "@/lib/offline-queue-overlays";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
+import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
 
 const SUPPLIERS_READ_CACHE_KEY = "mrf-suppliers-read-cache-v1";
 
@@ -66,6 +67,9 @@ export default function SuppliersPage() {
   const { isOnline, queuedItems, updateQueuedItem, discardQueuedItem } = useOffline();
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -80,6 +84,7 @@ export default function SuppliersPage() {
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
   const [intermediaries, setIntermediaries] = useState<any[]>([]);
   const [form, setForm] = useState({ name: "", country: "", contact: "", notes: "" });
+  const [ledgerTab, setLedgerTab] = useState<"schedule" | "running">("schedule");
   const [paymentForm, setPaymentForm] = useState({
     lotId: 0,
     paymentDate: new Date().toISOString().split("T")[0],
@@ -89,6 +94,7 @@ export default function SuppliersPage() {
     paymentMethod: "bank_transfer",
     paidVia: "bank",
     bankAccountId: 0,
+    superAdminBankAccountId: 0,
     intermediaryId: 0,
     reference: "",
     notes: "",
@@ -143,11 +149,13 @@ export default function SuppliersPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const r = await apiCall("/api/v1/suppliers", { params: { limit: 100 } });
+    const r = await apiCall("/api/v1/suppliers", { params: { page, limit: DEFAULT_LIST_PAGE_SIZE } });
     if (r.success) {
       let nextRows = [...getPendingSuppliers(queuedItems as any), ...((r.data as any[]) || [])];
       nextRows = applyQueuedMutationsToSuppliers(nextRows, queuedItems as any[]);
       setSuppliers(nextRows);
+      setTotalPages((r.pagination as any)?.totalPages || 1);
+      setTotal((r.pagination as any)?.total || 0);
       mergeSnapshot({ suppliers: nextRows });
       setShowOfflineSnapshot(false);
     } else if (!isOnline) {
@@ -156,11 +164,13 @@ export default function SuppliersPage() {
         const cleanedSuppliers = pruneStalePendingRows(snapshot.suppliers as any[], queuedItems as any[], "/suppliers");
         const mergedSnapshotSuppliers = applyQueuedMutationsToSuppliers(cleanedSuppliers, queuedItems as any[]);
         setSuppliers(mergedSnapshotSuppliers);
+        setTotalPages(1);
+        setTotal(mergedSnapshotSuppliers.length);
         setShowOfflineSnapshot(true);
       }
     }
     setLoading(false);
-  }, [isOnline, mergeSnapshot, queuedItems, readSnapshot]);
+  }, [isOnline, mergeSnapshot, page, queuedItems, readSnapshot]);
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
@@ -250,7 +260,7 @@ export default function SuppliersPage() {
     const [r, lotR, bankR, intR] = await Promise.all([
       apiCall(`/api/v1/suppliers/${s.id}`),
       apiCall("/api/v1/lots", { params: { limit: 100 } }),
-      apiCall("/api/v1/bank-accounts"),
+      apiCall("/api/v1/bank-accounts", { params: { scope: "super_admin" } }),
       apiCall("/api/v1/intermediaries"),
     ]);
     if (r.success) {
@@ -308,6 +318,7 @@ export default function SuppliersPage() {
         paymentMethod: "bank_transfer",
         paidVia: "bank",
         bankAccountId: 0,
+        superAdminBankAccountId: 0,
         intermediaryId: 0,
         reference: "",
         notes: "",
@@ -334,60 +345,13 @@ export default function SuppliersPage() {
     load();
   }, [selected?.id, load]);
 
-  const exportSupplierLedgerXlsx = () => {
+  const exportSupplierLedger = () => {
     if (!selected || !ledgerData) return;
-
-    const statementRows: any[][] = [];
-    statementRows.push(["Supplier Ledger", selected.name || ""]);
-    statementRows.push(["Generated", new Date().toISOString().split("T")[0]]);
-    statementRows.push([]);
-    statementRows.push(["Lot-wise Statement"]);
-    statementRows.push(["#", "Invoice", "Country", "Order Details", "Qty (Tons)", "Amount (USD)", "Deposit (USD)", "Remaining (USD)", "Running Balance (USD)", "Status", "Receipts"]);
-    for (const row of ledgerData.statement || []) {
-      statementRows.push([
-        row.itemNo,
-        row.invoiceNumber || "",
-        row.marketCountry || "",
-        row.orderDetails || "",
-        Number(row.quantityTons || 0),
-        Number(row.amountUsd || 0),
-        Number(row.depositUsd || 0),
-        Number(row.lotBalanceUsd || 0),
-        Number(row.runningBalanceUsd || 0),
-        row.status === "settled" ? "Settled" : "Pending",
-        row.receiptNotes || "",
-      ]);
-    }
-
-    const chronologicalRows: any[][] = [];
-    chronologicalRows.push(["Date", "Type", "Description", "Debit (USD)", "Credit (USD)", "Balance (USD)"]);
-    for (const entry of ledgerData.ledger || []) {
-      chronologicalRows.push([
-        entry.date ? String(entry.date).split("T")[0] : "",
-        entry.type || "",
-        entry.description || "",
-        entry.debit || 0,
-        entry.credit || 0,
-        entry.balance || 0,
-      ]);
-    }
-
-    const workbook = XLSX.utils.book_new();
-    const statementSheet = XLSX.utils.aoa_to_sheet(statementRows);
-    const chronologicalSheet = XLSX.utils.aoa_to_sheet(chronologicalRows);
-    XLSX.utils.book_append_sheet(workbook, statementSheet, "Statement");
-    XLSX.utils.book_append_sheet(workbook, chronologicalSheet, "Chronological");
-
-    const wbout = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
-    const blob = new Blob([wbout], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `supplier_ledger_${String(selected.name || "ledger").replace(/\s+/g, "_").toLowerCase()}_${new Date().toISOString().split("T")[0]}.xlsx`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+    exportSupplierLedgerXlsx({
+      supplierName: selected.name || "Supplier",
+      statement: ledgerData.statement || [],
+      runningLedger: ledgerData.runningLedger || ledgerData.ledger || [],
+    });
   };
 
   const openPaymentCreate = () => {
@@ -400,6 +364,7 @@ export default function SuppliersPage() {
       paymentMethod: "bank_transfer",
       paidVia: "bank",
       bankAccountId: 0,
+      superAdminBankAccountId: 0,
       intermediaryId: 0,
       reference: "",
       notes: "",
@@ -419,6 +384,7 @@ export default function SuppliersPage() {
       paymentMethod: payment.paymentMethod || "bank_transfer",
       paidVia: payment.intermediaryId ? "intermediary" : "bank",
       bankAccountId: payment.bankAccountId || 0,
+      superAdminBankAccountId: payment.superAdminBankAccountId || 0,
       intermediaryId: payment.intermediaryId || 0,
       reference: payment.reference || "",
       notes: payment.notes || "",
@@ -432,8 +398,8 @@ export default function SuppliersPage() {
       setError("Supplier and amount are required");
       return;
     }
-    if (paymentForm.paidVia === "bank" && !paymentForm.bankAccountId) {
-      setError("Please select a bank account");
+    if (paymentForm.paidVia === "bank" && !paymentForm.superAdminBankAccountId) {
+      setError("Please select a super admin bank account");
       return;
     }
     if (paymentForm.paidVia === "bank" && !(paymentForm.exchangeRate > 0)) {
@@ -456,13 +422,12 @@ export default function SuppliersPage() {
     };
     if (paymentForm.lotId) body.lotId = paymentForm.lotId;
     if (paymentForm.paidVia === "bank") {
-      body.bankAccountId = paymentForm.bankAccountId;
+      body.superAdminBankAccountId = paymentForm.superAdminBankAccountId;
       body.exchangeRate = paymentForm.exchangeRate;
       body.amountLocal = paymentForm.amountLocal;
     } else {
-      if (paymentForm.exchangeRate > 0) body.exchangeRate = paymentForm.exchangeRate;
-      if (paymentForm.amountLocal > 0) body.amountLocal = paymentForm.amountLocal;
       body.intermediaryId = paymentForm.intermediaryId;
+      if (paymentForm.exchangeRate > 0) body.exchangeRate = paymentForm.exchangeRate;
     }
 
     const r = await apiCall("/api/v1/supplier-payments", { method: "POST", body });
@@ -517,7 +482,6 @@ export default function SuppliersPage() {
     <div>
       <PageHeader
         title={t("suppliers")}
-        subtitle={t("payments_to_supplier_subtitle")}
         action={
           <button
             onClick={() => { setForm({ name: "", country: "", contact: "", notes: "" }); setShowCreate(true); setError(""); }}
@@ -577,6 +541,7 @@ export default function SuppliersPage() {
         ]}
         data={suppliers}
         loading={loading}
+        pagination={{ page, totalPages, total, onPageChange: setPage }}
       />
 
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t("new_supplier")} size="md">
@@ -633,10 +598,21 @@ export default function SuppliersPage() {
             <StatsCard title={t("total_paid")} value={`$${formatNumber(ledgerData.totalPaidUsd)}`} icon="💰" color="green" />
             <StatsCard title={t("balance_owed")} value={`$${formatNumber(ledgerData.balanceOwed)}`} icon={ledgerData.balanceOwed > 0 ? "⚠️" : "✅"} color={ledgerData.balanceOwed > 0 ? "red" : "green"} />
           </div>
+          {ledgerData.nextLotToPay && (
+            <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <span className="font-semibold">Next to pay:</span> Lot {ledgerData.nextLotToPay.invoiceNumber} — ${Number(ledgerData.nextLotToPay.lotBalanceUsd).toLocaleString("en-US")} USD remaining
+            </div>
+          )}
+          <div className="mb-3 flex gap-2">
+            <button type="button" onClick={() => setLedgerTab("schedule")} className={`rounded-full px-3 py-1 text-xs font-medium ${ledgerTab === "schedule" ? "bg-[#5d4a3a] text-white" : "border border-gray-300 bg-white"}`}>Lot schedule (FIFO)</button>
+            <button type="button" onClick={() => setLedgerTab("running")} className={`rounded-full px-3 py-1 text-xs font-medium ${ledgerTab === "running" ? "bg-[#5d4a3a] text-white" : "border border-gray-300 bg-white"}`}>Running balance</button>
+          </div>
+          {ledgerTab === "schedule" && (
+          <>
           <div className="flex items-center justify-between mb-2">
             <h4 className="text-sm font-semibold text-gray-500">Supplier Statement (Lot-wise)</h4>
             <div className="flex items-center gap-3">
-              <button onClick={exportSupplierLedgerXlsx} className="text-xs text-emerald-700 hover:underline font-medium">
+              <button onClick={exportSupplierLedger} className="text-xs text-emerald-700 hover:underline font-medium">
                 Export XLSX
               </button>
               {isSuperAdmin && (
@@ -687,42 +663,34 @@ export default function SuppliersPage() {
                         ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-800">Settled</span>
                         : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Pending</span>}
                     </td>
-                    <td className="px-2 py-2 align-top text-gray-600">{row.receiptNotes || "-"}</td>
+                    <td className="px-2 py-2 align-top text-gray-600">
+                      {(row.appliedPayments || []).length
+                        ? row.appliedPayments.map((p: any) => `$${Number(p.amountUsd).toLocaleString("en-US")} on ${p.date}`).join(" · ")
+                        : (row.receiptNotes || "-")}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          </>
+          )}
 
-          <div className="mt-4 flex items-center justify-between">
-            <h4 className="text-sm font-semibold text-gray-500">{t("ledger")} (Chronological)</h4>
+          {ledgerTab === "running" && (
+          <>
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-sm font-semibold text-gray-500">Running Balance Ledger (USD)</h4>
+            <button onClick={exportSupplierLedger} className="text-xs text-emerald-700 hover:underline font-medium">Export XLSX</button>
           </div>
           <DataTable columns={[
             { key: "date", label: t("date") },
-            { key: "type", label: t("type"), render: (e: any) => <span className={`text-xs px-1.5 py-0.5 rounded ${e.type === "purchase" ? "bg-blue-50 text-blue-700" : "bg-green-50 text-green-700"}`}>{e.type}</span> },
-            { key: "description", label: t("description") },
-            { key: "debit", label: t("debit_usd"), render: (e: any) => e.debit ? <span className="text-red-600">${e.debit.toLocaleString("en-US")}</span> : "" },
-            { key: "credit", label: t("credit_usd"), render: (e: any) => e.credit ? <span className="text-green-600">${e.credit.toLocaleString("en-US")}</span> : "" },
-            { key: "balance", label: t("balance"), render: (e: any) => <span className="font-medium">${e.balance.toLocaleString("en-US")}</span> },
-            ...(isSuperAdmin ? [{
-              key: "actions", label: "",
-              render: (e: any) => {
-                if (e.type !== "payment") return null;
-                const payment = (ledgerData?.payments || []).find((p: any) => p.id === e.sourceId);
-                if (!payment) return null;
-                const actionKey = `supplier-payment-${payment.id}`;
-                return (
-                  <RowActionMenu
-                    open={openActionId === actionKey}
-                    onOpenChange={(open) => setOpenActionId(open ? actionKey : null)}
-                  >
-                    <button onClick={() => { setOpenActionId(null); openPaymentEdit(payment); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
-                    <button onClick={() => { setOpenActionId(null); handlePaymentDelete(payment); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("delete")}</button>
-                  </RowActionMenu>
-                );
-              },
-            }] : []),
-          ]} data={ledgerData.ledger || []} loading={false} />
+            { key: "particulars", label: t("description") },
+            { key: "debitUsd", label: "Debit USD", render: (e: any) => e.debitUsd ? <span className="text-red-600">${Number(e.debitUsd).toLocaleString("en-US")}</span> : "" },
+            { key: "creditUsd", label: "Credit USD", render: (e: any) => e.creditUsd ? <span className="text-green-600">${Number(e.creditUsd).toLocaleString("en-US")}</span> : "" },
+            { key: "balanceUsd", label: "Balance USD", render: (e: any) => <span className="font-medium">${Number(e.balanceUsd).toLocaleString("en-US")}</span> },
+          ]} data={ledgerData.runningLedger || ledgerData.ledger || []} loading={false} />
+          </>
+          )}
         </>}
       </Modal>
 
@@ -748,20 +716,24 @@ export default function SuppliersPage() {
             <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("method")} *</label><select value={paymentForm.paymentMethod} onChange={(e) => setPaymentForm((f) => ({ ...f, paymentMethod: e.target.value }))} className="select-field">{METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}</select></div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("exchange_rate")} {paymentForm.paidVia === "bank" ? "*" : ""}</label><input type="number" step="0.01" value={paymentForm.exchangeRate || ""} onChange={(e) => setPaymentForm((f) => ({ ...f, exchangeRate: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} /></div>
+            <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("exchange_rate")} *</label><input type="number" step="0.01" value={paymentForm.exchangeRate || ""} onChange={(e) => setPaymentForm((f) => ({ ...f, exchangeRate: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} /></div>
             <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("local_amount")}</label><input type="number" step="0.01" value={paymentForm.amountLocal || ""} onChange={(e) => setPaymentForm((f) => ({ ...f, amountLocal: parseFloat(e.target.value) || 0 }))} className="input-field" readOnly={paymentForm.paidVia === "bank"} onWheel={e => e.currentTarget.blur()} /></div>
             <div><label className="mb-1 block text-sm font-medium text-gray-700">{t("reference")}</label><input value={paymentForm.reference} onChange={(e) => setPaymentForm((f) => ({ ...f, reference: e.target.value }))} className="input-field" /></div>
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">Paid Via *</label>
             <div className="mb-2 flex gap-2">
-              <button type="button" onClick={() => setPaymentForm((f) => ({ ...f, paidVia: "bank", intermediaryId: 0 }))} className={`rounded border px-3 py-1 text-sm ${paymentForm.paidVia === "bank" ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 bg-white text-gray-600"}`}>Bank Account</button>
-              <button type="button" onClick={() => setPaymentForm((f) => ({ ...f, paidVia: "intermediary", bankAccountId: 0 }))} className={`rounded border px-3 py-1 text-sm ${paymentForm.paidVia === "intermediary" ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 bg-white text-gray-600"}`}>Intermediary</button>
+              <button type="button" onClick={() => setPaymentForm((f) => ({ ...f, paidVia: "bank", intermediaryId: 0 }))} className={`rounded border px-3 py-1 text-sm ${paymentForm.paidVia === "bank" ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 bg-white text-gray-600"}`}>Super Admin Bank</button>
+              <button type="button" onClick={() => setPaymentForm((f) => ({ ...f, paidVia: "intermediary", superAdminBankAccountId: 0, bankAccountId: 0 }))} className={`rounded border px-3 py-1 text-sm ${paymentForm.paidVia === "intermediary" ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 bg-white text-gray-600"}`}>Intermediary</button>
             </div>
             {paymentForm.paidVia === "bank" ? (
-              <select value={paymentForm.bankAccountId} onChange={(e) => setPaymentForm((f) => ({ ...f, bankAccountId: parseInt(e.target.value) }))} className="select-field">
+              <select value={paymentForm.superAdminBankAccountId} onChange={(e) => setPaymentForm((f) => ({ ...f, superAdminBankAccountId: parseInt(e.target.value) }))} className="select-field">
                 <option value={0}>{t("select")}</option>
-                {bankAccounts.filter((b: any) => b.isActive !== false).map((b: any) => <option key={b.id} value={b.id}>{b.bankName}{b.accountNumber ? ` - ${b.accountNumber}` : ""}</option>)}
+                {bankAccounts.filter((b: any) => b.isActive !== false).map((b: any) => (
+                  <option key={b.id} value={b.id}>
+                    {b.bankName}{b.accountNumber ? ` - ${b.accountNumber}` : ""}{b.currency?.code ? ` (${b.currency.code})` : ""}{b.runningBalance != null ? ` · Avail: ${Number(b.runningBalance).toLocaleString("en-US")}` : ""}
+                  </option>
+                ))}
               </select>
             ) : (
               <select value={paymentForm.intermediaryId} onChange={(e) => setPaymentForm((f) => ({ ...f, intermediaryId: parseInt(e.target.value) }))} className="select-field">

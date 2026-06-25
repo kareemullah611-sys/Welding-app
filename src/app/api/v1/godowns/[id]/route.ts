@@ -35,11 +35,8 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
     if (!godown) return errorResponse("NOT_FOUND", "Godown not found", 404);
     if (godown.isActive) return errorResponse("FORBIDDEN", "Deactivate godown before deleting", 403);
     // Check stock
-    const [stock, openingStock] = await Promise.all([
-      prisma.lotCityGodownAllocation.aggregate({ where: { godownId: id }, _sum: { qty: true } }),
-      prisma.openingStock.aggregate({ where: { godownId: id }, _sum: { qty: true } }),
-    ]);
-    if (Number(stock._sum.qty || 0) > 0 || Number(openingStock._sum.qty || 0) > 0) {
+    const stock = await prisma.lotCityGodownAllocation.aggregate({ where: { godownId: id }, _sum: { qty: true } });
+    if (Number(stock._sum.qty || 0) > 0) {
       return errorResponse("FORBIDDEN", "Godown has stock allocated, cannot delete", 403);
     }
     await prisma.godown.delete({ where: { id } });

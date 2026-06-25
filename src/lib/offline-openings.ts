@@ -7,10 +7,13 @@ type QueuedRequestLike = {
 
 type OpeningDataLike = {
   currencies: { id: number; code: string; symbol: string }[];
+  bankAccounts?: { id: number; bankName: string; accountNumber: string | null }[];
   customers: { id: number; name: string }[];
   godowns: { id: number; name: string }[];
   products: { id: number; name: string }[];
+  ongoingLots?: { id: number; lotNumber: string; lotDate: string }[];
   liabilityOptions: {
+    currencies: { id: number; code: string; symbol: string }[];
     suppliers: { id: number; name: string }[];
     shippingLines: { id: number; name: string }[];
     agents: { id: number; name: string; agentType: string }[];
@@ -18,7 +21,11 @@ type OpeningDataLike = {
   };
   openingCash: any[];
   openingCustomerBalances: any[];
+  openingBankBalances: any[];
+  openingCheques: any[];
   openingStocks: any[];
+  legacyStocks?: any[];
+  historicalSales?: any[];
   openingLiabilities: any[];
 };
 
@@ -39,7 +46,11 @@ export function applyPendingOpeningsData(base: OpeningDataLike, queuedItems: Que
     ...base,
     openingCash: [...(base.openingCash || [])],
     openingCustomerBalances: [...(base.openingCustomerBalances || [])],
+    openingBankBalances: [...(base.openingBankBalances || [])],
+    openingCheques: [...(base.openingCheques || [])],
     openingStocks: [...(base.openingStocks || [])],
+    legacyStocks: [...(base.legacyStocks || [])],
+    historicalSales: [...(base.historicalSales || [])],
     openingLiabilities: [...(base.openingLiabilities || [])],
   };
 
@@ -81,10 +92,48 @@ export function applyPendingOpeningsData(base: OpeningDataLike, queuedItems: Que
       continue;
     }
 
+    if (kind === "bank") {
+      const bankAccountId = Number(parsed?.bankAccountId || 0);
+      const currencyId = Number(parsed?.currencyId || 0);
+      const bank = (base.bankAccounts || []).find((b) => b.id === bankAccountId);
+      next.openingBankBalances.unshift({
+        id: `pending-${queued.id}`,
+        bankAccountId,
+        bankName: bank?.bankName || "Pending Bank",
+        accountNumber: bank?.accountNumber || null,
+        currencyId,
+        currencyCode: findCurrencyCode(base.currencies || [], currencyId),
+        amount: Number(parsed?.amount || 0),
+        openingDate: parsed?.openingDate || new Date().toISOString().split("T")[0],
+        notes: parsed?.notes || null,
+        _pending: true,
+      });
+      continue;
+    }
+
+    if (kind === "cheque") {
+      const currencyId = Number(parsed?.currencyId || 0);
+      next.openingCheques.unshift({
+        id: `pending-${queued.id}`,
+        currencyId,
+        currencyCode: findCurrencyCode(base.currencies || [], currencyId),
+        amount: Number(parsed?.amount || 0),
+        chequeNumber: parsed?.chequeNumber || "Pending",
+        chequeBank: parsed?.chequeBank || null,
+        chequeDueDate: parsed?.chequeDueDate || null,
+        openingDate: parsed?.openingDate || new Date().toISOString().split("T")[0],
+        notes: parsed?.notes || null,
+        _pending: true,
+      });
+      continue;
+    }
+
     if (kind === "stock") {
       const godownId = Number(parsed?.godownId || 0);
       const productId = Number(parsed?.productId || 0);
-      next.openingStocks.unshift({
+      const lotId = Number(parsed?.lotId || 0);
+      const useLegacy = parsed?.useLegacy === true;
+      const row = {
         id: `pending-${queued.id}`,
         godownId,
         godownName: (base.godowns || []).find((g) => g.id === godownId)?.name || "Pending Godown",
@@ -93,6 +142,43 @@ export function applyPendingOpeningsData(base: OpeningDataLike, queuedItems: Que
         qty: Number(parsed?.qty || 0),
         openingDate: parsed?.openingDate || new Date().toISOString().split("T")[0],
         notes: parsed?.notes || null,
+        _pending: true,
+      };
+      if (useLegacy) {
+        next.legacyStocks!.unshift({ ...row, legacyLotNumber: "OLD-STOCK" });
+      } else {
+        const lot = (base.ongoingLots || []).find((l) => l.id === lotId);
+        next.openingStocks.unshift({
+          ...row,
+          lotId,
+          lotNumber: lot?.lotNumber || "Pending Lot",
+        });
+      }
+      continue;
+    }
+
+    if (kind === "historical_sale") {
+      const lotId = Number(parsed?.lotId || 0);
+      const customerId = Number(parsed?.customerId || 0);
+      const godownId = Number(parsed?.godownId || 0);
+      const productId = Number(parsed?.productId || 0);
+      const currencyId = Number(parsed?.currencyId || 0);
+      const qty = Number(parsed?.qty || 0);
+      const amount = Number(parsed?.amount || 0);
+      next.historicalSales!.unshift({
+        id: `pending-${queued.id}`,
+        voucherNo: "O-pending",
+        saleDate: parsed?.saleDate || new Date().toISOString().split("T")[0],
+        customerName: (base.customers || []).find((c) => c.id === customerId)?.name || "Pending Customer",
+        lotNumber: (base.ongoingLots || []).find((l) => l.id === lotId)?.lotNumber || "Pending Lot",
+        godownName: (base.godowns || []).find((g) => g.id === godownId)?.name || "Pending Godown",
+        currencyCode: findCurrencyCode(base.currencies || [], currencyId),
+        totalAmount: amount,
+        items: [{
+          productName: (base.products || []).find((p) => p.id === productId)?.name || "Pending Product",
+          qty,
+          amount,
+        }],
         _pending: true,
       });
       continue;
@@ -113,7 +199,7 @@ export function applyPendingOpeningsData(base: OpeningDataLike, queuedItems: Que
         partyId,
         partyName,
         currencyId,
-        currencyCode: findCurrencyCode(base.currencies || [], currencyId),
+        currencyCode: findCurrencyCode(base.liabilityOptions?.currencies || base.currencies || [], currencyId),
         amount: Number(parsed?.amount || 0),
         openingDate: parsed?.openingDate || new Date().toISOString().split("T")[0],
         notes: parsed?.notes || null,

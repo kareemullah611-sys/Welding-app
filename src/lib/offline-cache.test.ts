@@ -147,9 +147,11 @@ test("shouldQueueOfflineWriteNow is disabled in browser even when server unreach
   }
 });
 
-test("shouldQueueOfflineWriteNow requires packaged app, unreachable server, and allowlisted route", () => {
+test("shouldQueueOfflineWriteNow requires packaged app, unreachable server, allowlisted route, and offline enabled", () => {
   const g = globalThis as typeof globalThis & { window?: Window };
   const prev = g.window;
+  const prevEnv = process.env.NEXT_PUBLIC_OFFLINE_ENABLED;
+  process.env.NEXT_PUBLIC_OFFLINE_ENABLED = "true";
   g.window = { platformInfo: { runtime: "electron" } } as Window;
   setPackagedServerReachable(true);
   try {
@@ -161,16 +163,38 @@ test("shouldQueueOfflineWriteNow requires packaged app, unreachable server, and 
   assert.equal(shouldQueueOfflineWriteNow("/api/v1/lots", "POST"), true);
   assert.equal(shouldQueueOfflineWriteOnNetworkFailure("/api/v1/payments", "POST"), true);
   assert.equal(shouldQueueOfflineWriteOnNetworkFailure("/api/v1/payments/10", "PATCH"), true);
-  assert.equal(shouldQueueOfflineWriteOnNetworkFailure("/api/v1/payments", "PUT"), false);
+  assert.equal(shouldQueueOfflineWriteOnNetworkFailure("/api/v1/dashboard", "PUT"), false);
   } finally {
     g.window = prev;
     setPackagedServerReachable(true);
+    if (prevEnv === undefined) delete process.env.NEXT_PUBLIC_OFFLINE_ENABLED;
+    else process.env.NEXT_PUBLIC_OFFLINE_ENABLED = prevEnv;
   }
 });
 
-test("shouldUseOfflineApiCache is true for all packaged runtimes", () => {
+test("shouldQueueOfflineWriteNow stays disabled when NEXT_PUBLIC_OFFLINE_ENABLED is not true", () => {
   const g = globalThis as typeof globalThis & { window?: Window };
   const prev = g.window;
+  const prevEnv = process.env.NEXT_PUBLIC_OFFLINE_ENABLED;
+  delete process.env.NEXT_PUBLIC_OFFLINE_ENABLED;
+  g.window = { platformInfo: { runtime: "electron" } } as Window;
+  setPackagedServerReachable(false);
+  try {
+    assert.equal(shouldQueueOfflineWriteNow("/api/v1/payments", "POST"), false);
+    assert.equal(shouldUseOfflineApiCache(), false);
+  } finally {
+    g.window = prev;
+    setPackagedServerReachable(true);
+    if (prevEnv === undefined) delete process.env.NEXT_PUBLIC_OFFLINE_ENABLED;
+    else process.env.NEXT_PUBLIC_OFFLINE_ENABLED = prevEnv;
+  }
+});
+
+test("shouldUseOfflineApiCache is true for packaged runtimes when offline is enabled", () => {
+  const g = globalThis as typeof globalThis & { window?: Window };
+  const prev = g.window;
+  const prevEnv = process.env.NEXT_PUBLIC_OFFLINE_ENABLED;
+  process.env.NEXT_PUBLIC_OFFLINE_ENABLED = "true";
   g.window = { platformInfo: { runtime: "electron" } } as Window;
   setPackagedServerReachable(true);
   try {
@@ -180,6 +204,8 @@ test("shouldUseOfflineApiCache is true for all packaged runtimes", () => {
   } finally {
     g.window = prev;
     setPackagedServerReachable(false);
+    if (prevEnv === undefined) delete process.env.NEXT_PUBLIC_OFFLINE_ENABLED;
+    else process.env.NEXT_PUBLIC_OFFLINE_ENABLED = prevEnv;
   }
   g.window = {} as Window;
   try {

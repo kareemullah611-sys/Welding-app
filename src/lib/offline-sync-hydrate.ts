@@ -9,6 +9,7 @@ import { getReadModelKey } from "@/lib/offline-local-read-model";
 import { writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { hydrateFormCachesFromSyncData } from "@/lib/offline-form-cache-hydrate";
 import { prefetchOfflineAggregateSnapshots } from "@/lib/offline-aggregate-prefetch";
+import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
 const SNAPSHOT_KEYS = {
   customers: "mrf-customers-read-cache-v1",
   sales: "mrf-sales-read-cache-v1",
@@ -163,12 +164,12 @@ async function hydrateApiCaches(data: Record<string, unknown>) {
     });
 
     // Common paginated request shape used by list pages
-    const pagedKey = buildApiCacheKey(path, { page: 1, limit: 20 });
+    const pagedKey = buildApiCacheKey(path, { page: 1, limit: DEFAULT_LIST_PAGE_SIZE });
     if (pagedKey !== cacheKey) {
       await putStoreRow(OFFLINE_API_CACHE_STORE, {
         key: pagedKey,
         data: rows.slice(0, 20),
-        pagination: { total: rows.length, totalPages: Math.max(1, Math.ceil(rows.length / 20)), page: 1, limit: 20 },
+        pagination: { total: rows.length, totalPages: Math.max(1, Math.ceil(rows.length / DEFAULT_LIST_PAGE_SIZE)), page: 1, limit: DEFAULT_LIST_PAGE_SIZE },
         cachedAt: now,
       });
     }

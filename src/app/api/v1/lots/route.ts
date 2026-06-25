@@ -9,6 +9,8 @@ import {
 } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import { cityAssignmentMetricsFromDistributions } from "@/lib/city-lot-assignment";
+import { aggregateLotSalesMetrics, fetchLotSalesForMetrics } from "@/lib/lot-sold-metrics";
 
 const LOT_SYNC_MODULE = "lots";
 const SUPERADMIN_SYNC_CITY_ID = 0;
@@ -82,26 +84,83 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       prisma.lot.count({ where }),
     ]);
 
-    // Sold cartons summary per lot (active + marked_short both consume stock)
+    // Sold cartons + sales amounts per lot (active + marked_short both consume stock)
     const soldByLotId: Record<number, number> = {};
+    const soldByLotProduct: Record<number, Record<number, number>> = {};
+    const soldAmountByLotProduct: Record<number, Record<number, number>> = {};
+    const soldSalesByLot: Record<number, Record<string, number>> = {};
     const lotIds = lots.map((l) => l.id);
     if (lotIds.length > 0) {
-      const lotSales = await prisma.sale.findMany({
-        where: { lotId: { in: lotIds }, status: { in: ["active", "marked_short"] } },
-        select: { lotId: true, items: { select: { qty: true } } },
-      });
+      const lotSales = await fetchLotSalesForMetrics(
+        lotIds,
+        user.role === "city_admin" ? { cityId: user.cityId! } : {}
+      );
+      const metricsByLot = aggregateLotSalesMetrics(lotSales);
       for (const sale of lotSales) {
-        soldByLotId[sale.lotId] = (soldByLotId[sale.lotId] || 0) + sale.items.reduce((s, it) => s + Number(it.qty || 0), 0);
+        const qty = sale.items.reduce((s, it) => s + Number(it.qty || 0), 0);
+        soldByLotId[sale.lotId] = (soldByLotId[sale.lotId] || 0) + qty;
+      }
+      if (user.role === "city_admin") {
+        for (const lotId of lotIds) {
+          const metrics = metricsByLot.get(lotId);
+          if (!metrics) continue;
+          soldByLotProduct[lotId] = metrics.soldQtyByProduct;
+          soldAmountByLotProduct[lotId] = metrics.soldAmountByProduct;
+          soldSalesByLot[lotId] = metrics.soldSalesByCurrency;
+        }
       }
     }
 
     const formatted = lots.map((lot) => {
-      const totalCartons = lot.lotProducts.reduce((s, lp) => s + Number(lp.totalQty), 0);
-      const soldCartons = Number(soldByLotId[lot.id] || 0);
+      const cityDists = lot.lotCityDistributions.map((d) => ({
+        id: d.id,
+        cityId: d.cityId,
+        cityName: d.city.name,
+        productId: d.productId,
+        productName: d.product.name,
+        allocatedQty: Number(d.allocatedQty),
+        godownAllocations: d.godownAllocations.map((ga) => ({
+          godownId: ga.godownId,
+          qty: Number(ga.qty),
+        })),
+      }));
+
+      let totalCartons: number;
+      let soldCartons: number;
+      let remainingCartons: number;
+      let assignmentProducts: Array<{
+        productId: number;
+        productName: string;
+        assignedQty: number;
+        soldQty: number;
+        soldAmount: number;
+        remainingQty: number;
+      }> | undefined;
+      let soldSalesByCurrency: Record<string, number> | undefined;
+
+      if (user.role === "city_admin") {
+        const metrics = cityAssignmentMetricsFromDistributions(
+          cityDists,
+          soldByLotProduct[lot.id] || {},
+          soldAmountByLotProduct[lot.id] || {}
+        );
+        totalCartons = metrics.totalCartons;
+        soldCartons = metrics.soldCartons;
+        remainingCartons = metrics.remainingCartons;
+        assignmentProducts = metrics.byProduct;
+        soldSalesByCurrency = soldSalesByLot[lot.id] || {};
+      } else {
+        totalCartons = lot.lotProducts.reduce((s, lp) => s + Number(lp.totalQty), 0);
+        soldCartons = Number(soldByLotId[lot.id] || 0);
+        remainingCartons = Math.max(0, totalCartons - soldCartons);
+      }
+
       return {
         totalCartons,
         soldCartons,
-        remainingCartons: Math.max(0, totalCartons - soldCartons),
+        remainingCartons,
+        assignmentProducts,
+        soldSalesByCurrency,
         id: lot.id,
         countryId: lot.countryId,
         countryName: lot.country.name,
@@ -110,6 +169,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         lotDate: lot.lotDate.toISOString().split("T")[0],
         notes: lot.notes,
         status: lot.status,
+        isLegacyStock: lot.isLegacyStock,
         createdBy: lot.creator,
         completedBy: lot.completer,
         completedAt: lot.completedAt?.toISOString() || null,
@@ -119,18 +179,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           productName: lp.product.name,
           totalQty: Number(lp.totalQty),
         })),
-        distributions: lot.lotCityDistributions.map((d) => ({
-          id: d.id,
-          cityId: d.cityId,
-          cityName: d.city.name,
-          productId: d.productId,
-          productName: d.product.name,
-          allocatedQty: Number(d.allocatedQty),
-          godownAllocations: d.godownAllocations.map((ga) => ({
-            godownId: ga.godownId,
-            qty: Number(ga.qty),
-          })),
-        })),
+        distributions: cityDists,
         salesCount: lot._count.sales,
         hajiTransfersCount: lot._count.hajiTransfers,
         createdAt: lot.createdAt.toISOString(),

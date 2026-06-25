@@ -4,6 +4,7 @@ import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError, validationError } from "@/lib/api-response";
 import { reverseJournalEntries, journalSupplierPaid } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
+import { validateSupplierPaymentSettlement } from "@/lib/settlement-validation";
 
 function round2(value: number) {
   return Math.round(value * 100) / 100;
@@ -21,22 +22,37 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
       return validationError("Amount must be greater than 0");
     }
 
+    const superAdminBankAccountId = existing.superAdminBankAccountId ?? null;
+    const bankAccountId = existing.bankAccountId ?? null;
+    const intermediaryId = existing.intermediaryId ?? null;
+
     const parsedExchangeRate =
       body.exchangeRate !== undefined
         ? (body.exchangeRate ? Number(body.exchangeRate) : null)
         : (existing.exchangeRate ? Number(existing.exchangeRate) : null);
 
-    if (existing.bankAccountId && (!parsedExchangeRate || !Number.isFinite(parsedExchangeRate) || parsedExchangeRate <= 0)) {
+    const needsBankRate = Boolean(superAdminBankAccountId || bankAccountId);
+    if (needsBankRate && (!parsedExchangeRate || !Number.isFinite(parsedExchangeRate) || parsedExchangeRate <= 0)) {
       return validationError("Exchange rate is required for bank payments");
     }
 
-    const nextAmountLocal = existing.bankAccountId
-      ? round2(nextAmountUsd * Number(parsedExchangeRate))
-      : (
-        body.amountLocal !== undefined
+    const settlement = await validateSupplierPaymentSettlement({
+      amountUsd: nextAmountUsd,
+      superAdminBankAccountId,
+      bankAccountId,
+      intermediaryId,
+      exchangeRate: parsedExchangeRate,
+    });
+    if (!settlement.ok) {
+      return errorResponse(settlement.code, settlement.message, settlement.status || 400);
+    }
+
+    const nextAmountLocal =
+      settlement.settlementCurrency === "PKR" && settlement.amountPkr
+        ? settlement.amountPkr
+        : body.amountLocal !== undefined
           ? (body.amountLocal ? Number(body.amountLocal) : null)
-          : (existing.amountLocal ? Number(existing.amountLocal) : null)
-      );
+          : (existing.amountLocal ? Number(existing.amountLocal) : null);
 
     await prisma.$transaction(async (tx) => {
       await reverseJournalEntries(`SUPPPAY-${id}`, user.userId, tx);
@@ -53,21 +69,27 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
       });
 
       await journalSupplierPaid({
-        id, supplierId: existing.supplierId, amountUsd: Number(payment.amountUsd),
+        id,
+        supplierId: existing.supplierId,
+        amountUsd: Number(payment.amountUsd),
         amountLocal: payment.amountLocal ? Number(payment.amountLocal) : null,
-        paymentDate: payment.paymentDate, createdBy: user.userId,
-        bankAccountId: (existing as any).bankAccountId || null,
-        intermediaryId: (existing as any).intermediaryId || null,
-        settlementCurrencyCode: existing.bankAccountId ? "PKR" : null,
+        paymentDate: payment.paymentDate,
+        createdBy: user.userId,
+        bankAccountId,
+        superAdminBankAccountId,
+        intermediaryId,
+        settlementCurrencyCode: settlement.settlementCurrency === "PKR" ? "PKR" : null,
       }, tx);
 
       await createAuditLog(user.userId, null, "supplier_payments", id, "update",
         { amountUsd: Number(existing.amountUsd) }, { amountUsd: Number(payment.amountUsd) }, getClientIP(request), tx);
-
     });
 
     return successResponse({ id }, "Payment updated");
-  } catch (error) { return serverError(); }
+  } catch (error) {
+    console.error("Update supplier payment error:", error);
+    return serverError();
+  }
 });
 
 export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, user: JWTPayload) => {

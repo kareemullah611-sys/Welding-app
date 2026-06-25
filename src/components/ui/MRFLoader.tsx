@@ -1,8 +1,16 @@
 "use client";
 
-import ProcessingLoader, { type ProcessingLoaderProps } from "@/components/ui/ProcessingLoader";
+import { BrandLoader } from "@/components/ui/BrandLoader";
 
-/** @deprecated Use ProcessingLoader — kept for existing imports */
-export default function MRFLoader(props: ProcessingLoaderProps) {
-  return <ProcessingLoader {...props} />;
+/** @deprecated Use BrandLoader */
+export default function MRFLoader({
+  label = "Loading",
+}: {
+  variant?: string;
+  visible?: boolean;
+  onAnimationComplete?: () => void;
+  label?: string;
+  productImageSrc?: string;
+}) {
+  return <BrandLoader fullscreen size="lg" label={label} />;
 }

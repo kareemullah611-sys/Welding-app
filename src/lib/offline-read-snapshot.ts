@@ -1,9 +1,12 @@
+import { isOfflineFeaturesEnabled } from "@/lib/offline-features";
+
 export type OfflineReadSnapshotEnvelope<T> = {
   cachedAt: number;
   data: T;
 };
 
 export function readOfflineReadSnapshot<T>(key: string): OfflineReadSnapshotEnvelope<T> | null {
+  if (!isOfflineFeaturesEnabled()) return null;
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(key);
@@ -17,6 +20,7 @@ export function readOfflineReadSnapshot<T>(key: string): OfflineReadSnapshotEnve
 }
 
 export function writeOfflineReadSnapshot<T>(key: string, data: T): void {
+  if (!isOfflineFeaturesEnabled()) return;
   if (typeof window === "undefined") return;
   const payload: OfflineReadSnapshotEnvelope<T> = { cachedAt: Date.now(), data };
   window.localStorage.setItem(key, JSON.stringify(payload));

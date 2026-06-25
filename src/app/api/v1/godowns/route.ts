@@ -40,7 +40,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       prisma.godown.findMany({
         where,
         include: { city: { select: { id: true, name: true } } },
-        orderBy: [{ city: { name: "asc" } }, { name: "asc" }],
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         skip, take: limit,
       }),
       prisma.godown.count({ where }),

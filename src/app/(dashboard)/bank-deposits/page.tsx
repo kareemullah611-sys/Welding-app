@@ -12,6 +12,7 @@ import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline
 import { safeParseQueuedBody } from "@/lib/queue-resolve";
 import { getPendingBankDeposits } from "@/lib/offline-queue-overlays";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
+import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
 
 const BANK_DEPOSITS_FORM_CACHE_KEY = "mrf-bank-deposits-form-cache-v1";
 const BANK_DEPOSITS_READ_CACHE_KEY = "mrf-bank-deposits-read-cache-v1";
@@ -83,6 +84,7 @@ export default function BankDepositsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
+  const [treasuryBankBalances, setTreasuryBankBalances] = useState<Record<number, Record<string, number>>>({});
   const [currencies, setCurrencies] = useState<any[]>([]);
   const [inHandCheques, setInHandCheques] = useState<any[]>([]);
   const [form, setForm] = useState<any>({
@@ -105,7 +107,7 @@ export default function BankDepositsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const params: any = { page, limit: 20 };
+    const params: any = { page, limit: DEFAULT_LIST_PAGE_SIZE };
     const normalizedQuery = searchQuery.trim();
     if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     const r = await apiCall("/api/v1/bank-deposits", { params });
@@ -179,14 +181,22 @@ export default function BankDepositsPage() {
       return;
     }
 
-    const [baRes, cityRes, chRes] = await Promise.all([
+    const [baRes, cityRes, chRes, treasuryRes] = await Promise.all([
       apiCall("/api/v1/bank-accounts"),
       apiCall("/api/v1/cities"),
       apiCall("/api/v1/payments", {
         params: { all: 1, status: "active", payment_method: "cheque", destination: "our_account", cheque_status: "in_hand" },
       }),
+      apiCall("/api/v1/treasury"),
     ]);
     if (baRes.success) setBankAccounts(baRes.data as any[]);
+    if (treasuryRes.success) {
+      const byAccount: Record<number, Record<string, number>> = {};
+      for (const row of ((treasuryRes.data as any)?.bankAccounts || []) as any[]) {
+        byAccount[row.id] = row.balance || {};
+      }
+      setTreasuryBankBalances(byAccount);
+    }
     let nextCurrencies: any[] = [];
     if (cityRes.success && user?.cityId) {
       const city = (cityRes.data as any[]).find((c: any) => c.id === user.cityId);
@@ -230,6 +240,10 @@ export default function BankDepositsPage() {
 
   const selectedCheques = inHandCheques.filter((c: any) => form.chequePaymentIds.includes(c.id));
   const chequesTotal = selectedCheques.reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
+  const selectedCurrencyCode = currencies.find((c: any) => c.id === form.currencyId)?.code || "";
+  const sourceAvailableBalance = form.bankAccountId && selectedCurrencyCode
+    ? Number(treasuryBankBalances[form.bankAccountId]?.[selectedCurrencyCode] || 0)
+    : 0;
   const transferPreviewAmount = form.transferType === "cheque_to_cash"
     ? chequesTotal
     : form.transferType === "cheque_to_bank"
@@ -244,11 +258,16 @@ export default function BankDepositsPage() {
     if (form.transferType === "bank_to_bank" && !(Number(form.cashAmount || 0) > 0)) { setError("Please enter a transfer amount"); return; }
     if (form.transferType === "bank_to_bank" && !form.destinationBankAccountId) { setError("Please select destination bank account"); return; }
     if (form.transferType === "bank_to_bank" && Number(form.destinationBankAccountId) === Number(form.bankAccountId)) { setError("Source and destination bank account must be different"); return; }
+    if ((form.transferType === "bank_to_cash" || form.transferType === "bank_to_bank") && Number(form.cashAmount || 0) > sourceAvailableBalance + 0.001) {
+      setError(`Insufficient bank balance. Available: ${sourceAvailableBalance.toLocaleString("en-US")} ${selectedCurrencyCode}`);
+      return;
+    }
     if (form.transferType === "cheque_to_cash" && form.chequePaymentIds.length === 0) { setError("Please select at least one cheque"); return; }
     if (form.transferType === "cheque_to_bank" && Number(form.cashAmount || 0) <= 0 && form.chequePaymentIds.length === 0) { setError("Please enter a cash amount or select at least one cheque"); return; }
     const body = {
       ...form,
       cashAmount: form.transferType === "cheque_to_cash" ? chequesTotal : Number(form.cashAmount || 0),
+      slipNumber: form.transferType === "cheque_to_cash" ? "" : form.slipNumber,
     };
 
     if (resolvingQueueId) {
@@ -347,7 +366,6 @@ export default function BankDepositsPage() {
     <div>
       <PageHeader
         title={t("bank_deposits")}
-        subtitle={`${total} deposit slips`}
         action={user?.role === "city_admin" ? (
           <button onClick={() => { void openCreate(); }} className="btn-primary text-sm">+ New Deposit Slip</button>
         ) : undefined}
@@ -362,7 +380,7 @@ export default function BankDepositsPage() {
           type="search"
           value={searchQuery}
           onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
-          placeholder="Search slips, bank, cheque, notes (min 2 chars)"
+          placeholder="Search…"
           className="input-field h-9 w-full sm:max-w-md"
         />
       </div>
@@ -388,7 +406,7 @@ export default function BankDepositsPage() {
               <div className="flex items-center gap-4">
                 <div>
                   <p className="text-sm font-semibold text-gray-900">{d.bankAccount?.bankName || "—"}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">{formatDate(d.depositDate)}{d.slipNumber ? ` · Slip #${d.slipNumber}` : ""}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{formatDate(d.depositDate)}{d.transferType !== "cheque_to_cash" && d.slipNumber ? ` · Slip #${d.slipNumber}` : ""}</p>
                   <p className="text-[11px] text-gray-500 mt-0.5">{transferTypeLabels[d.transferType || "cheque_to_bank"] || "Cash/Cheque → Bank"}</p>
                 </div>
               </div>
@@ -447,7 +465,7 @@ export default function BankDepositsPage() {
         <div className="mt-6 rounded-[1.1rem] border border-[#e4e4e7] bg-white/80 shadow-[0_16px_40px_-30px_rgba(42,6,8,0.2)]">
           <PaginationBar
             bordered={false}
-            pagination={{ page, totalPages, total, pageSize: 20, onPageChange: setPage }}
+            pagination={{ page, totalPages, total, pageSize: DEFAULT_LIST_PAGE_SIZE, onPageChange: setPage }}
           />
         </div>
       )}
@@ -467,6 +485,7 @@ export default function BankDepositsPage() {
                   chequePaymentIds: [],
                   destinationBankAccountId: 0,
                   cashAmount: 0,
+                  slipNumber: e.target.value === "cheque_to_cash" ? "" : f.slipNumber,
                 }))}
                 className="select-field"
               >
@@ -486,6 +505,11 @@ export default function BankDepositsPage() {
                   {bankAccounts.map((b: any) => <option key={b.id} value={b.id}>{b.bankName}{b.accountNumber ? ` (${b.accountNumber})` : ""}</option>)}
                 </select>
               )}
+              {(form.transferType === "bank_to_cash" || form.transferType === "bank_to_bank") && form.bankAccountId > 0 && selectedCurrencyCode && (
+                <p className="mt-1 text-xs text-gray-500">
+                  Available: {sourceAvailableBalance.toLocaleString("en-US")} {selectedCurrencyCode}
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
@@ -503,11 +527,13 @@ export default function BankDepositsPage() {
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("slip_number")} <span className="text-gray-400 font-normal">(optional)</span></label>
-              <input value={form.slipNumber} onChange={e => setForm((f: any) => ({ ...f, slipNumber: e.target.value }))} className="input-field font-mono" placeholder="e.g. DEP-001" />
-            </div>
+          <div className={`grid gap-3 ${form.transferType === "cheque_to_cash" ? "grid-cols-1" : "grid-cols-2"}`}>
+            {form.transferType !== "cheque_to_cash" && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t("slip_number")} <span className="text-gray-400 font-normal">(optional)</span></label>
+                <input value={form.slipNumber} onChange={e => setForm((f: any) => ({ ...f, slipNumber: e.target.value }))} className="input-field font-mono" placeholder="e.g. DEP-001" />
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Currency *</label>
               <select value={form.currencyId} onChange={e => setForm((f: any) => ({ ...f, currencyId: parseInt(e.target.value) }))} className="select-field">

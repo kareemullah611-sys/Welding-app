@@ -8,6 +8,7 @@ import { SETTLEMENT_CURRENCY_CODES, settlementAmountToPkr } from "@/lib/payment-
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingShippingLines } from "@/lib/offline-queue-overlays";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
+import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
 
 const SHIPPING_LINES_READ_CACHE_KEY = "mrf-shipping-lines-read-cache-v1";
 
@@ -59,6 +60,9 @@ export default function ShippingLinesPage() {
   const { isOnline, queuedItems, updateQueuedItem, discardQueuedItem } = useOffline();
   const [lines, setLines] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
 
   // Create
@@ -100,11 +104,13 @@ export default function ShippingLinesPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const r = await apiCall("/api/v1/shipping-lines", { params: { limit: 100 } });
+    const r = await apiCall("/api/v1/shipping-lines", { params: { page, limit: DEFAULT_LIST_PAGE_SIZE } });
     if (r.success) {
       let nextRows = [...getPendingShippingLines(queuedItems as any), ...((r.data as any[]) || [])];
       nextRows = applyQueuedMutationsToShippingLines(nextRows, queuedItems as any[]);
       setLines(nextRows);
+      setTotalPages((r.pagination as any)?.totalPages || 1);
+      setTotal((r.pagination as any)?.total || 0);
       mergeSnapshot({ lines: nextRows });
       setShowOfflineSnapshot(false);
     } else if (!isOnline) {
@@ -113,11 +119,13 @@ export default function ShippingLinesPage() {
         const cleanedLines = pruneStalePendingRows(snapshot.lines as any[], queuedItems as any[], "/shipping-lines");
         const mergedSnapshotLines = applyQueuedMutationsToShippingLines(cleanedLines, queuedItems as any[]);
         setLines(mergedSnapshotLines);
+        setTotalPages(1);
+        setTotal(mergedSnapshotLines.length);
         setShowOfflineSnapshot(true);
       }
     }
     setLoading(false);
-  }, [isOnline, mergeSnapshot, queuedItems, readSnapshot]);
+  }, [isOnline, mergeSnapshot, page, queuedItems, readSnapshot]);
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
@@ -314,7 +322,7 @@ export default function ShippingLinesPage() {
 
   return (
     <div>
-      <PageHeader title="Shipping Lines" subtitle="Professional freight ledger and settlement records (USD)"
+      <PageHeader title="Shipping Lines"
         action={<button onClick={openCreate} className="btn-primary text-sm">+ Add Shipping Line</button>} />
       {showOfflineSnapshot && (
         <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -334,7 +342,7 @@ export default function ShippingLinesPage() {
         </div>
       )}
 
-      <DataTable columns={columns} data={lines} loading={loading} />
+      <DataTable columns={columns} data={lines} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />
 
       {/* ── Create ── */}
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Add Shipping Line" size="md">

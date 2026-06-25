@@ -1,8 +1,9 @@
 "use client";
 import React, { useCallback, useEffect, useState } from "react";
 import { apiCall } from "@/hooks/useApi";
-import { formatNumber, formatDate } from "@/components/ui";
+import { formatDate, PaginationBar } from "@/components/ui";
 import { formatCityPot, formatCityAmount } from "@/lib/city-money-format";
+import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
 import {
   Banknote,
   Receipt,
@@ -131,51 +132,81 @@ export default function BalanceHub({ user, treasury }: { user: any; treasury: Tr
   // Afghanistan cities only track cash; net excludes cheque/bank branches there.
   const net = isAfghanistan ? addPots(cash) : addPots(cash, cheques, bank);
 
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const [openBranch, setOpenBranch] = useState<"cash" | "cheques" | "bank" | null>(null);
   const [openAccountId, setOpenAccountId] = useState<number | null>(null);
 
-  const [cashLedger, setCashLedger] = useState<LedgerRow[] | null>(null);
+  const [cashLedger, setCashLedger] = useState<LedgerRow[]>([]);
   const [cashLoading, setCashLoading] = useState(false);
+  const [cashPage, setCashPage] = useState(1);
+  const [cashTotal, setCashTotal] = useState(0);
+  const [cashTotalPages, setCashTotalPages] = useState(1);
   const [accountLedger, setAccountLedger] = useState<Record<number, LedgerRow[]>>({});
   const [accountLoading, setAccountLoading] = useState(false);
+  const [bankPage, setBankPage] = useState(1);
+  const [bankTotal, setBankTotal] = useState(0);
+  const [bankTotalPages, setBankTotalPages] = useState(1);
 
-  const loadCashLedger = useCallback(async () => {
-    if (cashLedger || cashLoading) return;
+  const loadCashLedger = useCallback(async (page: number) => {
     setCashLoading(true);
-    const r = await apiCall<{ ledger: LedgerRow[] }>("/api/v1/treasury/cash-ledger");
-    if (r.success && r.data) setCashLedger(r.data.ledger || []);
-    else setCashLedger([]);
+    const r = await apiCall<{ ledger: LedgerRow[] }>("/api/v1/treasury/cash-ledger", {
+      params: { page, limit: DEFAULT_LIST_PAGE_SIZE },
+    });
+    if (r.success && r.data) {
+      setCashLedger(r.data.ledger || []);
+      const p = r.pagination as { page?: number; total?: number; totalPages?: number } | undefined;
+      setCashPage(p?.page || page);
+      setCashTotal(p?.total ?? (r.data.ledger || []).length);
+      setCashTotalPages(p?.totalPages || 1);
+    } else {
+      setCashLedger([]);
+      setCashTotal(0);
+      setCashTotalPages(1);
+    }
     setCashLoading(false);
-  }, [cashLedger, cashLoading]);
+  }, []);
 
   useEffect(() => {
-    if (openBranch === "cash") void loadCashLedger();
-  }, [openBranch, loadCashLedger]);
+    if (openBranch === "cash") void loadCashLedger(cashPage);
+  }, [openBranch, cashPage, loadCashLedger]);
 
-  const loadAccountLedger = useCallback(
-    async (id: number) => {
-      if (accountLedger[id] || accountLoading) return;
-      setAccountLoading(true);
-      const r = await apiCall<{ ledger: LedgerRow[] }>(`/api/v1/bank-accounts/${id}`, {
-        params: { view: "ledger" },
-      });
-      if (r.success && r.data) {
-        setAccountLedger((prev) => ({ ...prev, [id]: r.data!.ledger || [] }));
-      } else {
-        setAccountLedger((prev) => ({ ...prev, [id]: [] }));
+  const loadAccountLedger = useCallback(async (id: number, page: number) => {
+    setAccountLoading(true);
+    const r = await apiCall<{ ledger: LedgerRow[] }>(`/api/v1/bank-accounts/${id}`, {
+      params: { view: "ledger", page, limit: DEFAULT_LIST_PAGE_SIZE },
+    });
+    if (r.success && r.data) {
+      setAccountLedger((prev) => ({
+        ...prev,
+        [id]: r.data!.ledger || [],
+      }));
+      const p = r.pagination as { page?: number; total?: number; totalPages?: number } | undefined;
+      setBankPage(p?.page || page);
+      setBankTotal(p?.total ?? (r.data!.ledger || []).length);
+      setBankTotalPages(p?.totalPages || 1);
+    } else {
+      setAccountLedger((prev) => ({ ...prev, [id]: [] }));
+      setBankTotal(0);
+      setBankTotalPages(1);
+    }
+    setAccountLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (openBranch === "bank" && openAccountId != null) void loadAccountLedger(openAccountId, bankPage);
+  }, [openBranch, openAccountId, bankPage, loadAccountLedger]);
+
+  const toggleBranch = (branch: "cash" | "cheques" | "bank") => {
+    setOpenBranch((prev) => {
+      if (prev === branch) return null;
+      if (branch === "cash") setCashPage(1);
+      if (branch === "bank") {
+        setBankPage(1);
+        setOpenAccountId(null);
       }
-      setAccountLoading(false);
-    },
-    [accountLedger, accountLoading]
-  );
-
-  useEffect(() => {
-    if (openBranch === "bank" && openAccountId != null) void loadAccountLedger(openAccountId);
-  }, [openBranch, openAccountId, loadAccountLedger]);
-
-  const toggleBranch = (branch: "cash" | "cheques" | "bank") =>
-    setOpenBranch((prev) => (prev === branch ? null : branch));
+      return branch;
+    });
+  };
 
   const showCheques = !isAfghanistan && (treasury?.hasBankAccounts || hasMoney(cheques));
   const showBank = !isAfghanistan && treasury?.hasBankAccounts;
@@ -184,8 +215,17 @@ export default function BalanceHub({ user, treasury }: { user: any; treasury: Tr
     <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
       <button
         type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center gap-3 px-5 py-4 text-left"
+        onClick={() =>
+          setExpanded((v) => {
+            if (v) {
+              setOpenBranch(null);
+              setOpenAccountId(null);
+            }
+            return !v;
+          })
+        }
+        className="flex w-full items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-gray-50/80"
+        aria-expanded={expanded}
       >
         <div className="rounded-xl bg-gradient-to-br from-emerald-50 to-white p-2.5 text-emerald-600 shadow-sm">
           <Banknote className="h-5 w-5" />
@@ -211,7 +251,22 @@ export default function BalanceHub({ user, treasury }: { user: any; treasury: Tr
             {cashLoading ? (
               <p className="px-4 py-3 text-sm text-gray-400">Loading ledger…</p>
             ) : (
-              <LedgerTable rows={cashLedger || []} user={user} />
+              <>
+                <LedgerTable rows={cashLedger} user={user} />
+                {cashTotal > 0 && (
+                  <PaginationBar
+                    bordered={false}
+                    className="rounded-b-lg px-3"
+                    pagination={{
+                      page: cashPage,
+                      totalPages: cashTotalPages,
+                      total: cashTotal,
+                      pageSize: DEFAULT_LIST_PAGE_SIZE,
+                      onPageChange: setCashPage,
+                    }}
+                  />
+                )}
+              </>
             )}
           </BranchRow>
 
@@ -250,7 +305,13 @@ export default function BalanceHub({ user, treasury }: { user: any; treasury: Tr
                   <div key={acct.id} className="rounded-lg bg-white">
                     <button
                       type="button"
-                      onClick={() => setOpenAccountId((prev) => (prev === acct.id ? null : acct.id))}
+                      onClick={() => {
+                        setOpenAccountId((prev) => {
+                          const next = prev === acct.id ? null : acct.id;
+                          if (next !== null) setBankPage(1);
+                          return next;
+                        });
+                      }}
                       className="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-gray-50"
                     >
                       <ChevronRight
@@ -273,7 +334,22 @@ export default function BalanceHub({ user, treasury }: { user: any; treasury: Tr
                         {accountLoading && !accountLedger[acct.id] ? (
                           <p className="px-4 py-3 text-sm text-gray-400">Loading ledger…</p>
                         ) : (
-                          <LedgerTable rows={accountLedger[acct.id] || []} user={user} />
+                          <>
+                            <LedgerTable rows={accountLedger[acct.id] || []} user={user} />
+                            {openAccountId === acct.id && bankTotal > 0 && (
+                              <PaginationBar
+                                bordered={false}
+                                className="rounded-b-lg px-3"
+                                pagination={{
+                                  page: bankPage,
+                                  totalPages: bankTotalPages,
+                                  total: bankTotal,
+                                  pageSize: DEFAULT_LIST_PAGE_SIZE,
+                                  onPageChange: setBankPage,
+                                }}
+                              />
+                            )}
+                          </>
                         )}
                       </div>
                     )}

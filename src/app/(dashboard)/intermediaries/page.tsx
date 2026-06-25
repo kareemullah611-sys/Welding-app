@@ -3,12 +3,13 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
+import { PageHeader, DataTable, Modal, formatNumber, formatDate, RowActionMenu } from "@/components/ui";
 import * as XLSX from "xlsx";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingIntermediaries } from "@/lib/offline-queue-overlays";
 import { applyPendingIntermediaryLedger } from "@/lib/offline-intermediary-ledger";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
+import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
 
 const INTERMEDIARIES_READ_CACHE_KEY = "mrf-intermediaries-read-cache-v1";
 
@@ -104,6 +105,25 @@ function calculateToAmount(
   return { toAmount: 0, operation: null, isPairValid: false };
 }
 
+function compactLedgerDescription(entry: { description?: string; type?: string }) {
+  const d = String(entry.description || "").trim();
+  if (!d) return "—";
+  if (entry.type === "deposit") {
+    return d
+      .replace(/^Deposit\s*/i, "Dep ")
+      .replace(/\s*via\s+/g, " · ")
+      .replace(/\([^)]+\)\s*/g, "")
+      .trim();
+  }
+  if (entry.type === "payment") {
+    return d.replace(/^Supplier payment — /i, "Pay · ");
+  }
+  if (entry.type === "exchange_out" || entry.type === "exchange_in") {
+    return d;
+  }
+  return d.length > 42 ? `${d.slice(0, 40)}…` : d;
+}
+
 export default function IntermediariesPage() {
   const { user } = useAuth();
   const { isOnline, queuedItems, updateQueuedItem, discardQueuedItem } = useOffline();
@@ -152,6 +172,7 @@ export default function IntermediariesPage() {
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
   const [ledgerPage, setLedgerPage] = useState(1);
+  const [openLedgerActionId, setOpenLedgerActionId] = useState<string | null>(null);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
 
@@ -239,6 +260,7 @@ export default function IntermediariesPage() {
     setCustomStartDate("");
     setCustomEndDate("");
     setLedgerPage(1);
+    setOpenLedgerActionId(null);
     setExchangeForm({ ...EMPTY_EXCHANGE });
     setExchangeError("");
     await loadRefData();
@@ -269,7 +291,7 @@ export default function IntermediariesPage() {
   };
 
   const buildLedgerParams = (id: number, page: number) => {
-    const params: any = { page, limit: 20 };
+    const params: any = { page, limit: DEFAULT_LIST_PAGE_SIZE };
     const dateFilter = ledgerDateFilter;
     if (dateFilter === "custom" && customStartDate && customEndDate) {
       params.startDate = customStartDate;
@@ -694,7 +716,13 @@ export default function IntermediariesPage() {
       key: "name", label: "Name",
       render: (row: any) => (
         <div className="flex items-center gap-2">
-          <span className="font-medium">{row.name}</span>
+          {!getPendingQueueId(row?.id) ? (
+            <button type="button" onClick={() => openLedger(row)} className="font-medium text-primary-600 hover:underline text-left">
+              {row.name}
+            </button>
+          ) : (
+            <span className="font-medium">{row.name}</span>
+          )}
           {!row.isActive && <span className="badge-cancelled text-xs">Inactive</span>}
         </div>
       ),
@@ -704,9 +732,6 @@ export default function IntermediariesPage() {
       key: "actions", label: "",
       render: (row: any) => (
         <div className="flex items-center gap-3">
-          {!getPendingQueueId(row?.id) && (
-            <button onClick={() => openLedger(row)} className="text-primary-600 hover:underline text-sm font-medium">Ledger</button>
-          )}
           <button onClick={() => openEdit(row)} className="text-amber-600 hover:underline text-sm">Edit</button>
           <button onClick={() => handleToggleActive(row)} className={`hover:underline text-sm ${row.isActive ? "text-red-600" : "text-green-600"}`}>
             {row.isActive ? "Deactivate" : "Reactivate"}
@@ -723,7 +748,6 @@ export default function IntermediariesPage() {
     <div>
       <PageHeader
         title="Intermediaries"
-        subtitle={`${intermediaries.length} intermediary accounts`}
         action={isSA && (
           <button onClick={() => { setForm({ name: "", notes: "" }); setFormError(""); setShowCreate(true); }} className="btn-primary text-sm">
             + Add Intermediary
@@ -774,185 +798,205 @@ export default function IntermediariesPage() {
         </div>
       </Modal>
 
-      <Modal open={showLedger} onClose={() => setShowLedger(false)} title={`Ledger — ${selected?.name}`} size="xl">
-        <div className="space-y-4">
-          <div className="flex items-center justify-between rounded-xl border border-[#d4d4d8] bg-[#f4f4f5]/90 px-3 py-2.5">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#8d755f]">Intermediary Ledger</p>
-              <p className="text-sm font-medium text-[#2A0608]">{selected?.name}</p>
+      <Modal open={showLedger} onClose={() => { setShowLedger(false); setOpenLedgerActionId(null); }} title={`Ledger — ${selected?.name}`} size="lg">
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-[#d4d4d8] bg-[#f4f4f5]/90 px-3 py-2">
+            <div className="flex flex-col items-start gap-1">
+              {ledger && Object.keys(ledger.balances || {}).length > 0 ? (
+                Object.entries(ledger.balances || {}).map(([code, amount]) => {
+                  const bal = Number(amount || 0);
+                  return (
+                    <span
+                      key={code}
+                      className={`rounded border px-2 py-0.5 text-xs font-medium tabular-nums ${bal >= 0 ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"}`}
+                    >
+                      {code} {formatNumber(bal)}
+                    </span>
+                  );
+                })
+              ) : (
+                <span className="text-xs text-gray-500">No balance</span>
+              )}
             </div>
-            <div className="flex items-center gap-2">
-              <button onClick={exportIntermediaryLedgerXlsx} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100">Export XLSX</button>
-              <button onClick={exportIntermediaryLedgerPdf} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100">Export PDF</button>
-              <button onClick={openExchangeModal} className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700">
-                + Exchange
-              </button>
-              <button onClick={openDeposit} className="btn-primary text-sm">
-                + Record Deposit
-              </button>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button onClick={exportIntermediaryLedgerXlsx} className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100">XLSX</button>
+              <button onClick={exportIntermediaryLedgerPdf} className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100">PDF</button>
+              <button onClick={openExchangeModal} className="rounded bg-amber-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-amber-700">+ FX</button>
+              <button onClick={openDeposit} className="btn-primary px-2 py-1 text-[11px]">+ Deposit</button>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50/60 px-3 py-2">
-            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Date:</span>
-            <select
-              value={ledgerDateFilter}
-              onChange={async (e) => {
-                setLedgerDateFilter(e.target.value);
-                setLedgerPage(1);
-                setLedgerLoading(true);
-                const params = buildLedgerParams(selected?.id, 1);
-                if (e.target.value === "custom") {
-                  if (customStartDate && customEndDate) {
-                    params.startDate = customStartDate;
-                    params.endDate = customEndDate;
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-gray-200 bg-gray-50/60 px-2.5 py-1.5 text-xs">
+            <label className="flex items-center gap-1.5 text-gray-600">
+              <span className="font-medium">Date</span>
+              <select
+                value={ledgerDateFilter}
+                onChange={async (e) => {
+                  setLedgerDateFilter(e.target.value);
+                  setLedgerPage(1);
+                  setLedgerLoading(true);
+                  const params = buildLedgerParams(selected?.id, 1);
+                  if (e.target.value === "custom") {
+                    if (customStartDate && customEndDate) {
+                      params.startDate = customStartDate;
+                      params.endDate = customEndDate;
+                    }
                   }
-                }
-                const r = await apiCall(`/api/v1/intermediaries/${selected?.id}`, { params });
-                if (r.success) {
-                  const ledgerPayload = applyPendingIntermediaryLedger(r.data as any, queuedItems as any, Number(selected?.id || 0), currencies as any);
-                  setLedger(ledgerPayload);
-                  setTotalPages((ledgerPayload?.pagination as any)?.totalPages || 1);
-                  setTotal((ledgerPayload?.pagination as any)?.total || 0);
-                }
-                setLedgerLoading(false);
-              }}
-              className="select-field text-sm py-1"
-            >
-              <option value="all">All</option>
-              <option value="7days">Last 7 Days</option>
-              <option value="month">This Month</option>
-              <option value="custom">Custom</option>
-            </select>
+                  const r = await apiCall(`/api/v1/intermediaries/${selected?.id}`, { params });
+                  if (r.success) {
+                    const ledgerPayload = applyPendingIntermediaryLedger(r.data as any, queuedItems as any, Number(selected?.id || 0), currencies as any);
+                    setLedger(ledgerPayload);
+                    setTotalPages((ledgerPayload?.pagination as any)?.totalPages || 1);
+                    setTotal((ledgerPayload?.pagination as any)?.total || 0);
+                  }
+                  setLedgerLoading(false);
+                }}
+                className="select-field py-0.5 text-xs"
+              >
+                <option value="all">All</option>
+                <option value="7days">7d</option>
+                <option value="month">Month</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
             {ledgerDateFilter === "custom" && (
               <>
-                <input
-                  type="date"
-                  value={customStartDate}
-                  onChange={e => setCustomStartDate(e.target.value)}
-                  className="input-field text-sm py-1 w-36"
-                />
-                <span className="text-gray-400">to</span>
-                <input
-                  type="date"
-                  value={customEndDate}
-                  onChange={e => setCustomEndDate(e.target.value)}
-                  className="input-field text-sm py-1 w-36"
-                />
+                <input type="date" value={customStartDate} onChange={e => setCustomStartDate(e.target.value)} className="input-field w-32 py-0.5 text-xs" />
+                <span className="text-gray-400">–</span>
+                <input type="date" value={customEndDate} onChange={e => setCustomEndDate(e.target.value)} className="input-field w-32 py-0.5 text-xs" />
               </>
             )}
-            <span className="ml-auto text-xs text-gray-400">
-              {total > 0 && `Page ${ledgerPage} of ${totalPages} (${total} entries)`}
-            </span>
-            {ledgerPage > 1 && (
-              <button onClick={() => handleLedgerPageChange(ledgerPage - 1)} className="text-xs text-gray-600 hover:text-gray-800">
-                ← Prev
+            <label className="flex items-center gap-1.5 text-gray-600">
+              <span className="font-medium">Ccy</span>
+              <select
+                value={ledgerCurrencyFilter}
+                onChange={e => setLedgerCurrencyFilter(e.target.value)}
+                className="select-field py-0.5 text-xs"
+              >
+                <option value="">All</option>
+                {currencies.map((c: any) => (
+                  <option key={c.id} value={c.code}>{c.code}</option>
+                ))}
+              </select>
+            </label>
+            {ledgerCurrencyFilter && (
+              <button onClick={() => setLedgerCurrencyFilter("")} className="text-gray-500 hover:text-gray-700 underline">
+                Clear
               </button>
             )}
+            <span className="ml-auto text-gray-400">
+              {total > 0 && `${ledgerPage}/${totalPages} · ${total}`}
+            </span>
+            {ledgerPage > 1 && (
+              <button onClick={() => handleLedgerPageChange(ledgerPage - 1)} className="text-gray-600 hover:text-gray-800">←</button>
+            )}
             {ledgerPage < totalPages && (
-              <button onClick={() => handleLedgerPageChange(ledgerPage + 1)} className="text-xs text-gray-600 hover:text-gray-800">
-                Next →
-              </button>
+              <button onClick={() => handleLedgerPageChange(ledgerPage + 1)} className="text-gray-600 hover:text-gray-800">→</button>
             )}
           </div>
 
           {ledgerLoading ? (
-            <div className="flex justify-center py-12">
-              <div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
+            <div className="flex justify-center py-10">
+              <div className="w-7 h-7 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
             </div>
           ) : ledger ? (
-            <>
-              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
-                {Object.entries(ledger.balances || {}).map(([code, amount]) => {
-                  const bal = Number(amount || 0);
-                  return (
-                    <div key={code} className={`rounded-lg border px-3 py-2.5 ${bal >= 0 ? "border-emerald-200 bg-emerald-50/40" : "border-red-200 bg-red-50/40"}`}>
-                      <div className="flex items-center justify-between">
-                        <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${bal >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>{localCurrencyName(code)}</span>
-                      </div>
-                      <p className={`mt-1.5 text-base font-bold tabular-nums ${bal >= 0 ? "text-emerald-700" : "text-red-700"}`}>
-                        {formatNumber(bal)}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50/60 px-3 py-2">
-                <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Filter by Currency:</span>
-                <select
-                  value={ledgerCurrencyFilter}
-                  onChange={e => setLedgerCurrencyFilter(e.target.value)}
-                  className="select-field text-sm py-1"
-                >
-                  <option value="">All</option>
-                  {currencies.map((c: any) => (
-                    <option key={c.id} value={c.code}>{c.code}</option>
-                  ))}
-                </select>
-                {ledgerCurrencyFilter && (
-                  <button onClick={() => setLedgerCurrencyFilter("")} className="text-xs text-gray-500 hover:text-gray-700 underline">
-                    Clear
-                  </button>
-                )}
-              </div>
-
-              <div className="rounded-xl border border-gray-200 overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-[#f4f4f5]">
-                        <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">Date</th>
-                        <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">Particulars</th>
-                        <th className="w-16 px-2 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wider text-gray-500">Ccy</th>
-                        <th className="w-28 px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-gray-500">Debit</th>
-                        <th className="w-28 px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-gray-500">Credit</th>
-                        <th className="w-32 px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-gray-500">Balance</th>
-                        <th className="w-20 px-2 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wider text-gray-500">Actions</th>
+            <div className="rounded-lg border border-gray-200 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full table-fixed text-xs">
+                  <colgroup>
+                    <col className="w-[76px]" />
+                    <col />
+                    <col className="w-[40px]" />
+                    <col className="w-[68px]" />
+                    <col className="w-[68px]" />
+                    <col className="w-[76px]" />
+                    <col className="w-[52px]" />
+                  </colgroup>
+                  <thead>
+                    <tr className="bg-[#f4f4f5] text-[10px] uppercase tracking-wide text-gray-500">
+                      <th className="px-2 py-1.5 text-left font-semibold">Date</th>
+                      <th className="px-2 py-1.5 text-left font-semibold">Detail</th>
+                      <th className="px-1 py-1.5 text-center font-semibold">Ccy</th>
+                      <th className="px-2 py-1.5 text-right font-semibold">Dr</th>
+                      <th className="px-2 py-1.5 text-right font-semibold">Cr</th>
+                      <th className="px-2 py-1.5 text-right font-semibold">Bal</th>
+                      <th className="px-1 py-1.5 text-center font-semibold"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(!ledger.ledger || ledger.ledger.length === 0) && (
+                      <tr><td colSpan={7} className="py-6 text-center text-gray-400">No ledger entries</td></tr>
+                    )}
+                    {(ledgerCurrencyFilter ? ledger.ledger?.filter((e: any) => e.currencyCode === ledgerCurrencyFilter) : ledger.ledger)?.map((entry: any, i: number) => (
+                      <tr key={i} className="border-t border-[#e4e4e7] hover:bg-[#f5e8eb]">
+                        <td className="whitespace-nowrap px-2 py-1.5 text-gray-600">{formatDate(entry.date)}</td>
+                        <td className="px-2 py-1.5 text-gray-800 truncate" title={entry.description}>
+                          {compactLedgerDescription(entry)}
+                        </td>
+                        <td className="px-1 py-1.5 text-center text-[10px] font-semibold text-gray-600">{entry.currencyCode}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums text-green-700">{entry.debit > 0 ? formatNumber(entry.debit) : "—"}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums text-red-700">{entry.credit > 0 ? formatNumber(entry.credit) : "—"}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-gray-800">{formatNumber(entry.balance)}</td>
+                        <td className="px-1 py-1.5 text-center">
+                          {entry.type === "deposit" && !entry._pending && (() => {
+                            const actionKey = `deposit-${entry.id}`;
+                            return (
+                              <RowActionMenu
+                                open={openLedgerActionId === actionKey}
+                                onOpenChange={(open) => setOpenLedgerActionId(open ? actionKey : null)}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => { setOpenLedgerActionId(null); void openEditDeposit(entry); }}
+                                  className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => { setOpenLedgerActionId(null); void handleDeleteDeposit(entry.id); }}
+                                  className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs"
+                                >
+                                  Delete
+                                </button>
+                              </RowActionMenu>
+                            );
+                          })()}
+                          {entry.type === "exchange_out" && !entry._pending && (() => {
+                            const exch = ledger?.exchangeHistory?.find((ex: any) => ex.id === entry.id);
+                            if (!exch) return null;
+                            const actionKey = `exchange-${entry.id}`;
+                            return (
+                              <RowActionMenu
+                                open={openLedgerActionId === actionKey}
+                                onOpenChange={(open) => setOpenLedgerActionId(open ? actionKey : null)}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => { setOpenLedgerActionId(null); void openEditExchange(exch); }}
+                                  className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => { setOpenLedgerActionId(null); void handleDeleteExchange(exch.id); }}
+                                  className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs"
+                                >
+                                  Delete
+                                </button>
+                              </RowActionMenu>
+                            );
+                          })()}
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {(!ledger.ledger || ledger.ledger.length === 0) && (
-                        <tr><td colSpan={7} className="py-8 text-center text-sm text-gray-400">No ledger entries</td></tr>
-                      )}
-                      {(ledgerCurrencyFilter ? ledger.ledger?.filter((e: any) => e.currencyCode === ledgerCurrencyFilter) : ledger.ledger)?.map((entry: any, i: number) => (
-                        <tr key={i} className="border-t border-[#e4e4e7] hover:bg-[#f5e8eb]">
-                          <td className="whitespace-nowrap px-3 py-2.5 text-xs text-gray-600">{formatDate(entry.date)}</td>
-                          <td className="max-w-xs px-3 py-2.5 text-sm text-gray-800">
-                            <span className="line-clamp-1">{entry.description}</span>
-                          </td>
-                          <td className="px-2 py-2.5 text-center">
-                            <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">{entry.currencyCode}</span>
-                          </td>
-                          <td className="px-3 py-2.5 text-right text-sm font-medium tabular-nums text-green-700">{entry.debit > 0 ? formatNumber(entry.debit) : "—"}</td>
-                          <td className="px-3 py-2.5 text-right text-sm font-medium tabular-nums text-red-700">{entry.credit > 0 ? formatNumber(entry.credit) : "—"}</td>
-                          <td className="px-3 py-2.5 text-right text-sm font-bold tabular-nums text-gray-800">{formatNumber(entry.balance)}</td>
-                          <td className="px-2 py-2.5 text-center">
-                            {entry.type === "deposit" && !entry._pending && (
-                              <div className="flex items-center justify-center gap-1.5">
-                                <button onClick={() => openEditDeposit(entry)} className="rounded px-1.5 py-0.5 text-xs text-amber-700 hover:bg-amber-100">Edit</button>
-                                <button onClick={() => handleDeleteDeposit(entry.id)} className="rounded px-1.5 py-0.5 text-xs text-red-700 hover:bg-red-100">Del</button>
-                              </div>
-                            )}
-                            {entry.type === "exchange_out" && !entry._pending && (() => {
-                              const exch = ledger?.exchangeHistory?.find((ex: any) => ex.id === entry.id);
-                              return exch ? (
-                                <div className="flex items-center justify-center gap-1.5">
-                                  <button onClick={() => openEditExchange(exch)} className="rounded px-1.5 py-0.5 text-xs text-amber-700 hover:bg-amber-100">Edit</button>
-                                  <button onClick={() => handleDeleteExchange(exch.id)} className="rounded px-1.5 py-0.5 text-xs text-red-700 hover:bg-red-100">Del</button>
-                                </div>
-                              ) : null;
-                            })()}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            </>
+            </div>
           ) : (
-            <div className="text-center py-12 text-gray-400">No data available</div>
+            <div className="text-center py-10 text-gray-400">No data available</div>
           )}
         </div>
       </Modal>

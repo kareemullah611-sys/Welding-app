@@ -9,10 +9,10 @@ import { apiCall } from "@/hooks/useApi";
 import BrandLogo from "@/components/brand/BrandLogo";
 import {
   LayoutDashboard, Package, Factory, Banknote, Handshake,
-  BookOpen, Receipt, Wallet, Users, Warehouse, ClipboardList,
+  BookOpen, Receipt, Wallet, Users, ClipboardList,
   ArrowLeftRight, TrendingUp, BarChart2, FileText, Search,
   Activity, Settings, LogOut, ChevronLeft, ChevronRight,
-  Menu, FileCheck, Landmark, BotMessageSquare, PiggyBank, X, ChevronDown, type LucideIcon,
+  Menu, FileCheck, Landmark, BotMessageSquare, PiggyBank, X, ChevronDown, Lock, type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +40,7 @@ interface NavItemDef {
   href: string;
   icon: LucideIcon;
   roles: string[];
+  locked?: boolean;
 }
 
 const superAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
@@ -52,7 +53,7 @@ const superAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
   {
     label: "Procurement",
     items: [
-      { label: "Lots",             key: "lots",             href: "/lots",             icon: Package,     roles: ["super_admin"] },
+      { label: "Lots",             key: "lots",             href: "/lots",             icon: Package,     roles: ["super_admin", "city_admin"] },
       { label: "Investors",        key: "investors",        href: "/investors",        icon: PiggyBank,   roles: ["super_admin"] },
     ],
   },
@@ -83,7 +84,6 @@ const superAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
   {
     label: "Stock & Movement",
     items: [
-      { label: "Godowns",        key: "godowns",        href: "/godowns",        icon: Warehouse,     roles: ["city_admin"] },
       { label: "Inventory",      key: "inventory",      href: "/inventory",      icon: ClipboardList, roles: ["super_admin", "city_admin"] },
       { label: "City Transfers", key: "city_transfers", href: "/city-transfers", icon: ArrowLeftRight,roles: ["city_admin"] },
     ],
@@ -101,7 +101,7 @@ const superAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
     label: "Search & Audit",
     items: [
       { label: "Search",        key: "search",        href: "/search",        icon: Search,          roles: ["super_admin", "city_admin"] },
-      { label: "Activity Feed", key: "activity_feed", href: "/activity-feed", icon: Activity,        roles: ["super_admin", "city_admin"] },
+      { label: "Activity Feed", key: "activity_feed", href: "/activity-feed", icon: Activity,        roles: ["super_admin"] },
       { label: "AI Assistant",  key: "assistant",     href: "/assistant",     icon: BotMessageSquare,roles: ["super_admin"] },
     ],
   },
@@ -131,6 +131,7 @@ const cityAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
   {
     label: "Stock",
     items: [
+      { label: "Lots",      key: "lots",      href: "/lots",      icon: Package,       roles: ["city_admin"] },
       { label: "Inventory", key: "inventory", href: "/inventory", icon: ClipboardList, roles: ["city_admin"] },
     ],
   },
@@ -146,7 +147,7 @@ const cityAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
     label: "Reports",
     items: [
       { label: "Reports", key: "reports", href: "/reports", icon: FileText, roles: ["city_admin"] },
-      { label: "Audit", key: "audit", href: "/activity-feed", icon: Activity, roles: ["city_admin"] },
+      { label: "Audit", key: "audit", href: "/activity-feed", icon: Activity, roles: ["city_admin"], locked: true },
       { label: "Openings", key: "openings", href: "/openings", icon: ClipboardList, roles: ["city_admin"] },
       { label: "Settings", key: "settings", href: "/settings", icon: Settings, roles: ["city_admin"] },
     ],
@@ -329,28 +330,25 @@ export default function Sidebar() {
 
   const renderNavItem = (item: NavItemDef, nested = false) => {
     const Icon = item.icon;
-    const isActive = item.href === activeHref;
+    const isActive = !item.locked && item.href === activeHref;
     const label =
       (() => {
         const translated = t(item.key);
         return translated === item.key ? item.label : translated;
       })();
 
-    return (
-      <Link
-        key={item.href}
-        href={item.href}
-        scroll={false}
-        onClick={() => setMobileOpen(false)}
-        title={collapsed ? label : undefined}
-        className={cn(
-          "group relative flex items-center rounded-xl text-[13px] font-semibold transition-all duration-200",
-          collapsed ? "justify-center px-0 py-2.5 mx-0" : cn("gap-2.5", nested ? "pl-3 pr-3 ml-1 py-2" : "px-3 py-2.5"),
-          isActive
-            ? "bg-[linear-gradient(135deg,#6B0F1A_0%,#8B1A1A_100%)] text-white shadow-[0_8px_20px_-8px_rgba(107,15,26,0.45)]"
-            : "text-[#3f3f46] bg-white border border-[#E4E4E7] hover:text-[#18181b] hover:border-[#A1A1AA] hover:shadow-sm"
-        )}
-      >
+    const itemShellClass = cn(
+      "group relative flex items-center rounded-xl text-[13px] font-semibold transition-all duration-200",
+      collapsed ? "justify-center px-0 py-2.5 mx-0" : cn("gap-2.5", nested ? "pl-3 pr-3 ml-1 py-2" : "px-3 py-2.5"),
+      item.locked
+        ? "cursor-not-allowed border border-dashed border-[#D4D4D8] bg-[#fafafa] text-[#52525b] select-none"
+        : isActive
+          ? "bg-[linear-gradient(135deg,#6B0F1A_0%,#8B1A1A_100%)] text-white shadow-[0_8px_20px_-8px_rgba(107,15,26,0.45)]"
+          : "text-[#3f3f46] bg-white border border-[#E4E4E7] hover:text-[#18181b] hover:border-[#A1A1AA] hover:shadow-sm"
+    );
+
+    const itemBody = (
+      <>
         {isActive && !collapsed && (
           <span
             className={cn(
@@ -364,21 +362,52 @@ export default function Sidebar() {
             className={cn(
               nested ? "w-[15px] h-[15px]" : "w-[17px] h-[17px]",
               "transition-colors",
-              isActive ? "text-white" : "text-[#6B0F1A] group-hover:text-[#6B0F1A]"
+              isActive ? "text-white" : item.locked ? "text-[#71717a]" : "text-[#6B0F1A] group-hover:text-[#6B0F1A]"
             )}
           />
-          {item.href === "/city-transfers" && pendingTransfers > 0 && (
+          {item.href === "/city-transfers" && pendingTransfers > 0 && !item.locked && (
             <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-[14px] bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
               {pendingTransfers > 9 ? "9+" : pendingTransfers}
             </span>
           )}
         </div>
-        {!collapsed && <span className="truncate flex-1 leading-none">{label}</span>}
-        {!collapsed && item.href === "/city-transfers" && pendingTransfers > 0 && (
+        {!collapsed && (
+          <span className="truncate flex-1 leading-none">{label}</span>
+        )}
+        {!collapsed && item.locked && (
+          <Lock className="ml-auto h-3.5 w-3.5 flex-shrink-0 text-[#71717a]" aria-hidden />
+        )}
+        {!collapsed && item.href === "/city-transfers" && pendingTransfers > 0 && !item.locked && (
           <span className="ml-auto bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none flex-shrink-0">
             {pendingTransfers > 99 ? "99+" : pendingTransfers}
           </span>
         )}
+      </>
+    );
+
+    if (item.locked) {
+      return (
+        <div
+          key={item.href}
+          aria-disabled="true"
+          title={collapsed ? `${label} — ${t("super_admin_only")}` : t("super_admin_only")}
+          className={itemShellClass}
+        >
+          {itemBody}
+        </div>
+      );
+    }
+
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        scroll={false}
+        onClick={() => setMobileOpen(false)}
+        title={collapsed ? label : undefined}
+        className={itemShellClass}
+      >
+        {itemBody}
       </Link>
     );
   };
@@ -398,7 +427,6 @@ export default function Sidebar() {
         {!collapsed && (
           <div className="min-w-0">
             <p className="text-[#2A0608] font-bold text-sm leading-tight tracking-tight">MRF Hardware</p>
-            <p className="text-[#71717a] text-[10px] uppercase tracking-[0.24em] mt-0.5">Operations Suite</p>
           </div>
         )}
       </div>

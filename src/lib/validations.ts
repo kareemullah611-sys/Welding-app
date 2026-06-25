@@ -246,7 +246,7 @@ export const createLotCostSchema = z.object({
   description: z.string().min(1).max(500),
   amount: z.number().positive(),
   currencyCode: z.string().max(10).default("USD"),
-  exchangeRate: z.number().positive().optional(),
+  exchangeRate: z.number().positive().nullish(),
   costDate: z.string().optional(),
   supplierId: z.number().int().positive().optional().nullable(),
   agentId: z.number().int().optional().nullable(),
@@ -255,7 +255,7 @@ export const createLotCostSchema = z.object({
   superAdminBankAccountId: z.number().int().positive().optional().nullable(),
   intermediaryId: z.number().int().positive().optional().nullable(),
   paidFromCash: z.boolean().optional(),
-  notes: z.string().optional(),
+  notes: z.string().nullish(),
 });
 
 // ============================================================
@@ -272,5 +272,7 @@ export const createSupplierPaymentSchema = z.object({
   reference: z.string().max(200).optional(),
   notes: z.string().optional(),
   bankAccountId: z.number().int().positive().optional(),
+  superAdminBankAccountId: z.number().int().positive().optional(),
+  superAdminCashAccountId: z.number().int().positive().optional(),
   intermediaryId: z.number().int().positive().optional(),
 });

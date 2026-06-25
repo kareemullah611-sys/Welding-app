@@ -81,8 +81,8 @@ DATABASE_URL=... npm run db:restore -- ./backups/<file>.dump
 | Super Admin | superadmin | admin123 |
 | Quetta Admin | quetta_admin | city123 |
 | Lahore Admin | lahore_admin | city123 |
-| Kabul Admin | kabul_admin | city123 |
-| Herat Admin | herat_admin | city123 |
+| Saif Uddin Admin | kabul_admin | city123 |
+| Abdul Khaliq Admin | herat_admin | city123 |
 
 ## Architecture
 

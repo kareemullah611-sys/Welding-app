@@ -47,3 +47,25 @@ export function formatCityPot(
   }
   return entries.map(([cc, amt]) => `${cc} ${formatNumber(amt)}`).join(" · ");
 }
+
+export function formatCurrencySelectLabel(currency: { code?: string; symbol?: string | null }): string {
+  const code = String(currency.code || "").trim();
+  const symbol = String(currency.symbol || "").trim();
+  if (!symbol || symbol === code) return code || "—";
+  return `${code} (${symbol})`;
+}
+
+export function ledgerCurrencyLabel(symbol?: string | null, code?: string | null): string {
+  return String(symbol || code || "").trim();
+}
+
+export function formatLedgerMoneyAmount(
+  amount: number | null | undefined,
+  symbol?: string | null,
+  code?: string | null,
+): string {
+  if (amount == null || !Number.isFinite(Number(amount)) || Number(amount) === 0) return "";
+  const label = ledgerCurrencyLabel(symbol, code);
+  const formatted = formatNumber(amount);
+  return label ? `${label} ${formatted}` : formatted;
+}

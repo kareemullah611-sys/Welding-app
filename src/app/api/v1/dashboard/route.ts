@@ -4,6 +4,7 @@ import { withAuth } from "@/lib/middleware";
 import { successResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { SaleStatus } from "@prisma/client";
+import { computeOngoingLotHajiOwedByCity, computeOngoingLotHajiOwedForCity } from "@/lib/ongoing-lot-haji-owed";
 
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
@@ -19,7 +20,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const [salesByC, paymentsByC, hajiByC, wdByC, expByC, openingCashByC, openingCustomerByC, cartonsSold] = await Promise.all([
       prisma.sale.groupBy({
         by: ["currencyId"],
-        where: { ...cityFilter, status: { in: includedSaleStatuses } },
+        where: { ...cityFilter, status: { in: includedSaleStatuses }, isOpeningImport: false },
         _sum: { totalAmount: true },
       }),
       prisma.payment.groupBy({
@@ -96,20 +97,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       expenseByCurrency[currCode[e.currencyId]] = Number(e._sum.amount || 0);
     }
 
-    // Direct-to-haji payments
-    const directHajiPayments: Record<string, number> = {};
-    for (const p of paymentsByC.filter((p) => p.destination === "haji")) {
-      const code = currCode[p.currencyId];
-      directHajiPayments[code] = (directHajiPayments[code] || 0) + Number(p._sum.amount || 0);
-    }
-
-    // True "Owed to Haji" = sales - expenses - direct-to-haji payments - haji transfers
-    const hajiByCurrency: Record<string, number> = {};
-    const allCurrencies = Array.from(new Set([...Object.keys(salesByCurrency), ...Object.keys(expenseByCurrency), ...Object.keys(directHajiPayments), ...Object.keys(hajiTransferByCurrency)]));
-    for (const cc of allCurrencies) {
-      const owed = (salesByCurrency[cc] || 0) - (expenseByCurrency[cc] || 0) - (directHajiPayments[cc] || 0) - (hajiTransferByCurrency[cc] || 0);
-      hajiByCurrency[cc] = Math.round(owed * 100) / 100;
-    }
+    // Owed to Haji = net unsettled on ongoing lots only (no opening Haji balance)
+    const hajiByCurrency = cityId
+      ? await computeOngoingLotHajiOwedForCity(cityId)
+      : {};
 
     const result: any = {
       outstandingByCurrency,
@@ -184,11 +175,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     // ── Cities overview (super admin) ─────────────────────────────────────────
     // Single batch of 6 cross-city groupBy queries instead of N×6 per-city queries
     if (user.role === "super_admin") {
-      const [cities, cSales, cPayments, cExpenses, cHaji, cWd, cOpeningCash, cOpeningCustomer, ongoingLotRows] = await Promise.all([
+      const [cities, cSales, cPayments, cExpenses, cHaji, cWd, cOpeningCash, cOpeningCustomer, ongoingLotRows, hajiOwedByCity] = await Promise.all([
         prisma.city.findMany({ where: { isActive: true }, include: { country: true } }),
         prisma.sale.groupBy({
           by: ["cityId", "currencyId"],
-          where: { status: { in: includedSaleStatuses } },
+          where: { status: { in: includedSaleStatuses }, isOpeningImport: false },
           _sum: { totalAmount: true },
         }),
         prisma.payment.groupBy({
@@ -222,6 +213,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           select: { cityId: true, lotId: true },
           distinct: ["cityId", "lotId"],
         }),
+        computeOngoingLotHajiOwedByCity(),
       ]);
       const activeLotsByCity: Record<number, number> = {};
       for (const row of ongoingLotRows) {
@@ -251,30 +243,23 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       result.citiesOverview = cities.map((city) => {
         const cid = city.id;
         const outByCurr: Record<string, number> = {};
-        const hajiByCurr: Record<string, number> = {};
+        const hajiByCurr: Record<string, number> = { ...(hajiOwedByCity.get(cid) || {}) };
         const wdByCurr: Record<string, number> = {};
         const cashByCurr: Record<string, number> = {};
 
         for (const s of cSales.filter((s) => s.cityId === cid)) {
           const code = currCode[s.currencyId];
           outByCurr[code] = (outByCurr[code] || 0) + Number(s._sum.totalAmount || 0);
-          // Sales increase what is owed to Haji
-          hajiByCurr[code] = (hajiByCurr[code] || 0) + Number(s._sum.totalAmount || 0);
         }
         for (const p of cPayments.filter((p) => p.cityId === cid)) {
           const code = currCode[p.currencyId];
           outByCurr[code] = (outByCurr[code] || 0) - Number(p._sum.amount || 0);
           if (p.destination === "our_account") {
             cashByCurr[code] = (cashByCurr[code] || 0) + Number(p._sum.amount || 0);
-          } else {
-            // Direct-to-haji payments reduce what is owed
-            hajiByCurr[code] = (hajiByCurr[code] || 0) - Number(p._sum.amount || 0);
           }
         }
         for (const h of cHaji.filter((h) => h.cityId === cid)) {
           const code = currCode[h.currencyId];
-          // Haji transfers reduce what is owed
-          hajiByCurr[code] = (hajiByCurr[code] || 0) - Number(h._sum.amount || 0);
           if (h.transferType === "from_in_hand") {
             cashByCurr[code] = (cashByCurr[code] || 0) - Number(h._sum.amount || 0);
           }
@@ -287,8 +272,6 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         for (const e of cExpenses.filter((e) => e.cityId === cid)) {
           const code = currCode[e.currencyId];
           cashByCurr[code] = (cashByCurr[code] || 0) - Number(e._sum.amount || 0);
-          // Expenses reduce what is owed to Haji
-          hajiByCurr[code] = (hajiByCurr[code] || 0) - Number(e._sum.amount || 0);
         }
         for (const o of cOpeningCash.filter((o) => o.cityId === cid)) {
           const code = currCode[o.currencyId];

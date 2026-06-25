@@ -35,17 +35,17 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const [sales, payments, expenses, withdrawals, hajiTransfers, bankDeposits] = await Promise.all([
       prisma.sale.findMany({
         where: { cityId, status: { in: ["active", "marked_short"] }, ...dateFilter("saleDate") },
-        include: { customer: { select: { name: true } }, currency: true, lot: { select: { lotNumber: true } } },
+        include: { customer: { select: { name: true } }, currency: true, lot: { select: { lotNumber: true, status: true } } },
         orderBy: { saleDate: "asc" },
       }),
       prisma.payment.findMany({
         where: { cityId, status: "active", ...dateFilter("paymentDate") },
-        include: { customer: { select: { name: true } }, currency: true, lot: { select: { lotNumber: true } } },
+        include: { customer: { select: { name: true } }, currency: true, lot: { select: { lotNumber: true, status: true } } },
         orderBy: { paymentDate: "asc" },
       }),
       prisma.expense.findMany({
         where: { cityId, deletedAt: null, ...dateFilter("expenseDate") },
-        include: { currency: true, lot: { select: { lotNumber: true } } },
+        include: { currency: true, lot: { select: { lotNumber: true, status: true } } },
         orderBy: { expenseDate: "asc" },
       }),
       prisma.personalWithdrawal.findMany({
@@ -55,7 +55,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       }),
       prisma.hajiTransfer.findMany({
         where: { cityId, ...dateFilter("transferDate") },
-        include: { currency: true, lot: { select: { lotNumber: true } } },
+        include: { currency: true, lot: { select: { lotNumber: true, status: true } } },
         orderBy: { transferDate: "asc" },
       }),
       prisma.bankDeposit.findMany({
@@ -69,24 +69,31 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const entries: any[] = [];
 
     for (const s of sales) {
+      const isOpeningImport = Boolean((s as any).isOpeningImport);
       entries.push({
         date: s.saleDate.toISOString().split("T")[0],
-        type: "sale", category: "Revenue",
+        type: "sale", category: isOpeningImport ? "Historical sale (opening)" : "Revenue",
         description: `Sale to ${s.customer.name} (V# ${s.voucherNo})`,
-        debit: Number(s.totalAmount), credit: 0,
+        debit: isOpeningImport ? 0 : Number(s.totalAmount),
+        credit: 0,
+        hajiDebit: s.lot.status === "ongoing" ? Number(s.totalAmount) : 0,
         currency: s.currency.code, lot: s.lot.lotNumber,
         account: "Receivables", counterAccount: "Revenue",
+        lotStatus: s.lot.status,
       });
     }
 
     for (const p of payments) {
       const isInHand = p.destination === "our_account";
+      const hajiCredit = p.destination === "haji" && p.lot.status === "ongoing" ? Number(p.amount) : 0;
       entries.push({
         date: p.paymentDate.toISOString().split("T")[0],
         type: "payment", category: isInHand ? "Cash In" : "Direct to Haji",
         description: `${p.detail} from ${p.customer.name} (${p.paymentMethod})`,
         debit: 0, credit: Number(p.amount),
+        hajiCredit,
         currency: p.currency.code, lot: p.lot.lotNumber,
+        lotStatus: p.lot.status,
         account: isInHand ? "Cash In Hand" : "Haji Account",
         counterAccount: "Receivables",
         method: p.paymentMethod, destination: p.destination,
@@ -99,7 +106,9 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         type: "expense", category: "Expense",
         description: e.detail,
         debit: Number(e.amount), credit: 0,
+        hajiCredit: e.lot.status === "ongoing" ? Number(e.amount) : 0,
         currency: e.currency.code, lot: e.lot.lotNumber,
+        lotStatus: e.lot.status,
         account: "Expenses", counterAccount: "Cash In Hand",
       });
     }
@@ -121,7 +130,9 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         type: "haji_transfer", category: "Transfer to Haji",
         description: `${h.detail} (${h.transferType === "direct" ? "Direct" : "From In-Hand"})`,
         debit: Number(h.amount), credit: 0,
+        hajiCredit: h.lot.status === "ongoing" ? Number(h.amount) : 0,
         currency: h.currency.code, lot: h.lot.lotNumber,
+        lotStatus: h.lot.status,
         account: "Haji Account", counterAccount: h.transferType === "from_in_hand" ? "Cash In Hand" : "Bank",
         transferType: h.transferType,
       });
@@ -161,13 +172,27 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       receivablesByCurr[cc] = receivablesByCurr[cc] || 0;
       hajiOwedByCurr[cc] = hajiOwedByCurr[cc] || 0;
 
-      if (e.type === "sale") { receivablesByCurr[cc] += e.debit; hajiOwedByCurr[cc] += e.debit; }
+      if (e.type === "sale") {
+        receivablesByCurr[cc] += Number(e.debit || 0);
+        hajiOwedByCurr[cc] += Number(e.hajiDebit || 0);
+      }
       if (e.type === "payment" && e.destination === "our_account") { cashByCurr[cc] += e.credit; receivablesByCurr[cc] -= e.credit; }
-      if (e.type === "payment" && e.destination === "haji") { receivablesByCurr[cc] -= e.credit; hajiOwedByCurr[cc] -= e.credit; }
-      if (e.type === "expense") { cashByCurr[cc] -= e.debit; hajiOwedByCurr[cc] -= e.debit; }
+      if (e.type === "payment" && e.destination === "haji") {
+        receivablesByCurr[cc] -= e.credit;
+        hajiOwedByCurr[cc] -= Number(e.hajiCredit || 0);
+      }
+      if (e.type === "expense") {
+        cashByCurr[cc] -= e.debit;
+        hajiOwedByCurr[cc] -= Number(e.hajiCredit || 0);
+      }
       if (e.type === "withdrawal") { cashByCurr[cc] -= e.debit; }
-      if (e.type === "haji_transfer" && e.transferType === "from_in_hand") { cashByCurr[cc] -= e.debit; hajiOwedByCurr[cc] -= e.debit; }
-      if (e.type === "haji_transfer" && e.transferType === "direct") { hajiOwedByCurr[cc] -= e.debit; }
+      if (e.type === "haji_transfer" && e.transferType === "from_in_hand") {
+        cashByCurr[cc] -= e.debit;
+        hajiOwedByCurr[cc] -= Number(e.hajiCredit || 0);
+      }
+      if (e.type === "haji_transfer" && e.transferType === "direct") {
+        hajiOwedByCurr[cc] -= Number(e.hajiCredit || 0);
+      }
       if (e.type === "bank_cash_transfer" && e.category === "Cash to Bank") { cashByCurr[cc] -= e.debit; }
       if (e.type === "bank_cash_transfer" && e.category === "Bank to Cash") { cashByCurr[cc] += e.credit; }
 

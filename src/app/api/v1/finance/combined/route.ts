@@ -4,7 +4,7 @@ import { withAuth, getCityScope } from "@/lib/middleware";
 import { successResponse, paginatedResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { getPaymentHajiAuditStateMap, isHajiAuditEligible } from "@/lib/payment-audit";
-import { computeCityTreasuryNet, computeRunningBalances } from "@/lib/treasury-ledger";
+import { computeCityTreasuryNet, computeRunningBalances, buildPaymentCancellationReversalRow } from "@/lib/treasury-ledger";
 
 export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayload) => {
   try {
@@ -103,30 +103,34 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         orderBy: [{ paymentDate: "desc" }, { id: "desc" }],
       } as any);
       const hajiAuditStateById = await getPaymentHajiAuditStateMap(payments.map((p) => p.id));
-      combined.push(...(payments as any[]).map((p: any) => ({
-        id: p.id,
-        type: "payment",
-        date: p.paymentDate.toISOString().split("T")[0],
-        detail: p.detail,
-        amount: Number(p.amount),
-        currencySymbol: p.currency.symbol,
-        currencyCode: p.currency.code,
-        person: p.customer?.name ?? null,
-        cityName: (p as any).city?.name ?? null,
-        status: p.status,
-        raw: {
-          ...p,
+      for (const p of payments as any[]) {
+        combined.push({
+          id: p.id,
+          type: "payment",
+          date: p.paymentDate.toISOString().split("T")[0],
+          detail: p.detail,
           amount: Number(p.amount),
-          exchangeRate: p.exchangeRate ? Number(p.exchangeRate) : null,
-          usdEquivalent: p.usdEquivalent ? Number(p.usdEquivalent) : null,
-          bankAccount: (p as any).bankAccount ?? null,
-          bankAccountId: (p as any).bankAccountId ?? null,
-          superAdminBankAccount: (p as any).superAdminBankAccount ?? null,
-          superAdminBankAccountId: (p as any).superAdminBankAccountId ?? null,
-          hajiAudit: isHajiAuditEligible(p) ? (hajiAuditStateById[p.id] || null) : null,
-          attachments: (p as any).attachments ?? [],
-        },
-      })));
+          currencySymbol: p.currency.symbol,
+          currencyCode: p.currency.code,
+          person: p.customer?.name ?? null,
+          cityName: (p as any).city?.name ?? null,
+          status: p.status,
+          raw: {
+            ...p,
+            amount: Number(p.amount),
+            exchangeRate: p.exchangeRate ? Number(p.exchangeRate) : null,
+            usdEquivalent: p.usdEquivalent ? Number(p.usdEquivalent) : null,
+            bankAccount: (p as any).bankAccount ?? null,
+            bankAccountId: (p as any).bankAccountId ?? null,
+            superAdminBankAccount: (p as any).superAdminBankAccount ?? null,
+            superAdminBankAccountId: (p as any).superAdminBankAccountId ?? null,
+            hajiAudit: isHajiAuditEligible(p) ? (hajiAuditStateById[p.id] || null) : null,
+            attachments: (p as any).attachments ?? [],
+          },
+        });
+        const reversal = buildPaymentCancellationReversalRow(p);
+        if (reversal) combined.push(reversal);
+      }
     }
 
     // ── Expenses ──────────────────────────────────────────────────────────────

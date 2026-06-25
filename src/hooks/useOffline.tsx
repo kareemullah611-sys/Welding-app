@@ -8,8 +8,8 @@ import {
   OFFLINE_LOCAL_READ_MODEL_STORE,
   OFFLINE_QUEUE_STORE,
   OFFLINE_STOCK_STORE,
+  isPackagedOfflineActive,
   buildApiCacheKey,
-  isPackagedOfflineRuntime,
 } from "@/lib/offline-cache";
 import {
   probeServerReachable,
@@ -35,6 +35,7 @@ import {
   isFullSyncCompleted,
   type SyncMeta,
 } from "@/lib/offline-full-sync";
+import { isOfflineFeaturesEnabled } from "@/lib/offline-features";
 import { tryBootstrapBundledOfflineSeed } from "@/lib/offline-seed-bootstrap";
 
 const FULL_SYNC_DATA_STORE = "full_sync_data";
@@ -237,7 +238,7 @@ async function reconcileSyncedIds(item: QueuedRequest, responsePayload: unknown)
 // ── Provider ───────────────────────────────────────────────────────────────────
 export function OfflineProvider({ children }: { children: React.ReactNode }) {
   const [offlineEnabled, setOfflineEnabled] = useState(false);
-  const [isOnline, setIsOnline]           = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
   const [isServiceWorkerReady, setIsServiceWorkerReady] = useState(false);
   const [queueCount, setQueueCount]       = useState(0);
   const [queuedItems, setQueuedItems]     = useState<QueuedRequest[]>([]);
@@ -248,7 +249,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
   const syncLockRef = useRef(false);
 
   useEffect(() => {
-    setOfflineEnabled(isPackagedOfflineRuntime());
+    setOfflineEnabled(isPackagedOfflineActive());
   }, []);
 
   // Packaged apps: isOnline = server reachable (not Wi‑Fi). Browser stays always online.
@@ -284,11 +285,18 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     };
   }, [offlineEnabled]);
 
-  // ── Service worker (browser/PWA only — breaks API proxy in Electron) ──
+  // ── Service worker (browser/PWA only — skip in dev/Electron; SW breaks API in local dev) ──
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (!isOfflineFeaturesEnabled()) {
+      void navigator.serviceWorker?.getRegistrations?.().then((regs) => {
+        regs.forEach((r) => void r.unregister());
+      });
+      return;
+    }
+    const isDev = process.env.NODE_ENV === "development";
     const isElectron = window.platformInfo?.runtime === "electron";
-    if (isElectron) {
+    if (isElectron || isDev) {
       void navigator.serviceWorker?.getRegistrations?.().then((regs) => {
         regs.forEach((r) => void r.unregister());
       });

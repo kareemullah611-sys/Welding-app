@@ -205,7 +205,7 @@ export default function AnalyticsClient() {
 
   return (
     <div>
-      <PageHeader title="Analytics" subtitle="Sales, payments & operational insights" />
+      <PageHeader title="Analytics" />
       {showOfflineSnapshot && (
         <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           Showing last synced data (offline mode).

@@ -5,14 +5,17 @@ import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, DataTable, Modal, StatusBadge, formatCurrency, formatDate, RowActionMenu } from "@/components/ui";
-import CustomerSearch from "@/components/CustomerSearch";
+import { PageHeader, DataTable, Modal, StatusBadge, formatCurrency, formatDate, RowActionMenu, MobileDateInput } from "@/components/ui";
+import CustomerFieldWithNew from "@/components/CustomerFieldWithNew";
 import { useLang } from "@/lib/lang";
 import { safeParseQueuedBody } from "@/lib/queue-resolve";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { getEmbedQuickformPath } from "@/lib/quickform-embed";
+import { getEmbedQuickformPath, shouldSimplifyCityModals } from "@/lib/quickform-embed";
+import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import { LedgerExportButtons } from "@/components/LedgerExportButtons";
+import { formatCurrencySelectLabel } from "@/lib/city-money-format";
 
 const SALES_FORM_CACHE_KEY = "mrf-sales-form-cache-v1";
 const SALES_READ_CACHE_KEY = "mrf-sales-read-cache-v1";
@@ -116,6 +119,7 @@ export default function SalesPage() {
   const { t } = useLang();
   const searchParams = useSearchParams();
   const isEmbed = useQuickformEmbed();
+  const simplifyModals = shouldSimplifyCityModals(user, isEmbed);
   const { isOnline, enqueue, cacheGodownStock, getCachedGodownStock, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, discardQueuedItem, syncQueue } = useOffline();
   const [sales, setSales] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -131,6 +135,7 @@ export default function SalesPage() {
   const [correctReason, setCorrectReason] = useState("");
   const [selectedSale, setSelectedSale] = useState<any>(null);
   const [filters, setFilters] = useState({ status: "", date_from: defaultDateRange.from, date_to: defaultDateRange.to, query: "" });
+  const [dateRangePreset, setDateRangePreset] = useState<"today" | "last7" | "month" | "all" | "custom">("month");
   const [showHardDelete, setShowHardDelete] = useState(false);
   const [hardDeleteTarget, setHardDeleteTarget] = useState<any>(null);
   const [hardDeletePassword, setHardDeletePassword] = useState("");
@@ -188,7 +193,7 @@ export default function SalesPage() {
       return;
     }
     setLoading(true);
-    const params: any = { page, limit: 20 };
+    const params: any = { page, limit: DEFAULT_LIST_PAGE_SIZE };
     if (filters.status) params.status = filters.status;
     if (filters.date_from) params.date_from = filters.date_from;
     if (filters.date_to) params.date_to = filters.date_to;
@@ -265,7 +270,12 @@ export default function SalesPage() {
     if (lastSyncResult && lastSyncResult.synced > 0) loadSales();
   }, [isEmbed, lastSyncResult, loadSales]);
 
-  const setDatePreset = (preset: "today" | "last7" | "month" | "all") => {
+  const applyDatePreset = (preset: "today" | "last7" | "month" | "all" | "custom") => {
+    setDateRangePreset(preset);
+    if (preset === "custom") {
+      setPage(1);
+      return;
+    }
     const today = new Date();
     if (preset === "all") {
       setFilters((f) => ({ ...f, date_from: "", date_to: "" }));
@@ -320,7 +330,7 @@ export default function SalesPage() {
 
     const [custRes, gdRes, prodRes, lotRes, cityRes] = await Promise.all([
       Promise.resolve({ success: true, data: [] }), // customers loaded on-demand via CustomerSearch
-      apiCall("/api/v1/godowns", { params: { limit: 200, is_active: "true", show_all: "true" } }),
+      apiCall("/api/v1/godowns", { params: { limit: DEFAULT_LIST_PAGE_SIZE, is_active: "true", show_all: "true" } }),
       apiCall("/api/v1/products", { params: { limit: 100, is_active: "true" } }),
       apiCall("/api/v1/lots", { params: { limit: 100, status: "ongoing" } }),
       apiCall("/api/v1/cities"),
@@ -382,6 +392,20 @@ export default function SalesPage() {
     setStockLoading(false);
   };
 
+  const resetSaleCreateForm = useCallback(() => {
+    setForm({
+      customerId: 0,
+      godownId: 0,
+      lotId: 0,
+      saleDate: new Date().toISOString().split("T")[0],
+      currencyId: currencies[0]?.id || 0,
+      notes: "",
+      items: [{ productId: 0, qty: 0, ratePerCarton: 0 }],
+    });
+    setGodownStock([]);
+    setShortConfirmed(false);
+  }, [currencies]);
+
   const openCreate = async (preset?: Partial<typeof form>) => {
     const loaded = await loadDropdowns();
     if (!loaded) return;
@@ -393,6 +417,7 @@ export default function SalesPage() {
       items: nextItems,
     }));
     setGodownStock([]);
+    setSaleSavedNotice(null);
     setShowCreate(true); setFormError("");
   };
 
@@ -496,10 +521,10 @@ export default function SalesPage() {
         return next;
       });
 
-      setShowCreate(false);
+      resetSaleCreateForm();
       setResolvingQueueId(null);
-      setShortConfirmed(false);
-      setForm({ customerId: 0, godownId: 0, lotId: 0, saleDate: new Date().toISOString().split("T")[0], currencyId: currencies[0]?.id || 0, notes: "", items: [{ productId: 0, qty: 0, ratePerCarton: 0 }] });
+      setSaleSavedNotice("Sale queued for sync.");
+      setTimeout(() => setSaleSavedNotice(null), 5000);
       return;
     }
 
@@ -508,12 +533,9 @@ export default function SalesPage() {
     const result = await apiCall("/api/v1/sales", { method: "POST", body: payload });
     setSubmitting(false);
     if (result.success) {
-      setShowCreate(false);
       setResolvingQueueId(null);
-      if (isEmbed) closeEmbed();
-      setShortConfirmed(false);
-      setForm({ customerId: 0, godownId: 0, lotId: 0, saleDate: new Date().toISOString().split("T")[0], currencyId: currencies[0]?.id || 0, notes: "", items: [{ productId: 0, qty: 0, ratePerCarton: 0 }] });
-      setSaleSavedNotice("Sale recorded successfully. Next step: record the customer payment if money was received.");
+      resetSaleCreateForm();
+      setSaleSavedNotice("Sale recorded. Record payment if the customer paid on the spot.");
       setTimeout(() => setSaleSavedNotice(null), 5000);
       loadSales();
     } else { setFormError(result.error || "Failed to create sale"); }
@@ -725,7 +747,7 @@ export default function SalesPage() {
 
   return (
     <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
-      {!isEmbed && <PageHeader title={t("sales")} subtitle={`${total} ${t("records").toLowerCase()}`} />}
+      {!isEmbed && <PageHeader title={t("sales")} />}
       {!isEmbed && (
       <>
       {showOfflineSnapshot && (
@@ -734,7 +756,7 @@ export default function SalesPage() {
         </div>
       )}
 
-      {saleSavedNotice && (
+      {!isEmbed && !showCreate && saleSavedNotice && (
         <div className="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 flex flex-wrap items-center justify-between gap-3">
           <span>{saleSavedNotice}</span>
           <Link href="/payments" className="text-sm font-semibold text-green-700 hover:underline">
@@ -743,62 +765,94 @@ export default function SalesPage() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-3 mb-4">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <input
           type="text"
           value={filters.query}
           onChange={(e) => { setFilters((f) => ({ ...f, query: e.target.value })); setPage(1); }}
-          placeholder="Search all columns (min 2 chars)..."
-          className="input-field min-w-[220px] flex-1"
+          placeholder="Search…"
+          className="input-field h-9 min-h-9 min-w-[7rem] flex-1 py-1.5 text-sm sm:max-w-xs"
         />
-        <select value={filters.status} onChange={(e) => { setFilters((f) => ({ ...f, status: e.target.value })); setPage(1); }} className="select-field w-auto">
+        <select value={filters.status} onChange={(e) => { setFilters((f) => ({ ...f, status: e.target.value })); setPage(1); }} className="select-field h-9 min-h-9 min-w-[8.75rem] shrink-0 py-1.5 text-sm">
           <option value="">{t("all_statuses")}</option><option value="active">{t("active")}</option><option value="cancelled">{t("cancelled")}</option><option value="marked_short">{t("marked_short")}</option>
         </select>
-        <input type="date" value={filters.date_from} onChange={(e) => { setFilters((f) => ({ ...f, date_from: e.target.value })); setPage(1); }} className="input-field w-auto" />
-        <input type="date" value={filters.date_to} onChange={(e) => { setFilters((f) => ({ ...f, date_to: e.target.value })); setPage(1); }} className="input-field w-auto" />
-        <div className="flex items-center gap-1">
-          <button type="button" onClick={() => setDatePreset("today")} className="btn-secondary text-xs">Today</button>
-          <button type="button" onClick={() => setDatePreset("last7")} className="btn-secondary text-xs">7D</button>
-          <button type="button" onClick={() => setDatePreset("month")} className="btn-secondary text-xs">Month</button>
-          <button type="button" onClick={() => setDatePreset("all")} className="btn-secondary text-xs">All</button>
-        </div>
+        <select
+          value={dateRangePreset}
+          onChange={(e) => applyDatePreset(e.target.value as "today" | "last7" | "month" | "all" | "custom")}
+          className="select-field h-9 min-h-9 min-w-[7.25rem] shrink-0 py-1.5 text-sm"
+          aria-label="Date range preset"
+        >
+          <option value="month">This month</option>
+          <option value="today">Today</option>
+          <option value="last7">7 days</option>
+          <option value="all">All dates</option>
+          <option value="custom">Custom</option>
+        </select>
+        {dateRangePreset === "custom" && (
+          <>
+            <input type="date" value={filters.date_from} onChange={(e) => { setFilters((f) => ({ ...f, date_from: e.target.value })); setPage(1); }} className="input-field h-9 min-h-9 w-[9rem] shrink-0 py-1.5 text-sm" />
+            <input type="date" value={filters.date_to} onChange={(e) => { setFilters((f) => ({ ...f, date_to: e.target.value })); setPage(1); }} className="input-field h-9 min-h-9 w-[9rem] shrink-0 py-1.5 text-sm" />
+          </>
+        )}
+        <LedgerExportButtons
+          type="sales"
+          dateFrom={filters.date_from || undefined}
+          dateTo={filters.date_to || undefined}
+          cityId={user?.cityId ?? undefined}
+          query={filters.query}
+          status={filters.status || undefined}
+          disabled={!isOnline}
+          className="ml-auto"
+        />
       </div>
 
-      <DataTable searchable={false} columns={[
-        { key: "voucherNo", label: t("voucher_hash"), render: (s: any) => <span className="font-mono font-medium">{s.voucherNo}</span> },
-        { key: "saleDate", label: t("date"), render: (s: any) => formatDate(s.saleDate) },
-        { key: "customer", label: t("customer"), render: (s: any) => (
-          <div>
-            <span>{s.customer?.name}</span>
+      <DataTable searchable={false} compact columns={[
+        { key: "voucherNo", label: t("voucher_hash"), className: "px-2 w-16", render: (s: any) => <span className="font-mono text-xs font-medium">{s.voucherNo}</span> },
+        { key: "saleDate", label: t("date"), className: "px-2 w-[4.75rem] whitespace-nowrap", render: (s: any) => <span className="tabular-nums">{formatDate(s.saleDate)}</span> },
+        { key: "customer", label: t("customer"), className: "px-2", render: (s: any) => (
+          <div className="min-w-0 leading-tight">
+            <span className="block truncate">{s.customer?.name}</span>
             {user?.role === "super_admin" && s.cityName && (
-              <p className="text-xs text-indigo-500 mt-0.5">{s.cityName}</p>
+              <span className="block truncate text-[11px] text-indigo-500">{s.cityName}</span>
             )}
           </div>
         )},
-        { key: "items", label: t("product"), className: "px-2", render: (s: any) => <div className="text-xs">{s.items?.map((i: any, idx: number) => <div key={idx}>{i.productName}</div>)}</div> },
-        { key: "cartons", label: t("cartons"), className: "px-2 w-20", render: (s: any) => <div className="text-xs">{s.items?.map((i: any, idx: number) => <div key={idx} className="font-medium">{i.qty}</div>)}</div> },
-        { key: "ratePerCarton", label: "Per Carton", render: (s: any) => (
-          <div className="text-xs">
+        { key: "items", label: t("product"), width: "8rem", className: "px-2 pr-1 max-w-[8rem]", render: (s: any) => (
+          <div className="min-w-0 leading-tight">
             {s.items?.map((i: any, idx: number) => (
-              <div key={idx} className="font-medium">
-                {s.currency?.symbol} {Number(i.ratePerCarton || 0).toLocaleString("en-US")}
+              <div key={idx} className="truncate" title={i.productName}>{i.productName}</div>
+            ))}
+          </div>
+        ) },
+        { key: "cartons", label: "Crtn", width: "3rem", headerClassName: "normal-case tracking-normal text-center overflow-visible align-middle", className: "px-1.5 text-center tabular-nums whitespace-nowrap", render: (s: any) => (
+          <div className="leading-tight">
+            {s.items?.map((i: any, idx: number) => (
+              <div key={idx} className="tabular-nums">{Number(i.qty)}</div>
+            ))}
+          </div>
+        ) },
+        { key: "ratePerCarton", label: "Rate", width: "6rem", className: "px-2 pl-3 tabular-nums whitespace-nowrap", render: (s: any) => (
+          <div className="leading-tight">
+            {s.items?.map((i: any, idx: number) => (
+              <div key={idx}>
+                {s.currency?.symbol}{Number(i.ratePerCarton || 0).toLocaleString("en-US")}
               </div>
             ))}
           </div>
-        ), className: "px-2 w-28" },
-        { key: "totalAmount", label: t("amount"), render: (s: any) => <span className="font-medium">{s.currency?.symbol} {formatCurrency(s.totalAmount, "").trim()}</span> },
-        { key: "godown", label: t("godown"), render: (s: any) => (
-          <span className="flex flex-col">
-            <span>{s.godown?.name}</span>
-            {s.godown?.crossCity && <span className="text-xs text-orange-500">⟵ {s.godown.sourceCityName}</span>}
+        ) },
+        { key: "totalAmount", label: t("amount"), className: "px-2 whitespace-nowrap tabular-nums", render: (s: any) => <span className="font-medium">{s.currency?.symbol}{formatCurrency(s.totalAmount, "").trim()}</span> },
+        { key: "godown", label: t("godown"), className: "px-2 max-w-[7rem]", render: (s: any) => (
+          <span className="block leading-tight">
+            <span className="block truncate">{s.godown?.name}</span>
+            {s.godown?.crossCity && <span className="block truncate text-[11px] text-orange-500">⟵ {s.godown.sourceCityName}</span>}
           </span>
         )},
-        { key: "lot", label: t("lot"), render: (s: any) => s.lot?.lotNumber },
-        { key: "status", label: t("status"), render: (s: any) => (
-          <div>
+        { key: "lot", label: t("lot"), className: "px-2 w-14", render: (s: any) => <span className="truncate">{s.lot?.lotNumber}</span> },
+        { key: "status", label: t("status"), className: "px-2 w-24", render: (s: any) => (
+          <div className="leading-tight">
             <StatusBadge status={s.status} />
             {s.status === "cancelled" && s.cancellationReason && (
-              <p className="text-xs text-gray-500 mt-0.5 max-w-[160px] truncate" title={s.cancellationReason}>
+              <p className="mt-0.5 max-w-[9rem] truncate text-[11px] text-gray-500" title={s.cancellationReason}>
                 {s.cancellationReason}
               </p>
             )}
@@ -826,19 +880,159 @@ export default function SalesPage() {
       </>
       )}
       {/* ========== CREATE SALE MODAL ========== */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); setShortConfirmed(false); setFormError(""); if (isEmbed) closeEmbed(); }} title={t("new_sale")} size={isEmbed ? "lg" : "xl"} inline={isEmbed} hideHeader={isEmbed}>
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); setShortConfirmed(false); setFormError(""); setSaleSavedNotice(null); if (isEmbed) closeEmbed(); }} title={t("new_sale")} size={isEmbed ? "lg" : "xl"} inline={isEmbed} hideHeader={isEmbed}>
+        {saleSavedNotice && (
+          <div className="mb-3 p-2 bg-green-50 border border-green-200 rounded text-green-700 text-sm">{saleSavedNotice}</div>
+        )}
         {formError && (
           <div className={`mb-4 p-3 rounded-lg text-sm border ${shortConfirmed ? "bg-amber-50 border-amber-300 text-amber-800" : "bg-red-50 border-red-200 text-red-700"}`}>
             {formError}
           </div>
         )}
 
+        {simplifyModals ? (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="min-w-0">
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("date")} *</label>
+              <MobileDateInput
+                variant="field"
+                value={form.saleDate}
+                onChange={(saleDate) => setForm((f) => ({ ...f, saleDate }))}
+                placeholder={t("date")}
+                aria-label={t("date")}
+              />
+            </div>
+            <div className="min-w-0">
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("godown")} *</label>
+              <select value={form.godownId} onChange={(e) => onGodownChange(parseInt(e.target.value))} className="select-field h-[42px] py-2">
+                <option value={0}>{t("select_godown")}</option>
+                {Array.from(new Set(godowns.map((g: any) => g.cityName))).map((cityName) => (
+                  <optgroup key={cityName as string} label={cityName as string}>
+                    {godowns.filter((g: any) => g.cityName === cityName).map((g: any) => (
+                      <option key={g.id} value={g.id}>
+                        {g.cityId !== user?.cityId ? `⟵ ${g.name}` : g.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <CustomerFieldWithNew
+            value={form.customerId}
+            onChange={(id) => setForm((f) => ({ ...f, customerId: id }))}
+            placeholder={t("search_customer")}
+            label={t("customer")}
+            cityId={
+              form.godownId > 0
+                ? godowns.find((g: any) => g.id === form.godownId)?.cityId
+                : user?.cityId
+            }
+          />
+
+          {currencies.length > 1 && (
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("currency")}</label>
+              <select value={form.currencyId} onChange={(e) => setForm((f) => ({ ...f, currencyId: parseInt(e.target.value) }))} className="select-field">
+                {currencies.map((c: any) => <option key={c.id} value={c.id}>{formatCurrencySelectLabel(c)}</option>)}
+              </select>
+            </div>
+          )}
+
+          {!isEmbed && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("lot")}</label>
+                <select value={form.lotId} onChange={(e) => setForm((f) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
+                  <option value={0}>{t("auto_fifo")}</option>
+                  {lots.map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("notes")}</label>
+                <input type="text" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" />
+              </div>
+            </div>
+          )}
+
+          <div className={isEmbed ? "quickform-panel space-y-2" : "rounded-lg border border-gray-200 bg-gray-50/70 p-3 space-y-2"}>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("product")} *</p>
+              <button type="button" onClick={addItem} className="text-xs font-semibold text-primary-700 hover:text-primary-800">+ {t("add_item")}</button>
+            </div>
+            <div className="module-scroll-x overflow-x-auto -mx-1 px-1">
+              <div className="min-w-[520px] space-y-2">
+                <div className="grid grid-cols-[minmax(0,1fr)_68px_52px_80px_84px_24px] gap-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                  <span>{t("product")}</span>
+                  <span className="text-right">{t("qty")}</span>
+                  <span className="text-center">{t("available")}</span>
+                  <span className="text-right truncate" title={t("rate_per_carton")}>Rate</span>
+                  <span className="text-right">{t("amount")}</span>
+                  <span />
+                </div>
+                {form.items.map((item, idx) => {
+                  const avail = getAvailable(item.productId);
+                  return (
+                    <div key={idx} className="grid grid-cols-[minmax(0,1fr)_68px_52px_80px_84px_24px] gap-2 items-center">
+                      <select
+                        value={item.productId}
+                        onChange={(e) => updateItem(idx, "productId", parseInt(e.target.value))}
+                        className="select-field min-w-0 text-sm"
+                      >
+                        <option value={0}>{t("select_product")}</option>
+                        {products.map((p: any) => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        value={item.qty || ""}
+                        onChange={(e) => updateItem(idx, "qty", parseFloat(e.target.value) || 0)}
+                        className={`input-field text-sm text-right ${item.productId && item.qty > avail ? "border-red-400 bg-red-50" : ""}`}
+                        placeholder="0"
+                        max={avail || undefined}
+                        onWheel={(e) => e.currentTarget.blur()}
+                      />
+                      <span className={`text-center text-xs font-semibold tabular-nums ${item.productId ? (avail > 0 ? "text-green-700" : "text-red-500") : "text-gray-300"}`}>
+                        {item.productId ? avail : "—"}
+                      </span>
+                      <input
+                        type="number"
+                        value={item.ratePerCarton || ""}
+                        onChange={(e) => updateItem(idx, "ratePerCarton", parseFloat(e.target.value) || 0)}
+                        className="input-field text-sm text-right"
+                        placeholder="0"
+                        onWheel={(e) => e.currentTarget.blur()}
+                      />
+                      <p className="text-right text-sm font-medium tabular-nums text-gray-900">
+                        {amountPrefix}{(item.qty * item.ratePerCarton).toLocaleString("en-US")}
+                      </p>
+                      {form.items.length > 1 ? (
+                        <button type="button" onClick={() => removeItem(idx)} className="text-red-500 hover:text-red-700 text-lg leading-none" aria-label="Remove item">×</button>
+                      ) : (
+                        <span />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="flex justify-end border-t border-gray-200/80 pt-2">
+              <span className="text-xs uppercase tracking-wide text-gray-500">{t("total")}: </span>
+              <span className="ml-2 text-base font-bold tabular-nums text-gray-900">{amountPrefix}{totalAmount.toLocaleString("en-US")}</span>
+            </div>
+          </div>
+        </div>
+        ) : (
+        <>
         {/* Date — always first */}
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
           <input type="date" value={form.saleDate} onChange={(e) => setForm((f) => ({ ...f, saleDate: e.target.value }))} className="input-field" autoFocus />
         </div>
-        <div className={isEmbed ? "mb-3 space-y-3" : "mb-4 rounded-xl border border-gray-200 bg-gray-50/80 p-4"}>
+        <div className={isEmbed ? "quickform-panel mb-3 space-y-3" : "mb-4 rounded-xl border border-gray-200 bg-gray-50/80 p-4"}>
           {!isEmbed && (
           <div className="mb-3">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Step 1</p>
@@ -847,11 +1041,15 @@ export default function SalesPage() {
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("customer")} *</label>
-            <CustomerSearch
+            <CustomerFieldWithNew
               value={form.customerId}
               onChange={(id) => setForm((f) => ({ ...f, customerId: id }))}
               placeholder={t("search_customer")}
+              cityId={
+                form.godownId > 0
+                  ? godowns.find((g: any) => g.id === form.godownId)?.cityId
+                  : user?.cityId
+              }
             />
           </div>
           <div>
@@ -870,8 +1068,8 @@ export default function SalesPage() {
               ))}
             </select>
             {/* Cross-city warning */}
-            {form.godownId > 0 && godowns.find((g: any) => g.id === form.godownId)?.cityId !== user?.cityId && (
-              <p className="text-xs text-orange-600 mt-1">⚠️ Cross-city godown — stock will be taken from {godowns.find((g: any) => g.id === form.godownId)?.cityName}</p>
+            {form.godownId > 0 && !simplifyModals && godowns.find((g: any) => g.id === form.godownId)?.cityId !== user?.cityId && (
+              <p className="text-xs text-orange-600 mt-1">Cross-city godown — stock from {godowns.find((g: any) => g.id === form.godownId)?.cityName}</p>
             )}
           </div>
           </div>
@@ -904,15 +1102,17 @@ export default function SalesPage() {
 
         {/* GODOWN STOCK INFO */}
         {form.godownId > 0 && (
-          <div className={isEmbed ? "mb-3 p-2 bg-blue-50 border border-blue-200 rounded-lg text-xs" : "mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg"}>
-            <h4 className={isEmbed ? "font-semibold text-blue-800 mb-1" : "text-sm font-semibold text-blue-800 mb-2"}>
+          <div className={isEmbed ? "quickform-info mb-3" : "mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg"}>
+            {!simplifyModals && (
+            <h4 className={isEmbed ? "quickform-info-title" : "text-sm font-semibold text-blue-800 mb-2"}>
               {isEmbed ? t("available") : `📦 ${t("available")}`} — {godowns.find((g: any) => g.id === form.godownId)?.name || t("godown")}
               {godowns.find((g: any) => g.id === form.godownId)?.cityId !== user?.cityId && (
                 <span className="ml-2 text-xs font-normal text-orange-600">({godowns.find((g: any) => g.id === form.godownId)?.cityName})</span>
               )}
             </h4>
+            )}
             {stockLoading ? (
-              <p className="text-sm text-blue-600">{t("loading_stock")}</p>
+              <p className={isEmbed ? "text-sm text-[#8f7963]" : "text-sm text-blue-600"}>{t("loading_stock")}</p>
             ) : godownStock.length > 0 ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {godownStock.map((s) => (
@@ -930,7 +1130,7 @@ export default function SalesPage() {
         )}
 
         {/* LINE ITEMS */}
-        <div className={isEmbed ? "mb-3 space-y-2" : "mb-4 rounded-xl border border-gray-200 bg-gray-50/80 p-4"}>
+        <div className={isEmbed ? "quickform-panel mb-3 space-y-2" : "mb-4 rounded-xl border border-gray-200 bg-gray-50/80 p-4"}>
           {!isEmbed && (
           <div className="mb-3">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Step 2</p>
@@ -983,7 +1183,10 @@ export default function SalesPage() {
           </div>
         </div>
 
-        {!isEmbed && (
+        </>
+        )}
+
+        {!isEmbed && !simplifyModals && (
         <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-4">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Step 3</p>
           <h3 className="text-sm font-semibold text-blue-900 mt-1">Review before saving</h3>
@@ -1011,19 +1214,19 @@ export default function SalesPage() {
         </div>
         )}
 
-        {isEmbed && (
-          <p className="mb-3 text-sm font-semibold text-[#2f241c] text-right">
+        {isEmbed && !simplifyModals && (
+          <p className="mb-3 text-sm font-semibold text-[#5d4a3a] text-right">
             Total: {amountPrefix}{totalAmount.toLocaleString("en-US")}
           </p>
         )}
 
-        <div className={isEmbed ? "pt-3 border-t border-[#e8dccf]" : "flex justify-end gap-3 pt-4 border-t"}>
+        <div className={isEmbed ? "quickform-footer" : "flex justify-end gap-3 pt-4 border-t"}>
           <button
             onClick={handleSubmit}
             disabled={submitting}
             className={
               isEmbed
-                ? `w-full h-10 rounded-xl text-sm font-semibold text-white disabled:opacity-60 ${shortConfirmed ? "bg-amber-500" : "bg-[linear-gradient(135deg,#6B0F1A_0%,#8B1A1A_100%)]"}`
+                ? `glass-btn w-full min-h-11 disabled:opacity-60 ${shortConfirmed ? "glass-btn-warning" : "glass-btn-primary"}`
                 : `text-sm font-medium px-4 py-2 rounded-lg transition-colors ${shortConfirmed ? "bg-amber-500 hover:bg-amber-600 text-white" : "btn-primary"}`
             }
           >

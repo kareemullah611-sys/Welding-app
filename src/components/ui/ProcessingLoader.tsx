@@ -1,24 +1,22 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
-import CuttingDiscSpinner from "@/components/ui/CuttingDiscSpinner";
+import React from "react";
+import { BrandLoader, InlineSpinner } from "@/components/ui/BrandLoader";
 import { cn } from "@/lib/utils";
 
-/** Minimum time the post-login overlay stays visible */
-export const MIN_LOGIN_DURATION = 4000;
+/** @deprecated Login no longer forces a minimum overlay duration */
+export const MIN_LOGIN_DURATION = 0;
 
 export interface ProcessingLoaderProps {
-  /** "login" = minimum display time + onAnimationComplete; "global" = visible prop */
   variant?: "login" | "global";
   visible?: boolean;
   onAnimationComplete?: () => void;
   label?: string;
   className?: string;
-  /** When set, shows your cutting disc image spinning with glass waves instead of orbital rings */
   productImageSrc?: string;
 }
 
-/** Inline / table spinner — Reijo-style orbital rings */
+/** Inline spinner for tables and dense UI */
 export function ProcessingSpinner({
   size = "md",
   label,
@@ -28,83 +26,35 @@ export function ProcessingSpinner({
   label?: string;
   className?: string;
 }) {
+  const spinnerClass =
+    size === "sm" ? "h-4 w-4 border-[1.5px]" : size === "lg" ? "h-6 w-6 border-2" : "h-5 w-5 border-2";
+
   return (
     <div
-      className={cn("processing-spinner", `processing-spinner--${size}`, className)}
+      className={cn("flex flex-col items-center justify-center gap-2", className)}
       role="status"
       aria-live="polite"
       aria-busy="true"
     >
-      <div className="processing-spinner__stage" aria-hidden="true">
-        <div className="processing-spinner__ring processing-spinner__ring--1" />
-        <div className="processing-spinner__ring processing-spinner__ring--2" />
-        <div className="processing-spinner__ring processing-spinner__ring--3" />
-        <div className="processing-spinner__dot processing-spinner__dot--1" />
-        <div className="processing-spinner__dot processing-spinner__dot--2" />
-        <div className="processing-spinner__core" />
-      </div>
-      {label ? (
-        <p className="processing-spinner__label">
-          {label}
-          <span className="processing-spinner__dots" aria-hidden="true">
-            <span>.</span>
-            <span>.</span>
-            <span>.</span>
-          </span>
-        </p>
-      ) : null}
+      <span
+        className={cn(
+          "inline-block rounded-full border-[#6B0F1A]/20 border-t-[#6B0F1A] animate-spin motion-reduce:animate-none",
+          spinnerClass
+        )}
+        aria-hidden="true"
+      />
+      {label ? <p className="m-0 text-xs font-medium text-neutral-500">{label}</p> : null}
     </div>
   );
 }
 
 export default function ProcessingLoader({
-  variant = "global",
   visible = false,
-  onAnimationComplete,
   label = "Processing",
   className,
-  productImageSrc,
 }: ProcessingLoaderProps) {
-  const [show, setShow] = useState(variant === "login");
-  const startTimeRef = useRef<number>(0);
-
-  useEffect(() => {
-    if (variant !== "login") return;
-    startTimeRef.current = Date.now();
-    setShow(true);
-  }, [variant]);
-
-  useEffect(() => {
-    if (variant !== "login") return;
-    if (visible) return;
-    const elapsed = Date.now() - startTimeRef.current;
-    const remaining = Math.max(0, MIN_LOGIN_DURATION - elapsed);
-    const timer = setTimeout(() => {
-      onAnimationComplete?.();
-      setTimeout(() => setShow(false), 300);
-    }, remaining);
-    return () => clearTimeout(timer);
-  }, [visible, variant, onAnimationComplete]);
-
-  useEffect(() => {
-    if (variant !== "global") return;
-    setShow(visible);
-  }, [visible, variant]);
-
-  if (!show) return null;
-
-  return (
-    <div
-      className={cn("processing-overlay", className)}
-      aria-label={label}
-      aria-busy="true"
-    >
-      <div className="processing-overlay__glow" aria-hidden="true" />
-      {productImageSrc ? (
-        <CuttingDiscSpinner src={productImageSrc} size="lg" label={label} />
-      ) : (
-        <ProcessingSpinner size="lg" label={label} />
-      )}
-    </div>
-  );
+  if (!visible) return null;
+  return <BrandLoader fullscreen size="lg" label={label} className={className} />;
 }
+
+export { InlineSpinner };

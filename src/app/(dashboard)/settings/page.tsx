@@ -128,7 +128,7 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <PageHeader title={t("settings")} subtitle={t("settings_subtitle")} />
+      <PageHeader title={t("settings")} />
       <div className="flex flex-wrap gap-1 mb-6 bg-gray-100 rounded-lg p-1 w-fit">
         {(["users", "products", "cities", "sessions", "godown_access"] as Tab[]).map((tb) => (
           <button key={tb} onClick={() => setTab(tb)} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === tb ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>{tabLabels[tb]}</button>
@@ -144,7 +144,9 @@ export default function SettingsPage() {
 }
 
 function CityAdminSettingsCard() {
+  const { user } = useAuth();
   const { t } = useLang();
+  const [showChangePassword, setShowChangePassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -155,9 +157,23 @@ function CityAdminSettingsCard() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  const resetPasswordForm = () => {
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setShowCurrentPassword(false);
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
+    setError("");
+  };
+
+  const closeChangePassword = () => {
+    setShowChangePassword(false);
+    resetPasswordForm();
+  };
+
   const handleChangePassword = async () => {
     setError("");
-    setSuccess("");
 
     if (!currentPassword || !newPassword || !confirmPassword) {
       setError("All password fields are required.");
@@ -188,23 +204,47 @@ function CityAdminSettingsCard() {
       return;
     }
 
-    setCurrentPassword("");
-    setNewPassword("");
-    setConfirmPassword("");
+    closeChangePassword();
     setSuccess("Password changed successfully.");
   };
 
   return (
     <div>
-      <PageHeader title={t("settings")} subtitle="Security settings" />
+      <PageHeader title={t("settings")} />
+      {success && (
+        <div className="mb-4 max-w-2xl rounded border border-green-200 bg-green-50 p-2 text-sm text-green-700">{success}</div>
+      )}
       <div className="card max-w-2xl">
-        <h2 className="text-lg font-semibold text-gray-900">Change Password</h2>
-        <p className="mt-1 text-sm text-gray-500">Update your login password for this city admin account.</p>
+        <h2 className="text-lg font-semibold text-gray-900">Account</h2>
+        <p className="mt-1 text-sm text-gray-500">Manage your city admin login credentials.</p>
+        <dl className="mt-4 space-y-2 text-sm">
+          <div className="flex gap-2">
+            <dt className="w-24 shrink-0 text-gray-500">{t("full_name")}</dt>
+            <dd className="font-medium text-gray-900">{user?.fullName}</dd>
+          </div>
+          <div className="flex gap-2">
+            <dt className="w-24 shrink-0 text-gray-500">{t("username")}</dt>
+            <dd className="font-medium text-gray-900">{user?.username}</dd>
+          </div>
+          {user?.cityName && (
+            <div className="flex gap-2">
+              <dt className="w-24 shrink-0 text-gray-500">{t("city")}</dt>
+              <dd className="font-medium text-gray-900">{user.cityName}</dd>
+            </div>
+          )}
+        </dl>
+        <div className="mt-4 border-t pt-4">
+          <button type="button" onClick={() => { resetPasswordForm(); setShowChangePassword(true); }} className="btn-primary text-sm">
+            Change Password
+          </button>
+        </div>
+      </div>
 
-        {error && <div className="mt-4 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{error}</div>}
-        {success && <div className="mt-4 rounded border border-green-200 bg-green-50 p-2 text-sm text-green-700">{success}</div>}
+      <Modal open={showChangePassword} onClose={closeChangePassword} title="Change Password" size="sm">
+        <p className="mb-4 text-sm text-gray-500">Update your login password for this city admin account.</p>
+        {error && <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{error}</div>}
 
-        <div className="mt-4 space-y-3">
+        <div className="space-y-3">
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">Current Password *</label>
             <div className="relative">
@@ -213,6 +253,7 @@ function CityAdminSettingsCard() {
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 className="input-field pr-20"
+                autoFocus
               />
               <button
                 type="button"
@@ -264,12 +305,13 @@ function CityAdminSettingsCard() {
           </div>
         </div>
 
-        <div className="mt-4 flex justify-end border-t pt-4">
-          <button onClick={handleChangePassword} disabled={submitting} className="btn-primary text-sm">
+        <div className="mt-4 flex justify-end gap-3 border-t pt-4">
+          <button type="button" onClick={closeChangePassword} className="btn-secondary text-sm">Cancel</button>
+          <button type="button" onClick={handleChangePassword} disabled={submitting} className="btn-primary text-sm">
             {submitting ? "..." : "Update Password"}
           </button>
         </div>
-      </div>
+      </Modal>
     </div>
   );
 }

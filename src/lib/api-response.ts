@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
 
 export interface ApiResponse<T = unknown> {
   success: boolean;
@@ -88,9 +89,9 @@ export function getPaginationParams(searchParams: URLSearchParams): {
   skip: number;
 } {
   const pageRaw = parseInt(searchParams.get("page") || "1");
-  const limitRaw = parseInt(searchParams.get("limit") || "20");
+  const limitRaw = parseInt(searchParams.get("limit") || String(DEFAULT_LIST_PAGE_SIZE));
   const page = Math.max(1, isNaN(pageRaw) ? 1 : pageRaw);
-  const limit = Math.min(100, Math.max(1, isNaN(limitRaw) ? 20 : limitRaw));
+  const limit = Math.min(100, Math.max(1, isNaN(limitRaw) ? DEFAULT_LIST_PAGE_SIZE : limitRaw));
   return { page, limit, skip: (page - 1) * limit };
 }
 

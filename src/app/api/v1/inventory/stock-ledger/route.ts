@@ -19,27 +19,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const rows: any[] = await prisma.$queryRaw`
       WITH movements AS (
 
-        -- 1. OPENING STOCK
-        SELECT
-          os.opening_date                          AS date,
-          'opening'                                AS type,
-          CONCAT('OPEN-', os.id)                   AS reference,
-          os.product_id,
-          p.name                                   AS product_name,
-          os.godown_id,
-          g.name                                   AS godown_name,
-          g.city_id,
-          c.name                                   AS city_name,
-          os.qty                                   AS qty_in,
-          0                                        AS qty_out
-        FROM opening_stocks os
-        JOIN products p ON p.id = os.product_id
-        JOIN godowns g  ON g.id = os.godown_id
-        JOIN cities c   ON c.id = g.city_id
-
-        UNION ALL
-
-        -- 2. ALLOCATION IN — stock assigned to a godown from a lot
+        -- 1. ALLOCATION IN — stock assigned to a godown from a lot (includes OLD-STOCK legacy lot)
         SELECT
           lcga.created_at                          AS date,
           'allocation'                             AS type,

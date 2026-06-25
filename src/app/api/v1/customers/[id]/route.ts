@@ -27,7 +27,11 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     // Get ledger
     const [sales, payments, openings] = await Promise.all([
       prisma.sale.findMany({
-        where: { customerId: id, ...(Object.keys(saleDateFilter).length ? { saleDate: saleDateFilter } : {}) },
+        where: {
+          customerId: id,
+          isOpeningImport: false,
+          ...(Object.keys(saleDateFilter).length ? { saleDate: saleDateFilter } : {}),
+        },
         include: { currency: true, items: { include: { product: true } }, lot: { select: { lotNumber: true } } },
         orderBy: { saleDate: "asc" },
       }),
@@ -63,6 +67,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         credit: 0,
         status: "active",
         currency: o.currency.code,
+        currencySymbol: o.currency.symbol || o.currency.code,
         lotNumber: "-",
       })),
       ...sales.map((s) => ({
@@ -75,9 +80,22 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         credit: 0,
         status: s.status,
         currency: s.currency.code,
+        currencySymbol: s.currency.symbol || s.currency.code,
         lotNumber: s.lot.lotNumber,
       })),
-      ...payments.map((p) => ({ type: "payment" as const, date: p.paymentDate.toISOString().split("T")[0], voucherNo: p.manualVoucherNo || "-", detail: p.detail, perCartonPrice: "-", debit: 0, credit: p.status === "active" ? Number(p.amount) : 0, status: p.status, currency: p.currency.code, lotNumber: p.lot.lotNumber })),
+      ...payments.map((p) => ({
+        type: "payment" as const,
+        date: p.paymentDate.toISOString().split("T")[0],
+        voucherNo: p.manualVoucherNo || "-",
+        detail: p.detail,
+        perCartonPrice: "-",
+        debit: 0,
+        credit: p.status === "active" ? Number(p.amount) : 0,
+        status: p.status,
+        currency: p.currency.code,
+        currencySymbol: p.currency.symbol || p.currency.code,
+        lotNumber: p.lot.lotNumber,
+      })),
     ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     // Track running balance separately per currency to avoid mixing USD and AFN

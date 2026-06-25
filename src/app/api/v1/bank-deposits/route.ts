@@ -10,6 +10,7 @@ import {
 } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { journalBankDeposit } from "@/lib/accounting";
+import { getCityBankAccountAvailableBalance } from "@/lib/city-bank-balance";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 
 type TreasuryTransferType =
@@ -316,6 +317,24 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       const destinationBank = await prisma.bankAccount.findUnique({ where: { id: destinationBankAccountId } });
       if (!destinationBank || destinationBank.cityId !== cityId) {
         return errorResponse("FORBIDDEN", "Destination bank account does not belong to your city", 403);
+      }
+    }
+
+    if (transferType === "bank_to_cash" || transferType === "bank_to_bank") {
+      const available = await getCityBankAccountAvailableBalance(prisma, {
+        cityId,
+        bankAccountId: parsedBankAccountId,
+        currencyId: parsedCurrencyId,
+      });
+      if (transferAmount > available + 0.001) {
+        const currency = await prisma.currency.findUnique({
+          where: { id: parsedCurrencyId },
+          select: { code: true },
+        });
+        return errorResponse(
+          "INSUFFICIENT_FUNDS",
+          `Insufficient bank balance. Available: ${available.toLocaleString("en-US")} ${currency?.code || ""}`
+        );
       }
     }
 

@@ -10,11 +10,12 @@ import {
   OFFLINE_STOCK_STORE,
   buildOfflineAuditMeta,
   buildApiCacheKey,
-  isPackagedOfflineRuntime,
+  isPackagedOfflineActive,
   shouldQueueOfflineWriteNow,
   shouldQueueOfflineWriteOnNetworkFailure,
   shouldUseOfflineApiCache,
 } from "@/lib/offline-cache";
+import { isOfflineFeaturesEnabled } from "@/lib/offline-features";
 import { setPackagedServerReachable } from "@/lib/offline-reachability";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { OFFLINE_ID_MAP_STORE } from "@/lib/offline-id-reconciliation";
@@ -38,7 +39,7 @@ const RETRYABLE_HTTP_STATUSES = new Set([502, 503, 504]);
 const PACKAGED_FETCH_TIMEOUT_MS = 8000;
 
 async function appFetch(url: string, init?: RequestInit): Promise<Response> {
-  if (typeof window !== "undefined" && isPackagedOfflineRuntime()) {
+  if (typeof window !== "undefined" && isPackagedOfflineActive()) {
     return fetchWithTimeout(url, init, PACKAGED_FETCH_TIMEOUT_MS);
   }
   return fetch(url, init);
@@ -158,6 +159,7 @@ async function cacheApiResponse<T>(
   data: T,
   pagination?: unknown
 ) {
+  if (!isOfflineFeaturesEnabled()) return;
   if (typeof window === "undefined") return;
   const db = await openOfflineDb();
   const key = buildApiCacheKey(url, params);
@@ -195,6 +197,7 @@ async function cacheLocalReadModel<T>(
   data: T,
   pagination?: unknown
 ) {
+  if (!isOfflineFeaturesEnabled()) return;
   if (typeof window === "undefined") return;
   const db = await openOfflineDb();
   const key = getReadModelKey(url, params);
@@ -269,6 +272,7 @@ async function readOfflineGetCache<T>(
   url: string,
   params?: Record<string, string | number | undefined>
 ): Promise<{ data: T; pagination?: unknown } | null> {
+  if (!isOfflineFeaturesEnabled()) return null;
   const cached = await getCachedApiResponse<T>(url, params);
   const local = await getLocalReadModel<T>(url, params);
   if (cached && local) {
@@ -400,7 +404,7 @@ export function useApi<T = unknown>() {
       }
     } catch {
       const method = options.method || "GET";
-      if (typeof window !== "undefined" && isPackagedOfflineRuntime()) {
+      if (typeof window !== "undefined" && isPackagedOfflineActive()) {
         setPackagedServerReachable(false);
       }
       if (typeof window !== "undefined" && shouldQueueOfflineWriteOnNetworkFailure(url, method)) {
@@ -487,7 +491,7 @@ export async function apiCall<T = unknown>(
     return { success: false, error: data.error?.message || "Request failed" };
   } catch {
     const method = options.method || "GET";
-    if (typeof window !== "undefined" && isPackagedOfflineRuntime()) {
+    if (typeof window !== "undefined" && isPackagedOfflineActive()) {
       setPackagedServerReachable(false);
     }
     if (typeof window !== "undefined" && shouldQueueOfflineWriteOnNetworkFailure(url, method)) {

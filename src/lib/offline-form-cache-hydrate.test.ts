@@ -76,7 +76,7 @@ test("hydrateFormCachesFromSyncData seeds expense form cache for super admin wit
   );
 
   hydrateFormCachesFromSyncData({
-    cities: [{ id: 5, name: "Kandahar" }, { id: 6, name: "Herat" }],
+    cities: [{ id: 5, name: "Kandahar" }, { id: 6, name: "Abdul Khaliq" }],
     cityCurrencies: [
       { cityId: 5, currency: { id: 1, code: "USD", symbol: "$" } },
       { cityId: 6, currency: { id: 2, code: "AFN", symbol: "؋" } },

@@ -13,7 +13,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
   try {
     const { page, limit, skip } = getPaginationParams(request.nextUrl.searchParams);
     const [suppliers, total] = await Promise.all([
-      prisma.supplier.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, skip, take: limit,
+      prisma.supplier.findMany({ where: { isActive: true }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip, take: limit,
         include: {
           lotPurchases: { select: { totalPriceUsd: true } },
           supplierPayments: { select: { amountUsd: true } },

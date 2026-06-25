@@ -62,13 +62,6 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           AND lcd.product_id IN (${Prisma.join(productIds)})
         GROUP BY lcd.product_id
       ),
-      opening_stock AS (
-        SELECT os.product_id, COALESCE(SUM(os.qty), 0) as qty
-        FROM opening_stocks os
-        WHERE os.godown_id = ${sale.godownId}
-          AND os.product_id IN (${Prisma.join(productIds)})
-        GROUP BY os.product_id
-      ),
       sold AS (
         SELECT si.product_id, COALESCE(SUM(si.qty), 0) as qty
         FROM sale_items si
@@ -96,9 +89,8 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       )
       SELECT
         p.id as product_id,
-        COALESCE(os.qty, 0) + COALESCE(r.qty, 0) - COALESCE(s.qty, 0) - COALESCE(co.qty, 0) + COALESCE(ci.qty, 0) as available
+        COALESCE(r.qty, 0) - COALESCE(s.qty, 0) - COALESCE(co.qty, 0) + COALESCE(ci.qty, 0) as available
       FROM products p
-      LEFT JOIN opening_stock os ON os.product_id = p.id
       LEFT JOIN received r ON r.product_id = p.id
       LEFT JOIN sold s ON s.product_id = p.id
       LEFT JOIN city_out co ON co.product_id = p.id

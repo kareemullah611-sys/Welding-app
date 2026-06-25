@@ -8,6 +8,7 @@ import { useSearchParams } from "next/navigation";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingAgents } from "@/lib/offline-queue-overlays";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
+import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
 
 const AGENTS_READ_CACHE_KEY = "mrf-agents-read-cache-v1";
 
@@ -70,6 +71,9 @@ export default function AgentsPage() {
   const [agents, setAgents] = useState<any[]>([]);
   const [cities, setCities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
   const [showCreate, setShowCreate] = useState(false);
   const [showLedger, setShowLedger] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
@@ -88,14 +92,8 @@ export default function AgentsPage() {
   const showOnlyCustomAgents = agentTypeFilter === "customs";
   const showOnlyClearingAgents = agentTypeFilter === "clearing";
   const createAgentLabel = showOnlyCustomAgents ? "New Agent" : t("new_agent");
-  const visibleAgents = agents.filter((agent: any) => {
-    const type = String(agent.agentType || "").toLowerCase();
-    if (showOnlyCustomAgents) return type === "customs";
-    if (showOnlyClearingAgents) return type !== "customs";
-    return true;
-  });
+  const visibleAgents = agents;
   const pageTitle = showOnlyCustomAgents ? "Custom Agents" : showOnlyClearingAgents ? "Clearing Agents" : t("agents");
-  const pageSubtitle = showOnlyCustomAgents ? "Custom-agent liabilities and settlements" : t("agents_subtitle");
   const getPendingQueueId = (id: unknown) => {
     const str = String(id || "");
     if (!str.startsWith("pending-")) return null;
@@ -117,11 +115,16 @@ export default function AgentsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [aR, cR] = await Promise.all([apiCall("/api/v1/agents", { params: { limit: 100 } }), apiCall("/api/v1/cities", { params: { all: "true" } })]);
+    const params: Record<string, string | number> = { page, limit: DEFAULT_LIST_PAGE_SIZE };
+    if (showOnlyCustomAgents) params.agentType = "customs";
+    else if (showOnlyClearingAgents) params.agentType = "clearing";
+    const [aR, cR] = await Promise.all([apiCall("/api/v1/agents", { params }), apiCall("/api/v1/cities", { params: { all: "true" } })]);
     if (aR.success) {
       let nextRows = [...getPendingAgents(queuedItems as any), ...((aR.data as any[]) || [])];
       nextRows = applyQueuedMutationsToAgents(nextRows, queuedItems as any[]);
       setAgents(nextRows);
+      setTotalPages((aR.pagination as any)?.totalPages || 1);
+      setTotal((aR.pagination as any)?.total || 0);
       mergeSnapshot({ agents: nextRows });
       setShowOfflineSnapshot(false);
     } else if (!isOnline) {
@@ -130,6 +133,8 @@ export default function AgentsPage() {
         const cleanedAgents = pruneStalePendingRows(snapshot.agents as any[], queuedItems as any[], "/agents");
         const mergedSnapshotAgents = applyQueuedMutationsToAgents(cleanedAgents, queuedItems as any[]);
         setAgents(mergedSnapshotAgents);
+        setTotalPages(1);
+        setTotal(mergedSnapshotAgents.length);
         setShowOfflineSnapshot(true);
       }
     }
@@ -145,7 +150,8 @@ export default function AgentsPage() {
       }
     }
     setLoading(false);
-  }, [isOnline, mergeSnapshot, queuedItems, readSnapshot]);
+  }, [isOnline, mergeSnapshot, page, queuedItems, readSnapshot, showOnlyClearingAgents, showOnlyCustomAgents]);
+  useEffect(() => { setPage(1); }, [showOnlyCustomAgents, showOnlyClearingAgents]);
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
@@ -240,7 +246,7 @@ export default function AgentsPage() {
 
   return (
     <div>
-      <PageHeader title={pageTitle} subtitle={pageSubtitle} action={<button onClick={() => { setForm({ name: "", agentType: showOnlyClearingAgents ? "transport" : "customs", cityId: 0, phone: "" }); setShowCreate(true); setError(""); }} className="btn-primary text-sm">+ {createAgentLabel}</button>} />
+      <PageHeader title={pageTitle} action={<button onClick={() => { setForm({ name: "", agentType: showOnlyClearingAgents ? "transport" : "customs", cityId: 0, phone: "" }); setShowCreate(true); setError(""); }} className="btn-primary text-sm">+ {createAgentLabel}</button>} />
       {showOfflineSnapshot && (
         <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           Showing last synced data (offline mode).
@@ -282,7 +288,7 @@ export default function AgentsPage() {
             </RowActionMenu>
           ),
         },
-      ]} data={visibleAgents} loading={loading} />
+      ]} data={visibleAgents} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />
 
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title={createAgentLabel} size="md">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}

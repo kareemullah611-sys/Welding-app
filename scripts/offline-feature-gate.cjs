@@ -25,6 +25,11 @@ function hasOfflinePrimitive(source) {
 }
 
 function main() {
+  if (process.env.NEXT_PUBLIC_OFFLINE_ENABLED !== "true") {
+    console.log("Offline feature gate skipped (NEXT_PUBLIC_OFFLINE_ENABLED is not true).");
+    return;
+  }
+
   const files = walk(dashboardDir);
   const offenders = [];
 

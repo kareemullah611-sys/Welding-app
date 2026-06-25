@@ -3,7 +3,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, DataTable, Modal, RowActionMenu } from "@/components/ui";
+import { PageHeader, DataTable, Modal, RowActionMenu, formatDate, formatNumber } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { isEditableCustomerQueuedPayload, safeParseQueuedBody } from "@/lib/queue-resolve";
 import { applyPendingCustomerLedger } from "@/lib/offline-customer-ledger";
@@ -12,6 +12,17 @@ import { getEmbedQuickformPath } from "@/lib/quickform-embed";
 import { useOffline } from "@/hooks/useOffline";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
+import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import { openLedgerExport, printCustomerLedgerStatement } from "@/lib/ledger-export";
+import { formatLedgerMoneyAmount } from "@/lib/city-money-format";
+
+function compactCustomerLedgerDetail(entry: { type?: string; detail?: string; voucherNo?: string }) {
+  const detail = String(entry.detail || entry.voucherNo || "").trim();
+  const prefix = entry.type === "sale" ? "Sale" : "Rcpt";
+  if (!detail) return prefix;
+  const combined = `${prefix} · ${detail}`;
+  return combined.length > 42 ? `${combined.slice(0, 40)}…` : combined;
+}
 
 const CUSTOMERS_READ_CACHE_KEY = "mrf-customers-read-cache-v1";
 
@@ -76,6 +87,10 @@ export default function CustomersPage() {
   const [showLedger, setShowLedger] = useState(false);
   const [selected, setSelected] = useState<any>(null);
   const [ledgerData, setLedgerData] = useState<any>(null);
+  const [ledgerDateFrom, setLedgerDateFrom] = useState("");
+  const [ledgerDateTo, setLedgerDateTo] = useState("");
+  const [ledgerSearchQuery, setLedgerSearchQuery] = useState("");
+  const [ledgerLoading, setLedgerLoading] = useState(false);
   const [form, setForm] = useState({ name: "", phone: "", address: "", cityId: 0 });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
@@ -118,7 +133,7 @@ export default function CustomersPage() {
       return;
     }
     setLoading(true);
-    const params: any = { page, limit: 20 };
+    const params: any = { page, limit: DEFAULT_LIST_PAGE_SIZE };
     const normalizedQuery = searchQuery.trim();
     if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     const result = await apiCall("/api/v1/customers", { params });
@@ -399,13 +414,13 @@ export default function CustomersPage() {
     load();
   };
 
-  const openLedger = async (c: any) => {
-    if (String(c?.id || "").startsWith("pending-")) {
-      setFormError("Pending customer is not synced yet. Please sync first.");
-      return;
-    }
-    setSelected(c); setShowLedger(true); setLedgerData(null);
-    const result = await apiCall(`/api/v1/customers/${c.id}`);
+  const loadLedger = async (c: any, dates?: { from?: string; to?: string }) => {
+    setLedgerLoading(true);
+    setLedgerData(null);
+    const params: Record<string, string> = {};
+    if (dates?.from) params.date_from = dates.from;
+    if (dates?.to) params.date_to = dates.to;
+    const result = await apiCall(`/api/v1/customers/${c.id}`, { params });
     if (result.success) {
       const mergedLedger = !isOnline
         ? applyPendingCustomerLedger(result.data as any, queuedItems as any, Number(c.id))
@@ -421,7 +436,51 @@ export default function CustomersPage() {
         setShowOfflineSnapshot(true);
       }
     }
+    setLedgerLoading(false);
   };
+
+  const openLedger = async (c: any) => {
+    if (String(c?.id || "").startsWith("pending-")) {
+      setFormError("Pending customer is not synced yet. Please sync first.");
+      return;
+    }
+    setSelected(c);
+    setShowLedger(true);
+    setLedgerDateFrom("");
+    setLedgerDateTo("");
+    setLedgerSearchQuery("");
+    await loadLedger(c);
+  };
+
+  const applyLedgerDateFilter = async () => {
+    if (!selected) return;
+    await loadLedger(selected, {
+      from: ledgerDateFrom || undefined,
+      to: ledgerDateTo || undefined,
+    });
+  };
+
+  const buildLedgerBalanceSummary = (data: any) => {
+    if (!data) return "";
+    const symbolForCode = (code: string) => {
+      const row = (data.ledger || []).find((e: any) => e.currency === code);
+      return row?.currencySymbol || code;
+    };
+    if (data.balanceByCurrency && Object.keys(data.balanceByCurrency).length > 0) {
+      return Object.entries(data.balanceByCurrency)
+        .map(([cc, amt]) => formatLedgerMoneyAmount(Math.abs(Number(amt)), symbolForCode(cc), cc))
+        .filter(Boolean)
+        .join(" · ");
+    }
+    if (typeof data.balance === "number") {
+      const code = data.ledger?.[0]?.currency;
+      const symbol = data.ledger?.[0]?.currencySymbol;
+      return formatLedgerMoneyAmount(Math.abs(data.balance), symbol, code);
+    }
+    return "";
+  };
+
+  const ledgerEntrySymbol = (entry: any) => String(entry?.currencySymbol || entry?.currency || "").trim();
 
   useEffect(() => {
     const shouldResolve = searchParams.get("resolve") === "1";
@@ -451,7 +510,7 @@ export default function CustomersPage() {
 
   return (
     <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
-      {!isEmbed && <PageHeader title={t("customers")} subtitle={`${total} ${t("customers").toLowerCase()}`} />}
+      {!isEmbed && <PageHeader title={t("customers")} />}
       {!isEmbed && showOfflineSnapshot && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
           Offline snapshot mode: showing last cached customers data for this device.
@@ -460,7 +519,6 @@ export default function CustomersPage() {
       {!isEmbed && <DataTable
         searchValue={searchQuery}
         onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}
-        searchPlaceholder="Search customers (min 2 chars)"
         columns={[
         { key: "name", label: t("name"), render: (c: any) => (
           <div className="flex items-center gap-2">
@@ -518,8 +576,8 @@ export default function CustomersPage() {
           <div><label className="block mb-1">{t("name")} *</label><input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="input-field" placeholder="Customer name" autoFocus /></div>
           <div><label className="block mb-1">{t("phone")}</label><input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} className="input-field" placeholder="Phone (optional)" /></div>
         </div>
-        <div className={isEmbed ? "pt-4 mt-3 border-t border-[#e8dccf]" : "flex justify-end gap-3 pt-4 mt-4 border-t"}>
-          <button onClick={handleCreate} disabled={submitting} className={isEmbed ? "w-full h-10 rounded-xl text-sm font-semibold text-white bg-[linear-gradient(135deg,#6B0F1A_0%,#8B1A1A_100%)] disabled:opacity-60" : "btn-primary text-sm"}>
+        <div className={isEmbed ? "quickform-footer" : "flex justify-end gap-3 pt-4 mt-4 border-t"}>
+          <button onClick={handleCreate} disabled={submitting} className={isEmbed ? "glass-btn glass-btn-primary w-full min-h-11 disabled:opacity-60" : "btn-primary text-sm"}>
             {submitting ? "Saving…" : t("create")}
           </button>
         </div>
@@ -537,37 +595,153 @@ export default function CustomersPage() {
       </Modal>
 
       {/* LEDGER */}
-      <Modal open={showLedger} onClose={() => setShowLedger(false)} title={`${t("customer_ledger")}: ${selected?.name || ""}`} size="xl">
-        {!ledgerData ? <div className="py-8 text-center"><div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto" /></div> : (
-          <div>
-            <div className="flex flex-wrap gap-4 mb-4 text-sm">
-              {ledgerData.balanceByCurrency && Object.keys(ledgerData.balanceByCurrency).length > 0
-                ? Object.entries(ledgerData.balanceByCurrency).map(([cc, amt]: [string, any]) => (
-                    <span key={cc}>Closing Balance ({cc}): <strong className={`${amt > 0 ? "text-red-600" : amt < 0 ? "text-green-600" : ""}`}>{amt !== 0 ? `${cc} ${Math.abs(Number(amt)).toLocaleString("en-US")}` : t("settled")}</strong></span>
-                  ))
-                : <span>Closing Balance: <strong className={`${ledgerData.balance > 0 ? "text-red-600" : ledgerData.balance < 0 ? "text-green-600" : ""}`}>{ledgerData.balance !== 0 ? Math.abs(ledgerData.balance).toLocaleString("en-US") : t("settled")}</strong></span>
-              }
+      <Modal open={showLedger} onClose={() => setShowLedger(false)} title={`Ledger — ${selected?.name || ""}`} size="lg">
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-[#d4d4d8] bg-[#f4f4f5]/90 px-3 py-2">
+            <div className="flex flex-col items-start gap-1">
+              {ledgerData && ledgerData.balanceByCurrency && Object.keys(ledgerData.balanceByCurrency).length > 0 ? (
+                Object.entries(ledgerData.balanceByCurrency).map(([code, amt]: [string, any]) => {
+                  const bal = Number(amt || 0);
+                  const sym = ledgerEntrySymbol({ currency: code, currencySymbol: (ledgerData.ledger || []).find((e: any) => e.currency === code)?.currencySymbol });
+                  return (
+                    <span
+                      key={code}
+                      className={`rounded border px-2 py-0.5 text-xs font-medium tabular-nums ${bal > 0 ? "border-red-200 bg-red-50 text-red-800" : bal < 0 ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-gray-200 bg-white text-gray-600"}`}
+                    >
+                      {bal === 0 ? `${sym} ${t("settled")}` : formatLedgerMoneyAmount(Math.abs(bal), sym, code)}
+                    </span>
+                  );
+                })
+              ) : ledgerData && typeof ledgerData.balance === "number" ? (
+                <span className={`rounded border px-2 py-0.5 text-xs font-medium tabular-nums ${ledgerData.balance > 0 ? "border-red-200 bg-red-50 text-red-800" : ledgerData.balance < 0 ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-gray-200 bg-white text-gray-600"}`}>
+                  {ledgerData.balance === 0
+                    ? t("settled")
+                    : formatLedgerMoneyAmount(Math.abs(ledgerData.balance), ledgerData.ledger?.[0]?.currencySymbol, ledgerData.ledger?.[0]?.currency)}
+                </span>
+              ) : (
+                <span className="text-xs text-gray-500">No balance</span>
+              )}
             </div>
-            <div className="overflow-x-auto max-h-96">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50"><tr><th className="px-3 py-2 text-left">{t("date")}</th><th className="px-3 py-2 text-left">Entry Type</th><th className="px-3 py-2 text-left">{t("currency")}</th><th className="px-3 py-2 text-left">Particulars</th><th className="px-3 py-2 text-right">Debit</th><th className="px-3 py-2 text-right">Credit</th><th className="px-3 py-2 text-right">Closing Balance</th></tr></thead>
-                <tbody className="divide-y">
-                  {ledgerData.ledger?.map((e: any, i: number) => (
-                    <tr key={i} className={e.status === "cancelled" ? "opacity-40 line-through" : ""}>
-                      <td className="px-3 py-1.5">{e.date}</td>
-                      <td className="px-3 py-1.5"><span className={`text-xs px-1.5 py-0.5 rounded ${e.type === "sale" ? "bg-blue-50 text-blue-700" : "bg-green-50 text-green-700"}`}>{e.type === "sale" ? "Sales Invoice" : "Receipt"}</span></td>
-                      <td className="px-3 py-1.5 text-xs font-semibold text-gray-500">{e.currency}</td>
-                      <td className="px-3 py-1.5 max-w-xs truncate">{e.detail}</td>
-                      <td className="px-3 py-1.5 text-right text-red-600">{e.debit ? e.debit.toLocaleString("en-US") : ""}</td>
-                      <td className="px-3 py-1.5 text-right text-green-600">{e.credit ? e.credit.toLocaleString("en-US") : ""}</td>
-                      <td className="px-3 py-1.5 text-right font-medium">{(typeof e.balance === "number" && !isNaN(e.balance)) ? e.balance.toLocaleString("en-US") : "-"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                disabled={!isOnline || !selected?.id}
+                onClick={() => openLedgerExport({
+                  type: "customer_ledger",
+                  customerId: selected?.id,
+                  dateFrom: ledgerDateFrom || undefined,
+                  dateTo: ledgerDateTo || undefined,
+                  cityId: user?.cityId ?? undefined,
+                  query: ledgerSearchQuery,
+                })}
+                className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+              >
+                XLSX
+              </button>
+              <button
+                type="button"
+                disabled={!ledgerData}
+                onClick={() => {
+                  if (!ledgerData) return;
+                  printCustomerLedgerStatement({
+                    customerName: selected?.name || "",
+                    ledger: ledgerData.ledger || [],
+                    balanceSummary: buildLedgerBalanceSummary(ledgerData),
+                    dateFrom: ledgerDateFrom || undefined,
+                    dateTo: ledgerDateTo || undefined,
+                    query: ledgerSearchQuery,
+                  });
+                }}
+                className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+              >
+                PDF
+              </button>
             </div>
           </div>
-        )}
+
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-gray-200 bg-gray-50/60 px-2.5 py-1.5 text-xs">
+            <label className="flex items-center gap-1.5 text-gray-600">
+              <span className="font-medium">{t("from")}</span>
+              <input type="date" value={ledgerDateFrom} onChange={(e) => setLedgerDateFrom(e.target.value)} className="input-field w-32 py-0.5 text-xs" />
+            </label>
+            <label className="flex items-center gap-1.5 text-gray-600">
+              <span className="font-medium">{t("to")}</span>
+              <input type="date" value={ledgerDateTo} onChange={(e) => setLedgerDateTo(e.target.value)} className="input-field w-32 py-0.5 text-xs" />
+            </label>
+            <button type="button" onClick={applyLedgerDateFilter} className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-700 hover:bg-gray-50">
+              {t("generate")}
+            </button>
+            <input
+              type="text"
+              value={ledgerSearchQuery}
+              onChange={(e) => setLedgerSearchQuery(e.target.value)}
+              placeholder="Search…"
+              className="input-field min-w-[8rem] flex-1 py-0.5 text-xs sm:max-w-[10rem]"
+            />
+          </div>
+
+          {ledgerLoading ? (
+            <div className="flex justify-center py-10">
+              <div className="w-7 h-7 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
+            </div>
+          ) : ledgerData ? (
+            <div className="rounded-lg border border-gray-200 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full table-fixed text-xs">
+                  <colgroup>
+                    <col className="w-[76px]" />
+                    <col />
+                    <col className="w-[76px]" />
+                    <col className="w-[76px]" />
+                    <col className="w-[84px]" />
+                  </colgroup>
+                  <thead>
+                    <tr className="bg-[#f4f4f5] text-[10px] uppercase tracking-wide text-gray-500">
+                      <th className="px-2 py-1.5 text-left font-semibold">{t("date")}</th>
+                      <th className="px-2 py-1.5 text-left font-semibold">Detail</th>
+                      <th className="px-2 py-1.5 text-right font-semibold">Dr</th>
+                      <th className="px-2 py-1.5 text-right font-semibold">Cr</th>
+                      <th className="px-2 py-1.5 text-right font-semibold">Bal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const rows = (ledgerData.ledger || []).filter((e: any) => {
+                        const needle = ledgerSearchQuery.trim().toLowerCase();
+                        if (needle.length < 2) return true;
+                        return [e.date, e.type, e.currency, e.currencySymbol, e.detail, e.voucherNo, e.status]
+                          .some((value) => String(value ?? "").toLowerCase().includes(needle));
+                      });
+                      if (rows.length === 0) {
+                        return <tr><td colSpan={5} className="py-6 text-center text-gray-400">No ledger entries</td></tr>;
+                      }
+                      return rows.map((e: any, i: number) => {
+                        const sym = ledgerEntrySymbol(e);
+                        return (
+                        <tr key={i} className={`border-t border-[#e4e4e7] hover:bg-[#f5e8eb] ${e.status === "cancelled" ? "opacity-40 line-through" : ""}`}>
+                          <td className="whitespace-nowrap px-2 py-1.5 text-gray-600">{formatDate(e.date)}</td>
+                          <td className="px-2 py-1.5 text-gray-800 truncate" title={String(e.detail || e.voucherNo || "")}>
+                            {compactCustomerLedgerDetail(e)}
+                          </td>
+                          <td className="px-2 py-1.5 text-right tabular-nums text-red-700">{e.debit > 0 ? formatLedgerMoneyAmount(e.debit, sym, e.currency) : "—"}</td>
+                          <td className="px-2 py-1.5 text-right tabular-nums text-green-700">{e.credit > 0 ? formatLedgerMoneyAmount(e.credit, sym, e.currency) : "—"}</td>
+                          <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-gray-800">
+                            {(typeof e.balance === "number" && !Number.isNaN(e.balance))
+                              ? formatLedgerMoneyAmount(e.balance, sym, e.currency)
+                              : "—"}
+                          </td>
+                        </tr>
+                      );
+                      });
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="py-6 text-center text-sm text-gray-400">No ledger data</div>
+          )}
+        </div>
       </Modal>
 
       {/* HARD DELETE 2FA MODAL */}

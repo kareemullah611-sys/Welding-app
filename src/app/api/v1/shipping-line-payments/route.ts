@@ -5,6 +5,7 @@ import { successResponse, validationError, errorResponse, serverError } from "@/
 import { journalShippingLinePayment } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { validatePaymentSource } from "@/lib/payment-source-validation";
+import { assertSuperAdminCashHasFunds } from "@/lib/haji-cash-balance";
 import { settlementAmountToPkr } from "@/lib/payment-currencies";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 
@@ -15,21 +16,60 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
   const syncMeta = getSyncRequestMeta(request);
   try {
     const body = await request.json();
-    const { shippingLineId, lotId, paymentDate, amountUsd, settlementCurrency, exchangeRate, reference, notes, bankAccountId, intermediaryId } = body;
+    const { shippingLineId, lotId, paymentDate, amountUsd, settlementCurrency, exchangeRate, reference, notes, bankAccountId, intermediaryId, superAdminCashAccountId } = body;
     const parsedShippingLineId = Number(shippingLineId);
     const parsedLotId = lotId ? Number(lotId) : null;
+    const parsedCashAccountId = superAdminCashAccountId ? Number(superAdminCashAccountId) : null;
 
     if (!parsedShippingLineId || !paymentDate || !amountUsd) return validationError("shippingLineId, paymentDate, and amountUsd are required");
     if (Number(amountUsd) <= 0) return validationError("Amount must be greater than 0");
 
-    const [sl, lot, source] = await Promise.all([
+    const [sl, lot] = await Promise.all([
       prisma.shippingLine.findUnique({ where: { id: parsedShippingLineId }, select: { id: true } }),
       parsedLotId ? prisma.lot.findUnique({ where: { id: parsedLotId }, select: { id: true } }) : Promise.resolve(null),
-      validatePaymentSource({ bankAccountId, intermediaryId, requireSelection: true }),
     ]);
     if (!sl) return errorResponse("NOT_FOUND", "Shipping line not found", 404);
     if (parsedLotId && !lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
-    if (!source.ok) return errorResponse(source.code, source.message, source.status);
+
+    let resolvedBankAccountId: number | null = null;
+    let resolvedIntermediaryId: number | null = null;
+    let amountLocal: number | null = null;
+    let settlementCurrencyCode: string | null = null;
+
+    if (parsedCashAccountId) {
+      if (bankAccountId || intermediaryId) {
+        return validationError("Choose either haji cash or another funding source, not both");
+      }
+      const amountPkrValue = settlementAmountToPkr(
+        Number(amountUsd),
+        String(settlementCurrency || "USD"),
+        exchangeRate ? Number(exchangeRate) : 0
+      );
+      amountLocal = amountPkrValue > 0 ? Math.round(amountPkrValue * 100) / 100 : Number(amountUsd);
+      const funds = await assertSuperAdminCashHasFunds(parsedCashAccountId, amountLocal);
+      if (!funds.ok) return errorResponse("VALIDATION", funds.message, 400);
+      const cashAcct = await prisma.superAdminBankAccount.findUnique({
+        where: { id: parsedCashAccountId },
+        include: { currency: true },
+      });
+      if (!cashAcct || cashAcct.accountKind !== "cash") {
+        return errorResponse("NOT_FOUND", "Haji cash account not found", 404);
+      }
+      settlementCurrencyCode = String(cashAcct.currency.code || "USD").toUpperCase();
+    } else {
+      const source = await validatePaymentSource({ bankAccountId, intermediaryId, requireSelection: true });
+      if (!source.ok) return errorResponse(source.code, source.message, source.status);
+      resolvedBankAccountId = source.bankAccountId;
+      resolvedIntermediaryId = source.intermediaryId;
+    }
+
+    const amountPkrValue = settlementAmountToPkr(
+      Number(amountUsd),
+      String(settlementCurrency || "USD"),
+      exchangeRate ? Number(exchangeRate) : 0
+    );
+    const amountPkr = amountPkrValue > 0 ? Math.round(amountPkrValue * 100) / 100 : null;
+    if (!amountLocal && amountPkr) amountLocal = amountPkr;
 
     if (syncMeta) {
       const existingSync = await prisma.syncRequest.findUnique({
@@ -52,20 +92,14 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
       }
     }
 
-    const amountPkrValue = settlementAmountToPkr(
-      Number(amountUsd),
-      String(settlementCurrency || "USD"),
-      exchangeRate ? Number(exchangeRate) : 0
-    );
-    const amountPkr = amountPkrValue > 0 ? Math.round(amountPkrValue * 100) / 100 : null;
-
     const payment = await prisma.$transaction(async (tx) => {
       const created = await tx.shippingLinePayment.create({
         data: {
           shippingLineId: parsedShippingLineId,
           lotId: parsedLotId,
-          bankAccountId: source.bankAccountId,
-          intermediaryId: source.intermediaryId,
+          bankAccountId: resolvedBankAccountId,
+          intermediaryId: resolvedIntermediaryId,
+          superAdminCashAccountId: parsedCashAccountId,
           paymentDate: new Date(paymentDate),
           amountUsd: Number(amountUsd),
           exchangeRate: exchangeRate ? Number(exchangeRate) : null,
@@ -77,7 +111,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
       });
 
       await createAuditLog(user.userId, null, "shipping_line_payments", created.id, "create", undefined,
-        { shippingLineId: parsedShippingLineId, amountUsd, bankAccountId: source.bankAccountId, intermediaryId: source.intermediaryId }, getClientIP(request), tx);
+        { shippingLineId: parsedShippingLineId, amountUsd, bankAccountId: resolvedBankAccountId, intermediaryId: resolvedIntermediaryId, superAdminCashAccountId: parsedCashAccountId }, getClientIP(request), tx);
 
       if (syncMeta) {
         await tx.syncRequest.create({
@@ -102,8 +136,11 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
         amountUsd: Number(amountUsd),
         paymentDate: new Date(paymentDate),
         createdBy: user.userId,
-        bankAccountId: source.bankAccountId,
-        intermediaryId: source.intermediaryId,
+        bankAccountId: resolvedBankAccountId,
+        intermediaryId: resolvedIntermediaryId,
+        superAdminCashAccountId: parsedCashAccountId,
+        amountLocal,
+        settlementCurrencyCode,
       });
     } catch (je) { console.error("Journal (shipping line payment):", je); }
 

@@ -11,11 +11,15 @@ const SUPERADMIN_SYNC_CITY_ID = 0;
 export const GET = withSuperAdmin(async (request: NextRequest, context, user: JWTPayload) => {
   try {
     const { page, limit, skip } = getPaginationParams(request.nextUrl.searchParams);
+    const agentType = String(request.nextUrl.searchParams.get("agentType") || "").toLowerCase();
+    const where: { isActive: boolean; agentType?: string | { not: string } } = { isActive: true };
+    if (agentType === "customs") where.agentType = "customs";
+    else if (agentType === "clearing") where.agentType = { not: "customs" };
     const agents = await prisma.agent.findMany({
-      where: { isActive: true }, orderBy: { name: "asc" }, skip, take: limit,
+      where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip, take: limit,
       include: { city: { select: { id: true, name: true } }, lotCosts: { where: { paidFromCash: false } }, agentPayments: true },
     });
-    const total = await prisma.agent.count({ where: { isActive: true } });
+    const total = await prisma.agent.count({ where });
     return paginatedResponse(agents.map(a => {
       const billed: Record<string, number> = {};
       const paid: Record<string, number> = {};

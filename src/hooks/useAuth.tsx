@@ -2,9 +2,10 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { clearOfflineAuthCache, readOfflineAuthCache, writeOfflineAuthCache, buildOfflinePasswordVerifier, verifyOfflinePassword } from "@/lib/offline-auth-cache";
-import { isPackagedOfflineRuntime } from "@/lib/offline-cache";
+import { isPackagedOfflineActive } from "@/lib/offline-cache";
 import { probeServerReachable, setPackagedServerReachable } from "@/lib/offline-reachability";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import { getEmbedFromLocation } from "@/lib/quickform-embed";
 
 interface User {
   id: number;
@@ -23,6 +24,7 @@ interface AuthContextType {
   loading: boolean;
   login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
+  recheckAuth: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -30,6 +32,7 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   login: async () => ({ success: false }),
   logout: async () => {},
+  recheckAuth: async () => {},
 });
 
 const RETRYABLE_STATUSES = new Set([502, 503, 504]);
@@ -41,7 +44,7 @@ function sleep(ms: number) {
 
 async function fetchWithWarmupRetry(url: string, init: RequestInit, attempts = 3): Promise<Response> {
   let lastRes: Response | null = null;
-  const useTimeout = isPackagedOfflineRuntime();
+  const useTimeout = isPackagedOfflineActive();
   for (let i = 0; i < attempts; i++) {
     try {
       lastRes = useTimeout
@@ -100,9 +103,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const checkAuth = useCallback(async (retries = 3) => {
-    const packaged = isPackagedOfflineRuntime();
+  const checkAuth = useCallback(async () => {
+    const packaged = isPackagedOfflineActive();
+    const isEmbed = typeof window !== "undefined" && getEmbedFromLocation();
     const cached = readOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
+    const maxAttempts = isEmbed ? 6 : 4;
 
     if (packaged && cached?.user) {
       setUser(cached.user);
@@ -112,39 +117,72 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    try {
-      const res = packaged
-        ? await fetchWithTimeout("/api/v1/auth/me", { credentials: "include", cache: "no-store" }, PACKAGED_AUTH_TIMEOUT_MS)
-        : await fetch("/api/v1/auth/me", { credentials: "include" });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          setUser(data.data);
-          if (packaged) setPackagedServerReachable(true);
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const res = packaged
+          ? await fetchWithTimeout("/api/v1/auth/me", { credentials: "include", cache: "no-store" }, PACKAGED_AUTH_TIMEOUT_MS)
+          : await fetch("/api/v1/auth/me", { credentials: "include", cache: "no-store" });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) {
+            setUser(data.data);
+            const storage = typeof window !== "undefined" ? window.localStorage : null;
+            const existing = readOfflineAuthCache(storage);
+            if (existing?.username && existing.passwordVerifier) {
+              writeOfflineAuthCache(storage, {
+                username: existing.username,
+                passwordVerifier: existing.passwordVerifier,
+                user: data.data,
+                updatedAt: new Date().toISOString(),
+              });
+            }
+            if (packaged) setPackagedServerReachable(true);
+            setLoading(false);
+            return;
+          }
+        }
+
+        if (res.status === 401) {
+          if (isEmbed && attempt < maxAttempts - 1) {
+            await sleep(250 + attempt * 350);
+            continue;
+          }
+          if (isEmbed && cached?.user) {
+            setUser(cached.user);
+            setLoading(false);
+            return;
+          }
+          setUser(null);
+          setLoading(false);
           return;
         }
+
+        if (res.status >= 500 && attempt < maxAttempts - 1) {
+          await sleep(1200 + attempt * 400);
+          continue;
+        }
+      } catch {
+        if (cached?.user) {
+          setUser(cached.user);
+          if (packaged) setPackagedServerReachable(false);
+          setLoading(false);
+          return;
+        }
+        if (attempt < maxAttempts - 1) {
+          await sleep(1200 + attempt * 400);
+          continue;
+        }
       }
-      if (res.status >= 500 && retries > 0) {
-        setTimeout(() => checkAuth(retries - 1), 2000);
-        return;
-      }
-      if (res.status === 401) {
-        setUser(null);
-      }
-    } catch {
-      if (cached?.user) {
-        setUser(cached.user);
-        if (packaged) setPackagedServerReachable(false);
-        return;
-      }
-      if (retries > 0) {
-        setTimeout(() => checkAuth(retries - 1), 2000);
-        return;
-      }
-    } finally {
-      setLoading(false);
     }
+
+    setLoading(false);
   }, [refreshOnlineSession]);
+
+  const recheckAuth = useCallback(async () => {
+    setLoading(true);
+    await checkAuth();
+  }, [checkAuth]);
 
   useEffect(() => {
     const cached = readOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
@@ -163,11 +201,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const parsed = await parseAuthJson(res);
       if (parsed.error) return { ok: false, error: parsed.error };
       const data = parsed.data!;
+      if ((data as { _offline?: boolean })._offline) {
+        const isDev = process.env.NODE_ENV === "development";
+        return {
+          ok: false,
+          error: isDev
+            ? "Cannot reach the API. Run npm run dev, then hard-refresh (Cmd+Shift+R)."
+            : "Cannot reach the server. Check your connection and try again.",
+        };
+      }
       if (data.success && data.data?.user) {
         setPackagedServerReachable(true);
         return { ok: true, user: data.data.user };
       }
       const errMsg = typeof data.error === "string" ? data.error : data.error?.message;
+      if (errMsg?.includes("You are offline")) {
+        const isDev = process.env.NODE_ENV === "development";
+        return {
+          ok: false,
+          error: isDev
+            ? "Stale service worker blocked login. Hard-refresh (Cmd+Shift+R) with npm run dev running."
+            : "Cannot reach the server. Check your connection and try again.",
+        };
+      }
       return { ok: false, error: errMsg || "Login failed" };
     } catch {
       return { ok: false, error: "Network error" };
@@ -184,7 +240,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         (await verifyOfflinePassword(password, cached))
     );
 
-    const packaged = isPackagedOfflineRuntime();
+    const packaged = isPackagedOfflineActive();
 
     if (packaged && cacheMatches) {
       setPackagedServerReachable(false);
@@ -264,7 +320,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, recheckAuth }}>
       {children}
     </AuthContext.Provider>
   );

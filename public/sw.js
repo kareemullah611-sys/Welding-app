@@ -1,8 +1,11 @@
 // Service Worker for MRF Hardware Management System
 // Provides offline caching and background sync
 
-const CACHE_NAME = "mrf-hardware-v3";
+const CACHE_NAME = "mrf-hardware-v4";
 const API_CACHE_NAME = "mrf-hardware-api-v1";
+
+const isLocalDev =
+  self.location.hostname === "localhost" || self.location.hostname === "127.0.0.1";
 
 // Static assets to precache
 const STATIC_ASSETS = [
@@ -35,8 +38,18 @@ const CACHEABLE_API_ROUTES = [
   "/api/v1/cash-position",
 ];
 
-// Install event — precache static assets
+// Install event — precache static assets (skip entirely on localhost dev)
 self.addEventListener("install", (event) => {
+  if (isLocalDev) {
+    event.waitUntil(
+      Promise.all([
+        self.skipWaiting(),
+        self.registration.unregister().catch(() => {}),
+        caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key)))),
+      ])
+    );
+    return;
+  }
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(STATIC_ASSETS).catch((err) => {
@@ -49,6 +62,15 @@ self.addEventListener("install", (event) => {
 
 // Activate event — clean up old caches
 self.addEventListener("activate", (event) => {
+  if (isLocalDev) {
+    event.waitUntil(
+      Promise.all([
+        self.clients.claim(),
+        caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key)))),
+      ])
+    );
+    return;
+  }
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
@@ -61,13 +83,21 @@ self.addEventListener("activate", (event) => {
 
 // Fetch event — network-first for API, cache-first for static assets
 self.addEventListener("fetch", (event) => {
+  if (isLocalDev) return;
+
   const url = new URL(event.request.url);
 
   // Only handle same-origin requests
   if (url.origin !== self.location.origin) return;
 
-  // API requests
+  // Auth must always hit the network — never cache or synthesize responses
+  if (url.pathname.startsWith("/api/v1/auth/")) return;
+
+  // API requests — only cache safe GET reads. Mutations pass through to the network;
+  // packaged apps queue offline writes in useApi/useOffline, not here.
   if (url.pathname.startsWith("/api/")) {
+    if (event.request.method !== "GET") return;
+
     // For GET requests to cacheable routes — network first, fallback to cache
     if (event.request.method === "GET" && CACHEABLE_API_ROUTES.some((route) => url.pathname.startsWith(route))) {
       event.respondWith(
@@ -92,27 +122,6 @@ self.addEventListener("fetch", (event) => {
               );
             });
           })
-      );
-      return;
-    }
-
-    // For mutating requests (POST, PUT, DELETE) — network only.
-    // Offline queueing is handled centrally in the app layer (IndexedDB + useOffline).
-    if (event.request.method !== "GET") {
-      event.respondWith(
-        fetch(event.request.clone()).catch(() => {
-          return new Response(
-            JSON.stringify({
-              success: false,
-              error: {
-                code: "OFFLINE",
-                message: "You are offline. Please retry when connected.",
-              },
-              _offline: true,
-            }),
-            { headers: { "Content-Type": "application/json" } }
-          );
-        })
       );
       return;
     }

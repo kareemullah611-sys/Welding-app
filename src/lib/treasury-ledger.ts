@@ -44,28 +44,36 @@ function subtractMap(base: Pot, deductions: Pot): Pot {
   return result;
 }
 
+/** Credit amount that hit city treasury when a payment was received. */
+export function getPaymentTreasuryCreditAmount(raw: CombinedItem["raw"], amount: number): number {
+  const value = Number(amount || 0);
+  if (!value || raw?.destination !== "our_account") return 0;
+
+  const method = raw?.paymentMethod;
+  if (method === "cheque") {
+    const chequeStatus = raw?.chequeStatus;
+    if (chequeStatus === "bounced") return 0;
+    if (!chequeStatus || chequeStatus === "in_hand" || chequeStatus === "deposited_to_bank") return value;
+    return 0;
+  }
+  if (method === "cash") return value;
+  if (method === "bank_transfer" || method === "online") {
+    return raw?.bankAccountId ? value : 0;
+  }
+  return 0;
+}
+
 /** Net-position delta for one finance/combined row (treasury pot rules). */
 export function getCombinedItemNetDelta(item: CombinedItem): number {
   const amount = Number(item.amount || 0);
   if (!amount) return 0;
 
   if (item.type === "payment") {
-    if (item.status !== "active" && item.raw?.status !== "active") return 0;
-    if (item.raw?.destination !== "our_account") return 0;
+    return getPaymentTreasuryCreditAmount(item.raw, amount);
+  }
 
-    const method = item.raw?.paymentMethod;
-    if (method === "cheque") {
-      const status = item.raw?.chequeStatus;
-      if (status === "bounced") return 0;
-      // Count toward net while still in our hands or already in bank via deposit.
-      if (status === "in_hand" || status === "deposited_to_bank") return amount;
-      return 0;
-    }
-    if (method === "cash") return amount;
-    if (method === "bank_transfer" || method === "online") {
-      return item.raw?.bankAccountId ? amount : 0;
-    }
-    return 0;
+  if (item.type === "payment_reversal") {
+    return -getPaymentTreasuryCreditAmount(item.raw, amount);
   }
 
   if (item.type === "expense") {
@@ -267,4 +275,36 @@ export async function computeCityTreasuryNet(
   );
 
   return addMap(addMap(cashInOffice, chequesInHand), bankBalance);
+}
+
+export function buildPaymentCancellationReversalRow(p: any) {
+  if (p.status !== "cancelled" || !p.cancelledAt) return null;
+  const cancelDate = p.cancelledAt instanceof Date
+    ? p.cancelledAt.toISOString().split("T")[0]
+    : String(p.cancelledAt).split("T")[0];
+  return {
+    id: -Math.abs(Number(p.id)),
+    type: "payment_reversal",
+    date: cancelDate,
+    detail: p.cancellationReason ? `Cancellation — ${p.cancellationReason}` : `Cancellation — ${p.detail}`,
+    amount: Number(p.amount),
+    currencySymbol: p.currency.symbol,
+    currencyCode: p.currency.code,
+    person: p.customer?.name ?? null,
+    cityName: p.city?.name ?? null,
+    status: "cancelled",
+    raw: {
+      ...p,
+      amount: Number(p.amount),
+      exchangeRate: p.exchangeRate ? Number(p.exchangeRate) : null,
+      usdEquivalent: p.usdEquivalent ? Number(p.usdEquivalent) : null,
+      bankAccount: p.bankAccount ?? null,
+      bankAccountId: p.bankAccountId ?? null,
+      superAdminBankAccount: p.superAdminBankAccount ?? null,
+      superAdminBankAccountId: p.superAdminBankAccountId ?? null,
+      reversalOfPaymentId: p.id,
+      paymentDate: p.paymentDate,
+      attachments: [],
+    },
+  };
 }

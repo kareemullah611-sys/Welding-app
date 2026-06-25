@@ -8,6 +8,8 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "next dev",
+    "dev:clean": "rm -rf .next && next dev",
+    "dev:mobile": "next dev --hostname 0.0.0.0 --port 3000",
     "build": "prisma generate && next build",
     "build:electron": "mv src/app/api src/app/_api && ELECTRON_BUILD=true prisma generate && ELECTRON_BUILD=true next build && mv src/app/_api src/app/api",
     "start": "tsx scripts/bootstrap.ts && next start -H 0.0.0.0 -p ${PORT:-3000}",

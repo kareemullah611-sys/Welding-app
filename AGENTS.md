@@ -11,6 +11,19 @@ Before writing ANY code, write:
 - NEVER reformat, rename, or "clean up" unrelated code
 - NEVER refactor working code
 - If you see other issues, list them but don't fix them
+- **Do not change anything — code or UI — that the user did not ask for**
+- Copy, labels, colors, layout, component swaps, and styling count as UI — treat them the same as code
+
+### Unrequested changes are forbidden
+If the user asks for X, deliver X only. Do not also:
+- swap controls (e.g. native `<select>` → custom dropdown) unless asked
+- change colors, spacing, borders, or typography unless asked
+- "improve" keyboard nav, accessibility, or UX in files outside the request
+- simplify, reorganize, or restyle adjacent UI while fixing something else
+
+**Example (do not repeat):** Payment modal dropdown option colors changed when simplifying modal copy — user did not ask for that. Revert or avoid; stay on the requested task.
+
+When tempted to touch something extra: **list it for the user; do not implement it** unless they confirm.
 
 ## RULE 3: GOAL-DRIVEN EXECUTION
 Format every fix as:

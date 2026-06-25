@@ -6,7 +6,7 @@ export async function getIntermediaryBalances(
 ): Promise<Record<string, number>> {
   const excludeExchangeId = options?.excludeExchangeId;
 
-  const [deposits, payments, exchanges] = await Promise.all([
+  const [deposits, payments, exchanges, hajiTransfers] = await Promise.all([
     prisma.intermediaryDeposit.findMany({
       where: { intermediaryId },
       select: { amount: true, currency: { select: { code: true } } },
@@ -28,6 +28,10 @@ export async function getIntermediaryBalances(
         toCurrency: { select: { code: true } },
       },
     }),
+    prisma.hajiTransfer.findMany({
+      where: { intermediaryId, settlementDestination: "intermediary" },
+      select: { amount: true, currency: { select: { code: true } } },
+    }),
   ]);
 
   const balances: Record<string, number> = {};
@@ -44,6 +48,20 @@ export async function getIntermediaryBalances(
   for (const exchange of exchanges) {
     balances[exchange.fromCurrency.code] = (balances[exchange.fromCurrency.code] || 0) - Number(exchange.fromAmount);
     balances[exchange.toCurrency.code] = (balances[exchange.toCurrency.code] || 0) + Number(exchange.toAmount);
+  }
+
+  for (const transfer of hajiTransfers) {
+    const code = transfer.currency.code;
+    balances[code] = (balances[code] || 0) + Number(transfer.amount);
+  }
+
+  const cashReceipts = await prisma.hajiCashReceipt.findMany({
+    where: { intermediaryId },
+    select: { amount: true, currency: { select: { code: true } } },
+  });
+  for (const receipt of cashReceipts) {
+    const code = receipt.currency.code;
+    balances[code] = (balances[code] || 0) - Number(receipt.amount);
   }
 
   return balances;

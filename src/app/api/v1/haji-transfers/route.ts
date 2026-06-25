@@ -6,9 +6,64 @@ import { createHajiTransferSchema } from "@/lib/validations";
 import { successResponse, paginatedResponse, validationError, errorResponse, serverError, getPaginationParams, getDateRange } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import { resolveAfghanistanSettlement } from "@/lib/afghanistan-haji-settlement";
+import {
+  getHajiTransferAuditStateMap,
+  isAfghanistanHajiSettlementEligible,
+} from "@/lib/haji-transfer-audit";
 
 const PAKISTAN_HAJI_TARGET = "Super Admin Account";
 const HAJI_TRANSFER_SYNC_MODULE = "haji_transfers.create";
+
+function mapTransferRow(t: any, auditById: Record<number, any>) {
+  const settlementDestination = t.settlementDestination ?? "standard";
+  return {
+    id: t.id,
+    cityId: t.cityId,
+    lotId: t.lotId,
+    recordType: "haji_transfer",
+    lotNumber: t.lot.lotNumber,
+    lotStatus: t.lot.status,
+    transferDate: t.transferDate.toISOString().split("T")[0],
+    amount: Number(t.amount),
+    detail: t.detail,
+    transferType: t.transferType,
+    transferredTo: t.transferredTo,
+    sourceType: t.sourceType ?? null,
+    settlementDestination,
+    intermediaryId: t.intermediaryId ?? null,
+    superAdminCashAccountId: t.superAdminCashAccountId ?? null,
+    bankAccountId: t.bankAccountId ?? null,
+    chequePaymentId: t.chequePaymentId ?? null,
+    notes: t.notes,
+    currency: { id: t.currency.id, code: t.currency.code, symbol: t.currency.symbol },
+    createdBy: t.creator,
+    hajiAudit: isAfghanistanHajiSettlementEligible({ settlementDestination, sourceType: t.sourceType })
+      ? (auditById[t.id] || null)
+      : null,
+    attachments: (t.attachments || []).map((a: any) => ({
+      ...a,
+      filePath: a.filePath.split("|||")[0],
+    })),
+  };
+}
+
+function journalInputFromTransfer(transfer: any, createdBy: number) {
+  return {
+    id: transfer.id,
+    cityId: transfer.cityId,
+    lotId: transfer.lotId,
+    amount: Number(transfer.amount),
+    currencyCode: transfer.currency.code,
+    date: transfer.transferDate,
+    createdBy,
+    sourceType: transfer.sourceType ?? null,
+    bankAccountId: transfer.bankAccountId ?? null,
+    settlementDestination: transfer.settlementDestination ?? "standard",
+    intermediaryId: transfer.intermediaryId ?? null,
+    superAdminCashAccountId: transfer.superAdminCashAccountId ?? null,
+  };
+}
 
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
@@ -101,25 +156,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       prisma.payment.count({ where: directPaymentsWhere }),
     ]);
 
+    const auditById = await getHajiTransferAuditStateMap(transfers.map((t) => t.id));
+
     const rows = [
-      ...transfers.map((t) => ({
-        id: t.id, cityId: t.cityId, lotId: t.lotId,
-        recordType: "haji_transfer",
-        lotNumber: t.lot.lotNumber, lotStatus: t.lot.status,
-        transferDate: t.transferDate.toISOString().split("T")[0],
-        amount: Number(t.amount), detail: t.detail,
-        transferType: t.transferType, transferredTo: t.transferredTo,
-        sourceType: (t as any).sourceType ?? null,
-        bankAccountId: (t as any).bankAccountId ?? null,
-        chequePaymentId: (t as any).chequePaymentId ?? null,
-        notes: t.notes,
-        currency: { id: t.currency.id, code: t.currency.code, symbol: t.currency.symbol },
-        createdBy: t.creator,
-        attachments: t.attachments.map((a) => ({
-          ...a,
-          filePath: a.filePath.split("|||")[0],
-        })),
-      })),
+      ...transfers.map((t) => mapTransferRow(t, auditById)),
       ...directPayments.map((p) => ({
         id: p.id,
         cityId: p.cityId,
@@ -150,6 +190,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     return paginatedResponse(pagedRows, total, page, limit);
   } catch (error) {
+    console.error("Haji transfers GET:", error);
     return serverError();
   }
 });
@@ -208,6 +249,15 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       return errorResponse("VALIDATION_ERROR", "Afghanistan city Haji transfers can only use office cash");
     }
 
+    if (isAfghanistanCity && (
+      body.sourceType === "mixed_cash_cheque" ||
+      (Array.isArray(body.chequePaymentIds) && body.chequePaymentIds.length > 0) ||
+      body.sourceType === "cheque" ||
+      body.sourceType === "bank_transfer"
+    )) {
+      return errorResponse("VALIDATION_ERROR", "Afghanistan settlements use office cash only");
+    }
+
     // Batch mode: one slip can include office cash plus one or more in-hand cheques.
     if (
       body.sourceType === "mixed_cash_cheque" ||
@@ -246,9 +296,9 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       }
 
       const lot = await prisma.lot.findFirst({
-        where: { id: lotId, lotCityDistributions: { some: { cityId } } },
+        where: { id: lotId, status: "ongoing", lotCityDistributions: { some: { cityId } } },
       });
-      if (!lot) return errorResponse("VALIDATION_ERROR", "Lot not found or not distributed to your city");
+      if (!lot) return errorResponse("VALIDATION_ERROR", "Ongoing lot not found or not distributed to your city");
 
       if (cashAmount > 0) {
         const cityCurrency = await prisma.cityCurrency.findFirst({ where: { cityId, currencyId: currencyId ?? undefined } });
@@ -260,7 +310,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         const chequePayments: any[] = [];
 
         for (const chequePaymentId of chequePaymentIds) {
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${32003}, ${chequePaymentId})`;
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(32003, ${chequePaymentId}::int)`;
         }
 
         for (const chequePaymentId of chequePaymentIds) {
@@ -428,17 +478,37 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     }
 
     const lot = await prisma.lot.findFirst({
-      where: { id: lotId, lotCityDistributions: { some: { cityId } } },
+      where: { id: lotId, status: "ongoing", lotCityDistributions: { some: { cityId } } },
     });
-    if (!lot) return errorResponse("VALIDATION_ERROR", "Lot not found or not distributed to your city");
+    if (!lot) return errorResponse("VALIDATION_ERROR", "Ongoing lot not found or not distributed to your city");
 
     const cityCurrency = await prisma.cityCurrency.findFirst({ where: { cityId, currencyId: currencyId ?? undefined } });
     if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported");
     const resolvedCurrencyId = currencyId ?? cityCurrency.currencyId;
 
+    let settlementDestination: "standard" | "intermediary" | "super_admin_cash" = "standard";
+    let intermediaryId: number | null = null;
+    let superAdminCashAccountId: number | null = null;
+
+    if (isAfghanistanCity) {
+      sourceType = "cash_office";
+      transferType = "from_in_hand";
+      const settlement = await resolveAfghanistanSettlement(prisma, {
+        settlementDestination: body.settlementDestination,
+        intermediaryId: body.intermediaryId,
+        superAdminCashAccountId: body.superAdminCashAccountId,
+        currencyId: resolvedCurrencyId,
+      });
+      if (!settlement.ok) return errorResponse("VALIDATION_ERROR", settlement.message);
+      settlementDestination = settlement.data.settlementDestination;
+      intermediaryId = settlement.data.intermediaryId;
+      superAdminCashAccountId = settlement.data.superAdminCashAccountId;
+      transferredTo = settlement.data.transferredTo;
+    }
+
     const transfer = await prisma.$transaction(async (tx) => {
       if (sourceType === "cheque" && chequePaymentId) {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${32003}, ${chequePaymentId})`;
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(32003, ${chequePaymentId}::int)`;
         const chequePayment = await tx.payment.findUnique({ where: { id: chequePaymentId } });
         if (!chequePayment) throw new Error("CHEQUE_NOT_FOUND");
         if (chequePayment.cityId !== cityId) throw new Error("CHEQUE_FORBIDDEN");
@@ -455,6 +525,9 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         data: {
           cityId, lotId, transferDate: new Date(transferDate), amount, currencyId: resolvedCurrencyId,
           detail, transferType, transferredTo, notes, createdBy: user.userId,
+          settlementDestination,
+          intermediaryId,
+          superAdminCashAccountId,
           ...(sourceType !== undefined ? { sourceType } : {}),
           ...(bankAccountId !== undefined ? { bankAccountId } : {}),
           ...(chequePaymentId !== undefined ? { chequePaymentId } : {}),
@@ -462,8 +535,8 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         include: { lot: { select: { id: true, lotNumber: true } }, currency: true, creator: { select: { id: true, fullName: true } } },
       }) as any;
 
-      await createAuditLog(user.userId, cityId, "haji_transfers", createdTransfer.id, "create", undefined, { lotId, amount, transferType, sourceType }, getClientIP(request), tx);
-      await journalHajiTransfer({ id: createdTransfer.id, cityId, amount, currencyCode: createdTransfer.currency.code, date: createdTransfer.transferDate, createdBy: user.userId, sourceType: createdTransfer.sourceType, bankAccountId: (createdTransfer as any).bankAccountId ?? null }, tx);
+      await createAuditLog(user.userId, cityId, "haji_transfers", createdTransfer.id, "create", undefined, { lotId, amount, transferType, sourceType, settlementDestination }, getClientIP(request), tx);
+      await journalHajiTransfer(journalInputFromTransfer(createdTransfer, user.userId), tx);
       if (syncMeta) {
         await tx.syncRequest.create({
           data: {

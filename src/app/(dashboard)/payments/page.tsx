@@ -4,20 +4,24 @@ import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, DataTable, Modal, StatusBadge, formatDate, RowActionMenu } from "@/components/ui";
-import CustomerSearch from "@/components/CustomerSearch";
+import { PageHeader, DataTable, Modal, StatusBadge, formatDate, RowActionMenu, MobileDateInput } from "@/components/ui";
+import CustomerFieldWithNew from "@/components/CustomerFieldWithNew";
 import { useLang } from "@/lib/lang";
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
 import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { useSearchParams } from "next/navigation";
-import { getEmbedFromLocation, getEmbedQuickformPath } from "@/lib/quickform-embed";
-import { formatCityAmount, formatCityPot } from "@/lib/city-money-format";
+import { getEmbedFromLocation, getEmbedQuickformPath, shouldSimplifyCityModals } from "@/lib/quickform-embed";
+import { formatCityAmount, formatCurrencySelectLabel } from "@/lib/city-money-format";
+import { buildPaymentCancellationReversalRow } from "@/lib/treasury-ledger";
+import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import { LedgerExportButtons } from "@/components/LedgerExportButtons";
 
 
 const TYPE_CONFIG: Record<string, { label: string; color: string; amountColor: string }> = {
   payment:      { label: "Payment",    color: "bg-blue-50 text-blue-700",   amountColor: "text-green-700" },
+  payment_reversal: { label: "Reversal", color: "bg-rose-50 text-rose-700", amountColor: "text-rose-700" },
   expense:      { label: "Expense",    color: "bg-red-50 text-red-700",     amountColor: "text-red-600" },
   haji_transfer:{ label: "Haji",       color: "bg-orange-50 text-orange-700", amountColor: "text-orange-600" },
   withdrawal:   { label: "Withdrawal", color: "bg-purple-50 text-purple-700", amountColor: "text-purple-600" },
@@ -29,6 +33,61 @@ function safeParseQueueBody(body: string): any {
   } catch {
     return {};
   }
+}
+
+const CHEQUE_STATUS_STYLES: Record<string, string> = {
+  in_hand: "bg-yellow-50 text-yellow-700",
+  deposited_to_bank: "bg-blue-50 text-blue-700",
+  sent_to_haji: "bg-green-50 text-green-700",
+  bounced: "bg-red-50 text-red-700",
+};
+
+function paymentListRowClassName(item: any) {
+  if (item.type === "payment" && item.status === "cancelled") {
+    return "bg-gray-50/80 opacity-65 [&_td:not(:last-child)]:line-through [&_td:not(:last-child)]:decoration-gray-400/90";
+  }
+  if (item.type === "payment_reversal") {
+    return "bg-rose-50/40";
+  }
+  if (item.type === "withdrawal" && item.status === "pending") {
+    return "bg-amber-50/50 opacity-80";
+  }
+  return "";
+}
+
+function appendPaymentReversalRow(items: any[], paymentRow: any, reason: string, cancelledAt?: string) {
+  const reversal = buildPaymentCancellationReversalRow({
+    ...(paymentRow.raw || {}),
+    id: paymentRow.id,
+    status: "cancelled",
+    cancelledAt: cancelledAt ? new Date(cancelledAt) : new Date(),
+    cancellationReason: reason,
+    detail: paymentRow.detail,
+    amount: paymentRow.amount,
+    currency: { symbol: paymentRow.currencySymbol, code: paymentRow.currencyCode },
+    customer: paymentRow.person ? { name: paymentRow.person } : null,
+    city: paymentRow.cityName ? { name: paymentRow.cityName } : null,
+  });
+  if (!reversal) return items;
+  if (items.some((row) => row.id === reversal.id)) return items;
+  return [...items, reversal];
+}
+
+function renderChequeStatusHint(item: any, t: (key: string) => string) {
+  if (item.type !== "payment" || !item.raw?.chequeStatus) return null;
+  const chequeStatusLabels: Record<string, string> = {
+    in_hand: t("in_hand_status"),
+    deposited_to_bank: t("deposited_to_bank"),
+    sent_to_haji: t("sent_to_haji_status"),
+    bounced: t("bounced"),
+  };
+  return (
+    <span
+      className={`mt-0.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium no-underline ${CHEQUE_STATUS_STYLES[item.raw.chequeStatus] || "bg-gray-50 text-gray-700"}`}
+    >
+      {chequeStatusLabels[item.raw.chequeStatus] || item.raw.chequeStatus}
+    </span>
+  );
 }
 
 function mapQueueUrlToCombinedType(url: string): "payment" | "expense" | "haji_transfer" | "withdrawal" | null {
@@ -56,6 +115,28 @@ function applyQueuedMutationsToCombinedList(baseItems: any[], queueItems: any[])
       continue;
     }
     const patch = safeParseQueueBody(String(q?.body || ""));
+    const isPaymentCancel = type === "payment" && url.includes("/cancel");
+    if (isPaymentCancel) {
+      let cancelledRow: any = null;
+      next = next.map((row) => {
+        if (String(row?.id || "") !== targetId || String(row?.type || "") !== type) return row;
+        cancelledRow = {
+          ...row,
+          status: "cancelled",
+          _pending: true,
+          raw: {
+            ...(row.raw || {}),
+            status: "cancelled",
+            cancellationReason: patch?.reason ?? row.raw?.cancellationReason,
+          },
+        };
+        return cancelledRow;
+      });
+      if (cancelledRow) {
+        next = appendPaymentReversalRow(next, cancelledRow, patch?.reason ?? "");
+      }
+      continue;
+    }
     next = next.map((row) => {
       if (String(row?.id || "") !== targetId || String(row?.type || "") !== type) return row;
       if (type === "withdrawal") {
@@ -131,6 +212,7 @@ export default function PaymentsPage() {
   const { t } = useLang();
   const searchParams = useSearchParams();
   const isEmbed = useQuickformEmbed();
+  const simplifyModals = shouldSimplifyCityModals(user, isEmbed);
   const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, discardQueuedItem, syncQueue } = useOffline();
   const canCreateRecords = user?.role === "city_admin";
   const isAfghanistanCity = user?.countryName === "Afghanistan";
@@ -141,10 +223,10 @@ export default function PaymentsPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
-  const [currentBalanceByCurrency, setCurrentBalanceByCurrency] = useState<Record<string, number>>({});
   const defaultDateRange = getCurrentMonthDateRange();
   const [fromDate, setFromDate] = useState(defaultDateRange.from);
   const [toDate, setToDate] = useState(defaultDateRange.to);
+  const [dateRangePreset, setDateRangePreset] = useState<"today" | "last7" | "month" | "all" | "custom">("month");
   const [searchQuery, setSearchQuery] = useState("");
 
   // Type filter for the list
@@ -194,6 +276,7 @@ export default function PaymentsPage() {
   const [paymentQueue, setPaymentQueue] = useState<Array<{ tempId: string; customerName: string; voucherNo: string; amount: number; currencySymbol: string; detail: string; date: string; body: any }>>([]);
   const [savingQueue, setSavingQueue] = useState(false);
   const [queueSaved, setQueueSaved] = useState(false);
+  const [paymentSavedNotice, setPaymentSavedNotice] = useState<string | null>(null);
   const prefillHandledRef = useRef(false);
   const closeEmbed = useCallback(() => {
     if (typeof window !== "undefined" && window.parent !== window) {
@@ -223,7 +306,7 @@ export default function PaymentsPage() {
       return;
     }
     setLoading(true);
-    const params: any = { page, limit: 20 };
+    const params: any = { page, limit: DEFAULT_LIST_PAGE_SIZE };
     if (fromDate) params.from_date = fromDate;
     if (toDate) params.to_date = toDate;
     const normalizedQuery = searchQuery.trim();
@@ -271,10 +354,6 @@ export default function PaymentsPage() {
       setItems(nextItems);
       setTotalPages((r.pagination as any)?.totalPages || 1);
       setTotal((r.pagination as any)?.total || 0);
-      const meta = r.meta as { currentBalanceByCurrency?: Record<string, number> } | undefined;
-      if (meta?.currentBalanceByCurrency) {
-        setCurrentBalanceByCurrency(meta.currentBalanceByCurrency);
-      }
       writeOfflineReadSnapshot<PaymentsReadSnapshot>(PAYMENTS_READ_CACHE_KEY, {
         items: nextItems,
         totalPages: (r.pagination as any)?.totalPages || 1,
@@ -316,7 +395,9 @@ export default function PaymentsPage() {
     if (lastSyncResult && lastSyncResult.synced > 0) load();
   }, [isEmbed, lastSyncResult, load]);
 
-  const setDatePreset = (preset: "today" | "last7" | "month" | "all") => {
+  const applyDatePreset = (preset: "today" | "last7" | "month" | "all" | "custom") => {
+    setDateRangePreset(preset);
+    if (preset === "custom") return;
     const today = new Date();
     if (preset === "all") {
       setFromDate("");
@@ -395,9 +476,31 @@ export default function PaymentsPage() {
     return { loadedCurrencies };
   };
 
+  const resetPaymentCreateForm = useCallback(() => {
+    const today = new Date().toISOString().split("T")[0];
+    setForm({
+      customerId: 0,
+      customerName: "",
+      paymentDate: today,
+      amount: 0,
+      detail: "",
+      currencyId: currencies[0]?.id || 0,
+      paymentMethod: "cash",
+      destination: "our_account",
+      notes: "",
+      chequeNumber: "",
+      chequeBank: "",
+      chequeDueDate: "",
+      bankAccountId: 0,
+      superAdminBankAccountId: 0,
+      manualVoucherNo: "",
+    });
+  }, [currencies]);
+
   const openCreate = async (type: string, preset?: Record<string, any>) => {
     setCreateType(type);
     setResolvingQueueId(null);
+    setPaymentSavedNotice(null);
     const { loadedCurrencies } = await loadHelpers();
     const offlineReadinessError = getOfflineFormReadinessError({
       isOnline,
@@ -541,6 +644,8 @@ export default function PaymentsPage() {
       return;
     }
 
+    const keepPaymentModalOpen = createType === "payment";
+
     if (!isOnline) {
       const entityType = createType === "payment" ? "payment" : createType;
       const queueId = await enqueue({
@@ -569,7 +674,14 @@ export default function PaymentsPage() {
         persistPaymentsSnapshot(next, total + 1);
         return next;
       });
-      setShowCreate(false);
+      if (keepPaymentModalOpen) {
+        resetPaymentCreateForm();
+        setError("");
+        setPaymentSavedNotice("Payment queued for sync.");
+        setTimeout(() => setPaymentSavedNotice(null), 3000);
+      } else {
+        setShowCreate(false);
+      }
       setResolvingQueueId(null);
       setSubmitting(false);
       return;
@@ -578,10 +690,18 @@ export default function PaymentsPage() {
     // ── Online: normal submit ──
     const r = await apiCall(endpoint, { method: "POST", body });
     if (r.success) {
-      setShowCreate(false);
       setResolvingQueueId(null);
-      if (isEmbed) closeEmbed();
-      refreshToLatestPayments();
+      if (keepPaymentModalOpen) {
+        resetPaymentCreateForm();
+        setError("");
+        setPaymentSavedNotice("Payment recorded.");
+        setTimeout(() => setPaymentSavedNotice(null), 3000);
+        refreshToLatestPayments();
+      } else {
+        setShowCreate(false);
+        if (isEmbed) closeEmbed();
+        refreshToLatestPayments();
+      }
     } else { setError(r.error || "Failed"); }
     setSubmitting(false);
   };
@@ -642,6 +762,7 @@ export default function PaymentsPage() {
   };
 
   const openEdit = async (item: any) => {
+    if (item.type === "payment_reversal" || (item.type === "payment" && item.status === "cancelled")) return;
     setCreateType(item.type);
     setSelected(item);
     await loadHelpers();
@@ -784,20 +905,26 @@ export default function PaymentsPage() {
         },
       });
       setItems((prev) => {
-        const next = prev
-          .map((row: any) =>
-            row.id === item.id
-              ? item.type === "payment"
-                ? {
-                    ...row,
-                    status: "cancelled",
-                    _pending: true,
-                    raw: { ...(row.raw || {}), cancellationReason: reason },
-                  }
-                : null
-              : row
-          )
-          .filter(Boolean) as any[];
+        let next = prev.map((row: any) =>
+          row.id === item.id && item.type === "payment"
+            ? {
+                ...row,
+                status: "cancelled",
+                _pending: true,
+                raw: {
+                  ...(row.raw || {}),
+                  status: "cancelled",
+                  cancellationReason: reason,
+                },
+              }
+            : row
+        );
+        if (item.type === "payment") {
+          const cancelledRow = next.find((row: any) => row.id === item.id);
+          if (cancelledRow) next = appendPaymentReversalRow(next, cancelledRow, reason);
+        } else {
+          next = next.filter((row: any) => row.id !== item.id);
+        }
         persistPaymentsSnapshot(next);
         return next;
       });
@@ -942,7 +1069,7 @@ export default function PaymentsPage() {
   const columns = [
     {
       key: "date", label: t("date"),
-      render: (item: any) => <span className="whitespace-nowrap text-sm">{formatDate(item.date)}</span>,
+      render: (item: any) => <span className="whitespace-nowrap tabular-nums">{formatDate(item.date)}</span>,
     },
     ...(!isSuperAdmin ? [{
       key: "type", label: "Type",
@@ -951,10 +1078,10 @@ export default function PaymentsPage() {
     {
       key: "person", label: "Name",
       render: (item: any) => item.person ? (
-        <div>
-          <span className="text-sm text-gray-700">{item.person}</span>
+        <div className="min-w-0 leading-tight">
+          <span className="block truncate">{item.person}</span>
           {user?.role === "super_admin" && item.cityName && (
-            <p className="text-xs text-indigo-500 mt-0.5">{item.cityName}</p>
+            <span className="block truncate text-[11px] text-indigo-500">{item.cityName}</span>
           )}
         </div>
       ) : <span className="text-gray-300">—</span>,
@@ -962,10 +1089,14 @@ export default function PaymentsPage() {
     {
       key: "detail", label: t("detail"),
       render: (item: any) => (
-        <div>
-          <span className="text-sm">{item.detail}</span>
-          {item.type === "haji_transfer" && item.raw?.lotNumber && <p className="text-xs text-gray-400 mt-0.5">Lot {item.raw.lotNumber}</p>}
-          {item.type === "expense" && item.raw?.lotNumber && <p className="text-xs text-gray-400 mt-0.5">Lot {item.raw.lotNumber}</p>}
+        <div className="min-w-0 leading-tight" title={item.type === "payment" && item.status === "cancelled" && !item.raw?.cancellationReason ? "Cancelled" : undefined}>
+          <span className="block truncate">{item.detail}</span>
+          {item.type === "payment" && item.status === "cancelled" && item.raw?.cancellationReason && !isSuperAdmin && (
+            <span className="mt-0.5 block truncate text-[11px] text-red-600/90">{item.raw.cancellationReason}</span>
+          )}
+          {item.type === "haji_transfer" && item.raw?.lotNumber && <span className="mt-0.5 block text-[11px] text-gray-400">Lot {item.raw.lotNumber}</span>}
+          {item.type === "expense" && item.raw?.lotNumber && <span className="mt-0.5 block text-[11px] text-gray-400">Lot {item.raw.lotNumber}</span>}
+          {!isSuperAdmin && renderChequeStatusHint(item, t)}
         </div>
       ),
     },
@@ -981,10 +1112,11 @@ export default function PaymentsPage() {
       key: "amount", label: t("amount"),
       render: (item: any) => {
         const cfg = TYPE_CONFIG[item.type];
+        const isReversal = item.type === "payment_reversal";
         return (
           <div>
-            <span className={`font-semibold text-sm ${cfg?.amountColor || "text-gray-700"}`}>
-              {item.currencySymbol} {item.amount?.toLocaleString("en-US")}
+            <span className={`font-semibold tabular-nums ${cfg?.amountColor || "text-gray-700"}`}>
+              {isReversal ? "−" : ""}{item.currencySymbol} {item.amount?.toLocaleString("en-US")}
             </span>
             {item.type === "payment" && item.raw?.currencyCode === "AFN" && item.raw?.usdEquivalent && (
               <p className="text-xs text-gray-400 mt-0.5">≈ ${Number(item.raw.usdEquivalent).toLocaleString("en-US")}</p>
@@ -993,7 +1125,7 @@ export default function PaymentsPage() {
         );
       },
     },
-    {
+    ...(isSuperAdmin ? [{
       key: "status", label: t("status"),
       render: (item: any) => {
         if (item.type === "payment") {
@@ -1035,8 +1167,8 @@ export default function PaymentsPage() {
         );
         return <span className="text-gray-300">—</span>;
       },
-    },
-    ...(user?.role === "super_admin" ? [{
+    }] : []),
+    ...(isSuperAdmin ? [{
       key: "sa_check", label: "SA Check",
       render: (item: any) => (
         item.type === "payment" && item.status === "active" && item.raw?.destination === "haji" && ["cash", "bank_transfer", "online"].includes(item.raw?.paymentMethod) ? (
@@ -1064,13 +1196,17 @@ export default function PaymentsPage() {
     {
       key: "actions", label: "",
       render: (item: any) => {
+        if (item.type === "payment_reversal") return <span className="text-gray-300">—</span>;
         const actionKey = getActionKey(item);
+        const canEdit = !(item.type === "payment" && item.status === "cancelled");
         return (
           <RowActionMenu
             open={openActionId === actionKey}
             onOpenChange={(open) => setOpenActionId(open ? actionKey : null)}
           >
-            <button onClick={() => { setOpenActionId(null); openEdit(item); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
+            {canEdit && (
+              <button onClick={() => { setOpenActionId(null); openEdit(item); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
+            )}
             {item.type === "payment" && item.status === "active" && (
               <button type="button" onClick={() => openDelete(item)} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("cancel")}</button>
             )}
@@ -1106,63 +1242,70 @@ export default function PaymentsPage() {
 
   return (
     <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
-      {!isEmbed && <PageHeader
-        title={isSuperAdmin ? "Payments" : t("payments")}
-        subtitle={
-          isSuperAdmin
-            ? `City settlements received by super admin · ${total} ${t("records").toLowerCase()}`
-            : [
-                `${total} ${t("records").toLowerCase()}`,
-                Object.keys(currentBalanceByCurrency).length > 0
-                  ? `Net balance ${formatCityPot(user, currentBalanceByCurrency)} (matches dashboard)`
-                  : null,
-              ]
-                .filter(Boolean)
-                .join(" · ")
-        }
-        action={
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search all columns (min 2 chars)..."
-              className="input-field min-w-[220px] text-xs"
+      {!isEmbed && <PageHeader title={isSuperAdmin ? "Payments" : t("payments")} />}
+      {!isEmbed && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search…"
+            className="input-field h-8 min-w-[7rem] flex-1 text-xs sm:max-w-xs"
+          />
+          {!isSuperAdmin && (
+            <select
+              value={typeFilter}
+              onChange={e => setTypeFilter(e.target.value)}
+              className="select-field h-8 w-auto text-xs"
+            >
+              <option value="all">All types</option>
+              <option value="payment">Payments</option>
+              <option value="expense">Expenses</option>
+              <option value="haji_transfer">Haji</option>
+              <option value="withdrawal">Withdrawals</option>
+            </select>
+          )}
+          <select
+            value={dateRangePreset}
+            onChange={(e) => applyDatePreset(e.target.value as "today" | "last7" | "month" | "all" | "custom")}
+            className="select-field h-8 w-auto text-xs"
+            aria-label="Date range preset"
+          >
+            <option value="month">This month</option>
+            <option value="today">Today</option>
+            <option value="last7">7 days</option>
+            <option value="all">All dates</option>
+            <option value="custom">Custom</option>
+          </select>
+          {dateRangePreset === "custom" && (
+            <>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="input-field h-8 w-[8.5rem] text-xs"
+              />
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="input-field h-8 w-[8.5rem] text-xs"
+              />
+            </>
+          )}
+          {(isSuperAdmin || typeFilter === "all" || typeFilter === "payment") && (
+            <LedgerExportButtons
+              type="payments"
+              dateFrom={fromDate || undefined}
+              dateTo={toDate || undefined}
+              cityId={user?.cityId ?? undefined}
+              query={searchQuery}
+              disabled={!isOnline}
+              className="ml-auto"
             />
-            {/* Type filter */}
-            {!isSuperAdmin && (
-              <select
-                value={typeFilter}
-                onChange={e => setTypeFilter(e.target.value)}
-                className="select-field text-sm py-1.5 pr-8"
-              >
-                <option value="all">All Types</option>
-                <option value="payment">Payments</option>
-                <option value="expense">Expenses</option>
-                <option value="haji_transfer">Haji Transfers</option>
-                <option value="withdrawal">Withdrawals</option>
-              </select>
-            )}
-            <input
-              type="date"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-              className="input-field w-auto text-xs"
-            />
-            <input
-              type="date"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-              className="input-field w-auto text-xs"
-            />
-            <button type="button" onClick={() => setDatePreset("today")} className="btn-secondary text-xs">Today</button>
-            <button type="button" onClick={() => setDatePreset("last7")} className="btn-secondary text-xs">7D</button>
-            <button type="button" onClick={() => setDatePreset("month")} className="btn-secondary text-xs">Month</button>
-            <button type="button" onClick={() => setDatePreset("all")} className="btn-secondary text-xs">All</button>
-
-          </div>
-        }
-      />}
+          )}
+        </div>
+      )}
       {!isEmbed && showOfflineSnapshot && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
           Offline snapshot mode: showing last cached payments data for this device.
@@ -1177,16 +1320,150 @@ export default function PaymentsPage() {
 
       {!isEmbed && <DataTable
         searchable={false}
+        compact={!isSuperAdmin}
         columns={columns}
         data={items}
         loading={loading}
         pagination={{ page, totalPages, total, onPageChange: setPage }}
+        rowClassName={!isSuperAdmin ? paymentListRowClassName : undefined}
       />}
 
       {/* ── CREATE MODAL ───────────────────────────────────────────────────── */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={createTitle} size="md" inline={isEmbed} hideHeader={isEmbed}>
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); setPaymentSavedNotice(null); if (isEmbed) closeEmbed(); }} title={createTitle} size="md" inline={isEmbed} hideHeader={isEmbed}>
+        {paymentSavedNotice && (
+          <div className="mb-3 p-2 bg-green-50 border border-green-200 rounded text-green-700 text-sm">{paymentSavedNotice}</div>
+        )}
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
+          {simplifyModals && createType === "payment" ? (
+            <>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">{t("date")} *</label>
+                <MobileDateInput
+                  variant="field"
+                  value={form.paymentDate || ""}
+                  onChange={(d) => setForm((f: any) => ({ ...f, paymentDate: d, expenseDate: d, transferDate: d, withdrawalDate: d }))}
+                  placeholder={t("date")}
+                  aria-label={t("date")}
+                />
+              </div>
+
+              <CustomerFieldWithNew
+                value={form.customerId || 0}
+                onChange={(id, name) => setForm((f: any) => ({ ...f, customerId: id, customerName: name }))}
+                placeholder={t("search_customer")}
+                label={t("customer")}
+                cityId={user?.cityId ?? undefined}
+              />
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">{t("detail")} *</label>
+                <input value={form.detail || ""} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="min-w-0">
+                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
+                  <input
+                    type="number"
+                    min="0.01"
+                    value={form.amount || ""}
+                    onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
+                    className="input-field"
+                    onWheel={e => e.currentTarget.blur()}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("currency")}</label>
+                  <select
+                    value={form.currencyId || currencies[0]?.id || 0}
+                    onChange={e => setForm((f: any) => ({ ...f, currencyId: parseInt(e.target.value, 10) || 0 }))}
+                    className="select-field"
+                  >
+                    {currencies.map((c: any) => (
+                      <option key={c.id} value={c.id}>{formatCurrencySelectLabel(c)}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {!isAfghanistanCity && (
+                <div className={isEmbed ? "quickform-panel space-y-3" : "space-y-3 rounded-xl border border-gray-200 bg-gray-50/70 p-4"}>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700">{t("payment_method")}</label>
+                    <select
+                      value={form.paymentMethod || "cash"}
+                      onChange={e => setForm((f: any) => ({ ...f, paymentMethod: e.target.value, bankAccountId: 0, superAdminBankAccountId: 0 }))}
+                      className="select-field"
+                    >
+                      {PAYMENT_METHOD_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700">{t("destination")}</label>
+                    <select
+                      value={form.destination || "our_account"}
+                      onChange={e => setForm((f: any) => ({ ...f, destination: e.target.value, bankAccountId: 0, superAdminBankAccountId: 0 }))}
+                      className="select-field"
+                    >
+                      {DESTINATION_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {showCityBankAccountSelect && (
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">City Bank Account *</label>
+                      <select
+                        value={form.bankAccountId || 0}
+                        onChange={e => setForm((f: any) => ({ ...f, bankAccountId: parseInt(e.target.value, 10), superAdminBankAccountId: 0 }))}
+                        className="select-field"
+                      >
+                        <option value={0}>Select city bank account…</option>
+                        {cityBankAccounts.filter((a: any) => a.isActive).map((a: any) => (
+                          <option key={a.id} value={a.id}>
+                            {a.bankName}{a.accountNumber ? ` (${a.accountNumber})` : ""}{a.currency?.code ? ` · ${a.currency.code}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  {showSuperAdminBankAccountSelect && (
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">Super Admin Bank Account *</label>
+                      <select
+                        value={form.superAdminBankAccountId || 0}
+                        onChange={e => setForm((f: any) => ({ ...f, superAdminBankAccountId: parseInt(e.target.value, 10), bankAccountId: 0 }))}
+                        className="select-field"
+                      >
+                        <option value={0}>Select super admin bank account…</option>
+                        {superAdminBankAccounts.filter((a: any) => a.isActive).map((a: any) => (
+                          <option key={a.id} value={a.id}>
+                            {a.bankName}{a.accountNumber ? ` (${a.accountNumber})` : ""}{a.currency?.code ? ` · ${a.currency.code}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  {form.paymentMethod === "cheque" ? t("cheque_number") : t("reference")}
+                </label>
+                <input
+                  value={form.manualVoucherNo || ""}
+                  onChange={e => setForm((f: any) => ({ ...f, manualVoucherNo: e.target.value }))}
+                  className="input-field"
+                  placeholder={form.paymentMethod === "cheque" ? "e.g. 001234" : "e.g. REF-1024"}
+                />
+              </div>
+            </>
+          ) : (
+            <>
           {/* ── DATE — always first ── */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
@@ -1197,25 +1474,21 @@ export default function PaymentsPage() {
                 setForm((f: any) => ({ ...f, paymentDate: d, expenseDate: d, transferDate: d, withdrawalDate: d }));
               }}
               className="input-field"
-              autoFocus
             />
           </div>
 
           {createType === "payment" && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("customer")} *</label>
-              <CustomerSearch
-                value={form.customerId || 0}
-                onChange={(id, name) => setForm((f: any) => ({ ...f, customerId: id, customerName: name }))}
-                placeholder={t("search_customer")}
-              />
-            </div>
+            <CustomerFieldWithNew
+              value={form.customerId || 0}
+              onChange={(id, name) => setForm((f: any) => ({ ...f, customerId: id, customerName: name }))}
+              placeholder={t("search_customer")}
+              cityId={user?.cityId ?? undefined}
+            />
           )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("detail")} *</label>
-            <input value={form.detail || ""} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field"
-              onKeyDown={e => { if (e.key === "Enter") { if (createType === "payment") addToQueue(); else handleCreate(); } }} />
+            <input value={form.detail || ""} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" />
           </div>
 
           {currencies.length > 1 && (
@@ -1230,28 +1503,23 @@ export default function PaymentsPage() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
             <input type="number" min="0.01" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field"
-              onKeyDown={e => { if (e.key === "Enter") { if (createType === "payment") addToQueue(); else handleCreate(); } }}
               onWheel={e => e.currentTarget.blur()} />
           </div>
 
-          {createType === "payment" && (
-            <div className={isEmbed ? "space-y-3" : "space-y-3 rounded-xl border border-gray-200 bg-gray-50/70 p-4"}>
+          {createType === "payment" && !isAfghanistanCity && (
+            <div className={isEmbed ? "quickform-panel space-y-3" : "space-y-3 rounded-xl border border-gray-200 bg-gray-50/70 p-4"}>
               <div>
-                <label className="block mb-1">{isEmbed ? "Payment type" : "How was the payment received?"}</label>
-                {isEmbed || isAfghanistanCity ? (
-                  isAfghanistanCity ? (
-                    <p className="text-sm text-green-800 bg-green-50 border border-green-200 rounded-lg px-3 py-2">Cash</p>
-                  ) : (
-                    <select
-                      value={form.paymentMethod || "cash"}
-                      onChange={e => setForm((f: any) => ({ ...f, paymentMethod: e.target.value, bankAccountId: 0, superAdminBankAccountId: 0 }))}
-                      className="select-field"
-                    >
-                      {PAYMENT_METHOD_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                  )
+                <label className="block mb-1">{simplifyModals ? t("payment_method") : "How was the payment received?"}</label>
+                {simplifyModals ? (
+                  <select
+                    value={form.paymentMethod || "cash"}
+                    onChange={e => setForm((f: any) => ({ ...f, paymentMethod: e.target.value, bankAccountId: 0, superAdminBankAccountId: 0 }))}
+                    className="select-field"
+                  >
+                    {PAYMENT_METHOD_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
                 ) : (
                   <div className="grid grid-cols-2 gap-2">
                     {PAYMENT_METHOD_OPTIONS.map((option) => (
@@ -1274,10 +1542,10 @@ export default function PaymentsPage() {
               </div>
 
               <div>
-                <label className="block mb-1">{isEmbed ? "Send to" : "Where should this payment go?"}</label>
-                {isEmbed ? (
+                <label className="block mb-1">{simplifyModals ? t("destination") : "Where should this payment go?"}</label>
+                {simplifyModals ? (
                   <select
-                    value={form.destination || "haji"}
+                    value={form.destination || "our_account"}
                     onChange={e => setForm((f: any) => ({ ...f, destination: e.target.value, bankAccountId: 0, superAdminBankAccountId: 0 }))}
                     className="select-field"
                   >
@@ -1306,9 +1574,9 @@ export default function PaymentsPage() {
                 )}
               </div>
 
-              {!isEmbed && (
+              {!simplifyModals && (
               <div className="rounded-lg border border-dashed border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
-                Method: <strong>{isAfghanistanCity ? "Cash" : selectedMethod?.label || "Cash"}</strong>
+                Method: <strong>{selectedMethod?.label || "Cash"}</strong>
                 {" · "}
                 Destination: <strong>{selectedDestination?.label || "Send to Haji"}</strong>
               </div>
@@ -1329,7 +1597,6 @@ export default function PaymentsPage() {
                       </option>
                     ))}
                   </select>
-                  <p className="mt-1 text-xs text-gray-500">This payment will be treated as received into your city bank account.</p>
                 </div>
               )}
 
@@ -1348,38 +1615,27 @@ export default function PaymentsPage() {
                       </option>
                     ))}
                   </select>
-                  <p className="mt-1 text-xs text-gray-500">This payment will be marked as sent directly to the selected super admin bank account.</p>
                 </div>
               )}
             </div>
           )}
 
-          {createType === "payment" && (
+          {createType === "payment" && !simplifyModals && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                {form.paymentMethod === "cheque" ? "Cheque Number" : "Voucher / Reference Number"} <span className="text-gray-400 font-normal">(optional)</span>
+                {form.paymentMethod === "cheque" ? t("cheque_number") : t("reference")}
               </label>
               <input
                 value={form.manualVoucherNo || ""}
                 onChange={e => setForm((f: any) => ({ ...f, manualVoucherNo: e.target.value }))}
                 className="input-field"
                 placeholder={form.paymentMethod === "cheque" ? "e.g. 001234" : "e.g. REF-1024"}
-                onKeyDown={e => e.key === "Enter" && addToQueue()}
               />
-              <p className="mt-1 text-xs text-gray-500">
-                {form.paymentMethod === "cheque"
-                  ? "Use the cheque number here. You do not need to enter it twice."
-                  : "Helpful for voucher matching, transfer reference, or manual receipt tracking."}
-              </p>
             </div>
           )}
 
-          {createType === "payment" && form.paymentMethod === "cheque" && !isEmbed && (
+          {createType === "payment" && form.paymentMethod === "cheque" && !simplifyModals && (
             <div className="space-y-3">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm text-blue-800">
-                <p className="font-semibold">Cheque details</p>
-                <p className="mt-1 text-xs text-blue-700">Only fill the bank and due date. The cheque number is already captured above.</p>
-              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">{t("drawn_on_bank")}</label>
@@ -1410,6 +1666,9 @@ export default function PaymentsPage() {
           </div>
           )}
 
+            </>
+          )}
+
         </div>
         {/* ── Batch queue (payment only) ── */}
         {!isEmbed && createType === "payment" && paymentQueue.length > 0 && (
@@ -1438,12 +1697,12 @@ export default function PaymentsPage() {
           </div>
         )}
 
-        <div className={isEmbed ? "pt-4 mt-3 border-t border-[#e8dccf]" : "flex justify-end gap-2 pt-4 mt-4 border-t"}>
+        <div className={isEmbed ? "quickform-footer" : "flex justify-end gap-2 pt-4 mt-4 border-t"}>
           {isEmbed ? (
             <button
               onClick={() => handleCreate()}
               disabled={submitting}
-              className="w-full h-10 rounded-xl text-sm font-semibold text-white bg-[linear-gradient(135deg,#6B0F1A_0%,#8B1A1A_100%)] disabled:opacity-60"
+              className="glass-btn glass-btn-primary w-full min-h-11 disabled:opacity-60"
             >
               {submitting ? "Saving…" : "Save payment"}
             </button>

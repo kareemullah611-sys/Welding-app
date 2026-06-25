@@ -69,10 +69,6 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     // Check available stock in the source godown for this product
     const stockRows: any[] = await prisma.$queryRaw`
       SELECT
-        COALESCE((
-          SELECT SUM(os.qty) FROM opening_stocks os
-          WHERE os.godown_id = ${fromGodownId} AND os.product_id = ${productId}
-        ), 0) as opening_qty,
         COALESCE(SUM(lcga.qty), 0) as received,
         COALESCE((
           SELECT SUM(si.qty) FROM sale_items si
@@ -96,7 +92,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       WHERE lcga.godown_id = ${fromGodownId} AND lcd.product_id = ${productId}
     `;
     const sr = stockRows[0];
-    const available = Number(sr?.opening_qty || 0) + Number(sr?.received || 0) - Number(sr?.sold || 0)
+    const available = Number(sr?.received || 0) - Number(sr?.sold || 0)
       - Number(sr?.transferred_out || 0) + Number(sr?.transferred_in || 0)
       - Number(sr?.city_out || 0);
     if (qty > available) {

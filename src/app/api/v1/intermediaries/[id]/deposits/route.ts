@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { withSuperAdmin } from "@/lib/middleware";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { journalIntermediaryDeposit } from "@/lib/accounting";
+import { assertSuperAdminCashHasFunds } from "@/lib/haji-cash-balance";
 import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 
@@ -30,27 +31,47 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
   const currency = await prisma.currency.findUnique({ where: { id: Number(body.currencyId) } });
   if (!currency) return errorResponse("VALIDATION", "Invalid currency", 400);
 
-  // Super admin can debit only super-admin owned bank accounts (not city cash/banks).
   if (body.cityId || body.bankAccountId || body.sourceType === "city_cash" || body.sourceType === "bank_account") {
-    return errorResponse("VALIDATION", "Use only super admin bank accounts for intermediary deposits", 400);
-  }
-  const superAdminBankAccountId = Number(body.superAdminBankAccountId || 0);
-  if (!superAdminBankAccountId) {
-    return errorResponse("VALIDATION", "Super admin bank account is required", 400);
-  }
-  const superAdminBankAccount = await prisma.superAdminBankAccount.findUnique({
-    where: { id: superAdminBankAccountId },
-    select: { id: true, isActive: true, currencyId: true },
-  });
-  if (!superAdminBankAccount) return errorResponse("NOT_FOUND", "Super admin bank account not found", 404);
-  if (!superAdminBankAccount.isActive) return errorResponse("VALIDATION", "Selected super admin bank account is inactive", 400);
-  if (superAdminBankAccount.currencyId !== Number(body.currencyId)) {
-    return errorResponse("VALIDATION", "Deposit currency must match selected super admin bank account currency", 400);
+    return errorResponse("VALIDATION", "Use only super admin bank or haji cash accounts for intermediary deposits", 400);
   }
 
-  const sourceType: string = "super_admin_bank_account";
+  const superAdminBankAccountId = Number(body.superAdminBankAccountId || 0);
+  const superAdminCashAccountId = Number(body.superAdminCashAccountId || 0);
+  if (Number(superAdminBankAccountId ? 1 : 0) + Number(superAdminCashAccountId ? 1 : 0) !== 1) {
+    return errorResponse("VALIDATION", "Choose exactly one source: super admin bank or haji cash account", 400);
+  }
+
+  let sourceType: string;
   const cityId: number | null = null;
   const bankAccountId: number | null = null;
+
+  if (superAdminCashAccountId) {
+    const funds = await assertSuperAdminCashHasFunds(superAdminCashAccountId, amount);
+    if (!funds.ok) return errorResponse("VALIDATION", funds.message, 400);
+    const cashAccount = await prisma.superAdminBankAccount.findUnique({
+      where: { id: superAdminCashAccountId },
+      select: { id: true, isActive: true, currencyId: true, accountKind: true },
+    });
+    if (!cashAccount || cashAccount.accountKind !== "cash") {
+      return errorResponse("NOT_FOUND", "Haji cash account not found", 404);
+    }
+    if (!cashAccount.isActive) return errorResponse("VALIDATION", "Selected haji cash account is inactive", 400);
+    if (cashAccount.currencyId !== Number(body.currencyId)) {
+      return errorResponse("VALIDATION", "Deposit currency must match haji cash account currency", 400);
+    }
+    sourceType = "super_admin_cash";
+  } else {
+    const superAdminBankAccount = await prisma.superAdminBankAccount.findUnique({
+      where: { id: superAdminBankAccountId },
+      select: { id: true, isActive: true, currencyId: true },
+    });
+    if (!superAdminBankAccount) return errorResponse("NOT_FOUND", "Super admin bank account not found", 404);
+    if (!superAdminBankAccount.isActive) return errorResponse("VALIDATION", "Selected super admin bank account is inactive", 400);
+    if (superAdminBankAccount.currencyId !== Number(body.currencyId)) {
+      return errorResponse("VALIDATION", "Deposit currency must match selected super admin bank account currency", 400);
+    }
+    sourceType = "super_admin_bank_account";
+  }
   try {
     if (syncMeta) {
       const existingSync = await prisma.syncRequest.findUnique({
@@ -78,7 +99,8 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
           sourceType: sourceType as any,
           cityId,
           bankAccountId,
-          superAdminBankAccountId,
+          superAdminBankAccountId: superAdminCashAccountId ? null : superAdminBankAccountId,
+          superAdminCashAccountId: superAdminCashAccountId || null,
           notes: body.notes || null,
           createdBy: user.userId,
         },
@@ -104,7 +126,9 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
       id: deposit.id, intermediaryId,
       amount: Number(deposit.amount), currencyCode: currency.code,
       depositDate: deposit.depositDate, createdBy: user.userId,
-      sourceType, cityId, bankAccountId, superAdminBankAccountId,
+      sourceType, cityId, bankAccountId,
+      superAdminBankAccountId: superAdminCashAccountId ? null : superAdminBankAccountId,
+      superAdminCashAccountId: superAdminCashAccountId || null,
     });
 
     return successResponse(deposit, "Deposit recorded", 201);

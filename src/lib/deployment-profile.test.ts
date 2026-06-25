@@ -9,11 +9,11 @@ import {
 } from "@/lib/deployment-profile";
 
 test("CITY_LOCK_NAMES parses normalized city names", () => {
-  process.env.CITY_LOCK_NAMES = " Kandahar ,  Kabul ";
-  assert.deepEqual(getLockedCityNames(), ["kandahar", "kabul"]);
+  process.env.CITY_LOCK_NAMES = " Kandahar ,  Saif Uddin ";
+  assert.deepEqual(getLockedCityNames(), ["kandahar", "saif uddin"]);
   assert.equal(isCityLockedDeployment(), true);
   assert.equal(isAllowedCityName("Kandahar"), true);
-  assert.equal(isAllowedCityName("Herat"), false);
+  assert.equal(isAllowedCityName("Abdul Khaliq"), false);
 });
 
 test("CITY_LOCK_ALLOW_SUPER_ADMIN toggle", () => {

@@ -65,6 +65,8 @@
 
   html {
     scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
   body {
@@ -74,6 +76,8 @@
       radial-gradient(circle at top left, rgba(107, 15, 26, 0.08), transparent 32%),
       radial-gradient(circle at top right, rgba(37, 99, 235, 0.08), transparent 26%),
       linear-gradient(180deg, #f4f4f6 0%, #ececee 42%, #f0f0f2 100%);
+    min-height: 100dvh;
+    overflow-x: clip;
     @apply antialiased;
   }
 
@@ -125,12 +129,23 @@
            focus:outline-none focus:ring-2 focus:ring-primary-500/25 focus:border-primary-600 focus:shadow-[0_16px_32px_-24px_rgba(107,15,26,0.35)]
            placeholder:text-zinc-400 disabled:bg-zinc-50 disabled:text-zinc-400 disabled:cursor-not-allowed;
   }
+  input[type="date"].input-field {
+    min-width: 8.5rem;
+    color-scheme: light;
+  }
+  input[type="date"].input-field::-webkit-datetime-edit,
+  input[type="date"].input-field::-webkit-datetime-edit-fields-wrapper {
+    opacity: 1;
+  }
   .select-field {
     @apply w-full px-3.5 py-2.5 border border-[#d4d4d8] rounded-xl text-sm bg-[rgba(255,255,255,0.9)]
            shadow-[0_12px_30px_-24px_rgba(24,24,27,0.2)] transition-all duration-200
            hover:border-[#a1a1aa]
            focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500
            disabled:bg-zinc-50 disabled:cursor-not-allowed;
+  }
+  select.select-field {
+    @apply leading-normal;
   }
 
   /* ---- Cards ---- */
@@ -142,7 +157,7 @@
            shadow-[0_26px_70px_-42px_rgba(42,6,8,0.22)] hover:-translate-y-0.5 hover:shadow-[0_34px_84px_-42px_rgba(42,6,8,0.28)] transition-all duration-200;
   }
   .table-container {
-    @apply rounded-[1.4rem] border border-[rgba(255,255,255,0.8)] bg-[rgba(255,255,255,0.88)] backdrop-blur-xl shadow-[0_26px_70px_-42px_rgba(42,6,8,0.2)] overflow-hidden;
+    @apply rounded-[1.4rem] border border-[rgba(255,255,255,0.8)] bg-[rgba(255,255,255,0.88)] backdrop-blur-xl shadow-[0_26px_70px_-42px_rgba(42,6,8,0.2)] overflow-x-auto;
   }
 
   /* ---- Badges ---- */
@@ -192,6 +207,16 @@
 
   .shell-panel {
     @apply rounded-[1.6rem] border border-[rgba(255,255,255,0.75)] bg-[rgba(255,255,255,0.72)] backdrop-blur-xl shadow-[0_32px_90px_-46px_rgba(42,6,8,0.22)];
+  }
+
+  .module-page {
+    @apply min-w-0 w-full max-w-full;
+  }
+
+  .module-scroll-x {
+    @apply min-w-0 overflow-x-auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
   }
 
   .ambient-ring {
@@ -763,18 +788,376 @@ input[type="number"] { -moz-appearance: textfield; }
   }
 }
 
-/* Dashboard quickform embed (iframe) — compact, single-purpose forms */
+/* Glass action buttons (city dashboard + exports) */
+.glass-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  border-radius: 0.875rem;
+  border: 1px solid transparent;
+  padding: 0.5rem 0.875rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.25;
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 8px 24px -16px rgba(51, 42, 33, 0.26);
+  transition:
+    transform 0.3s cubic-bezier(0.34, 1.45, 0.64, 1),
+    box-shadow 0.25s ease,
+    border-color 0.25s ease,
+    background-color 0.25s ease;
+}
+@media (min-width: 640px) {
+  .glass-btn {
+    font-size: 0.875rem;
+  }
+}
+.glass-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+.glass-btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+  transition-duration: 120ms;
+}
+.glass-btn:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 0 0 2px rgba(107, 15, 26, 0.2);
+}
+.glass-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.glass-btn-primary {
+  border-color: rgba(107, 15, 26, 0.22);
+  background: rgba(107, 15, 26, 0.1);
+  color: #6b0f1a;
+}
+.glass-btn-primary:hover:not(:disabled) {
+  border-color: rgba(107, 15, 26, 0.32);
+  background: rgba(107, 15, 26, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82), 0 12px 28px -16px rgba(107, 15, 26, 0.28);
+}
+.glass-btn-secondary {
+  border-color: rgba(255, 255, 255, 0.78);
+  background: rgba(255, 255, 255, 0.52);
+  color: #5d4a3a;
+}
+.glass-btn-secondary:hover:not(:disabled) {
+  border-color: #fff;
+  background: rgba(255, 255, 255, 0.72);
+}
+.glass-btn-danger {
+  border-color: rgba(225, 29, 72, 0.24);
+  background: rgba(225, 29, 72, 0.1);
+  color: #be123c;
+}
+.glass-btn-danger:hover:not(:disabled) {
+  border-color: rgba(225, 29, 72, 0.34);
+  background: rgba(225, 29, 72, 0.16);
+}
+.glass-btn-warning {
+  border-color: rgba(245, 158, 11, 0.28);
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}
+.glass-btn-warning:hover:not(:disabled) {
+  border-color: rgba(245, 158, 11, 0.38);
+  background: rgba(245, 158, 11, 0.22);
+}
+.glass-btn-xlsx {
+  border-color: rgba(16, 185, 129, 0.28);
+  background: rgba(16, 185, 129, 0.12);
+  color: #047857;
+}
+.glass-btn-xlsx:hover:not(:disabled) {
+  border-color: rgba(16, 185, 129, 0.38);
+  background: rgba(16, 185, 129, 0.2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82), 0 12px 28px -16px rgba(5, 150, 105, 0.28);
+}
+.glass-btn-pdf {
+  border-color: rgba(100, 116, 139, 0.26);
+  background: rgba(100, 116, 139, 0.1);
+  color: #334155;
+}
+.glass-btn-pdf:hover:not(:disabled) {
+  border-color: rgba(100, 116, 139, 0.36);
+  background: rgba(100, 116, 139, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82), 0 12px 28px -16px rgba(51, 65, 85, 0.24);
+}
+
+.city-admin-ui .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.875rem;
+  border: 1px solid rgba(107, 15, 26, 0.22);
+  background: rgba(107, 15, 26, 0.1);
+  background-image: none;
+  color: #6b0f1a;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 8px 24px -16px rgba(51, 42, 33, 0.26);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  transition:
+    transform 0.3s cubic-bezier(0.34, 1.45, 0.64, 1),
+    box-shadow 0.25s ease,
+    border-color 0.25s ease,
+    background-color 0.25s ease;
+}
+.city-admin-ui .btn-primary:hover:not(:disabled) {
+  border-color: rgba(107, 15, 26, 0.32);
+  background: rgba(107, 15, 26, 0.16);
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82), 0 12px 28px -16px rgba(107, 15, 26, 0.28);
+}
+.city-admin-ui .btn-primary:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+.city-admin-ui .btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.875rem;
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  background: rgba(255, 255, 255, 0.52);
+  background-image: none;
+  color: #5d4a3a;
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 0.5rem 1rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 8px 24px -16px rgba(51, 42, 33, 0.26);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  transition:
+    transform 0.3s cubic-bezier(0.34, 1.45, 0.64, 1),
+    box-shadow 0.25s ease,
+    border-color 0.25s ease,
+    background-color 0.25s ease;
+}
+.city-admin-ui .btn-secondary:hover:not(:disabled) {
+  border-color: #fff;
+  background: rgba(255, 255, 255, 0.72);
+  transform: translateY(-1px);
+}
+.city-admin-ui .btn-secondary:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+.city-admin-ui .btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.875rem;
+  border: 1px solid rgba(225, 29, 72, 0.24);
+  background: rgba(225, 29, 72, 0.1);
+  background-image: none;
+  color: #be123c;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 8px 24px -16px rgba(51, 42, 33, 0.26);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  transition:
+    transform 0.3s cubic-bezier(0.34, 1.45, 0.64, 1),
+    box-shadow 0.25s ease,
+    border-color 0.25s ease,
+    background-color 0.25s ease;
+}
+.city-admin-ui .btn-danger:hover:not(:disabled) {
+  border-color: rgba(225, 29, 72, 0.34);
+  background: rgba(225, 29, 72, 0.16);
+  transform: translateY(-1px);
+}
+.city-admin-ui .btn-danger:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+/* City dashboard quick actions — liquid glass / iOS-style tiles */
+.quick-action-panel {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.72), rgba(255, 250, 244, 0.58) 48%, rgba(247, 237, 226, 0.68));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 14px 36px -24px rgba(51, 42, 33, 0.28);
+  backdrop-filter: blur(24px) saturate(165%);
+  -webkit-backdrop-filter: blur(24px) saturate(165%);
+}
+
+.quick-action-tile {
+  position: relative;
+  display: flex;
+  min-height: 6.75rem;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  overflow: hidden;
+  border-radius: 1.35rem;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.42);
+  padding: 1rem 0.75rem;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 10px 28px -18px rgba(51, 42, 33, 0.24);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  transition:
+    transform 0.45s cubic-bezier(0.34, 1.45, 0.64, 1),
+    box-shadow 0.35s ease,
+    border-color 0.35s ease,
+    background-color 0.35s ease;
+}
+
+.quick-action-tile:hover {
+  border-color: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.58);
+  transform: translateY(-2px) scale(1.02);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 18px 40px -20px rgba(51, 42, 33, 0.32);
+}
+
+.quick-action-tile:active {
+  transform: translateY(0) scale(0.97);
+  transition-duration: 0.14s;
+}
+
+.quick-action-glow {
+  opacity: 0.38;
+  animation: quick-action-pulse 4.5s ease-in-out infinite;
+}
+
+.quick-action-tile:hover .quick-action-glow {
+  opacity: 0.62;
+  animation-duration: 2.2s;
+}
+
+@keyframes quick-action-pulse {
+  0%,
+  100% {
+    opacity: 0.32;
+    transform: translateX(-50%) scale(1);
+  }
+  50% {
+    opacity: 0.58;
+    transform: translateX(-50%) scale(1.18);
+  }
+}
+
+/* Dashboard quickform embed (iframe) — tan theme aligned with lot detail modals */
+.quickform-embed {
+  background: linear-gradient(168deg, rgba(255, 248, 239, 0.99), rgba(245, 233, 219, 0.94));
+  color: #2f241b;
+}
+
+/* Keyboard-tab focus in modals / quickforms (programmatic focus skips :focus-visible) */
+.modal-kbd-focus.input-field,
+.modal-kbd-focus.select-field,
+.quickform-embed .modal-kbd-focus.input-field,
+.quickform-embed .modal-kbd-focus.select-field {
+  @apply ring-2 ring-[#b8956f]/45 border-[#8f7963] shadow-[0_16px_32px_-24px_rgba(93,74,58,0.35)];
+}
+
 .quickform-embed .input-field,
-.quickform-embed .select-field {
-  @apply h-11 py-2 text-base rounded-lg sm:h-9 sm:text-sm;
+.quickform-embed textarea.input-field {
+  @apply h-11 rounded-lg border-[#d8c7b3] bg-white/90 py-2 text-base text-[#2f241b] sm:h-9 sm:text-sm;
 }
+
+.quickform-embed select.select-field {
+  @apply min-h-11 h-auto rounded-lg border-[#d8c7b3] bg-white/90 py-2.5 text-base leading-normal text-[#2f241b] sm:h-9 sm:py-2 sm:text-sm;
+}
+
+.quickform-embed .input-field:focus,
+.quickform-embed .select-field:focus,
+.quickform-embed textarea.input-field:focus {
+  @apply border-[#b8956f] ring-2 ring-[#e9dccb];
+}
+
 .quickform-embed label {
-  @apply text-xs font-semibold uppercase tracking-wide text-[#6b0f1a];
+  @apply text-[11px] font-semibold uppercase tracking-[0.16em] text-[#8f7963];
 }
+
+.quickform-embed label.text-sm.font-medium.text-gray-700 {
+  @apply text-[11px] font-semibold uppercase tracking-[0.16em] text-[#8f7963];
+}
+
+.quickform-embed .quickform-panel {
+  @apply rounded-xl border border-[#e9dccb] bg-white/75 p-3 shadow-[0_12px_28px_-24px_rgba(51,42,33,0.22)];
+}
+
+.quickform-embed .quickform-info {
+  @apply rounded-xl border border-[#eadfce] bg-[#fbf4ea]/90 p-3 text-xs text-[#5f4e3e];
+}
+
+.quickform-embed .quickform-info-title {
+  @apply mb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#5d4a3a];
+}
+
+.quickform-embed .quickform-footer {
+  @apply sticky bottom-0 z-10 -mx-4 mt-3 border-t border-[#eadfce] bg-[rgba(255,248,239,0.96)] px-4 py-3 backdrop-blur-sm sm:-mx-6 sm:px-6;
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
 .quickform-embed .btn-primary,
 .quickform-embed button[class*="rounded-xl"][class*="font-semibold"] {
   @apply min-h-11 text-base sm:min-h-10 sm:text-sm;
 }
+
+.quickform-embed .glass-btn-primary {
+  @apply min-h-11 text-base sm:min-h-10 sm:text-sm;
+}
+
 .quickform-embed > main > div > div {
   @apply flex min-h-0 flex-1 flex-col;
+}
+
+/* ---- Mobile modal / touch compatibility (iOS Safari + Android Chrome) ---- */
+.modal-sheet-body {
+  -webkit-overflow-scrolling: touch;
+}
+
+[data-radix-dialog-content] .input-field,
+[data-radix-dialog-content] textarea.input-field,
+.modal-sheet-body .input-field,
+.modal-sheet-body textarea.input-field {
+  @apply min-h-11 text-base sm:min-h-0 sm:text-sm;
+}
+
+[data-radix-dialog-content] select.select-field,
+.modal-sheet-body select.select-field {
+  @apply min-h-11 h-auto py-2.5 leading-normal text-base sm:min-h-0 sm:py-2 sm:text-sm;
+}
+
+[data-radix-dialog-content] .btn-primary,
+[data-radix-dialog-content] .btn-secondary,
+[data-radix-dialog-content] .btn-danger,
+.modal-sheet-body .btn-primary,
+.modal-sheet-body .btn-secondary,
+.modal-sheet-body .btn-danger {
+  @apply min-h-11 text-base sm:min-h-0 sm:text-sm;
+}
+
+/* Sticky action rows at the bottom of long modals */
+.modal-actions-sticky {
+  @apply sticky bottom-0 z-10 -mx-4 mt-4 border-t border-[#e4e4e7] bg-[rgba(255,255,255,0.96)] px-4 py-3 backdrop-blur-sm sm:-mx-6 sm:px-6;
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+@media (max-width: 639px) {
+  [data-radix-dialog-content] .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  [data-radix-dialog-content] table {
+    min-width: 100%;
+  }
 }

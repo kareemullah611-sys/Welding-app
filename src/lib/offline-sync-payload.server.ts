@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { listLegacyStockForSync } from "@/lib/legacy-stock-lot";
 
 export type OfflineSyncScope = {
   role: "super_admin" | "city_admin";
@@ -26,6 +27,7 @@ function mapLotForOffline(lot: any) {
     lotDate: lot.lotDate instanceof Date ? lot.lotDate.toISOString().slice(0, 10) : lot.lotDate,
     notes: lot.notes ?? "",
     status: lot.status,
+    isLegacyStock: Boolean(lot.isLegacyStock),
     countryId: lot.countryId,
     countryName: lot.country?.name ?? "",
     products: (lot.lotProducts || []).map((lp: any) => ({
@@ -125,21 +127,10 @@ export async function buildOfflineSyncPayload(
             },
           }),
     cityFilter
-      ? prisma.openingStock.findMany({
-          where: { cityId: cityFilter },
-          include: {
-            godown: { select: { id: true, name: true } },
-            product: { select: { id: true, name: true } },
-          },
-        })
+      ? listLegacyStockForSync(cityFilter)
       : isCityAdmin
         ? Promise.resolve(emptyArr)
-        : prisma.openingStock.findMany({
-            include: {
-              godown: { select: { id: true, name: true } },
-              product: { select: { id: true, name: true } },
-            },
-          }),
+        : listLegacyStockForSync(null),
   ]);
 
   const [

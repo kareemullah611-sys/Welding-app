@@ -12,6 +12,7 @@ import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline
 import { getPendingQueueId, safeParseQueuedBody } from "@/lib/queue-resolve";
 import { getPendingCityTransfers } from "@/lib/offline-queue-overlays";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
+import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
 
 const CITY_TRANSFERS_FORM_CACHE_KEY = "mrf-city-transfers-form-cache-v1";
 const CITY_TRANSFERS_READ_CACHE_KEY = "mrf-city-transfers-read-cache-v1";
@@ -100,7 +101,7 @@ export default function CityTransfersPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const params: any = { page, limit: 20 };
+    const params: any = { page, limit: DEFAULT_LIST_PAGE_SIZE };
     const normalizedQuery = searchQuery.trim();
     if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     const r = await apiCall("/api/v1/city-transfers", { params });
@@ -381,7 +382,7 @@ export default function CityTransfersPage() {
 
   return (
     <div>
-      <PageHeader title={t("city_transfers")} subtitle={`${total} ${t("transfers").toLowerCase()}`} action={user?.role === "city_admin" ? <button onClick={() => { void openSend(); }} className="btn-primary text-sm">📦 {t("send_goods")}</button> : undefined} />
+      <PageHeader title={t("city_transfers")} action={user?.role === "city_admin" ? <button onClick={() => { void openSend(); }} className="btn-primary text-sm">📦 {t("send_goods")}</button> : undefined} />
       {showOfflineSnapshot && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
           Offline snapshot mode: showing last cached city transfer data for this device.
@@ -406,7 +407,6 @@ export default function CityTransfersPage() {
       <DataTable
         searchValue={searchQuery}
         onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}
-        searchPlaceholder="Search transfers (min 2 chars)"
         columns={[
         { key: "transferDate", label: t("date"), render: (tr: any) => formatDate(tr.transferDate) },
         { key: "fromCity", label: t("from"), render: (tr: any) => <span>{tr.fromCity?.name} <span className="text-xs text-gray-400">({tr.fromGodown?.name})</span></span> },

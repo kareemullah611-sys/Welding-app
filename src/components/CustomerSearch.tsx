@@ -2,15 +2,18 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Search } from "lucide-react";
 import { apiCall } from "@/hooks/useApi";
+import { findModalFormRoot, focusNextModalField, moveModalFocus } from "@/lib/modal-keyboard";
 
 interface Props {
   value: number;           // selected customerId (0 = none)
   onChange: (id: number, name: string) => void;
   placeholder?: string;
   className?: string;
+  /** When parent sets value programmatically (e.g. after quick-create) */
+  selectedLabel?: string;
 }
 
-export default function CustomerSearch({ value, onChange, placeholder = "Search customer…", className = "" }: Props) {
+export default function CustomerSearch({ value, onChange, placeholder = "Search customer…", className = "", selectedLabel }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
@@ -21,11 +24,30 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    optionRefs.current[activeIndex]?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex, open]);
+
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    const onActivate = () => {
+      setFocused(true);
+      setOpen(true);
+      setActiveIndex(0);
+    };
+    input.addEventListener("modal-field-activate", onActivate);
+    return () => input.removeEventListener("modal-field-activate", onActivate);
+  }, [results.length]);
 
   // When value is cleared from outside (form reset), clear internal state
   useEffect(() => {
-    if (!value) { setSelectedName(""); setQuery(""); }
-  }, [value]);
+    if (!value) { setSelectedName(""); setQuery(""); return; }
+    if (selectedLabel) setSelectedName(selectedLabel);
+  }, [value, selectedLabel]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -73,6 +95,45 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
 
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     const optionsCount = 1 + results.length; // walk-in + search results
+    const hasSelection = value !== 0;
+    const dropdownOpen = open && (focused || value === 0 || query.length > 0);
+
+    if (e.key === "Tab") {
+      // Once a customer is picked, Tab always leaves the field (quickform flow).
+      if (hasSelection) {
+        e.preventDefault();
+        e.stopPropagation();
+        setOpen(false);
+        const root = findModalFormRoot(inputRef.current!);
+        if (root) moveModalFocus(root, e.shiftKey ? -1 : 1);
+        return;
+      }
+      if (dropdownOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.shiftKey) {
+          if (activeIndex > 0) {
+            setActiveIndex((prev) => prev - 1);
+          } else {
+            setOpen(false);
+            const root = findModalFormRoot(inputRef.current!);
+            if (root) moveModalFocus(root, -1);
+          }
+        } else if (activeIndex < optionsCount - 1) {
+          setActiveIndex((prev) => prev + 1);
+        } else {
+          setOpen(false);
+          focusNextModalField(inputRef.current!);
+        }
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      const root = findModalFormRoot(inputRef.current!);
+      if (root) moveModalFocus(root, e.shiftKey ? -1 : 1);
+      return;
+    }
+
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setOpen(true);
@@ -87,7 +148,12 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
     }
     if (e.key === "Enter") {
       e.preventDefault();
-      if (!open) return;
+      if (!open) {
+        setOpen(true);
+        setFocused(true);
+        setActiveIndex(0);
+        return;
+      }
       if (activeIndex <= 0) {
         selectWalkin();
       } else {
@@ -110,7 +176,9 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
     setResults([]);
     setOpen(false);
     setFocused(false);
-    inputRef.current?.blur();
+    if (inputRef.current) {
+      window.setTimeout(() => focusNextModalField(inputRef.current!), 0);
+    }
   };
 
   const selectWalkin = () => {
@@ -120,12 +188,15 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
     setResults([]);
     setOpen(false);
     setFocused(false);
-    inputRef.current?.blur();
+    if (inputRef.current) {
+      window.setTimeout(() => focusNextModalField(inputRef.current!), 0);
+    }
   };
 
   const handleFocus = () => {
     setFocused(true);
     setOpen(true);
+    setActiveIndex(0);
     if (value) {
       setQuery(selectedName);
       requestAnimationFrame(() => inputRef.current?.select());
@@ -180,8 +251,9 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
         <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-52 overflow-y-auto">
           <button
             type="button"
+            ref={(node) => { optionRefs.current[0] = node; }}
             onMouseDown={(e) => { e.preventDefault(); selectWalkin(); }}
-            className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 border-b border-gray-100 ${activeIndex === 0 ? "bg-orange-50" : "hover:bg-orange-50"}`}
+            className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 border-b border-gray-100 ${activeIndex === 0 ? "bg-orange-100 ring-1 ring-inset ring-orange-300" : "hover:bg-orange-50"}`}
           >
             <span className="text-orange-500">🚶</span>
             <span className="font-medium text-orange-700">{WALKIN_NAME}</span>
@@ -199,8 +271,9 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
             <button
               key={c.id}
               type="button"
+              ref={(node) => { optionRefs.current[idx + 1] = node; }}
               onMouseDown={(e) => { e.preventDefault(); select(c); }}
-              className={`w-full text-left px-3 py-2 text-sm flex flex-col ${activeIndex === idx + 1 ? "bg-primary-50" : "hover:bg-primary-50"}`}
+              className={`w-full text-left px-3 py-2 text-sm flex flex-col ${activeIndex === idx + 1 ? "bg-primary-100 ring-1 ring-inset ring-primary-300" : "hover:bg-primary-50"}`}
             >
               <span className="font-medium text-gray-800">{c.name}</span>
               {c.phone && <span className="text-xs text-gray-400">{c.phone}</span>}

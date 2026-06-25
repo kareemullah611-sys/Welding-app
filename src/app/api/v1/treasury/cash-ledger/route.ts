@@ -1,8 +1,11 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, getCityScope } from "@/lib/middleware";
-import { successResponse, errorResponse, serverError } from "@/lib/api-response";
+import { errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { formatBankDepositCashLedgerLine } from "@/lib/bank-deposit-ledger";
+import { finalizeLedgerForDisplay } from "@/lib/ledger-display";
+import { getLedgerPaginationParams, paginateList } from "@/lib/pagination";
 
 // Chronological "Cash in Office" ledger. Every row here moves the SAME pot that
 // /api/v1/treasury computes as `cashInOffice`, using identical filters, so the
@@ -27,8 +30,6 @@ type LedgerRow = {
   runningBalance?: number;
   currencyCode?: string;
 };
-
-const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayload) => {
   try {
@@ -78,7 +79,17 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         }),
         prisma.bankDeposit.findMany({
           where: { cityId },
-          select: { id: true, depositDate: true, createdAt: true, cashAmount: true, currencyId: true, slipNumber: true },
+          select: {
+            id: true,
+            depositDate: true,
+            createdAt: true,
+            cashAmount: true,
+            currencyId: true,
+            slipNumber: true,
+            cheques: {
+              select: { chequeNumber: true, chequeBank: true },
+            },
+          },
         }),
         prisma.personalWithdrawal.findMany({
           where: { cityId, sourceType: "cash_office" } as any,
@@ -144,13 +155,18 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
       // Positive cashAmount = cash leaving office into bank (debit).
       // Negative cashAmount = cash withdrawn from bank back to office (credit).
       const cash = Number(d.cashAmount || 0);
+      const { type, detail, reference } = formatBankDepositCashLedgerLine({
+        slipNumber: d.slipNumber,
+        cashAmount: cash,
+        cheques: d.cheques,
+      });
       rows.push({
         key: `dep-${d.id}`,
         date: new Date(d.depositDate),
         createdAt: new Date(d.createdAt),
-        type: cash < 0 ? "Cash from Bank" : "Bank Deposit",
-        detail: cash < 0 ? "Cash withdrawn from bank" : "Cash deposited to bank",
-        reference: d.slipNumber || null,
+        type,
+        detail,
+        reference,
         currencyId: d.currencyId,
         credit: cash < 0 ? Math.abs(cash) : 0,
         debit: cash > 0 ? cash : 0,
@@ -183,27 +199,23 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
     for (const c of currencies) codeById[c.id] = c.code;
     for (const r of rows) r.currencyCode = codeById[r.currencyId] ?? String(r.currencyId);
 
-    // Chronological running balance per currency (oldest first), then newest-first for display.
-    const asc = [...rows].sort((a, b) => {
-      const dateDiff = a.date.getTime() - b.date.getTime();
-      if (dateDiff !== 0) return dateDiff;
-      return a.createdAt.getTime() - b.createdAt.getTime();
-    });
-    const runningByCurrency: Record<string, number> = {};
-    for (const row of asc) {
-      const curr = row.currencyCode!;
-      const next = round2((runningByCurrency[curr] || 0) + row.credit - row.debit);
-      runningByCurrency[curr] = next;
-      row.runningBalance = next;
-    }
+    const { ledger, balanceByCurrency } = finalizeLedgerForDisplay(
+      rows.map(({ currencyId: _omit, ...rest }) => ({
+        ...rest,
+        currencyCode: rest.currencyCode ?? String(_omit),
+      }))
+    );
 
-    const ledger = asc
-      .reverse()
-      .map(({ currencyId: _omit, ...rest }) => rest);
+    const { page, limit } = getLedgerPaginationParams(searchParams);
+    const { items: pagedLedger, pagination } = paginateList(ledger, page, limit);
 
-    return successResponse({
-      ledger,
-      balanceByCurrency: runningByCurrency,
+    return NextResponse.json({
+      success: true,
+      data: {
+        ledger: pagedLedger,
+        balanceByCurrency,
+      },
+      pagination,
     });
   } catch (error) {
     return serverError();

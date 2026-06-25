@@ -3,10 +3,10 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, DataTable, Modal, formatNumber, formatDate, RowActionMenu } from "@/components/ui";
+import { PageHeader, DataTable, Modal, formatNumber, formatDate, RowActionMenu, MobileDateInput } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
-import { getEmbedQuickformPath } from "@/lib/quickform-embed";
+import { getEmbedQuickformPath, shouldSimplifyCityModals } from "@/lib/quickform-embed";
 import Link from "next/link";
 import { useOffline } from "@/hooks/useOffline";
 import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
@@ -14,6 +14,13 @@ import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { getPendingQueueId } from "@/lib/queue-resolve";
+import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import { formatCurrencySelectLabel } from "@/lib/city-money-format";
+import {
+  buildSettlementTargetValue,
+  isSettlementTargetSelected,
+  parseSettlementTargetValue,
+} from "@/lib/haji-settlement-target";
 
 
 const SOURCE_CONFIG: Record<string, { label: string; color: string; icon?: string }> = {
@@ -34,6 +41,7 @@ type HajiFormCache = {
   currencies: any[];
   bankAccounts: any[];
   inHandCheques: any[];
+  settlementByCurrency?: Record<string, { intermediaries: any[]; superAdminCashAccounts: any[] }>;
 };
 
 type HajiReadSnapshot = {
@@ -87,8 +95,10 @@ export default function HajiTransfersPage() {
   const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, discardQueuedItem, syncQueue } = useOffline();
   const searchParams = useSearchParams();
   const isEmbed = useQuickformEmbed();
+  const simplifyModals = shouldSimplifyCityModals(user, isEmbed);
   const shouldUseSuperAdminTarget = user?.role === "city_admin" && user?.countryName === "Pakistan";
   const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
+  const isSuperAdmin = user?.role === "super_admin";
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -102,9 +112,14 @@ export default function HajiTransfersPage() {
   const [currencies, setCurrencies] = useState<any[]>([]);
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
   const [inHandCheques, setInHandCheques] = useState<any[]>([]);
+  const [settlementIntermediaries, setSettlementIntermediaries] = useState<any[]>([]);
+  const [settlementCashAccounts, setSettlementCashAccounts] = useState<any[]>([]);
+  const [settlementOptionsLoading, setSettlementOptionsLoading] = useState(false);
+  const [settlementOptionsError, setSettlementOptionsError] = useState("");
   const [form, setForm] = useState<any>({
     lotId: 0, transferDate: new Date().toISOString().split("T")[0],
     amount: 0, currencyId: 0, detail: "", sourceType: "cash_office",
+    settlementDestination: "intermediary", intermediaryId: 0, superAdminCashAccountId: 0,
     bankAccountId: 0, chequePaymentId: 0, chequePaymentIds: [] as number[], cashAmount: 0, transferredTo: "", notes: "",
   });
   const [submitting, setSubmitting] = useState(false);
@@ -137,13 +152,52 @@ export default function HajiTransfersPage() {
   const selectedChequeTotal = selectedCheques.reduce((sum: number, cheque: any) => sum + Number(cheque.amount || 0), 0);
   const mixedSlipTotal = Number(form.cashAmount || 0) + selectedChequeTotal;
 
+  const loadSettlementOptions = useCallback(async (currencyId: number) => {
+    const canLoad = isAfghanistanCity || isSuperAdmin;
+    if (!canLoad || !currencyId) {
+      setSettlementIntermediaries([]);
+      setSettlementCashAccounts([]);
+      setSettlementOptionsError("");
+      return;
+    }
+    setSettlementOptionsLoading(true);
+    setSettlementOptionsError("");
+    const r = await apiCall("/api/v1/haji-transfers/settlement-options", { params: { currencyId } });
+    setSettlementOptionsLoading(false);
+    if (r.success) {
+      const payload = r.data as any;
+      setSettlementIntermediaries(payload?.intermediaries || []);
+      setSettlementCashAccounts(payload?.superAdminCashAccounts || []);
+    } else {
+      setSettlementIntermediaries([]);
+      setSettlementCashAccounts([]);
+      setSettlementOptionsError(r.error || "Failed to load settlement options");
+    }
+  }, [isAfghanistanCity, isSuperAdmin]);
+
+  useEffect(() => {
+    if (!showCreate || !isAfghanistanCity) return;
+    const currencyId = form.currencyId || currencies[0]?.id || 0;
+    if (currencyId) void loadSettlementOptions(currencyId);
+  }, [showCreate, isAfghanistanCity, form.currencyId, currencies, loadSettlementOptions]);
+
+  useEffect(() => {
+    if (!showEdit) return;
+    const currencyId = form.currencyId || selected?.currencyId || selected?.currency?.id || 0;
+    const needsOptions =
+      isAfghanistanCity ||
+      selected?.settlementDestination === "intermediary" ||
+      selected?.settlementDestination === "super_admin_cash";
+    if (needsOptions && currencyId) void loadSettlementOptions(currencyId);
+  }, [showEdit, isAfghanistanCity, form.currencyId, selected, loadSettlementOptions]);
+
   const load = useCallback(async () => {
     if (isEmbed) {
       setLoading(false);
       return;
     }
     setLoading(true);
-    const params: any = { page, limit: 20 };
+    const params: any = { page, limit: DEFAULT_LIST_PAGE_SIZE };
     if (filterFrom) params.date_from = filterFrom;
     if (filterTo) params.date_to = filterTo;
     const normalizedQuery = searchQuery.trim();
@@ -261,6 +315,9 @@ export default function HajiTransfersPage() {
         transferredTo: shouldUseSuperAdminTarget ? PAKISTAN_HAJI_TARGET : "",
         notes: "",
         lotId: 0,
+        settlementDestination: "intermediary",
+        intermediaryId: 0,
+        superAdminCashAccountId: 0,
         currencyId: cached.currencies[0]?.id || 0,
         ...preset,
       }));
@@ -270,7 +327,7 @@ export default function HajiTransfersPage() {
     }
 
     const requests: Promise<any>[] = [
-      apiCall("/api/v1/lots", { params: { limit: 100 } }),
+      apiCall("/api/v1/lots", { params: { limit: 100, status: "ongoing" } }),
       apiCall("/api/v1/cities"),
     ];
     if (!isAfghanistanCity) {
@@ -289,17 +346,15 @@ export default function HajiTransfersPage() {
     }
     const [lR, cR, baR, chR] = await Promise.all(requests);
     if (lR.success) setLots(lR.data as any[]);
-    if (cR.success && user?.cityId) {
-      const city = (cR.data as any[]).find((c: any) => c.id === user.cityId);
-      if (city?.currencies?.length) { setCurrencies(city.currencies); setForm((f: any) => ({ ...f, currencyId: city.currencies[0].id })); }
-    }
-    if (!isAfghanistanCity && baR?.success) setBankAccounts(baR.data as any[]);
-    else setBankAccounts([]);
-    if (!isAfghanistanCity && chR?.success) setInHandCheques(chR.data as any[]);
-    else setInHandCheques([]);
-    const cachedCurrencies = cR.success && user?.cityId
-      ? (((cR.data as any[]).find((c: any) => c.id === user.cityId)?.currencies) || [])
-      : [];
+    const city = cR.success && user?.cityId
+      ? (cR.data as any[]).find((c: any) => c.id === user.cityId)
+      : null;
+    const cachedCurrencies = city?.currencies || [];
+    if (cachedCurrencies.length) setCurrencies(cachedCurrencies);
+    const defaultCurrencyId =
+      Number(preset?.currencyId) ||
+      cachedCurrencies[0]?.id ||
+      0;
     if (cachedCurrencies.length > 0) {
       writeOfflineFormCache<HajiFormCache>(HAJI_FORM_CACHE_KEY, {
         lots: lR.success ? (lR.data as any[]) : [],
@@ -308,14 +363,24 @@ export default function HajiTransfersPage() {
         inHandCheques: !isAfghanistanCity && chR?.success ? (chR.data as any[]) : [],
       });
     }
+    if (!isAfghanistanCity && baR?.success) setBankAccounts(baR.data as any[]);
+    else setBankAccounts([]);
+    if (!isAfghanistanCity && chR?.success) setInHandCheques(chR.data as any[]);
+    else setInHandCheques([]);
     setForm((f: any) => ({
       ...f, transferDate: new Date().toISOString().split("T")[0],
       amount: 0, detail: "", sourceType: "cash_office",
-      bankAccountId: 0, chequePaymentId: 0, chequePaymentIds: [], cashAmount: 0, transferredTo: shouldUseSuperAdminTarget ? PAKISTAN_HAJI_TARGET : "", notes: "", lotId: 0,
-      currencyId: f.currencyId || currencies[0]?.id || 0,
+      bankAccountId: 0, chequePaymentId: 0, chequePaymentIds: [], cashAmount: 0,
+      transferredTo: shouldUseSuperAdminTarget ? PAKISTAN_HAJI_TARGET : "",
+      notes: "", lotId: 0,
+      settlementDestination: "intermediary", intermediaryId: 0, superAdminCashAccountId: 0,
+      currencyId: defaultCurrencyId,
       ...preset,
     }));
     setShowCreate(true); setError("");
+    if (isAfghanistanCity && defaultCurrencyId) {
+      void loadSettlementOptions(defaultCurrencyId);
+    }
   };
 
   const handleCreate = async () => {
@@ -324,6 +389,17 @@ export default function HajiTransfersPage() {
     if (form.sourceType === "cheque" && form.chequePaymentIds.length === 0) { setError("Please select at least one cheque"); return; }
     if (form.sourceType === "mixed_cash_cheque" && !form.cashAmount && form.chequePaymentIds.length === 0) { setError("Enter a cash amount or select at least one cheque"); return; }
     if (form.sourceType === "bank_transfer" && !form.bankAccountId) { setError("Please select a bank account"); return; }
+    if (isAfghanistanCity) {
+      const target = buildSettlementTargetValue(
+        form.settlementDestination,
+        form.intermediaryId,
+        form.superAdminCashAccountId,
+      );
+      if (!isSettlementTargetSelected(target)) {
+        setError("Please select where funds are going");
+        return;
+      }
+    }
 
     const resolvedCurrencyId = form.currencyId || currencies[0]?.id || 0;
     if (!resolvedCurrencyId) {
@@ -352,11 +428,15 @@ export default function HajiTransfersPage() {
       body = {
         ...form,
         currencyId: resolvedCurrencyId,
-        sourceType: form.sourceType,
-        transferType: form.sourceType === "cash_office" ? "from_in_hand" : "direct",
+        sourceType: isAfghanistanCity ? "cash_office" : form.sourceType,
+        transferType: "from_in_hand",
       };
+      if (isAfghanistanCity) {
+        body.settlementDestination = form.settlementDestination;
+        body.intermediaryId = form.settlementDestination === "intermediary" ? Number(form.intermediaryId) : undefined;
+        body.superAdminCashAccountId = form.settlementDestination === "super_admin_cash" ? Number(form.superAdminCashAccountId) : undefined;
+      }
       if (!body.lotId) delete body.lotId;
-      if (!body.currencyId) delete body.currencyId;
       if (!body.transferredTo) delete body.transferredTo;
       if (body.sourceType !== "bank_transfer") delete body.bankAccountId;
       delete body.chequePaymentIds;
@@ -444,28 +524,58 @@ export default function HajiTransfersPage() {
 
   const openEdit = (item: any) => {
     setSelected(item);
-    // Map legacy transferType → sourceType
     let sourceType = item.sourceType || (
       item.transferType === "direct" ? "bank_transfer" :
       item.transferType === "from_in_hand" ? "cash_office" : "cash_office"
     );
     setForm({
       lotId: item.lotId, transferDate: item.transferDate, amount: item.amount,
-      currencyId: item.currencyId || 0, detail: item.detail,
+      currencyId: item.currencyId || item.currency?.id || 0, detail: item.detail,
       sourceType, transferType: item.transferType || "from_in_hand",
+      settlementDestination: item.settlementDestination === "super_admin_cash" ? "super_admin_cash" : "intermediary",
+      intermediaryId: item.intermediaryId || 0,
+      superAdminCashAccountId: item.superAdminCashAccountId || 0,
       bankAccountId: item.bankAccountId || 0, chequePaymentId: item.chequePaymentId || 0,
       transferredTo: item.transferredTo || "", notes: item.notes || "",
     });
+    if (isAfghanistanCity || item.settlementDestination === "intermediary" || item.settlementDestination === "super_admin_cash") {
+      void loadSettlementOptions(item.currencyId || item.currency?.id || 0);
+    }
     setShowEdit(true); setError("");
   };
 
+  const toggleHajiAudit = async (item: any, confirmed: boolean) => {
+    const r = await apiCall(`/api/v1/haji-transfers/${item.id}`, {
+      method: "PUT",
+      body: { action: "set_haji_audit", confirmed },
+    });
+    if (r.success) load();
+    else setError(r.error || "Failed to update audit confirmation");
+  };
+
   const handleEdit = async () => {
+    if (isAfghanistanCity) {
+      const target = buildSettlementTargetValue(
+        form.settlementDestination,
+        form.intermediaryId,
+        form.superAdminCashAccountId,
+      );
+      if (!isSettlementTargetSelected(target)) {
+        setError("Please select where funds are going");
+        return;
+      }
+    }
     const body: any = {
       amount: form.amount, detail: form.detail,
       sourceType: form.sourceType,
       transferType: form.sourceType === "cash_office" ? "from_in_hand" : form.sourceType === "bank_transfer" ? "direct" : "from_in_hand",
       transferredTo: form.transferredTo || null, notes: form.notes,
     };
+    if (selected?.settlementDestination === "intermediary" || selected?.settlementDestination === "super_admin_cash" || isAfghanistanCity) {
+      body.settlementDestination = form.settlementDestination;
+      body.intermediaryId = form.settlementDestination === "intermediary" ? Number(form.intermediaryId) : null;
+      body.superAdminCashAccountId = form.settlementDestination === "super_admin_cash" ? Number(form.superAdminCashAccountId) : null;
+    }
     if (form.sourceType === "bank_transfer" && form.bankAccountId) body.bankAccountId = form.bankAccountId;
     if (!isOnline) {
       const pendingQueueId = getPendingQueueId(selected?.id);
@@ -564,10 +674,7 @@ export default function HajiTransfersPage() {
   if (user?.role === "super_admin" && !isEmbed) {
     return (
       <div>
-        <PageHeader
-          title={t("haji_transfers")}
-          subtitle="Consolidated under Payments for super admin operations"
-        />
+        <PageHeader title={t("haji_transfers")} />
         <div className="rounded-xl border border-[#d4d4d8] bg-[#f4f4f5]/90 p-5">
           <p className="text-sm font-semibold text-[#2A0608]">Use Payments as the single settlement module</p>
           <p className="mt-1 text-sm text-[#52525b]">
@@ -583,20 +690,66 @@ export default function HajiTransfersPage() {
     );
   }
 
+  const renderGoingToSelect = () => {
+    const selectedValue = buildSettlementTargetValue(
+      form.settlementDestination,
+      form.intermediaryId,
+      form.superAdminCashAccountId,
+    );
+    return (
+      <div>
+        <label className="mb-1 block text-sm font-medium text-gray-700">Going to *</label>
+        {settlementOptionsLoading ? (
+          <div className="select-field text-sm text-gray-500">Loading…</div>
+        ) : settlementOptionsError ? (
+          <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">{settlementOptionsError}</div>
+        ) : settlementIntermediaries.length === 0 && settlementCashAccounts.length === 0 ? (
+          <div className="rounded border border-yellow-200 bg-yellow-50 p-2 text-xs text-yellow-700">
+            No intermediaries or haji cash pots for this currency.
+          </div>
+        ) : (
+          <select
+            value={selectedValue}
+            onChange={(e) => {
+              const parsed = parseSettlementTargetValue(e.target.value);
+              setForm((f: any) => ({ ...f, ...parsed }));
+            }}
+            className="select-field text-sm"
+          >
+            <option value="">Select destination…</option>
+            {settlementIntermediaries.length > 0 && (
+              <optgroup label="Intermediaries">
+                {settlementIntermediaries.map((row: any) => (
+                  <option key={`i-${row.id}`} value={`intermediary:${row.id}`}>{row.name}</option>
+                ))}
+              </optgroup>
+            )}
+            {settlementCashAccounts.length > 0 && (
+              <optgroup label="Haji cash pots">
+                {settlementCashAccounts.map((row: any) => (
+                  <option key={`c-${row.id}`} value={`cash:${row.id}`}>{row.bankName}</option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
       {!isEmbed && <PageHeader
         title={t("haji_transfers")}
-        subtitle={`${total} ${t("records").toLowerCase()}`}
         action={user?.role === "city_admin" ? (
-          <div className="flex gap-2 items-center">
-            <input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} className="input-field w-auto text-xs" placeholder="From" />
-            <input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} className="input-field w-auto text-xs" placeholder="To" />
+          <div className="flex flex-wrap items-center gap-2">
+            <MobileDateInput variant="filter" value={filterFrom} onChange={setFilterFrom} placeholder="From" aria-label="From date" />
+            <MobileDateInput variant="filter" value={filterTo} onChange={setFilterTo} placeholder="To" aria-label="To date" />
           </div>
         ) : (
-          <div className="flex gap-2 items-center">
-            <input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} className="input-field w-auto text-xs" />
-            <input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} className="input-field w-auto text-xs" />
+          <div className="flex flex-wrap items-center gap-2">
+            <MobileDateInput variant="filter" value={filterFrom} onChange={setFilterFrom} placeholder="From" aria-label="From date" />
+            <MobileDateInput variant="filter" value={filterTo} onChange={setFilterTo} placeholder="To" aria-label="To date" />
           </div>
         )}
       />}
@@ -631,7 +784,6 @@ export default function HajiTransfersPage() {
       {!isEmbed && <DataTable
         searchValue={searchQuery}
         onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}
-        searchPlaceholder="Search haji transfers (min 2 chars)"
         columns={[
         { key: "transferDate", label: t("date"), render: (tr: any) => formatDate(tr.transferDate) },
         {
@@ -640,6 +792,7 @@ export default function HajiTransfersPage() {
             <div>
               <span>{tr.detail}</span>
               {tr.transferredTo && <p className="text-xs text-blue-600 mt-0.5">→ {tr.transferredTo}</p>}
+              {tr.hajiAudit?.confirmed && <p className="text-xs text-emerald-700 mt-0.5">✓ Audit confirmed</p>}
               {tr.recordType === "customer_payment" && <p className="text-xs text-emerald-600 mt-0.5">Customer payment sent directly to Haji</p>}
             </div>
           ),
@@ -659,17 +812,33 @@ export default function HajiTransfersPage() {
         { key: "lotNumber", label: t("lot"), render: (tr: any) => tr.lot?.lotNumber || tr.lotNumber || "-" },
         {
           key: "actions", label: "",
-          render: (tr: any) => (
+          render: (tr: any) => {
+            const auditLocked = !!tr.hajiAudit?.confirmed;
+            const auditEligible = tr.settlementDestination === "intermediary" || tr.settlementDestination === "super_admin_cash";
+            return (
             (user?.role === "city_admin" || user?.role === "super_admin") && tr.recordType !== "customer_payment" ? (
               <RowActionMenu
                 open={openActionId === tr.id}
                 onOpenChange={(open) => setOpenActionId(open ? tr.id : null)}
               >
-                <button onClick={() => { setOpenActionId(null); openEdit(tr); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
-                <button onClick={() => { setOpenActionId(null); handleDelete(tr); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("delete")}</button>
+                {isSuperAdmin && auditEligible && (
+                  <button
+                    onClick={() => { setOpenActionId(null); void toggleHajiAudit(tr, !tr.hajiAudit?.confirmed); }}
+                    className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-emerald-700 hover:bg-emerald-50 sm:py-2 sm:text-xs"
+                  >
+                    {tr.hajiAudit?.confirmed ? "Unconfirm audit" : "Confirm audit"}
+                  </button>
+                )}
+                {!auditLocked && (
+                  <>
+                    <button onClick={() => { setOpenActionId(null); openEdit(tr); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
+                    <button onClick={() => { setOpenActionId(null); handleDelete(tr); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("delete")}</button>
+                  </>
+                )}
               </RowActionMenu>
             ) : null
-          ),
+            );
+          },
         },
       ]} data={items} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />}
 
@@ -677,37 +846,93 @@ export default function HajiTransfersPage() {
       <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={t("record_haji_transfer")} size="md" inline={isEmbed} hideHeader={isEmbed}>
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+          {isAfghanistanCity ? (
+            <>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("date")} *</label>
+                  <MobileDateInput value={form.transferDate} onChange={(transferDate) => setForm((f: any) => ({ ...f, transferDate }))} placeholder={t("date")} />
+                </div>
+                {renderGoingToSelect()}
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">{t("detail")} *</label>
+                <input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
+                  <input
+                    type="number"
+                    value={form.amount || ""}
+                    onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
+                    className="input-field"
+                    onWheel={e => e.currentTarget.blur()}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("currency")} *</label>
+                  <select
+                    value={form.currencyId || 0}
+                    onChange={e => {
+                      const nextCurrencyId = parseInt(e.target.value, 10) || 0;
+                      setForm((f: any) => ({
+                        ...f,
+                        currencyId: nextCurrencyId,
+                        settlementDestination: "intermediary",
+                        intermediaryId: 0,
+                        superAdminCashAccountId: 0,
+                      }));
+                      if (nextCurrencyId) void loadSettlementOptions(nextCurrencyId);
+                    }}
+                    className="select-field"
+                  >
+                    <option value={0}>— Select currency —</option>
+                    {currencies.map((c: any) => (
+                      <option key={c.id} value={c.id}>
+                        {formatCurrencySelectLabel(c)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("lot")}</label>
+                  <select value={form.lotId} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
+                    <option value={0}>{t("auto_fifo")}</option>
+                    {lots.filter((l: any) => l.status === "ongoing" || !l.status).map(l => (
+                      <option key={l.id} value={l.id}>{l.lotNumber}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
-              <input type="date" value={form.transferDate} onChange={e => setForm((f: any) => ({ ...f, transferDate: e.target.value }))} className="input-field" />
+              <MobileDateInput value={form.transferDate} onChange={(transferDate) => setForm((f: any) => ({ ...f, transferDate }))} placeholder={t("date")} />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("source_of_funds")} *</label>
-              {isAfghanistanCity ? (
-                <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
-                  Cash from Office only for Afghanistan city operations
-                </div>
-              ) : (
-                <select
-                  value={form.sourceType}
-                  onChange={e => setForm((f: any) => ({
-                    ...f,
-                    sourceType: e.target.value,
-                    chequePaymentId: 0,
-                    chequePaymentIds: [],
-                    bankAccountId: 0,
-                    amount: e.target.value === "cheque" || e.target.value === "mixed_cash_cheque" ? 0 : f.amount,
-                    cashAmount: e.target.value === "mixed_cash_cheque" ? f.cashAmount : 0,
-                  }))}
-                  className="select-field"
-                >
-                  <option value="cash_office">{t("cash_from_office")}</option>
-                  <option value="cheque">{t("cheque")}</option>
-                  <option value="mixed_cash_cheque">Cash + Cheques</option>
-                  <option value="bank_transfer">{t("bank_transfer")}</option>
-                </select>
-              )}
+              <select
+                value={form.sourceType}
+                onChange={e => setForm((f: any) => ({
+                  ...f,
+                  sourceType: e.target.value,
+                  chequePaymentId: 0,
+                  chequePaymentIds: [],
+                  bankAccountId: 0,
+                  amount: e.target.value === "cheque" || e.target.value === "mixed_cash_cheque" ? 0 : f.amount,
+                  cashAmount: e.target.value === "mixed_cash_cheque" ? f.cashAmount : 0,
+                }))}
+                className="select-field"
+              >
+                <option value="cash_office">{t("cash_from_office")}</option>
+                <option value="cheque">{t("cheque")}</option>
+                <option value="mixed_cash_cheque">Cash + Cheques</option>
+                <option value="bank_transfer">{t("bank_transfer")}</option>
+              </select>
             </div>
           </div>
 
@@ -747,9 +972,9 @@ export default function HajiTransfersPage() {
                   })}
                 </div>
               )}
-              {form.chequePaymentIds.length > 0 && (
+              {form.chequePaymentIds.length > 0 && !simplifyModals && (
                 <div className="mt-2 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-3 py-2">
-                  {form.chequePaymentIds.length} cheque(s) selected · Total {selectedCheques[0]?.currency?.symbol || selectedCheques[0]?.currency?.code || ""} {formatNumber(selectedChequeTotal)}
+                  {form.chequePaymentIds.length} selected · {selectedCheques[0]?.currency?.symbol || selectedCheques[0]?.currency?.code || ""} {formatNumber(selectedChequeTotal)}
                 </div>
               )}
             </div>
@@ -772,21 +997,17 @@ export default function HajiTransfersPage() {
             </div>
           )}
 
+          {!shouldUseSuperAdminTarget && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Transferred To {shouldUseSuperAdminTarget ? "" : <span className="text-gray-400 font-normal">(optional)</span>}
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Transferred To</label>
             <input
-              value={shouldUseSuperAdminTarget ? PAKISTAN_HAJI_TARGET : form.transferredTo}
+              value={form.transferredTo}
               onChange={e => setForm((f: any) => ({ ...f, transferredTo: e.target.value }))}
               className="input-field"
-              placeholder={shouldUseSuperAdminTarget ? "" : "Person or account name"}
-              readOnly={shouldUseSuperAdminTarget}
+              placeholder="Person or account name"
             />
-            {shouldUseSuperAdminTarget && (
-              <p className="mt-1 text-xs text-blue-600">Pakistan city transfers are recorded against the super-admin account automatically.</p>
-            )}
           </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("detail")} *</label>
@@ -813,13 +1034,16 @@ export default function HajiTransfersPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")} *</label>
               <select
                 value={form.currencyId || 0}
-                onChange={e => setForm((f: any) => ({ ...f, currencyId: parseInt(e.target.value, 10) || 0 }))}
+                onChange={e => {
+                  const nextCurrencyId = parseInt(e.target.value, 10) || 0;
+                  setForm((f: any) => ({ ...f, currencyId: nextCurrencyId }));
+                }}
                 className="select-field"
               >
                 <option value={0}>— Select currency —</option>
                 {currencies.map((c: any) => (
                   <option key={c.id} value={c.id}>
-                    {c.code} {c.symbol ? `(${c.symbol})` : ""}
+                    {formatCurrencySelectLabel(c)}
                   </option>
                 ))}
               </select>
@@ -828,15 +1052,19 @@ export default function HajiTransfersPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("lot")}</label>
               <select value={form.lotId} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
                 <option value={0}>{t("auto_fifo")}</option>
-                {lots.map(l => <option key={l.id} value={l.id}>{l.lotNumber}</option>)}
+                {lots.filter((l: any) => l.status === "ongoing" || !l.status).map(l => (
+                  <option key={l.id} value={l.id}>{l.lotNumber}</option>
+                ))}
               </select>
             </div>
           </div>
 
-          {!isAfghanistanCity && form.sourceType === "mixed_cash_cheque" && (
+          {form.sourceType === "mixed_cash_cheque" && (
             <div className="p-2 bg-emerald-50 border border-emerald-200 rounded text-sm text-emerald-700">
               Slip total: {selectedCheques[0]?.currency?.symbol || selectedCheques[0]?.currency?.code || ""} {formatNumber(mixedSlipTotal)}
             </div>
+          )}
+            </>
           )}
 
           {!isEmbed && (
@@ -847,11 +1075,11 @@ export default function HajiTransfersPage() {
           )}
 
         </div>
-        <div className={isEmbed ? "pt-4 mt-3 border-t border-[#e8dccf]" : "flex justify-end gap-3 pt-4 mt-4 border-t"}>
+        <div className={isEmbed ? "quickform-footer" : "flex justify-end gap-3 pt-4 mt-4 border-t"}>
           <button
             onClick={handleCreate}
             disabled={submitting}
-            className={isEmbed ? "w-full h-10 rounded-xl text-sm font-semibold text-white bg-[linear-gradient(135deg,#6B0F1A_0%,#8B1A1A_100%)] disabled:opacity-60" : "btn-primary text-sm"}
+            className={isEmbed ? "glass-btn glass-btn-primary w-full min-h-11 disabled:opacity-60" : "btn-primary text-sm"}
           >
             {submitting ? "Saving…" : t("record")}
           </button>
@@ -862,23 +1090,105 @@ export default function HajiTransfersPage() {
       <Modal open={showEdit} onClose={() => setShowEdit(false)} title={t("edit_transfer")} size="md">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
+          {!isAfghanistanCity && (
           <div className="p-2 bg-gray-50 border rounded text-xs text-gray-600">
             {t("source_of_funds")}: <strong>{SOURCE_CONFIG[form.sourceType]?.label || form.sourceType}</strong> (cannot change after creation)
           </div>
+          )}
+          {isAfghanistanCity ? (
+            <>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("date")}</label>
+                  <MobileDateInput value={form.transferDate} onChange={(transferDate) => setForm((f: any) => ({ ...f, transferDate }))} placeholder={t("date")} />
+                </div>
+                {renderGoingToSelect()}
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">{t("detail")}</label>
+                <input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")}</label>
+                  <input type="number" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("currency")}</label>
+                  <div className="input-field bg-gray-50 text-gray-700">
+                    {selected?.currency?.code || currencies.find((c: any) => c.id === form.currencyId)?.code || "—"}
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("lot")}</label>
+                  <div className="input-field bg-gray-50 text-gray-700">
+                    {selected?.lot?.lotNumber || selected?.lotNumber || t("auto_fifo")}
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+          {!shouldUseSuperAdminTarget && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Transferred To</label>
             <input
-              value={shouldUseSuperAdminTarget ? PAKISTAN_HAJI_TARGET : form.transferredTo}
+              value={form.transferredTo}
               onChange={e => setForm((f: any) => ({ ...f, transferredTo: e.target.value }))}
               className="input-field"
               placeholder="Person or account name"
-              readOnly={shouldUseSuperAdminTarget}
             />
           </div>
+          )}
+          {(selected?.settlementDestination === "intermediary" || selected?.settlementDestination === "super_admin_cash") && (
+          <div className="space-y-3 rounded-lg border border-[#e4e4e7] bg-[#fafafa] p-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Settlement destination *</label>
+              <select
+                value={form.settlementDestination}
+                onChange={e => setForm((f: any) => ({
+                  ...f,
+                  settlementDestination: e.target.value,
+                  intermediaryId: 0,
+                  superAdminCashAccountId: 0,
+                }))}
+                className="select-field"
+              >
+                <option value="intermediary">Intermediary</option>
+                <option value="super_admin_cash">Super Admin cash account</option>
+              </select>
+            </div>
+            {form.settlementDestination === "intermediary" ? (
+              <select
+                value={form.intermediaryId || 0}
+                onChange={e => setForm((f: any) => ({ ...f, intermediaryId: parseInt(e.target.value) || 0 }))}
+                className="select-field"
+              >
+                <option value={0}>Select intermediary…</option>
+                {settlementIntermediaries.map((row: any) => (
+                  <option key={row.id} value={row.id}>{row.name}</option>
+                ))}
+              </select>
+            ) : (
+              <select
+                value={form.superAdminCashAccountId || 0}
+                onChange={e => setForm((f: any) => ({ ...f, superAdminCashAccountId: parseInt(e.target.value) || 0 }))}
+                className="select-field"
+              >
+                <option value={0}>Select cash account…</option>
+                {settlementCashAccounts.map((row: any) => (
+                  <option key={row.id} value={row.id}>{row.bankName}</option>
+                ))}
+              </select>
+            )}
+          </div>
+          )}
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("detail")}</label><input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" /></div>
           <div className="grid grid-cols-2 gap-3">
             <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")}</label><input type="number" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} /></div>
           </div>
+            </>
+          )}
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label><input value={form.notes} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" /></div>
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">

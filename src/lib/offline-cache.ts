@@ -1,3 +1,4 @@
+import { isOfflineFeaturesEnabled } from "@/lib/offline-features";
 import { getPackagedServerReachable } from "@/lib/offline-reachability";
 
 export const OFFLINE_DB_NAME = "mrf-offline";
@@ -265,6 +266,7 @@ export function isOfflineQueueBlockedPath(path: string): boolean {
 
 export function isAllowlistedOfflineMutationPath(path: string): boolean {
   if (isOfflineQueueBlockedPath(path)) return false;
+  if (OFFLINE_WRITE_QUEUE_ALLOWLIST.includes(path as (typeof OFFLINE_WRITE_QUEUE_ALLOWLIST)[number])) return true;
   if (OFFLINE_MUTATION_EXTRA_PATTERNS.some((pattern) => pattern.test(path))) return true;
   for (const base of OFFLINE_WRITE_QUEUE_ALLOWLIST) {
     if (path.startsWith(`${base}/`)) return true;
@@ -294,8 +296,13 @@ export function isPackagedOfflineRuntime(): boolean {
   return window.platformInfo?.runtime === "electron" || Boolean(window.Capacitor);
 }
 
+/** Packaged runtime with offline features turned on via NEXT_PUBLIC_OFFLINE_ENABLED. */
+export function isPackagedOfflineActive(): boolean {
+  return isPackagedOfflineRuntime() && isOfflineFeaturesEnabled();
+}
+
 export function shouldUseOfflineApiCache(): boolean {
-  return isPackagedOfflineRuntime();
+  return isPackagedOfflineActive();
 }
 
 export function shouldAutoQueueOfflineWrite(url: string, method: string): boolean {
@@ -320,13 +327,13 @@ export function shouldAutoQueueOfflineWrite(url: string, method: string): boolea
 
 /** Queue before attempting network when the server is unreachable (packaged apps only). */
 export function shouldQueueOfflineWriteNow(url: string, method: string): boolean {
-  if (!isPackagedOfflineRuntime()) return false;
+  if (!isPackagedOfflineActive()) return false;
   if (getPackagedServerReachable()) return false;
   return shouldAutoQueueOfflineWrite(url, method);
 }
 
 /** Queue after a failed request when packaged (Wi‑Fi may be on but server is not). */
 export function shouldQueueOfflineWriteOnNetworkFailure(url: string, method: string): boolean {
-  if (!isPackagedOfflineRuntime()) return false;
+  if (!isPackagedOfflineActive()) return false;
   return shouldAutoQueueOfflineWrite(url, method);
 }

@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { withAuth, getCityScope } from "@/lib/middleware";
+import { withSuperAdmin, getCityScope } from "@/lib/middleware";
 import { successResponse, serverError, getPaginationParams } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 
-export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
+export const GET = withSuperAdmin(async (request: NextRequest, context, user: JWTPayload) => {
   try {
     const searchParams = request.nextUrl.searchParams;
     const { page, limit, skip } = getPaginationParams(searchParams);

@@ -6,13 +6,15 @@ import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate, RowActionMenu } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
-import { getEmbedQuickformPath } from "@/lib/quickform-embed";
+import { getEmbedQuickformPath, shouldSimplifyCityModals } from "@/lib/quickform-embed";
 import { useOffline } from "@/hooks/useOffline";
 import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { getPendingQueueId } from "@/lib/queue-resolve";
+import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import { cn } from "@/lib/utils";
 
 const WITHDRAWALS_FORM_CACHE_KEY = "mrf-withdrawals-form-cache-v1";
 const WITHDRAWALS_READ_CACHE_KEY = "mrf-withdrawals-read-cache-v1";
@@ -90,6 +92,7 @@ export default function PersonalWithdrawalsPage() {
   const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, discardQueuedItem, syncQueue } = useOffline();
   const searchParams = useSearchParams();
   const isEmbed = useQuickformEmbed();
+  const simplifyModals = shouldSimplifyCityModals(user, isEmbed);
   const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
   const [items, setItems] = useState<any[]>([]);
   const [counts, setCounts] = useState({ all: 0, pending: 0, approved: 0 });
@@ -148,7 +151,7 @@ export default function PersonalWithdrawalsPage() {
       return;
     }
     setLoading(true);
-    const params: any = { page, limit: 20 };
+    const params: any = { page, limit: DEFAULT_LIST_PAGE_SIZE };
     if (statusFilter !== "all") params.approval_status = statusFilter;
     const normalizedQuery = searchQuery.trim();
     if (normalizedQuery.length >= 2) params.q = normalizedQuery;
@@ -620,12 +623,19 @@ export default function PersonalWithdrawalsPage() {
     selectWithdrawee(normalized);
   };
 
+  const filterBtnClass = (active: boolean, activeVariant: "primary" | "warning" | "xlsx") =>
+    cn(
+      "glass-btn px-3 py-1.5 text-sm",
+      active ? `glass-btn-${activeVariant}` : "glass-btn-secondary",
+    );
+
+  const saveBtnClass = simplifyModals
+    ? cn("glass-btn glass-btn-primary disabled:opacity-60", isEmbed ? "w-full min-h-11" : "text-sm")
+    : "btn-primary text-sm";
+
   return (
     <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
-      {!isEmbed && <PageHeader
-        title={t("personal_withdrawals")}
-        subtitle={`${total} ${t("records").toLowerCase()}`}
-      />}
+      {!isEmbed && <PageHeader title={t("personal_withdrawals")} />}
       {!isEmbed && showOfflineSnapshot && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
           Offline snapshot mode: showing last cached withdrawals data for this device.
@@ -634,20 +644,23 @@ export default function PersonalWithdrawalsPage() {
 
       {!isEmbed && <div className="mb-4 flex flex-wrap items-center gap-2">
         <button
+          type="button"
           onClick={() => setStatusFilter("all")}
-          className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${statusFilter === "all" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-600 border-gray-200"}`}
+          className={filterBtnClass(statusFilter === "all", "primary")}
         >
           All ({counts.all})
         </button>
         <button
+          type="button"
           onClick={() => setStatusFilter("pending")}
-          className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${statusFilter === "pending" ? "bg-amber-600 text-white border-amber-600" : "bg-white text-amber-700 border-amber-200"}`}
+          className={filterBtnClass(statusFilter === "pending", "warning")}
         >
           Pending ({counts.pending})
         </button>
         <button
+          type="button"
           onClick={() => setStatusFilter("approved")}
-          className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${statusFilter === "approved" ? "bg-green-600 text-white border-green-600" : "bg-white text-green-700 border-green-200"}`}
+          className={filterBtnClass(statusFilter === "approved", "xlsx")}
         >
           Approved ({counts.approved})
         </button>
@@ -670,7 +683,6 @@ export default function PersonalWithdrawalsPage() {
       {!isEmbed && <DataTable
         searchValue={searchQuery}
         onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}
-        searchPlaceholder="Search withdrawals (min 2 chars)"
         columns={[
           { key: "withdrawalDate", label: t("date"), render: (w: any) => formatDate(w.withdrawalDate) },
           {
@@ -815,7 +827,7 @@ export default function PersonalWithdrawalsPage() {
                 </div>
               </div>
             )}
-            {form.withdrawnBy && (
+            {form.withdrawnBy && !simplifyModals && (
               <p className="mt-1 text-xs text-gray-500">
                 Selected: <span className="font-medium text-gray-700">{form.withdrawnBy}</span>
               </p>
@@ -833,19 +845,15 @@ export default function PersonalWithdrawalsPage() {
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
             <input type="number" value={form.amount || ""} onChange={(e) => setForm((f) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" readOnly={form.sourceType === "cheque" && !!form.chequePaymentId} onWheel={e => e.currentTarget.blur()} />
           </div>
+          {!isAfghanistanCity && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Source of Funds</label>
-            {isAfghanistanCity ? (
-              <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
-                💵 Cash from Office only for Afghanistan city operations
-              </div>
-            ) : (
-              <select value={form.sourceType} onChange={(e) => setForm((f) => ({ ...f, sourceType: e.target.value, chequePaymentId: 0 }))} className="select-field">
-                <option value="cash_office">💵 Cash from Office</option>
-                <option value="cheque">🧾 Cheque in Hand</option>
-              </select>
-            )}
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t("source_of_funds")}</label>
+            <select value={form.sourceType} onChange={(e) => setForm((f) => ({ ...f, sourceType: e.target.value, chequePaymentId: 0 }))} className="select-field">
+              <option value="cash_office">{t("cash_from_office")}</option>
+              <option value="cheque">{t("cheque")}</option>
+            </select>
           </div>
+          )}
           {!isAfghanistanCity && form.sourceType === "cheque" && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("cheque")} *</label>
@@ -878,9 +886,9 @@ export default function PersonalWithdrawalsPage() {
               )}
             </div>
           )}
-          {!isAfghanistanCity && form.sourceType === "cheque" && (
+          {!isAfghanistanCity && form.sourceType === "cheque" && !simplifyModals && (
             <div className="p-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-700">
-              🧾 This withdrawal will consume the selected in-hand cheque.
+              This withdrawal will consume the selected in-hand cheque.
             </div>
           )}
           {!isEmbed && (
@@ -890,11 +898,12 @@ export default function PersonalWithdrawalsPage() {
           </div>
           )}
         </div>
-        <div className={isEmbed ? "pt-4 mt-3 border-t border-[#e8dccf]" : "flex justify-end gap-3 pt-4 mt-4 border-t"}>
+        <div className={isEmbed ? "quickform-footer" : "flex justify-end gap-3 pt-4 mt-4 border-t"}>
           <button
+            type="button"
             onClick={handleCreate}
             disabled={submitting}
-            className={isEmbed ? "w-full h-10 rounded-xl text-sm font-semibold text-white bg-[linear-gradient(135deg,#6B0F1A_0%,#8B1A1A_100%)] disabled:opacity-60" : "btn-primary text-sm"}
+            className={saveBtnClass}
           >
             {submitting ? "Saving…" : t("record")}
           </button>
@@ -926,7 +935,7 @@ export default function PersonalWithdrawalsPage() {
           </div>
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={handleEdit} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button>
+          <button type="button" onClick={handleEdit} disabled={submitting} className={saveBtnClass}>{submitting ? "..." : t("save")}</button>
         </div>
       </Modal>
     </div>

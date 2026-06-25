@@ -41,7 +41,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       prisma.customer.findMany({
         where,
         include: { city: { select: { id: true, name: true } } },
-        orderBy: { name: "asc" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         skip,
         take: limit,
       }),
@@ -53,7 +53,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const [salesAgg, paymentsAgg, openingAgg] = await Promise.all([
       prisma.sale.groupBy({
         by: ["customerId", "currencyId"],
-        where: { customerId: { in: customerIds }, status: { not: "cancelled" } },
+        where: { customerId: { in: customerIds }, status: { not: "cancelled" }, isOpeningImport: false },
         _sum: { totalAmount: true },
       }),
       prisma.payment.groupBy({

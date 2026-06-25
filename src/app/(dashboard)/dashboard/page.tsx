@@ -1,29 +1,27 @@
 "use client";
 import React, { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, StatsCard, formatNumber, DataTable, formatDate } from "@/components/ui";
+import { PageHeader, StatsCard, formatNumber, DataTable } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { applyPendingDashboardMetrics } from "@/lib/offline-dashboard";
 import { formatCityAmount, isSingleCurrencyCityAdmin } from "@/lib/city-money-format";
 import BalanceHub from "@/components/dashboard/BalanceHub";
+import { QUICKFORM_POST_MESSAGE } from "@/lib/quickform-embed";
 import Link from "next/link";
-import { cn } from "@/lib/utils";
 import { 
   ShoppingCart, 
   Banknote, 
   Receipt, 
   Wallet, 
   ArrowRightLeft, 
-  Users, 
   Package, 
   TrendingUp, 
   TrendingDown,
   Building2,
-  ChevronRight,
-  ChevronDown,
   AlertCircle,
   CheckCircle2,
   X,
@@ -37,46 +35,62 @@ type DashboardReadSnapshot = {
   treasury: any | null;
 };
 
-const QuickActionCard = ({ 
-  icon: Icon, 
-  title, 
-  src, 
-  color, 
-  onClick 
-}: { 
-  icon: React.ElementType; 
-  title: string; 
-  src?: string; 
-  color: string; 
+const QuickActionCard = ({
+  icon: Icon,
+  title,
+  src,
+  color,
+  onClick,
+}: {
+  icon: React.ElementType;
+  title: string;
+  src?: string;
+  color: string;
   onClick?: () => void;
 }) => {
-  const colors: Record<string, { bg: string; border: string; icon: string; text: string; hover: string }> = {
-    blue: { bg: "bg-blue-50", border: "border-blue-200", icon: "text-blue-600", text: "text-blue-900", hover: "hover:bg-blue-100" },
-    green: { bg: "bg-emerald-50", border: "border-emerald-200", icon: "text-emerald-600", text: "text-emerald-900", hover: "hover:bg-emerald-100" },
-    red: { bg: "bg-rose-50", border: "border-rose-200", icon: "text-rose-600", text: "text-rose-900", hover: "hover:bg-rose-100" },
-    amber: { bg: "bg-amber-50", border: "border-amber-200", icon: "text-amber-700", text: "text-amber-900", hover: "hover:bg-amber-100" },
-    purple: { bg: "bg-violet-50", border: "border-violet-200", icon: "text-violet-600", text: "text-violet-900", hover: "hover:bg-violet-100" },
-    orange: { bg: "bg-amber-50", border: "border-amber-200", icon: "text-amber-600", text: "text-amber-900", hover: "hover:bg-amber-100" },
-    teal: { bg: "bg-teal-50", border: "border-teal-200", icon: "text-teal-600", text: "text-teal-900", hover: "hover:bg-teal-100" },
+  const themes: Record<string, { glow: string; icon: string }> = {
+    blue: { glow: "bg-sky-400", icon: "from-[#5ac8fa] to-[#007aff]" },
+    green: { glow: "bg-emerald-400", icon: "from-[#34d399] to-[#059669]" },
+    orange: { glow: "bg-orange-400", icon: "from-[#ffb340] to-[#ff9500]" },
+    red: { glow: "bg-rose-400", icon: "from-[#ff6b8a] to-[#ff3b30]" },
+    purple: { glow: "bg-violet-400", icon: "from-[#c084fc] to-[#af52de]" },
   };
-  const c = colors[color] || colors.blue;
-  
-  const content = (
-    <div className={`${c.bg} ${c.border} border rounded-2xl p-4 cursor-pointer transition-all duration-200 ${c.hover} group`}>
-      <div className="flex items-center gap-3">
-        <div className={`${c.icon} p-2.5 rounded-xl bg-white/80 shadow-sm`}>
-          <Icon className="w-5 h-5" />
-        </div>
-        <span className={`text-sm font-semibold ${c.text} group-hover:translate-x-0.5 transition-transform`}>
-          {title}
-        </span>
-        <ChevronRight className={`w-4 h-4 ml-auto ${c.icon} opacity-0 group-hover:opacity-100 transition-opacity`} />
+  const theme = themes[color] || themes.blue;
+
+  const inner = (
+    <>
+      <div
+        className={`quick-action-glow pointer-events-none absolute left-1/2 top-5 h-14 w-14 -translate-x-1/2 rounded-full blur-2xl ${theme.glow}`}
+      />
+      <div
+        className={`relative flex h-12 w-12 items-center justify-center rounded-[14px] bg-gradient-to-b text-white shadow-[0_8px_20px_-8px_rgba(0,0,0,0.45)] ring-1 ring-white/40 transition-transform duration-500 ease-[cubic-bezier(0.34,1.45,0.64,1)] group-hover:scale-110 group-active:scale-95 ${theme.icon}`}
+      >
+        <div className="pointer-events-none absolute inset-0 rounded-[14px] bg-gradient-to-b from-white/35 to-transparent" />
+        <Icon className="relative h-[22px] w-[22px]" strokeWidth={2} />
       </div>
+      <span className="relative px-1 text-center text-[13px] font-medium leading-tight tracking-tight text-[#2f241b]">
+        {title}
+      </span>
+    </>
+  );
+
+  if (src) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="quick-action-tile group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6B0F1A]/25 focus-visible:ring-offset-2"
+      >
+        {inner}
+      </button>
+    );
+  }
+
+  return (
+    <div className="quick-action-tile group">
+      {inner}
     </div>
   );
-  
-  if (src) return <button onClick={onClick} className="w-full text-left">{content}</button>;
-  return content;
 };
 
 const MetricCard = ({ 
@@ -150,9 +164,12 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState<string>("");
-  const [showOperationalDetails, setShowOperationalDetails] = useState(true);
   const [quickAction, setQuickAction] = useState<{ title: string; src: string } | null>(null);
   const [quickFrameLoading, setQuickFrameLoading] = useState(false);
+  const [quickFrameKey, setQuickFrameKey] = useState(0);
+  const [quickformPortalReady, setQuickformPortalReady] = useState(false);
+
+  useEffect(() => setQuickformPortalReady(true), []);
 
   const loadDashboard = useCallback(async () => {
       const snapshot = readOfflineReadSnapshot<DashboardReadSnapshot>(DASHBOARD_READ_CACHE_KEY)?.data;
@@ -161,7 +178,6 @@ export default function DashboardPage() {
         setData(snapshot!.data ?? null);
         setCashPosition(snapshot!.cashPosition ?? null);
         setTreasury(snapshot!.treasury ?? null);
-        setShowOfflineSnapshot(true);
         setLoading(false);
       } else {
         setLoading(true);
@@ -247,13 +263,18 @@ export default function DashboardPage() {
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
-      if (event.data?.type === "dashboard-quick-close") {
+      if (event.data?.type === QUICKFORM_POST_MESSAGE.close) {
         closeQuickForm();
+        return;
+      }
+      if (event.data?.type === QUICKFORM_POST_MESSAGE.reload && quickAction) {
+        setQuickFrameLoading(true);
+        setQuickFrameKey((key) => key + 1);
       }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [closeQuickForm]);
+  }, [closeQuickForm, quickAction]);
 
   useEffect(() => {
     if (!quickAction) return;
@@ -287,18 +308,16 @@ export default function DashboardPage() {
 
     return (
       <div className="space-y-6">
-        <PageHeader 
-          title={t("dashboard")} 
-          subtitle={`Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}, ${user?.fullName}`} 
-        />
+        <PageHeader title={t("dashboard")} />
         {showOfflineSnapshot && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
             Offline snapshot mode: showing last cached dashboard data for this device.
           </div>
         )}
 
-        {/* Quick Actions - Featured */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="quick-action-panel relative overflow-hidden rounded-[1.75rem] border border-white/55 p-3">
+          <div className="pointer-events-none absolute inset-0 opacity-90 [background:radial-gradient(circle_at_12%_22%,rgba(56,189,248,0.16),transparent_44%),radial-gradient(circle_at_88%_68%,rgba(168,85,247,0.12),transparent_40%),radial-gradient(circle_at_50%_95%,rgba(16,185,129,0.1),transparent_36%)]" />
+          <div className="relative grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-3 xl:grid-cols-5">
           <QuickActionCard 
             icon={ShoppingCart} 
             title="New Sale" 
@@ -314,24 +333,6 @@ export default function DashboardPage() {
             onClick={() => openQuickForm("Receive Payment", "/payments?create=payment&embed=1")}
           />
           <QuickActionCard 
-            icon={Receipt} 
-            title="Record Expense" 
-            src="/expenses?create=1&embed=1"
-            color="red"
-            onClick={() => openQuickForm("Record Expense", "/expenses?create=1&embed=1")}
-          />
-          <QuickActionCard 
-            icon={Wallet} 
-            title="Withdrawal" 
-            src="/personal-withdrawals?create=1&embed=1"
-            color="purple"
-            onClick={() => openQuickForm("Personal Withdrawal", "/personal-withdrawals?create=1&embed=1")}
-          />
-        </div>
-
-        {/* Secondary Quick Actions */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <QuickActionCard 
             icon={ArrowRightLeft} 
             title="Haji Transfer" 
             src="/haji-transfers?create=1&embed=1"
@@ -339,15 +340,25 @@ export default function DashboardPage() {
             onClick={() => openQuickForm("Haji Transfer", "/haji-transfers?create=1&embed=1")}
           />
           <QuickActionCard 
-            icon={Users} 
-            title="New Customer" 
-            src="/customers?create=1&embed=1"
-            color="teal"
-            onClick={() => openQuickForm("New Customer", "/customers?create=1&embed=1")}
+            icon={Receipt} 
+            title="Record Expense" 
+            src="/expenses?create=1&embed=1"
+            color="red"
+            onClick={() => openQuickForm("Record Expense", "/expenses?create=1&embed=1")}
           />
+          <div className="col-span-2 flex justify-center lg:col-span-1 lg:col-start-2 xl:col-span-1 xl:col-start-auto">
+            <div className="w-[calc((100%-0.625rem)/2)] sm:w-[calc((100%-0.75rem)/2)] lg:w-full">
+              <QuickActionCard 
+                icon={Wallet} 
+                title="Withdrawal" 
+                src="/personal-withdrawals?create=1&embed=1"
+                color="purple"
+                onClick={() => openQuickForm("Personal Withdrawal", "/personal-withdrawals?create=1&embed=1")}
+              />
+            </div>
+          </div>
+          </div>
         </div>
-
-        {/* Net balance hub (cash + cheques + bank) with drill-down ledgers */}
         <BalanceHub user={user} treasury={treasury} />
 
         {/* Key Metrics */}
@@ -388,84 +399,50 @@ export default function DashboardPage() {
           }
         </div>
 
-        {/* Operational Details */}
-        {showOperationalDetails && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Ongoing Lots */}
-            {data?.ongoingLots?.length > 0 && (
-              <SectionCard 
-                title="Ongoing Lots" 
-                action={<Link href="/lots" className="text-xs text-gray-500 hover:text-blue-600 transition-colors">{data.ongoingLots.length} active · View all →</Link>}
-              >
-                <div className="space-y-2">
-                  {data.ongoingLots.map((l: any) => (
-                    <div key={l.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
-                      <div className="flex items-center gap-3">
-                        <div className="w-2 h-2 rounded-full bg-blue-500" />
-                        <span className="font-mono text-sm font-medium text-gray-900">{l.lotNumber}</span>
-                      </div>
-                      <span className="text-sm text-gray-500">{formatDate(l.lotDate)}</span>
-                    </div>
-                  ))}
-                </div>
-              </SectionCard>
-            )}
-          </div>
-        )}
-
-        {/* Toggle Details */}
-        <div className="flex justify-center">
-          <button
-            onClick={() => setShowOperationalDetails((v) => !v)}
-            className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1.5 transition-colors"
-          >
-            <ChevronDown className={cn("w-4 h-4 transition-transform duration-200", !showOperationalDetails && "-rotate-90")} />
-            {showOperationalDetails ? 'Hide details' : 'Show more details'}
-          </button>
-        </div>
-
-        {quickAction && (
-          <div className="fixed inset-0 z-[90] flex flex-col sm:items-center sm:justify-center sm:p-4">
-            <button
-              type="button"
-              aria-label="Close"
-              className="absolute inset-0 bg-[#0b1220]/50 sm:bg-[#0b1220]/55"
-              onClick={closeQuickForm}
-            />
-            <div
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="quickform-title"
-              className="relative z-[91] flex h-[100dvh] w-full flex-col overflow-hidden bg-[#f0f0f2] sm:h-[min(92dvh,760px)] sm:max-w-xl sm:rounded-2xl sm:border sm:border-[#d4d4d8] sm:shadow-[0_24px_64px_-28px_rgba(42,6,8,0.35)]"
-            >
-              <div className="flex flex-shrink-0 items-center gap-3 border-b border-[#e4e4e7] bg-white px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
-                <div className="min-w-0 flex-1">
-                  <h2 id="quickform-title" className="truncate text-base font-semibold text-[#2A0608] sm:text-lg">
-                    {quickAction.title}
-                  </h2>
-                  {quickFrameLoading && (
-                    <p className="text-xs text-[#52525b]">Loading form…</p>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={closeQuickForm}
-                  className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl border border-[#d4d4d8] text-[#6B0F1A] hover:bg-[#f5e8eb] active:bg-[#ececee]"
-                  aria-label="Close form"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-              <iframe
-                key={quickAction.src}
-                src={quickAction.src}
-                title={`${quickAction.title} form`}
-                onLoad={() => setQuickFrameLoading(false)}
-                className="min-h-0 flex-1 w-full border-0 bg-[#f0f0f2]"
+        {quickformPortalReady && quickAction &&
+          createPortal(
+            <div className="fixed inset-0 z-[100] flex flex-col sm:items-center sm:justify-center sm:p-4">
+              <button
+                type="button"
+                aria-label="Close"
+                className="absolute inset-0 bg-black/70 backdrop-blur-[2px] touch-none"
+                onClick={closeQuickForm}
               />
-            </div>
-          </div>
-        )}
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="quickform-title"
+                className="relative z-[101] flex h-[100dvh] w-full flex-col overflow-hidden bg-[linear-gradient(168deg,rgba(255,248,239,0.99),rgba(245,233,219,0.94))] sm:h-[min(92dvh,760px)] sm:max-w-xl sm:rounded-2xl sm:border sm:border-[#e9dccb] sm:shadow-[0_22px_50px_-42px_rgba(51,42,33,0.38)]"
+              >
+                <div className="flex flex-shrink-0 items-center gap-3 border-b border-[#eadfce] bg-[linear-gradient(135deg,rgba(255,248,239,0.98),rgba(245,233,219,0.88))] px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+                  <div className="min-w-0 flex-1">
+                    <h2 id="quickform-title" className="truncate text-base font-semibold text-[#2f241b] sm:text-lg">
+                      {quickAction.title}
+                    </h2>
+                    {quickFrameLoading && (
+                      <p className="text-xs text-[#8f7963]">Loading form…</p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeQuickForm}
+                    className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl border border-[#d8c7b3] text-[#5d4a3a] hover:bg-[#fbf4ea] active:bg-[#f3e8d8]"
+                    aria-label="Close form"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <iframe
+                  key={`${quickAction.src}-${quickFrameKey}`}
+                  src={quickAction.src}
+                  title={`${quickAction.title} form`}
+                  onLoad={() => setQuickFrameLoading(false)}
+                  className="min-h-0 flex-1 w-full border-0 bg-transparent"
+                />
+              </div>
+            </div>,
+            document.body
+          )}
       </div>
     );
   }
@@ -493,10 +470,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader 
-        title={t("dashboard")} 
-        subtitle={`Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}, ${user?.fullName}`} 
-      />
+      <PageHeader title={t("dashboard")} />
       {showOfflineSnapshot && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
           Offline snapshot mode: showing last cached dashboard data for this device.
@@ -625,15 +599,10 @@ export default function DashboardPage() {
                   </div>
                 ),
               },
-              { key: "activeLots", label: t("ongoing_lots"), render: (c: any) => (
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
-                  {c.activeLots}
-                </span>
-              )},
             ]} data={countryCities} loading={false} />
             {countryCities.length > 0 && (
               <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50/70 p-3">
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-4 gap-y-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-2">
                   <div className="col-span-full sm:col-span-3 lg:col-span-1 text-xs font-semibold text-gray-500 uppercase tracking-wide lg:text-right">Totals</div>
                   <div className="text-sm">
                     <span className="text-xs text-gray-400">Outstanding</span>
@@ -665,10 +634,6 @@ export default function DashboardPage() {
                     }, {})).map(([cc, amt]) => (
                       <div key={cc} className="font-bold text-amber-600 tabular-nums">{cc} {formatNumber(amt as number)}</div>
                     ))}
-                  </div>
-                  <div className="text-sm">
-                    <span className="text-xs text-gray-400">Active Lots</span>
-                    <div className="font-bold text-blue-700 tabular-nums">{countryCities.reduce((s: number, c: any) => s + (c.activeLots || 0), 0)}</div>
                   </div>
                 </div>
               </div>

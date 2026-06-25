@@ -3,13 +3,15 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, PaginationBar } from "@/components/ui";
+import { PageHeader, PaginationBar, EmptyState } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import { Lock } from "lucide-react";
 import { getQueueResolvePath } from "@/lib/queue-resolve";
 import { getOfflineConflictHint } from "@/lib/offline-conflict-hints";
 import { OFFLINE_CONFLICT_RULES } from "@/lib/offline-conflict-rules";
+import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
 
 interface ActivityItem {
   id: number | string;
@@ -36,22 +38,50 @@ const FIELD_LABELS: Record<string, string> = {
   total: "Total", items: "Items", lot: "Lot", reason: "Reason",
 };
 
+function hasSnapshotData(values: Record<string, any> | null | undefined) {
+  return !!values && Object.entries(values).some(([, v]) => v != null && v !== "");
+}
+
+function formatFieldValue(val: unknown) {
+  if (val == null) return "—";
+  if (typeof val === "object") return JSON.stringify(val);
+  return String(val);
+}
+
 function DetailPanel({ oldValues, newValues, action }: {
   oldValues: Record<string, any> | null;
   newValues: Record<string, any> | null;
   action: string;
 }) {
   const [open, setOpen] = useState(false);
-  const isUpdate = action === "update";
-  const snapshot = isUpdate ? oldValues : (oldValues ?? newValues);
-  const after = isUpdate ? newValues : null;
-  const entries = Object.entries(snapshot ?? {}).filter(([, v]) => v != null && v !== "");
-  if (!entries.length) return null;
+  const showBeforeAfter =
+    action === "update" && hasSnapshotData(oldValues) && hasSnapshotData(newValues);
 
   const btnLabel = action === "hard_delete" || action === "delete" ? "View deleted record"
     : action === "cancel" ? "View cancelled record"
-    : action === "create" ? "View details"
-    : "View changes";
+    : showBeforeAfter ? "View changes"
+    : "View details";
+
+  let rows: { key: string; before?: unknown; after?: unknown; value?: unknown }[] = [];
+
+  if (showBeforeAfter) {
+    const keys = Array.from(new Set([...Object.keys(oldValues ?? {}), ...Object.keys(newValues ?? {})]));
+    rows = keys
+      .map((key) => ({ key, before: oldValues?.[key], after: newValues?.[key] }))
+      .filter(({ before, after }) =>
+        (before != null && before !== "") || (after != null && after !== "")
+      );
+  } else if (action === "delete" || action === "hard_delete" || action === "cancel") {
+    rows = Object.entries(oldValues ?? newValues ?? {})
+      .filter(([, v]) => v != null && v !== "")
+      .map(([key, value]) => ({ key, value }));
+  } else {
+    rows = Object.entries(newValues ?? oldValues ?? {})
+      .filter(([, v]) => v != null && v !== "")
+      .map(([key, value]) => ({ key, value }));
+  }
+
+  if (!rows.length) return null;
 
   return (
     <div className="mt-2">
@@ -64,7 +94,7 @@ function DetailPanel({ oldValues, newValues, action }: {
       </button>
       {open && (
         <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 overflow-hidden text-xs">
-          {isUpdate && (
+          {showBeforeAfter && (
             <div className="flex text-[10px] font-semibold uppercase tracking-widest text-gray-400 bg-gray-100 border-b border-gray-200">
               <div className="w-20 flex-shrink-0 px-3 py-1.5 border-r border-gray-200" />
               <div className="flex-1 px-3 py-1.5">Before</div>
@@ -72,27 +102,30 @@ function DetailPanel({ oldValues, newValues, action }: {
             </div>
           )}
           <div className="divide-y divide-gray-100">
-            {entries.map(([key, val]) => {
+            {rows.map(({ key, before, after, value }) => {
               const label = FIELD_LABELS[key] ?? key.replace(/_/g, " ");
-              const afterVal = after?.[key];
-              const changed = isUpdate && afterVal !== undefined && String(afterVal) !== String(val);
+              if (showBeforeAfter) {
+                const changed = String(before ?? "") !== String(after ?? "");
+                return (
+                  <div key={key} className={cn("flex", changed && "bg-amber-50/60")}>
+                    <div className="w-20 flex-shrink-0 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 bg-white border-r border-gray-100">
+                      {label}
+                    </div>
+                    <div className={cn("flex-1 px-3 py-1.5", changed ? "line-through text-gray-400" : "text-gray-700")}>
+                      {formatFieldValue(before)}
+                    </div>
+                    <div className={cn("flex-1 px-3 py-1.5 border-l border-gray-100", changed ? "text-gray-900 font-medium" : "text-gray-400 italic")}>
+                      {formatFieldValue(after)}
+                    </div>
+                  </div>
+                );
+              }
               return (
-                <div key={key} className={cn("flex", changed && "bg-amber-50/60")}>
+                <div key={key} className="flex">
                   <div className="w-20 flex-shrink-0 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 bg-white border-r border-gray-100">
                     {label}
                   </div>
-                  {isUpdate ? (
-                    <>
-                      <div className={cn("flex-1 px-3 py-1.5", changed ? "line-through text-gray-400" : "text-gray-700")}>
-                        {String(val)}
-                      </div>
-                      <div className={cn("flex-1 px-3 py-1.5 border-l border-gray-100", changed ? "text-gray-900 font-medium" : "text-gray-400 italic")}>
-                        {afterVal !== undefined ? String(afterVal) : "—"}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="flex-1 px-3 py-1.5 text-gray-700 break-words">{String(val)}</div>
-                  )}
+                  <div className="flex-1 px-3 py-1.5 text-gray-700 break-words">{formatFieldValue(value)}</div>
                 </div>
               );
             })}
@@ -208,7 +241,7 @@ function UserAvatar({ name }: { name: string }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function ActivityFeedPage() {
   const { user } = useAuth();
-  const { offlineEnabled, isOnline, isSyncing, queuedItems, retryQueuedItem, discardQueuedItem, syncQueue, clearOfflineData, exportOfflineBundle, importOfflineBundle } = useOffline();
+  const { offlineEnabled, isOnline, isSyncing, queuedItems, retryQueuedItem, discardQueuedItem, syncQueue } = useOffline();
   const { t } = useLang();
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -219,8 +252,6 @@ export default function ActivityFeedPage() {
   const [cities, setCities] = useState<{ id: number; name: string }[]>([]);
   const [filterCityId, setFilterCityId] = useState<number | "">("");
   const [queueActionId, setQueueActionId] = useState<string | null>(null);
-  const [resettingOffline, setResettingOffline] = useState(false);
-  const [importingOffline, setImportingOffline] = useState(false);
   const [showConflictRules, setShowConflictRules] = useState(false);
 
   useEffect(() => {
@@ -230,8 +261,9 @@ export default function ActivityFeedPage() {
   }, [user]);
 
   const load = useCallback(async (p = 1, cityId?: number | "") => {
+    if (user?.role !== "super_admin") return;
     if (p === 1) setLoading(true);
-    const params: any = { page: p, limit: 30 };
+    const params: any = { page: p, limit: DEFAULT_LIST_PAGE_SIZE };
     const cid = cityId !== undefined ? cityId : filterCityId;
     if (cid) params.city_id = cid;
     const res = await apiCall<any>("/api/v1/activity-feed", { params });
@@ -247,11 +279,15 @@ export default function ActivityFeedPage() {
       setPage(1);
     }
     setLoading(false);
-  }, [filterCityId, offlineEnabled, isOnline]);
-
-  useEffect(() => { load(); }, [load]);
+  }, [filterCityId, offlineEnabled, isOnline, user?.role]);
 
   useEffect(() => {
+    if (user?.role !== "super_admin") return;
+    load();
+  }, [load, user?.role]);
+
+  useEffect(() => {
+    if (user?.role !== "super_admin") return;
     if (!autoRefresh || page !== 1) return;
     const interval = setInterval(() => load(1), 30000);
     return () => clearInterval(interval);
@@ -294,15 +330,6 @@ export default function ActivityFeedPage() {
   const feedItems = [...localQueueItems, ...items].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
-  const queueHealth = React.useMemo(() => {
-    const pending = queuedItems.filter((q) => q.syncStatus === "pending").length;
-    const syncing = queuedItems.filter((q) => q.syncStatus === "syncing").length;
-    const failed = queuedItems.filter((q) => q.syncStatus === "failed").length;
-    const conflict = queuedItems.filter((q) => q.syncStatus === "conflict").length;
-    const oldestTs = queuedItems.length ? Math.min(...queuedItems.map((q) => Number(q.timestamp || Date.now()))) : null;
-    const oldestAgeMin = oldestTs ? Math.max(0, Math.floor((Date.now() - oldestTs) / 60000)) : 0;
-    return { pending, syncing, failed, conflict, total: queuedItems.length, oldestAgeMin };
-  }, [queuedItems]);
 
   // Group by day
   const grouped: { label: string; items: ActivityItem[] }[] = [];
@@ -313,11 +340,27 @@ export default function ActivityFeedPage() {
     grouped[grouped.length - 1].items.push(item);
   }
 
+  if (!user) return null;
+
+  if (user.role === "city_admin") {
+    return (
+      <div>
+        <PageHeader title={t("activity_feed")} />
+        <div className="card flex min-h-[360px] flex-col items-center justify-center py-16 text-center">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-[#e4e4e7] bg-[#fafafa] shadow-sm">
+            <Lock className="h-6 w-6 text-gray-500" strokeWidth={1.5} />
+          </div>
+          <p className="mt-4 text-base font-semibold text-gray-800">{t("activity_feed")}</p>
+          <p className="mt-2 max-w-sm text-sm text-gray-500">{t("super_admin_only")}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <PageHeader
         title={t("activity_feed")}
-        subtitle={`${total} ${t("records")}${filterCityId ? ` · ${cities.find(c => c.id === filterCityId)?.name}` : ""}`}
         action={
           <div className="flex items-center gap-3 flex-wrap">
             {user?.role === "super_admin" && (
@@ -371,96 +414,15 @@ export default function ActivityFeedPage() {
           )}
         </div>
       )}
-      {user?.role === "city_admin" && (
-        <div className="mb-4 rounded-xl border border-[#e4e4e7] bg-white/90 p-3 shadow-[0_12px_30px_-24px_rgba(42,6,8,0.2)]">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.15em] text-gray-500">Offline Queue Health</p>
-              <p className="text-sm text-gray-700 mt-1">
-                Total {queueHealth.total} · Pending {queueHealth.pending} · Syncing {queueHealth.syncing} · Failed {queueHealth.failed} · Conflict {queueHealth.conflict}
-              </p>
-              {queueHealth.total > 0 && (
-                <p className="text-xs text-gray-500 mt-0.5">Oldest queued item age: {queueHealth.oldestAgeMin} min</p>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={async () => {
-                  const bundle = await exportOfflineBundle();
-                  const blob = new Blob([bundle], { type: "application/json" });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = `offline_backup_${new Date().toISOString().slice(0, 10)}.json`;
-                  document.body.appendChild(a);
-                  a.click();
-                  a.remove();
-                  URL.revokeObjectURL(url);
-                }}
-                className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
-              >
-                Export Offline Backup
-              </button>
-              <label className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 cursor-pointer">
-                {importingOffline ? "Importing..." : "Import Offline Backup"}
-                <input
-                  type="file"
-                  accept="application/json"
-                  className="hidden"
-                  disabled={importingOffline}
-                  onChange={async (event) => {
-                    const file = event.target.files?.[0];
-                    event.currentTarget.value = "";
-                    if (!file) return;
-                    const ok = confirm("Importing will replace this device offline cache/queue with backup data. Continue?");
-                    if (!ok) return;
-                    setImportingOffline(true);
-                    try {
-                      const text = await file.text();
-                      await importOfflineBundle(text);
-                      await load(1);
-                    } catch (error) {
-                      alert(error instanceof Error ? error.message : "Failed to import backup");
-                    } finally {
-                      setImportingOffline(false);
-                    }
-                  }}
-                />
-              </label>
-              <button
-                onClick={async () => { await syncQueue(); }}
-                className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
-              >
-                Force Sync Now
-              </button>
-              <button
-                disabled={resettingOffline}
-                onClick={async () => {
-                  const ok = confirm("This will clear local offline queue/cache on this device. Server data is not deleted. Continue?");
-                  if (!ok) return;
-                  setResettingOffline(true);
-                  try {
-                    await clearOfflineData();
-                    await load(1);
-                  } finally {
-                    setResettingOffline(false);
-                  }
-                }}
-                className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
-              >
-                {resettingOffline ? "Resetting..." : "Safe Reset Local Cache"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
           <div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
         </div>
       ) : feedItems.length === 0 ? (
-        <div className="card text-center py-12 text-gray-400">{t("no_activity")}</div>
+        <div className="card py-12">
+          <EmptyState message={t("no_activity")} />
+        </div>
       ) : (
         <div className="space-y-8">
           {grouped.map((group) => (
@@ -638,7 +600,7 @@ export default function ActivityFeedPage() {
                     page,
                     totalPages,
                     total,
-                    pageSize: 30,
+                    pageSize: DEFAULT_LIST_PAGE_SIZE,
                     onPageChange: load,
                   }}
                 />

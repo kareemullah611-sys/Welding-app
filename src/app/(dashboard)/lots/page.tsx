@@ -1,17 +1,20 @@
 "use client";
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, StatsCard, StatusBadge, formatNumber, formatDate, RowActionMenu } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { Pencil, Package, CheckCircle, RotateCcw, Trash2, Warehouse } from "lucide-react";
-import * as XLSX from "xlsx";
+import { exportLotCostLedgerXlsx, exportLotCostLedgerPdf } from "@/lib/ledger-export";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingLots } from "@/lib/offline-queue-overlays";
-import { computeLotLandedCostPkr, lotCostToPkr } from "@/lib/landed-cost-pkr";
+import { LotDetailSummary, LotDetailLedger, CityLotAssignmentDetail } from "@/components/lots/LotDetailTabs";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { applyQueuedMutationsToLots } from "@/lib/offline-remaining-mutations";
+import { formatCityPot } from "@/lib/city-money-format";
+import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
 
 const LOTS_READ_CACHE_KEY = "mrf-lots-read-cache-v1";
 
@@ -25,11 +28,14 @@ type LotsReadSnapshot = {
   lotDetailById: Record<string, any>;
 };
 
-type LotDetailTab = "overview" | "purchases" | "costs" | "sales";
+type LotDetailTab = "summary" | "ledger";
 
 export default function LotsPage() {
   const { user } = useAuth();
+  const router = useRouter();
   const { t } = useLang();
+  const searchParams = useSearchParams();
+  const deepLinkHandled = useRef(false);
   const { isOnline, queuedItems, discardQueuedItem } = useOffline();
   const [lots,       setLots]       = useState<any[]>([]);
   const [loading,    setLoading]    = useState(true);
@@ -55,7 +61,7 @@ export default function LotsPage() {
   const [showDetail,    setShowDetail]    = useState(false);
   const [selectedLot,   setSelectedLot]   = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [activeDetailTab, setActiveDetailTab] = useState<LotDetailTab>("overview");
+  const [activeDetailTab, setActiveDetailTab] = useState<LotDetailTab>("summary");
 
   // Distribute
   const [showDistribute,    setShowDistribute]    = useState(false);
@@ -102,7 +108,8 @@ export default function LotsPage() {
   const [formError,  setFormError]  = useState("");
   const [openActionId, setOpenActionId] = useState<number | null>(null);
   const selectedLotCountryCode = String(selectedLot?.country?.code || selectedLot?.countryCode || "").toUpperCase();
-  const nonFreightCostCurrency = selectedLotCountryCode === "AFG" ? "AFN" : "PKR";
+  const isAfgLot = selectedLotCountryCode === "AFG";
+  const costNeedsRate = (cc: string) => ["USD", "CNY", "AFN"].includes(String(cc || "").toUpperCase());
   const getPendingQueueId = (id: unknown) => {
     const str = String(id || "");
     if (!str.startsWith("pending-")) return null;
@@ -133,7 +140,7 @@ export default function LotsPage() {
 
   const loadLots = useCallback(async () => {
     setLoading(true);
-    const params: any = { page, limit: 20 };
+    const params: any = { page, limit: DEFAULT_LIST_PAGE_SIZE };
     const normalizedQuery = searchQuery.trim();
     if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     const r = await apiCall("/api/v1/lots", { params });
@@ -271,7 +278,7 @@ export default function LotsPage() {
   const openDetail = async (lot: any) => {
     if (getPendingQueueId(lot?.id)) { alert("Pending lot is not synced yet. Please sync first."); return; }
     setSelectedLot(lot); setShowDetail(true); setDetailLoading(true); setFormError("");
-    setActiveDetailTab("overview");
+    setActiveDetailTab("summary");
     // Pre-fetch shipping lines for super admin cost form
     if (user?.role === "super_admin") {
       if (!shippingLines.length) apiCall("/api/v1/shipping-lines").then(r => { if (r.success) setShippingLines(r.data as any[]); });
@@ -299,175 +306,36 @@ export default function LotsPage() {
     setDetailLoading(false);
   };
 
+  useEffect(() => {
+    if (deepLinkHandled.current || loading) return;
+    const lotId = Number(searchParams.get("lotId") || 0);
+    if (!Number.isInteger(lotId) || lotId <= 0) return;
+    deepLinkHandled.current = true;
+    const fromList = lots.find((l) => Number(l.id) === lotId);
+    void openDetail(fromList || { id: lotId, lotNumber: `Lot #${lotId}` });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, lots, searchParams]);
+
   const exportLotXlsx = () => {
     if (!selectedLot?.id) return;
-    const rows: any[][] = [];
-
-    rows.push(["Section", "Field", "Value"]);
-    rows.push(["Overview", "Lot Number", selectedLot.lotNumber]);
-    rows.push(["Overview", "Lot Date", selectedLot.lotDate]);
-    rows.push(["Overview", "Country", selectedLot.country?.name || ""]);
-    rows.push(["Overview", "Status", selectedLot.status]);
-    rows.push(["Summary", "Total Sales", Number(selectedLot.summary?.totalSales || 0).toLocaleString("en-US")]);
-    rows.push(["Summary", "Payments Received", Number(selectedLot.summary?.totalPayments || 0).toLocaleString("en-US")]);
-    rows.push(["Summary", "Outstanding", Number(selectedLot.summary?.outstanding || 0).toLocaleString("en-US")]);
-    rows.push(["Summary", "Expenses", Number(selectedLot.summary?.totalExpenses || 0).toLocaleString("en-US")]);
-    rows.push([]);
-
-    rows.push(["Purchases", "Supplier", "Product", "Weight/Carton", "Qty(MT)", "USD/MT", "Amount USD", "Cartons"]);
-    for (const p of selectedLot.purchaseItems || []) {
-      rows.push([
-        "Purchase",
-        p.supplierName,
-        p.productName,
-        p.weightPerCartonKg ?? "",
-        p.qtyMt,
-        p.unitPriceUsdPerMt,
-        p.totalPriceUsd,
-        p.weightPerCartonKg ? Math.round((Number(p.qtyMt) * 1000) / Number(p.weightPerCartonKg)) : "",
-      ]);
-    }
-    rows.push([]);
-
-    rows.push(["Costs", "Type", "Description", "Amount", "Currency", "Exchange Rate", "PKR Equivalent"]);
-    for (const c of selectedLot.costSummary?.costBreakdown || []) {
-      const pkr = Math.round(lotCostToPkr(c, Number(selectedLot.pkrExchangeRate || pkrRateInput || 0)));
-      rows.push([
-        "Cost",
-        c.costType,
-        c.description,
-        c.amount,
-        c.currencyCode,
-        c.exchangeRate ?? "",
-        pkr,
-      ]);
-    }
-    rows.push([]);
-
-    rows.push(["Sales", "Date", "Voucher", "Customer", "Items", "Total Amount"]);
-    for (const s of selectedLot.recentSales || []) {
-      rows.push([
-        "Sale",
-        s.saleDate,
-        s.voucherNo,
-        s.customer?.name || "",
-        (s.items || []).map((it: any) => `${it.product?.name} (${Number(it.qty || 0)})`).join("; "),
-        Number(s.totalAmount || 0).toLocaleString("en-US"),
-      ]);
-    }
-
-    const sheet = XLSX.utils.aoa_to_sheet(rows);
-    const book = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(book, sheet, "Lot Snapshot");
-    const wbout = XLSX.write(book, { bookType: "xlsx", type: "array" });
-    const blob = new Blob([wbout], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `lot_snapshot_${selectedLot.lotNumber || selectedLot.id}.xlsx`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    exportLotCostLedgerXlsx({
+      lotNumber: String(selectedLot.lotNumber || selectedLot.id),
+      lotDate: selectedLot.lotDate,
+      countryName: selectedLot.country?.name,
+      rows: selectedLot.costLedger || [],
+      totalLandedCostPkr: selectedLot.costSummary?.totalLandedCostPkr,
+    });
   };
 
   const exportLotPdf = () => {
     if (!selectedLot?.id) return;
-    const htmlEsc = (value: any) =>
-      String(value ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-
-    const rows = (selectedLot.recentSales || []).map((s: any) => `
-      <tr>
-        <td>${htmlEsc(s.saleDate || "")}</td>
-        <td>${htmlEsc(s.voucherNo || "")}</td>
-        <td>${htmlEsc(s.customer?.name || "")}</td>
-        <td style="text-align:right;">${Number(s.totalAmount || 0).toLocaleString("en-US")}</td>
-      </tr>
-    `).join("");
-
-    const costRows = (selectedLot.costSummary?.costBreakdown || []).map((c: any) => `
-      <tr>
-        <td>${htmlEsc(c.costType || "")}</td>
-        <td>${htmlEsc(c.description || "")}</td>
-        <td style="text-align:right;">${c.currencyCode || ""} ${Number(c.amount || 0).toLocaleString("en-US")}</td>
-      </tr>
-    `).join("");
-
-    const html = `
-      <html>
-        <head>
-          <title>Lot Snapshot ${selectedLot.lotNumber || selectedLot.id}</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 24px; color: #222; }
-            h1, h2 { margin: 0 0 10px 0; }
-            .meta { margin: 0 0 16px 0; font-size: 13px; color: #555; }
-            .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 18px; }
-            .card { border: 1px solid #ddd; border-radius: 8px; padding: 10px; }
-            .label { font-size: 11px; color: #777; text-transform: uppercase; letter-spacing: .08em; }
-            .value { font-size: 15px; font-weight: 700; margin-top: 4px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 8px; margin-bottom: 20px; }
-            th, td { border: 1px solid #e4e4e4; padding: 7px; font-size: 12px; text-align: left; }
-            th { background: #f6f6f6; text-transform: uppercase; font-size: 10px; letter-spacing: .07em; color: #666; }
-          </style>
-        </head>
-        <body>
-          <h1>Lot Snapshot</h1>
-          <p class="meta">Lot ${htmlEsc(selectedLot.lotNumber || selectedLot.id)} · ${htmlEsc(selectedLot.country?.name || "")} · ${htmlEsc(selectedLot.lotDate || "")}</p>
-
-          <div class="grid">
-            <div class="card"><div class="label">Total Sales</div><div class="value">${Number(selectedLot.summary?.totalSales || 0).toLocaleString("en-US")}</div></div>
-            <div class="card"><div class="label">Payments</div><div class="value">${Number(selectedLot.summary?.totalPayments || 0).toLocaleString("en-US")}</div></div>
-            <div class="card"><div class="label">Outstanding</div><div class="value">${Number(selectedLot.summary?.outstanding || 0).toLocaleString("en-US")}</div></div>
-            <div class="card"><div class="label">Remaining Cartons</div><div class="value">${Number(selectedLot.stockSummary?.remainingCartons || 0).toLocaleString("en-US")}</div></div>
-          </div>
-
-          <h2>Sales</h2>
-          <table>
-            <thead><tr><th>Date</th><th>Voucher</th><th>Customer</th><th style="text-align:right;">Amount</th></tr></thead>
-            <tbody>${rows || `<tr><td colspan="4">No sales</td></tr>`}</tbody>
-          </table>
-
-          <h2>Costs</h2>
-          <table>
-            <thead><tr><th>Type</th><th>Description</th><th style="text-align:right;">Amount</th></tr></thead>
-            <tbody>${costRows || `<tr><td colspan="3">No costs</td></tr>`}</tbody>
-          </table>
-        </body>
-      </html>
-    `;
-
-    // More reliable than popup windows: print from a temporary iframe.
-    const iframe = document.createElement("iframe");
-    iframe.style.position = "fixed";
-    iframe.style.right = "0";
-    iframe.style.bottom = "0";
-    iframe.style.width = "0";
-    iframe.style.height = "0";
-    iframe.style.border = "0";
-    document.body.appendChild(iframe);
-    const frameDoc = iframe.contentWindow?.document;
-    if (!frameDoc) {
-      document.body.removeChild(iframe);
-      alert("Unable to open print preview. Please allow popups/printing and try again.");
-      return;
-    }
-
-    frameDoc.open();
-    frameDoc.write(html);
-    frameDoc.close();
-
-    setTimeout(() => {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-      setTimeout(() => {
-        if (document.body.contains(iframe)) document.body.removeChild(iframe);
-      }, 2000);
-    }, 200);
+    exportLotCostLedgerPdf({
+      lotNumber: String(selectedLot.lotNumber || selectedLot.id),
+      lotDate: selectedLot.lotDate,
+      countryName: selectedLot.country?.name,
+      rows: selectedLot.costLedger || [],
+      totalLandedCostPkr: selectedLot.costSummary?.totalLandedCostPkr,
+    });
   };
 
   const savePkrRate = async () => {
@@ -478,10 +346,31 @@ export default function LotsPage() {
     if (r.success) setSelectedLot((prev: any) => ({ ...prev, pkrExchangeRate: Number(pkrRateInput) }));
   };
 
+  const openAddCost = () => {
+    setCostForm({
+      costType: "freight",
+      description: "",
+      amount: "",
+      currencyCode: "USD",
+      exchangeRate: "",
+      costDate: new Date().toISOString().split("T")[0],
+      notes: "",
+    });
+    setFormError("");
+    setCostChargedTo("shipping_line");
+    setCostSupplierId(0);
+    setCostClearingAgentId(0);
+    setCostCustomAgentId(0);
+    setCostShippingLineId(0);
+    setCostBankAccountId(0);
+    setCostIntermediaryId(0);
+    setShowAddCost(true);
+  };
+
   const handleAddCost = async () => {
     if (!costForm.description || !costForm.amount || Number(costForm.amount) <= 0) { setFormError("Description and amount required"); return; }
     const isFreight = costForm.costType === "freight";
-    const isAfgNonFreight = !isFreight && nonFreightCostCurrency === "AFN";
+    const currencyCode = String(costForm.currencyCode || (isFreight ? "USD" : isAfgLot ? "AFN" : "PKR")).toUpperCase();
     if (isFreight && costShippingLineId <= 0) {
       setFormError("Shipping line is required for freight cost");
       return;
@@ -508,35 +397,33 @@ export default function LotsPage() {
         return;
       }
     }
-    if ((isFreight || isAfgNonFreight) && Number(costForm.exchangeRate) <= 0) {
-      setFormError(isFreight ? "Freight costing exchange rate is required" : "AFN→PKR exchange rate is required");
+    if (costNeedsRate(currencyCode) && Number(costForm.exchangeRate) <= 0) {
+      setFormError(`Acquisition rate (${currencyCode}→PKR) is required`);
       return;
     }
     setSubmitting(true);
-    const r = await apiCall("/api/v1/lot-costs", {
-      method: "POST",
-      body: {
-        lotId:            selectedLot.id,
-        costType:         costForm.costType,
-        description:      costForm.description,
-        amount:           Number(costForm.amount),
-        currencyCode:     isFreight ? "USD" : nonFreightCostCurrency,
-        exchangeRate:     isFreight || isAfgNonFreight ? Number(costForm.exchangeRate) : null,
-        costDate:         costForm.costDate,
-        notes:            costForm.notes || null,
-        supplierId:       costChargedTo === "supplier" && costSupplierId > 0 ? costSupplierId : null,
-        agentId:          costChargedTo === "clearing_agent"
-          ? (costClearingAgentId > 0 ? costClearingAgentId : null)
-          : costChargedTo === "custom_agent"
-          ? (costCustomAgentId > 0 ? costCustomAgentId : null)
-          : null,
-        shippingLineId:   costChargedTo === "shipping_line" && costShippingLineId > 0 ? costShippingLineId : null,
-        paidFromCash:     false,
-        superAdminBankAccountId: costChargedTo === "bank" ? costBankAccountId : null,
-        bankAccountId:    null,
-        intermediaryId:   costChargedTo === "intermediary" ? costIntermediaryId : null,
-      },
-    });
+    const body: Record<string, unknown> = {
+      lotId:            selectedLot.id,
+      costType:         costForm.costType,
+      description:      costForm.description,
+      amount:           Number(costForm.amount),
+      currencyCode,
+      costDate:         costForm.costDate,
+      supplierId:       costChargedTo === "supplier" && costSupplierId > 0 ? costSupplierId : null,
+      agentId:          costChargedTo === "clearing_agent"
+        ? (costClearingAgentId > 0 ? costClearingAgentId : null)
+        : costChargedTo === "custom_agent"
+        ? (costCustomAgentId > 0 ? costCustomAgentId : null)
+        : null,
+      shippingLineId:   costChargedTo === "shipping_line" && costShippingLineId > 0 ? costShippingLineId : null,
+      paidFromCash:     false,
+      superAdminBankAccountId: costChargedTo === "bank" ? costBankAccountId : null,
+      bankAccountId:    null,
+      intermediaryId:   costChargedTo === "intermediary" ? costIntermediaryId : null,
+    };
+    if (costNeedsRate(currencyCode)) body.exchangeRate = Number(costForm.exchangeRate);
+    if (costForm.notes?.trim()) body.notes = costForm.notes.trim();
+    const r = await apiCall("/api/v1/lot-costs", { method: "POST", body });
     setSubmitting(false);
     if (r.success) {
       setShowAddCost(false);
@@ -792,32 +679,50 @@ export default function LotsPage() {
         ? <span className="font-mono font-semibold text-gray-500 text-sm">{l.lotNumber}</span>
         : <button onClick={() => openDetail(l)} className="font-mono font-semibold text-primary-600 hover:underline text-sm">{l.lotNumber}</button>
     )},
-    { key: "country",  label: t("country"),  render: (l: any) => <span className="text-sm text-gray-700">{l.countryName || l.country?.name}</span> },
+    ...(user?.role !== "city_admin" ? [{ key: "country", label: t("country"), render: (l: any) => (
+      <span className="text-sm text-gray-700">{l.countryName || l.country?.name}</span>
+    )}] : []),
     { key: "lotDate",  label: t("date"),     render: (l: any) => <span className="text-sm text-gray-500">{formatDate(l.lotDate)}</span> },
-    { key: "products", label: t("product"),  render: (l: any) => (
+    { key: "products", label: t("product"),  render: (l: any) => {
+      const isCityView = user?.role === "city_admin";
+      const items = isCityView ? (l.assignmentProducts || l.distributions || []) : (l.products || []);
+      const qtyKey = isCityView ? "assignedQty" : "totalQty";
+      return (
       <div className="flex flex-wrap gap-1">
-        {l.products?.map((p: any) => (
+        {items.map((p: any) => (
           <span key={p.productId} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs font-medium border border-blue-100 whitespace-nowrap">
-            {p.productName} <span className="font-bold text-blue-900">{formatNumber(p.totalQty)}</span>
+            {p.productName} <span className="font-bold text-blue-900">{formatNumber(Number(p[qtyKey] || p.allocatedQty || 0))}</span>
           </span>
         ))}
       </div>
-    )},
-    { key: "distribution", label: t("distribute"), render: (l: any) => {
+      );
+    }},
+    { key: "distribution", label: user?.role === "city_admin" ? "Godowns" : t("distribute"), render: (l: any) => {
+      if (user?.role === "city_admin") {
+        const godownSlots = (l.distributions || []).reduce((s: number, d: any) => s + (d.godownAllocations?.length || 0), 0);
+        if (!godownSlots) return <span className="inline-flex items-center px-2 py-0.5 bg-yellow-50 text-yellow-700 rounded-full text-xs font-medium border border-yellow-100">Not in godowns</span>;
+        return <span className="inline-flex items-center px-2 py-0.5 bg-green-50 text-green-700 rounded-full text-xs font-medium border border-green-100">{godownSlots} allocation{godownSlots === 1 ? "" : "s"}</span>;
+      }
       const count = l.distributions?.length || 0;
       if (!count) return <span className="inline-flex items-center px-2 py-0.5 bg-yellow-50 text-yellow-700 rounded-full text-xs font-medium border border-yellow-100">{t("no_data")}</span>;
       const cityCount = Array.from(new Set(l.distributions.map((d: any) => d.cityName))).length;
       return <span className="inline-flex items-center px-2 py-0.5 bg-green-50 text-green-700 rounded-full text-xs font-medium border border-green-100">{cityCount} {t("cities") || "cities"}</span>;
     }},
-    { key: "utilization", label: "Utilization", render: (l: any) => {
+    { key: "utilization", label: user?.role === "city_admin" ? t("sold") : "Utilization", render: (l: any) => {
       const total = Number(l.totalCartons || 0);
       const sold = Number(l.soldCartons || 0);
       const pct = total > 0 ? Math.min(100, Math.round((sold / total) * 100)) : 0;
       const cls = pct >= 90 ? "bg-green-50 text-green-700 border-green-200" : pct >= 60 ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-amber-50 text-amber-700 border-amber-200";
+      const soldAmountLabel = user?.role === "city_admin" ? formatCityPot(user, l.soldSalesByCurrency) : "";
       return (
-        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${cls}`}>
-          {sold}/{total} ({pct}%)
-        </span>
+        <div>
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${cls}`}>
+            {sold}/{total} ({pct}%)
+          </span>
+          {soldAmountLabel && soldAmountLabel !== "0" && (
+            <div className="mt-1 text-xs font-medium text-green-700">{soldAmountLabel}</div>
+          )}
+        </div>
       );
     }},
     { key: "status",  label: t("status"),  render: (l: any) => <StatusBadge status={l.status} /> },
@@ -846,16 +751,19 @@ export default function LotsPage() {
             </RowActionMenu>
           )}
           {user?.role === "city_admin" && (
-            <span className="text-xs text-gray-400 italic">Use Inventory page to assign godowns</span>
+            <button onClick={() => openDetail(l)} className="text-xs text-primary-600 hover:underline">View</button>
           )}
         </>
       ),
     },
   ];
 
+  const isCityAssignmentView =
+    user?.role === "city_admin" || selectedLot?.viewMode === "city_assignment";
+
   return (
     <div>
-      <PageHeader title={t("lots")} subtitle={`${total} ${t("lots").toLowerCase()}`}
+      <PageHeader title={t("lots")}
         action={user?.role === "super_admin" ? <button onClick={openCreate} className="btn-primary text-sm">{"+ " + t("new_lot")}</button> : undefined} />
       {showOfflineSnapshot && (
         <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -863,9 +771,9 @@ export default function LotsPage() {
         </div>
       )}
       <DataTable
+        searchPlaceholder="Lot number, product, supplier…"
         searchValue={searchQuery}
         onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}
-        searchPlaceholder="Search lots (min 2 chars)"
         columns={columns}
         data={lots}
         loading={loading}
@@ -1037,15 +945,18 @@ export default function LotsPage() {
         {detailLoading
           ? <div className="py-8 text-center"><div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto mb-2" /><p className="text-sm text-gray-400">{t("loading")}</p></div>
           : selectedLot?.id ? (
+          isCityAssignmentView ? (
+            <CityLotAssignmentDetail selectedLot={selectedLot} t={t} />
+          ) : (
           <div className="space-y-5">
             <div className="rounded-2xl border border-[#e9dccb] bg-[linear-gradient(135deg,rgba(255,248,239,0.95),rgba(245,233,219,0.84))] p-4 shadow-[0_22px_50px_-42px_rgba(51,42,33,0.38)]">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8f7963]">Lot Snapshot</p>
                 <div className="flex items-center gap-2">
-                  <button onClick={exportLotXlsx} className="rounded-lg border border-[#d8c7b3] bg-white/80 px-3 py-1.5 text-xs font-medium text-[#5d4a3a] hover:bg-white">
+                  <button onClick={exportLotXlsx} className="glass-btn glass-btn-xlsx px-3 py-1.5">
                     Export XLSX
                   </button>
-                  <button onClick={exportLotPdf} className="rounded-lg border border-[#d8c7b3] bg-white/80 px-3 py-1.5 text-xs font-medium text-[#5d4a3a] hover:bg-white">
+                  <button onClick={exportLotPdf} className="glass-btn glass-btn-pdf px-3 py-1.5">
                     Export PDF
                   </button>
                 </div>
@@ -1081,10 +992,8 @@ export default function LotsPage() {
 
             <div className="flex flex-wrap gap-2 border-b border-[#eadfce] pb-3">
               {([
-                { key: "overview", label: "Overview" },
-                { key: "purchases", label: "Purchases" },
-                { key: "costs", label: "Costs" },
-                { key: "sales", label: "Sales" },
+                { key: "summary", label: "Summary" },
+                { key: "ledger", label: "Cost Ledger" },
               ] as { key: LotDetailTab; label: string }[]).map((tab) => (
                 <button
                   key={tab.key}
@@ -1101,318 +1010,26 @@ export default function LotsPage() {
               ))}
             </div>
 
-            {activeDetailTab === "overview" && (
-              <>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <StatsCard title={t("total_sales")} value={formatNumber(selectedLot.summary?.totalSales || 0)} icon="S" color="green" />
-              <StatsCard title={t("payments_received")} value={formatNumber(selectedLot.summary?.totalPayments || 0)} icon="P" color="blue" />
-              <StatsCard title={t("outstanding")} value={formatNumber(selectedLot.summary?.outstanding || 0)} icon="O" color="red" />
-              <StatsCard title={t("expenses")} value={formatNumber(selectedLot.summary?.totalExpenses || 0)} icon="E" color="yellow" />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <StatsCard title="Total Cartons" value={formatNumber(selectedLot.stockSummary?.totalCartons || selectedLot.products?.reduce((s: number, p: any) => s + Number(p.totalQty || 0), 0) || 0)} icon="T" color="blue" />
-              <StatsCard title="Sold Cartons" value={formatNumber(selectedLot.stockSummary?.soldCartons || selectedLot.products?.reduce((s: number, p: any) => s + Number(p.soldQty || 0), 0) || 0)} icon="S" color="green" />
-              <StatsCard title="Remaining Cartons" value={formatNumber(selectedLot.stockSummary?.remainingCartons || selectedLot.products?.reduce((s: number, p: any) => s + Number(p.remainingQty || 0), 0) || 0)} icon="R" color="yellow" />
-            </div>
-
-            {(selectedLot.stockSummary?.byProduct || selectedLot.products || []).length > 0 && (
-              <div className="card">
-                <div className="mb-3 flex items-center justify-between">
-                  <h4 className="text-sm font-semibold text-gray-700">Stock Position By Product</h4>
-                  <span className="text-xs text-gray-400">{(selectedLot.stockSummary?.byProduct || selectedLot.products || []).length} items</span>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[560px] text-sm">
-                    <thead>
-                      <tr className="border-b border-[#eadfce] bg-[#f9f3ea] text-left text-[11px] uppercase tracking-[0.12em] text-[#8b7b6c]">
-                        <th className="px-3 py-2.5">Product</th>
-                        <th className="px-3 py-2.5 text-right">Total Cartons</th>
-                        <th className="px-3 py-2.5 text-right">Sold</th>
-                        <th className="px-3 py-2.5 text-right">Remaining</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(selectedLot.stockSummary?.byProduct || selectedLot.products || []).map((p: any) => (
-                        <tr key={p.productId} className="border-b border-[#f1e8dd]">
-                          <td className="px-3 py-2.5 text-gray-700">{p.productName}</td>
-                          <td className="px-3 py-2.5 text-right">{formatNumber(Number(p.totalQty || 0))}</td>
-                          <td className="px-3 py-2.5 text-right font-medium text-green-700">{formatNumber(Number(p.soldQty || 0))}</td>
-                          <td className="px-3 py-2.5 text-right font-medium text-blue-700">{formatNumber(Number(p.remainingQty || 0))}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-              </>
+            {activeDetailTab === "summary" && (
+              <LotDetailSummary
+                selectedLot={selectedLot}
+                userRole={user?.role}
+                t={t}
+                onAddCost={openAddCost}
+                onEditPurchase={openEditPurchase}
+                onDeletePurchase={handleDeletePurchase}
+              />
             )}
 
-            {activeDetailTab === "purchases" && (
-              <>
-            {(selectedLot.purchaseItems?.length > 0) && (
-              <div className="card">
-                <h4 className="mb-3 text-sm font-semibold text-gray-700">Purchase Invoice</h4>
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[860px] text-sm">
-                    <thead>
-                      <tr className="border-b border-[#eadfce] bg-[#f9f3ea] text-left text-[11px] uppercase tracking-[0.12em] text-[#8b7b6c]">
-                        <th className="px-3 py-2.5">Supplier</th>
-                        <th className="px-3 py-2.5">Product</th>
-                        <th className="px-3 py-2.5 text-right">Wt / Ctn</th>
-                        <th className="px-3 py-2.5 text-right">Qty (MT)</th>
-                        <th className="px-3 py-2.5 text-right">USD / MT</th>
-                        <th className="px-3 py-2.5 text-right">Amount (USD)</th>
-                        <th className="px-3 py-2.5 text-right">Cartons</th>
-                        {user?.role === "super_admin" && <th className="px-3 py-2.5 text-right">Actions</th>}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedLot.purchaseItems.map((p: any, i: number) => (
-                        <tr key={i} className="border-b border-[#f1e8dd]">
-                          <td className="px-3 py-2.5 text-gray-700">{p.supplierName}</td>
-                          <td className="px-3 py-2.5 text-gray-700">{p.productName}</td>
-                          <td className="px-3 py-2.5 text-right text-gray-500">{p.weightPerCartonKg ?? "—"} kg</td>
-                          <td className="px-3 py-2.5 text-right">{Number(p.qtyMt).toLocaleString("en-US", { minimumFractionDigits: 3 })}</td>
-                          <td className="px-3 py-2.5 text-right">${Number(p.unitPriceUsdPerMt).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
-                          <td className="px-3 py-2.5 text-right font-semibold text-blue-700">${Number(p.totalPriceUsd).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
-                          <td className="px-3 py-2.5 text-right text-gray-600">
-                            {p.weightPerCartonKg ? Math.round((Number(p.qtyMt) * 1000) / Number(p.weightPerCartonKg)).toLocaleString("en-US") : "—"}
-                          </td>
-                          {user?.role === "super_admin" && (
-                            <td className="px-3 py-2.5 text-right">
-                              <button onClick={() => openEditPurchase(p)} className="p-1 text-gray-400 hover:text-blue-600 transition-colors" title="Edit"><Pencil size={12} /></button>
-                              <button onClick={() => handleDeletePurchase(p)} className="ml-1 p-1 text-gray-400 hover:text-red-600 transition-colors" title="Delete"><Trash2 size={12} /></button>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t border-[#ded1c1] bg-[#fbf7f1]">
-                        <td colSpan={5} className="px-3 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-[#887766]">Total</td>
-                        <td className="px-3 py-2.5 text-right font-bold text-gray-800">
-                          ${selectedLot.purchaseItems.reduce((s: number, p: any) => s + Number(p.totalPriceUsd), 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="px-3 py-2.5 text-right font-medium text-gray-700">
-                          {selectedLot.products?.reduce((s: number, p: any) => s + Number(p.totalQty), 0).toLocaleString("en-US")}
-                        </td>
-                        {user?.role === "super_admin" && <td />}
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              </div>
-            )}
-            {(selectedLot.purchaseItems?.length || 0) === 0 && (
-              <div className="card text-sm text-gray-500">No purchase lines available for this lot.</div>
-            )}
-              </>
-            )}
-
-            {activeDetailTab === "costs" && (
-              <>
-            {user?.role === "super_admin" && (() => {
-              const rate = selectedLot.pkrExchangeRate || Number(pkrRateInput) || 0;
-              const purchaseUsd = selectedLot.costSummary?.totalPurchaseUsd || 0;
-              const costRows = selectedLot.costSummary?.costBreakdown || [];
-              const totalCartons = (selectedLot.products || []).reduce(
-                (s: number, p: any) => s + Number(p.totalQty || 0),
-                0
-              );
-              const landed = computeLotLandedCostPkr({
-                totalPurchaseUsd: purchaseUsd,
-                totalCartons,
-                lotCosts: costRows,
-                lotExpensesByCurrency: selectedLot.costSummary?.lotExpensesByCurrency || {},
-                usdPkrRate: rate,
-              });
-              const totalCostPkr = landed.totalLandedCostPkr;
-              const isAfg = selectedLot.country?.code === "AFG";
-              const revenuePkr = rate > 0 ? (isAfg ? (selectedLot.summary?.totalPayments || 0) * rate : (selectedLot.summary?.totalPayments || 0)) : 0;
-              const profitPkr  = rate > 0 ? revenuePkr - totalCostPkr : 0;
-
-              return (
-                <div className="card border border-emerald-200 bg-emerald-50/30">
-                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                    <h4 className="text-sm font-semibold text-emerald-800">PKR Profit Snapshot (Super Admin)</h4>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-500">USD/PKR Rate:</span>
-                      <input
-                        type="number"
-                        value={pkrRateInput}
-                        onChange={e => setPkrRateInput(e.target.value)}
-                        className="input-field w-28 py-1 text-sm"
-                        placeholder="e.g. 278.50"
-                        step="0.01"
-                        min="1"
-                      />
-                      <button
-                        onClick={savePkrRate}
-                        disabled={pkrRateSaving || !pkrRateInput}
-                        className="rounded bg-emerald-600 px-3 py-1 text-xs text-white hover:bg-emerald-700 disabled:opacity-50"
-                      >
-                        {pkrRateSaving ? "..." : "Save"}
-                      </button>
-                    </div>
-                  </div>
-                  {rate > 0 && (
-                    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                      <div className="rounded-lg border border-emerald-100 bg-white p-2 text-center">
-                        <p className="text-xs text-gray-400">Purchase Cost (PKR)</p>
-                        <p className="font-bold text-gray-800">Rs. {Math.round(landed.purchasePkr).toLocaleString("en-US")}</p>
-                      </div>
-                      <div className="rounded-lg border border-emerald-100 bg-white p-2 text-center">
-                        <p className="text-xs text-gray-400">Other Costs (PKR)</p>
-                        <p className="font-bold text-gray-800">Rs. {Math.round(landed.freightPkr + landed.nonFreightCostsPkr + landed.lotExpensesPkr).toLocaleString("en-US")}</p>
-                        {landed.lotExpensesPkr > 0 && landed.afnToPkrRate <= 0 && Number((selectedLot.costSummary?.lotExpensesByCurrency || {}).AFN || 0) > 0 && (
-                          <p className="text-[11px] text-amber-600">AFN expenses not converted (missing AFN→PKR rate)</p>
-                        )}
-                      </div>
-                      <div className="rounded-lg border border-emerald-100 bg-white p-2 text-center">
-                        <p className="text-xs text-gray-400">Revenue (PKR)</p>
-                        <p className="font-bold text-green-700">Rs. {Math.round(revenuePkr).toLocaleString("en-US")}</p>
-                        {isAfg && <p className="text-xs text-gray-400">USD × {rate}</p>}
-                      </div>
-                      <div className={`rounded-lg border p-2 text-center ${profitPkr >= 0 ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}>
-                        <p className="text-xs text-gray-400">Net Profit (PKR)</p>
-                        <p className={`text-lg font-bold ${profitPkr >= 0 ? "text-green-700" : "text-red-600"}`}>
-                          Rs. {Math.round(Math.abs(profitPkr)).toLocaleString("en-US")}
-                          {profitPkr < 0 ? " loss" : ""}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-
-            {user?.role === "super_admin" && (
-              <div className="card">
-                <div className="mb-3 flex items-center justify-between">
-                  <h4 className="text-sm font-semibold text-gray-700">Additional Costs</h4>
-                  <button
-                    onClick={() => {
-                      setCostForm({ costType: "freight", description: "", amount: "", currencyCode: "USD", exchangeRate: String(selectedLot?.pkrExchangeRate || ""), costDate: new Date().toISOString().split("T")[0], notes: "" });
-                      setFormError("");
-                      setCostChargedTo("shipping_line");
-                      setCostSupplierId(0);
-                      setCostClearingAgentId(0);
-                      setCostCustomAgentId(0);
-                      setCostShippingLineId(0);
-                      setCostBankAccountId(0);
-                      setCostIntermediaryId(0);
-                      setShowAddCost(true);
-                    }}
-                    className="text-xs text-primary-600 hover:underline"
-                  >
-                    + Add Cost
-                  </button>
-                </div>
-                {(() => {
-                  const usdPkr = Number(selectedLot?.pkrExchangeRate || pkrRateInput || 0);
-                  const afnPkr = (selectedLot.costSummary?.costBreakdown || [])
-                    .filter((c: any) => String(c.currencyCode || "").toUpperCase() === "AFN" && Number(c.exchangeRate || 0) > 0)
-                    .slice(-1)[0]?.exchangeRate || 0;
-                  const lotExpenseByCurrency = selectedLot.costSummary?.lotExpensesByCurrency || {};
-                  const lotExpensesPkr =
-                    Number(lotExpenseByCurrency["PKR"] || 0) +
-                    Number(lotExpenseByCurrency["USD"] || 0) * usdPkr +
-                    Number(lotExpenseByCurrency["AFN"] || 0) * Number(afnPkr || 0);
-                  return (
-                    <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-2 text-xs text-blue-700">
-                      City-admin lot expenses included: PKR {formatNumber(Math.round(lotExpensesPkr))}
-                      {Number(lotExpenseByCurrency["AFN"] || 0) > 0 && !afnPkr ? " (AFN rate missing)" : ""}
-                    </div>
-                  );
-                })()}
-                {(selectedLot.costSummary?.costBreakdown || []).length > 0 ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[760px] text-sm">
-                      <thead>
-                        <tr className="border-b border-[#eadfce] bg-[#f9f3ea] text-left text-[11px] uppercase tracking-[0.12em] text-[#8b7b6c]">
-                          <th className="px-3 py-2.5">Type</th>
-                          <th className="px-3 py-2.5">Description</th>
-                          <th className="px-3 py-2.5">Debit Channel</th>
-                          <th className="px-3 py-2.5 text-right">Amount</th>
-                          <th className="px-3 py-2.5 text-right">Rate</th>
-                          <th className="px-3 py-2.5 text-right">PKR</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedLot.costSummary.costBreakdown.map((c: any, i: number) => (
-                          <tr key={i} className="border-b border-[#f1e8dd]">
-                            <td className="px-3 py-2.5">
-                              <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">{c.costType}</span>
-                            </td>
-                            <td className="px-3 py-2.5 text-gray-700">{c.description}</td>
-                            <td className="px-3 py-2.5 text-gray-600">{c.debitChannelLabel || "General Payable"}</td>
-                            <td className="px-3 py-2.5 text-right font-medium text-orange-700">{c.currencyCode} {Number(c.amount).toLocaleString("en-US")}</td>
-                            <td className="px-3 py-2.5 text-right text-gray-500">{(c.costType === "freight" || String(c.currencyCode || "").toUpperCase() === "AFN") ? (c.exchangeRate ? Number(c.exchangeRate).toLocaleString("en-US") : "—") : "—"}</td>
-                            <td className="px-3 py-2.5 text-right font-semibold text-blue-700">PKR {formatNumber(Math.round(lotCostToPkr(c, Number(selectedLot.pkrExchangeRate || pkrRateInput || 0))))}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : <p className="text-sm text-gray-400">No additional costs recorded</p>}
-              </div>
-            )}
-            {user?.role !== "super_admin" && (
-              <div className="card text-sm text-gray-500">Cost details are available for super admin only.</div>
-            )}
-              </>
-            )}
-
-            {activeDetailTab === "sales" && (
-            <div className="card">
-              <div className="mb-3 flex items-center justify-between">
-                <h4 className="text-sm font-semibold text-gray-700">{t("sales")}</h4>
-                <span className="text-xs text-gray-400">{(selectedLot.recentSales || []).length} records</span>
-              </div>
-              {(selectedLot.recentSales || []).length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[860px] text-sm">
-                    <thead>
-                      <tr className="border-b border-[#eadfce] bg-[#f9f3ea] text-left text-[11px] uppercase tracking-[0.12em] text-[#8b7b6c]">
-                        <th className="px-3 py-2.5">{t("date")}</th>
-                        <th className="px-3 py-2.5">{t("voucher")}</th>
-                        <th className="px-3 py-2.5">{t("customer")}</th>
-                        <th className="px-3 py-2.5 text-right">Cartons</th>
-                        <th className="px-3 py-2.5">{t("items")}</th>
-                        <th className="px-3 py-2.5 text-right">{t("amount")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(selectedLot.recentSales || []).map((s: any) => (
-                        <tr key={s.id} className="border-b border-[#f1e8dd]">
-                          <td className="px-3 py-2.5">{formatDate(s.saleDate)}</td>
-                          <td className="px-3 py-2.5 font-mono text-xs">{s.voucherNo}</td>
-                          <td className="px-3 py-2.5">{s.customer?.name}</td>
-                          <td className="px-3 py-2.5 text-right font-medium text-gray-700">
-                            {formatNumber((s.items || []).reduce((sum: number, it: any) => sum + Number(it.qty || 0), 0))}
-                          </td>
-                          <td className="px-3 py-2.5 text-xs">
-                            {(s.items || []).map((it: any, j: number) => (
-                              <div key={j} className="text-gray-600">
-                                {it.product?.name} - {Number(it.qty || 0)} ctn
-                              </div>
-                            ))}
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-medium text-green-700">{Number(s.totalAmount).toLocaleString("en-US")}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : <p className="text-sm text-gray-400">{t("no_data")}</p>}
-            </div>
+            {activeDetailTab === "ledger" && (
+              <LotDetailLedger selectedLot={selectedLot} userRole={user?.role} />
             )}
 
           </div>
+          )
         ) : <p className="text-gray-400 py-4">{formError || t("no_data")}</p>}
       </Modal>
+
 
       {/* ══════════════════════════════════════
           ADD COST
@@ -1425,45 +1042,51 @@ export default function LotsPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">Cost Type *</label>
               <select value={costForm.costType} onChange={e => {
                 const type = e.target.value;
-                const currency = type === "freight" ? "USD" : nonFreightCostCurrency;
-                const latestAfnRate = (selectedLot?.costSummary?.costBreakdown || [])
-                  .filter((c: any) => String(c.currencyCode || "").toUpperCase() === "AFN" && Number(c.exchangeRate || 0) > 0)
-                  .slice(-1)[0]?.exchangeRate;
+                const isFreight = type === "freight";
+                const defaultCurrency = isFreight ? "USD" : (isAfgLot ? "AFN" : "PKR");
                 setCostForm(f => ({
                   ...f,
                   costType: type,
-                  currencyCode: currency,
-                  exchangeRate: type === "freight"
-                    ? (f.exchangeRate || String(selectedLot?.pkrExchangeRate || ""))
-                    : (currency === "AFN" ? (f.exchangeRate || String(latestAfnRate || "")) : ""),
+                  currencyCode: defaultCurrency,
+                  exchangeRate: costNeedsRate(defaultCurrency) ? f.exchangeRate : "",
                 }));
                 setCostChargedTo(
-                  type === "freight"
-                    ? "shipping_line"
-                    : type === "customs_agent"
-                    ? "custom_agent"
-                    : type === "clearing_agent"
-                    ? "clearing_agent"
+                  isFreight ? "shipping_line"
+                    : type === "customs_agent" ? "custom_agent"
+                    : type === "clearing_agent" ? "clearing_agent"
                     : "bank"
                 );
-                if (type !== "freight") setCostShippingLineId(0);
-                if (type === "freight") { setCostClearingAgentId(0); setCostCustomAgentId(0); setCostSupplierId(0); }
-                if (type === "freight") { setCostBankAccountId(0); setCostIntermediaryId(0); }
+                if (!isFreight) setCostShippingLineId(0);
+                if (isFreight) { setCostClearingAgentId(0); setCostCustomAgentId(0); setCostSupplierId(0); setCostBankAccountId(0); setCostIntermediaryId(0); }
               }} className="select-field">
-                <option value="freight">Freight (USD)</option>
-                <option value="customs_duty">Customs Duty ({nonFreightCostCurrency})</option>
-                <option value="customs_agent">Customs Agent ({nonFreightCostCurrency})</option>
-                <option value="clearing_agent">Clearing Agent ({nonFreightCostCurrency})</option>
-                <option value="transport">Transport ({nonFreightCostCurrency})</option>
-                <option value="loading_unloading">Loading / Unloading ({nonFreightCostCurrency})</option>
-                <option value="port_charges">Port Charges ({nonFreightCostCurrency})</option>
-                <option value="insurance">Insurance ({nonFreightCostCurrency})</option>
-                <option value="other">Other ({nonFreightCostCurrency})</option>
+                <option value="freight">Freight</option>
+                <option value="customs_duty">Customs Duty</option>
+                <option value="customs_agent">Customs Agent</option>
+                <option value="clearing_agent">Clearing Agent</option>
+                <option value="transport">Transport</option>
+                <option value="loading_unloading">Loading / Unloading</option>
+                <option value="port_charges">Port Charges</option>
+                <option value="insurance">Insurance</option>
+                <option value="other">Other</option>
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Currency</label>
-              <input value={costForm.costType === "freight" ? "USD" : nonFreightCostCurrency} disabled className="input-field bg-gray-50 text-gray-500" />
+              <label className="block text-sm font-medium text-gray-700 mb-1">Currency *</label>
+              {costForm.costType === "freight" ? (
+                <select value={costForm.currencyCode} onChange={e => setCostForm(f => ({ ...f, currencyCode: e.target.value }))} className="select-field">
+                  <option value="USD">USD</option>
+                  <option value="CNY">CNY (Yuan)</option>
+                </select>
+              ) : isAfgLot ? (
+                <select value={costForm.currencyCode} onChange={e => setCostForm(f => ({ ...f, currencyCode: e.target.value, exchangeRate: costNeedsRate(e.target.value) ? f.exchangeRate : "" }))} className="select-field">
+                  <option value="PKR">PKR</option>
+                  <option value="USD">USD</option>
+                  <option value="CNY">CNY</option>
+                  <option value="AFN">AFN</option>
+                </select>
+              ) : (
+                <input value="PKR" disabled className="input-field bg-gray-50 text-gray-500" />
+              )}
             </div>
           </div>
           <div>
@@ -1521,7 +1144,7 @@ export default function LotsPage() {
                 <option value={0}>Select Bank Account</option>
                 {bankAccounts.filter((b: any) => b.isActive !== false).map((b: any) => (
                   <option key={b.id} value={b.id}>
-                    {b.bankName}{b.accountNumber ? ` (${b.accountNumber})` : ""}{b.currency?.code ? ` · ${b.currency.code}` : ""}
+                    {b.bankName}{b.accountNumber ? ` (${b.accountNumber})` : ""}{b.currency?.code ? ` · ${b.currency.code}` : ""}{b.runningBalance != null ? ` · Avail: ${Number(b.runningBalance).toLocaleString("en-US")}` : ""}
                   </option>
                 ))}
               </select>
@@ -1546,10 +1169,10 @@ export default function LotsPage() {
               <input type="date" value={costForm.costDate} onChange={e => setCostForm(f => ({ ...f, costDate: e.target.value }))} className="input-field" />
             </div>
           </div>
-          {(costForm.costType === "freight" || nonFreightCostCurrency === "AFN") && (
+          {costNeedsRate(costForm.currencyCode) && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                {costForm.costType === "freight" ? "Costing Exchange Rate (USD→PKR) *" : "Costing Exchange Rate (AFN→PKR) *"}
+                Acquisition rate ({costForm.currencyCode}→PKR) *
               </label>
               <input type="number" value={costForm.exchangeRate}
                 onChange={e => setCostForm(f => ({ ...f, exchangeRate: e.target.value }))}
