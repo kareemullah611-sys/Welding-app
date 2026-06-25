@@ -12,7 +12,7 @@
     "dev:mobile": "next dev --hostname 0.0.0.0 --port 3000",
     "build": "prisma generate && next build",
     "build:electron": "mv src/app/api src/app/_api && ELECTRON_BUILD=true prisma generate && ELECTRON_BUILD=true next build && mv src/app/_api src/app/api",
-    "start": "tsx scripts/bootstrap.ts && next start -H 0.0.0.0 -p ${PORT:-3000}",
+    "start": "tsx scripts/bootstrap.ts && NODE_OPTIONS='--max-old-space-size=448' next start -H 0.0.0.0 -p ${PORT:-3000}",
     "lint": "next lint",
     "verify": "npm run lint && npm run test:smoke && npm run test:offline-gate && npm run build",
     "test:offline-gate": "node scripts/offline-feature-gate.cjs",

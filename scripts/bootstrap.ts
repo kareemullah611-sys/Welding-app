@@ -66,19 +66,20 @@ function deployMigrationsWithBaselineFallback() {
 async function main() {
   console.log("Bootstrapping database...");
   const mode = (process.env.PRISMA_BOOTSTRAP_MODE || "").trim().toLowerCase();
-  const isProduction = process.env.NODE_ENV === "production";
+  const isProduction =
+    process.env.NODE_ENV === "production" || process.env.RENDER === "true";
 
   // Safety default:
-  // - production -> migrations only (avoids db push data-loss prompt halting startup)
-  // - non-production -> db push convenience
+  // - production / Render -> migrations only (avoids db push + generate OOM on small instances)
+  // - non-production -> db push convenience (skip generate — client already built in CI)
   if (mode === "db_push") {
-    run("npx prisma db push");
+    run("npx prisma db push --skip-generate");
   } else if (mode === "migrate") {
     deployMigrationsWithBaselineFallback();
   } else if (isProduction) {
     deployMigrationsWithBaselineFallback();
   } else {
-    run("npx prisma db push");
+    run("npx prisma db push --skip-generate");
   }
 
   // Safety guard: baseline fallback can mark migrations applied without executing SQL.
