@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { getEmbedFromLocation } from "@/lib/quickform-embed";
 import {
   Dialog,
@@ -624,8 +624,7 @@ export function Modal({
 }) {
   const [mounted, setMounted] = useState(false);
   const modalBodyRef = useRef<HTMLDivElement>(null);
-  const searchParams = useSearchParams();
-  const embedRoute = getEmbedFromLocation() || searchParams.get("embed") === "1";
+  const embedRoute = getEmbedFromLocation();
   const inlineMode = inline || embedRoute;
   const suppressHeader = hideHeader || embedRoute;
 

@@ -1,19 +1,18 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
 import { useLayoutEffect, useState } from "react";
 import { getEmbedFromLocation } from "@/lib/quickform-embed";
 
-/** Stable embed flag (avoids full AppLayout flash before searchParams hydrate). */
+/** Stable embed flag (avoids full AppLayout flash before client URL is read). */
 export function useQuickformEmbed(): boolean {
-  const searchParams = useSearchParams();
-  const [embed, setEmbed] = useState(
-    () => typeof window !== "undefined" && getEmbedFromLocation()
-  );
+  const [embed, setEmbed] = useState(false);
 
   useLayoutEffect(() => {
-    setEmbed(searchParams.get("embed") === "1" || getEmbedFromLocation());
-  }, [searchParams]);
+    const sync = () => setEmbed(getEmbedFromLocation());
+    sync();
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
+  }, []);
 
-  return embed || searchParams.get("embed") === "1" || getEmbedFromLocation();
+  return embed || getEmbedFromLocation();
 }
