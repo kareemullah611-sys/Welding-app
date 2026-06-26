@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 
@@ -39,12 +39,64 @@ function isAlreadyAppliedMigration(error: unknown): boolean {
   return /P3008/i.test(text) || /already recorded as applied/i.test(text);
 }
 
-function deployMigrationsWithBaselineFallback() {
+function isPrismaP3009(error: unknown): boolean {
+  const text = errorToText(error);
+  return /P3009/i.test(text) || /failed migrations in the target database/i.test(text);
+}
+
+function extractFailedMigrationNames(error: unknown): string[] {
+  const text = errorToText(error);
+  const names = new Set<string>();
+  for (const match of text.matchAll(/The `([^`]+)` migration started at/gi)) {
+    names.add(match[1]);
+  }
+  return Array.from(names);
+}
+
+async function applyMigrationSqlContents(sql: string) {
+  const withoutComments = sql
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n");
+  const statements = withoutComments
+    .split(";")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (const stmt of statements) {
+    await prisma.$executeRawUnsafe(stmt);
+  }
+}
+
+async function resolveFailedMigration(migrationName: string) {
+  console.log(`Recovering failed migration: ${migrationName}`);
+  const sqlPath = path.join(process.cwd(), "prisma", "migrations", migrationName, "migration.sql");
+  if (existsSync(sqlPath)) {
+    await applyMigrationSqlContents(readFileSync(sqlPath, "utf8"));
+  }
   try {
-    runCapture("npx prisma migrate deploy");
-    return;
+    runCapture(`npx prisma migrate resolve --applied ${migrationName}`);
   } catch (error) {
-    if (!isPrismaP3005(error)) throw error;
+    if (!isAlreadyAppliedMigration(error)) throw error;
+  }
+}
+
+async function deployMigrationsWithBaselineFallback() {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      runCapture("npx prisma migrate deploy");
+      return;
+    } catch (error) {
+      if (isPrismaP3009(error)) {
+        const failed = extractFailedMigrationNames(error);
+        if (!failed.length) throw error;
+        for (const name of failed) {
+          await resolveFailedMigration(name);
+        }
+        continue;
+      }
+      if (!isPrismaP3005(error)) throw error;
+      break;
+    }
   }
 
   const migrations = listMigrationDirectories();
@@ -75,9 +127,9 @@ async function main() {
   if (mode === "db_push") {
     run("npx prisma db push --skip-generate");
   } else if (mode === "migrate") {
-    deployMigrationsWithBaselineFallback();
+    await deployMigrationsWithBaselineFallback();
   } else if (isProduction) {
-    deployMigrationsWithBaselineFallback();
+    await deployMigrationsWithBaselineFallback();
   } else {
     run("npx prisma db push --skip-generate");
   }
@@ -90,6 +142,13 @@ async function main() {
       WHERE "status" = 'active'
         AND "payment_method" = 'cheque'
         AND "cheque_number" IS NOT NULL
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "expenses" ADD COLUMN IF NOT EXISTS "deleted_at" TIMESTAMPTZ
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "expenses_deleted_at_idx" ON "expenses" ("deleted_at")
   `);
 
   // Compatibility guard: some production DBs were baselined without this column.
