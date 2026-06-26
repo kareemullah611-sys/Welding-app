@@ -53,6 +53,69 @@ function extractFailedMigrationNames(error: unknown): string[] {
   return Array.from(names);
 }
 
+function isMissingRelationError(error: unknown): boolean {
+  const text = errorToText(error);
+  return /42P01/i.test(text) || /does not exist/i.test(text);
+}
+
+async function schemaHealthy(): Promise<boolean> {
+  const rows = await prisma.$queryRaw<{ users: boolean; expenses: boolean; sales: boolean }[]>`
+    SELECT
+      to_regclass('public.users') IS NOT NULL AS users,
+      to_regclass('public.expenses') IS NOT NULL AS expenses,
+      to_regclass('public.sales') IS NOT NULL AS sales
+  `;
+  const row = rows[0];
+  return Boolean(row?.users && row?.expenses && row?.sales);
+}
+
+async function markMigrationRolledBack(migrationName: string) {
+  try {
+    runCapture(`npx prisma migrate resolve --rolled-back ${migrationName}`);
+  } catch (error) {
+    if (!isAlreadyAppliedMigration(error)) throw error;
+  }
+}
+
+async function markMigrationApplied(migrationName: string) {
+  try {
+    runCapture(`npx prisma migrate resolve --applied ${migrationName}`);
+  } catch (error) {
+    if (!isAlreadyAppliedMigration(error)) throw error;
+  }
+}
+
+async function clearFailedMigrationRecords() {
+  try {
+    const failed = await prisma.$queryRaw<{ name: string }[]>`
+      SELECT migration_name AS name
+      FROM "_prisma_migrations"
+      WHERE finished_at IS NULL
+        AND rolled_back_at IS NULL
+    `;
+    for (const row of failed) {
+      console.log(`Clearing failed migration record: ${row.name}`);
+      await markMigrationRolledBack(row.name);
+    }
+  } catch {
+    // _prisma_migrations may not exist on a fresh database.
+  }
+}
+
+async function baselineAllMigrations() {
+  for (const migration of listMigrationDirectories()) {
+    await markMigrationApplied(migration);
+  }
+}
+
+async function syncSchemaWithDbPushAndBaseline() {
+  console.log("Core tables missing — syncing schema with prisma db push...");
+  await clearFailedMigrationRecords();
+  run("npx prisma db push --skip-generate");
+  console.log("Baselining migration history after db push...");
+  await baselineAllMigrations();
+}
+
 async function applyMigrationSqlContents(sql: string) {
   const withoutComments = sql
     .split("\n")
@@ -71,16 +134,28 @@ async function resolveFailedMigration(migrationName: string) {
   console.log(`Recovering failed migration: ${migrationName}`);
   const sqlPath = path.join(process.cwd(), "prisma", "migrations", migrationName, "migration.sql");
   if (existsSync(sqlPath)) {
-    await applyMigrationSqlContents(readFileSync(sqlPath, "utf8"));
+    try {
+      await applyMigrationSqlContents(readFileSync(sqlPath, "utf8"));
+      await markMigrationApplied(migrationName);
+      return;
+    } catch (error) {
+      if (isMissingRelationError(error)) {
+        console.warn(`Skipping ${migrationName} SQL — base table missing; will rebuild schema`);
+        await markMigrationRolledBack(migrationName);
+        return;
+      }
+      throw error;
+    }
   }
-  try {
-    runCapture(`npx prisma migrate resolve --applied ${migrationName}`);
-  } catch (error) {
-    if (!isAlreadyAppliedMigration(error)) throw error;
-  }
+  await markMigrationRolledBack(migrationName);
 }
 
 async function deployMigrationsWithBaselineFallback() {
+  if (!(await schemaHealthy())) {
+    await syncSchemaWithDbPushAndBaseline();
+    return;
+  }
+
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
       runCapture("npx prisma migrate deploy");
@@ -91,6 +166,10 @@ async function deployMigrationsWithBaselineFallback() {
         if (!failed.length) throw error;
         for (const name of failed) {
           await resolveFailedMigration(name);
+        }
+        if (!(await schemaHealthy())) {
+          await syncSchemaWithDbPushAndBaseline();
+          return;
         }
         continue;
       }
@@ -104,13 +183,14 @@ async function deployMigrationsWithBaselineFallback() {
     throw new Error("Cannot baseline existing database: no local migrations found.");
   }
 
+  if (!(await schemaHealthy())) {
+    await syncSchemaWithDbPushAndBaseline();
+    return;
+  }
+
   console.log("Detected non-empty database without baseline (P3005). Marking migrations as applied...");
   for (const migration of migrations) {
-    try {
-      runCapture(`npx prisma migrate resolve --applied ${migration}`);
-    } catch (error) {
-      if (!isAlreadyAppliedMigration(error)) throw error;
-    }
+    await markMigrationApplied(migration);
   }
   run("npx prisma migrate deploy");
 }
