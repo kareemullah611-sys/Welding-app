@@ -1361,8 +1361,34 @@ export default function PaymentsPage() {
                 <input value={form.detail || ""} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="min-w-0">
+              {currencies.length > 1 ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="min-w-0">
+                    <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
+                    <input
+                      type="number"
+                      min="0.01"
+                      value={form.amount || ""}
+                      onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
+                      className="input-field"
+                      onWheel={e => e.currentTarget.blur()}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <label className="mb-1 block text-sm font-medium text-gray-700">{t("currency")}</label>
+                    <select
+                      value={form.currencyId || currencies[0]?.id || 0}
+                      onChange={e => setForm((f: any) => ({ ...f, currencyId: parseInt(e.target.value, 10) || 0 }))}
+                      className="select-field"
+                    >
+                      {currencies.map((c: any) => (
+                        <option key={c.id} value={c.id}>{formatCurrencySelectLabel(c)}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
                   <input
                     type="number"
@@ -1373,19 +1399,7 @@ export default function PaymentsPage() {
                     onWheel={e => e.currentTarget.blur()}
                   />
                 </div>
-                <div className="min-w-0">
-                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("currency")}</label>
-                  <select
-                    value={form.currencyId || currencies[0]?.id || 0}
-                    onChange={e => setForm((f: any) => ({ ...f, currencyId: parseInt(e.target.value, 10) || 0 }))}
-                    className="select-field"
-                  >
-                    {currencies.map((c: any) => (
-                      <option key={c.id} value={c.id}>{formatCurrencySelectLabel(c)}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+              )}
 
               {!isAfghanistanCity && (
                 <div className={isEmbed ? "quickform-panel space-y-3" : "space-y-3 rounded-xl border border-gray-200 bg-gray-50/70 p-4"}>

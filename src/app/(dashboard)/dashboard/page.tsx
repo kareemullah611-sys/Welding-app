@@ -453,16 +453,23 @@ export default function DashboardPage() {
   const activeCountry: string = selectedCountry || (countries[0] as string) || "";
   const countryCities = citiesOverview.filter((c: any) => c.country === activeCountry);
 
+  const sumDueFromCities = (cities: any[]) => {
+    const byCurr: Record<string, number> = {};
+    for (const c of cities) {
+      for (const [cur, amt] of Object.entries(c.hajiByCurrency || {})) {
+        byCurr[cur] = (byCurr[cur] || 0) + (amt as number);
+      }
+    }
+    return byCurr;
+  };
+
+  const globalDueFromCities = sumDueFromCities(citiesOverview);
+
   const countryTotals = countries.map((country) => {
     const cc = citiesOverview.filter((c: any) => c.country === country);
-    const outByCurr: Record<string, number> = {};
-    const hajiByCurr: Record<string, number> = {};
-    for (const c of cc) {
-      for (const [cur, amt] of Object.entries(c.outstandingByCurrency || {})) { outByCurr[cur] = (outByCurr[cur] || 0) + (amt as number); }
-      for (const [cur, amt] of Object.entries(c.hajiByCurrency || {})) { hajiByCurr[cur] = (hajiByCurr[cur] || 0) + (amt as number); }
-    }
     return {
-      country, outstandingByCurrency: outByCurr, hajiByCurrency: hajiByCurr,
+      country,
+      dueFromCitiesByCurrency: sumDueFromCities(cc),
       cartons: cc.reduce((s: number, c: any) => s + c.cartonsSold, 0),
       currency: cc[0]?.currency || "PKR",
     };
@@ -479,13 +486,13 @@ export default function DashboardPage() {
 
       {/* Global Metrics */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {Object.entries(data?.outstandingByCurrency || {}).map(([cc, amt]: [string, any]) => (
+        {Object.entries(globalDueFromCities).map(([cc, amt]: [string, any]) => (
           <MetricCard 
-            key={`out-${cc}`} 
-            title={`Total Outstanding (${cc})`} 
+            key={`due-${cc}`} 
+            title={`Due from Cities (${cc})`} 
             value={`${cc} ${formatNumber(amt)}`}
-            icon={AlertCircle}
-            color="red"
+            icon={ArrowRightLeft}
+            color="orange"
           />
         ))}
         <MetricCard 
@@ -527,19 +534,10 @@ export default function DashboardPage() {
           {/* Country Summary */}
           {countryTotals.filter((ct) => ct.country === activeCountry).map((ct) => (
             <div key={ct.country as string} className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              {Object.entries((ct as any).outstandingByCurrency || {}).map(([cc, amt]: [string, any]) => (
+              {Object.entries((ct as any).dueFromCitiesByCurrency || {}).map(([cc, amt]: [string, any]) => (
                 <MetricCard 
-                  key={`${ct.country}-out-${cc}`} 
-                  title={`Outstanding (${cc})`} 
-                  value={`${cc} ${formatNumber(amt)}`}
-                  icon={AlertCircle}
-                  color="red"
-                />
-              ))}
-              {Object.entries((ct as any).hajiByCurrency || {}).map(([cc, amt]: [string, any]) => (
-                <MetricCard 
-                  key={`${ct.country}-haji-${cc}`} 
-                  title={`Owed to Haji (${cc})`} 
+                  key={`${ct.country}-due-${cc}`} 
+                  title={`Due from Cities (${cc})`} 
                   value={`${cc} ${formatNumber(amt)}`}
                   icon={ArrowRightLeft}
                   color="orange"
@@ -564,18 +562,7 @@ export default function DashboardPage() {
                 </div>
               )},
               {
-                key: "outstanding", label: t("outstanding"),
-                render: (c: any) => (
-                  <div className="space-y-0.5">
-                    {Object.entries(c.outstandingByCurrency || {}).map(([cc, amt]: [string, any]) => (
-                      <div key={cc} className="text-rose-700 font-semibold text-sm tabular-nums">{cc} {formatNumber(amt as number)}</div>
-                    ))}
-                    {!Object.keys(c.outstandingByCurrency || {}).length && <span className="text-gray-400">—</span>}
-                  </div>
-                ),
-              },
-              {
-                key: "owedToHaji", label: t("owed_to_haji"),
+                key: "dueFromCities", label: "Due from Cities",
                 render: (c: any) => (
                   <div className="space-y-0.5">
                     {Object.entries(c.hajiByCurrency || {}).map(([cc, amt]: [string, any]) => (
@@ -600,44 +587,6 @@ export default function DashboardPage() {
                 ),
               },
             ]} data={countryCities} loading={false} />
-            {countryCities.length > 0 && (
-              <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50/70 p-3">
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-2">
-                  <div className="col-span-full sm:col-span-3 lg:col-span-1 text-xs font-semibold text-gray-500 uppercase tracking-wide lg:text-right">Totals</div>
-                  <div className="text-sm">
-                    <span className="text-xs text-gray-400">Outstanding</span>
-                    {Object.entries(countryCities.reduce((acc: Record<string, number>, c: any) => {
-                      for (const [cur, amt] of Object.entries(c.outstandingByCurrency || {})) acc[cur] = (acc[cur] || 0) + (amt as number);
-                      return acc;
-                    }, {})).map(([cc, amt]) => (
-                      <div key={cc} className="font-bold text-rose-700 tabular-nums">{cc} {formatNumber(amt as number)}</div>
-                    ))}
-                  </div>
-                  <div className="text-sm">
-                    <span className="text-xs text-gray-400">Owed to Haji</span>
-                    {Object.entries(countryCities.reduce((acc: Record<string, number>, c: any) => {
-                      for (const [cur, amt] of Object.entries(c.hajiByCurrency || {})) acc[cur] = (acc[cur] || 0) + (amt as number);
-                      return acc;
-                    }, {})).map(([cc, amt]) => (
-                      <div key={cc} className="font-bold text-amber-700 tabular-nums">{cc} {formatNumber(amt as number)}</div>
-                    ))}
-                  </div>
-                  <div className="text-sm">
-                    <span className="text-xs text-gray-400">Cartons</span>
-                    <div className="font-bold text-blue-700 tabular-nums">{formatNumber(countryCities.reduce((s: number, c: any) => s + c.cartonsSold, 0))}</div>
-                  </div>
-                  <div className="text-sm">
-                    <span className="text-xs text-gray-400">Withdrawals</span>
-                    {Object.entries(countryCities.reduce((acc: Record<string, number>, c: any) => {
-                      for (const [cur, amt] of Object.entries(c.withdrawalByCurrency || {})) acc[cur] = (acc[cur] || 0) + (amt as number);
-                      return acc;
-                    }, {})).map(([cc, amt]) => (
-                      <div key={cc} className="font-bold text-amber-600 tabular-nums">{cc} {formatNumber(amt as number)}</div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
           </SectionCard>
         </div>
       )}

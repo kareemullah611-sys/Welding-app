@@ -152,6 +152,11 @@
       field-sizing: content;
       padding-right: 2rem;
     }
+    .modal-sheet-body select.select-field,
+    .quickform-embed select.select-field {
+      field-sizing: normal;
+      width: 100%;
+    }
   }
 
   /* ---- Cards ---- */
@@ -1073,13 +1078,25 @@ input[type="number"] { -moz-appearance: textfield; }
   @apply ring-2 ring-[#b8956f]/45 border-[#8f7963] shadow-[0_16px_32px_-24px_rgba(93,74,58,0.35)];
 }
 
-.quickform-embed .input-field,
-.quickform-embed textarea.input-field {
-  @apply h-11 rounded-lg border-[#d8c7b3] bg-white/90 py-2 text-base text-[#2f241b] sm:h-9 sm:text-sm;
+.quickform-embed .input-field:not(textarea),
+.quickform-embed select.select-field,
+.quickform-embed button.select-field,
+.quickform-embed label:has(> input[type="date"]) {
+  @apply box-border h-11 min-h-11 w-full min-w-0 max-w-full px-3 text-sm;
 }
 
-.quickform-embed select.select-field {
-  @apply min-h-11 h-auto rounded-lg border-[#d8c7b3] bg-white/90 py-2.5 text-base leading-normal text-[#2f241b] sm:h-9 sm:py-2 sm:text-sm;
+.quickform-embed .input-field:not(textarea),
+.quickform-embed select.select-field,
+.quickform-embed button.select-field {
+  @apply py-0 leading-normal;
+}
+
+.quickform-embed label:has(> input[type="date"]) {
+  @apply inline-flex items-center rounded-lg border-[#d8c7b3] bg-white/90 py-0 text-[#2f241b];
+}
+
+.quickform-embed textarea.input-field {
+  @apply min-h-[5.5rem] w-full rounded-lg border-[#d8c7b3] bg-white/90 py-2.5 text-sm text-[#2f241b];
 }
 
 .quickform-embed .input-field:focus,
@@ -1089,11 +1106,17 @@ input[type="number"] { -moz-appearance: textfield; }
 }
 
 .quickform-embed label {
-  @apply text-[11px] font-semibold uppercase tracking-[0.16em] text-[#8f7963];
+  display: block;
+  margin-bottom: 0.375rem;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #8f7963;
 }
 
-.quickform-embed label.text-sm.font-medium.text-gray-700 {
-  @apply text-[11px] font-semibold uppercase tracking-[0.16em] text-[#8f7963];
+.quickform-embed .grid > div {
+  min-width: 0;
 }
 
 .quickform-embed .quickform-panel {
@@ -1131,16 +1154,50 @@ input[type="number"] { -moz-appearance: textfield; }
   -webkit-overflow-scrolling: touch;
 }
 
-[data-radix-dialog-content] .input-field,
-[data-radix-dialog-content] textarea.input-field,
-.modal-sheet-body .input-field,
-.modal-sheet-body textarea.input-field {
-  @apply min-h-11 text-base sm:min-h-0 sm:text-sm;
+[data-radix-dialog-content] .input-field:not(textarea),
+[data-radix-dialog-content] select.select-field,
+[data-radix-dialog-content] button.select-field,
+.modal-sheet-body .input-field:not(textarea),
+.modal-sheet-body select.select-field,
+.modal-sheet-body button.select-field,
+.modal-sheet-body label:has(> input[type="date"]),
+[data-radix-dialog-content] label:has(> input[type="date"]) {
+  @apply box-border h-11 min-h-11 w-full min-w-0 max-w-full px-3 text-sm;
 }
 
+[data-radix-dialog-content] .input-field:not(textarea),
 [data-radix-dialog-content] select.select-field,
-.modal-sheet-body select.select-field {
-  @apply min-h-11 h-auto py-2.5 leading-normal text-base sm:min-h-0 sm:py-2 sm:text-sm;
+[data-radix-dialog-content] button.select-field,
+.modal-sheet-body .input-field:not(textarea),
+.modal-sheet-body select.select-field,
+.modal-sheet-body button.select-field {
+  @apply py-0 leading-normal;
+}
+
+[data-radix-dialog-content] textarea.input-field,
+.modal-sheet-body textarea.input-field {
+  @apply min-h-[5.5rem] w-full py-2.5 text-sm;
+}
+
+[data-radix-dialog-content] label:has(> input[type="date"]),
+.modal-sheet-body label:has(> input[type="date"]) {
+  @apply inline-flex items-center py-0;
+}
+
+[data-radix-dialog-content] .grid > div,
+.modal-sheet-body .grid > div {
+  min-width: 0;
+}
+
+[data-radix-dialog-content] label:not(:has(> input[type="date"])),
+.modal-sheet-body label:not(:has(> input[type="date"])) {
+  display: block;
+  margin-bottom: 0.375rem;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #6b7280;
 }
 
 [data-radix-dialog-content] .btn-primary,

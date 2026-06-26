@@ -40,7 +40,7 @@ export function MobileDateInput({
       className={cn(
         "relative inline-flex cursor-pointer items-center overflow-hidden rounded-xl border border-[#d4d4d8] bg-[rgba(255,255,255,0.9)] shadow-[0_12px_30px_-24px_rgba(24,24,27,0.2)] transition-all duration-200 hover:border-[#a1a1aa] focus-within:border-primary-600 focus-within:ring-2 focus-within:ring-primary-500/25",
         variant === "filter" && "h-9 w-[9rem] shrink-0 px-3 text-sm",
-        variant === "field" && "h-[42px] w-full px-3.5 text-sm",
+        variant === "field" && "h-11 w-full px-3 text-sm",
         className,
       )}
     >

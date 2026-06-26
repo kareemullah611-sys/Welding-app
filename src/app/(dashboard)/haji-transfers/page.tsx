@@ -859,8 +859,8 @@ export default function HajiTransfersPage() {
                 <label className="mb-1 block text-sm font-medium text-gray-700">{t("detail")} *</label>
                 <input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" />
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <div className="min-w-0">
                   <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
                   <input
                     type="number"
@@ -870,7 +870,7 @@ export default function HajiTransfersPage() {
                     onWheel={e => e.currentTarget.blur()}
                   />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <label className="mb-1 block text-sm font-medium text-gray-700">{t("currency")} *</label>
                   <select
                     value={form.currencyId || 0}
@@ -895,7 +895,7 @@ export default function HajiTransfersPage() {
                     ))}
                   </select>
                 </div>
-                <div>
+                <div className="min-w-0 col-span-2 sm:col-span-1">
                   <label className="mb-1 block text-sm font-medium text-gray-700">{t("lot")}</label>
                   <select value={form.lotId} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
                     <option value={0}>{t("auto_fifo")}</option>

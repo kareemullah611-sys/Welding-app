@@ -907,7 +907,7 @@ export default function SalesPage() {
             </div>
             <div className="min-w-0">
               <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("godown")} *</label>
-              <select value={form.godownId} onChange={(e) => onGodownChange(parseInt(e.target.value))} className="select-field h-[42px] py-2">
+              <select value={form.godownId} onChange={(e) => onGodownChange(parseInt(e.target.value))} className="select-field">
                 <option value={0}>{t("select_godown")}</option>
                 {Array.from(new Set(godowns.map((g: any) => g.cityName))).map((cityName) => (
                   <optgroup key={cityName as string} label={cityName as string}>
@@ -943,21 +943,19 @@ export default function SalesPage() {
             </div>
           )}
 
-          {!isEmbed && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("lot")}</label>
-                <select value={form.lotId} onChange={(e) => setForm((f) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
-                  <option value={0}>{t("auto_fifo")}</option>
-                  {lots.map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("notes")}</label>
-                <input type="text" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" />
-              </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="min-w-0">
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("lot")}</label>
+              <select value={form.lotId} onChange={(e) => setForm((f) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
+                <option value={0}>{t("auto_fifo")}</option>
+                {lots.map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}</option>)}
+              </select>
             </div>
-          )}
+            <div className="min-w-0">
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("notes")}</label>
+              <input type="text" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" />
+            </div>
+          </div>
 
           <div className={isEmbed ? "quickform-panel space-y-2" : "rounded-lg border border-gray-200 bg-gray-50/70 p-3 space-y-2"}>
             <div className="flex items-center justify-between gap-2">
@@ -1086,21 +1084,19 @@ export default function SalesPage() {
           </div>
         )}
 
-        {!isEmbed && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-          <div>
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:gap-4">
+          <div className="min-w-0">
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("lot")}</label>
             <select value={form.lotId} onChange={(e) => setForm((f) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
               <option value={0}>{t("auto_fifo")}</option>
               {lots.map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}</option>)}
             </select>
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
             <input type="text" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" />
           </div>
         </div>
-        )}
 
         {/* GODOWN STOCK INFO */}
         {form.godownId > 0 && (
