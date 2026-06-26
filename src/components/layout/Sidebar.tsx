@@ -31,7 +31,7 @@ const SIDEBAR_NAV_SCROLL_KEY = "mrf-sidebar-nav-scroll";
 const SIDEBAR_OPEN_GROUPS_KEY = "mrf-sidebar-open-groups";
 
 const SIDEBAR_SHELL =
-  "bg-[#F0F0F2] border-[#D4D4D8] shadow-[4px_0_28px_-8px_rgba(42,6,8,0.1)]";
+  "bg-gradient-to-b from-[#F5F5F6] via-[#F0F0F2] to-[#EBEBEE] border-[#D4D4D8] shadow-[4px_0_32px_-10px_rgba(42,6,8,0.12)]";
 
 // ─── Nav Config ───────────────────────────────────────────────────────────────
 interface NavItemDef {
@@ -338,13 +338,17 @@ export default function Sidebar() {
       })();
 
     const itemShellClass = cn(
-      "group relative flex items-center rounded-xl text-[13px] font-semibold transition-all duration-200",
-      collapsed ? "justify-center px-0 py-2.5 mx-0" : cn("gap-2.5", nested ? "pl-3 pr-3 ml-1 py-2" : "px-3 py-2.5"),
+      "group relative flex items-center rounded-[0.875rem] text-[13.5px] font-semibold tracking-[-0.01em] transition-[color,background,border,box-shadow,transform] duration-200 ease-out",
+      collapsed ? "justify-center px-0 py-2.5 mx-0" : cn("gap-3", nested ? "pl-3 pr-3 ml-1 py-2" : "px-3 py-2.5"),
       item.locked
         ? "cursor-not-allowed border border-dashed border-[#D4D4D8] bg-[#fafafa] text-[#52525b] select-none"
         : isActive
-          ? "bg-[linear-gradient(135deg,#6B0F1A_0%,#8B1A1A_100%)] text-white shadow-[0_8px_20px_-8px_rgba(107,15,26,0.45)]"
-          : "text-[#3f3f46] bg-white border border-[#E4E4E7] hover:text-[#18181b] hover:border-[#A1A1AA] hover:shadow-sm"
+          ? "bg-gradient-to-br from-[#6B0F1A] via-[#7A1420] to-[#8B1A1A] text-white shadow-[0_10px_22px_-10px_rgba(107,15,26,0.55)] ring-1 ring-inset ring-white/15"
+          : cn(
+              "text-[#3f3f46] bg-white/85 border border-[#E4E4E7] backdrop-blur-[2px]",
+              "hover:text-[#18181b] hover:border-[#BCBCBC] hover:bg-white hover:shadow-[0_6px_16px_-12px_rgba(24,24,27,0.35)]",
+              isRTL ? "hover:-translate-x-0.5" : "hover:translate-x-0.5"
+            )
     );
 
     const itemBody = (
@@ -360,9 +364,9 @@ export default function Sidebar() {
         <div className="relative flex-shrink-0">
           <Icon
             className={cn(
-              nested ? "w-[15px] h-[15px]" : "w-[17px] h-[17px]",
-              "transition-colors",
-              isActive ? "text-white" : item.locked ? "text-[#71717a]" : "text-[#6B0F1A] group-hover:text-[#6B0F1A]"
+              nested ? "w-4 h-4" : "w-[18px] h-[18px]",
+              "transition-colors duration-200",
+              isActive ? "text-white" : item.locked ? "text-[#71717a]" : "text-[#6B0F1A] group-hover:text-[#5A0C15]"
             )}
           />
           {item.href === "/city-transfers" && pendingTransfers > 0 && !item.locked && (
@@ -372,7 +376,7 @@ export default function Sidebar() {
           )}
         </div>
         {!collapsed && (
-          <span className="truncate flex-1 leading-none">{label}</span>
+          <span className="truncate flex-1 leading-snug">{label}</span>
         )}
         {!collapsed && item.locked && (
           <Lock className="ml-auto h-3.5 w-3.5 flex-shrink-0 text-[#71717a]" aria-hidden />
@@ -435,7 +439,7 @@ export default function Sidebar() {
       <nav
         ref={navRef}
         onScroll={handleNavScroll}
-        className="flex-1 overflow-y-auto overscroll-contain py-4 px-2.5 space-y-1"
+        className="flex-1 overflow-y-auto overscroll-contain py-4 px-3 space-y-1.5"
       >
         {filteredGroups.map((group, gi) => {
           const isMulti = group.items.length > 1;
@@ -463,9 +467,13 @@ export default function Sidebar() {
             <div
               key={group.label}
               className={cn(
-                "rounded-xl border transition-colors duration-200",
+                "rounded-[0.875rem] border transition-[border-color,background,box-shadow] duration-200",
                 gi > 0 ? "mt-2" : "",
-                isOpen ? "border-[#D4D4D8] bg-white" : "border-transparent"
+                isOpen
+                  ? "border-[#D4D4D8] bg-white/90 shadow-[0_8px_20px_-16px_rgba(24,24,27,0.2)]"
+                  : sectionActive
+                    ? "border-[#E4E4E7] bg-white/60"
+                    : "border-transparent"
               )}
             >
               <button
@@ -473,19 +481,19 @@ export default function Sidebar() {
                 onClick={() => toggleGroup(group.label)}
                 aria-expanded={isOpen}
                 className={cn(
-                  "w-full flex items-center gap-2 rounded-xl px-2.5 py-2.5 text-left transition-colors duration-200",
+                  "w-full flex items-center gap-2 rounded-[0.875rem] px-3 py-2.5 text-left transition-[color,background,box-shadow] duration-200",
                   isOpen || sectionActive
-                    ? "bg-[#E4E4E7] text-[#6B0F1A]"
-                    : "text-[#52525b] hover:bg-[#E4E4E7] hover:text-[#6B0F1A]"
+                    ? "bg-gradient-to-r from-[#ECECEF] to-[#E4E4E7] text-[#6B0F1A] shadow-inner"
+                    : "text-[#52525b] hover:bg-[#ECECEF] hover:text-[#6B0F1A]"
                 )}
               >
-                <span className="flex-1 text-[10px] font-bold uppercase tracking-[0.2em] truncate">
+                <span className="flex-1 text-[11px] font-bold uppercase tracking-[0.14em] truncate">
                   {group.label}
                 </span>
                 <span
                   className={cn(
-                    "flex h-5 min-w-[1.25rem] items-center justify-center rounded-md px-1 text-[10px] font-semibold tabular-nums",
-                    sectionActive ? "bg-[#6B0F1A] text-white" : "bg-[#D4D4D8] text-[#52525b]"
+                    "flex h-5 min-w-[1.25rem] items-center justify-center rounded-md px-1 text-[10px] font-semibold tabular-nums transition-colors duration-200",
+                    sectionActive ? "bg-[#6B0F1A] text-white shadow-sm" : "bg-[#D4D4D8] text-[#52525b]"
                   )}
                 >
                   {group.items.length}
@@ -507,8 +515,8 @@ export default function Sidebar() {
                 <div className="overflow-hidden">
                   <div
                     className={cn(
-                      "space-y-0.5 pb-2 pt-0.5",
-                      isRTL ? "pr-1 pl-2 border-r-2 border-[#D4D4D8] mr-2" : "pl-1 pr-2 border-l-2 border-[#D4D4D8] ml-2"
+                      "space-y-1 pb-2 pt-1",
+                      isRTL ? "pr-1 pl-2 border-r-2 border-[#D4D4D8] mr-2.5" : "pl-1 pr-2 border-l-2 border-[#D4D4D8] ml-2.5"
                     )}
                   >
                     {group.items.map((item) => renderNavItem(item, true))}
@@ -551,11 +559,11 @@ export default function Sidebar() {
           onClick={logout}
           title={collapsed ? "Logout" : undefined}
           className={cn(
-            "w-full flex items-center rounded-xl text-[13px] font-medium text-[#52525b] hover:text-red-600 hover:bg-red-50 transition-all duration-150",
-            collapsed ? "justify-center px-0 py-2.5" : "gap-2.5 px-3 py-2"
+            "w-full flex items-center rounded-[0.875rem] text-[13.5px] font-medium text-[#52525b] hover:text-red-600 hover:bg-red-50 transition-all duration-200",
+            collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
           )}
         >
-          <LogOut className="w-[15px] h-[15px] flex-shrink-0" />
+          <LogOut className="w-4 h-4 flex-shrink-0" />
           {!collapsed && <span>Logout</span>}
         </button>
       </div>
@@ -622,7 +630,7 @@ export default function Sidebar() {
         className={cn(
           cn("hidden lg:block fixed top-0 h-full border-r transition-all duration-300 z-30", SIDEBAR_SHELL),
           isRTL ? "right-0" : "left-0",
-          collapsed ? "w-16" : "w-60"
+          collapsed ? "w-16" : "w-64"
         )}
       >
         {renderNavContent(desktopNavRef)}

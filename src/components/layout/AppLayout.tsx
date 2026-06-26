@@ -37,8 +37,8 @@ function AppInner({ children, isCityAdmin }: { children: React.ReactNode; isCity
         className={cn(
           "relative min-h-[100dvh] min-w-0 transition-all duration-300",
           isRTL
-            ? collapsed ? "lg:pr-16" : "lg:pr-60"
-            : collapsed ? "lg:pl-16" : "lg:pl-60"
+            ? collapsed ? "lg:pr-16" : "lg:pr-64"
+            : collapsed ? "lg:pl-16" : "lg:pl-64"
         )}
       >
         <div className="mx-auto min-w-0 max-w-7xl px-4 pb-8 pt-16 lg:px-6 lg:pt-6">

@@ -147,6 +147,12 @@
   select.select-field {
     @apply leading-normal;
   }
+  @media (max-width: 767px) {
+    select.select-field {
+      field-sizing: content;
+      padding-right: 2rem;
+    }
+  }
 
   /* ---- Cards ---- */
   .card {

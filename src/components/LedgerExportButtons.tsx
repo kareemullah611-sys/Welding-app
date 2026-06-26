@@ -48,7 +48,7 @@ export function LedgerExportButtons({
   };
 
   return (
-    <div className={`flex flex-wrap items-center gap-2 ${className}`}>
+    <div className={`flex flex-nowrap items-center gap-2 ${className}`}>
       <GlassButton
         variant="xlsx"
         disabled={disabled}

@@ -765,35 +765,37 @@ export default function SalesPage() {
         </div>
       )}
 
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <input
-          type="text"
-          value={filters.query}
-          onChange={(e) => { setFilters((f) => ({ ...f, query: e.target.value })); setPage(1); }}
-          placeholder="Search…"
-          className="input-field h-9 min-h-9 min-w-[7rem] flex-1 py-1.5 text-sm sm:max-w-xs"
-        />
-        <select value={filters.status} onChange={(e) => { setFilters((f) => ({ ...f, status: e.target.value })); setPage(1); }} className="select-field h-9 min-h-9 min-w-[8.75rem] shrink-0 py-1.5 text-sm">
-          <option value="">{t("all_statuses")}</option><option value="active">{t("active")}</option><option value="cancelled">{t("cancelled")}</option><option value="marked_short">{t("marked_short")}</option>
-        </select>
-        <select
-          value={dateRangePreset}
-          onChange={(e) => applyDatePreset(e.target.value as "today" | "last7" | "month" | "all" | "custom")}
-          className="select-field h-9 min-h-9 min-w-[7.25rem] shrink-0 py-1.5 text-sm"
-          aria-label="Date range preset"
-        >
-          <option value="month">This month</option>
-          <option value="today">Today</option>
-          <option value="last7">7 days</option>
-          <option value="all">All dates</option>
-          <option value="custom">Custom</option>
-        </select>
-        {dateRangePreset === "custom" && (
-          <>
-            <input type="date" value={filters.date_from} onChange={(e) => { setFilters((f) => ({ ...f, date_from: e.target.value })); setPage(1); }} className="input-field h-9 min-h-9 w-[9rem] shrink-0 py-1.5 text-sm" />
-            <input type="date" value={filters.date_to} onChange={(e) => { setFilters((f) => ({ ...f, date_to: e.target.value })); setPage(1); }} className="input-field h-9 min-h-9 w-[9rem] shrink-0 py-1.5 text-sm" />
-          </>
-        )}
+      <div className="mb-3 flex min-w-0 flex-col items-start gap-2 md:flex-row md:flex-nowrap md:items-center md:overflow-x-auto">
+        <div className="flex min-w-0 w-full flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain pb-0.5 [-webkit-overflow-scrolling:touch] md:w-auto">
+          <input
+            type="text"
+            value={filters.query}
+            onChange={(e) => { setFilters((f) => ({ ...f, query: e.target.value })); setPage(1); }}
+            placeholder="Search…"
+            className="input-field h-9 min-h-9 min-w-[7rem] flex-[1_1_7rem] max-w-[min(100%,14rem)] py-1.5 text-sm md:max-w-[20rem]"
+          />
+          <select value={filters.status} onChange={(e) => { setFilters((f) => ({ ...f, status: e.target.value })); setPage(1); }} className="select-field !w-auto h-9 min-h-9 min-w-[8.5rem] shrink-0 py-1.5 pl-2.5 pr-8 text-sm md:max-w-[8.75rem]">
+            <option value="">{t("all_statuses")}</option><option value="active">{t("active")}</option><option value="cancelled">{t("cancelled")}</option><option value="marked_short">{t("marked_short")}</option>
+          </select>
+          <select
+            value={dateRangePreset}
+            onChange={(e) => applyDatePreset(e.target.value as "today" | "last7" | "month" | "all" | "custom")}
+            className="select-field !w-auto h-9 min-h-9 min-w-[7.75rem] shrink-0 py-1.5 pl-2.5 pr-8 text-sm md:max-w-[7.5rem]"
+            aria-label="Date range preset"
+          >
+            <option value="month">This month</option>
+            <option value="today">Today</option>
+            <option value="last7">7 days</option>
+            <option value="all">All dates</option>
+            <option value="custom">Custom</option>
+          </select>
+          {dateRangePreset === "custom" && (
+            <>
+              <input type="date" value={filters.date_from} onChange={(e) => { setFilters((f) => ({ ...f, date_from: e.target.value })); setPage(1); }} className="input-field h-9 min-h-9 min-w-[8.75rem] shrink-0 py-1.5 text-sm" aria-label="From date" />
+              <input type="date" value={filters.date_to} onChange={(e) => { setFilters((f) => ({ ...f, date_to: e.target.value })); setPage(1); }} className="input-field h-9 min-h-9 min-w-[8.75rem] shrink-0 py-1.5 text-sm" aria-label="To date" />
+            </>
+          )}
+        </div>
         <LedgerExportButtons
           type="sales"
           dateFrom={filters.date_from || undefined}
@@ -802,7 +804,7 @@ export default function SalesPage() {
           query={filters.query}
           status={filters.status || undefined}
           disabled={!isOnline}
-          className="ml-auto"
+          className="shrink-0 justify-end self-end w-full md:w-auto md:ml-auto"
         />
       </div>
 
