@@ -24,3 +24,5 @@ jobs:
 
       - name: Verify
         run: npm run verify
+        env:
+          JWT_SECRET: ci-test-jwt-secret

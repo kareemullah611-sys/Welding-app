@@ -14,19 +14,19 @@ test("getOfflineAggregateForApiRequest reads dashboard snapshot fields", () => {
   process.env.NEXT_PUBLIC_OFFLINE_ENABLED = "true";
   const storage = new MemoryStorage();
   (globalThis as any).window = { localStorage: storage };
-  storage.setItem(
-    "mrf-dashboard-read-cache-v1",
-    JSON.stringify({
-      cachedAt: Date.now(),
-      data: {
-        data: { totalCartonsSold: 42 },
-        cashPosition: { netCashInHand: 1000 },
-        treasury: { balance: 500 },
-      },
-    })
-  );
-
   try {
+    storage.setItem(
+      "mrf-dashboard-read-cache-v1",
+      JSON.stringify({
+        cachedAt: Date.now(),
+        data: {
+          data: { totalCartonsSold: 42 },
+          cashPosition: { netCashInHand: 1000 },
+          treasury: { balance: 500 },
+        },
+      })
+    );
+
     const dash = getOfflineAggregateForApiRequest<{ totalCartonsSold: number }>("/api/v1/dashboard");
     assert.deepEqual(dash?.data, { totalCartonsSold: 42 });
 

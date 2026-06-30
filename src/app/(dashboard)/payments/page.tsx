@@ -279,6 +279,7 @@ export default function PaymentsPage() {
   const [savingQueue, setSavingQueue] = useState(false);
   const [queueSaved, setQueueSaved] = useState(false);
   const [paymentSavedNotice, setPaymentSavedNotice] = useState<string | null>(null);
+  const [createFormReady, setCreateFormReady] = useState(false);
   const prefillHandledRef = useRef(false);
   const closeEmbed = useCallback(() => {
     if (typeof window !== "undefined" && window.parent !== window) {
@@ -500,6 +501,7 @@ export default function PaymentsPage() {
   }, [currencies]);
 
   const openCreate = async (type: string, preset?: Record<string, any>) => {
+    setCreateFormReady(false);
     setCreateType(type);
     setResolvingQueueId(null);
     setPaymentSavedNotice(null);
@@ -543,6 +545,7 @@ export default function PaymentsPage() {
     }
     setPaymentQueue([]);
     setQueueSaved(false);
+    setCreateFormReady(true);
     setShowCreate(true); setError("");
   };
 
@@ -1423,10 +1426,12 @@ export default function PaymentsPage() {
     createType === "haji_transfer" ? t("new_haji_title") :
     t("new_withdrawal_title");
 
-  const selectedMethod = PAYMENT_METHOD_OPTIONS.find((option) => option.value === form.paymentMethod);
+  const effectivePaymentMethod = form.paymentMethod || "cash";
+  const selectedMethod = PAYMENT_METHOD_OPTIONS.find((option) => option.value === effectivePaymentMethod);
   const selectedDestination = DESTINATION_OPTIONS.find((option) => option.value === form.destination);
-  const needsBankAccountSelection = createType === "payment" && ["bank_transfer", "online"].includes(form.paymentMethod);
-  const isOfficeOnlyPaymentMethod = createType === "payment" && ["cash", "cheque"].includes(form.paymentMethod || "cash");
+  const showDestinationField = effectivePaymentMethod !== "cash";
+  const needsBankAccountSelection = createType === "payment" && ["bank_transfer", "online"].includes(effectivePaymentMethod);
+  const isOfficeOnlyPaymentMethod = createType === "payment" && ["cash", "cheque"].includes(effectivePaymentMethod);
   const showCityBankAccountSelect = needsBankAccountSelection && !isPakistanSimplified && form.destination === "our_account";
   const showSuperAdminBankAccountSelect = needsBankAccountSelection && !isPakistanSimplified && form.destination === "haji";
   const resolvedCurrencyId = form.currencyId || currencies[0]?.id || 0;
@@ -1528,7 +1533,7 @@ export default function PaymentsPage() {
       />}
 
       {/* ── CREATE MODAL ───────────────────────────────────────────────────── */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); setPaymentSavedNotice(null); if (isEmbed) closeEmbed(); }} title={createTitle} size="md" inline={isEmbed} hideHeader={isEmbed}>
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); setCreateFormReady(false); setPaymentSavedNotice(null); if (isEmbed) closeEmbed(); }} title={createTitle} size="md" inline={isEmbed} hideHeader={isEmbed}>
         {paymentSavedNotice && (
           <div className="mb-3 p-2 bg-green-50 border border-green-200 rounded text-green-700 text-sm">{paymentSavedNotice}</div>
         )}
@@ -1602,12 +1607,12 @@ export default function PaymentsPage() {
                 </div>
               )}
 
-              {!isAfghanistanCity && (
+              {!isAfghanistanCity && createFormReady && (
                 <div className={isEmbed ? "quickform-panel space-y-3" : "space-y-3 rounded-xl border border-gray-200 bg-gray-50/70 p-4"}>
                   <div>
                     <label className="mb-1 block text-sm font-medium text-gray-700">{t("payment_method")}</label>
                     <select
-                      value={form.paymentMethod || "cash"}
+                      value={effectivePaymentMethod}
                       onChange={e => {
                         const paymentMethod = e.target.value;
                         const officeOnly = paymentMethod === "cash" || paymentMethod === "cheque";
@@ -1646,7 +1651,7 @@ export default function PaymentsPage() {
                     </select>
                   </div>
                   )}
-                  {!isOfficeOnlyPaymentMethod && !isPakistanSimplified && (
+                  {showDestinationField && !isPakistanSimplified && (
                   <div>
                     <label className="mb-1 block text-sm font-medium text-gray-700">{t("destination")}</label>
                     <select
@@ -1778,7 +1783,7 @@ export default function PaymentsPage() {
               onWheel={e => e.currentTarget.blur()} />
           </div>
 
-          {createType === "payment" && !isAfghanistanCity && (
+          {createType === "payment" && !isAfghanistanCity && createFormReady && (
             <div className={isEmbed ? "quickform-panel space-y-3" : "space-y-3 rounded-xl border border-gray-200 bg-gray-50/70 p-4"}>
               <div>
                 <label className="block mb-1">{simplifyModals ? t("payment_method") : "How was the payment received?"}</label>
