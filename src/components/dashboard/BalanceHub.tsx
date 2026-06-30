@@ -1,9 +1,11 @@
 "use client";
 import React, { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { apiCall } from "@/hooks/useApi";
 import { formatDate, PaginationBar } from "@/components/ui";
 import { formatCityPot, formatCityAmount } from "@/lib/city-money-format";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import { cn } from "@/lib/utils";
 import {
   Banknote,
   Receipt,
@@ -123,7 +125,7 @@ const BranchRow = ({
   </div>
 );
 
-export default function BalanceHub({ user, treasury }: { user: any; treasury: Treasury | null }) {
+export default function BalanceHub({ user, treasury, glass = true }: { user: any; treasury: Treasury | null; glass?: boolean }) {
   const isAfghanistan = user?.countryName === "Afghanistan";
   const cash = treasury?.cashInOffice;
   const cheques = treasury?.chequesInHand;
@@ -212,7 +214,14 @@ export default function BalanceHub({ user, treasury }: { user: any; treasury: Tr
   const showBank = !isAfghanistan && treasury?.hasBankAccounts;
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+    <div
+      className={cn(
+        "overflow-hidden",
+        glass
+          ? "rounded-[1.5rem] border border-white/60 bg-white/40 backdrop-blur-2xl backdrop-saturate-[1.8] shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_24px_60px_-24px_rgba(42,6,8,0.28)]"
+          : "rounded-2xl border border-gray-100 bg-white shadow-sm"
+      )}
+    >
       <button
         type="button"
         onClick={() =>
@@ -282,12 +291,12 @@ export default function BalanceHub({ user, treasury }: { user: any; treasury: Tr
                 <p className="text-sm text-gray-600">
                   In-hand cheques total {formatCityPot(user, cheques)}.
                 </p>
-                <a
+                <Link
                   href="/cheques"
                   className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline"
                 >
                   Open Cheque Register <ExternalLink className="h-3.5 w-3.5" />
-                </a>
+                </Link>
               </div>
             </BranchRow>
           )}

@@ -101,6 +101,47 @@ export function getCombinedItemNetDelta(item: CombinedItem): number {
   return 0;
 }
 
+/** Incoming funds to super-admin haji view (payments + city haji transfers). */
+export function getSuperAdminHajiIncomingDelta(item: CombinedItem): number {
+  const amount = Number(item.amount || 0);
+  if (!amount) return 0;
+
+  if (item.type === "payment") {
+    if (item.raw?.destination !== "haji" || item.status === "cancelled") return 0;
+    return amount;
+  }
+  if (item.type === "payment_reversal") {
+    if (item.raw?.destination !== "haji") return 0;
+    return -amount;
+  }
+  if (item.type === "haji_transfer") {
+    return amount;
+  }
+  return 0;
+}
+
+export function computeSuperAdminRunningBalances(
+  items: Array<CombinedItem & { id: number; date: string }>,
+): { itemsWithBalance: Array<CombinedItem & { id: number; date: string; runningBalance: number }>; balanceByCurrency: Pot } {
+  const asc = [...items].sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return a.id - b.id;
+  });
+
+  const runningByCurrency: Pot = {};
+  const itemsWithBalance = asc.map((item) => {
+    const currencyCode = item.currencyCode || "";
+    const delta = getSuperAdminHajiIncomingDelta(item);
+    runningByCurrency[currencyCode] = round2((runningByCurrency[currencyCode] || 0) + delta);
+    return {
+      ...item,
+      runningBalance: runningByCurrency[currencyCode] || 0,
+    };
+  });
+
+  return { itemsWithBalance, balanceByCurrency: runningByCurrency };
+}
+
 export function computeRunningBalances(
   items: Array<CombinedItem & { id: number; date: string }>,
   openingCashByCurrency: Pot

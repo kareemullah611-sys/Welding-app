@@ -9,6 +9,7 @@ import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { applyPendingDashboardMetrics } from "@/lib/offline-dashboard";
 import { formatCityAmount, isSingleCurrencyCityAdmin } from "@/lib/city-money-format";
+import { cn } from "@/lib/utils";
 import BalanceHub from "@/components/dashboard/BalanceHub";
 import { QUICKFORM_POST_MESSAGE } from "@/lib/quickform-embed";
 import Link from "next/link";
@@ -99,7 +100,8 @@ const MetricCard = ({
   subtitle, 
   trend,
   icon: Icon,
-  color 
+  color,
+  glass = true,
 }: { 
   title: string; 
   value: string | number; 
@@ -107,6 +109,7 @@ const MetricCard = ({
   trend?: 'up' | 'down' | null;
   icon: React.ElementType;
   color: string;
+  glass?: boolean;
 }) => {
   const colors: Record<string, { bg: string; icon: string; value: string }> = {
     green: { bg: "from-emerald-50 to-white", icon: "text-emerald-600", value: "text-emerald-700" },
@@ -118,9 +121,16 @@ const MetricCard = ({
   const c = colors[color] || colors.blue;
   
   return (
-    <div className="bg-gradient-to-br bg-white border border-gray-100 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow">
+    <div
+      className={cn(
+        "p-5 transition-shadow",
+        glass
+          ? "rounded-[1.5rem] border border-white/60 bg-white/40 backdrop-blur-2xl backdrop-saturate-[1.8] shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_24px_60px_-24px_rgba(42,6,8,0.28)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_28px_70px_-26px_rgba(42,6,8,0.34)]"
+          : "rounded-2xl bg-gradient-to-br bg-white border border-gray-100 shadow-sm hover:shadow-md"
+      )}
+    >
       <div className="flex items-start justify-between mb-3">
-        <div className={`p-2.5 rounded-xl bg-gradient-to-br ${c.bg} shadow-sm`}>
+        <div className={cn("p-2.5 rounded-xl bg-gradient-to-br shadow-sm", glass && "ring-1 ring-white/70", c.bg)}>
           <Icon className={`w-5 h-5 ${c.icon}`} />
         </div>
         {trend && (
@@ -145,8 +155,8 @@ const SectionCard = ({
   children: React.ReactNode; 
   action?: React.ReactNode;
 }) => (
-  <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
-    <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+  <div className="overflow-hidden rounded-[1.5rem] border border-white/60 bg-white/50 backdrop-blur-2xl backdrop-saturate-[1.8] shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_24px_60px_-30px_rgba(42,6,8,0.28)]">
+    <div className="px-5 py-4 border-b border-white/50 flex items-center justify-between">
       <h3 className="text-sm font-semibold text-gray-800">{title}</h3>
       {action}
     </div>
@@ -359,7 +369,7 @@ export default function DashboardPage() {
           </div>
           </div>
         </div>
-        <BalanceHub user={user} treasury={treasury} />
+        <BalanceHub user={user} treasury={treasury} glass />
 
         {/* Key Metrics */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

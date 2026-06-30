@@ -4,6 +4,7 @@ import { withAuth } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { uploadToCloudinary, deleteFromCloudinary } from "@/lib/cloudinary";
+import { detectUploadKind, mimeForUploadKind } from "@/lib/file-magic";
 
 const ALLOWED_TYPES: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -61,10 +62,15 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
     if (!ext) return errorResponse("VALIDATION_ERROR", "Only JPEG, PNG, WebP and PDF allowed");
     if (file.size > MAX_SIZE) return errorResponse("VALIDATION_ERROR", "File must be under 8MB");
 
-    const publicId = `${entityType}-${entityId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
+    const detectedKind = detectUploadKind(buffer);
+    if (!detectedKind) return errorResponse("VALIDATION_ERROR", "Unrecognized or invalid file content");
+    if (mimeForUploadKind(detectedKind) !== file.type && !(detectedKind === "jpg" && file.type === "image/jpg")) {
+      return errorResponse("VALIDATION_ERROR", "File content does not match declared type");
+    }
+
+    const publicId = `${entityType}-${entityId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
     const { url, publicId: cloudinaryId } = await uploadToCloudinary(buffer, publicId);
 
@@ -80,7 +86,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
         fileName: file.name,
         // Store "cloudinaryUrl|||cloudinaryPublicId" so we can delete later
         filePath: `${url}|||${cloudinaryId}`,
-        fileType: ext,
+        fileType: detectedKind,
         fileSize: file.size,
         uploadedBy: user.userId,
         ...entityFk,

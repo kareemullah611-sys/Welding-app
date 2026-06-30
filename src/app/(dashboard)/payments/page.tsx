@@ -15,6 +15,7 @@ import { useSearchParams } from "next/navigation";
 import { getEmbedFromLocation, getEmbedQuickformPath, shouldSimplifyCityModals } from "@/lib/quickform-embed";
 import { formatCityAmount, formatCurrencySelectLabel } from "@/lib/city-money-format";
 import { buildPaymentCancellationReversalRow } from "@/lib/treasury-ledger";
+import { formatPaymentModuleDetail, buildPaymentSubmitPayload, validatePakistanPaymentForm, formatSuperAdminPaymentDetail, formatPakistanCityPaymentDetail, getPakistanPaymentAccountSelectValue, parsePakistanPaymentAccountSelectValue, buildPakistanPaymentAccountOptions } from "@/lib/payment-module-detail";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
 import { LedgerExportButtons } from "@/components/LedgerExportButtons";
 
@@ -172,8 +173,8 @@ const PAYMENT_METHOD_OPTIONS = [
 ];
 
 const DESTINATION_OPTIONS = [
-  { value: "our_account", label: "Keep in Office", hint: "Treat as company/office receipt" },
-  { value: "haji", label: "Send to Haji", hint: "Counts toward Haji settlement" },
+  { value: "our_account", label: "Office", hint: "Treat as company/office receipt" },
+  { value: "haji", label: "Haji", hint: "Counts toward Haji settlement" },
 ];
 
 const PAYMENTS_FORM_CACHE_KEY = "mrf-payments-form-cache-v1";
@@ -216,6 +217,7 @@ export default function PaymentsPage() {
   const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, discardQueuedItem, syncQueue } = useOffline();
   const canCreateRecords = user?.role === "city_admin";
   const isAfghanistanCity = user?.countryName === "Afghanistan";
+  const isPakistanSimplified = simplifyModals && !isAfghanistanCity;
   const isSuperAdmin = user?.role === "super_admin";
 
   const [items, setItems] = useState<any[]>([]);
@@ -243,7 +245,7 @@ export default function PaymentsPage() {
   const [lots, setLots] = useState<any[]>([]);
   const [cityBankAccounts, setCityBankAccounts] = useState<any[]>([]);
   const [superAdminBankAccounts, setSuperAdminBankAccounts] = useState<any[]>([]);
-  const [form, setForm] = useState<any>({});
+  const [form, setForm] = useState<any>({ paymentMethod: "cash", destination: "our_account" });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
@@ -348,7 +350,7 @@ export default function PaymentsPage() {
             raw: parsed,
           };
         })
-        .filter((entry) => !isSuperAdmin || entry.type === "payment");
+        .filter((entry) => !isSuperAdmin || entry.type === "payment" || entry.type === "haji_transfer");
       nextItems = [...pendingEntries, ...nextItems];
       nextItems = applyQueuedMutationsToCombinedList(nextItems, queuedItems as any[]);
       setItems(nextItems);
@@ -534,7 +536,8 @@ export default function PaymentsPage() {
     } else if (type === "expense") {
       setForm({ expenseDate: today, amount: 0, detail: "", notes: "" });
     } else if (type === "haji_transfer") {
-      setForm({ transferDate: today, amount: 0, detail: "", transferType: "from_in_hand", notes: "" });
+      window.location.href = "/haji-transfers";
+      return;
     } else {
       setForm({ withdrawalDate: today, amount: 0, detail: "", notes: "" });
     }
@@ -549,9 +552,8 @@ export default function PaymentsPage() {
     const customerId = parseInt(searchParams.get("customer_id") || "0");
     if (create !== "payment" && !customerId) return;
     prefillHandledRef.current = true;
-    setShowCreate(true);
     const customerName = searchParams.get("customer_name") || "";
-    openCreate("payment", {
+    void openCreate("payment", {
       customerId: Number.isFinite(customerId) ? customerId : 0,
       customerName,
       detail: searchParams.get("detail") || "",
@@ -580,6 +582,10 @@ export default function PaymentsPage() {
           : endpoint.includes("/api/v1/personal-withdrawals")
             ? "withdrawal"
             : "payment";
+    if (nextType === "haji_transfer") {
+      window.location.href = `/haji-transfers?resolve=1&queue_id=${encodeURIComponent(queueId)}`;
+      return;
+    }
     openCreate(nextType, parsedBody);
     setResolvingQueueId(queueId);
     setError("Resolving queued entry. Save to update and re-sync.");
@@ -600,7 +606,14 @@ export default function PaymentsPage() {
     }
     let endpoint = "", body: any = {};
     if (createType === "payment") {
-      if (!form.customerId || !(form.amount > 0) || !form.detail) { setError(t("customer") + ", " + t("amount") + " (must be > 0), " + t("detail") + " required"); setSubmitting(false); return; }
+      if (isPakistanSimplified) {
+        const validationError = validatePakistanPaymentForm(form);
+        if (validationError) { setError(validationError); setSubmitting(false); return; }
+      } else if (!form.customerId || !(form.amount > 0) || !form.detail) {
+        setError(t("customer") + ", " + t("amount") + " (must be > 0), " + t("detail") + " required");
+        setSubmitting(false);
+        return;
+      }
       if (!forceVoucher && form.manualVoucherNo?.trim()) {
         const check = await apiCall(`/api/v1/payments/check-voucher?voucher_no=${encodeURIComponent(form.manualVoucherNo.trim())}`);
         if (check.success && (check.data as any).isDuplicate) {
@@ -609,15 +622,21 @@ export default function PaymentsPage() {
         }
       }
       endpoint = "/api/v1/payments";
-      body = { ...form, currencyId: resolvedCurrencyId };
+      body = isPakistanSimplified
+        ? buildPaymentSubmitPayload(form, {
+            currencyId: resolvedCurrencyId,
+            cityBankAccounts,
+            superAdminBankAccounts,
+          })
+        : { ...form, currencyId: resolvedCurrencyId };
     } else if (createType === "expense") {
       if (!(form.amount > 0) || !form.detail) { setError(t("amount") + " (must be > 0) and " + t("detail") + " required"); setSubmitting(false); return; }
       endpoint = "/api/v1/expenses";
       body = { ...form, currencyId: resolvedCurrencyId };
     } else if (createType === "haji_transfer") {
-      if (!(form.amount > 0) || !form.detail) { setError(t("amount") + " (must be > 0) and " + t("detail") + " required"); setSubmitting(false); return; }
-      endpoint = "/api/v1/haji-transfers";
-      body = { ...form, currencyId: resolvedCurrencyId };
+      setError("Use the Haji Transfers page to record haji transfers.");
+      setSubmitting(false);
+      return;
     } else {
       if (!(form.amount > 0) || !form.detail) { setError(t("amount") + " (must be > 0) and " + t("detail") + " required"); setSubmitting(false); return; }
       endpoint = "/api/v1/personal-withdrawals";
@@ -709,7 +728,10 @@ export default function PaymentsPage() {
   // ── Add current form to batch queue (payment only) ──────────────────────
   const addToQueue = async () => {
     setError("");
-    if (!form.customerId || !(form.amount > 0) || !form.detail) {
+    if (isPakistanSimplified) {
+      const validationError = validatePakistanPaymentForm(form);
+      if (validationError) { setError(validationError); return; }
+    } else if (!form.customerId || !(form.amount > 0) || !form.detail) {
       setError(t("customer") + ", amount (must be > 0), detail required");
       return;
     }
@@ -722,20 +744,26 @@ export default function PaymentsPage() {
       }
     }
     const selectedCur = currencies.find((c: any) => c.id === form.currencyId);
-    const body = { ...form, currencyId: form.currencyId || currencies[0]?.id };
+    const body = isPakistanSimplified
+      ? buildPaymentSubmitPayload(form, {
+          currencyId: form.currencyId || currencies[0]?.id,
+          cityBankAccounts,
+          superAdminBankAccounts,
+        })
+      : { ...form, currencyId: form.currencyId || currencies[0]?.id };
     setPaymentQueue(prev => [...prev, {
       tempId: `q-${Date.now()}-${Math.random()}`,
       customerName: form.customerName || "Customer",
       voucherNo: form.manualVoucherNo?.trim() || "",
       amount: form.amount,
       currencySymbol: selectedCur?.symbol ?? "",
-      detail: form.detail,
+      detail: body.detail || form.detail,
       date: form.paymentDate,
       body,
     }]);
     // Reset form for next entry, keep modal open
     const today = new Date().toISOString().split("T")[0];
-    setForm({ customerId: 0, customerName: "", paymentDate: today, amount: 0, detail: "", currencyId: currencies[0]?.id || 0, paymentMethod: "cash", destination: "our_account", notes: "", chequeNumber: "", chequeBank: "", chequeDueDate: "", bankAccountId: 0, superAdminBankAccountId: 0 });
+    setForm({ customerId: 0, customerName: "", paymentDate: today, amount: 0, detail: "", currencyId: currencies[0]?.id || 0, paymentMethod: "cash", destination: "our_account", notes: "", chequeNumber: "", chequeBank: "", chequeDueDate: "", bankAccountId: 0, superAdminBankAccountId: 0, manualVoucherNo: "" });
     setQueueSaved(false);
   };
 
@@ -1066,48 +1094,209 @@ export default function PaymentsPage() {
     else setError(r.error || "Failed to update audit confirmation");
   };
 
-  const columns = [
+  const columns = isSuperAdmin ? [
     {
       key: "date", label: t("date"),
       render: (item: any) => <span className="whitespace-nowrap tabular-nums">{formatDate(item.date)}</span>,
     },
-    ...(!isSuperAdmin ? [{
-      key: "type", label: "Type",
-      render: (item: any) => <TypeBadge type={item.type} />,
-    }] : []),
     {
-      key: "person", label: "Name",
-      render: (item: any) => item.person ? (
-        <div className="min-w-0 leading-tight">
-          <span className="block truncate">{item.person}</span>
-          {user?.role === "super_admin" && item.cityName && (
-            <span className="block truncate text-[11px] text-indigo-500">{item.cityName}</span>
-          )}
-        </div>
-      ) : <span className="text-gray-300">—</span>,
-    },
-    {
-      key: "detail", label: t("detail"),
+      key: "person", label: "City / Name",
       render: (item: any) => (
-        <div className="min-w-0 leading-tight" title={item.type === "payment" && item.status === "cancelled" && !item.raw?.cancellationReason ? "Cancelled" : undefined}>
-          <span className="block truncate">{item.detail}</span>
-          {item.type === "payment" && item.status === "cancelled" && item.raw?.cancellationReason && !isSuperAdmin && (
-            <span className="mt-0.5 block truncate text-[11px] text-red-600/90">{item.raw.cancellationReason}</span>
+        <div className="min-w-0 leading-tight">
+          {item.type === "haji_transfer" ? (
+            <span className="block truncate">{item.cityName || "—"}</span>
+          ) : (
+            <>
+              <span className="block truncate">{item.cityName || item.person || "—"}</span>
+              {item.cityName && item.person && (
+                <span className="block truncate text-[11px] text-indigo-500">{item.person}</span>
+              )}
+            </>
           )}
-          {item.type === "haji_transfer" && item.raw?.lotNumber && <span className="mt-0.5 block text-[11px] text-gray-400">Lot {item.raw.lotNumber}</span>}
-          {item.type === "expense" && item.raw?.lotNumber && <span className="mt-0.5 block text-[11px] text-gray-400">Lot {item.raw.lotNumber}</span>}
-          {!isSuperAdmin && renderChequeStatusHint(item, t)}
         </div>
       ),
     },
     {
+      key: "detail", label: t("detail"),
+      render: (item: any) => {
+        const detailText = item.type === "payment"
+          ? (item.raw?.destination === "haji"
+            ? formatSuperAdminPaymentDetail({
+                paymentMethod: item.raw?.paymentMethod,
+                superAdminBankAccount: item.raw?.superAdminBankAccount,
+              })
+            : item.detail)
+          : item.detail;
+        return (
+          <div className="min-w-0 leading-tight">
+            <span className="block truncate">{detailText}</span>
+          </div>
+        );
+      },
+    },
+    {
+      key: "ref", label: "Ref No.",
+      render: (item: any) => {
+        const ref = item.type === "haji_transfer"
+          ? item.raw?.referenceNo
+          : item.raw?.manualVoucherNo;
+        return ref ? (
+          <span className="font-mono text-xs text-gray-600">{ref}</span>
+        ) : (
+          <span className="text-gray-300">—</span>
+        );
+      },
+    },
+    {
+      key: "amount", label: t("amount"),
+      render: (item: any) => {
+        const isReversal = item.type === "payment_reversal";
+        const isIncoming = item.type === "payment" || item.type === "haji_transfer";
+        return (
+          <span className={`font-semibold tabular-nums ${isReversal ? "text-rose-700" : isIncoming ? "text-green-700" : "text-gray-700"}`}>
+            {isReversal ? "−" : ""}{item.currencySymbol} {item.amount?.toLocaleString("en-US")}
+          </span>
+        );
+      },
+    },
+    {
+      key: "runningBalance",
+      label: "Running Balance",
+      render: (item: any) => (
+        <span className="text-sm font-medium tabular-nums text-gray-700">
+          {formatCityAmount(user, item.runningBalance || 0, item.currencyCode)}
+        </span>
+      ),
+    },
+    {
+      key: "sa_check", label: "SA Check",
+      render: (item: any) => (
+        item.type === "payment" && item.status === "active" && item.raw?.destination === "haji" && ["cash", "bank_transfer", "online"].includes(item.raw?.paymentMethod) ? (
+          item.raw?.hajiAudit?.confirmed ? (
+            <span className="text-xs font-semibold text-emerald-700">Verified</span>
+          ) : (
+            <label className="inline-flex items-center gap-2 text-xs text-gray-700">
+              <input
+                type="checkbox"
+                checked={false}
+                onChange={() => handleToggleHajiAudit(item, true)}
+                className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              Verify
+            </label>
+          )
+        ) : <span className="text-gray-300">—</span>
+      ),
+    },
+    {
+      key: "actions", label: "",
+      render: (item: any) => {
+        if (item.type === "payment_reversal") return <span className="text-gray-300">—</span>;
+        const actionKey = getActionKey(item);
+        const canAuditUnverify = item.type === "payment"
+          && item.status === "active"
+          && item.raw?.destination === "haji"
+          && item.raw?.hajiAudit?.confirmed
+          && ["cash", "bank_transfer", "online"].includes(item.raw?.paymentMethod);
+        return (
+          <RowActionMenu
+            open={openActionId === actionKey}
+            onOpenChange={(open) => setOpenActionId(open ? actionKey : null)}
+          >
+            {canAuditUnverify && (
+              <button
+                type="button"
+                onClick={() => { setOpenActionId(null); handleToggleHajiAudit(item, false); }}
+                className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-amber-700 hover:bg-amber-50 sm:py-2 sm:text-xs"
+              >
+                Unverify
+              </button>
+            )}
+            {item.type === "payment" && user?.role === "super_admin" && !getPendingQueueId(item?.id) && (
+              <button onClick={() => { setOpenActionId(null); openHardDelete(item); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-800 hover:bg-red-50 sm:py-2 sm:text-xs">{t("hard_delete")}</button>
+            )}
+          </RowActionMenu>
+        );
+      },
+    },
+  ] : [
+    {
+      key: "date", label: t("date"),
+      render: (item: any) => <span className="whitespace-nowrap tabular-nums">{formatDate(item.date)}</span>,
+    },
+    {
+      key: "type", label: "Type",
+      render: (item: any) => <TypeBadge type={item.type} />,
+    },
+    {
+      key: "person", label: isSuperAdmin ? "City / Name" : "Name",
+      render: (item: any) => {
+        if (isSuperAdmin && item.type === "haji_transfer") {
+          return item.cityName ? (
+            <div className="min-w-0 leading-tight">
+              <span className="block truncate">{item.cityName}</span>
+              {item.raw?.sourceType && (
+                <span className="block truncate text-[11px] text-indigo-500 capitalize">{String(item.raw.sourceType).replace(/_/g, " ")}</span>
+              )}
+            </div>
+          ) : <span className="text-gray-300">—</span>;
+        }
+        return item.person ? (
+          <div className="min-w-0 leading-tight">
+            <span className="block truncate">{item.person}</span>
+            {user?.role === "super_admin" && item.cityName && (
+              <span className="block truncate text-[11px] text-indigo-500">{item.cityName}</span>
+            )}
+          </div>
+        ) : <span className="text-gray-300">—</span>;
+      },
+    },
+    {
+      key: "detail", label: t("detail"),
+      render: (item: any) => {
+        const detailText = item.type === "payment"
+          ? (item.raw?.paymentMethod
+            ? (isPakistanSimplified
+              ? formatPakistanCityPaymentDetail({
+                  paymentMethod: item.raw?.paymentMethod,
+                  destination: item.raw?.destination,
+                  bankAccount: item.raw?.bankAccount,
+                  superAdminBankAccount: item.raw?.superAdminBankAccount,
+                })
+              : formatPaymentModuleDetail({
+                  paymentMethod: item.raw?.paymentMethod,
+                  destination: item.raw?.destination,
+                  manualVoucherNo: item.raw?.manualVoucherNo,
+                  chequeNumber: item.raw?.chequeNumber,
+                  bankAccount: item.raw?.bankAccount,
+                  superAdminBankAccount: item.raw?.superAdminBankAccount,
+                }))
+            : item.detail)
+          : item.detail;
+        return (
+        <div className="min-w-0 leading-tight" title={item.type === "payment" && item.status === "cancelled" && !item.raw?.cancellationReason ? "Cancelled" : undefined}>
+          <span className="block truncate">{detailText}</span>
+          {item.type === "payment" && item.status === "cancelled" && item.raw?.cancellationReason && !isSuperAdmin && (
+            <span className="mt-0.5 block truncate text-[11px] text-red-600/90">{item.raw.cancellationReason}</span>
+          )}
+          {item.type === "haji_transfer" && item.raw?.lotNumber && <span className="mt-0.5 block text-[11px] text-gray-400">Lot {item.raw.lotNumber}</span>}
+          {!isSuperAdmin && item.type === "haji_transfer" && item.raw?.sourceType && (
+            <span className="mt-0.5 block text-[11px] text-gray-400 capitalize">{String(item.raw.sourceType).replace(/_/g, " ")}</span>
+          )}
+          {item.type === "expense" && item.raw?.lotNumber && <span className="mt-0.5 block text-[11px] text-gray-400">Lot {item.raw.lotNumber}</span>}
+          {!isSuperAdmin && renderChequeStatusHint(item, t)}
+        </div>
+        );
+      },
+    },
+    ...(isSuperAdmin ? [{
       key: "ref", label: "Ref No.",
       render: (item: any) => item.raw?.manualVoucherNo ? (
         <span className="font-mono text-xs text-gray-600">{item.raw.manualVoucherNo}</span>
       ) : (
         <span className="text-gray-300">—</span>
       ),
-    },
+    }] : []),
     {
       key: "amount", label: t("amount"),
       render: (item: any) => {
@@ -1237,12 +1426,22 @@ export default function PaymentsPage() {
   const selectedMethod = PAYMENT_METHOD_OPTIONS.find((option) => option.value === form.paymentMethod);
   const selectedDestination = DESTINATION_OPTIONS.find((option) => option.value === form.destination);
   const needsBankAccountSelection = createType === "payment" && ["bank_transfer", "online"].includes(form.paymentMethod);
-  const showCityBankAccountSelect = needsBankAccountSelection && form.destination === "our_account";
-  const showSuperAdminBankAccountSelect = needsBankAccountSelection && form.destination === "haji";
+  const isOfficeOnlyPaymentMethod = createType === "payment" && ["cash", "cheque"].includes(form.paymentMethod || "cash");
+  const showCityBankAccountSelect = needsBankAccountSelection && !isPakistanSimplified && form.destination === "our_account";
+  const showSuperAdminBankAccountSelect = needsBankAccountSelection && !isPakistanSimplified && form.destination === "haji";
+  const resolvedCurrencyId = form.currencyId || currencies[0]?.id || 0;
+  const pakistanPaymentAccounts = isPakistanSimplified && needsBankAccountSelection
+    ? buildPakistanPaymentAccountOptions({
+        paymentCurrencyId: resolvedCurrencyId,
+        currencies,
+        cityBankAccounts,
+        superAdminBankAccounts,
+      })
+    : [];
 
   return (
     <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
-      {!isEmbed && <PageHeader title={isSuperAdmin ? "Payments" : t("payments")} />}
+      {!isEmbed && <PageHeader title={isSuperAdmin ? "Haji Payments" : t("payments")} />}
       {!isEmbed && (
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <input
@@ -1356,10 +1555,12 @@ export default function PaymentsPage() {
                 cityId={user?.cityId ?? undefined}
               />
 
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">{t("detail")} *</label>
-                <input value={form.detail || ""} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" />
-              </div>
+              {isAfghanistanCity && (
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("detail")} *</label>
+                  <input value={form.detail || ""} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" />
+                </div>
+              )}
 
               {currencies.length > 1 ? (
                 <div className="grid grid-cols-2 gap-3">
@@ -1378,7 +1579,7 @@ export default function PaymentsPage() {
                     <label className="mb-1 block text-sm font-medium text-gray-700">{t("currency")}</label>
                     <select
                       value={form.currencyId || currencies[0]?.id || 0}
-                      onChange={e => setForm((f: any) => ({ ...f, currencyId: parseInt(e.target.value, 10) || 0 }))}
+                      onChange={e => setForm((f: any) => ({ ...f, currencyId: parseInt(e.target.value, 10) || 0, bankAccountId: 0, superAdminBankAccountId: 0 }))}
                       className="select-field"
                     >
                       {currencies.map((c: any) => (
@@ -1407,7 +1608,17 @@ export default function PaymentsPage() {
                     <label className="mb-1 block text-sm font-medium text-gray-700">{t("payment_method")}</label>
                     <select
                       value={form.paymentMethod || "cash"}
-                      onChange={e => setForm((f: any) => ({ ...f, paymentMethod: e.target.value, bankAccountId: 0, superAdminBankAccountId: 0 }))}
+                      onChange={e => {
+                        const paymentMethod = e.target.value;
+                        const officeOnly = paymentMethod === "cash" || paymentMethod === "cheque";
+                        setForm((f: any) => ({
+                          ...f,
+                          paymentMethod,
+                          destination: officeOnly ? "our_account" : f.destination,
+                          bankAccountId: 0,
+                          superAdminBankAccountId: 0,
+                        }));
+                      }}
                       className="select-field"
                     >
                       {PAYMENT_METHOD_OPTIONS.map((option) => (
@@ -1415,6 +1626,27 @@ export default function PaymentsPage() {
                       ))}
                     </select>
                   </div>
+                  {!isOfficeOnlyPaymentMethod && isPakistanSimplified && (
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700">Account *</label>
+                    <select
+                      value={getPakistanPaymentAccountSelectValue(form)}
+                      onChange={e => {
+                        const parsed = parsePakistanPaymentAccountSelectValue(e.target.value);
+                        setForm((f: any) => ({ ...f, ...parsed }));
+                      }}
+                      className="select-field"
+                    >
+                      <option value="">Select</option>
+                      {pakistanPaymentAccounts.map((account) => (
+                        <option key={account.key} value={account.key}>
+                          {account.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  )}
+                  {!isOfficeOnlyPaymentMethod && !isPakistanSimplified && (
                   <div>
                     <label className="mb-1 block text-sm font-medium text-gray-700">{t("destination")}</label>
                     <select
@@ -1427,15 +1659,16 @@ export default function PaymentsPage() {
                       ))}
                     </select>
                   </div>
+                  )}
                   {showCityBankAccountSelect && (
                     <div>
-                      <label className="mb-1 block text-sm font-medium text-gray-700">City Bank Account *</label>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">Bank Account *</label>
                       <select
                         value={form.bankAccountId || 0}
                         onChange={e => setForm((f: any) => ({ ...f, bankAccountId: parseInt(e.target.value, 10), superAdminBankAccountId: 0 }))}
                         className="select-field"
                       >
-                        <option value={0}>Select city bank account…</option>
+                        <option value={0}>Select</option>
                         {cityBankAccounts.filter((a: any) => a.isActive).map((a: any) => (
                           <option key={a.id} value={a.id}>
                             {a.bankName}{a.accountNumber ? ` (${a.accountNumber})` : ""}{a.currency?.code ? ` · ${a.currency.code}` : ""}
@@ -1446,13 +1679,13 @@ export default function PaymentsPage() {
                   )}
                   {showSuperAdminBankAccountSelect && (
                     <div>
-                      <label className="mb-1 block text-sm font-medium text-gray-700">Super Admin Bank Account *</label>
+                      <label className="mb-1 block text-sm font-medium text-gray-700">Bank Account *</label>
                       <select
                         value={form.superAdminBankAccountId || 0}
                         onChange={e => setForm((f: any) => ({ ...f, superAdminBankAccountId: parseInt(e.target.value, 10), bankAccountId: 0 }))}
                         className="select-field"
                       >
-                        <option value={0}>Select super admin bank account…</option>
+                        <option value={0}>Select</option>
                         {superAdminBankAccounts.filter((a: any) => a.isActive).map((a: any) => (
                           <option key={a.id} value={a.id}>
                             {a.bankName}{a.accountNumber ? ` (${a.accountNumber})` : ""}{a.currency?.code ? ` · ${a.currency.code}` : ""}
@@ -1464,17 +1697,42 @@ export default function PaymentsPage() {
                 </div>
               )}
 
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
-                  {form.paymentMethod === "cheque" ? t("cheque_number") : t("reference")}
-                </label>
-                <input
-                  value={form.manualVoucherNo || ""}
-                  onChange={e => setForm((f: any) => ({ ...f, manualVoucherNo: e.target.value }))}
-                  className="input-field"
-                  placeholder={form.paymentMethod === "cheque" ? "e.g. 001234" : "e.g. REF-1024"}
-                />
-              </div>
+              {!isAfghanistanCity ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="min-w-0">
+                    <label className="mb-1 block text-sm font-medium text-gray-700">
+                      {form.paymentMethod === "cheque" ? t("cheque_number") : t("reference")}
+                    </label>
+                    <input
+                      value={form.manualVoucherNo || ""}
+                      onChange={e => setForm((f: any) => ({ ...f, manualVoucherNo: e.target.value }))}
+                      className="input-field"
+                      placeholder={form.paymentMethod === "cheque" ? "e.g. 001234" : "e.g. REF-1024"}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <label className="mb-1 block text-sm font-medium text-gray-700">{t("notes")}</label>
+                    <input
+                      value={form.notes || ""}
+                      onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))}
+                      className="input-field"
+                      placeholder={t("notes")}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                    {form.paymentMethod === "cheque" ? t("cheque_number") : t("reference")}
+                  </label>
+                  <input
+                    value={form.manualVoucherNo || ""}
+                    onChange={e => setForm((f: any) => ({ ...f, manualVoucherNo: e.target.value }))}
+                    className="input-field"
+                    placeholder={form.paymentMethod === "cheque" ? "e.g. 001234" : "e.g. REF-1024"}
+                  />
+                </div>
+              )}
             </>
           ) : (
             <>
@@ -1699,7 +1957,7 @@ export default function PaymentsPage() {
             <div className="space-y-1 max-h-40 overflow-y-auto">
               {paymentQueue.map((q, i) => (
                 <div key={q.tempId} className="grid grid-cols-[70px_1fr_80px_70px_24px] gap-1 items-center bg-blue-50 rounded-lg px-3 py-2">
-                  <span className="text-[10px] text-blue-600 font-medium whitespace-nowrap">{q.date}</span>
+                  <span className="text-[10px] text-blue-600 font-medium whitespace-nowrap tabular-nums">{formatDate(q.date)}</span>
                   <span className="text-xs font-semibold text-blue-900 truncate">{q.customerName}</span>
                   <span className="text-[10px] text-blue-500 truncate">{q.voucherNo || "—"}</span>
                   <span className="text-xs font-bold text-blue-800 text-right whitespace-nowrap">{q.currencySymbol} {q.amount.toLocaleString("en-US")}</span>

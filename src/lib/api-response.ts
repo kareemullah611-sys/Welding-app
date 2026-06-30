@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import { sanitizeValidationDetails } from "@/lib/sanitize-validation-details";
 
 export interface ApiResponse<T = unknown> {
   success: boolean;
@@ -75,7 +76,7 @@ export function notFoundResponse(message = "Resource not found"): NextResponse {
 }
 
 export function validationError(message: string, details?: unknown[]): NextResponse {
-  return errorResponse("VALIDATION_ERROR", message, 400, details);
+  return errorResponse("VALIDATION_ERROR", message, 400, sanitizeValidationDetails(details));
 }
 
 export function serverError(message = "Internal server error"): NextResponse {

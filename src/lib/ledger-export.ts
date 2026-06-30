@@ -3,7 +3,7 @@ import { apiCall } from "@/hooks/useApi";
 import { formatLedgerMoneyAmount } from "@/lib/city-money-format";
 import type { LotCostLedgerRow } from "@/lib/lot-cost-ledger";
 import type { ExportPayload } from "@/lib/report-export-helpers";
-import { formatExportMetaDate } from "@/lib/report-export-helpers";
+import { formatExportDateShort, formatExportMetaDate } from "@/lib/report-export-helpers";
 import type { SupplierLotStatementRow, SupplierRunningLedgerRow } from "@/lib/supplier-ledger";
 
 export type LedgerExportType =
@@ -248,8 +248,8 @@ export function printCustomerLedgerStatement(options: {
     const sym = String(entry.currencySymbol || entry.currency || "").trim();
     return `
     <tr class="${index % 2 === 1 ? "alt-row" : ""}${entry.status === "cancelled" ? " cancelled" : ""}">
-      <td>${escapeHtml(entry.date)}</td>
-      <td>${escapeHtml(entry.type === "sale" ? "Sale" : entry.type === "opening" ? "Opening" : "Receipt")} · ${escapeHtml(entry.detail || entry.voucherNo || "")}</td>
+      <td>${escapeHtml(formatExportDateShort(entry.date))}</td>
+      <td>${escapeHtml(entry.type === "sale" ? `Sale · ${entry.detail || entry.voucherNo || ""}` : entry.type === "opening" ? entry.detail || "Opening" : entry.detail || entry.voucherNo || "Receipt")}</td>
       <td class="debit">${entry.debit > 0 ? escapeHtml(formatLedgerMoneyAmount(Number(entry.debit), sym, entry.currency)) : "—"}</td>
       <td class="credit">${entry.credit > 0 ? escapeHtml(formatLedgerMoneyAmount(Number(entry.credit), sym, entry.currency)) : "—"}</td>
       <td class="balance">${typeof entry.balance === "number" && !Number.isNaN(entry.balance) ? escapeHtml(formatLedgerMoneyAmount(Number(entry.balance), sym, entry.currency)) : "—"}</td>
@@ -337,7 +337,7 @@ export function exportLotCostLedgerXlsx(input: {
 
   for (const r of input.rows) {
     rows.push([
-      r.date,
+      formatExportDateShort(r.date),
       r.particulars,
       r.amount,
       r.currencyCode,
@@ -370,7 +370,7 @@ export function exportLotCostLedgerPdf(input: {
     .map(
       (r) => `
       <tr>
-        <td>${escapeHtml(r.date)}</td>
+        <td>${escapeHtml(formatExportDateShort(r.date))}</td>
         <td>${escapeHtml(r.particulars)}</td>
         <td style="text-align:right;">${Number(r.amount).toLocaleString("en-US")}</td>
         <td>${escapeHtml(r.currencyCode)}</td>
@@ -453,7 +453,7 @@ export function exportSupplierLedgerXlsx(input: {
 
   for (const entry of input.runningLedger) {
     runningRows.push([
-      entry.date,
+      formatExportDateShort(entry.date),
       entry.particulars,
       entry.debitUsd || "",
       entry.creditUsd || "",

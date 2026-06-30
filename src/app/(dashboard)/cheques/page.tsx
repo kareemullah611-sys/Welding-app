@@ -1,6 +1,5 @@
 "use client";
 import React, { useEffect, useState, useCallback } from "react";
-import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, formatDate } from "@/components/ui";
@@ -8,8 +7,11 @@ import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { applyQueuedMutationsToCheques } from "@/lib/offline-remaining-mutations";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import { cn } from "@/lib/utils";
 
 const CHEQUES_READ_CACHE_KEY = "mrf-cheques-read-cache-v1";
+
+type GlassVariant = "primary" | "secondary" | "danger" | "warning" | "xlsx" | "pdf";
 
 type ChequesReadSnapshot = {
   allCheques: any[];
@@ -17,20 +19,27 @@ type ChequesReadSnapshot = {
   total: number;
 };
 
-const CHEQUE_STATUS_CONFIG: Record<string, { label: string; color: string; icon: string }> = {
-  in_hand:           { label: "In Hand",           icon: "🤲", color: "bg-yellow-50 text-yellow-700 border-yellow-200" },
-  deposited_to_bank: { label: "Deposited to Bank", icon: "🏦", color: "bg-blue-50 text-blue-700 border-blue-200" },
-  sent_to_haji:      { label: "Sent to Haji",      icon: "↗️", color: "bg-green-50 text-green-700 border-green-200" },
-  used_for_expense:  { label: "Used for Expense",  icon: "🧾", color: "bg-orange-50 text-orange-700 border-orange-200" },
-  used_for_withdrawal:{ label: "Used for Withdrawal", icon: "👤", color: "bg-purple-50 text-purple-700 border-purple-200" },
-  bounced:           { label: "Bounced",            icon: "⚠️", color: "bg-red-50 text-red-700 border-red-200" },
+const CHEQUE_STATUS_CONFIG: Record<string, { label: string; shortLabel: string; color: string; icon: string; glassVariant: GlassVariant }> = {
+  in_hand:            { label: "In Hand",            shortLabel: "In Hand",            icon: "🤲", color: "bg-yellow-50 text-yellow-700 border-yellow-200", glassVariant: "warning" },
+  deposited_to_bank:  { label: "Deposited to Bank",  shortLabel: "Deposited",          icon: "🏦", color: "bg-blue-50 text-blue-700 border-blue-200",       glassVariant: "primary" },
+  sent_to_haji:       { label: "Sent to Haji",       shortLabel: "Sent to Haji",       icon: "↗️", color: "bg-green-50 text-green-700 border-green-200",    glassVariant: "xlsx" },
+  used_for_expense:   { label: "Used for Expense",   shortLabel: "Used for Expense",   icon: "🧾", color: "bg-orange-50 text-orange-700 border-orange-200", glassVariant: "warning" },
+  used_for_withdrawal:{ label: "Used for Withdrawal", shortLabel: "Used for Withdrawal", icon: "👤", color: "bg-purple-50 text-purple-700 border-purple-200", glassVariant: "pdf" },
+  bounced:            { label: "Bounced",             shortLabel: "Bounced",            icon: "⚠️", color: "bg-red-50 text-red-700 border-red-200",          glassVariant: "danger" },
 };
+
+const ALL_TAB = { shortLabel: "All", glassVariant: "primary" as const };
+
+const filterBtnClass = (active: boolean, variant: GlassVariant) =>
+  cn(
+    "glass-btn px-3 py-1.5 text-sm",
+    active ? `glass-btn-${variant}` : "glass-btn-secondary",
+  );
 
 const TABS = ["all", "in_hand", "deposited_to_bank", "sent_to_haji", "used_for_expense", "used_for_withdrawal", "bounced"] as const;
 type Tab = typeof TABS[number];
 
 export default function ChequesPage() {
-  const { user } = useAuth();
   const { t } = useLang();
   const { isOnline, queuedItems } = useOffline();
   const [allCheques, setAllCheques] = useState<any[]>([]);
@@ -155,20 +164,19 @@ export default function ChequesPage() {
     return acc;
   }, {} as Record<Tab, number>);
 
-  const tabLabels: Record<Tab, string> = {
-    all: "All",
-    in_hand: "🤲 In Hand",
-    deposited_to_bank: "🏦 Deposited",
-    sent_to_haji: "↗️ Sent to Haji",
-    used_for_expense: "🧾 Used for Expense",
-    used_for_withdrawal: "👤 Used for Withdrawal",
-    bounced: "⚠️ Bounced",
+  const tabLabel = (tabKey: Tab) => {
+    if (tabKey === "all") return ALL_TAB.shortLabel;
+    const cfg = CHEQUE_STATUS_CONFIG[tabKey];
+    return `${cfg.icon} ${cfg.shortLabel}`;
   };
+
+  const tabGlassVariant = (tabKey: Tab): GlassVariant =>
+    tabKey === "all" ? ALL_TAB.glassVariant : CHEQUE_STATUS_CONFIG[tabKey].glassVariant;
 
   const columns = [
     {
       key: "date", label: t("date"),
-      render: (item: any) => <span className="whitespace-nowrap text-sm">{item.date}</span>,
+      render: (item: any) => <span className="whitespace-nowrap text-sm tabular-nums">{formatDate(item.date)}</span>,
     },
     {
       key: "chequeNumber", label: t("cheque_number"),
@@ -179,18 +187,6 @@ export default function ChequesPage() {
     {
       key: "person", label: t("customer"),
       render: (item: any) => <span className="text-sm font-medium">{item.person || "—"}</span>,
-    },
-    {
-      key: "chequeBank", label: t("drawn_on_bank"),
-      render: (item: any) => item.raw?.chequeBank
-        ? <span className="text-sm text-gray-600">{item.raw.chequeBank}</span>
-        : <span className="text-gray-400">—</span>,
-    },
-    {
-      key: "dueDate", label: t("due_date"),
-      render: (item: any) => item.raw?.chequeDueDate
-        ? <span className="text-sm whitespace-nowrap">{formatDate(item.raw.chequeDueDate)}</span>
-        : <span className="text-gray-400">—</span>,
     },
     {
       key: "amount", label: t("amount"),
@@ -244,23 +240,16 @@ export default function ChequesPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-4 flex-wrap">
-        {TABS.map(tabKey => (
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        {TABS.map((tabKey) => (
           <button
             key={tabKey}
+            type="button"
             onClick={() => setTab(tabKey)}
-            className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-colors ${
-              tab === tabKey
-                ? "bg-primary-600 text-white"
-                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-            }`}
+            className={filterBtnClass(tab === tabKey, tabGlassVariant(tabKey))}
           >
-            {tabLabels[tabKey]}
-            {tabCounts[tabKey] > 0 && (
-              <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${tab === tabKey ? "bg-white/20 text-white" : "bg-gray-200 text-gray-700"}`}>
-                {tabCounts[tabKey]}
-              </span>
-            )}
+            {tabLabel(tabKey)}
+            {tabCounts[tabKey] > 0 ? ` (${tabCounts[tabKey]})` : ""}
           </button>
         ))}
       </div>
@@ -271,7 +260,7 @@ export default function ChequesPage() {
         columns={columns}
         data={filtered}
         loading={loading}
-        emptyMessage={tab === "all" ? "No cheques recorded yet" : `No ${tabLabels[tab].replace(/^[^\s]+ /, "")} cheques`}
+        emptyMessage={tab === "all" ? "No cheques recorded yet" : `No ${CHEQUE_STATUS_CONFIG[tab]?.shortLabel || tab} cheques`}
         pagination={{ page, totalPages, total, onPageChange: setPage }}
       />
 

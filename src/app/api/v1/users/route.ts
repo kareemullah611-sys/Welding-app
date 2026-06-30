@@ -23,7 +23,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
       prisma.user.findMany({
         where,
         select: {
-          id: true, username: true, fullName: true, role: true, isActive: true, createdAt: true, passwordPlain: true,
+          id: true, username: true, fullName: true, role: true, isActive: true, createdAt: true,
           city: { select: { id: true, name: true, country: { select: { name: true } } } },
         },
         orderBy: { fullName: "asc" },
@@ -35,7 +35,6 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
     return paginatedResponse(
       users.map((u) => ({
         id: u.id, username: u.username, fullName: u.fullName, role: u.role, isActive: u.isActive,
-        password: u.role === "city_admin" ? (u.passwordPlain || null) : null,
         cityId: u.city?.id || null, cityName: u.city?.name || null,
         countryName: u.city?.country?.name || null,
         createdAt: u.createdAt.toISOString(),
@@ -68,13 +67,12 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       data: {
         username,
         passwordHash,
-        passwordPlain: role === "city_admin" ? password : null,
         fullName,
         role,
         cityId: cityId || null,
       },
       select: {
-        id: true, username: true, fullName: true, role: true, isActive: true, passwordPlain: true,
+        id: true, username: true, fullName: true, role: true, isActive: true,
         city: { select: { id: true, name: true } },
       },
     });
@@ -83,7 +81,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
 
     return successResponse({
       id: newUser.id, username: newUser.username, fullName: newUser.fullName,
-      role: newUser.role, cityId: newUser.city?.id || null, cityName: newUser.city?.name || null, password: newUser.passwordPlain || null,
+      role: newUser.role, cityId: newUser.city?.id || null, cityName: newUser.city?.name || null,
     }, "User created", 201);
   } catch (error) {
     return serverError();

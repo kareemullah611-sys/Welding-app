@@ -24,6 +24,9 @@ Thumbs.db
 # TypeScript
 tsconfig.tsbuildinfo
 
+# database dumps (never commit)
+backups/
+
 # misc
 *.log
 test-results

@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useOffline } from "@/hooks/useOffline";
 import { useRouter, useParams } from "next/navigation";
 import { apiCall } from "@/hooks/useApi";
-import { formatNumber } from "@/components/ui";
+import { formatNumber, formatDate } from "@/components/ui";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import {
@@ -522,7 +522,7 @@ export default function InvestorLedgerPage() {
                           }`}>
                             {label}
                           </span>
-                          <span className="text-xs text-gray-400">{e.date}</span>
+                          <span className="text-xs text-gray-400 tabular-nums">{formatDate(e.date)}</span>
                         </div>
                         {e.notes && <p className="text-xs text-gray-500 mt-0.5 truncate">{e.notes}</p>}
                         <p className="text-[10px] text-gray-300 mt-0.5">Running balance: {sym} {fmt(e.runningBalance)}</p>

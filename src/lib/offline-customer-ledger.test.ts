@@ -32,8 +32,8 @@ test("applies pending offline payment and sale to selected customer ledger", () 
   );
 
   assert.equal(merged.ledger?.length, 3);
-  assert.equal(merged.ledger?.[0].type, "payment");
-  assert.equal(merged.ledger?.[1].type, "sale");
+  assert.equal(merged.ledger?.[0].type, "sale");
+  assert.equal(merged.ledger?.[1].type, "payment");
   assert.equal(merged.balanceByCurrency?.PKR, 1200);
 });
 

@@ -223,6 +223,12 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     if (bankAccountId && superAdminBankAccountId) {
       return errorResponse("VALIDATION_ERROR", "Select only one bank account");
     }
+    if (destination === "haji" && !isBankLikePayment) {
+      return errorResponse(
+        "VALIDATION_ERROR",
+        "Cash and cheque payments must go to office. Use Haji Transfers to send funds to super admin.",
+      );
+    }
 
     // FIFO lot assignment if not specified
     if (!lotId) {

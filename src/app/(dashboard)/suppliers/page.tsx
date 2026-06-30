@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, DataTable, Modal, StatsCard, formatNumber, RowActionMenu } from "@/components/ui";
+import { PageHeader, DataTable, Modal, StatsCard, formatNumber, formatDate, RowActionMenu } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { exportSupplierLedgerXlsx } from "@/lib/ledger-export";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
@@ -665,7 +665,7 @@ export default function SuppliersPage() {
                     </td>
                     <td className="px-2 py-2 align-top text-gray-600">
                       {(row.appliedPayments || []).length
-                        ? row.appliedPayments.map((p: any) => `$${Number(p.amountUsd).toLocaleString("en-US")} on ${p.date}`).join(" · ")
+                        ? row.appliedPayments.map((p: any) => `$${Number(p.amountUsd).toLocaleString("en-US")} on ${formatDate(p.date)}`).join(" · ")
                         : (row.receiptNotes || "-")}
                     </td>
                   </tr>

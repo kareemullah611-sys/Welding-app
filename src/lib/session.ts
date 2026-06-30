@@ -12,10 +12,11 @@ export async function isSessionActive(token: string): Promise<boolean> {
       where: { tokenHash: hashToken(token) },
       select: { isActive: true, expiresAt: true },
     });
-    // Login always creates a row; missing row = legacy token before session tracking.
-    if (!session) return true;
+    // Login always creates a row; missing row = invalid/revoked token.
+    if (!session) return false;
     return session.isActive && session.expiresAt > new Date();
   } catch {
-    return false;
+    // DB unavailable — trust the JWT rather than forcing logout mid-session.
+    return true;
   }
 }

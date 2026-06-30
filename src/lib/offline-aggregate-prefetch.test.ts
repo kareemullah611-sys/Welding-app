@@ -10,6 +10,8 @@ class MemoryStorage {
 }
 
 test("getOfflineAggregateForApiRequest reads dashboard snapshot fields", () => {
+  const prevEnv = process.env.NEXT_PUBLIC_OFFLINE_ENABLED;
+  process.env.NEXT_PUBLIC_OFFLINE_ENABLED = "true";
   const storage = new MemoryStorage();
   (globalThis as any).window = { localStorage: storage };
   storage.setItem(
@@ -24,9 +26,14 @@ test("getOfflineAggregateForApiRequest reads dashboard snapshot fields", () => {
     })
   );
 
-  const dash = getOfflineAggregateForApiRequest<{ totalCartonsSold: number }>("/api/v1/dashboard");
-  assert.deepEqual(dash?.data, { totalCartonsSold: 42 });
+  try {
+    const dash = getOfflineAggregateForApiRequest<{ totalCartonsSold: number }>("/api/v1/dashboard");
+    assert.deepEqual(dash?.data, { totalCartonsSold: 42 });
 
-  const cash = getOfflineAggregateForApiRequest<{ netCashInHand: number }>("/api/v1/cash-position");
-  assert.deepEqual(cash?.data, { netCashInHand: 1000 });
+    const cash = getOfflineAggregateForApiRequest<{ netCashInHand: number }>("/api/v1/cash-position");
+    assert.deepEqual(cash?.data, { netCashInHand: 1000 });
+  } finally {
+    if (prevEnv === undefined) delete process.env.NEXT_PUBLIC_OFFLINE_ENABLED;
+    else process.env.NEXT_PUBLIC_OFFLINE_ENABLED = prevEnv;
+  }
 });

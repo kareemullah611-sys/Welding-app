@@ -40,7 +40,7 @@ test("buildOfflineStockLedgerFromModules computes running stock", () => {
     { godown_id: 1, product_id: 2 }
   );
   assert.equal(rows.length, 2);
-  assert.equal(rows[1].runningStock, 70);
+  assert.equal(rows[0].runningStock, 70);
 });
 
 test("buildOfflineLotProfitFromModules returns lot profit summary", () => {

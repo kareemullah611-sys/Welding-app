@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { formatCustomerLedgerPaymentDetail } from "@/lib/customer-ledger-detail";
 
 export const GET = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -87,7 +88,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         type: "payment" as const,
         date: p.paymentDate.toISOString().split("T")[0],
         voucherNo: p.manualVoucherNo || "-",
-        detail: p.detail,
+        detail: formatCustomerLedgerPaymentDetail(p),
         perCartonPrice: "-",
         debit: 0,
         credit: p.status === "active" ? Number(p.amount) : 0,
@@ -117,7 +118,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     return successResponse({
       id: customer.id, name: customer.name, phone: customer.phone, address: customer.address,
       isActive: customer.isActive, city: customer.city.name, country: customer.city.country.name, countryCode: customer.city.country.code,
-      balance, balanceByCurrency, ledger,
+      balance, balanceByCurrency, ledger: [...ledger].reverse(),
     });
   } catch (error) {
     return serverError();

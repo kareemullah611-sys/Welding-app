@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { comparePassword, generateToken } from "@/lib/auth";
+import { comparePassword, generateToken, getJwtExpiryMs, getJwtExpirySeconds } from "@/lib/auth";
 import { loginSchema } from "@/lib/validations";
 import { successResponse, validationError, errorResponse } from "@/lib/api-response";
 import { checkRateLimit, rejectIfRateLimited } from "@/lib/rate-limit";
@@ -43,14 +43,16 @@ export async function POST(request: NextRequest) {
 
     const { username, password } = parsed.data;
 
-    const blocked = rejectIfRateLimited(`login:${ip}`, 10, 15 * 60 * 1000);
+    const blocked = await rejectIfRateLimited(`login:${ip}`, 10, 15 * 60 * 1000);
     if (blocked) return blocked;
 
     let user;
     try {
       user = await prisma.user.findUnique({
         where: { username },
-        include: { city: { include: { country: true } } },
+        include: {
+          city: { include: { country: true, cityCurrencies: { include: { currency: true } } } },
+        },
       });
     } catch (dbError) {
       // DB is unavailable (e.g. Neon sleeping) — don't count this as a failed
@@ -61,14 +63,14 @@ export async function POST(request: NextRequest) {
 
     if (!user || !user.isActive) {
       // Wrong username — this IS a genuine failed attempt, count it
-      checkRateLimit(`login:${ip}`, 10, 15 * 60 * 1000);
+      await checkRateLimit(`login:${ip}`, 10, 15 * 60 * 1000);
       return errorResponse("AUTH_FAILED", "Invalid username or password", 401);
     }
 
     const passwordValid = await comparePassword(password, user.passwordHash);
     if (!passwordValid) {
       // Wrong password — count it
-      checkRateLimit(`login:${ip}`, 10, 15 * 60 * 1000);
+      await checkRateLimit(`login:${ip}`, 10, 15 * 60 * 1000);
       return errorResponse("AUTH_FAILED", "Invalid username or password", 401);
     }
 
@@ -103,7 +105,7 @@ export async function POST(request: NextRequest) {
           tokenHash: hashToken(token),
           deviceInfo: parseUserAgent(userAgent),
           ipAddress,
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+          expiresAt: new Date(Date.now() + getJwtExpiryMs()),
         },
       });
     } catch (sessionError) {
@@ -122,6 +124,7 @@ export async function POST(request: NextRequest) {
         cityName: user.city?.name || null,
         countryId: user.city?.countryId || null,
         countryName: user.city?.country?.name || null,
+        currencies: user.city?.cityCurrencies.map((cc) => cc.currency) || [],
       },
     });
 
@@ -129,7 +132,7 @@ export async function POST(request: NextRequest) {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 60 * 60 * 24, // 24 hours
+      maxAge: getJwtExpirySeconds(),
       path: "/",
     });
 

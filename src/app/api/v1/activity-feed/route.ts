@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { withSuperAdmin, getCityScope } from "@/lib/middleware";
 import { successResponse, serverError, getPaginationParams } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { sanitizeAuditSnapshot } from "@/lib/audit-snapshot-sanitize";
 
 export const GET = withSuperAdmin(async (request: NextRequest, context, user: JWTPayload) => {
   try {
@@ -98,7 +99,9 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
         id: log.id, user: log.user, city: log.city, action: log.action,
         entityType: log.entityType, entityId: log.entityId,
         entityLabel: entityLabel || log.entityType.replace(/_/g, " "),
-        entityDetail, oldValues: ov, newValues: nv,
+        entityDetail,
+        oldValues: sanitizeAuditSnapshot(ov),
+        newValues: sanitizeAuditSnapshot(nv),
         createdAt: log.createdAt.toISOString(),
       };
     });

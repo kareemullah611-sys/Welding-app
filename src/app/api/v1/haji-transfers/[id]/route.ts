@@ -10,8 +10,10 @@ import {
   isAfghanistanHajiSettlementEligible,
   isHajiTransferAuditConfirmed,
 } from "@/lib/haji-transfer-audit";
-
-const PAKISTAN_HAJI_TARGET = "Super Admin Account";
+import {
+  resolvePakistanDestinationAccount,
+  transferredToLabelForPakistanDestination,
+} from "@/lib/pakistan-haji-destination";
 
 function journalInputFromTransfer(transfer: any, createdBy: number) {
   return {
@@ -27,6 +29,7 @@ function journalInputFromTransfer(transfer: any, createdBy: number) {
     settlementDestination: transfer.settlementDestination ?? "standard",
     intermediaryId: transfer.intermediaryId ?? null,
     superAdminCashAccountId: transfer.superAdminCashAccountId ?? null,
+    superAdminBankAccountId: transfer.superAdminBankAccountId ?? null,
   };
 }
 
@@ -44,6 +47,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     }
 
     const isAfghanistan = h.city.country?.name === "Afghanistan";
+    const isPakistan = h.city.country?.name === "Pakistan";
     const auditEligible = isAfghanistanHajiSettlementEligible(h);
 
     if (body.action === "set_haji_audit") {
@@ -89,16 +93,46 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       return errorResponse("FORBIDDEN", "Cannot edit a settlement after audit confirmation", 403);
     }
 
+    if ((h as any).chequePaymentId && body.amount !== undefined && Number(body.amount) !== Number(h.amount)) {
+      return errorResponse("VALIDATION_ERROR", "Cannot change the amount of a transfer that was funded by a cheque");
+    }
+
     if (isAfghanistan && body.sourceType && body.sourceType !== "cash_office") {
       return errorResponse("VALIDATION_ERROR", "Afghanistan city Haji transfers can only use office cash");
     }
 
-    let transferredTo = h.city.country?.name === "Pakistan"
-      ? PAKISTAN_HAJI_TARGET
-      : (body.transferredTo !== undefined ? body.transferredTo : h.transferredTo);
-    let settlementDestination = h.settlementDestination;
+    let transferredTo = body.transferredTo !== undefined ? body.transferredTo : h.transferredTo;
+    let settlementDestination = h.settlementDestination ?? "standard";
     let intermediaryId = h.intermediaryId;
     let superAdminCashAccountId = h.superAdminCashAccountId;
+    let superAdminBankAccountId = h.superAdminBankAccountId;
+
+    if (isPakistan) {
+      const hasDestinationUpdate =
+        body.superAdminDestinationAccountId != null
+        || body.transferredTo !== undefined;
+      if (hasDestinationUpdate) {
+        const pakistanDestination = await resolvePakistanDestinationAccount(
+          body.superAdminDestinationAccountId,
+          body.transferredTo ?? h.transferredTo,
+        );
+        if (pakistanDestination.settlementDestination === "super_admin_cash") {
+          settlementDestination = "super_admin_cash";
+          superAdminCashAccountId = pakistanDestination.superAdminCashAccountId ?? null;
+          superAdminBankAccountId = null;
+        } else if (pakistanDestination.superAdminBankAccountId) {
+          settlementDestination = "standard";
+          superAdminBankAccountId = pakistanDestination.superAdminBankAccountId;
+          superAdminCashAccountId = null;
+        }
+        transferredTo = await transferredToLabelForPakistanDestination(
+          pakistanDestination,
+          body.transferredTo ?? h.transferredTo,
+        );
+      } else {
+        transferredTo = h.transferredTo;
+      }
+    }
 
     if (isAfghanistan) {
       const settlement = await resolveAfghanistanSettlement(prisma, {
@@ -129,9 +163,13 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           amount: body.amount || h.amount,
           detail: body.detail || h.detail,
           transferredTo,
+          ...(body.referenceNo !== undefined
+            ? { referenceNo: typeof body.referenceNo === "string" && body.referenceNo.trim() ? body.referenceNo.trim() : null }
+            : {}),
           settlementDestination,
           intermediaryId,
           superAdminCashAccountId,
+          superAdminBankAccountId,
           notes: body.notes !== undefined ? body.notes : h.notes,
           updatedAt: new Date(),
         },

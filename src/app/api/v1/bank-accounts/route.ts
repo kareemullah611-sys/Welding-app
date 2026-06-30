@@ -61,8 +61,26 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           _sum: { amount: true },
         }),
       ]);
+      let incomingHajiBankRows: { superAdminBankAccountId: number; currencyId: number; amount: unknown }[] = [];
+      try {
+        const rows = await prisma.hajiTransfer.findMany({
+          where: { superAdminBankAccountId: { not: null } },
+          select: { superAdminBankAccountId: true, currencyId: true, amount: true },
+        });
+        incomingHajiBankRows = rows.flatMap((row) =>
+          row.superAdminBankAccountId
+            ? [{ superAdminBankAccountId: row.superAdminBankAccountId, currencyId: row.currencyId, amount: row.amount }]
+            : []
+        );
+      } catch (hajiBankAggError) {
+        console.error("Haji transfer bank account aggregation failed (run db bootstrap):", hajiBankAggError);
+      }
       const incomingMap = new Map<string, number>();
       for (const row of incomingHajiPayments) incomingMap.set(`${row.superAdminBankAccountId}:${row.currencyId}`, Number(row._sum.amount || 0));
+      for (const row of incomingHajiBankRows) {
+        const key = `${row.superAdminBankAccountId}:${row.currencyId}`;
+        incomingMap.set(key, (incomingMap.get(key) || 0) + Number(row.amount || 0));
+      }
       const expenseMap = new Map<number, number>();
       for (const row of expenses) expenseMap.set(row.bankAccountId, Number(row._sum.amount || 0));
       const intermediaryMap = new Map<string, number>();

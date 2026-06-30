@@ -20,6 +20,8 @@ function readConfiguredUrl() {
 const REMOTE_URL = process.env.ELECTRON_START_URL || readConfiguredUrl() || "http://localhost:3000";
 const STATIC_DIR = path.resolve(path.join(__dirname, "..", "out"));
 
+const { getSecurityHeaders } = require("../scripts/security-headers.cjs");
+
 const MIME_TYPES = {
   ".html": "text/html",
   ".js": "application/javascript",
@@ -63,6 +65,14 @@ function resolveStaticFile(pathname) {
   return filePath;
 }
 
+function buildResponseHeaders(contentType) {
+  const headers = { "Content-Type": contentType, "Cache-Control": "no-cache" };
+  for (const h of getSecurityHeaders({ isProduction: false })) {
+    headers[h.key] = h.value;
+  }
+  return headers;
+}
+
 function serveStatic(res, filePath) {
   const ext = path.extname(filePath).toLowerCase();
   const contentType = MIME_TYPES[ext] || "application/octet-stream";
@@ -71,16 +81,16 @@ function serveStatic(res, filePath) {
     if (err) {
       fs.readFile(path.join(STATIC_DIR, "index.html"), (err2, fallback) => {
         if (err2) {
-          res.writeHead(404, { "Content-Type": "text/plain" });
+          res.writeHead(404, buildResponseHeaders("text/plain"));
           res.end("Not Found");
           return;
         }
-        res.writeHead(200, { "Content-Type": "text/html", "Cache-Control": "no-cache" });
+        res.writeHead(200, buildResponseHeaders("text/html"));
         res.end(fallback);
       });
       return;
     }
-    res.writeHead(200, { "Content-Type": contentType, "Cache-Control": "no-cache" });
+    res.writeHead(200, buildResponseHeaders(contentType));
     res.end(data);
   });
 }
@@ -211,7 +221,7 @@ const ALLOWED_API_PREFIXES = [
   "/api/v1/activity-feed", "/api/v1/search", "/api/v1/sessions",
   "/api/v1/users", "/api/v1/finance/", "/api/v1/financial-reports", "/api/v1/city-ledger",
   "/api/v1/profit-report", "/api/v1/analytics", "/api/v1/reports/",
-  "/api/v1/discounts", "/api/v1/admin-cleanup", "/api/health", "/api/ping", "/api/v1/upload",
+  "/api/v1/discounts", "/api/health", "/api/ping", "/api/v1/upload",
   "/api/v1/cheques", "/api/v1/godown-permissions",
 ];
 

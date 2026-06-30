@@ -17,6 +17,7 @@ import {
   formatExportDateShort,
   type ExportPayload,
 } from "@/lib/report-export-helpers";
+import { formatCustomerLedgerPaymentDetail } from "@/lib/customer-ledger-detail";
 
 const fmtAmount = (value: number | string) => {
   const numeric = Number(value || 0);
@@ -264,7 +265,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           type: "payment",
           date: p.paymentDate,
           voucherNo: p.manualVoucherNo || "-",
-          detail: p.detail,
+          detail: formatCustomerLedgerPaymentDetail(p),
           perCartonPrice: "-",
           debit: 0,
           credit: p.status === "active" ? Number(p.amount) : 0,
@@ -304,7 +305,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           formatStatus(t.status),
         ]);
       }
-      payload = { title, meta, headers, rows: dataRows };
+      payload = { title, meta, headers, rows: dataRows.reverse() };
     } else if (type === "ledger") {
       if (!cityId) return new Response("city_id required for ledger export", { status: 400 });
       const { title, meta } = buildExportMeta("City Ledger Report", city?.name, dateFrom, dateTo, search.rawQuery);

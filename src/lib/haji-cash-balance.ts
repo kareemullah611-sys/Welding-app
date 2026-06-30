@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma";
+import { formatSuperAdminBankLabel } from "@/lib/haji-transfer-detail";
 
 function round2(n: number) {
   return Math.round(n * 100) / 100;
@@ -26,6 +27,7 @@ export async function getSuperAdminCashAccountBalance(cashAccountId: number): Pr
   const { account } = checked;
   const currencyId = account.currencyId;
   const currencyCode = String(account.currency.code || "").toUpperCase();
+  const accountLabel = formatSuperAdminBankLabel(account);
 
   const [
     hajiIn,
@@ -37,9 +39,18 @@ export async function getSuperAdminCashAccountBalance(cashAccountId: number): Pr
   ] = await Promise.all([
     prisma.hajiTransfer.aggregate({
       where: {
-        superAdminCashAccountId: cashAccountId,
-        settlementDestination: "super_admin_cash",
         currencyId,
+        OR: [
+          {
+            superAdminCashAccountId: cashAccountId,
+            settlementDestination: "super_admin_cash",
+          },
+          {
+            superAdminCashAccountId: null,
+            superAdminBankAccountId: null,
+            transferredTo: accountLabel,
+          },
+        ],
       },
       _sum: { amount: true },
     }),

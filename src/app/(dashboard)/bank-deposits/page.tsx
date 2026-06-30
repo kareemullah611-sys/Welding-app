@@ -74,6 +74,9 @@ function applyQueuedMutationsToBankDeposits(baseRows: any[], queueItems: any[], 
 export default function BankDepositsPage() {
   const { user } = useAuth();
   const { t } = useLang();
+  const isPakistanCity = user?.role === "city_admin" && user?.countryName === "Pakistan";
+  const isSuperAdmin = user?.role === "super_admin";
+  const moduleTitle = isPakistanCity ? "Inter Funds Transfer" : t("bank_deposits");
   const { isOnline, enqueue, lastSyncResult, queuedItems, updateQueuedItem, retryQueuedItem, syncQueue } = useOffline();
   const searchParams = useSearchParams();
   const [deposits, setDeposits] = useState<any[]>([]);
@@ -154,7 +157,7 @@ export default function BankDepositsPage() {
           getOfflineFormReadinessError({
             isOnline,
             currencyCount: 0,
-            moduleTitle: "Bank Deposit",
+            moduleTitle: isPakistanCity ? "Inter Funds Transfer" : "Bank Deposit",
           }) || "Offline setup missing",
         );
         setShowCreate(true);
@@ -365,9 +368,9 @@ export default function BankDepositsPage() {
   return (
     <div>
       <PageHeader
-        title={t("bank_deposits")}
+        title={moduleTitle}
         action={user?.role === "city_admin" ? (
-          <button onClick={() => { void openCreate(); }} className="btn-primary text-sm">+ New Deposit Slip</button>
+          <button onClick={() => { void openCreate(); }} className="btn-primary text-sm">{isPakistanCity ? "+ New Transfer" : "+ New Deposit Slip"}</button>
         ) : undefined}
       />
       {showOfflineSnapshot && (
@@ -392,7 +395,7 @@ export default function BankDepositsPage() {
       ) : deposits.length === 0 ? (
         <div className="text-center py-16 text-gray-400">
           <p className="text-3xl mb-2">🏦</p>
-          <p className="text-sm">No deposit slips yet</p>
+          <p className="text-sm">{isPakistanCity ? "No inter funds transfers yet" : "No deposit slips yet"}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -471,7 +474,7 @@ export default function BankDepositsPage() {
       )}
 
       {/* CREATE MODAL */}
-      <Modal open={showCreate} onClose={() => setShowCreate(false)} title="New Bank Deposit Slip" size="md">
+      <Modal open={showCreate} onClose={() => setShowCreate(false)} title={isPakistanCity ? "New Inter Funds Transfer" : "New Bank Deposit Slip"} size="md">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
@@ -611,10 +614,12 @@ export default function BankDepositsPage() {
             </div>
           )}
 
+          {!isSuperAdmin && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")} <span className="text-gray-400 font-normal">(optional)</span></label>
             <input value={form.notes} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" />
           </div>
+          )}
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
           <button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button>

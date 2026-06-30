@@ -31,7 +31,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           g.city_id,
           c.name                                   AS city_name,
           lcga.qty                                 AS qty_in,
-          0                                        AS qty_out
+          0                                        AS qty_out,
+          NULL::text                               AS customer_name
         FROM lot_city_godown_allocations lcga
         JOIN lot_city_distributions lcd ON lcd.id = lcga.lot_city_distribution_id
         JOIN lots l    ON l.id  = lcd.lot_id
@@ -53,12 +54,14 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           g.city_id,
           c.name                                   AS city_name,
           0                                        AS qty_in,
-          si.qty                                   AS qty_out
+          si.qty                                   AS qty_out,
+          cu.name                                  AS customer_name
         FROM sale_items si
         JOIN sales s   ON s.id  = si.sale_id AND s.status IN ('active','marked_short')
         JOIN products p ON p.id = si.product_id
         JOIN godowns g  ON g.id = s.godown_id
         JOIN cities c   ON c.id = g.city_id
+        LEFT JOIN customers cu ON cu.id = s.customer_id
 
         UNION ALL
 
@@ -74,7 +77,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           gf.city_id,
           c.name                                   AS city_name,
           0                                        AS qty_in,
-          gt.qty                                   AS qty_out
+          gt.qty                                   AS qty_out,
+          NULL::text                               AS customer_name
         FROM godown_transfers gt
         JOIN products p ON p.id = gt.product_id
         JOIN godowns gf ON gf.id = gt.from_godown_id
@@ -94,7 +98,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           gt2.city_id,
           c.name                                   AS city_name,
           gt.qty                                   AS qty_in,
-          0                                        AS qty_out
+          0                                        AS qty_out,
+          NULL::text                               AS customer_name
         FROM godown_transfers gt
         JOIN products p  ON p.id  = gt.product_id
         JOIN godowns gt2 ON gt2.id = gt.to_godown_id
@@ -114,7 +119,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           gf.city_id,
           c.name                                   AS city_name,
           0                                        AS qty_in,
-          ct.qty                                   AS qty_out
+          ct.qty                                   AS qty_out,
+          NULL::text                               AS customer_name
         FROM city_transfers ct
         JOIN products p ON p.id  = ct.product_id
         JOIN godowns gf ON gf.id = ct.from_godown_id
@@ -135,7 +141,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           gr.city_id,
           c.name                                   AS city_name,
           ct.qty                                   AS qty_in,
-          0                                        AS qty_out
+          0                                        AS qty_out,
+          NULL::text                               AS customer_name
         FROM city_transfers ct
         JOIN products p ON p.id  = ct.product_id
         JOIN godowns gr ON gr.id = ct.to_godown_id
@@ -160,7 +167,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         AND (${cityId}::int IS NULL OR city_id = ${cityId})
         AND (${dateFrom}::date IS NULL OR date >= ${dateFrom}::date)
         AND (${dateTo}::date IS NULL OR date <= ${dateTo}::date)
-      ORDER BY date ASC, reference ASC, type ASC
+      ORDER BY date DESC, reference DESC, type DESC
       LIMIT 500
     `;
 
@@ -176,6 +183,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       qtyIn:       Math.round(Number(r.qty_in)  * 100) / 100,
       qtyOut:      Math.round(Number(r.qty_out) * 100) / 100,
       runningStock: Math.round(Number((r as any).running_stock || 0) * 100) / 100,
+      customerName: r.customer_name || null,
     })));
   } catch (error) {
     console.error("Stock ledger error:", error);

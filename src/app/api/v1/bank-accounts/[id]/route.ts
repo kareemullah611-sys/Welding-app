@@ -5,6 +5,7 @@ import { successResponse, errorResponse, serverError } from "@/lib/api-response"
 import { JWTPayload } from "@/lib/auth";
 import { finalizeLedgerForDisplay } from "@/lib/ledger-display";
 import { getLedgerPaginationParams, paginateList } from "@/lib/pagination";
+import { formatSuperAdminBankLabel } from "@/lib/haji-transfer-detail";
 
 type LedgerRow = {
   key: string;
@@ -59,6 +60,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
 
       if (account.accountKind === "cash") {
         const currencyCode = String(account.currency.code || "").toUpperCase();
+        const accountLabel = formatSuperAdminBankLabel(account);
         const [
           hajiTransfersIn,
           cashReceipts,
@@ -69,9 +71,18 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         ] = await Promise.all([
           prisma.hajiTransfer.findMany({
             where: {
-              superAdminCashAccountId: id,
-              settlementDestination: "super_admin_cash",
               currencyId: account.currencyId,
+              OR: [
+                {
+                  superAdminCashAccountId: id,
+                  settlementDestination: "super_admin_cash",
+                },
+                {
+                  superAdminCashAccountId: null,
+                  superAdminBankAccountId: null,
+                  transferredTo: accountLabel,
+                },
+              ],
             },
             include: {
               city: { select: { name: true } },
@@ -199,7 +210,9 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         }, rows);
       }
 
-      const [incomingHajiPayments, expenses, intermediaryDeposits, lotCosts] = await Promise.all([
+      const accountLabel = formatSuperAdminBankLabel(account);
+      const currencyCode = String(account.currency.code || "").toUpperCase();
+      const [incomingHajiPayments, hajiTransfersIn, expenses, intermediaryDeposits, lotCosts, supplierPayments] = await Promise.all([
         prisma.payment.findMany({
           where: {
             superAdminBankAccountId: id,
@@ -216,6 +229,23 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
             currency: { select: { code: true } },
           },
           orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
+        }),
+        prisma.hajiTransfer.findMany({
+          where: {
+            OR: [
+              { superAdminBankAccountId: id },
+              {
+                superAdminBankAccountId: null,
+                superAdminCashAccountId: null,
+                transferredTo: accountLabel,
+              },
+            ],
+          },
+          include: {
+            city: { select: { name: true } },
+            currency: { select: { code: true } },
+          },
+          orderBy: [{ transferDate: "asc" }, { createdAt: "asc" }],
         }),
         prisma.superAdminPersonalExpense.findMany({
           where: { bankAccountId: id, deletedAt: null },
@@ -239,6 +269,11 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           include: { lot: { select: { lotNumber: true } } },
           orderBy: [{ costDate: "asc" }, { createdAt: "asc" }],
         }),
+        prisma.supplierPayment.findMany({
+          where: { superAdminBankAccountId: id },
+          include: { supplier: { select: { name: true } }, lot: { select: { lotNumber: true } } },
+          orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
+        }),
       ]);
 
       const rows: LedgerRow[] = [];
@@ -252,6 +287,19 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           reference: p.manualVoucherNo || null,
           currencyCode: p.currency.code,
           credit: Number(p.amount),
+          debit: 0,
+        });
+      }
+      for (const t of hajiTransfersIn) {
+        rows.push({
+          key: `ht-${t.id}`,
+          date: new Date(t.transferDate),
+          createdAt: new Date(t.createdAt),
+          type: "Haji Transfer",
+          detail: `${t.city?.name || "City"} — ${t.detail || "Transfer"}`,
+          reference: t.referenceNo || null,
+          currencyCode: t.currency.code,
+          credit: Number(t.amount),
           debit: 0,
         });
       }
@@ -293,6 +341,20 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           currencyCode: account.currency.code,
           credit: 0,
           debit: Number(c.amount),
+        });
+      }
+      for (const p of supplierPayments) {
+        const debit = Number(p.amountLocal || 0) > 0 ? Number(p.amountLocal) : Number(p.amountUsd);
+        rows.push({
+          key: `sp-${p.id}`,
+          date: new Date(p.paymentDate),
+          createdAt: new Date(p.createdAt),
+          type: "Send — Supplier",
+          detail: `${p.supplier.name}${p.lot?.lotNumber ? ` (${p.lot.lotNumber})` : ""}`,
+          reference: p.reference || null,
+          currencyCode,
+          credit: 0,
+          debit,
         });
       }
 

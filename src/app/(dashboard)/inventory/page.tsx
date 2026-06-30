@@ -18,6 +18,7 @@ import {
   formatStockMovementType,
   stockMovementTypeClass,
 } from "@/lib/stock-movement-display";
+import { shouldSimplifyCityModals } from "@/lib/quickform-embed";
 
 const INVENTORY_READ_CACHE_KEY = "mrf-inventory-read-cache-v1";
 const CITY_TRANSFER_FORM_CACHE_KEY = "mrf-city-transfers-form-cache-v1";
@@ -653,6 +654,7 @@ export default function InventoryPage() {
   }
 
   const isCityAdmin = user?.role === "city_admin";
+  const simplifyCityUI = shouldSimplifyCityModals(user, false);
 
   const inventorySummaryRows = user?.role === "super_admin"
     ? [
@@ -903,17 +905,33 @@ export default function InventoryPage() {
           <p className="py-8 text-center text-sm text-gray-400">No stock movements found for the selected filters.</p>
         ) : (
           <div className="module-scroll-x rounded-xl border border-gray-200">
-            <table className="w-full min-w-[880px] text-sm">
+            <table className={`w-full text-sm ${simplifyCityUI ? "min-w-[980px]" : "min-w-[880px]"}`}>
               <thead className="border-b border-gray-200 bg-gray-50/90">
                 <tr>
-                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Date</th>
-                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Type</th>
-                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Ref. No.</th>
-                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Product</th>
-                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Godown</th>
-                  <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Qty In</th>
-                  <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-red-600">Qty Out</th>
-                  <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-600">Balance</th>
+                  {simplifyCityUI ? (
+                    <>
+                      <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Ref. No.</th>
+                      <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Date</th>
+                      <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Type</th>
+                      <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Product</th>
+                      <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Qty In</th>
+                      <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-red-600">Qty Out</th>
+                      <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-600">Balance</th>
+                      <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Godown</th>
+                      <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("customer")}</th>
+                    </>
+                  ) : (
+                    <>
+                      <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Date</th>
+                      <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Type</th>
+                      <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Ref. No.</th>
+                      <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Product</th>
+                      <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">Godown</th>
+                      <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Qty In</th>
+                      <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-red-600">Qty Out</th>
+                      <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-600">Balance</th>
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -921,18 +939,38 @@ export default function InventoryPage() {
                   const movementType = formatStockMovementType(row.type);
                   return (
                   <tr key={`${row.reference}-${index}`} className="hover:bg-gray-50/60">
-                    <td className="whitespace-nowrap px-3 py-2.5 text-gray-700">{formatInventoryDate(row.date)}</td>
-                    <td className="px-3 py-2.5">
-                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${stockMovementTypeClass[movementType.tone]}`}>
-                        {movementType.label}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2.5 font-mono text-xs text-gray-600">{row.reference || "—"}</td>
-                    <td className="px-3 py-2.5 text-gray-800">{row.productName}</td>
-                    <td className="px-3 py-2.5 text-gray-700">{row.godownName}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700">{row.qtyIn ? formatNumber(row.qtyIn) : "—"}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums text-red-600">{row.qtyOut ? formatNumber(row.qtyOut) : "—"}</td>
-                    <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-gray-900">{formatNumber(row.runningStock || 0)}</td>
+                    {simplifyCityUI ? (
+                      <>
+                        <td className="px-3 py-2.5 font-mono text-xs text-gray-600">{row.reference || "—"}</td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-gray-700">{formatInventoryDate(row.date)}</td>
+                        <td className="px-3 py-2.5">
+                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${stockMovementTypeClass[movementType.tone]}`}>
+                            {movementType.label}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-gray-800">{row.productName}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700">{row.qtyIn ? formatNumber(row.qtyIn) : "—"}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-red-600">{row.qtyOut ? formatNumber(row.qtyOut) : "—"}</td>
+                        <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-gray-900">{formatNumber(row.runningStock || 0)}</td>
+                        <td className="px-3 py-2.5 text-gray-700">{row.godownName}</td>
+                        <td className="px-3 py-2.5 text-gray-700">{row.customerName || "—"}</td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-gray-700">{formatInventoryDate(row.date)}</td>
+                        <td className="px-3 py-2.5">
+                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${stockMovementTypeClass[movementType.tone]}`}>
+                            {movementType.label}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 font-mono text-xs text-gray-600">{row.reference || "—"}</td>
+                        <td className="px-3 py-2.5 text-gray-800">{row.productName}</td>
+                        <td className="px-3 py-2.5 text-gray-700">{row.godownName}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700">{row.qtyIn ? formatNumber(row.qtyIn) : "—"}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-red-600">{row.qtyOut ? formatNumber(row.qtyOut) : "—"}</td>
+                        <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-gray-900">{formatNumber(row.runningStock || 0)}</td>
+                      </>
+                    )}
                   </tr>
                   );
                 })}
@@ -1081,9 +1119,11 @@ export default function InventoryPage() {
           </div>
         ) : (
           <>
+            {!simplifyCityUI && (
             <div className="mb-3 p-3 bg-blue-50 rounded-lg text-sm text-blue-800">
               Move stock between your godowns without using the city transfer workflow.
             </div>
+            )}
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
@@ -1110,45 +1150,87 @@ export default function InventoryPage() {
                   </select>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("product")} *</label>
-                  <select value={transferForm.productId} onChange={e => setTransferForm((f) => ({ ...f, productId: parseInt(e.target.value) }))} className="select-field">
-                    <option value={0}>{t("select")}</option>
-                    {productList.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Lot</label>
-                  <select value={transferForm.lotId} onChange={e => setTransferForm((f) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
-                    <option value={0}>Auto-select FIFO lot</option>
-                    {lots.filter((lot: any) => lot.status === "ongoing").map((lot: any) => <option key={lot.id} value={lot.id}>{lot.lotNumber}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">{t("qty")} *</label>
-                <input
-                  type="number"
-                  min="0.01"
-                  value={transferForm.qty || ""}
-                  onChange={e => setTransferForm((f) => ({ ...f, qty: parseFloat(e.target.value) || 0 }))}
-                  className="input-field"
-                  onWheel={e => e.currentTarget.blur()}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
-                <input
-                  value={transferForm.notes}
-                  onChange={e => setTransferForm((f) => ({ ...f, notes: e.target.value }))}
-                  className="input-field"
-                />
-              </div>
+              {simplifyCityUI ? (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t("product")} *</label>
+                    <select value={transferForm.productId} onChange={e => setTransferForm((f) => ({ ...f, productId: parseInt(e.target.value) }))} className="select-field">
+                      <option value={0}>{t("select")}</option>
+                      {productList.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t("qty")} *</label>
+                    <input
+                      type="number"
+                      min="0.01"
+                      value={transferForm.qty || ""}
+                      onChange={e => setTransferForm((f) => ({ ...f, qty: parseFloat(e.target.value) || 0 }))}
+                      className="input-field"
+                      onWheel={e => e.currentTarget.blur()}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Lot</label>
+                      <select value={transferForm.lotId} onChange={e => setTransferForm((f) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
+                        <option value={0}>Auto-select FIFO lot</option>
+                        {lots.filter((lot: any) => lot.status === "ongoing").map((lot: any) => <option key={lot.id} value={lot.id}>{lot.lotNumber}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
+                      <input
+                        value={transferForm.notes}
+                        onChange={e => setTransferForm((f) => ({ ...f, notes: e.target.value }))}
+                        className="input-field"
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">{t("product")} *</label>
+                      <select value={transferForm.productId} onChange={e => setTransferForm((f) => ({ ...f, productId: parseInt(e.target.value) }))} className="select-field">
+                        <option value={0}>{t("select")}</option>
+                        {productList.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Lot</label>
+                      <select value={transferForm.lotId} onChange={e => setTransferForm((f) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
+                        <option value={0}>Auto-select FIFO lot</option>
+                        {lots.filter((lot: any) => lot.status === "ongoing").map((lot: any) => <option key={lot.id} value={lot.id}>{lot.lotNumber}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t("qty")} *</label>
+                    <input
+                      type="number"
+                      min="0.01"
+                      value={transferForm.qty || ""}
+                      onChange={e => setTransferForm((f) => ({ ...f, qty: parseFloat(e.target.value) || 0 }))}
+                      className="input-field"
+                      onWheel={e => e.currentTarget.blur()}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
+                    <input
+                      value={transferForm.notes}
+                      onChange={e => setTransferForm((f) => ({ ...f, notes: e.target.value }))}
+                      className="input-field"
+                    />
+                  </div>
+                </>
+              )}
             </div>
             <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
               <button onClick={handleInterGodownTransfer} disabled={transferSubmitting} className="btn-primary text-sm">
-                {transferSubmitting ? "..." : "Transfer Stock"}
+                {transferSubmitting ? "..." : simplifyCityUI ? "Transfer" : "Transfer Stock"}
               </button>
             </div>
           </>

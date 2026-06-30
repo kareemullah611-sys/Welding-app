@@ -16,17 +16,18 @@ export async function GET() {
       latencyMs: Date.now() - startedAt,
     });
   } catch (error) {
-    return NextResponse.json(
-      {
-        ok: false,
-        service: "welding-app",
-        uptimeSec: Math.floor(process.uptime()),
-        db: "down",
-        checkedAt: new Date().toISOString(),
-        latencyMs: Date.now() - startedAt,
-        error: error instanceof Error ? error.message : "Database unavailable",
-      },
-      { status: 503 },
-    );
+    console.error("Health check failed:", error);
+    const body: Record<string, unknown> = {
+      ok: false,
+      service: "welding-app",
+      uptimeSec: Math.floor(process.uptime()),
+      db: "down",
+      checkedAt: new Date().toISOString(),
+      latencyMs: Date.now() - startedAt,
+    };
+    if (process.env.NODE_ENV !== "production") {
+      body.error = error instanceof Error ? error.message : "Database unavailable";
+    }
+    return NextResponse.json(body, { status: 503 });
   }
 }

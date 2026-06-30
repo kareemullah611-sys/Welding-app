@@ -4,7 +4,8 @@ import { withAuth, getCityScope } from "@/lib/middleware";
 import { successResponse, paginatedResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { getPaymentHajiAuditStateMap, isHajiAuditEligible } from "@/lib/payment-audit";
-import { computeCityTreasuryNet, computeRunningBalances, buildPaymentCancellationReversalRow } from "@/lib/treasury-ledger";
+import { computeCityTreasuryNet, computeRunningBalances, computeSuperAdminRunningBalances, buildPaymentCancellationReversalRow } from "@/lib/treasury-ledger";
+import { formatPaymentModuleDetail, formatSuperAdminPaymentDetail } from "@/lib/payment-module-detail";
 
 export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayload) => {
   try {
@@ -54,6 +55,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
     };
 
     const cityWhere = cityId ? { cityId } : {};
+    const isSuperAdminHajiView = user.role === "super_admin" && destinationFilter === "haji";
 
     let combined: any[] = [];
 
@@ -108,7 +110,19 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           id: p.id,
           type: "payment",
           date: p.paymentDate.toISOString().split("T")[0],
-          detail: p.detail,
+          detail: isSuperAdminHajiView && p.destination === "haji"
+            ? formatSuperAdminPaymentDetail({
+                paymentMethod: p.paymentMethod,
+                superAdminBankAccount: (p as any).superAdminBankAccount,
+              })
+            : formatPaymentModuleDetail({
+            paymentMethod: p.paymentMethod,
+            destination: p.destination,
+            manualVoucherNo: p.manualVoucherNo,
+            chequeNumber: (p as any).chequeNumber,
+            bankAccount: (p as any).bankAccount,
+            superAdminBankAccount: (p as any).superAdminBankAccount,
+          }),
           amount: Number(p.amount),
           currencySymbol: p.currency.symbol,
           currencyCode: p.currency.code,
@@ -134,7 +148,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
     }
 
     // ── Expenses ──────────────────────────────────────────────────────────────
-    if ((typeFilter === "all" || typeFilter === "expense") && !(user.role === "super_admin" && destinationFilter === "haji")) {
+    if ((typeFilter === "all" || typeFilter === "expense") && !isSuperAdminHajiView) {
       const expenses = await prisma.expense.findMany({
         where: {
           ...cityWhere,
@@ -180,7 +194,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
     }
 
     // ── Haji Transfers ────────────────────────────────────────────────────────
-    if ((typeFilter === "all" || typeFilter === "haji_transfer") && !(user.role === "super_admin" && destinationFilter === "haji")) {
+    if (typeFilter === "all" || typeFilter === "haji_transfer" || isSuperAdminHajiView) {
       const hajis = await prisma.hajiTransfer.findMany({
         where: {
           ...cityWhere,
@@ -204,6 +218,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         include: {
           currency: { select: { id: true, code: true, symbol: true } },
           lot: { select: { id: true, lotNumber: true } },
+          city: { select: { id: true, name: true } },
         },
         orderBy: [{ transferDate: "desc" }, { id: "desc" }],
       });
@@ -216,18 +231,20 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         currencySymbol: h.currency.symbol,
         currencyCode: h.currency.code,
         person: h.transferredTo ?? null,
+        cityName: h.city?.name ?? null,
         status: null,
         raw: {
           ...h,
           amount: Number(h.amount),
           lotNumber: h.lot?.lotNumber ?? null,
+          referenceNo: h.referenceNo ?? null,
           attachments: (h as any).attachments ?? [],
         },
       })));
     }
 
     // ── Personal Withdrawals ──────────────────────────────────────────────────
-    if ((typeFilter === "all" || typeFilter === "withdrawal") && !(user.role === "super_admin" && destinationFilter === "haji")) {
+    if ((typeFilter === "all" || typeFilter === "withdrawal") && !isSuperAdminHajiView) {
       const withdrawals = await prisma.personalWithdrawal.findMany({
         where: {
           ...cityWhere,
@@ -280,7 +297,9 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
       openingCashByCurrency[code] = (openingCashByCurrency[code] || 0) + Number(row.amount || 0);
     }
 
-    const { itemsWithBalance } = computeRunningBalances(combined, openingCashByCurrency);
+    const { itemsWithBalance } = isSuperAdminHajiView
+      ? computeSuperAdminRunningBalances(combined)
+      : computeRunningBalances(combined, openingCashByCurrency);
     const balanceById = new Map(itemsWithBalance.map((item) => [`${item.type}:${item.id}`, item.runningBalance]));
     combined = combined.map((item) => ({
       ...item,

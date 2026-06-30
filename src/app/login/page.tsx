@@ -12,7 +12,7 @@ import { EmbedAuthRecovery } from "@/components/quickform/EmbedAuthRecovery";
 const SLIDE_INTERVAL = 5000;
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, user, loading } = useAuth();
   const router = useRouter();
   const { t, dir } = useLang();
   const [isElectron, setIsElectron] = useState(false);
@@ -25,6 +25,12 @@ export default function LoginPage() {
 
   const hasPhotos = LOGIN_PHOTOS.length > 0;
   const [currentIdx, setCurrentIdx] = useState(0);
+
+  useEffect(() => {
+    if (!loading && user) {
+      router.replace("/dashboard");
+    }
+  }, [loading, user, router]);
 
   useEffect(() => {
     setIsElectron(typeof window !== "undefined" && window.platformInfo?.runtime === "electron");

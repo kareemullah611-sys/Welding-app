@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { clearOfflineAuthCache, readOfflineAuthCache, writeOfflineAuthCache, buildOfflinePasswordVerifier, verifyOfflinePassword } from "@/lib/offline-auth-cache";
 import { isPackagedOfflineActive } from "@/lib/offline-cache";
 import { probeServerReachable, setPackagedServerReachable } from "@/lib/offline-reachability";
@@ -79,6 +80,7 @@ async function parseAuthJson(res: Response): Promise<{
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
   const refreshOnlineSession = useCallback(async () => {
     try {
@@ -89,9 +91,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       );
       if (res.ok) {
         const data = await res.json();
-        if (data.success) {
+        if (data.success && data.data) {
           setUser(data.data);
           setPackagedServerReachable(true);
+          return;
+        }
+        if (data.success && data.data == null) {
+          setUser(null);
           return;
         }
       }
@@ -125,7 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (res.ok) {
           const data = await res.json();
-          if (data.success) {
+          if (data.success && data.data) {
             setUser(data.data);
             const storage = typeof window !== "undefined" ? window.localStorage : null;
             const existing = readOfflineAuthCache(storage);
@@ -138,6 +144,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               });
             }
             if (packaged) setPackagedServerReachable(true);
+            setLoading(false);
+            return;
+          }
+          if (data.success && data.data == null) {
+            setUser(null);
             setLoading(false);
             return;
           }
@@ -286,13 +297,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     clearOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
+    setUser(null);
     try {
       await fetch("/api/v1/auth/logout", { method: "POST", credentials: "include" });
     } catch {
       // Keep local logout deterministic even when offline.
     }
-    setUser(null);
-    window.location.href = "/login";
+    router.replace("/login");
   };
 
   // Auto-logout after 30 minutes of inactivity

@@ -338,6 +338,7 @@ export async function journalHajiTransfer(h: {
   settlementDestination?: string | null;
   intermediaryId?: number | null;
   superAdminCashAccountId?: number | null;
+  superAdminBankAccountId?: number | null;
 }, db: DbClient = prisma) {
   let creditAccId: number;
   if (h.sourceType === "cheque") {
@@ -353,6 +354,8 @@ export async function journalHajiTransfer(h: {
     debitAccId = await getIntermediaryAccountId(h.intermediaryId, db);
   } else if (h.settlementDestination === "super_admin_cash" && h.superAdminCashAccountId) {
     debitAccId = await getSuperAdminCashGLAccountId(h.superAdminCashAccountId, db);
+  } else if (h.superAdminBankAccountId) {
+    debitAccId = await getSuperAdminBankGLAccountId(h.superAdminBankAccountId, db);
   } else {
     debitAccId = await getHajiAccountId(db);
   }

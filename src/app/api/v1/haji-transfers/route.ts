@@ -7,12 +7,10 @@ import { successResponse, paginatedResponse, validationError, errorResponse, ser
 import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 import { resolveAfghanistanSettlement } from "@/lib/afghanistan-haji-settlement";
-import {
-  getHajiTransferAuditStateMap,
-  isAfghanistanHajiSettlementEligible,
-} from "@/lib/haji-transfer-audit";
+import { PAKISTAN_HAJI_TARGET, resolvePakistanDestinationAccount } from "@/lib/pakistan-haji-destination";
+import { getHajiTransferAuditStateMap, isAfghanistanHajiSettlementEligible } from "@/lib/haji-transfer-audit";
+import { groupHajiTransferSlipRows } from "@/lib/haji-transfer-slip-group";
 
-const PAKISTAN_HAJI_TARGET = "Super Admin Account";
 const HAJI_TRANSFER_SYNC_MODULE = "haji_transfers.create";
 
 function mapTransferRow(t: any, auditById: Record<number, any>) {
@@ -27,14 +25,18 @@ function mapTransferRow(t: any, auditById: Record<number, any>) {
     transferDate: t.transferDate.toISOString().split("T")[0],
     amount: Number(t.amount),
     detail: t.detail,
+    referenceNo: t.referenceNo ?? null,
     transferType: t.transferType,
     transferredTo: t.transferredTo,
     sourceType: t.sourceType ?? null,
+    chequeCustomerName: t.chequePayment?.customer?.name ?? null,
     settlementDestination,
     intermediaryId: t.intermediaryId ?? null,
     superAdminCashAccountId: t.superAdminCashAccountId ?? null,
+    superAdminBankAccountId: t.superAdminBankAccountId ?? null,
     bankAccountId: t.bankAccountId ?? null,
     chequePaymentId: t.chequePaymentId ?? null,
+    destinationAccount: t.superAdminBankAccount || t.superAdminCashAccount || null,
     notes: t.notes,
     currency: { id: t.currency.id, code: t.currency.code, symbol: t.currency.symbol },
     createdBy: t.creator,
@@ -62,6 +64,7 @@ function journalInputFromTransfer(transfer: any, createdBy: number) {
     settlementDestination: transfer.settlementDestination ?? "standard",
     intermediaryId: transfer.intermediaryId ?? null,
     superAdminCashAccountId: transfer.superAdminCashAccountId ?? null,
+    superAdminBankAccountId: transfer.superAdminBankAccountId ?? null,
   };
 }
 
@@ -132,13 +135,21 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       ];
     }
 
-    const [transfers, directPayments, transferCount, directPaymentsCount] = await Promise.all([
+    const [transfers, directPayments] = await Promise.all([
       prisma.hajiTransfer.findMany({
         where,
         include: {
           lot: { select: { id: true, lotNumber: true, status: true } },
           currency: true,
           creator: { select: { id: true, fullName: true } },
+          chequePayment: {
+            select: {
+              manualVoucherNo: true,
+              customer: { select: { id: true, name: true } },
+            },
+          },
+          superAdminBankAccount: { select: { bankName: true, accountNumber: true } },
+          superAdminCashAccount: { select: { bankName: true, accountNumber: true } },
           attachments: { select: { id: true, fileName: true, filePath: true, fileType: true } },
         },
         orderBy: { transferDate: "desc" },
@@ -152,14 +163,14 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         },
         orderBy: { paymentDate: "desc" },
       }),
-      prisma.hajiTransfer.count({ where }),
-      prisma.payment.count({ where: directPaymentsWhere }),
     ]);
 
     const auditById = await getHajiTransferAuditStateMap(transfers.map((t) => t.id));
 
+    const transferRows = groupHajiTransferSlipRows(transfers.map((t) => mapTransferRow(t, auditById)));
+
     const rows = [
-      ...transfers.map((t) => mapTransferRow(t, auditById)),
+      ...transferRows,
       ...directPayments.map((p) => ({
         id: p.id,
         cityId: p.cityId,
@@ -170,6 +181,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         transferDate: p.paymentDate.toISOString().split("T")[0],
         amount: Number(p.amount),
         detail: p.detail,
+        referenceNo: p.manualVoucherNo ?? null,
         transferType: "customer_direct",
         transferredTo: p.customer?.name || null,
         sourceType: p.paymentMethod,
@@ -181,11 +193,13 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         attachments: [],
       })),
     ].sort((a, b) => {
-      if (b.transferDate !== a.transferDate) return b.transferDate.localeCompare(a.transferDate);
+      const dateA = a.transferDate ?? "";
+      const dateB = b.transferDate ?? "";
+      if (dateB !== dateA) return dateB.localeCompare(dateA);
       return b.id - a.id;
     });
 
-    const total = transferCount + directPaymentsCount;
+    const total = rows.length;
     const pagedRows = rows.slice(skip, skip + limit);
 
     return paginatedResponse(pagedRows, total, page, limit);
@@ -266,11 +280,19 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     ) {
       const transferDate = body.transferDate;
       const detail = typeof body.detail === "string" ? body.detail.trim() : "";
-      const transferredTo = shouldUseSuperAdminTarget ? PAKISTAN_HAJI_TARGET : (typeof body.transferredTo === "string" ? body.transferredTo.trim() : null);
+      const transferredTo = shouldUseSuperAdminTarget
+        ? (typeof body.transferredTo === "string" && body.transferredTo.trim()
+          ? body.transferredTo.trim()
+          : PAKISTAN_HAJI_TARGET)
+        : (typeof body.transferredTo === "string" ? body.transferredTo.trim() : null);
       const notes = typeof body.notes === "string" ? body.notes : undefined;
+      const referenceNo = typeof body.referenceNo === "string" && body.referenceNo.trim() ? body.referenceNo.trim() : undefined;
       const cashAmount = Number(body.cashAmount || 0);
       const currencyId = body.currencyId ? parseInt(body.currencyId) : undefined;
       const lotIdInput = body.lotId ? parseInt(body.lotId) : undefined;
+      const pakistanDestination = shouldUseSuperAdminTarget
+        ? await resolvePakistanDestinationAccount(body.superAdminDestinationAccountId, transferredTo)
+        : {};
       const chequePaymentIds: number[] = Array.isArray(body.chequePaymentIds)
         ? Array.from(new Set(body.chequePaymentIds.map((id: any) => parseInt(id)).filter((id: number) => Number.isFinite(id) && id > 0))) as number[]
         : [];
@@ -334,7 +356,9 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
               transferType: "from_in_hand",
               transferredTo,
               notes,
+              ...(referenceNo ? { referenceNo } : {}),
               sourceType: "cash_office",
+              ...pakistanDestination,
               createdBy: user.userId,
             } as any,
             include: { lot: { select: { id: true, lotNumber: true } }, currency: true, creator: { select: { id: true, fullName: true } } },
@@ -354,6 +378,9 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
             createdBy: user.userId,
             sourceType: cashTransfer.sourceType,
             bankAccountId: (cashTransfer as any).bankAccountId ?? null,
+            settlementDestination: (cashTransfer as any).settlementDestination ?? "standard",
+            superAdminCashAccountId: (cashTransfer as any).superAdminCashAccountId ?? null,
+            superAdminBankAccountId: (cashTransfer as any).superAdminBankAccountId ?? null,
           }, tx);
           created.push(cashTransfer);
         }
@@ -376,8 +403,10 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
               transferType: "direct",
               transferredTo,
               notes,
+              ...(referenceNo ? { referenceNo } : {}),
               sourceType: "cheque",
               chequePaymentId: chequePayment.id,
+              ...pakistanDestination,
               createdBy: user.userId,
             } as any,
             include: { lot: { select: { id: true, lotNumber: true } }, currency: true, creator: { select: { id: true, fullName: true } } },
@@ -397,6 +426,9 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
             createdBy: user.userId,
             sourceType: chequeTransfer.sourceType,
             bankAccountId: (chequeTransfer as any).bankAccountId ?? null,
+            settlementDestination: (chequeTransfer as any).settlementDestination ?? "standard",
+            superAdminCashAccountId: (chequeTransfer as any).superAdminCashAccountId ?? null,
+            superAdminBankAccountId: (chequeTransfer as any).superAdminBankAccountId ?? null,
           }, tx);
           created.push(chequeTransfer);
         }
@@ -438,8 +470,11 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
     const parsed = createHajiTransferSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid data", parsed.error.errors);
-    let { lotId, transferDate, amount, currencyId, detail, transferType, transferredTo, notes } = parsed.data;
-    if (shouldUseSuperAdminTarget) transferredTo = PAKISTAN_HAJI_TARGET;
+    let { lotId, transferDate, amount, currencyId, detail, referenceNo, transferType, transferredTo, notes } = parsed.data;
+    if (shouldUseSuperAdminTarget) {
+      transferredTo = transferredTo?.trim() || PAKISTAN_HAJI_TARGET;
+    }
+    const resolvedReferenceNo = referenceNo?.trim() || (typeof body.referenceNo === "string" && body.referenceNo.trim() ? body.referenceNo.trim() : undefined);
 
     // New source fields
     let sourceType: string = body.sourceType ?? undefined;
@@ -489,6 +524,21 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     let settlementDestination: "standard" | "intermediary" | "super_admin_cash" = "standard";
     let intermediaryId: number | null = null;
     let superAdminCashAccountId: number | null = null;
+    let superAdminBankAccountId: number | null = null;
+
+    if (shouldUseSuperAdminTarget) {
+      const pakistanDestination = await resolvePakistanDestinationAccount(
+        body.superAdminDestinationAccountId,
+        transferredTo,
+      );
+      if (pakistanDestination.settlementDestination === "super_admin_cash") {
+        settlementDestination = "super_admin_cash";
+        superAdminCashAccountId = pakistanDestination.superAdminCashAccountId ?? null;
+      }
+      if (pakistanDestination.superAdminBankAccountId) {
+        superAdminBankAccountId = pakistanDestination.superAdminBankAccountId;
+      }
+    }
 
     if (isAfghanistanCity) {
       sourceType = "cash_office";
@@ -519,15 +569,18 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           data: { chequeStatus: "sent_to_haji" } as any,
         });
         if (claimed.count !== 1) throw new Error("CHEQUE_ALREADY_USED");
+        amount = Number(chequePayment.amount);
       }
 
       const createdTransfer = await tx.hajiTransfer.create({
         data: {
           cityId, lotId, transferDate: new Date(transferDate), amount, currencyId: resolvedCurrencyId,
           detail, transferType, transferredTo, notes, createdBy: user.userId,
+          ...(resolvedReferenceNo ? { referenceNo: resolvedReferenceNo } : {}),
           settlementDestination,
           intermediaryId,
           superAdminCashAccountId,
+          superAdminBankAccountId,
           ...(sourceType !== undefined ? { sourceType } : {}),
           ...(bankAccountId !== undefined ? { bankAccountId } : {}),
           ...(chequePaymentId !== undefined ? { chequePaymentId } : {}),

@@ -134,7 +134,7 @@ export default function SalesPage() {
   const [correctItems, setCorrectItems] = useState<any[]>([]);
   const [correctReason, setCorrectReason] = useState("");
   const [selectedSale, setSelectedSale] = useState<any>(null);
-  const [filters, setFilters] = useState({ status: "", date_from: defaultDateRange.from, date_to: defaultDateRange.to, query: "" });
+  const [filters, setFilters] = useState({ status: "", lot_id: "", date_from: defaultDateRange.from, date_to: defaultDateRange.to, query: "" });
   const [dateRangePreset, setDateRangePreset] = useState<"today" | "last7" | "month" | "all" | "custom">("month");
   const [showHardDelete, setShowHardDelete] = useState(false);
   const [hardDeleteTarget, setHardDeleteTarget] = useState<any>(null);
@@ -148,6 +148,7 @@ export default function SalesPage() {
   const [godowns, setGodowns] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [lots, setLots] = useState<any[]>([]);
+  const [filterLots, setFilterLots] = useState<any[]>([]);
   const [currencies, setCurrencies] = useState<any[]>([]);
 
   // Godown stock - available qty per product in selected godown
@@ -195,6 +196,7 @@ export default function SalesPage() {
     setLoading(true);
     const params: any = { page, limit: DEFAULT_LIST_PAGE_SIZE };
     if (filters.status) params.status = filters.status;
+    if (filters.lot_id) params.lot_id = filters.lot_id;
     if (filters.date_from) params.date_from = filters.date_from;
     if (filters.date_to) params.date_to = filters.date_to;
     const normalizedQuery = filters.query.trim();
@@ -255,6 +257,14 @@ export default function SalesPage() {
   }, [filters, isEmbed, isOnline, page, queuedItems]);
 
   useEffect(() => { loadSales(); }, [loadSales]);
+
+  useEffect(() => {
+    if (isEmbed) return;
+    void apiCall("/api/v1/lots", { params: { limit: 100 } }).then((result) => {
+      if (result.success) setFilterLots((result.data as any[]) || []);
+    });
+  }, [isEmbed]);
+
   useEffect(() => {
     if (prefillHandled || user?.role !== "city_admin") return;
     if (searchParams.get("create") !== "1") return;
@@ -745,6 +755,132 @@ export default function SalesPage() {
     if (result.success) { setShowDiscount(false); loadSales(); } else { setFormError(result.error || "Failed"); }
   };
 
+  const salesVoucherColumn = {
+    key: "voucherNo",
+    label: simplifyModals ? "Ref. No." : t("voucher_hash"),
+    className: simplifyModals ? "pl-2 pr-0.5 w-[3.25rem]" : "px-2 w-16",
+    headerClassName: simplifyModals ? "pl-2 pr-0.5 normal-case tracking-normal" : undefined,
+    render: (s: any) => <span className="font-mono text-xs font-medium">{s.voucherNo}</span>,
+  };
+  const salesDateColumn = {
+    key: "saleDate",
+    label: t("date"),
+    className: simplifyModals ? "pl-0.5 pr-2 w-[4.5rem] whitespace-nowrap" : "px-2 w-[4.75rem] whitespace-nowrap",
+    headerClassName: simplifyModals ? "pl-0.5 pr-2 normal-case tracking-normal" : undefined,
+    render: (s: any) => <span className="tabular-nums">{formatDate(s.saleDate)}</span>,
+  };
+  const salesCustomerColumn = {
+    key: "customer",
+    label: t("customer"),
+    className: "px-2",
+    render: (s: any) => (
+      <div className="min-w-0 leading-tight">
+        <span className="block truncate">{s.customer?.name}</span>
+        {user?.role === "super_admin" && s.cityName && (
+          <span className="block truncate text-[11px] text-indigo-500">{s.cityName}</span>
+        )}
+      </div>
+    ),
+  };
+  const salesProductColumn = {
+    key: "items",
+    label: t("product"),
+    width: simplifyModals ? "7rem" : "8rem",
+    className: simplifyModals ? "pl-2 pr-0.5 max-w-[7rem]" : "px-2 pr-1 max-w-[8rem]",
+    headerClassName: simplifyModals ? "pr-0.5 normal-case tracking-normal" : undefined,
+    render: (s: any) => (
+      <div className="min-w-0 leading-tight">
+        {s.items?.map((i: any, idx: number) => (
+          <div key={idx} className="truncate" title={i.productName}>{i.productName}</div>
+        ))}
+      </div>
+    ),
+  };
+  const salesQtyColumn = {
+    key: "cartons",
+    label: simplifyModals ? t("qty") : "Crtn",
+    width: "3rem",
+    headerClassName: "normal-case tracking-normal text-center overflow-visible align-middle",
+    className: "px-1.5 text-center tabular-nums whitespace-nowrap",
+    render: (s: any) => (
+      <div className="leading-tight">
+        {s.items?.map((i: any, idx: number) => (
+          <div key={idx} className="tabular-nums">{Number(i.qty)}</div>
+        ))}
+      </div>
+    ),
+  };
+  const salesTailColumns = [
+    {
+      key: "ratePerCarton",
+      label: "Rate",
+      width: simplifyModals ? "5.5rem" : "6rem",
+      className: simplifyModals ? "pl-0.5 pr-2 tabular-nums whitespace-nowrap" : "px-2 pl-3 tabular-nums whitespace-nowrap",
+      headerClassName: simplifyModals ? "pl-0.5 pr-2 normal-case tracking-normal" : undefined,
+      render: (s: any) => (
+        <div className="leading-tight">
+          {s.items?.map((i: any, idx: number) => (
+            <div key={idx}>
+              {s.currency?.symbol}{Number(i.ratePerCarton || 0).toLocaleString("en-US")}
+            </div>
+          ))}
+        </div>
+      ),
+    },
+    { key: "totalAmount", label: t("amount"), className: "px-2 whitespace-nowrap tabular-nums", render: (s: any) => <span className="font-medium">{s.currency?.symbol}{formatCurrency(s.totalAmount, "").trim()}</span> },
+    {
+      key: "godown",
+      label: t("godown"),
+      className: "px-2 max-w-[7rem]",
+      render: (s: any) => (
+        <span className="block leading-tight">
+          <span className="block truncate">{s.godown?.name}</span>
+          {s.godown?.crossCity && <span className="block truncate text-[11px] text-orange-500">⟵ {s.godown.sourceCityName}</span>}
+        </span>
+      ),
+    },
+    { key: "lot", label: t("lot"), className: "px-2 w-14", render: (s: any) => <span className="truncate">{s.lot?.lotNumber}</span> },
+    {
+      key: "status",
+      label: t("status"),
+      className: "px-2 w-24",
+      render: (s: any) => (
+        <div className="leading-tight">
+          <StatusBadge status={s.status} />
+          {s.status === "cancelled" && s.cancellationReason && (
+            <p className="mt-0.5 max-w-[9rem] truncate text-[11px] text-gray-500" title={s.cancellationReason}>
+              {s.cancellationReason}
+            </p>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: "actions",
+      label: "",
+      render: (s: any) => (
+        <RowActionMenu
+          open={openActionId === s.id}
+          onOpenChange={(open) => setOpenActionId(open ? s.id : null)}
+        >
+          {s.status === "active" && (
+            <>
+              <button onClick={() => { setOpenActionId(null); openCorrect(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("correct_sale")}</button>
+              <button onClick={() => { setOpenActionId(null); openDiscount(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-yellow-700 hover:bg-yellow-50 sm:py-2 sm:text-xs">{t("discount")}</button>
+              <button onClick={() => { setOpenActionId(null); openCancel(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("cancel")}</button>
+            </>
+          )}
+          {user?.role === "super_admin" && !String(s.id || "").startsWith("pending-") && (
+            <button onClick={() => { setOpenActionId(null); openHardDelete(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-red-800 hover:bg-red-50 sm:py-2 sm:text-xs">{t("hard_delete")}</button>
+          )}
+        </RowActionMenu>
+      ),
+    },
+  ];
+  const salesColumns = simplifyModals
+    ? [salesVoucherColumn, salesDateColumn, salesCustomerColumn, salesQtyColumn, salesProductColumn, ...salesTailColumns]
+    : [salesVoucherColumn, salesDateColumn, salesCustomerColumn, salesProductColumn, salesQtyColumn, ...salesTailColumns];
+
   return (
     <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
       {!isEmbed && <PageHeader title={t("sales")} />}
@@ -778,6 +914,19 @@ export default function SalesPage() {
             <option value="">{t("all_statuses")}</option><option value="active">{t("active")}</option><option value="cancelled">{t("cancelled")}</option><option value="marked_short">{t("marked_short")}</option>
           </select>
           <select
+            value={filters.lot_id}
+            onChange={(e) => { setFilters((f) => ({ ...f, lot_id: e.target.value })); setPage(1); }}
+            className="select-field !w-auto h-9 min-h-9 min-w-[7.5rem] shrink-0 py-1.5 pl-2.5 pr-8 text-sm md:max-w-[9rem]"
+            aria-label={`${t("lot")} filter`}
+          >
+            <option value="">All lots</option>
+            {filterLots.map((lot: any) => (
+              <option key={lot.id} value={String(lot.id)}>
+                {lot.lotNumber}{lot.status === "completed" ? " ✓" : ""}
+              </option>
+            ))}
+          </select>
+          <select
             value={dateRangePreset}
             onChange={(e) => applyDatePreset(e.target.value as "today" | "last7" | "month" | "all" | "custom")}
             className="select-field !w-auto h-9 min-h-9 min-w-[7.75rem] shrink-0 py-1.5 pl-2.5 pr-8 text-sm md:max-w-[7.5rem]"
@@ -808,76 +957,7 @@ export default function SalesPage() {
         />
       </div>
 
-      <DataTable searchable={false} compact columns={[
-        { key: "voucherNo", label: t("voucher_hash"), className: "px-2 w-16", render: (s: any) => <span className="font-mono text-xs font-medium">{s.voucherNo}</span> },
-        { key: "saleDate", label: t("date"), className: "px-2 w-[4.75rem] whitespace-nowrap", render: (s: any) => <span className="tabular-nums">{formatDate(s.saleDate)}</span> },
-        { key: "customer", label: t("customer"), className: "px-2", render: (s: any) => (
-          <div className="min-w-0 leading-tight">
-            <span className="block truncate">{s.customer?.name}</span>
-            {user?.role === "super_admin" && s.cityName && (
-              <span className="block truncate text-[11px] text-indigo-500">{s.cityName}</span>
-            )}
-          </div>
-        )},
-        { key: "items", label: t("product"), width: "8rem", className: "px-2 pr-1 max-w-[8rem]", render: (s: any) => (
-          <div className="min-w-0 leading-tight">
-            {s.items?.map((i: any, idx: number) => (
-              <div key={idx} className="truncate" title={i.productName}>{i.productName}</div>
-            ))}
-          </div>
-        ) },
-        { key: "cartons", label: "Crtn", width: "3rem", headerClassName: "normal-case tracking-normal text-center overflow-visible align-middle", className: "px-1.5 text-center tabular-nums whitespace-nowrap", render: (s: any) => (
-          <div className="leading-tight">
-            {s.items?.map((i: any, idx: number) => (
-              <div key={idx} className="tabular-nums">{Number(i.qty)}</div>
-            ))}
-          </div>
-        ) },
-        { key: "ratePerCarton", label: "Rate", width: "6rem", className: "px-2 pl-3 tabular-nums whitespace-nowrap", render: (s: any) => (
-          <div className="leading-tight">
-            {s.items?.map((i: any, idx: number) => (
-              <div key={idx}>
-                {s.currency?.symbol}{Number(i.ratePerCarton || 0).toLocaleString("en-US")}
-              </div>
-            ))}
-          </div>
-        ) },
-        { key: "totalAmount", label: t("amount"), className: "px-2 whitespace-nowrap tabular-nums", render: (s: any) => <span className="font-medium">{s.currency?.symbol}{formatCurrency(s.totalAmount, "").trim()}</span> },
-        { key: "godown", label: t("godown"), className: "px-2 max-w-[7rem]", render: (s: any) => (
-          <span className="block leading-tight">
-            <span className="block truncate">{s.godown?.name}</span>
-            {s.godown?.crossCity && <span className="block truncate text-[11px] text-orange-500">⟵ {s.godown.sourceCityName}</span>}
-          </span>
-        )},
-        { key: "lot", label: t("lot"), className: "px-2 w-14", render: (s: any) => <span className="truncate">{s.lot?.lotNumber}</span> },
-        { key: "status", label: t("status"), className: "px-2 w-24", render: (s: any) => (
-          <div className="leading-tight">
-            <StatusBadge status={s.status} />
-            {s.status === "cancelled" && s.cancellationReason && (
-              <p className="mt-0.5 max-w-[9rem] truncate text-[11px] text-gray-500" title={s.cancellationReason}>
-                {s.cancellationReason}
-              </p>
-            )}
-          </div>
-        )},
-        { key: "actions", label: "", render: (s: any) => (
-          <RowActionMenu
-            open={openActionId === s.id}
-            onOpenChange={(open) => setOpenActionId(open ? s.id : null)}
-          >
-            {s.status === "active" && (
-              <>
-                <button onClick={() => { setOpenActionId(null); openCorrect(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("correct_sale")}</button>
-                <button onClick={() => { setOpenActionId(null); openDiscount(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-yellow-700 hover:bg-yellow-50 sm:py-2 sm:text-xs">{t("discount")}</button>
-                <button onClick={() => { setOpenActionId(null); openCancel(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("cancel")}</button>
-              </>
-            )}
-            {user?.role === "super_admin" && !String(s.id || "").startsWith("pending-") && (
-              <button onClick={() => { setOpenActionId(null); openHardDelete(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-red-800 hover:bg-red-50 sm:py-2 sm:text-xs">{t("hard_delete")}</button>
-            )}
-          </RowActionMenu>
-        )},
-      ]} data={sales} loading={loading} emptyMessage={t("no_data")} pagination={{ page, totalPages, total, onPageChange: setPage }} />
+      <DataTable searchable={false} compact columns={salesColumns} data={sales} loading={loading} emptyMessage={t("no_data")} pagination={{ page, totalPages, total, onPageChange: setPage }} />
 
       </>
       )}
@@ -942,20 +1022,6 @@ export default function SalesPage() {
               </select>
             </div>
           )}
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="min-w-0">
-              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("lot")}</label>
-              <select value={form.lotId} onChange={(e) => setForm((f) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
-                <option value={0}>{t("auto_fifo")}</option>
-                {lots.map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}</option>)}
-              </select>
-            </div>
-            <div className="min-w-0">
-              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("notes")}</label>
-              <input type="text" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" />
-            </div>
-          </div>
 
           <div className={isEmbed ? "quickform-panel space-y-2" : "rounded-lg border border-gray-200 bg-gray-50/70 p-3 space-y-2"}>
             <div className="flex items-center justify-between gap-2">
@@ -1022,6 +1088,20 @@ export default function SalesPage() {
             <div className="flex justify-end border-t border-gray-200/80 pt-2">
               <span className="text-xs uppercase tracking-wide text-gray-500">{t("total")}: </span>
               <span className="ml-2 text-base font-bold tabular-nums text-gray-900">{amountPrefix}{totalAmount.toLocaleString("en-US")}</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="min-w-0">
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("lot")}</label>
+              <select value={form.lotId} onChange={(e) => setForm((f) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
+                <option value={0}>{t("auto_fifo")}</option>
+                {lots.map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}</option>)}
+              </select>
+            </div>
+            <div className="min-w-0">
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("notes")}</label>
+              <input type="text" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" />
             </div>
           </div>
         </div>

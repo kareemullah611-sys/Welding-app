@@ -21,11 +21,14 @@ import {
   isSettlementTargetSelected,
   parseSettlementTargetValue,
 } from "@/lib/haji-settlement-target";
+import { buildCityHajiTransferDetail, formatSuperAdminBankLabel, getHajiTransferFromLabel, getHajiTransferDetailLine, getCityHajiTransferListDetail } from "@/lib/haji-transfer-detail";
+import { getHajiTransferSlipDeleteIds, isGroupedHajiTransferSlip } from "@/lib/haji-transfer-slip-group";
 
 
 const SOURCE_CONFIG: Record<string, { label: string; color: string; icon?: string }> = {
   cash_office:    { label: "Cash from Office", color: "bg-green-50 text-green-700" },
   cheque:         { label: "Cheque", color: "bg-blue-50 text-blue-700"  },
+  mixed_cash_cheque: { label: "Cash + Cheques", color: "bg-teal-50 text-teal-700" },
   bank_transfer:  { label: "Bank Transfer", color: "bg-purple-50 text-purple-700" },
   // legacy
   from_in_hand:   { label: "Cash from Office", color: "bg-green-50 text-green-700" },
@@ -41,6 +44,7 @@ type HajiFormCache = {
   currencies: any[];
   bankAccounts: any[];
   inHandCheques: any[];
+  superAdminBankAccounts?: any[];
   settlementByCurrency?: Record<string, { intermediaries: any[]; superAdminCashAccounts: any[] }>;
 };
 
@@ -62,7 +66,11 @@ function applyQueuedMutationsToHajiTransfers(baseItems: any[], queueItems: any[]
     const transferId = match?.[1];
     if (!transferId) continue;
     if (method === "DELETE") {
-      next = next.filter((row: any) => String(row?.id || "") !== transferId);
+      next = next.filter((row: any) => {
+        const slipIds = Array.isArray(row?.slipTransferIds) ? row.slipTransferIds.map(String) : [];
+        if (slipIds.includes(transferId)) return false;
+        return String(row?.id || "") !== transferId;
+      });
       continue;
     }
     let patch: any = {};
@@ -77,6 +85,7 @@ function applyQueuedMutationsToHajiTransfers(baseItems: any[], queueItems: any[]
             ...row,
             amount: patch?.amount ?? row?.amount,
             detail: patch?.detail ?? row?.detail,
+            referenceNo: patch?.referenceNo ?? row?.referenceNo,
             sourceType: patch?.sourceType ?? row?.sourceType,
             transferType: patch?.transferType ?? row?.transferType,
             transferredTo: patch?.transferredTo ?? row?.transferredTo,
@@ -96,6 +105,7 @@ export default function HajiTransfersPage() {
   const searchParams = useSearchParams();
   const isEmbed = useQuickformEmbed();
   const simplifyModals = shouldSimplifyCityModals(user, isEmbed);
+  const keepHajiCreateModalOpen = simplifyModals;
   const shouldUseSuperAdminTarget = user?.role === "city_admin" && user?.countryName === "Pakistan";
   const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
   const isSuperAdmin = user?.role === "super_admin";
@@ -111,19 +121,23 @@ export default function HajiTransfersPage() {
   const [lots, setLots] = useState<any[]>([]);
   const [currencies, setCurrencies] = useState<any[]>([]);
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
+  const [superAdminBankAccounts, setSuperAdminBankAccounts] = useState<any[]>([]);
   const [inHandCheques, setInHandCheques] = useState<any[]>([]);
   const [settlementIntermediaries, setSettlementIntermediaries] = useState<any[]>([]);
   const [settlementCashAccounts, setSettlementCashAccounts] = useState<any[]>([]);
   const [settlementOptionsLoading, setSettlementOptionsLoading] = useState(false);
+  const [destinationAccountsLoading, setDestinationAccountsLoading] = useState(false);
   const [settlementOptionsError, setSettlementOptionsError] = useState("");
   const [form, setForm] = useState<any>({
     lotId: 0, transferDate: new Date().toISOString().split("T")[0],
-    amount: 0, currencyId: 0, detail: "", sourceType: "cash_office",
+    amount: 0, currencyId: 0, detail: "", referenceNo: "", sourceType: "cash_office",
     settlementDestination: "intermediary", intermediaryId: 0, superAdminCashAccountId: 0,
     bankAccountId: 0, chequePaymentId: 0, chequePaymentIds: [] as number[], cashAmount: 0, transferredTo: "", notes: "",
+    superAdminDestinationAccountId: 0,
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [transferSavedNotice, setTransferSavedNotice] = useState<string | null>(null);
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
 
@@ -131,6 +145,7 @@ export default function HajiTransfersPage() {
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
   const [showSummary, setShowSummary] = useState(true);
+  const [showHajiSummary, setShowHajiSummary] = useState(false);
   const [openActionId, setOpenActionId] = useState<number | null>(null);
   const [prefillHandled, setPrefillHandled] = useState(false);
   const closeEmbed = useCallback(() => {
@@ -151,6 +166,8 @@ export default function HajiTransfersPage() {
   const selectedCheques = inHandCheques.filter((c: any) => form.chequePaymentIds.includes(c.id));
   const selectedChequeTotal = selectedCheques.reduce((sum: number, cheque: any) => sum + Number(cheque.amount || 0), 0);
   const mixedSlipTotal = Number(form.cashAmount || 0) + selectedChequeTotal;
+  const isChequeOnlyAmount = form.sourceType === "cheque";
+  const isChequeFundedTransfer = isChequeOnlyAmount || !!selected?.chequePaymentId || form.sourceType === "cheque";
 
   const loadSettlementOptions = useCallback(async (currencyId: number) => {
     const canLoad = isAfghanistanCity || isSuperAdmin;
@@ -174,6 +191,31 @@ export default function HajiTransfersPage() {
       setSettlementOptionsError(r.error || "Failed to load settlement options");
     }
   }, [isAfghanistanCity, isSuperAdmin]);
+
+  const loadPakistanDestinationAccounts = useCallback(async (currencyId?: number) => {
+    if (!shouldUseSuperAdminTarget) {
+      setSuperAdminBankAccounts([]);
+      return;
+    }
+    setDestinationAccountsLoading(true);
+    const params: Record<string, number> = {};
+    if (currencyId) params.currencyId = currencyId;
+    const r = await apiCall("/api/v1/haji-transfers/settlement-options", { params });
+    setDestinationAccountsLoading(false);
+    if (r.success) {
+      const accounts = (r.data as any)?.destinationAccounts || [];
+      setSuperAdminBankAccounts(accounts);
+      return accounts;
+    }
+    setSuperAdminBankAccounts([]);
+    return [];
+  }, [shouldUseSuperAdminTarget]);
+
+  useEffect(() => {
+    if (!showCreate || !shouldUseSuperAdminTarget) return;
+    const currencyId = form.currencyId || currencies[0]?.id || 0;
+    void loadPakistanDestinationAccounts(currencyId || undefined);
+  }, [showCreate, shouldUseSuperAdminTarget, form.currencyId, currencies, loadPakistanDestinationAccounts]);
 
   useEffect(() => {
     if (!showCreate || !isAfghanistanCity) return;
@@ -281,13 +323,103 @@ export default function HajiTransfersPage() {
     return acc;
   }, {});
 
+  const isCityHajiSummary = simplifyModals && !isEmbed;
+  const hajiSummaryRows = Object.entries(personTotals)
+    .flatMap(([name, totByCurr]) =>
+      Object.entries(totByCurr).map(([cc, amount]) => ({ name, cc, amount }))
+    )
+    .sort((a, b) => a.name.localeCompare(b.name) || a.cc.localeCompare(b.cc));
+  const hajiSummarySplitAt = Math.ceil(hajiSummaryRows.length / 2);
+  const hajiSummaryLeft = hajiSummaryRows.slice(0, hajiSummarySplitAt);
+  const hajiSummaryRight = hajiSummaryRows.slice(hajiSummarySplitAt);
+
+  const renderHajiSummaryLedger = (rows: { name: string; cc: string; amount: number }[]) => (
+    <div className="overflow-hidden rounded-lg border border-blue-200 bg-white">
+      <table className="w-full table-fixed text-sm">
+        <colgroup>
+          <col />
+          <col className="w-[8.5rem]" />
+        </colgroup>
+        <thead>
+          <tr className="bg-[#f4f4f5] text-[11px] uppercase tracking-wide text-gray-500">
+            <th className="px-3 py-2 text-left font-semibold">{t("name")}</th>
+            <th className="px-3 py-2 text-right font-semibold">{t("amount")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={`${row.name}-${row.cc}`} className="border-t border-gray-100">
+              <td className="px-3 py-2 font-medium text-gray-800 truncate" title={row.name}>{row.name}</td>
+              <td className="px-3 py-2 text-right tabular-nums font-semibold text-blue-700 whitespace-nowrap">
+                {row.cc} {formatNumber(row.amount)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  const resetHajiCreateForm = useCallback(async () => {
+    const today = new Date().toISOString().split("T")[0];
+    const defaultCurrencyId = currencies[0]?.id || 0;
+    setForm({
+      lotId: 0,
+      transferDate: today,
+      amount: 0,
+      currencyId: defaultCurrencyId,
+      detail: "",
+      referenceNo: "",
+      sourceType: "cash_office",
+      settlementDestination: "intermediary",
+      intermediaryId: 0,
+      superAdminCashAccountId: 0,
+      bankAccountId: 0,
+      chequePaymentId: 0,
+      chequePaymentIds: [],
+      cashAmount: 0,
+      transferredTo: shouldUseSuperAdminTarget ? PAKISTAN_HAJI_TARGET : "",
+      notes: "",
+      superAdminDestinationAccountId: 0,
+    });
+    if (!isAfghanistanCity && isOnline) {
+      const chR = await apiCall("/api/v1/payments", {
+        params: {
+          all: 1,
+          status: "active",
+          payment_method: "cheque",
+          destination: "our_account",
+          cheque_status: "in_hand",
+        },
+      });
+      if (chR.success) setInHandCheques(chR.data as any[]);
+    }
+  }, [currencies, isAfghanistanCity, isOnline, shouldUseSuperAdminTarget]);
+
+  const finishHajiCreateSuccess = useCallback(async (message: string) => {
+    setResolvingQueueId(null);
+    setError("");
+    if (keepHajiCreateModalOpen) {
+      await resetHajiCreateForm();
+      setTransferSavedNotice(message);
+      setTimeout(() => setTransferSavedNotice(null), 3000);
+      load();
+      return;
+    }
+    setShowCreate(false);
+    if (isEmbed) closeEmbed();
+    load();
+  }, [closeEmbed, isEmbed, keepHajiCreateModalOpen, load, resetHajiCreateForm]);
+
   const openCreate = async (preset?: Record<string, any>) => {
+    setTransferSavedNotice(null);
     if (!isOnline) {
       const cached = readOfflineFormCache<HajiFormCache>(HAJI_FORM_CACHE_KEY, [
         "lots",
         "currencies",
         "bankAccounts",
         "inHandCheques",
+        "superAdminBankAccounts",
       ]);
       if (!cached) {
         setError(getOfflineFormReadinessError({
@@ -302,11 +434,13 @@ export default function HajiTransfersPage() {
       setCurrencies(cached.currencies);
       setBankAccounts(cached.bankAccounts);
       setInHandCheques(cached.inHandCheques);
+      setSuperAdminBankAccounts(cached.superAdminBankAccounts || []);
       setForm((f: any) => ({
         ...f,
         transferDate: new Date().toISOString().split("T")[0],
         amount: 0,
         detail: "",
+        referenceNo: "",
         sourceType: "cash_office",
         bankAccountId: 0,
         chequePaymentId: 0,
@@ -315,6 +449,7 @@ export default function HajiTransfersPage() {
         transferredTo: shouldUseSuperAdminTarget ? PAKISTAN_HAJI_TARGET : "",
         notes: "",
         lotId: 0,
+        superAdminDestinationAccountId: 0,
         settlementDestination: "intermediary",
         intermediaryId: 0,
         superAdminCashAccountId: 0,
@@ -344,7 +479,11 @@ export default function HajiTransfersPage() {
         }),
       );
     }
-    const [lR, cR, baR, chR] = await Promise.all(requests);
+    const results = await Promise.all(requests);
+    const lR = results[0];
+    const cR = results[1];
+    const baR = !isAfghanistanCity ? results[2] : undefined;
+    const chR = !isAfghanistanCity ? results[3] : undefined;
     if (lR.success) setLots(lR.data as any[]);
     const city = cR.success && user?.cityId
       ? (cR.data as any[]).find((c: any) => c.id === user.cityId)
@@ -355,24 +494,32 @@ export default function HajiTransfersPage() {
       Number(preset?.currencyId) ||
       cachedCurrencies[0]?.id ||
       0;
+    if (!isAfghanistanCity && baR?.success) setBankAccounts(baR.data as any[]);
+    else setBankAccounts([]);
+    let loadedDestinationAccounts: any[] = [];
+    if (shouldUseSuperAdminTarget) {
+      loadedDestinationAccounts = await loadPakistanDestinationAccounts(defaultCurrencyId || undefined);
+    } else {
+      setSuperAdminBankAccounts([]);
+    }
+    if (!isAfghanistanCity && chR?.success) setInHandCheques(chR.data as any[]);
+    else setInHandCheques([]);
     if (cachedCurrencies.length > 0) {
       writeOfflineFormCache<HajiFormCache>(HAJI_FORM_CACHE_KEY, {
         lots: lR.success ? (lR.data as any[]) : [],
         currencies: cachedCurrencies,
         bankAccounts: !isAfghanistanCity && baR?.success ? (baR.data as any[]) : [],
+        superAdminBankAccounts: loadedDestinationAccounts,
         inHandCheques: !isAfghanistanCity && chR?.success ? (chR.data as any[]) : [],
       });
     }
-    if (!isAfghanistanCity && baR?.success) setBankAccounts(baR.data as any[]);
-    else setBankAccounts([]);
-    if (!isAfghanistanCity && chR?.success) setInHandCheques(chR.data as any[]);
-    else setInHandCheques([]);
     setForm((f: any) => ({
       ...f, transferDate: new Date().toISOString().split("T")[0],
-      amount: 0, detail: "", sourceType: "cash_office",
+      amount: 0, detail: "", referenceNo: "", sourceType: "cash_office",
       bankAccountId: 0, chequePaymentId: 0, chequePaymentIds: [], cashAmount: 0,
       transferredTo: shouldUseSuperAdminTarget ? PAKISTAN_HAJI_TARGET : "",
       notes: "", lotId: 0,
+      superAdminDestinationAccountId: 0,
       settlementDestination: "intermediary", intermediaryId: 0, superAdminCashAccountId: 0,
       currencyId: defaultCurrencyId,
       ...preset,
@@ -384,7 +531,26 @@ export default function HajiTransfersPage() {
   };
 
   const handleCreate = async () => {
-    if (!form.detail) { setError(t("detail") + " required"); return; }
+    const resolvePakistanTransferredTo = () => {
+      if (form.transferredTo?.trim()) return form.transferredTo.trim();
+      if (form.superAdminDestinationAccountId) {
+        const acct = superAdminBankAccounts.find((a: any) => a.id === form.superAdminDestinationAccountId);
+        if (acct) return formatSuperAdminBankLabel(acct);
+      }
+      return PAKISTAN_HAJI_TARGET;
+    };
+    const createDetail = isAfghanistanCity
+      ? form.detail
+      : buildCityHajiTransferDetail({
+          sourceType: form.sourceType,
+          transferredTo: shouldUseSuperAdminTarget ? resolvePakistanTransferredTo() : form.transferredTo,
+          destinationAccount: shouldUseSuperAdminTarget
+            ? superAdminBankAccounts.find((a: any) => a.id === form.superAdminDestinationAccountId)
+            : null,
+        });
+    const pakistanTransferredTo = shouldUseSuperAdminTarget ? resolvePakistanTransferredTo() : (form.transferredTo || undefined);
+
+    if (isAfghanistanCity && !form.detail) { setError(t("detail") + " required"); return; }
     if (form.sourceType === "cash_office" && !form.amount) { setError(t("amount") + " required"); return; }
     if (form.sourceType === "cheque" && form.chequePaymentIds.length === 0) { setError("Please select at least one cheque"); return; }
     if (form.sourceType === "mixed_cash_cheque" && !form.cashAmount && form.chequePaymentIds.length === 0) { setError("Enter a cash amount or select at least one cheque"); return; }
@@ -399,6 +565,10 @@ export default function HajiTransfersPage() {
         setError("Please select where funds are going");
         return;
       }
+    }
+    if (shouldUseSuperAdminTarget && superAdminBankAccounts.length > 0 && !form.superAdminDestinationAccountId) {
+      setError("Please select a destination account");
+      return;
     }
 
     const resolvedCurrencyId = form.currencyId || currencies[0]?.id || 0;
@@ -416,11 +586,13 @@ export default function HajiTransfersPage() {
       body = {
         sourceType: form.sourceType === "cheque" ? "mixed_cash_cheque" : form.sourceType,
         transferDate: form.transferDate,
-        detail: form.detail,
-        transferredTo: form.transferredTo || undefined,
+        detail: createDetail,
+        transferredTo: pakistanTransferredTo,
+        referenceNo: form.referenceNo?.trim() || undefined,
         notes: form.notes || undefined,
         lotId: form.lotId || undefined,
         currencyId: resolvedCurrencyId || undefined,
+        superAdminDestinationAccountId: form.superAdminDestinationAccountId || undefined,
         cashAmount: form.sourceType === "mixed_cash_cheque" ? Number(form.cashAmount || 0) : 0,
         chequePaymentIds: form.chequePaymentIds,
       };
@@ -428,6 +600,9 @@ export default function HajiTransfersPage() {
       body = {
         ...form,
         currencyId: resolvedCurrencyId,
+        detail: createDetail,
+        transferredTo: pakistanTransferredTo,
+        superAdminDestinationAccountId: form.superAdminDestinationAccountId || undefined,
         sourceType: isAfghanistanCity ? "cash_office" : form.sourceType,
         transferType: "from_in_hand",
       };
@@ -438,6 +613,7 @@ export default function HajiTransfersPage() {
       }
       if (!body.lotId) delete body.lotId;
       if (!body.transferredTo) delete body.transferredTo;
+      if (!shouldUseSuperAdminTarget) delete body.superAdminDestinationAccountId;
       if (body.sourceType !== "bank_transfer") delete body.bankAccountId;
       delete body.chequePaymentIds;
       delete body.cashAmount;
@@ -461,8 +637,7 @@ export default function HajiTransfersPage() {
         await syncQueue();
       }
       setResolvingQueueId(null);
-      setShowCreate(false);
-      load();
+      await finishHajiCreateSuccess(isOnline ? "Haji transfer updated." : "Haji transfer queued for sync.");
       return;
     }
 
@@ -477,21 +652,28 @@ export default function HajiTransfersPage() {
           action: "create",
           entityType: "haji_transfer",
           entityLabel: "Haji Transfer (Pending)",
-          entityDetail: `${form.detail} — ${Number(optimisticAmount || 0).toLocaleString("en-US")}`,
+          entityDetail: `${body.detail} — ${Number(optimisticAmount || 0).toLocaleString("en-US")}`,
         },
       });
       setItems((prev) => [{
         id: `pending-${queueId}`,
         transferDate: form.transferDate,
         amount: optimisticAmount,
-        detail: form.detail,
+        detail: body.detail,
         sourceType: form.sourceType,
-        transferredTo: form.transferredTo || null,
+        transferredTo: body.transferredTo || null,
         lot: form.lotId ? lots.find((l: any) => l.id === form.lotId) : null,
         _pending: true,
       }, ...prev]);
-      setShowCreate(false);
       setResolvingQueueId(null);
+      if (keepHajiCreateModalOpen) {
+        setError("");
+        await resetHajiCreateForm();
+        setTransferSavedNotice("Haji transfer queued for sync.");
+        setTimeout(() => setTransferSavedNotice(null), 3000);
+        return;
+      }
+      setShowCreate(false);
       if (isEmbed) closeEmbed();
       return;
     }
@@ -499,8 +681,7 @@ export default function HajiTransfersPage() {
     setSubmitting(true);
     const r = await apiCall("/api/v1/haji-transfers", { method: "POST", body });
     if (r.success) {
-      setResolvingQueueId(null);
-      setShowCreate(false); if (isEmbed) closeEmbed(); load();
+      await finishHajiCreateSuccess("Haji transfer recorded.");
     } else { setError(r.error || "Failed"); }
     setSubmitting(false);
   };
@@ -525,16 +706,18 @@ export default function HajiTransfersPage() {
   const openEdit = (item: any) => {
     setSelected(item);
     let sourceType = item.sourceType || (
+      item.chequePaymentId ? "cheque" :
       item.transferType === "direct" ? "bank_transfer" :
       item.transferType === "from_in_hand" ? "cash_office" : "cash_office"
     );
     setForm({
       lotId: item.lotId, transferDate: item.transferDate, amount: item.amount,
-      currencyId: item.currencyId || item.currency?.id || 0, detail: item.detail,
+      currencyId: item.currencyId || item.currency?.id || 0, detail: item.detail, referenceNo: item.referenceNo || "",
       sourceType, transferType: item.transferType || "from_in_hand",
       settlementDestination: item.settlementDestination === "super_admin_cash" ? "super_admin_cash" : "intermediary",
       intermediaryId: item.intermediaryId || 0,
       superAdminCashAccountId: item.superAdminCashAccountId || 0,
+      superAdminDestinationAccountId: item.superAdminBankAccountId || item.superAdminCashAccountId || 0,
       bankAccountId: item.bankAccountId || 0, chequePaymentId: item.chequePaymentId || 0,
       transferredTo: item.transferredTo || "", notes: item.notes || "",
     });
@@ -565,12 +748,19 @@ export default function HajiTransfersPage() {
         return;
       }
     }
+    if (shouldUseSuperAdminTarget && superAdminBankAccounts.length > 0 && !form.superAdminDestinationAccountId) {
+      setError("Please select a destination account");
+      return;
+    }
     const body: any = {
-      amount: form.amount, detail: form.detail,
+      amount: form.amount, detail: form.detail, referenceNo: form.referenceNo?.trim() || null,
       sourceType: form.sourceType,
       transferType: form.sourceType === "cash_office" ? "from_in_hand" : form.sourceType === "bank_transfer" ? "direct" : "from_in_hand",
       transferredTo: form.transferredTo || null, notes: form.notes,
     };
+    if (shouldUseSuperAdminTarget) {
+      body.superAdminDestinationAccountId = form.superAdminDestinationAccountId || undefined;
+    }
     if (selected?.settlementDestination === "intermediary" || selected?.settlementDestination === "super_admin_cash" || isAfghanistanCity) {
       body.settlementDestination = form.settlementDestination;
       body.intermediaryId = form.settlementDestination === "intermediary" ? Number(form.intermediaryId) : null;
@@ -592,6 +782,7 @@ export default function HajiTransfersPage() {
                   ...row,
                   amount: form.amount,
                   detail: form.detail,
+                  referenceNo: form.referenceNo?.trim() || null,
                   sourceType: form.sourceType,
                   transferType: body.transferType,
                   transferredTo: form.transferredTo || null,
@@ -641,6 +832,7 @@ export default function HajiTransfersPage() {
   };
 
   const handleDelete = async (item: any) => {
+    const deleteIds = getHajiTransferSlipDeleteIds(item);
     if (!confirm(`${t("confirm_delete")} "${item.detail}"?`)) return;
     if (!isOnline) {
       const pendingQueueId = getPendingQueueId(item?.id);
@@ -649,27 +841,128 @@ export default function HajiTransfersPage() {
         setItems((prev) => prev.filter((row: any) => row.id !== item.id));
         return;
       }
-      await enqueue({
-        url: `/api/v1/haji-transfers/${item.id}`,
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: "",
-        pathname: "/haji-transfers",
-        auditMeta: {
-          action: "delete",
-          entityType: "haji_transfer",
-          entityLabel: "Haji Transfer Delete (Pending)",
-          entityDetail: `${item.detail} — ${Number(item.amount || 0).toLocaleString("en-US")}`,
-        },
-      });
-      setItems((prev) => prev.filter((row: any) => row.id !== item.id));
+      for (const transferId of deleteIds) {
+        await enqueue({
+          url: `/api/v1/haji-transfers/${transferId}`,
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: "",
+          pathname: "/haji-transfers",
+          auditMeta: {
+            action: "delete",
+            entityType: "haji_transfer",
+            entityLabel: "Haji Transfer Delete (Pending)",
+            entityDetail: `${item.detail} — ${Number(item.amount || 0).toLocaleString("en-US")}`,
+          },
+        });
+      }
+      setItems((prev) =>
+        prev.filter((row: any) => {
+          const slipIds = getHajiTransferSlipDeleteIds(row);
+          return !slipIds.some((id) => deleteIds.includes(id));
+        })
+      );
       return;
     }
-    await apiCall(`/api/v1/haji-transfers/${item.id}`, { method: "DELETE" });
+    for (const transferId of deleteIds) {
+      await apiCall(`/api/v1/haji-transfers/${transferId}`, { method: "DELETE" });
+    }
     load();
   };
 
   const getSourceType = (tr: any) => tr.sourceType || (tr.transferType === "direct" ? "bank_transfer" : "cash_office");
+
+  const getSourceTypeLabel = (sourceType: string) => {
+    const st = sourceType || "cash_office";
+    if (simplifyModals && (st === "cash_office" || st === "from_in_hand")) return t("cash");
+    return SOURCE_CONFIG[st]?.label || SOURCE_CONFIG.cash_office.label;
+  };
+
+  const hajiTypeColumn = {
+    key: "sourceType",
+    label: t("type"),
+    render: (tr: any) => {
+      if (tr.recordType === "customer_payment") {
+        return <span className="text-xs px-2 py-0.5 rounded font-medium bg-emerald-50 text-emerald-700">From customer</span>;
+      }
+      const st = getSourceType(tr);
+      const cfg = SOURCE_CONFIG[st] || SOURCE_CONFIG.cash_office;
+      return <span className={`text-xs px-2 py-0.5 rounded font-medium ${cfg.color}`}>{getSourceTypeLabel(st)}</span>;
+    },
+  };
+  const hajiDateColumn = {
+    key: "transferDate",
+    label: t("date"),
+    render: (tr: any) => formatDate(tr.transferDate),
+  };
+  const hajiDetailColumn = {
+    key: "detail",
+    label: t("detail"),
+    render: (tr: any) =>
+      simplifyModals ? (
+        <span className="block truncate text-sm text-gray-800">{getCityHajiTransferListDetail(tr)}</span>
+      ) : (
+        <div className="min-w-0 leading-tight">
+          <span className="block text-[11px] font-medium text-gray-500">{getHajiTransferFromLabel(tr)}</span>
+          <span className="block truncate text-sm text-gray-800">{getHajiTransferDetailLine(tr)}</span>
+        </div>
+      ),
+  };
+  const hajiRefColumn = {
+    key: "referenceNo",
+    label: "Ref. No.",
+    render: (tr: any) => tr.referenceNo ? (
+      <span className="font-mono text-xs text-gray-600">{tr.referenceNo}</span>
+    ) : (
+      <span className="text-gray-300">—</span>
+    ),
+  };
+  const hajiAmountColumn = {
+    key: "amount",
+    label: t("amount"),
+    render: (tr: any) => <span className="font-medium text-orange-600">{tr.currency?.symbol || ""} {tr.amount?.toLocaleString("en-US")}</span>,
+  };
+  const hajiLotColumn = {
+    key: "lotNumber",
+    label: t("lot"),
+    render: (tr: any) => tr.lot?.lotNumber || tr.lotNumber || "-",
+  };
+  const hajiActionsColumn = {
+    key: "actions",
+    label: "",
+    render: (tr: any) => {
+      const auditLocked = !!tr.hajiAudit?.confirmed;
+      const auditEligible = tr.settlementDestination === "intermediary" || tr.settlementDestination === "super_admin_cash";
+      return (
+        (user?.role === "city_admin" || user?.role === "super_admin") && tr.recordType !== "customer_payment" ? (
+          <RowActionMenu
+            open={openActionId === tr.id}
+            onOpenChange={(open) => setOpenActionId(open ? tr.id : null)}
+          >
+            {isSuperAdmin && auditEligible && (
+              <button
+                onClick={() => { setOpenActionId(null); void toggleHajiAudit(tr, !tr.hajiAudit?.confirmed); }}
+                className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-emerald-700 hover:bg-emerald-50 sm:py-2 sm:text-xs"
+              >
+                {tr.hajiAudit?.confirmed ? "Unconfirm audit" : "Confirm audit"}
+              </button>
+            )}
+            {!auditLocked && (
+              <>
+                {!isGroupedHajiTransferSlip(tr) && (
+                  <button onClick={() => { setOpenActionId(null); openEdit(tr); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
+                )}
+                <button onClick={() => { setOpenActionId(null); handleDelete(tr); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("delete")}</button>
+              </>
+            )}
+          </RowActionMenu>
+        ) : null
+      );
+    },
+  };
+  const hajiColumns = simplifyModals
+    ? [hajiDateColumn, hajiDetailColumn, hajiRefColumn, hajiAmountColumn, hajiLotColumn, hajiTypeColumn, hajiActionsColumn]
+    : [hajiDateColumn, hajiDetailColumn, hajiAmountColumn, hajiRefColumn, hajiLotColumn, hajiTypeColumn, hajiActionsColumn];
 
   if (user?.role === "super_admin" && !isEmbed) {
     return (
@@ -760,7 +1053,32 @@ export default function HajiTransfersPage() {
       )}
 
       {/* Person totals summary */}
-      {!isEmbed && Object.keys(personTotals).length > 0 && (
+      {!isEmbed && hajiSummaryRows.length > 0 && isCityHajiSummary && (
+        <div className="mb-4">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowHajiSummary((v) => !v)}
+              className={`glass-btn px-3 py-1.5 text-sm ${showHajiSummary ? "glass-btn-primary" : "glass-btn-secondary"}`}
+            >
+              Summary — total to each account
+            </button>
+          </div>
+          {showHajiSummary && (
+            <div className="space-y-3">
+              <div className="xl:hidden">
+                {renderHajiSummaryLedger(hajiSummaryRows)}
+              </div>
+              <div className="hidden xl:grid xl:grid-cols-2 xl:gap-3">
+                {renderHajiSummaryLedger(hajiSummaryLeft)}
+                {hajiSummaryRight.length > 0 ? renderHajiSummaryLedger(hajiSummaryRight) : <div />}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!isEmbed && Object.keys(personTotals).length > 0 && !isCityHajiSummary && (
         <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-xl">
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm font-semibold text-blue-800">💸 Transferred To — Summary</p>
@@ -784,66 +1102,13 @@ export default function HajiTransfersPage() {
       {!isEmbed && <DataTable
         searchValue={searchQuery}
         onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}
-        columns={[
-        { key: "transferDate", label: t("date"), render: (tr: any) => formatDate(tr.transferDate) },
-        {
-          key: "detail", label: t("detail"),
-          render: (tr: any) => (
-            <div>
-              <span>{tr.detail}</span>
-              {tr.transferredTo && <p className="text-xs text-blue-600 mt-0.5">→ {tr.transferredTo}</p>}
-              {tr.hajiAudit?.confirmed && <p className="text-xs text-emerald-700 mt-0.5">✓ Audit confirmed</p>}
-              {tr.recordType === "customer_payment" && <p className="text-xs text-emerald-600 mt-0.5">Customer payment sent directly to Haji</p>}
-            </div>
-          ),
-        },
-        { key: "amount", label: t("amount"), render: (tr: any) => <span className="font-medium text-orange-600">{tr.currency?.symbol || ""} {tr.amount?.toLocaleString("en-US")}</span> },
-        {
-          key: "sourceType", label: t("type"),
-          render: (tr: any) => {
-            if (tr.recordType === "customer_payment") {
-              return <span className="text-xs px-2 py-0.5 rounded font-medium bg-emerald-50 text-emerald-700">↗️ Customer to Haji</span>;
-            }
-            const st = getSourceType(tr);
-            const cfg = SOURCE_CONFIG[st] || SOURCE_CONFIG.cash_office;
-            return <span className={`text-xs px-2 py-0.5 rounded font-medium ${cfg.color}`}>{cfg.label}</span>;
-          },
-        },
-        { key: "lotNumber", label: t("lot"), render: (tr: any) => tr.lot?.lotNumber || tr.lotNumber || "-" },
-        {
-          key: "actions", label: "",
-          render: (tr: any) => {
-            const auditLocked = !!tr.hajiAudit?.confirmed;
-            const auditEligible = tr.settlementDestination === "intermediary" || tr.settlementDestination === "super_admin_cash";
-            return (
-            (user?.role === "city_admin" || user?.role === "super_admin") && tr.recordType !== "customer_payment" ? (
-              <RowActionMenu
-                open={openActionId === tr.id}
-                onOpenChange={(open) => setOpenActionId(open ? tr.id : null)}
-              >
-                {isSuperAdmin && auditEligible && (
-                  <button
-                    onClick={() => { setOpenActionId(null); void toggleHajiAudit(tr, !tr.hajiAudit?.confirmed); }}
-                    className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-emerald-700 hover:bg-emerald-50 sm:py-2 sm:text-xs"
-                  >
-                    {tr.hajiAudit?.confirmed ? "Unconfirm audit" : "Confirm audit"}
-                  </button>
-                )}
-                {!auditLocked && (
-                  <>
-                    <button onClick={() => { setOpenActionId(null); openEdit(tr); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
-                    <button onClick={() => { setOpenActionId(null); handleDelete(tr); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("delete")}</button>
-                  </>
-                )}
-              </RowActionMenu>
-            ) : null
-            );
-          },
-        },
-      ]} data={items} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />}
+        columns={hajiColumns} data={items} loading={loading} compact pagination={{ page, totalPages, total, onPageChange: setPage }} />}
 
       {/* CREATE MODAL */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={t("record_haji_transfer")} size="md" inline={isEmbed} hideHeader={isEmbed}>
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); setTransferSavedNotice(null); if (isEmbed) closeEmbed(); }} title={t("record_haji_transfer")} size="md" inline={isEmbed} hideHeader={isEmbed}>
+        {transferSavedNotice && (
+          <div className="mb-3 rounded border border-green-200 bg-green-50 p-2 text-sm text-green-700">{transferSavedNotice}</div>
+        )}
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
           {isAfghanistanCity ? (
@@ -859,7 +1124,7 @@ export default function HajiTransfersPage() {
                 <label className="mb-1 block text-sm font-medium text-gray-700">{t("detail")} *</label>
                 <input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" />
               </div>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
                 <div className="min-w-0">
                   <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
                   <input
@@ -868,6 +1133,14 @@ export default function HajiTransfersPage() {
                     onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
                     className="input-field"
                     onWheel={e => e.currentTarget.blur()}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Ref. No.</label>
+                  <input
+                    value={form.referenceNo || ""}
+                    onChange={e => setForm((f: any) => ({ ...f, referenceNo: e.target.value }))}
+                    className="input-field"
                   />
                 </div>
                 <div className="min-w-0">
@@ -895,7 +1168,7 @@ export default function HajiTransfersPage() {
                     ))}
                   </select>
                 </div>
-                <div className="min-w-0 col-span-2 sm:col-span-1">
+                <div className="min-w-0">
                   <label className="mb-1 block text-sm font-medium text-gray-700">{t("lot")}</label>
                   <select value={form.lotId} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
                     <option value={0}>{t("auto_fifo")}</option>
@@ -908,13 +1181,13 @@ export default function HajiTransfersPage() {
             </>
           ) : (
             <>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-gray-700">{t("date")} *</label>
               <MobileDateInput value={form.transferDate} onChange={(transferDate) => setForm((f: any) => ({ ...f, transferDate }))} placeholder={t("date")} />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("source_of_funds")} *</label>
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-gray-700">From *</label>
               <select
                 value={form.sourceType}
                 onChange={e => setForm((f: any) => ({
@@ -928,7 +1201,7 @@ export default function HajiTransfersPage() {
                 }))}
                 className="select-field"
               >
-                <option value="cash_office">{t("cash_from_office")}</option>
+                <option value="cash_office">{simplifyModals ? t("cash") : t("cash_from_office")}</option>
                 <option value="cheque">{t("cheque")}</option>
                 <option value="mixed_cash_cheque">Cash + Cheques</option>
                 <option value="bank_transfer">{t("bank_transfer")}</option>
@@ -936,59 +1209,45 @@ export default function HajiTransfersPage() {
             </div>
           </div>
 
-          {/* Cheque selector */}
-          {!isAfghanistanCity && (form.sourceType === "cheque" || form.sourceType === "mixed_cash_cheque") && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("select_cheques")} {form.sourceType === "cheque" ? "*" : ""}</label>
+          {(form.sourceType === "cheque" || form.sourceType === "mixed_cash_cheque") && (
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-gray-700">{t("select_cheques")} {form.sourceType === "cheque" ? "*" : ""}</label>
               {inHandCheques.length === 0 ? (
-                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-700">No cheques in hand. Record a cheque payment first.</div>
+                <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-700">No cheques in hand. Record a cheque payment first.</div>
               ) : (
                 <div className="max-h-52 overflow-auto rounded-lg border border-gray-200 divide-y divide-gray-100">
                   {inHandCheques.map((c: any) => {
                     const checked = form.chequePaymentIds.includes(c.id);
+                    const ref = c.chequeNumber || c.manualVoucherNo || String(c.id);
+                    const sym = c.currency?.symbol || c.currency?.code || "";
                     return (
-                      <label key={c.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50">
-                        <span className="flex items-center gap-3 min-w-0">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleCheque(c.id)}
-                            className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                          />
-                          <span className="min-w-0">
-                            <span className="block font-medium text-gray-800 truncate">
-                              #{c.chequeNumber || c.manualVoucherNo || c.id} · {c.customer?.name || "Walk-in Customer"}
-                            </span>
-                            <span className="block text-xs text-gray-500 truncate">
-                              {c.chequeBank || "Bank not set"}{c.chequeDueDate ? ` · Due ${formatDate(c.chequeDueDate)}` : ""}
-                            </span>
-                          </span>
-                        </span>
-                        <span className="font-medium text-gray-700 whitespace-nowrap">
-                          {c.currency?.symbol || c.currency?.code || ""} {Number(c.amount || 0).toLocaleString("en-US")}
+                      <label key={c.id} className="haji-cheque-option flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-sm leading-tight hover:bg-gray-50">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleCheque(c.id)}
+                          className="shrink-0 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                        />
+                        <span className="min-w-0 truncate font-medium text-gray-800">{ref}</span>
+                        <span className="ml-auto shrink-0 pl-4 text-right tabular-nums font-medium text-gray-700">
+                          {sym} {Number(c.amount || 0).toLocaleString("en-US")}
                         </span>
                       </label>
                     );
                   })}
                 </div>
               )}
-              {form.chequePaymentIds.length > 0 && !simplifyModals && (
-                <div className="mt-2 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-3 py-2">
-                  {form.chequePaymentIds.length} selected · {selectedCheques[0]?.currency?.symbol || selectedCheques[0]?.currency?.code || ""} {formatNumber(selectedChequeTotal)}
-                </div>
-              )}
             </div>
           )}
 
-          {/* Bank account selector */}
-          {!isAfghanistanCity && form.sourceType === "bank_transfer" && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("bank_account")} *</label>
+          {form.sourceType === "bank_transfer" && (
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-gray-700">{t("bank_account")} *</label>
               {bankAccounts.length === 0 ? (
-                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-700">{t("no_bank_accounts")}. Add one in Settings → Bank Accounts.</div>
+                <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-700">{t("no_bank_accounts")}. Add one in Settings → Bank Accounts.</div>
               ) : (
-                <select value={form.bankAccountId || 0} onChange={e => setForm((f: any) => ({ ...f, bankAccountId: parseInt(e.target.value) }))} className="select-field">
-                  <option value={0}>— Select bank account —</option>
+                <select value={form.bankAccountId || 0} onChange={e => setForm((f: any) => ({ ...f, bankAccountId: parseInt(e.target.value, 10) }))} className="select-field">
+                  <option value={0}>Select</option>
                   {bankAccounts.map((b: any) => (
                     <option key={b.id} value={b.id}>{b.bankName}{b.accountNumber ? ` (${b.accountNumber})` : ""}</option>
                   ))}
@@ -997,28 +1256,52 @@ export default function HajiTransfersPage() {
             </div>
           )}
 
-          {!shouldUseSuperAdminTarget && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Transferred To</label>
-            <input
-              value={form.transferredTo}
-              onChange={e => setForm((f: any) => ({ ...f, transferredTo: e.target.value }))}
-              className="input-field"
-              placeholder="Person or account name"
-            />
-          </div>
+          {shouldUseSuperAdminTarget && (
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-gray-700">Destination *</label>
+              {destinationAccountsLoading ? (
+                <div className="select-field bg-gray-50 text-sm text-gray-500">Loading accounts…</div>
+              ) : superAdminBankAccounts.length === 0 ? (
+                <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-700">
+                  No super admin accounts configured. Ask super admin to add one in Settings → Bank Accounts.
+                </div>
+              ) : (
+                <select
+                  value={form.superAdminDestinationAccountId || 0}
+                  onChange={(e) => {
+                    const nextId = parseInt(e.target.value, 10) || 0;
+                    const account = superAdminBankAccounts.find((a: any) => a.id === nextId);
+                    setForm((f: any) => ({
+                      ...f,
+                      superAdminDestinationAccountId: nextId,
+                      transferredTo: account ? formatSuperAdminBankLabel(account) : PAKISTAN_HAJI_TARGET,
+                    }));
+                  }}
+                  className="select-field"
+                >
+                  <option value={0}>Select</option>
+                  {superAdminBankAccounts.map((a: any) => (
+                    <option key={a.id} value={a.id}>
+                      {formatSuperAdminBankLabel(a)}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
           )}
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("detail")} *</label>
-            <input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {form.sourceType === "mixed_cash_cheque" ? "Cash Amount" : t("amount")} {form.sourceType === "cheque" ? <span className="text-gray-400 font-normal">(auto from cheque)</span> : "*"}
+          {currencies.length > 1 ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                {form.sourceType === "mixed_cash_cheque" ? "Cash Amount" : t("amount")}{" "}
+                {isChequeOnlyAmount ? <span className="font-normal text-gray-400">(auto)</span> : "*"}
               </label>
+              {isChequeOnlyAmount ? (
+                <div className="input-field bg-gray-50 tabular-nums text-gray-800">
+                  {selectedChequeTotal > 0 ? selectedChequeTotal.toLocaleString("en-US") : "—"}
+                </div>
+              ) : (
               <input
                 type="number"
                 value={form.sourceType === "mixed_cash_cheque" ? (form.cashAmount || "") : (form.amount || "")}
@@ -1026,21 +1309,37 @@ export default function HajiTransfersPage() {
                   ? ({ ...f, cashAmount: parseFloat(e.target.value) || 0 })
                   : ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
                 className="input-field"
-                readOnly={form.sourceType === "cheque"}
                 onWheel={e => e.currentTarget.blur()}
               />
+              )}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")} *</label>
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-gray-700">Ref. No.</label>
+              <input
+                value={form.referenceNo || ""}
+                onChange={e => setForm((f: any) => ({ ...f, referenceNo: e.target.value }))}
+                className="input-field"
+              />
+            </div>
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-gray-700">{t("currency")} *</label>
               <select
                 value={form.currencyId || 0}
                 onChange={e => {
                   const nextCurrencyId = parseInt(e.target.value, 10) || 0;
-                  setForm((f: any) => ({ ...f, currencyId: nextCurrencyId }));
+                  setForm((f: any) => ({
+                    ...f,
+                    currencyId: nextCurrencyId,
+                    superAdminDestinationAccountId: 0,
+                    transferredTo: PAKISTAN_HAJI_TARGET,
+                  }));
+                  if (shouldUseSuperAdminTarget && nextCurrencyId) {
+                    void loadPakistanDestinationAccounts(nextCurrencyId);
+                  }
                 }}
                 className="select-field"
               >
-                <option value={0}>— Select currency —</option>
+                <option value={0}>Select</option>
                 {currencies.map((c: any) => (
                   <option key={c.id} value={c.id}>
                     {formatCurrencySelectLabel(c)}
@@ -1048,9 +1347,9 @@ export default function HajiTransfersPage() {
                 ))}
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("lot")}</label>
-              <select value={form.lotId} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-gray-700">{t("lot")}</label>
+              <select value={form.lotId} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value, 10) }))} className="select-field">
                 <option value={0}>{t("auto_fifo")}</option>
                 {lots.filter((l: any) => l.status === "ongoing" || !l.status).map(l => (
                   <option key={l.id} value={l.id}>{l.lotNumber}</option>
@@ -1058,9 +1357,51 @@ export default function HajiTransfersPage() {
               </select>
             </div>
           </div>
+          ) : (
+          <div className="grid grid-cols-3 gap-3">
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                {form.sourceType === "mixed_cash_cheque" ? "Cash Amount" : t("amount")}{" "}
+                {isChequeOnlyAmount ? <span className="font-normal text-gray-400">(auto)</span> : "*"}
+              </label>
+              {isChequeOnlyAmount ? (
+                <div className="input-field bg-gray-50 tabular-nums text-gray-800">
+                  {selectedChequeTotal > 0 ? selectedChequeTotal.toLocaleString("en-US") : "—"}
+                </div>
+              ) : (
+              <input
+                type="number"
+                value={form.sourceType === "mixed_cash_cheque" ? (form.cashAmount || "") : (form.amount || "")}
+                onChange={e => setForm((f: any) => form.sourceType === "mixed_cash_cheque"
+                  ? ({ ...f, cashAmount: parseFloat(e.target.value) || 0 })
+                  : ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
+                className="input-field"
+                onWheel={e => e.currentTarget.blur()}
+              />
+              )}
+            </div>
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-gray-700">Ref. No.</label>
+              <input
+                value={form.referenceNo || ""}
+                onChange={e => setForm((f: any) => ({ ...f, referenceNo: e.target.value }))}
+                className="input-field"
+              />
+            </div>
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-gray-700">{t("lot")}</label>
+              <select value={form.lotId} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value, 10) }))} className="select-field">
+                <option value={0}>{t("auto_fifo")}</option>
+                {lots.filter((l: any) => l.status === "ongoing" || !l.status).map(l => (
+                  <option key={l.id} value={l.id}>{l.lotNumber}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          )}
 
           {form.sourceType === "mixed_cash_cheque" && (
-            <div className="p-2 bg-emerald-50 border border-emerald-200 rounded text-sm text-emerald-700">
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-700">
               Slip total: {selectedCheques[0]?.currency?.symbol || selectedCheques[0]?.currency?.code || ""} {formatNumber(mixedSlipTotal)}
             </div>
           )}
@@ -1092,7 +1433,7 @@ export default function HajiTransfersPage() {
         <div className="space-y-3">
           {!isAfghanistanCity && (
           <div className="p-2 bg-gray-50 border rounded text-xs text-gray-600">
-            {t("source_of_funds")}: <strong>{SOURCE_CONFIG[form.sourceType]?.label || form.sourceType}</strong> (cannot change after creation)
+            {t("source_of_funds")}: <strong>{getSourceTypeLabel(form.sourceType)}</strong> (cannot change after creation)
           </div>
           )}
           {isAfghanistanCity ? (
@@ -1108,10 +1449,14 @@ export default function HajiTransfersPage() {
                 <label className="mb-1 block text-sm font-medium text-gray-700">{t("detail")}</label>
                 <input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" />
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")}</label>
                   <input type="number" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Ref. No.</label>
+                  <input value={form.referenceNo || ""} onChange={e => setForm((f: any) => ({ ...f, referenceNo: e.target.value }))} className="input-field" />
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">{t("currency")}</label>
@@ -1184,8 +1529,17 @@ export default function HajiTransfersPage() {
           </div>
           )}
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("detail")}</label><input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" /></div>
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")}</label><input type="number" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} /></div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")}</label>
+              {isChequeFundedTransfer ? (
+                <div className="input-field bg-gray-50 tabular-nums text-gray-800">
+                  {Number(form.amount || 0).toLocaleString("en-US")}
+                </div>
+              ) : (
+                <input type="number" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} />
+              )}
+            </div>
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">Ref. No.</label><input value={form.referenceNo || ""} onChange={e => setForm((f: any) => ({ ...f, referenceNo: e.target.value }))} className="input-field" /></div>
           </div>
             </>
           )}

@@ -12,6 +12,7 @@ type LedgerRow = {
   qtyIn: number;
   qtyOut: number;
   runningStock?: number;
+  customerName?: string | null;
 };
 
 function asArray(value: unknown): unknown[] {
@@ -161,6 +162,8 @@ export function buildOfflineStockLedgerFromModules(
       saleDate?: string;
       date?: string;
       godownId?: number;
+      customer?: { name?: string };
+      customerName?: string;
       items?: unknown[];
     };
     if (!["active", "marked_short"].includes(String(s.status || ""))) continue;
@@ -183,6 +186,7 @@ export function buildOfflineStockLedgerFromModules(
         cityName: "",
         qtyIn: 0,
         qtyOut: Number(si.qty || 0),
+        customerName: s.customer?.name ?? s.customerName ?? null,
       });
     }
   }
@@ -301,5 +305,5 @@ export function buildOfflineStockLedgerFromModules(
   }
 
   const limit = Math.max(1, Number(params?.limit || 500) || 500);
-  return rows.slice(0, limit);
+  return rows.reverse().slice(0, limit);
 }

@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, validationError, serverError } from "@/lib/api-response";
 import { JWTPayload, hashPassword } from "@/lib/auth";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { z } from "zod";
 
 // Enforce the same strong-password rule used everywhere else in the app
@@ -20,6 +21,9 @@ const resetPasswordSchema = z.object({
 // Body: { userId, newPassword }
 export const PUT = withSuperAdmin(async (request: NextRequest, context, user: JWTPayload) => {
   try {
+    const limited = await checkRateLimit(`resetpw:${user.userId}`, 5, 15 * 60 * 1000);
+    if (limited) return limited;
+
     const body = await request.json();
     const parsed = resetPasswordSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid input", parsed.error.errors);
@@ -34,9 +38,13 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context, user: JW
       where: { id: userId },
       data: {
         passwordHash: hash,
-        passwordPlain: target.role === "city_admin" ? newPassword : null,
         updatedAt: new Date(),
       },
+    });
+
+    await prisma.userSession.updateMany({
+      where: { userId, isActive: true },
+      data: { isActive: false },
     });
 
     await createAuditLog(user.userId, null, "users", userId, "update", { action: "password_reset" }, undefined, getClientIP(request));

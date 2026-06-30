@@ -3,26 +3,38 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, DataTable, Modal, RowActionMenu, formatDate, formatNumber } from "@/components/ui";
+import { PageHeader, DataTable, Modal, RowActionMenu, formatDate, formatNumber, MobileDateInput } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { isEditableCustomerQueuedPayload, safeParseQueuedBody } from "@/lib/queue-resolve";
 import { applyPendingCustomerLedger } from "@/lib/offline-customer-ledger";
 import { useSearchParams } from "next/navigation";
-import { getEmbedQuickformPath } from "@/lib/quickform-embed";
+import { getEmbedQuickformPath, shouldSimplifyCityModals } from "@/lib/quickform-embed";
 import { useOffline } from "@/hooks/useOffline";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
-import { openLedgerExport, printCustomerLedgerStatement } from "@/lib/ledger-export";
+import { printCustomerLedgerStatement } from "@/lib/ledger-export";
 import { formatLedgerMoneyAmount } from "@/lib/city-money-format";
+import { GlassButton } from "@/components/ui/GlassButton";
+import { LedgerExportButtons } from "@/components/LedgerExportButtons";
+import { Play } from "lucide-react";
 
 function compactCustomerLedgerDetail(entry: { type?: string; detail?: string; voucherNo?: string }) {
   const detail = String(entry.detail || entry.voucherNo || "").trim();
+  if (entry.type === "payment") return detail.length > 42 ? `${detail.slice(0, 40)}…` : detail;
   const prefix = entry.type === "sale" ? "Sale" : "Rcpt";
   if (!detail) return prefix;
   const combined = `${prefix} · ${detail}`;
   return combined.length > 42 ? `${combined.slice(0, 40)}…` : combined;
 }
+
+function ledgerBalanceTone(balance: number) {
+  if (balance > 0) return "border-red-200 bg-red-50 text-red-900";
+  if (balance < 0) return "border-emerald-200 bg-emerald-50 text-emerald-900";
+  return "border-gray-200 bg-white text-gray-600";
+}
+
+const LEDGER_FIELD_LABEL = "mb-1 block text-[11px] font-semibold uppercase tracking-wide text-[#71717a]";
 
 const CUSTOMERS_READ_CACHE_KEY = "mrf-customers-read-cache-v1";
 
@@ -75,6 +87,7 @@ export default function CustomersPage() {
   const { isOnline, enqueue, updateQueuedItem, retryQueuedItem, discardQueuedItem, syncQueue, queuedItems, lastSyncResult } = useOffline();
   const searchParams = useSearchParams();
   const isEmbed = useQuickformEmbed();
+  const simplifyModals = shouldSimplifyCityModals(user, isEmbed);
   const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -466,16 +479,19 @@ export default function CustomersPage() {
       const row = (data.ledger || []).find((e: any) => e.currency === code);
       return row?.currencySymbol || code;
     };
+    const formatBalanceLine = (amount: number, symbol?: string, code?: string) => {
+      if (amount === 0) return `${t("balance")}: ${t("settled")}`;
+      return `${t("balance")}: ${formatLedgerMoneyAmount(Math.abs(amount), symbol, code)}`;
+    };
     if (data.balanceByCurrency && Object.keys(data.balanceByCurrency).length > 0) {
       return Object.entries(data.balanceByCurrency)
-        .map(([cc, amt]) => formatLedgerMoneyAmount(Math.abs(Number(amt)), symbolForCode(cc), cc))
-        .filter(Boolean)
+        .map(([cc, amt]) => formatBalanceLine(Number(amt), symbolForCode(cc), cc))
         .join(" · ");
     }
     if (typeof data.balance === "number") {
       const code = data.ledger?.[0]?.currency;
       const symbol = data.ledger?.[0]?.currencySymbol;
-      return formatLedgerMoneyAmount(Math.abs(data.balance), symbol, code);
+      return formatBalanceLine(data.balance, symbol, code);
     }
     return "";
   };
@@ -508,6 +524,78 @@ export default function CustomersPage() {
     }
   }, [isEmbed, queuedItems, searchParams, user?.cityId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const customerNameColumn = {
+    key: "name",
+    label: t("name"),
+    render: (c: any) => (
+      <div className="flex items-center gap-2">
+        {String(c?.id || "").startsWith("pending-") ? (
+          <span className="font-medium text-gray-500">{c.name}</span>
+        ) : (
+          <button onClick={() => openLedger(c)} className="font-medium text-primary-600 hover:underline">{c.name}</button>
+        )}
+        {!c.isActive && <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-medium">{t("inactive")}</span>}
+      </div>
+    ),
+  };
+  const customerPhoneColumn = {
+    key: "phone",
+    label: t("phone"),
+    render: (c: any) => c.phone || "-",
+  };
+  const customerAddressColumn = {
+    key: "address",
+    label: t("address"),
+    render: (c: any) => c.address || "-",
+    className: "max-w-xs truncate",
+  };
+  const customerBalanceColumn = {
+    key: "balance",
+    label: t("balance"),
+    render: (c: any) => {
+      if (c.balanceByCurrency && Object.keys(c.balanceByCurrency).length > 0) {
+        return (
+          <div className="space-y-0.5">
+            {Object.entries(c.balanceByCurrency).map(([cc, amt]: [string, any]) => (
+              <div key={cc} className={`font-medium text-sm ${amt > 0 ? "text-red-600" : amt < 0 ? "text-green-600" : "text-gray-400"}`}>
+                {amt !== 0 ? `${cc} ${Math.abs(amt).toLocaleString("en-US")}` : `${cc} ${t("settled")}`}
+              </div>
+            ))}
+          </div>
+        );
+      }
+      if (c.balance !== undefined) {
+        return <span className={`font-medium ${c.balance > 0 ? "text-red-600" : c.balance < 0 ? "text-green-600" : ""}`}>{c.balance !== 0 ? Math.abs(c.balance).toLocaleString("en-US") : t("settled")}</span>;
+      }
+      return <span>-</span>;
+    },
+  };
+  const customerActionsColumn = {
+    key: "actions",
+    label: "",
+    render: (c: any) => (
+      <RowActionMenu
+        open={openActionId === c.id}
+        onOpenChange={(open) => setOpenActionId(open ? c.id : null)}
+      >
+        {c.isActive && (
+          <button onClick={() => { setOpenActionId(null); openEdit(c); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
+        )}
+        {c.isActive ? (
+          <button onClick={() => { setOpenActionId(null); handleDelete(c); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("deactivate")}</button>
+        ) : (
+          <button onClick={() => { setOpenActionId(null); handleReactivate(c); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-green-700 hover:bg-green-50 sm:py-2 sm:text-xs">{t("reactivate")}</button>
+        )}
+        {user?.role === "super_admin" && (
+          <button onClick={() => { setOpenActionId(null); openHardDelete(c); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-red-800 hover:bg-red-50 sm:py-2 sm:text-xs">{t("hard_delete")}</button>
+        )}
+      </RowActionMenu>
+    ),
+  };
+  const customerColumns = simplifyModals
+    ? [customerNameColumn, customerBalanceColumn, customerPhoneColumn, customerActionsColumn]
+    : [customerNameColumn, customerPhoneColumn, customerAddressColumn, customerBalanceColumn, customerActionsColumn];
+
   return (
     <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
       {!isEmbed && <PageHeader title={t("customers")} />}
@@ -519,55 +607,7 @@ export default function CustomersPage() {
       {!isEmbed && <DataTable
         searchValue={searchQuery}
         onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}
-        columns={[
-        { key: "name", label: t("name"), render: (c: any) => (
-          <div className="flex items-center gap-2">
-            {String(c?.id || "").startsWith("pending-") ? (
-              <span className="font-medium text-gray-500">{c.name}</span>
-            ) : (
-              <button onClick={() => openLedger(c)} className="font-medium text-primary-600 hover:underline">{c.name}</button>
-            )}
-            {!c.isActive && <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-medium">{t("inactive")}</span>}
-          </div>
-        )},
-        { key: "phone", label: t("phone"), render: (c: any) => c.phone || "-" },
-        { key: "address", label: t("address"), render: (c: any) => c.address || "-", className: "max-w-xs truncate" },
-        { key: "balance", label: t("balance"), render: (c: any) => {
-          if (c.balanceByCurrency && Object.keys(c.balanceByCurrency).length > 0) {
-            return (
-              <div className="space-y-0.5">
-                {Object.entries(c.balanceByCurrency).map(([cc, amt]: [string, any]) => (
-                  <div key={cc} className={`font-medium text-sm ${amt > 0 ? "text-red-600" : amt < 0 ? "text-green-600" : "text-gray-400"}`}>
-                    {amt !== 0 ? `${cc} ${Math.abs(amt).toLocaleString("en-US")}` : `${cc} ${t("settled")}`}
-                  </div>
-                ))}
-              </div>
-            );
-          }
-          if (c.balance !== undefined) {
-            return <span className={`font-medium ${c.balance > 0 ? "text-red-600" : c.balance < 0 ? "text-green-600" : ""}`}>{c.balance !== 0 ? Math.abs(c.balance).toLocaleString("en-US") : t("settled")}</span>;
-          }
-          return <span>-</span>;
-        }},
-        { key: "actions", label: "", render: (c: any) => (
-          <RowActionMenu
-            open={openActionId === c.id}
-            onOpenChange={(open) => setOpenActionId(open ? c.id : null)}
-          >
-            {c.isActive && (
-              <button onClick={() => { setOpenActionId(null); openEdit(c); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
-            )}
-            {c.isActive ? (
-              <button onClick={() => { setOpenActionId(null); handleDelete(c); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("deactivate")}</button>
-            ) : (
-              <button onClick={() => { setOpenActionId(null); handleReactivate(c); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-green-700 hover:bg-green-50 sm:py-2 sm:text-xs">{t("reactivate")}</button>
-            )}
-            {user?.role === "super_admin" && (
-              <button onClick={() => { setOpenActionId(null); openHardDelete(c); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-red-800 hover:bg-red-50 sm:py-2 sm:text-xs">{t("hard_delete")}</button>
-            )}
-          </RowActionMenu>
-        )},
-      ]} data={customers} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />}
+        columns={customerColumns} data={customers} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />}
 
       {/* CREATE */}
       <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={t("new_customer")} size="md" inline={isEmbed} hideHeader={isEmbed}>
@@ -595,113 +635,129 @@ export default function CustomersPage() {
       </Modal>
 
       {/* LEDGER */}
-      <Modal open={showLedger} onClose={() => setShowLedger(false)} title={`Ledger — ${selected?.name || ""}`} size="lg">
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-[#d4d4d8] bg-[#f4f4f5]/90 px-3 py-2">
-            <div className="flex flex-col items-start gap-1">
+      <Modal open={showLedger} onClose={() => setShowLedger(false)} title={`${t("customer_ledger")} — ${selected?.name || ""}`} size="lg">
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#d4d4d8] bg-[#f4f4f5]/90 px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2">
               {ledgerData && ledgerData.balanceByCurrency && Object.keys(ledgerData.balanceByCurrency).length > 0 ? (
                 Object.entries(ledgerData.balanceByCurrency).map(([code, amt]: [string, any]) => {
                   const bal = Number(amt || 0);
                   const sym = ledgerEntrySymbol({ currency: code, currencySymbol: (ledgerData.ledger || []).find((e: any) => e.currency === code)?.currencySymbol });
                   return (
-                    <span
+                    <div
                       key={code}
-                      className={`rounded border px-2 py-0.5 text-xs font-medium tabular-nums ${bal > 0 ? "border-red-200 bg-red-50 text-red-800" : bal < 0 ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-gray-200 bg-white text-gray-600"}`}
+                      className={`inline-flex items-baseline gap-2 rounded-lg border px-3 py-1.5 ${ledgerBalanceTone(bal)}`}
                     >
-                      {bal === 0 ? `${sym} ${t("settled")}` : formatLedgerMoneyAmount(Math.abs(bal), sym, code)}
-                    </span>
+                      <span className="text-[10px] font-semibold uppercase tracking-wider opacity-75">{t("balance")}</span>
+                      <span className="text-sm font-semibold tabular-nums">
+                        {bal === 0 ? t("settled") : formatLedgerMoneyAmount(Math.abs(bal), sym, code)}
+                      </span>
+                    </div>
                   );
                 })
               ) : ledgerData && typeof ledgerData.balance === "number" ? (
-                <span className={`rounded border px-2 py-0.5 text-xs font-medium tabular-nums ${ledgerData.balance > 0 ? "border-red-200 bg-red-50 text-red-800" : ledgerData.balance < 0 ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-gray-200 bg-white text-gray-600"}`}>
-                  {ledgerData.balance === 0
-                    ? t("settled")
-                    : formatLedgerMoneyAmount(Math.abs(ledgerData.balance), ledgerData.ledger?.[0]?.currencySymbol, ledgerData.ledger?.[0]?.currency)}
-                </span>
+                <div className={`inline-flex items-baseline gap-2 rounded-lg border px-3 py-1.5 ${ledgerBalanceTone(ledgerData.balance)}`}>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider opacity-75">{t("balance")}</span>
+                  <span className="text-sm font-semibold tabular-nums">
+                    {ledgerData.balance === 0
+                      ? t("settled")
+                      : formatLedgerMoneyAmount(Math.abs(ledgerData.balance), ledgerData.ledger?.[0]?.currencySymbol, ledgerData.ledger?.[0]?.currency)}
+                  </span>
+                </div>
               ) : (
-                <span className="text-xs text-gray-500">No balance</span>
+                <span className="text-sm text-gray-500">—</span>
               )}
             </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <button
-                type="button"
-                disabled={!isOnline || !selected?.id}
-                onClick={() => openLedgerExport({
-                  type: "customer_ledger",
-                  customerId: selected?.id,
+            <LedgerExportButtons
+              type="customer_ledger"
+              customerId={selected?.id}
+              dateFrom={ledgerDateFrom || undefined}
+              dateTo={ledgerDateTo || undefined}
+              cityId={user?.cityId ?? undefined}
+              query={ledgerSearchQuery.trim().length >= 2 ? ledgerSearchQuery.trim() : undefined}
+              disabled={!isOnline || !selected?.id}
+              onPrintPdf={() => {
+                if (!ledgerData) return;
+                printCustomerLedgerStatement({
+                  customerName: selected?.name || "",
+                  ledger: ledgerData.ledger || [],
+                  balanceSummary: buildLedgerBalanceSummary(ledgerData),
                   dateFrom: ledgerDateFrom || undefined,
                   dateTo: ledgerDateTo || undefined,
-                  cityId: user?.cityId ?? undefined,
                   query: ledgerSearchQuery,
-                })}
-                className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
-              >
-                XLSX
-              </button>
-              <button
-                type="button"
-                disabled={!ledgerData}
-                onClick={() => {
-                  if (!ledgerData) return;
-                  printCustomerLedgerStatement({
-                    customerName: selected?.name || "",
-                    ledger: ledgerData.ledger || [],
-                    balanceSummary: buildLedgerBalanceSummary(ledgerData),
-                    dateFrom: ledgerDateFrom || undefined,
-                    dateTo: ledgerDateTo || undefined,
-                    query: ledgerSearchQuery,
-                  });
-                }}
-                className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
-              >
-                PDF
-              </button>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-gray-200 bg-gray-50/60 px-2.5 py-1.5 text-xs">
-            <label className="flex items-center gap-1.5 text-gray-600">
-              <span className="font-medium">{t("from")}</span>
-              <input type="date" value={ledgerDateFrom} onChange={(e) => setLedgerDateFrom(e.target.value)} className="input-field w-32 py-0.5 text-xs" />
-            </label>
-            <label className="flex items-center gap-1.5 text-gray-600">
-              <span className="font-medium">{t("to")}</span>
-              <input type="date" value={ledgerDateTo} onChange={(e) => setLedgerDateTo(e.target.value)} className="input-field w-32 py-0.5 text-xs" />
-            </label>
-            <button type="button" onClick={applyLedgerDateFilter} className="rounded border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-700 hover:bg-gray-50">
-              {t("generate")}
-            </button>
-            <input
-              type="text"
-              value={ledgerSearchQuery}
-              onChange={(e) => setLedgerSearchQuery(e.target.value)}
-              placeholder="Search…"
-              className="input-field min-w-[8rem] flex-1 py-0.5 text-xs sm:max-w-[10rem]"
+                });
+              }}
             />
           </div>
 
+          <div className="rounded-xl border border-[#ececee] bg-white px-4 py-3">
+            <div className="flex flex-col gap-3 md:flex-row md:items-end md:gap-2">
+              <div className="min-w-0 flex-1">
+                <label className={LEDGER_FIELD_LABEL}>Search</label>
+                <input
+                  type="text"
+                  value={ledgerSearchQuery}
+                  onChange={(e) => setLedgerSearchQuery(e.target.value)}
+                  placeholder="Search entries…"
+                  className="input-field h-9 w-full text-sm"
+                />
+              </div>
+              <div className="shrink-0">
+                <label className={LEDGER_FIELD_LABEL}>{t("from")}</label>
+                <MobileDateInput
+                  variant="filter"
+                  value={ledgerDateFrom}
+                  onChange={setLedgerDateFrom}
+                  placeholder={t("from")}
+                  aria-label={t("from")}
+                  className="w-full sm:w-[9rem]"
+                />
+              </div>
+              <div className="shrink-0">
+                <label className={LEDGER_FIELD_LABEL}>{t("to")}</label>
+                <MobileDateInput
+                  variant="filter"
+                  value={ledgerDateTo}
+                  onChange={setLedgerDateTo}
+                  placeholder={t("to")}
+                  aria-label={t("to")}
+                  className="w-full sm:w-[9rem]"
+                />
+              </div>
+              <GlassButton
+                type="button"
+                onClick={applyLedgerDateFilter}
+                disabled={ledgerLoading || !selected}
+                className="h-9 shrink-0 px-4 text-sm md:self-end"
+              >
+                <Play className="h-4 w-4" strokeWidth={2} />
+                {ledgerLoading ? t("loading") : t("generate")}
+              </GlassButton>
+            </div>
+          </div>
+
           {ledgerLoading ? (
-            <div className="flex justify-center py-10">
-              <div className="w-7 h-7 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
+            <div className="flex justify-center py-12">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-200 border-t-primary-600" />
             </div>
           ) : ledgerData ? (
-            <div className="rounded-lg border border-gray-200 overflow-hidden">
+            <div className="overflow-hidden rounded-xl border border-gray-200">
               <div className="overflow-x-auto">
-                <table className="w-full table-fixed text-xs">
+                <table className="w-full table-fixed text-sm">
                   <colgroup>
-                    <col className="w-[76px]" />
+                    <col className="w-[88px]" />
                     <col />
-                    <col className="w-[76px]" />
-                    <col className="w-[76px]" />
-                    <col className="w-[84px]" />
+                    <col className="w-[88px]" />
+                    <col className="w-[88px]" />
+                    <col className="w-[96px]" />
                   </colgroup>
                   <thead>
-                    <tr className="bg-[#f4f4f5] text-[10px] uppercase tracking-wide text-gray-500">
-                      <th className="px-2 py-1.5 text-left font-semibold">{t("date")}</th>
-                      <th className="px-2 py-1.5 text-left font-semibold">Detail</th>
-                      <th className="px-2 py-1.5 text-right font-semibold">Dr</th>
-                      <th className="px-2 py-1.5 text-right font-semibold">Cr</th>
-                      <th className="px-2 py-1.5 text-right font-semibold">Bal</th>
+                    <tr className="bg-[#f4f4f5] text-[11px] uppercase tracking-wider text-gray-500">
+                      <th className="px-3 py-2 text-left font-semibold">{t("date")}</th>
+                      <th className="px-3 py-2 text-left font-semibold">{t("detail")}</th>
+                      <th className="px-3 py-2 text-right font-semibold">{t("debit")}</th>
+                      <th className="px-3 py-2 text-right font-semibold">{t("credit")}</th>
+                      <th className="px-3 py-2 text-right font-semibold">{t("balance")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -713,25 +769,38 @@ export default function CustomersPage() {
                           .some((value) => String(value ?? "").toLowerCase().includes(needle));
                       });
                       if (rows.length === 0) {
-                        return <tr><td colSpan={5} className="py-6 text-center text-gray-400">No ledger entries</td></tr>;
+                        return (
+                          <tr>
+                            <td colSpan={5} className="px-3 py-8 text-center text-sm text-gray-400">
+                              No ledger entries for this period
+                            </td>
+                          </tr>
+                        );
                       }
                       return rows.map((e: any, i: number) => {
                         const sym = ledgerEntrySymbol(e);
                         return (
-                        <tr key={i} className={`border-t border-[#e4e4e7] hover:bg-[#f5e8eb] ${e.status === "cancelled" ? "opacity-40 line-through" : ""}`}>
-                          <td className="whitespace-nowrap px-2 py-1.5 text-gray-600">{formatDate(e.date)}</td>
-                          <td className="px-2 py-1.5 text-gray-800 truncate" title={String(e.detail || e.voucherNo || "")}>
-                            {compactCustomerLedgerDetail(e)}
-                          </td>
-                          <td className="px-2 py-1.5 text-right tabular-nums text-red-700">{e.debit > 0 ? formatLedgerMoneyAmount(e.debit, sym, e.currency) : "—"}</td>
-                          <td className="px-2 py-1.5 text-right tabular-nums text-green-700">{e.credit > 0 ? formatLedgerMoneyAmount(e.credit, sym, e.currency) : "—"}</td>
-                          <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-gray-800">
-                            {(typeof e.balance === "number" && !Number.isNaN(e.balance))
-                              ? formatLedgerMoneyAmount(e.balance, sym, e.currency)
-                              : "—"}
-                          </td>
-                        </tr>
-                      );
+                          <tr
+                            key={i}
+                            className={`border-t border-[#e4e4e7] transition-colors hover:bg-[#fafafa] ${e.status === "cancelled" ? "opacity-40 line-through" : ""}`}
+                          >
+                            <td className="whitespace-nowrap px-3 py-2 tabular-nums text-gray-600">{formatDate(e.date)}</td>
+                            <td className="truncate px-3 py-2 text-gray-800" title={String(e.detail || e.voucherNo || "")}>
+                              {compactCustomerLedgerDetail(e)}
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums text-red-700">
+                              {e.debit > 0 ? formatLedgerMoneyAmount(e.debit, sym, e.currency) : "—"}
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums text-emerald-700">
+                              {e.credit > 0 ? formatLedgerMoneyAmount(e.credit, sym, e.currency) : "—"}
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums font-medium text-gray-900">
+                              {(typeof e.balance === "number" && !Number.isNaN(e.balance))
+                                ? formatLedgerMoneyAmount(e.balance, sym, e.currency)
+                                : "—"}
+                            </td>
+                          </tr>
+                        );
                       });
                     })()}
                   </tbody>
@@ -739,7 +808,9 @@ export default function CustomersPage() {
               </div>
             </div>
           ) : (
-            <div className="py-6 text-center text-sm text-gray-400">No ledger data</div>
+            <div className="rounded-xl border border-dashed border-gray-200 py-10 text-center text-sm text-gray-400">
+              No ledger data available
+            </div>
           )}
         </div>
       </Modal>

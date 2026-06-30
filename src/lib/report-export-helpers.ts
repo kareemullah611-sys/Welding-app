@@ -133,19 +133,13 @@ export type ExportPayload = {
   rows: string[][];
 };
 
+import { formatDisplayDate } from "@/lib/display-date";
+
 /** dd-mm-yy for ledger/report exports */
 export function formatExportDateShort(date: Date | string): string {
-  if (typeof date === "string") {
-    const iso = date.split("T")[0];
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-    if (match) return `${match[3]}-${match[2]}-${match[1].slice(-2)}`;
-  }
-  const d = date instanceof Date ? date : new Date(date);
-  if (Number.isNaN(d.getTime())) return String(date ?? "");
-  const dd = String(d.getUTCDate()).padStart(2, "0");
-  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const yy = String(d.getUTCFullYear()).slice(-2);
-  return `${dd}-${mm}-${yy}`;
+  const formatted = formatDisplayDate(date);
+  if (formatted === "-") return String(date ?? "");
+  return formatted;
 }
 
 export function formatExportMetaDate(value: string): string {

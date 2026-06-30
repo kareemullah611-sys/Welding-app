@@ -43,3 +43,14 @@ Format every fix as:
 - Never assume tax rate
 - Never assume currency conversion
 - Verify every calculation with source data
+
+## RULE 5: E2E VERIFICATION BEFORE "DONE"
+For any change touching payments, haji transfers, customer/supplier ledger, bank accounts, running balance, or treasury:
+
+1. **Builder must not mark work complete** until an E2E trace is documented (form → API → DB → ledger/display).
+2. **Prefer a separate verifier pass** — new chat or invoke skill `e2e-verifier` (`.cursor/skills/e2e-verifier/SKILL.md`). Verifier is read-only unless asked to fix.
+3. Check **every variant** (cash / cheque / bank / online, Pakistan vs Afghanistan, city vs super admin).
+4. Grep submit handlers for `delete body.` when adding fields that must reach the API.
+5. Attach or paste the verifier **Trace table** (PASS/FAIL per flow) before commit/PR.
+
+Display-only fields (`detail`, `transferredTo`) are not proof of correct persistence — confirm FK/ID columns match ledger queries.

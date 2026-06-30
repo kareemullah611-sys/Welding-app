@@ -93,6 +93,7 @@ export default function PersonalWithdrawalsPage() {
   const searchParams = useSearchParams();
   const isEmbed = useQuickformEmbed();
   const simplifyModals = shouldSimplifyCityModals(user, isEmbed);
+  const isSuperAdmin = user?.role === "super_admin";
   const isAfghanistanCity = user?.role === "city_admin" && user?.countryName === "Afghanistan";
   const [items, setItems] = useState<any[]>([]);
   const [counts, setCounts] = useState({ all: 0, pending: 0, approved: 0 });
@@ -633,6 +634,184 @@ export default function PersonalWithdrawalsPage() {
     ? cn("glass-btn glass-btn-primary disabled:opacity-60", isEmbed ? "w-full min-h-11" : "text-sm")
     : "btn-primary text-sm";
 
+  const withdrawalDateColumn = {
+    key: "withdrawalDate",
+    label: t("date"),
+    render: (w: any) => formatDate(w.withdrawalDate),
+  };
+  const withdrawalByColumn = {
+    key: "withdrawnBy",
+    label: "Withdrawn By",
+    render: (w: any) =>
+      simplifyModals ? (
+        w.withdrawnBy || <span className="text-gray-400 italic text-xs">not specified</span>
+      ) : (
+        <div>
+          <span className="font-medium text-gray-800">{w.withdrawnBy || <span className="text-gray-400 italic text-xs">not specified</span>}</span>
+          <p className="text-xs text-gray-500 mt-0.5">{w.detail}</p>
+        </div>
+      ),
+  };
+  const withdrawalDetailColumn = {
+    key: "detail",
+    label: t("detail"),
+    render: (w: any) => w.detail || "-",
+  };
+  const withdrawalAmountColumn = {
+    key: "amount",
+    label: t("amount"),
+    render: (w: any) => <span className="font-medium text-red-600">{w.currency?.symbol} {w.amount?.toLocaleString("en-US")}</span>,
+  };
+  const withdrawalStatusColumn = {
+    key: "status",
+    label: "Status",
+    render: (w: any) => w.approvedAt ? (
+      <div>
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800 border border-green-200">
+          ✓ Approved
+        </span>
+        <p className="text-xs text-gray-400 mt-0.5">by {w.approvedBy?.fullName}</p>
+      </div>
+    ) : (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200">
+        ⏳ Pending
+      </span>
+    ),
+  };
+  const withdrawalSourceColumn = {
+    key: "sourceType",
+    label: "Source",
+    render: (w: any) => (
+      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${
+        w.sourceType === "cheque"
+          ? "bg-amber-50 text-amber-700 border-amber-200"
+          : "bg-green-50 text-green-700 border-green-200"
+      }`}>
+        {w.sourceType === "cheque" ? "🧾 Cheque in Hand" : "💵 Cash from Office"}
+      </span>
+    ),
+  };
+  const withdrawalActionsColumn = {
+    key: "actions",
+    label: "",
+    render: (w: any) => (
+      <RowActionMenu
+        open={openActionId === w.id}
+        onOpenChange={(open) => setOpenActionId(open ? w.id : null)}
+      >
+        {!w.approvedAt && (
+          <>
+            <button
+              onClick={() => { setOpenActionId(null); openEdit(w); }}
+              className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs"
+            >
+              {t("edit")}
+            </button>
+            {user?.role === "super_admin" && (
+              <button
+                onClick={() => { setOpenActionId(null); handleApprove(w); }}
+                disabled={approvingId === w.id}
+                className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-green-700 hover:bg-green-50 disabled:opacity-50 sm:py-2 sm:text-xs"
+              >
+                {approvingId === w.id ? "Approving..." : "Approve"}
+              </button>
+            )}
+            <button
+              onClick={() => { setOpenActionId(null); handleDelete(w); }}
+              className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs"
+            >
+              {t("delete")}
+            </button>
+          </>
+        )}
+        {w.approvedAt && w.hajiTransferId && (
+          <div className="px-3 py-2 text-xs text-gray-500">Haji #{w.hajiTransferId}</div>
+        )}
+      </RowActionMenu>
+    ),
+  };
+  const withdrawalColumns = simplifyModals
+    ? [
+        withdrawalDateColumn,
+        withdrawalByColumn,
+        withdrawalDetailColumn,
+        withdrawalAmountColumn,
+        withdrawalSourceColumn,
+        withdrawalStatusColumn,
+        withdrawalActionsColumn,
+      ]
+    : [
+        withdrawalDateColumn,
+        withdrawalByColumn,
+        withdrawalAmountColumn,
+        withdrawalStatusColumn,
+        withdrawalSourceColumn,
+        withdrawalActionsColumn,
+      ];
+
+  const withdraweeField = (
+    <div className="relative min-w-0" ref={withdraweeMenuRef}>
+      <label className="block text-sm font-medium text-gray-700 mb-1">Withdrawn By *</label>
+      <input
+        value={withdraweeSearch}
+        onChange={(e) => {
+          setWithdraweeSearch(e.target.value);
+          setForm((f) => ({ ...f, withdrawnBy: "" }));
+          setShowWithdraweeMenu(true);
+        }}
+        onFocus={() => setShowWithdraweeMenu(true)}
+        className="input-field"
+        placeholder="Search existing names"
+      />
+      {showWithdraweeMenu && (
+        <div className="absolute z-50 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg">
+          <div className="max-h-48 overflow-y-auto py-1">
+            {filteredWithdrawees.map((name) => (
+              <button
+                key={name}
+                type="button"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  setWithdraweeSearch(name);
+                  selectWithdrawee(name);
+                }}
+                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50"
+              >
+                {name}
+              </button>
+            ))}
+            {canAddWithdrawee && (
+              <button
+                type="button"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  addWithdrawee();
+                }}
+                className="w-full border-t border-gray-100 px-3 py-2 text-left text-sm font-medium text-primary-700 hover:bg-primary-50"
+              >
+                + Add &quot;{normalizeWithdraweeName(withdraweeSearch)}&quot;
+              </button>
+            )}
+            {!filteredWithdrawees.length && !canAddWithdrawee && (
+              <div className="px-3 py-2 text-xs text-gray-500">No matching name found</div>
+            )}
+          </div>
+        </div>
+      )}
+      {form.withdrawnBy && !simplifyModals && (
+        <p className="mt-1 text-xs text-gray-500">
+          Selected: <span className="font-medium text-gray-700">{form.withdrawnBy}</span>
+        </p>
+      )}
+    </div>
+  );
+  const withdrawalDateField = (
+    <div className="min-w-0">
+      <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
+      <input type="date" value={form.withdrawalDate} onChange={(e) => setForm((f) => ({ ...f, withdrawalDate: e.target.value }))} className="input-field" />
+    </div>
+  );
+
   return (
     <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
       {!isEmbed && <PageHeader title={t("personal_withdrawals")} />}
@@ -683,93 +862,7 @@ export default function PersonalWithdrawalsPage() {
       {!isEmbed && <DataTable
         searchValue={searchQuery}
         onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}
-        columns={[
-          { key: "withdrawalDate", label: t("date"), render: (w: any) => formatDate(w.withdrawalDate) },
-          {
-            key: "withdrawnBy",
-            label: "Withdrawn By",
-            render: (w: any) => (
-              <div>
-                <span className="font-medium text-gray-800">{w.withdrawnBy || <span className="text-gray-400 italic text-xs">not specified</span>}</span>
-                <p className="text-xs text-gray-500 mt-0.5">{w.detail}</p>
-              </div>
-            ),
-          },
-          {
-            key: "amount",
-            label: t("amount"),
-            render: (w: any) => <span className="font-medium text-red-600">{w.currency?.symbol} {w.amount?.toLocaleString("en-US")}</span>,
-          },
-          {
-            key: "status",
-            label: "Status",
-            render: (w: any) => w.approvedAt ? (
-              <div>
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800 border border-green-200">
-                  ✓ Approved
-                </span>
-                <p className="text-xs text-gray-400 mt-0.5">by {w.approvedBy?.fullName}</p>
-              </div>
-            ) : (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200">
-                ⏳ Pending
-              </span>
-            ),
-          },
-          {
-            key: "sourceType",
-            label: "Source",
-            render: (w: any) => (
-              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${
-                w.sourceType === "cheque"
-                  ? "bg-amber-50 text-amber-700 border-amber-200"
-                  : "bg-green-50 text-green-700 border-green-200"
-              }`}>
-                {w.sourceType === "cheque" ? "🧾 Cheque in Hand" : "💵 Cash from Office"}
-              </span>
-            ),
-          },
-          { key: "notes", label: t("notes"), render: (w: any) => w.notes || "-" },
-          {
-            key: "actions",
-            label: "",
-            render: (w: any) => (
-              <RowActionMenu
-                open={openActionId === w.id}
-                onOpenChange={(open) => setOpenActionId(open ? w.id : null)}
-              >
-                {!w.approvedAt && (
-                  <>
-                    <button
-                      onClick={() => { setOpenActionId(null); openEdit(w); }}
-                      className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs"
-                    >
-                      {t("edit")}
-                    </button>
-                    {user?.role === "super_admin" && (
-                      <button
-                        onClick={() => { setOpenActionId(null); handleApprove(w); }}
-                        disabled={approvingId === w.id}
-                        className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-green-700 hover:bg-green-50 disabled:opacity-50 sm:py-2 sm:text-xs"
-                      >
-                        {approvingId === w.id ? "Approving..." : "Approve"}
-                      </button>
-                    )}
-                    <button
-                      onClick={() => { setOpenActionId(null); handleDelete(w); }}
-                      className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs"
-                    >
-                      {t("delete")}
-                    </button>
-                  </>
-                )}
-                {w.approvedAt && w.hajiTransferId && (
-                  <div className="px-3 py-2 text-xs text-gray-500">Haji #{w.hajiTransferId}</div>
-                )}
-              </RowActionMenu>
-            ),
-          },
-        ]}
+        columns={withdrawalColumns}
         data={items}
         loading={loading}
         pagination={{ page, totalPages, total, onPageChange: setPage }}
@@ -779,64 +872,17 @@ export default function PersonalWithdrawalsPage() {
       <Modal open={showCreate} onClose={() => { setShowCreate(false); if (isEmbed) closeEmbed(); }} title={t("record_withdrawal")} size="md" inline={isEmbed} hideHeader={isEmbed}>
         {formError && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{formError}</div>}
         <div className="space-y-3">
-          <div className="relative" ref={withdraweeMenuRef}>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Withdrawn By *</label>
-            <input
-              value={withdraweeSearch}
-              onChange={(e) => {
-                setWithdraweeSearch(e.target.value);
-                setForm((f) => ({ ...f, withdrawnBy: "" }));
-                setShowWithdraweeMenu(true);
-              }}
-              onFocus={() => setShowWithdraweeMenu(true)}
-              className="input-field"
-              placeholder="Search existing names"
-            />
-            {showWithdraweeMenu && (
-              <div className="absolute z-50 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg">
-                <div className="max-h-48 overflow-y-auto py-1">
-                  {filteredWithdrawees.map((name) => (
-                    <button
-                      key={name}
-                      type="button"
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        setWithdraweeSearch(name);
-                        selectWithdrawee(name);
-                      }}
-                      className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50"
-                    >
-                      {name}
-                    </button>
-                  ))}
-                  {canAddWithdrawee && (
-                    <button
-                      type="button"
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        addWithdrawee();
-                      }}
-                      className="w-full border-t border-gray-100 px-3 py-2 text-left text-sm font-medium text-primary-700 hover:bg-primary-50"
-                    >
-                      + Add &quot;{normalizeWithdraweeName(withdraweeSearch)}&quot;
-                    </button>
-                  )}
-                  {!filteredWithdrawees.length && !canAddWithdrawee && (
-                    <div className="px-3 py-2 text-xs text-gray-500">No matching name found</div>
-                  )}
-                </div>
-              </div>
-            )}
-            {form.withdrawnBy && !simplifyModals && (
-              <p className="mt-1 text-xs text-gray-500">
-                Selected: <span className="font-medium text-gray-700">{form.withdrawnBy}</span>
-              </p>
-            )}
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
-            <input type="date" value={form.withdrawalDate} onChange={(e) => setForm((f) => ({ ...f, withdrawalDate: e.target.value }))} className="input-field" />
-          </div>
+          {isEmbed ? (
+            <div className="grid grid-cols-2 gap-3">
+              {withdrawalDateField}
+              {withdraweeField}
+            </div>
+          ) : (
+            <>
+              {withdraweeField}
+              {withdrawalDateField}
+            </>
+          )}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("detail")} *</label>
             <input value={form.detail} onChange={(e) => setForm((f) => ({ ...f, detail: e.target.value }))} className="input-field" />
@@ -891,7 +937,7 @@ export default function PersonalWithdrawalsPage() {
               This withdrawal will consume the selected in-hand cheque.
             </div>
           )}
-          {!isEmbed && (
+          {!isEmbed && !isSuperAdmin && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
             <input value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" />
@@ -929,10 +975,12 @@ export default function PersonalWithdrawalsPage() {
           <div className="p-2 bg-gray-50 border rounded text-xs text-gray-600">
             Source: <strong>{selected?.sourceType === "cheque" ? "🧾 Cheque in Hand" : "💵 Cash from Office"}</strong> (cannot change after creation)
           </div>
+          {!isSuperAdmin && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
             <input value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" />
           </div>
+          )}
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
           <button type="button" onClick={handleEdit} disabled={submitting} className={saveBtnClass}>{submitting ? "..." : t("save")}</button>

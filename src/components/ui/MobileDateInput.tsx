@@ -1,19 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-
-function formatIsoDateDisplay(value: string): string | null {
-  if (!value) return null;
-  const iso = value.split("T")[0];
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-  if (match) return `${match[3]}-${match[2]}-${match[1].slice(-2)}`;
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const yy = String(d.getFullYear()).slice(-2);
-  return `${dd}-${mm}-${yy}`;
-}
+import { formatDisplayDate } from "@/lib/display-date";
 
 type MobileDateInputProps = {
   value: string;
@@ -32,7 +20,8 @@ export function MobileDateInput({
   variant = "field",
   "aria-label": ariaLabel,
 }: MobileDateInputProps) {
-  const display = formatIsoDateDisplay(value) ?? placeholder;
+  const display = value ? formatDisplayDate(value) : null;
+  const displayText = display && display !== "-" ? display : placeholder;
   const hasValue = Boolean(value);
 
   return (
@@ -50,7 +39,7 @@ export function MobileDateInput({
           hasValue ? "text-gray-800" : "text-zinc-400",
         )}
       >
-        {display}
+        {displayText}
       </span>
       <input
         type="date"

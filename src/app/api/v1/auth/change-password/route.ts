@@ -5,7 +5,7 @@ import { changePasswordSchema } from "@/lib/validations";
 import { successResponse, unauthorizedResponse, validationError, errorResponse, serverError } from "@/lib/api-response";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { isCsrfSafe } from "@/lib/middleware";
-import { isSessionActive } from "@/lib/session";
+import { isSessionActive, hashToken } from "@/lib/session";
 
 export async function PUT(request: NextRequest) {
   try {
@@ -25,7 +25,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // Rate limit: 5 password-change attempts per user per 15 minutes
-    const limited = checkRateLimit(`chpwd:${payload.userId}`, 5, 15 * 60 * 1000);
+    const limited = await checkRateLimit(`chpwd:${payload.userId}`, 5, 15 * 60 * 1000);
     if (limited) return limited;
 
     const body = await request.json();
@@ -41,10 +41,16 @@ export async function PUT(request: NextRequest) {
     const newHash = await hashPassword(parsed.data.newPassword);
     await prisma.user.update({
       where: { id: payload.userId },
-      data: {
-        passwordHash: newHash,
-        ...(user.role === "city_admin" ? { passwordPlain: parsed.data.newPassword } : {}),
+      data: { passwordHash: newHash },
+    });
+
+    await prisma.userSession.updateMany({
+      where: {
+        userId: payload.userId,
+        isActive: true,
+        NOT: { tokenHash: hashToken(token) },
       },
+      data: { isActive: false },
     });
 
     return successResponse({ message: "Password changed successfully" });

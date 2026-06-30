@@ -31,7 +31,13 @@ const SIDEBAR_NAV_SCROLL_KEY = "mrf-sidebar-nav-scroll";
 const SIDEBAR_OPEN_GROUPS_KEY = "mrf-sidebar-open-groups";
 
 const SIDEBAR_SHELL =
-  "bg-gradient-to-b from-[#F5F5F6] via-[#F0F0F2] to-[#EBEBEE] border-[#D4D4D8] shadow-[4px_0_32px_-10px_rgba(42,6,8,0.12)]";
+  "bg-white/40 backdrop-blur-2xl backdrop-saturate-[1.8] border-white/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_0_0.5px_rgba(255,255,255,0.3),0_24px_60px_-24px_rgba(42,6,8,0.38)]";
+
+// Mobile drawer only: a brighter frosted base. The mobile panel sits over a
+// dark scrim and the browser often weakens backdrop-filter on mobile, so the
+// too-transparent desktop base would composite into flat grey there.
+const SIDEBAR_SHELL_MOBILE =
+  "bg-gradient-to-b from-white/85 via-white/80 to-white/85 backdrop-blur-2xl backdrop-saturate-[1.8] border-white/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),inset_0_0_0_0.5px_rgba(255,255,255,0.4),0_24px_60px_-24px_rgba(42,6,8,0.38)]";
 
 // ─── Nav Config ───────────────────────────────────────────────────────────────
 interface NavItemDef {
@@ -117,15 +123,20 @@ const superAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
 
 const cityAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
   {
-    label: "Daily Work",
+    label: "Home",
     items: [
-      { label: "Dashboard",       key: "dashboard",             href: "/dashboard",             icon: LayoutDashboard, roles: ["city_admin"] },
-      { label: "Sales",           key: "sales",                 href: "/sales",                 icon: Receipt,         roles: ["city_admin"] },
-      { label: "Payments",        key: "payments",              href: "/payments",              icon: Wallet,          roles: ["city_admin"] },
-      { label: "Expenses",        key: "expenses",              href: "/expenses",              icon: Banknote,        roles: ["city_admin"] },
-      { label: "Withdrawals",     key: "personal_withdrawals",  href: "/personal-withdrawals",  icon: PiggyBank,       roles: ["city_admin"] },
-      { label: "Haji Transfers",  key: "haji_transfers",        href: "/haji-transfers",        icon: ArrowLeftRight,  roles: ["city_admin"] },
-      { label: "Customers",       key: "customers",             href: "/customers",             icon: Users,           roles: ["city_admin"] },
+      { label: "Dashboard", key: "dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["city_admin"] },
+    ],
+  },
+  {
+    label: "Lists",
+    items: [
+      { label: "Payments",               key: "payments",             href: "/payments",             icon: Wallet,         roles: ["city_admin"] },
+      { label: "Sales",                  key: "sales",                href: "/sales",                icon: Receipt,        roles: ["city_admin"] },
+      { label: "Expenses",               key: "expenses",             href: "/expenses",             icon: Banknote,       roles: ["city_admin"] },
+      { label: "Personal Withdrawals",   key: "personal_withdrawals", href: "/personal-withdrawals", icon: PiggyBank,      roles: ["city_admin"] },
+      { label: "Haji Transfers",         key: "haji_transfers",       href: "/haji-transfers",       icon: ArrowLeftRight, roles: ["city_admin"] },
+      { label: "Customers",              key: "customers",            href: "/customers",            icon: Users,          roles: ["city_admin"] },
     ],
   },
   {
@@ -144,12 +155,12 @@ const cityAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
     ],
   },
   {
-    label: "Reports",
+    label: "Other",
     items: [
-      { label: "Reports", key: "reports", href: "/reports", icon: FileText, roles: ["city_admin"] },
-      { label: "Audit", key: "audit", href: "/activity-feed", icon: Activity, roles: ["city_admin"], locked: true },
-      { label: "Openings", key: "openings", href: "/openings", icon: ClipboardList, roles: ["city_admin"] },
-      { label: "Settings", key: "settings", href: "/settings", icon: Settings, roles: ["city_admin"] },
+      { label: "Reports",  key: "reports",  href: "/reports",       icon: FileText,      roles: ["city_admin"] },
+      { label: "Audit",    key: "audit",    href: "/activity-feed", icon: Activity,      roles: ["city_admin"], locked: true },
+      { label: "Openings", key: "openings", href: "/openings",      icon: ClipboardList, roles: ["city_admin"] },
+      { label: "Settings", key: "settings", href: "/settings",      icon: Settings,      roles: ["city_admin"] },
     ],
   },
 ];
@@ -333,20 +344,23 @@ export default function Sidebar() {
     const isActive = !item.locked && item.href === activeHref;
     const label =
       (() => {
+        if (item.key === "bank_deposits" && user.role === "city_admin" && user.countryName === "Pakistan") {
+          return "Inter Funds Transfer";
+        }
         const translated = t(item.key);
         return translated === item.key ? item.label : translated;
       })();
 
     const itemShellClass = cn(
-      "group relative flex items-center rounded-[0.875rem] text-[13.5px] font-semibold tracking-[-0.01em] transition-[color,background,border,box-shadow,transform] duration-200 ease-out",
-      collapsed ? "justify-center px-0 py-2.5 mx-0" : cn("gap-3", nested ? "pl-3 pr-3 ml-1 py-2" : "px-3 py-2.5"),
+      "group relative flex items-center rounded-[0.875rem] text-[13.5px] font-semibold tracking-[-0.01em] transition-[color,background,border,box-shadow,transform] duration-200 ease-out active:scale-[0.98]",
+      collapsed ? "justify-center px-0 py-2.5 mx-0" : cn("gap-3", nested ? "px-3 py-2" : "px-3 py-2.5"),
       item.locked
         ? "cursor-not-allowed border border-dashed border-[#D4D4D8] bg-[#fafafa] text-[#52525b] select-none"
         : isActive
-          ? "bg-gradient-to-br from-[#6B0F1A] via-[#7A1420] to-[#8B1A1A] text-white shadow-[0_10px_22px_-10px_rgba(107,15,26,0.55)] ring-1 ring-inset ring-white/15"
+          ? "bg-gradient-to-br from-[#7A1420] via-[#6B0F1A] to-[#5A0C15] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_12px_26px_-12px_rgba(107,15,26,0.7)] ring-1 ring-inset ring-white/25"
           : cn(
-              "text-[#3f3f46] bg-white/85 border border-[#E4E4E7] backdrop-blur-[2px]",
-              "hover:text-[#18181b] hover:border-[#BCBCBC] hover:bg-white hover:shadow-[0_6px_16px_-12px_rgba(24,24,27,0.35)]",
+              "text-[#3f3f46] bg-transparent border border-transparent",
+              "hover:text-[#18181b] hover:bg-white/35 hover:border-white/60 hover:backdrop-blur-md hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]",
               isRTL ? "hover:-translate-x-0.5" : "hover:translate-x-0.5"
             )
     );
@@ -362,13 +376,25 @@ export default function Sidebar() {
           />
         )}
         <div className="relative flex-shrink-0">
-          <Icon
+          <span
             className={cn(
-              nested ? "w-4 h-4" : "w-[18px] h-[18px]",
-              "transition-colors duration-200",
-              isActive ? "text-white" : item.locked ? "text-[#71717a]" : "text-[#6B0F1A] group-hover:text-[#5A0C15]"
+              "flex items-center justify-center rounded-[0.7rem] transition-all duration-200",
+              nested ? "w-6 h-6" : "w-8 h-8",
+              isActive
+                ? "bg-white/20 ring-1 ring-white/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.5)]"
+                : item.locked
+                  ? "bg-white/45 ring-1 ring-white/55"
+                  : "bg-gradient-to-br from-white/90 to-white/50 ring-1 ring-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_5px_12px_-7px_rgba(42,6,8,0.3)] group-hover:from-white group-hover:to-white/70"
             )}
-          />
+          >
+            <Icon
+              className={cn(
+                nested ? "w-3.5 h-3.5" : "w-[17px] h-[17px]",
+                "transition-colors duration-200",
+                isActive ? "text-white" : item.locked ? "text-[#71717a]" : "text-[#6B0F1A] group-hover:text-[#5A0C15]"
+              )}
+            />
+          </span>
           {item.href === "/city-transfers" && pendingTransfers > 0 && !item.locked && (
             <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-[14px] bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
               {pendingTransfers > 9 ? "9+" : pendingTransfers}
@@ -417,15 +443,17 @@ export default function Sidebar() {
   };
 
   const renderNavContent = (navRef: React.Ref<HTMLElement>) => (
-    <div className="flex flex-col h-full">
+    <div className="relative flex flex-col h-full">
+      {/* ── Liquid-glass specular sheen ── */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-28 bg-gradient-to-b from-white/45 via-white/10 to-transparent" />
       {/* ── Logo ── */}
       <div
         className={cn(
-          "flex items-center flex-shrink-0 border-b border-[#D4D4D8] bg-white",
+          "flex items-center flex-shrink-0 border-b border-white/50 bg-white/30 backdrop-blur-xl",
           collapsed ? "px-3 py-5 justify-center" : "px-4 py-5 gap-3"
         )}
       >
-        <div className="flex-shrink-0 rounded-2xl bg-white p-1 ring-1 ring-[#E4E4E7] shadow-sm">
+        <div className="flex-shrink-0 rounded-2xl bg-gradient-to-br from-white/90 to-white/55 p-1 ring-1 ring-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_6px_14px_-8px_rgba(42,6,8,0.3)]">
           <BrandLogo size={collapsed ? "sm" : "md"} />
         </div>
         {!collapsed && (
@@ -449,7 +477,7 @@ export default function Sidebar() {
           if (collapsed) {
             return (
               <div key={group.label} className={gi > 0 ? "mt-3" : ""}>
-                {gi > 0 && <div className="mx-2 mb-2 h-px bg-[#D4D4D8]" />}
+                {gi > 0 && <div className="mx-2 mb-2 h-px bg-white/60" />}
                 <div className="space-y-0.5">{group.items.map((item) => renderNavItem(item))}</div>
               </div>
             );
@@ -470,9 +498,9 @@ export default function Sidebar() {
                 "rounded-[0.875rem] border transition-[border-color,background,box-shadow] duration-200",
                 gi > 0 ? "mt-2" : "",
                 isOpen
-                  ? "border-[#D4D4D8] bg-white/90 shadow-[0_8px_20px_-16px_rgba(24,24,27,0.2)]"
+                  ? "border-white/50 bg-white/20 backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]"
                   : sectionActive
-                    ? "border-[#E4E4E7] bg-white/60"
+                    ? "border-white/40 bg-white/15"
                     : "border-transparent"
               )}
             >
@@ -483,8 +511,8 @@ export default function Sidebar() {
                 className={cn(
                   "w-full flex items-center gap-2 rounded-[0.875rem] px-3 py-2.5 text-left transition-[color,background,box-shadow] duration-200",
                   isOpen || sectionActive
-                    ? "bg-gradient-to-r from-[#ECECEF] to-[#E4E4E7] text-[#6B0F1A] shadow-inner"
-                    : "text-[#52525b] hover:bg-[#ECECEF] hover:text-[#6B0F1A]"
+                    ? "bg-white/50 text-[#6B0F1A] backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]"
+                    : "text-[#52525b] hover:bg-white/40 hover:text-[#6B0F1A]"
                 )}
               >
                 <span className="flex-1 text-[11px] font-bold uppercase tracking-[0.14em] truncate">
@@ -493,7 +521,7 @@ export default function Sidebar() {
                 <span
                   className={cn(
                     "flex h-5 min-w-[1.25rem] items-center justify-center rounded-md px-1 text-[10px] font-semibold tabular-nums transition-colors duration-200",
-                    sectionActive ? "bg-[#6B0F1A] text-white shadow-sm" : "bg-[#D4D4D8] text-[#52525b]"
+                    sectionActive ? "bg-[#6B0F1A] text-white shadow-sm" : "bg-white/60 text-[#52525b] ring-1 ring-white/70"
                   )}
                 >
                   {group.items.length}
@@ -515,8 +543,7 @@ export default function Sidebar() {
                 <div className="overflow-hidden">
                   <div
                     className={cn(
-                      "space-y-1 pb-2 pt-1",
-                      isRTL ? "pr-1 pl-2 border-r-2 border-[#D4D4D8] mr-2.5" : "pl-1 pr-2 border-l-2 border-[#D4D4D8] ml-2.5"
+                      "space-y-1 pb-2 pt-1 px-1.5"
                     )}
                   >
                     {group.items.map((item) => renderNavItem(item, true))}
@@ -529,10 +556,10 @@ export default function Sidebar() {
       </nav>
 
       {/* ── User Footer ── */}
-      <div className="border-t border-[#D4D4D8] bg-white flex-shrink-0 p-2.5 pb-[max(1rem,env(safe-area-inset-bottom,1rem))] space-y-1">
+      <div className="border-t border-white/50 bg-white/30 backdrop-blur-xl flex-shrink-0 p-2.5 pb-[max(1rem,env(safe-area-inset-bottom,1rem))] space-y-1">
         {/* User info */}
         {!collapsed ? (
-          <div className="flex items-center gap-2.5 rounded-xl border border-[#D4D4D8] bg-[#FAFAFA] px-3 py-3">
+          <div className="flex items-center gap-2.5 rounded-xl border border-white/60 bg-white/50 backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] px-3 py-3">
             <UserAvatar name={user.fullName} />
             <div className="min-w-0 flex-1">
               <p className="text-[#18181b] text-xs font-semibold truncate leading-tight">{user.fullName}</p>
@@ -570,15 +597,13 @@ export default function Sidebar() {
     </div>
   );
 
-  const mobileLabel = user.role === "super_admin" ? "Super Admin" : `${user.cityName} Admin`;
-
   return (
     <>
       {/* Mobile hamburger */}
       <button
         onClick={() => setMobileOpen(true)}
         className={cn(
-          "lg:hidden fixed top-4 z-50 rounded-2xl border border-[#D4D4D8] bg-white p-2.5 text-[#6B0F1A] shadow-lg hover:bg-[#FAFAFA] transition-colors",
+          "lg:hidden fixed top-4 z-50 rounded-2xl border border-white/60 bg-white/60 backdrop-blur-xl p-2.5 text-[#6B0F1A] shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_10px_24px_-12px_rgba(42,6,8,0.4)] hover:bg-white/80 transition-colors",
           isRTL ? "right-3" : "left-3"
         )}
       >
@@ -588,7 +613,7 @@ export default function Sidebar() {
       {/* Mobile overlay */}
       {mobileOpen && (
         <div
-          className="lg:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+          className="lg:hidden fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
           onClick={() => setMobileOpen(false)}
         />
       )}
@@ -601,22 +626,18 @@ export default function Sidebar() {
           if ((isRTL && dx > 50) || (!isRTL && dx < -50)) setMobileOpen(false);
         }}
         className={cn(
-          cn("lg:hidden fixed top-0 z-50 h-full w-[86vw] max-w-[320px] border-r shadow-2xl transform transition-transform duration-300", SIDEBAR_SHELL),
+          cn("lg:hidden fixed top-0 z-50 h-full w-[86vw] max-w-[320px] border-r shadow-2xl transform transition-transform duration-300", SIDEBAR_SHELL_MOBILE),
           isRTL ? "right-0" : "left-0",
           mobileOpen ? "translate-x-0 pointer-events-auto" : isRTL ? "translate-x-full pointer-events-none" : "-translate-x-full pointer-events-none"
         )}
       >
-        <div className="flex h-full flex-col">
-          <div className="flex items-center justify-between px-3 py-3 border-b border-[#D4D4D8] bg-white">
-            <div className="min-w-0">
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#6B0F1A]">Navigation</p>
-              <p className="text-sm font-semibold text-[#18181b] truncate">{mobileLabel}</p>
-            </div>
+        <div className="relative flex h-full flex-col">
+          <div className={cn("absolute top-3 z-20", isRTL ? "left-3" : "right-3")}>
             <button
               type="button"
               onClick={() => setMobileOpen(false)}
               aria-label="Close menu"
-              className="rounded-xl border border-[#D4D4D8] bg-[#F0F0F2] p-2 text-[#52525b] hover:text-[#6B0F1A] hover:bg-white transition-colors"
+              className="rounded-xl border border-white/60 bg-white/50 backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] p-2 text-[#52525b] hover:text-[#6B0F1A] hover:bg-white/80 transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
@@ -625,23 +646,25 @@ export default function Sidebar() {
         </div>
       </aside>
 
-      {/* Desktop sidebar */}
+      {/* Desktop sidebar — floating liquid-glass slab */}
       <aside
         className={cn(
-          cn("hidden lg:block fixed top-0 h-full border-r transition-all duration-300 z-30", SIDEBAR_SHELL),
-          isRTL ? "right-0" : "left-0",
+          "hidden lg:block fixed top-3 bottom-3 z-30 transition-all duration-300 ease-out",
+          isRTL ? "right-3" : "left-3",
           collapsed ? "w-16" : "w-64"
         )}
       >
-        {renderNavContent(desktopNavRef)}
+        <div className={cn("relative h-full overflow-hidden rounded-[1.75rem] border", SIDEBAR_SHELL)}>
+          {renderNavContent(desktopNavRef)}
+        </div>
 
         {/* Collapse toggle button */}
         <button
           onClick={() => setCollapsed(!collapsed)}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           className={cn(
-            "absolute top-[4.75rem] h-6 w-6 rounded-full border border-[#D4D4D8] bg-white flex items-center justify-center text-[#71717a] hover:text-white hover:bg-[#6B0F1A] hover:border-[#6B0F1A] transition-all duration-150 shadow-md z-10",
-            isRTL ? "-left-2.5" : "-right-2.5"
+            "absolute top-[4.5rem] h-6 w-6 rounded-full border border-white/70 bg-white/70 backdrop-blur-md flex items-center justify-center text-[#71717a] hover:text-white hover:bg-[#6B0F1A] hover:border-[#6B0F1A] transition-all duration-150 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_6px_14px_-6px_rgba(42,6,8,0.4)] z-10",
+            isRTL ? "-left-3" : "-right-3"
           )}
         >
           {isRTL

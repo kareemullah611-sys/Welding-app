@@ -192,6 +192,7 @@ export const createHajiTransferSchema = z.object({
   amount: z.number().positive(),
   currencyId: z.number().int().optional().nullable(),
   detail: z.string().min(1).max(500),
+  referenceNo: z.string().max(50).optional().nullable(),
   transferType: z.enum(["direct", "from_in_hand"]),
   transferredTo: z.string().max(100).optional().nullable(),
   notes: z.string().optional(),

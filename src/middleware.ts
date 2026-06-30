@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { verifyTokenEdge } from "@/lib/jwt-edge";
 
 // Pages that don't require authentication
 const publicPaths = ["/login", "/api/v1/auth/login"];
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Allow public paths and API routes (API handles its own auth)
@@ -16,10 +17,16 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Check for auth token
   const token = request.cookies.get("token")?.value;
   if (!token) {
     return NextResponse.redirect(new URL("/login", request.url));
+  }
+
+  const payload = await verifyTokenEdge(token);
+  if (!payload) {
+    const response = NextResponse.redirect(new URL("/login", request.url));
+    response.cookies.set("token", "", { httpOnly: true, path: "/", maxAge: 0 });
+    return response;
   }
 
   return NextResponse.next();

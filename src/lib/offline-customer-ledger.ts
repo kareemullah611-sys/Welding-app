@@ -89,6 +89,8 @@ export function applyPendingCustomerLedger(
 
   if (!pendingEntries.length) return base;
 
+  pendingEntries.sort((a, b) => b.date.localeCompare(a.date));
+
   return {
     ...base,
     ledger: [...pendingEntries, ...baseLedger],

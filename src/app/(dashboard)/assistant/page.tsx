@@ -30,13 +30,29 @@ function formatTime(date?: Date) {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+function renderLineWithBold(line: string, lineKey: string): React.ReactNode {
+  const segments: React.ReactNode[] = [];
+  let rest = line;
+  let partIdx = 0;
+  while (rest.length > 0) {
+    const open = rest.indexOf("**");
+    if (open === -1) {
+      segments.push(rest);
+      break;
+    }
+    if (open > 0) segments.push(rest.slice(0, open));
+    const close = rest.indexOf("**", open + 2);
+    if (close === -1) {
+      segments.push(rest.slice(open));
+      break;
+    }
+    segments.push(
+      <strong key={`${lineKey}-b-${partIdx++}`}>{rest.slice(open + 2, close)}</strong>
+    );
+    rest = rest.slice(close + 2);
+  }
+  if (segments.length === 1) return segments[0];
+  return <>{segments}</>;
 }
 
 function TypingIndicator() {
@@ -62,23 +78,27 @@ function MessageBubble({ msg }: { msg: Message }) {
   const renderContent = (text: string) => {
     const lines = text.split("\n");
     return lines.map((line, i) => {
-      const formatted = escapeHtml(line).replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
       if (line.startsWith("•") || line.startsWith("-")) {
         return (
           <div key={i} className="flex gap-2 mt-1">
             <span className="opacity-60 flex-shrink-0 mt-0.5 text-xs">•</span>
-            <span dangerouslySetInnerHTML={{ __html: formatted.replace(/^[•\-]\s*/, "") }} />
+            <span>{renderLineWithBold(line.replace(/^[•\-]\s*/, ""), `l${i}`)}</span>
           </div>
         );
       }
       if (!line.trim()) return <div key={i} className="h-1.5" />;
       if (line.startsWith("# ")) {
         return (
-          <p key={i} className="font-semibold text-sm mt-2 mb-1"
-            dangerouslySetInnerHTML={{ __html: formatted.slice(2) }} />
+          <p key={i} className="font-semibold text-sm mt-2 mb-1">
+            {renderLineWithBold(line.slice(2), `h${i}`)}
+          </p>
         );
       }
-      return <p key={i} className="leading-relaxed" dangerouslySetInnerHTML={{ __html: formatted }} />;
+      return (
+        <p key={i} className="leading-relaxed">
+          {renderLineWithBold(line, `p${i}`)}
+        </p>
+      );
     });
   };
 
@@ -200,13 +220,16 @@ export default function AssistantPage() {
         const data = JSON.parse(rawText);
         if (data.reply) {
           reply = data.reply;
-        } else if (data.error) {
-          reply = `⚠️ Server error (${res.status}): ${data.error}${data.details ? `\n\nDetails: ${JSON.stringify(data.details)}` : ""}`;
+        } else if (res.status >= 500) {
+          reply = "⚠️ Assistant unavailable. Please try again later.";
         } else {
-          reply = `⚠️ Unexpected response (${res.status}): ${rawText.slice(0, 300)}`;
+          reply = `⚠️ ${data.error || "Request failed"}`;
         }
       } catch {
-        reply = `⚠️ Server returned non-JSON (${res.status}):\n${rawText.slice(0, 500)}`;
+        reply =
+          res.status >= 500
+            ? "⚠️ Assistant unavailable. Please try again later."
+            : "⚠️ Unexpected response from assistant.";
       }
 
       setMessages(prev => [

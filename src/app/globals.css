@@ -159,16 +159,16 @@
     }
   }
 
-  /* ---- Cards ---- */
+  /* ---- Cards (Liquid Glass) ---- */
   .card {
-    @apply rounded-[1.5rem] border border-[rgba(255,255,255,0.8)] bg-[rgba(255,255,255,0.82)] p-6 backdrop-blur-xl shadow-[0_30px_80px_-42px_rgba(42,6,8,0.2)];
+    @apply rounded-[1.5rem] border border-white/60 bg-white/50 p-6 backdrop-blur-2xl backdrop-saturate-[1.8] shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_24px_60px_-30px_rgba(42,6,8,0.28)];
   }
   .stat-card {
-    @apply rounded-[1.4rem] border border-[rgba(255,255,255,0.8)] bg-[rgba(255,255,255,0.88)] p-5 backdrop-blur-xl
-           shadow-[0_26px_70px_-42px_rgba(42,6,8,0.22)] hover:-translate-y-0.5 hover:shadow-[0_34px_84px_-42px_rgba(42,6,8,0.28)] transition-all duration-200;
+    @apply rounded-[1.4rem] border border-white/60 bg-white/50 p-5 backdrop-blur-2xl backdrop-saturate-[1.8]
+           shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_22px_56px_-30px_rgba(42,6,8,0.28)] hover:-translate-y-0.5 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_28px_66px_-30px_rgba(42,6,8,0.34)] transition-all duration-200;
   }
   .table-container {
-    @apply rounded-[1.4rem] border border-[rgba(255,255,255,0.8)] bg-[rgba(255,255,255,0.88)] backdrop-blur-xl shadow-[0_26px_70px_-42px_rgba(42,6,8,0.2)] overflow-x-auto;
+    @apply rounded-[1.4rem] border border-white/60 bg-white/50 backdrop-blur-2xl backdrop-saturate-[1.8] shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_22px_56px_-30px_rgba(42,6,8,0.24)] overflow-x-auto;
   }
 
   /* ---- Badges ---- */
@@ -194,7 +194,7 @@
   }
 }
 
-/* Scrollbar styling */
+/* Scrollbar styling — thumb visible segment is 1/3 of the native thumb length */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -203,11 +203,52 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #CBD5E1;
   border-radius: 10px;
+  background-color: transparent;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: #94A3B8;
+::-webkit-scrollbar-thumb:vertical {
+  background-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 33.333%,
+    #CBD5E1 33.333%,
+    #CBD5E1 66.666%,
+    transparent 66.666%,
+    transparent 100%
+  );
+}
+::-webkit-scrollbar-thumb:horizontal {
+  background-image: linear-gradient(
+    to right,
+    transparent 0,
+    transparent 33.333%,
+    #CBD5E1 33.333%,
+    #CBD5E1 66.666%,
+    transparent 66.666%,
+    transparent 100%
+  );
+}
+::-webkit-scrollbar-thumb:vertical:hover {
+  background-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 33.333%,
+    #94A3B8 33.333%,
+    #94A3B8 66.666%,
+    transparent 66.666%,
+    transparent 100%
+  );
+}
+::-webkit-scrollbar-thumb:horizontal:hover {
+  background-image: linear-gradient(
+    to right,
+    transparent 0,
+    transparent 33.333%,
+    #94A3B8 33.333%,
+    #94A3B8 66.666%,
+    transparent 66.666%,
+    transparent 100%
+  );
 }
 
 /* Smooth page transitions */
@@ -217,7 +258,7 @@
   }
 
   .shell-panel {
-    @apply rounded-[1.6rem] border border-[rgba(255,255,255,0.75)] bg-[rgba(255,255,255,0.72)] backdrop-blur-xl shadow-[0_32px_90px_-46px_rgba(42,6,8,0.22)];
+    @apply rounded-[1.6rem] border border-white/60 bg-white/45 backdrop-blur-2xl backdrop-saturate-[1.8] shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_28px_72px_-40px_rgba(42,6,8,0.3)];
   }
 
   .module-page {
@@ -1115,6 +1156,19 @@ input[type="number"] { -moz-appearance: textfield; }
   color: #8f7963;
 }
 
+.quickform-embed label.haji-cheque-option,
+[data-radix-dialog-content] label.haji-cheque-option,
+.modal-sheet-body label.haji-cheque-option {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0;
+  font-size: 0.875rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  color: inherit;
+}
+
 .quickform-embed .grid > div {
   min-width: 0;
 }
@@ -1198,6 +1252,18 @@ input[type="number"] { -moz-appearance: textfield; }
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: #6b7280;
+}
+
+[data-radix-dialog-content] label.haji-cheque-option,
+.modal-sheet-body label.haji-cheque-option {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0;
+  font-size: 0.875rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  color: inherit;
 }
 
 [data-radix-dialog-content] .btn-primary,

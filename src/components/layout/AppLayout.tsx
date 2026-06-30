@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import Sidebar, { SidebarContext, useSidebar } from "@/components/layout/Sidebar";
 import { LangProvider, useLang } from "@/lib/lang";
@@ -28,17 +28,20 @@ function AppInner({ children, isCityAdmin }: { children: React.ReactNode; isCity
 
   return (
     <div className="relative min-h-[100dvh] overflow-x-clip" dir={dir}>
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-24 left-[-8rem] h-72 w-72 rounded-full bg-[#6B0F1A]/12 blur-3xl" />
+      <div className="pointer-events-none fixed inset-0 z-0">
+        <div className="absolute -top-24 left-[-8rem] h-72 w-72 rounded-full bg-[#6B0F1A]/25 blur-3xl" />
+        <div className="absolute top-1/4 left-[-6rem] h-80 w-80 rounded-full bg-[#2563EB]/20 blur-3xl" />
+        <div className="absolute bottom-[-6rem] left-[-4rem] h-72 w-72 rounded-full bg-[#7A1420]/18 blur-3xl" />
+        <div className="absolute top-1/2 left-24 h-64 w-64 rounded-full bg-[#3B82F6]/12 blur-3xl" />
         <div className="absolute top-1/3 right-[-6rem] h-80 w-80 rounded-full bg-[#2563EB]/10 blur-3xl" />
       </div>
       <Sidebar />
       <main
         className={cn(
-          "relative min-h-[100dvh] min-w-0 transition-all duration-300",
+          "relative z-10 min-h-[100dvh] min-w-0 transition-all duration-300",
           isRTL
-            ? collapsed ? "lg:pr-16" : "lg:pr-64"
-            : collapsed ? "lg:pl-16" : "lg:pl-64"
+            ? collapsed ? "lg:pr-[5.5rem]" : "lg:pr-[17.5rem]"
+            : collapsed ? "lg:pl-[5.5rem]" : "lg:pl-[17.5rem]"
         )}
       >
         <div className="mx-auto min-w-0 max-w-7xl px-4 pb-8 pt-16 lg:px-6 lg:pt-6">
@@ -59,7 +62,29 @@ function AppInner({ children, isCityAdmin }: { children: React.ReactNode; isCity
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading, recheckAuth } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+  const [zoomedOut, setZoomedOut] = useState(false);
   const [embedRetrying, setEmbedRetrying] = useState(false);
+
+  // When the page is zoomed out, the manual icon-only collapse is overridden so
+  // the full module list shows again. Zooming out makes the browser report a
+  // wider CSS viewport than the load-time (assumed 100%) width and, in Chrome,
+  // a lower devicePixelRatio. Either signal (relative to its own baseline, so
+  // a large monitor at 100% isn't affected) flags a zoomed-out state.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const baselineWidth = window.innerWidth;
+    const baselineDpr = window.devicePixelRatio || 1;
+    const check = () =>
+      setZoomedOut(
+        window.innerWidth > baselineWidth * 1.05 ||
+          (window.devicePixelRatio || 1) < baselineDpr - 0.01
+      );
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
+  const effectiveCollapsed = collapsed && !zoomedOut;
   const isEmbed = useQuickformEmbed() || (typeof window !== "undefined" && getEmbedFromLocation());
 
   if (loading && !user) {
@@ -84,7 +109,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <LangProvider>
-      <SidebarContext.Provider value={{ collapsed, setCollapsed }}>
+      <SidebarContext.Provider value={{ collapsed: effectiveCollapsed, setCollapsed }}>
         <AppInner isCityAdmin={user.role === "city_admin"}>{children}</AppInner>
       </SidebarContext.Provider>
     </LangProvider>

@@ -31,7 +31,27 @@ test("health endpoint returns 503 when database check fails", async () => {
     assert.equal(response.status, 503);
     assert.equal(payload.ok, false);
     assert.equal(payload.db, "down");
+    assert.equal(payload.error, "db unreachable");
   } finally {
     (prisma as any).$queryRaw = originalQueryRaw;
+  }
+});
+
+test("health endpoint omits db error details in production", async () => {
+  const originalQueryRaw = prisma.$queryRaw;
+  const originalEnv = process.env.NODE_ENV;
+  (prisma as any).$queryRaw = async () => {
+    throw new Error("connection refused host=10.0.0.5");
+  };
+  process.env.NODE_ENV = "production";
+
+  try {
+    const response = await GET();
+    const payload = await response.json();
+    assert.equal(response.status, 503);
+    assert.equal(payload.error, undefined);
+  } finally {
+    (prisma as any).$queryRaw = originalQueryRaw;
+    process.env.NODE_ENV = originalEnv;
   }
 });

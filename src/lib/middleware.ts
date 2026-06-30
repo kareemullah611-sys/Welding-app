@@ -39,7 +39,9 @@ export function isCsrfSafe(request: NextRequest): boolean {
   const requestOrigin = origin || (referer ? new URL(referer).origin : null);
 
   if (!requestOrigin) {
-    // No origin at all — allow server-to-server / curl / mobile clients
+    // In production, cookie-authenticated mutations must include Origin or Referer.
+    if (process.env.NODE_ENV === "production") return false;
+    // Dev/test: allow server-to-server / curl without Origin
     return true;
   }
 

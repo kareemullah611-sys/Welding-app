@@ -23,6 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ProcessingSpinner } from "@/components/ui/ProcessingLoader";
 import { cn } from "@/lib/utils";
+import { formatCurrency, formatDate, formatNumber } from "@/lib/format-helpers";
 import { buildPaginationItems, getPaginationRange, DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
 import {
   handleSelectDropdownTab,
@@ -110,7 +111,7 @@ export function PageHeader({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="module-page mb-6 rounded-[1.6rem] border border-white/75 bg-[linear-gradient(135deg,rgba(255,248,239,0.95),rgba(245,233,219,0.82))] px-5 py-5 shadow-[0_28px_70px_-42px_rgba(51,42,33,0.38)]">
+    <div className="module-page mb-6 rounded-[1.6rem] border border-white/60 bg-white/50 px-5 py-5 backdrop-blur-2xl backdrop-saturate-[1.8] shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_24px_60px_-36px_rgba(42,6,8,0.3)]">
       <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
         <h1 className="text-2xl font-bold text-[#2A0608] tracking-tight sm:text-3xl">{title}</h1>
@@ -380,7 +381,7 @@ export function DataTable<T extends Record<string, any>>({
   };
 
   return (
-    <div className="module-page rounded-[1.4rem] border border-white/70 bg-white/85 shadow-[0_26px_70px_-42px_rgba(51,42,33,0.35)] backdrop-blur-xl">
+    <div className="module-page rounded-[1.4rem] border border-white/60 bg-white/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_22px_56px_-30px_rgba(42,6,8,0.24)] backdrop-blur-2xl backdrop-saturate-[1.8]">
       {searchable && (
         <div className="border-b border-[#e4e4e7] bg-[#f4f4f5]/90 px-3 py-2 sm:px-4">
           <div className="flex flex-wrap items-center gap-2">
@@ -842,29 +843,12 @@ export function StatusBadge({ status }: { status: string }) {
 }
 
 // ============================================================
-// FORMAT HELPERS
+// FORMAT HELPERS (re-exported from lib for backward compatibility)
 // ============================================================
-export function formatCurrency(amount: number, symbol = "Rs"): string {
-  return `${symbol} ${amount.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
-}
-
-export function formatNumber(num: number | null | undefined): string {
-  if (num === null || num === undefined || isNaN(num as number)) return "0";
-  return (num as number).toLocaleString("en-US");
-}
+export { formatCurrency, formatDate, formatNumber } from "@/lib/format-helpers";
 
 export { RowActionMenu } from "@/components/ui/RowActionMenu";
 export { MobileDateInput } from "@/components/ui/MobileDateInput";
 export { ProcessingSpinner } from "@/components/ui/ProcessingLoader";
 export { default as ProcessingLoader } from "@/components/ui/ProcessingLoader";
 export { default as CuttingDiscSpinner, DEFAULT_CUTTING_DISC_SRC } from "@/components/ui/CuttingDiscSpinner";
-
-export function formatDate(dateStr: string | Date | null | undefined): string {
-  if (!dateStr) return "-";
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return String(dateStr);
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const yy = String(d.getFullYear()).slice(-2);
-  return `${dd}-${mm}-${yy}`;
-}

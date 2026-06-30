@@ -1,4 +1,4 @@
-import { formatNumber } from "@/components/ui";
+import { formatNumber } from "@/lib/format-helpers";
 
 type MoneyUser =
   | {

@@ -24,11 +24,10 @@ export interface OfflineAuthCache {
   updatedAt: string;
 }
 
-/** Parsed from localStorage — may include legacy plaintext password. */
+/** Parsed from localStorage — bcrypt verifier only (legacy plaintext cleared on read). */
 type StoredOfflineAuthCache = {
   username: string;
   passwordVerifier?: string;
-  password?: string;
   user: OfflineAuthUser;
   updatedAt: string;
 };
@@ -42,13 +41,8 @@ export async function buildOfflinePasswordVerifier(password: string): Promise<st
 }
 
 export async function verifyOfflinePassword(password: string, cache: StoredOfflineAuthCache): Promise<boolean> {
-  if (cache.passwordVerifier) {
-    return bcrypt.compare(password, cache.passwordVerifier);
-  }
-  if (cache.password) {
-    return cache.password === password;
-  }
-  return false;
+  if (!cache.passwordVerifier) return false;
+  return bcrypt.compare(password, cache.passwordVerifier);
 }
 
 export function readOfflineAuthCache(storage: Storage | null | undefined): StoredOfflineAuthCache | null {
@@ -56,9 +50,13 @@ export function readOfflineAuthCache(storage: Storage | null | undefined): Store
   try {
     const raw = storage.getItem(OFFLINE_AUTH_CACHE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as StoredOfflineAuthCache;
+    const parsed = JSON.parse(raw) as StoredOfflineAuthCache & { password?: string };
     if (!parsed?.username || !parsed?.user) return null;
-    if (!parsed.passwordVerifier && !parsed.password) return null;
+    if (!parsed.passwordVerifier) {
+      // Drop legacy plaintext-only entries.
+      storage.removeItem(OFFLINE_AUTH_CACHE_KEY);
+      return null;
+    }
     return parsed;
   } catch {
     return null;

@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth } from "@/lib/middleware";
 import { JWTPayload } from "@/lib/auth";
+import { checkRateLimit } from "@/lib/rate-limit";
+import { assistantEntityLabel, redactAssistantDetail } from "@/lib/assistant-privacy";
+import { clientErrorMessage } from "@/lib/client-error";
+
+const ASSISTANT_MAX_MESSAGE_LEN = 2000;
+const ASSISTANT_MAX_HISTORY = 20;
 
 // ─── DeepSeek (OpenAI-compatible, ~$1/month for typical usage) ───────────────
 const AI_URL   = "https://api.deepseek.com/chat/completions";
@@ -29,7 +35,8 @@ async function askGroq(
   });
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`DeepSeek API error ${res.status}: ${err}`);
+    console.error(`DeepSeek API error ${res.status}:`, err);
+    throw new Error(`DeepSeek API error ${res.status}`);
   }
   const data = await res.json();
   return data.choices?.[0]?.message?.content || "No response";
@@ -92,7 +99,7 @@ async function fetchWithdrawals(msg: string) {
   });
   if (!rows.length) return "No withdrawals found for the specified period.";
   const total = rows.reduce((s, r) => s + Number(r.amount), 0);
-  const lines = rows.map(r => `• ${r.withdrawalDate.toISOString().split("T")[0]} | ${r.withdrawnBy||"Unknown"} | ${r.currency.symbol}${Number(r.amount).toLocaleString()} | ${r.approvedBy?"Approved":"Pending"}`);
+  const lines = rows.map(r => `• ${r.withdrawalDate.toISOString().split("T")[0]} | ${assistantEntityLabel("Withdrawal", r.id)} | ${r.currency.symbol}${Number(r.amount).toLocaleString()} | ${r.approvedBy?"Approved":"Pending"}`);
   return `WITHDRAWALS (${rows.length} records, Total: ${rows[0]?.currency?.symbol||""}${total.toLocaleString()}):\n${lines.join("\n")}`;
 }
 
@@ -100,12 +107,12 @@ async function fetchPayments(msg: string) {
   const { from, to } = parseDateRange(msg);
   const rows = await prisma.payment.findMany({
     where: { status: "active", paymentDate: { gte: from, lte: to } },
-    include: { customer: { select: { name: true } }, currency: { select: { symbol: true, code: true } }, city: { select: { name: true } } },
+    include: { customer: { select: { id: true } }, currency: { select: { symbol: true, code: true } }, city: { select: { id: true } } },
     orderBy: { paymentDate: "desc" }, take: 50,
   });
   if (!rows.length) return "No payments found for the specified period.";
   const totalUsd = rows.reduce((s, r) => s + (r.usdEquivalent ? Number(r.usdEquivalent) : (r.currency.code==="USD" ? Number(r.amount) : 0)), 0);
-  const lines = rows.map(r => `• ${r.paymentDate.toISOString().split("T")[0]} | ${r.customer?.name||"—"} | ${(r as any).city?.name||"—"} | ${r.currency.symbol}${Number(r.amount).toLocaleString()} | ${r.paymentMethod}`);
+  const lines = rows.map(r => `• ${r.paymentDate.toISOString().split("T")[0]} | ${r.customer ? assistantEntityLabel("Customer", r.customer.id) : "—"} | City-${(r as any).city?.id||"—"} | ${r.currency.symbol}${Number(r.amount).toLocaleString()} | ${r.paymentMethod}`);
   return `PAYMENTS (${rows.length} records, Total USD equiv: $${totalUsd.toLocaleString()}):\n${lines.join("\n")}`;
 }
 
@@ -113,12 +120,12 @@ async function fetchSales(msg: string) {
   const { from, to } = parseDateRange(msg);
   const rows = await prisma.sale.findMany({
     where: { status: "active", saleDate: { gte: from, lte: to } },
-    include: { customer: { select: { name: true } }, city: { select: { name: true } }, lot: { select: { lotNumber: true } } },
+    include: { customer: { select: { id: true } }, city: { select: { id: true } }, lot: { select: { lotNumber: true } } },
     orderBy: { saleDate: "desc" }, take: 50,
   });
   if (!rows.length) return "No sales found for the specified period.";
   const total = rows.reduce((s, r) => s + Number(r.totalAmount), 0);
-  const lines = rows.map(r => `• ${r.saleDate.toISOString().split("T")[0]} | ${r.customer?.name||"—"} | ${(r as any).city?.name||"—"} | $${Number(r.totalAmount).toLocaleString()} | Lot: ${(r as any).lot?.lotNumber||"—"}`);
+  const lines = rows.map(r => `• ${r.saleDate.toISOString().split("T")[0]} | ${r.customer ? assistantEntityLabel("Customer", r.customer.id) : "—"} | City-${(r as any).city?.id||"—"} | $${Number(r.totalAmount).toLocaleString()} | Lot: ${(r as any).lot?.lotNumber||"—"}`);
   return `SALES (${rows.length} records, Total: $${total.toLocaleString()}):\n${lines.join("\n")}`;
 }
 
@@ -126,12 +133,12 @@ async function fetchExpenses(msg: string) {
   const { from, to } = parseDateRange(msg);
   const rows = await prisma.expense.findMany({
     where: { deletedAt: null, expenseDate: { gte: from, lte: to } },
-    include: { currency: { select: { symbol: true } }, city: { select: { name: true } } },
+    include: { currency: { select: { symbol: true } }, city: { select: { id: true } } },
     orderBy: { expenseDate: "desc" }, take: 50,
   });
   if (!rows.length) return "No expenses found for the specified period.";
   const total = rows.reduce((s, r) => s + Number(r.amount), 0);
-  const lines = rows.map(r => `• ${r.expenseDate.toISOString().split("T")[0]} | ${(r as any).city?.name||"—"} | ${r.currency.symbol}${Number(r.amount).toLocaleString()} | ${r.detail}`);
+  const lines = rows.map(r => `• ${r.expenseDate.toISOString().split("T")[0]} | City-${(r as any).city?.id||"—"} | ${r.currency.symbol}${Number(r.amount).toLocaleString()} | ${redactAssistantDetail(r.detail)}`);
   return `EXPENSES (${rows.length} records, Total: ${rows[0]?.currency?.symbol||""}${total.toLocaleString()}):\n${lines.join("\n")}`;
 }
 
@@ -139,12 +146,12 @@ async function fetchHajiTransfers(msg: string) {
   const { from, to } = parseDateRange(msg);
   const rows = await prisma.hajiTransfer.findMany({
     where: { transferDate: { gte: from, lte: to } },
-    include: { currency: { select: { symbol: true } }, city: { select: { name: true } } },
+    include: { currency: { select: { symbol: true } }, city: { select: { id: true } } },
     orderBy: { transferDate: "desc" }, take: 50,
   });
   if (!rows.length) return "No haji transfers found for the specified period.";
   const total = rows.reduce((s, r) => s + Number(r.amount), 0);
-  const lines = rows.map(r => `• ${r.transferDate.toISOString().split("T")[0]} | ${(r as any).city?.name||"—"} | ${r.currency.symbol}${Number(r.amount).toLocaleString()} | ${r.transferType} | ${r.detail}`);
+  const lines = rows.map(r => `• ${r.transferDate.toISOString().split("T")[0]} | City-${(r as any).city?.id||"—"} | ${r.currency.symbol}${Number(r.amount).toLocaleString()} | ${r.transferType} | ${redactAssistantDetail(r.detail)}`);
   return `HAJI TRANSFERS (${rows.length} records, Total: ${rows[0]?.currency?.symbol||""}${total.toLocaleString()}):\n${lines.join("\n")}`;
 }
 
@@ -152,7 +159,7 @@ async function fetchCustomerBalances(msg: string) {
   const customers = await prisma.customer.findMany({
     take: 100,
     include: {
-      city:     { select: { name: true } },
+      city:     { select: { id: true } },
       sales:    { where: { status: "active" }, select: { totalAmount: true } },
       payments: { where: { status: "active" }, select: { amount: true, usdEquivalent: true, currency: { select: { code: true } } } },
     },
@@ -160,11 +167,11 @@ async function fetchCustomerBalances(msg: string) {
   const rows = customers.map(c => {
     const totalSales = c.sales.reduce((s: number, x: any) => s + Number(x.totalAmount), 0);
     const totalPaid  = c.payments.reduce((s: number, x: any) => x.currency.code==="USD" ? s+Number(x.amount) : s+(x.usdEquivalent?Number(x.usdEquivalent):0), 0);
-    return { name: c.name, city: (c as any).city?.name||"—", totalSales, totalPaid, balance: totalSales - totalPaid };
+    return { id: c.id, cityId: (c as any).city?.id||"—", totalSales, totalPaid, balance: totalSales - totalPaid };
   }).filter(r => r.balance > 0).sort((a, b) => b.balance - a.balance);
   if (!rows.length) return "No outstanding customer balances found.";
   const totalOwed = rows.reduce((s, r) => s + r.balance, 0);
-  const lines = rows.map(r => `• ${r.name} | ${r.city} | Sales: $${r.totalSales.toLocaleString()} | Paid: $${r.totalPaid.toLocaleString()} | Balance: $${r.balance.toLocaleString()}`);
+  const lines = rows.map(r => `• ${assistantEntityLabel("Customer", r.id)} | City-${r.cityId} | Sales: $${r.totalSales.toLocaleString()} | Paid: $${r.totalPaid.toLocaleString()} | Balance: $${r.balance.toLocaleString()}`);
   return `CUSTOMER BALANCES (${rows.length} customers with balance, Total owed: $${totalOwed.toLocaleString()}):\n${lines.join("\n")}`;
 }
 
@@ -176,11 +183,11 @@ async function fetchSupplierBalances() {
   const rows = suppliers.map(s => {
     const purchased = s.lotPurchases.reduce((x: number, p: any) => x + Number(p.totalPriceUsd), 0);
     const paid      = s.supplierPayments.reduce((x: number, p: any) => x + Number(p.amountUsd), 0);
-    return { name: s.name, country: s.country||"—", purchased, paid, balance: purchased - paid };
+    return { id: s.id, country: s.country||"—", purchased, paid, balance: purchased - paid };
   }).sort((a, b) => b.balance - a.balance);
   if (!rows.length) return "No supplier data found.";
   const total = rows.reduce((s, r) => s + r.balance, 0);
-  const lines = rows.map(r => `• ${r.name} | ${r.country} | Purchased: $${r.purchased.toLocaleString()} | Paid: $${r.paid.toLocaleString()} | Owed: $${r.balance.toLocaleString()}`);
+  const lines = rows.map(r => `• ${assistantEntityLabel("Supplier", r.id)} | ${r.country} | Purchased: $${r.purchased.toLocaleString()} | Paid: $${r.paid.toLocaleString()} | Owed: $${r.balance.toLocaleString()}`);
   return `SUPPLIER BALANCES (${rows.length} suppliers, Total owed: $${total.toLocaleString()}):\n${lines.join("\n")}`;
 }
 
@@ -205,7 +212,7 @@ async function fetchInventory() {
       SELECT gt.to_godown_id as godown_id, gt.product_id, COALESCE(SUM(gt.qty), 0) as qty
       FROM godown_transfers gt GROUP BY gt.to_godown_id, gt.product_id
     )
-    SELECT c.name as city_name, p.name as product_name,
+    SELECT c.id as city_id, p.id as product_id,
       SUM(COALESCE(r.qty,0) - COALESCE(s.qty,0) - COALESCE(tout.qty,0) + COALESCE(tin.qty,0)) as qty
     FROM godowns g
     JOIN cities c ON c.id = g.city_id
@@ -215,13 +222,13 @@ async function fetchInventory() {
     LEFT JOIN transferred_out tout ON tout.godown_id = g.id AND tout.product_id = p.id
     LEFT JOIN transferred_in tin ON tin.godown_id = g.id AND tin.product_id = p.id
     WHERE g.is_active = true AND p.is_active = true
-    GROUP BY c.name, p.name
+    GROUP BY c.id, p.id
     HAVING SUM(COALESCE(r.qty,0) - COALESCE(s.qty,0) - COALESCE(tout.qty,0) + COALESCE(tin.qty,0)) > 0
-    ORDER BY c.name, qty DESC
+    ORDER BY c.id, qty DESC
   `;
   if (!inventory.length) return "No inventory data found.";
   const total = inventory.reduce((s, r) => s + Number(r.qty), 0);
-  const lines = inventory.map(r => `• ${r.product_name} | ${r.city_name} | ${Number(r.qty).toLocaleString()} cartons`);
+  const lines = inventory.map(r => `• Product-${r.product_id} | City-${r.city_id} | ${Number(r.qty).toLocaleString()} cartons`);
   return `INVENTORY (${inventory.length} lines, Grand total: ${total.toLocaleString()} cartons):\n${lines.join("\n")}`;
 }
 
@@ -271,27 +278,45 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
     return NextResponse.json({ error: "Superadmin only" }, { status: 403 });
   }
 
+  if (process.env.NODE_ENV === "production" && process.env.ASSISTANT_ENABLED !== "true") {
+    return NextResponse.json({ error: "Assistant is disabled in production" }, { status: 503 });
+  }
+
+  const limited = await checkRateLimit(`assistant:${user.userId}`, 30, 15 * 60 * 1000);
+  if (limited) return limited;
+
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({ error: "DEEPSEEK_API_KEY is not configured on the server." }, { status: 500 });
+    const msg =
+      process.env.NODE_ENV === "production"
+        ? "Assistant is not configured"
+        : "DEEPSEEK_API_KEY is not configured on the server.";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 
   try {
     const { message, messages: clientHistory } = await request.json();
+    if (typeof message !== "string" || !message.trim()) {
+      return NextResponse.json({ error: "Message is required" }, { status: 400 });
+    }
+    if (message.length > ASSISTANT_MAX_MESSAGE_LEN) {
+      return NextResponse.json({ error: `Message too long (max ${ASSISTANT_MAX_MESSAGE_LEN} characters)` }, { status: 400 });
+    }
 
     // 1. Fetch relevant data from DB based on latest message
     const context = await buildContext(message);
 
     // 2. Build conversation history for DeepSeek (so it remembers the chat)
-    const history = (clientHistory || []).map((m: any) => ({
+    const history = (clientHistory || []).slice(-ASSISTANT_MAX_HISTORY).map((m: any) => ({
       role: m.role === "user" ? "user" : "assistant",
-      content: m.content || "",
+      content: typeof m.content === "string" ? m.content.slice(0, ASSISTANT_MAX_MESSAGE_LEN) : "",
     }));
 
     // 3. Ask Groq to format/analyse the data
     const systemPrompt = `You are a smart business assistant for MRF Hardware Management System.
 
 You are given REAL DATA fetched directly from the live database. Your job is to analyse it and answer the user's question clearly.
+Entity labels like Customer-12 or Supplier-3 are internal IDs — do not invent real names for them.
 
 Rules:
 - Use bullet points and clear formatting
@@ -308,8 +333,11 @@ ${context}`;
     const reply = await askGroq(apiKey, systemPrompt, history, message);
     return NextResponse.json({ reply });
 
-  } catch (err: any) {
-    console.error("Assistant error:", err?.message);
-    return NextResponse.json({ error: err.message || "Failed" }, { status: 500 });
+  } catch (err: unknown) {
+    console.error("Assistant error:", err);
+    return NextResponse.json(
+      { error: clientErrorMessage(err, "Assistant request failed") },
+      { status: 500 },
+    );
   }
 });

@@ -1,16 +1,9 @@
+import { formatDisplayDate } from "@/lib/display-date";
+
 export function formatInventoryDate(value: string | Date | null | undefined): string {
   if (!value) return "—";
-  if (typeof value === "string") {
-    const iso = value.split("T")[0];
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-    if (match) return `${match[3]}-${match[2]}-${match[1].slice(-2)}`;
-  }
-  const d = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(d.getTime())) return String(value);
-  const dd = String(d.getUTCDate()).padStart(2, "0");
-  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const yy = String(d.getUTCFullYear()).slice(-2);
-  return `${dd}-${mm}-${yy}`;
+  const formatted = formatDisplayDate(value);
+  return formatted === "-" ? "—" : formatted;
 }
 
 export type StockMovementTypeTone = "in" | "out" | "alloc" | "sale" | "transfer" | "default";

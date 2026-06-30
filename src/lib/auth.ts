@@ -2,6 +2,8 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { NextRequest } from "next/server";
 
+import { parseJwtExpiryMs, jwtExpirySeconds as parseJwtExpirySeconds } from "@/lib/jwt-expiry";
+
 const JWT_SECRET = process.env.JWT_SECRET || (() => {
   if (process.env.NODE_ENV === "production") {
     throw new Error("JWT_SECRET environment variable must be set in production. Refusing to start with an insecure default.");
@@ -10,6 +12,14 @@ const JWT_SECRET = process.env.JWT_SECRET || (() => {
   return "dev-secret-change-in-production";
 })();
 const JWT_EXPIRY = process.env.JWT_EXPIRY || "24h";
+
+export function getJwtExpiryMs(): number {
+  return parseJwtExpiryMs(JWT_EXPIRY);
+}
+
+export function getJwtExpirySeconds(): number {
+  return parseJwtExpirySeconds(JWT_EXPIRY);
+}
 
 export interface JWTPayload {
   userId: number;
