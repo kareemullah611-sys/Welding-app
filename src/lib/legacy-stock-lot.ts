@@ -253,3 +253,80 @@ export async function migrateOpeningStocksToLegacyLots(createdBy: number) {
   await prisma.openingStock.deleteMany({});
   return rows.length;
 }
+
+async function legacyLotHasDependencies(lotId: number, db: DbClient): Promise<boolean> {
+  const [
+    sales,
+    payments,
+    expenses,
+    hajiTransfers,
+    godownTransfers,
+    lotPurchases,
+    lotCosts,
+    cityTransfers,
+  ] = await Promise.all([
+    db.sale.count({ where: { lotId } }),
+    db.payment.count({ where: { lotId } }),
+    db.expense.count({ where: { lotId } }),
+    db.hajiTransfer.count({ where: { lotId } }),
+    db.godownTransfer.count({ where: { lotId } }),
+    db.lotPurchase.count({ where: { lotId } }),
+    db.lotCost.count({ where: { lotId } }),
+    db.cityTransfer.count({ where: { lotId } }),
+  ]);
+  return (
+    sales + payments + expenses + hajiTransfers + godownTransfers + lotPurchases + lotCosts + cityTransfers
+  ) > 0;
+}
+
+/** Remove all OLD-STOCK godown qty, imported historical sales, and empty legacy lots. */
+export async function purgeLegacyOpeningStockData(db: DbClient = prisma) {
+  const historicalSales = await db.sale.findMany({
+    where: { isOpeningImport: true },
+    select: { id: true },
+  });
+  for (const sale of historicalSales) {
+    await db.saleItem.deleteMany({ where: { saleId: sale.id } });
+    await db.saleDiscount.deleteMany({ where: { saleId: sale.id } });
+    await db.sale.delete({ where: { id: sale.id } });
+  }
+
+  await db.openingStock.deleteMany({});
+
+  const legacyLots = await db.lot.findMany({
+    where: { isLegacyStock: true },
+    select: { id: true },
+  });
+  const legacyLotIds = legacyLots.map((lot) => lot.id);
+
+  let legacyAllocationsCleared = 0;
+  if (legacyLotIds.length) {
+    const distributions = await db.lotCityDistribution.findMany({
+      where: { lotId: { in: legacyLotIds } },
+      select: { id: true },
+    });
+    const distributionIds = distributions.map((row) => row.id);
+    if (distributionIds.length) {
+      const cleared = await db.lotCityGodownAllocation.deleteMany({
+        where: { lotCityDistributionId: { in: distributionIds } },
+      });
+      legacyAllocationsCleared = cleared.count;
+      await db.lotCityDistribution.deleteMany({ where: { id: { in: distributionIds } } });
+    }
+    await db.lotProduct.deleteMany({ where: { lotId: { in: legacyLotIds } } });
+  }
+
+  let legacyLotsDeleted = 0;
+  for (const lotId of legacyLotIds) {
+    if (await legacyLotHasDependencies(lotId, db)) continue;
+    await db.lot.delete({ where: { id: lotId } });
+    legacyLotsDeleted += 1;
+  }
+
+  return {
+    historicalSalesDeleted: historicalSales.length,
+    legacyAllocationsCleared,
+    legacyLotsDeleted,
+    legacyLotsRemaining: legacyLotIds.length - legacyLotsDeleted,
+  };
+}

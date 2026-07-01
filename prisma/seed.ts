@@ -169,10 +169,6 @@ async function main() {
 
   console.log("✅ Super Admin: superadmin / admin123");
 
-  const { ensureLegacyLotsForAllCountries } = await import("../src/lib/legacy-stock-lot");
-  await ensureLegacyLotsForAllCountries(superAdmin.id);
-  console.log("✅ Legacy OLD-STOCK lots (one per country)");
-
   // 7. City Admin users
   const cityAdminPassword = await bcrypt.hash("city123", 12);
 

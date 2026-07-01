@@ -489,21 +489,6 @@ async function main() {
     END $$;
   `);
 
-  const bootstrapUser = await prisma.user.findFirst({
-    where: { role: "super_admin" },
-    select: { id: true },
-  });
-  if (bootstrapUser) {
-    const { ensureLegacyLotsForAllCountries, migrateOpeningStocksToLegacyLots } = await import(
-      "../src/lib/legacy-stock-lot"
-    );
-    await ensureLegacyLotsForAllCountries(bootstrapUser.id);
-    const migrated = await migrateOpeningStocksToLegacyLots(bootstrapUser.id);
-    if (migrated > 0) {
-      console.log(`Migrated ${migrated} opening stock row(s) to OLD-STOCK legacy lots`);
-    }
-  }
-
   const userCount = await prisma.user.count();
   if (userCount === 0) {
     console.log("No users found. Running initial seed...");

@@ -172,6 +172,10 @@ text = text.replace(
     'DATABASE_URL="postgresql://user:password@localhost:5432/welding_app?schema=public"',
     'DATABASE_URL="${db_url}"',
 )
+text = text.replace(
+    'DIRECT_URL="postgresql://user:password@localhost:5432/welding_app?schema=public"',
+    'DIRECT_URL="${db_url}"',
+)
 if 'JWT_SECRET="your-super-secret-jwt-key-change-this-in-production"' in text:
     import secrets
     text = text.replace(

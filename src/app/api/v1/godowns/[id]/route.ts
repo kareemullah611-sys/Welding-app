@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth, withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { isSeedGodownName } from "@/lib/seed-godown-names";
 
 export const GET = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -22,7 +23,23 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     if (!godown) return errorResponse("NOT_FOUND", "Godown not found", 404);
     if (user.role === "city_admin" && godown.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
 
-    const updated = await prisma.godown.update({ where: { id }, data: { name: body.name || godown.name, isActive: body.isActive !== undefined ? body.isActive : godown.isActive, updatedAt: new Date() } });
+    const nextName = typeof body.name === "string" && body.name.trim() ? body.name.trim() : godown.name;
+    if (nextName !== godown.name && isSeedGodownName(godown.name)) {
+      return errorResponse("FORBIDDEN", "Default godown names cannot be changed", 403);
+    }
+    if (nextName !== godown.name) {
+      const duplicate = await prisma.godown.findFirst({ where: { cityId: godown.cityId, name: nextName, NOT: { id } } });
+      if (duplicate) return errorResponse("DUPLICATE", "Godown with this name already exists in this city", 409);
+    }
+
+    const updated = await prisma.godown.update({
+      where: { id },
+      data: {
+        name: nextName,
+        isActive: body.isActive !== undefined ? body.isActive : godown.isActive,
+        updatedAt: new Date(),
+      },
+    });
     await createAuditLog(user.userId, godown.cityId, "godowns", id, "update", { name: godown.name }, { name: updated.name }, getClientIP(request));
     return successResponse({ id: updated.id, name: updated.name }, "Godown updated");
   } catch (error) { return serverError(); }

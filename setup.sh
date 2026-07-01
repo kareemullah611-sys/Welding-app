@@ -22,7 +22,7 @@ echo -e "${BOLD}MRF Hardware — quick setup${NC}"
 
 if [[ ! -f .env ]]; then
   cp .env.example .env
-  ok "Created .env from .env.example — edit DATABASE_URL if needed"
+  ok "Created .env from .env.example — local Postgres URLs; edit if needed"
 else
   info ".env already exists"
 fi

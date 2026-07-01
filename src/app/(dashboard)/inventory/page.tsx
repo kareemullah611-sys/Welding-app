@@ -19,6 +19,7 @@ import {
   stockMovementTypeClass,
 } from "@/lib/stock-movement-display";
 import { shouldSimplifyCityModals } from "@/lib/quickform-embed";
+import { isSeedGodownName } from "@/lib/seed-godown-names";
 
 const INVENTORY_READ_CACHE_KEY = "mrf-inventory-read-cache-v1";
 const CITY_TRANSFER_FORM_CACHE_KEY = "mrf-city-transfers-form-cache-v1";
@@ -425,7 +426,7 @@ export default function InventoryPage() {
     setGodownManageLoading(true);
     const r = await apiCall("/api/v1/godowns", { params: { limit: 100, is_active: "true" } });
     if (r.success) {
-      const rows = (r.data as any[]).filter((g: any) => g.cityId === user?.cityId);
+      const rows = (r.data as any[]).filter((g: any) => g.cityId === user?.cityId && g.isActive !== false);
       setGodownManageList(rows);
       mergeSnapshot({ godownList: r.data as any[] });
     } else if (!isOnline) {
@@ -486,6 +487,10 @@ export default function InventoryPage() {
 
   const handleEditGodown = async () => {
     if (!selectedGodown) return;
+    if (isSeedGodownName(selectedGodown.name)) {
+      setEditGodownError("Default godown names cannot be changed");
+      return;
+    }
     const name = editGodownForm.name.trim();
     if (!name) {
       setEditGodownError(`${t("name")} ${t("reason_required").toLowerCase()}`);
@@ -497,6 +502,7 @@ export default function InventoryPage() {
     setEditGodownSubmitting(false);
     if (result.success) {
       setShowEditGodown(false);
+      setGodownManageList((prev) => prev.map((row) => (row.id === selectedGodown.id ? { ...row, name } : row)));
       await loadLedgerHelpers();
       await refreshGodownManageList();
     } else {
@@ -508,6 +514,7 @@ export default function InventoryPage() {
     if (!confirm(`"${g.name}": ${t("confirm_deactivate_godown")}`)) return;
     const result = await apiCall(`/api/v1/godowns/${g.id}`, { method: "PUT", body: { isActive: false } });
     if (result.success) {
+      setGodownManageList((prev) => prev.filter((row) => row.id !== g.id));
       await loadLedgerHelpers();
       await refreshGodownManageList();
     } else {
@@ -1323,14 +1330,17 @@ export default function InventoryPage() {
                   open={godownOpenActionId === g.id}
                   onOpenChange={(open) => setGodownOpenActionId(open ? g.id : null)}
                 >
-                  <button
-                    onClick={() => { setGodownOpenActionId(null); openEditGodown(g); }}
-                    className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs"
-                  >
-                    {t("edit")}
-                  </button>
+                  {!isSeedGodownName(g.name) && (
+                    <button
+                      onClick={() => { setGodownOpenActionId(null); openEditGodown(g); }}
+                      className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs"
+                    >
+                      {t("edit")}
+                    </button>
+                  )}
                   {g.isActive && (
                     <button
+                      type="button"
                       onClick={() => { setGodownOpenActionId(null); void handleDeactivateGodown(g); }}
                       className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs"
                     >

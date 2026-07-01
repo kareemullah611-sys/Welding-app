@@ -117,6 +117,18 @@ export const createLotSchema = z.object({
   distributions: z.array(lotDistributionSchema).optional(),
 });
 
+export const updateLotPurchaseItemSchema = lotPurchaseItemSchema.extend({
+  id: z.number().int().positive().optional(),
+});
+
+export const updateLotSchema = z.object({
+  countryId: z.number().int().positive().optional(),
+  lotNumber: z.string().min(1).max(50).optional(),
+  lotDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  notes: z.string().optional().nullable(),
+  purchaseItems: z.array(updateLotPurchaseItemSchema).min(1).optional(),
+});
+
 
 // ============================================================
 // SALES

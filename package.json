@@ -28,6 +28,7 @@
     "setup": "bash setup.sh",
     "db:backup": "bash scripts/backup-db.sh",
     "db:restore": "bash scripts/restore-db.sh",
+    "db:purge-legacy-stock": "tsx scripts/purge-legacy-stock.ts",
     "package:android:init": "npx cap add android",
     "package:android:sync": "npx cap sync android",
     "package:android:open": "npx cap open android",

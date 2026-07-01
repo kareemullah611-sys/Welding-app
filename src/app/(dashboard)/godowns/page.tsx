@@ -9,6 +9,7 @@ import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline
 import { getPendingGodowns } from "@/lib/offline-queue-overlays";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import { isSeedGodownName } from "@/lib/seed-godown-names";
 
 const GODOWNS_READ_CACHE_KEY = "mrf-godowns-read-cache-v1";
 
@@ -153,6 +154,10 @@ export default function GodownsPage() {
   };
   const openEdit = (g: any) => { setSelected(g); setForm({ name: g.name, cityId: g.cityId }); setShowEdit(true); setFormError(""); };
   const handleEdit = async () => {
+    if (selected && isSeedGodownName(selected.name)) {
+      setFormError("Default godown names cannot be changed");
+      return;
+    }
     const pendingQueueId = getPendingQueueId(selected?.id);
     if (pendingQueueId) {
       const ok = await updateQueuedItem(pendingQueueId, { body: JSON.stringify(form) });
@@ -222,9 +227,11 @@ export default function GodownsPage() {
             open={openActionId === g.id}
             onOpenChange={(open) => setOpenActionId(open ? g.id : null)}
           >
-            <button onClick={() => { setOpenActionId(null); openEdit(g); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
+            {!isSeedGodownName(g.name) && (
+              <button onClick={() => { setOpenActionId(null); openEdit(g); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
+            )}
             {g.isActive ? (
-              <button onClick={() => { setOpenActionId(null); handleDeactivate(g); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("deactivate")}</button>
+              <button type="button" onClick={() => { setOpenActionId(null); handleDeactivate(g); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("deactivate")}</button>
             ) : (
               <button onClick={() => { setOpenActionId(null); handleDeleteGodown(g); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("delete")}</button>
             )}

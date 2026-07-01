@@ -6,10 +6,12 @@ if ! command -v pg_restore >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ -z "${DATABASE_URL:-}" ]]; then
-  echo "DATABASE_URL is required."
+if [[ -z "${DATABASE_URL:-}" && -z "${DIRECT_URL:-}" ]]; then
+  echo "DATABASE_URL or DIRECT_URL is required."
   exit 1
 fi
+
+DB_URL="${DIRECT_URL:-${DATABASE_URL}}"
 
 if [[ -z "${1:-}" ]]; then
   echo "Usage: npm run db:restore -- <path-to-backup.dump>"
@@ -23,5 +25,5 @@ if [[ ! -f "${BACKUP_FILE}" ]]; then
 fi
 
 echo "Restoring backup: ${BACKUP_FILE}"
-pg_restore --clean --if-exists --no-owner --no-privileges --dbname="${DATABASE_URL}" "${BACKUP_FILE}"
+pg_restore --clean --if-exists --no-owner --no-privileges --dbname="${DB_URL}" "${BACKUP_FILE}"
 echo "Restore completed."

@@ -6,7 +6,7 @@ import { JWTPayload } from "@/lib/auth";
 import { OpeningLiabilityType } from "@prisma/client";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 import { journalOpeningLiability, reverseJournalEntries } from "@/lib/accounting";
-import { setLegacyGodownStock, listLegacyStockForCity } from "@/lib/legacy-stock-lot";
+import { setLegacyGodownStock, listLegacyStockForCity, purgeLegacyOpeningStockData } from "@/lib/legacy-stock-lot";
 import { listLotGodownStockForCity, setLotGodownStock } from "@/lib/lot-godown-stock";
 import { createHistoricalSale } from "@/lib/historical-sale-import";
 import { autoActivateShortSales } from "@/lib/stock-activation";
@@ -290,6 +290,24 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
     body = await request.json();
     kind = String(body?.kind || "");
     cityId = getScopedCityId(user, body?.cityId);
+
+    if (kind === "purge_legacy_stock") {
+      if (user.role !== "super_admin") {
+        return errorResponse("FORBIDDEN", "Only super admin can purge legacy stock data", 403);
+      }
+      const result = await purgeLegacyOpeningStockData();
+      await createAuditLog(
+        user.userId,
+        null,
+        "legacy_stock",
+        0,
+        "delete",
+        undefined,
+        result,
+        getClientIP(request),
+      );
+      return successResponse(result, "Legacy stock and historical opening sales removed");
+    }
 
     if (syncMeta && cityId && (kind === "cash" || kind === "customer" || kind === "stock" || kind === "historical_sale" || kind === "bank" || kind === "cheque")) {
       const existingSync = await prisma.syncRequest.findUnique({

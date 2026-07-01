@@ -39,6 +39,18 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       aria-describedby={undefined}
+      onPointerDownOutside={(event) => {
+        const target = event.target as HTMLElement | null;
+        if (target?.closest("[data-action-menu-root='true']")) {
+          event.preventDefault();
+        }
+      }}
+      onInteractOutside={(event) => {
+        const target = event.target as HTMLElement | null;
+        if (target?.closest("[data-action-menu-root='true']")) {
+          event.preventDefault();
+        }
+      }}
       onOpenAutoFocus={(event) => {
         // Avoid iOS Safari jumping the page when a modal opens.
         event.preventDefault();

@@ -32,6 +32,7 @@ const OFFLINE_WRITE_QUEUE_ALLOWLIST = [
   "/api/v1/agents",
   "/api/v1/bank-accounts",
   "/api/v1/city-transfers",
+  "/api/v1/godowns",
   "/api/v1/godowns/transfers",
   "/api/v1/investors",
 ] as const;

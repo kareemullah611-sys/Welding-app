@@ -1,11 +1,29 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
-import { successResponse, errorResponse, serverError } from "@/lib/api-response";
+import { successResponse, errorResponse, serverError, validationError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { buildLotCostLedger } from "@/lib/lot-cost-ledger";
 import { computeLotLandedCostPkr } from "@/lib/landed-cost-pkr";
 import { buildCityLotAssignmentDetail } from "@/lib/city-lot-assignment";
+import { updateLotSchema } from "@/lib/validations";
+import { journalLotPurchase, reverseJournalEntries } from "@/lib/accounting";
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+function cartonsFromPurchase(qtyMt: number, weightPerCartonKg: number) {
+  if (weightPerCartonKg <= 0 || qtyMt <= 0) return 0;
+  return Math.round((qtyMt * 1000) / weightPerCartonKg);
+}
+
+function productCartonsFromItems(items: Array<{ productId: number; qtyMt: number; weightPerCartonKg: number }>) {
+  const totals: Record<number, number> = {};
+  for (const item of items) {
+    const cartons = cartonsFromPurchase(item.qtyMt, item.weightPerCartonKg);
+    totals[item.productId] = (totals[item.productId] || 0) + cartons;
+  }
+  return totals;
+}
 
 export const GET = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -353,42 +371,193 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
   try {
     const id = parseInt(context.params.id);
     const body = await request.json();
+    const parsed = updateLotSchema.safeParse(body);
+    if (!parsed.success) return validationError("Invalid lot data", parsed.error.errors);
+
     const lot = await prisma.lot.findUnique({ where: { id } });
     if (!lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
+    if (lot.isLegacyStock) {
+      return errorResponse("VALIDATION_ERROR", "Use Openings → Legacy stock to manage the OLD-STOCK lot", 400);
+    }
 
-    const updated = await prisma.lot.update({
-      where: { id },
-      data: { lotNumber: body.lotNumber || lot.lotNumber, lotDate: body.lotDate ? new Date(body.lotDate) : lot.lotDate, notes: body.notes !== undefined ? body.notes : lot.notes, updatedAt: new Date() },
-    });
+    const data = parsed.data;
+    const nextCountryId = data.countryId ?? lot.countryId;
+    const nextLotNumber = data.lotNumber ?? lot.lotNumber;
 
-    // Add/update products if provided
-    if (body.products && Array.isArray(body.products)) {
-      for (const p of body.products) {
-        if (!p.productId || !p.totalQty) continue;
-        const existing = await prisma.lotProduct.findUnique({
-          where: { lotId_productId: { lotId: id, productId: p.productId } },
-        });
-        if (existing) {
-          // Check cascade: if new qty < sum of city distributions for this product
-          const distTotal = await prisma.lotCityDistribution.aggregate({
-            where: { lotId: id, productId: p.productId },
-            _sum: { allocatedQty: true },
-          });
-          const allocatedTotal = Number(distTotal._sum.allocatedQty || 0);
-          if (allocatedTotal > Number(p.totalQty)) {
-            const productName = (await prisma.product.findUnique({ where: { id: p.productId }, select: { name: true } }))?.name ?? `Product #${p.productId}`;
-            return errorResponse("VALIDATION_ERROR", `"${productName}": new qty ${p.totalQty} is less than already-distributed ${allocatedTotal} cartons. Update distributions first.`);
-          }
-          await prisma.lotProduct.update({ where: { id: existing.id }, data: { totalQty: p.totalQty } });
-        } else {
-          await prisma.lotProduct.create({ data: { lotId: id, productId: p.productId, totalQty: p.totalQty } });
-        }
+    if (nextCountryId !== lot.countryId) {
+      const distCount = await prisma.lotCityDistribution.count({ where: { lotId: id } });
+      if (distCount > 0) {
+        return errorResponse("VALIDATION_ERROR", "Remove city distributions before changing country", 400);
       }
     }
 
-    await createAuditLog(user.userId, null, "lots", id, "update", { lotNumber: lot.lotNumber, notes: lot.notes }, { lotNumber: updated.lotNumber, notes: updated.notes }, getClientIP(request));
-    return successResponse({ id: updated.id, lotNumber: updated.lotNumber }, "Lot updated");
-  } catch (error) {
+    if (nextLotNumber !== lot.lotNumber || nextCountryId !== lot.countryId) {
+      const duplicate = await prisma.lot.findUnique({
+        where: { countryId_lotNumber: { countryId: nextCountryId, lotNumber: nextLotNumber } },
+      });
+      if (duplicate && duplicate.id !== id) {
+        return errorResponse("DUPLICATE", `Lot number ${nextLotNumber} already exists for this country`, 409);
+      }
+    }
+
+    if (data.purchaseItems) {
+      const productIds = Array.from(new Set(data.purchaseItems.map((p) => p.productId)));
+      const supplierIds = Array.from(new Set(data.purchaseItems.map((p) => p.supplierId)));
+      const [products, suppliers] = await Promise.all([
+        prisma.product.findMany({ where: { id: { in: productIds }, isActive: true } }),
+        prisma.supplier.findMany({ where: { id: { in: supplierIds }, isActive: true } }),
+      ]);
+      if (products.length !== productIds.length) {
+        return errorResponse("NOT_FOUND", "One or more products not found or inactive");
+      }
+      if (suppliers.length !== supplierIds.length) {
+        return errorResponse("NOT_FOUND", "One or more suppliers not found or inactive");
+      }
+
+      const productCartons = productCartonsFromItems(
+        data.purchaseItems.map((p) => ({
+          productId: p.productId,
+          qtyMt: p.qtyMt,
+          weightPerCartonKg: p.weightPerCartonKg,
+        })),
+      );
+
+      for (const [productId, totalQty] of Object.entries(productCartons)) {
+        const distTotal = await prisma.lotCityDistribution.aggregate({
+          where: { lotId: id, productId: Number(productId) },
+          _sum: { allocatedQty: true },
+        });
+        const allocatedTotal = Number(distTotal._sum.allocatedQty || 0);
+        if (allocatedTotal > totalQty) {
+          const productName = products.find((p) => p.id === Number(productId))?.name ?? `Product #${productId}`;
+          return errorResponse(
+            "VALIDATION_ERROR",
+            `"${productName}": ${totalQty} cartons is less than already-distributed ${allocatedTotal}. Update distributions first.`,
+          );
+        }
+      }
+
+      await prisma.$transaction(async (tx) => {
+        await tx.lot.update({
+          where: { id },
+          data: {
+            countryId: nextCountryId,
+            lotNumber: nextLotNumber,
+            lotDate: data.lotDate ? new Date(data.lotDate) : lot.lotDate,
+            notes: data.notes !== undefined ? data.notes : lot.notes,
+            updatedAt: new Date(),
+          },
+        });
+
+        const existingPurchases = await tx.lotPurchase.findMany({ where: { lotId: id } });
+        const incomingIds = new Set(
+          data.purchaseItems!.map((p) => p.id).filter((purchaseId): purchaseId is number => Boolean(purchaseId)),
+        );
+
+        if (data.purchaseItems!.length < 1) {
+          throw new Error("Cannot delete the only purchase item in a lot");
+        }
+
+        for (const existing of existingPurchases) {
+          if (incomingIds.has(existing.id)) continue;
+          try {
+            await reverseJournalEntries(`PURCH-${existing.lotId}-${existing.id}`, user.userId, tx);
+          } catch (je) {
+            console.error("Reverse journal (lot purchase delete):", je);
+          }
+          await tx.lotPurchase.delete({ where: { id: existing.id } });
+        }
+
+        for (const item of data.purchaseItems!) {
+          const totalPriceUsd = round2(item.qtyMt * item.unitPriceUsdPerMt);
+          if (item.id) {
+            const existing = existingPurchases.find((row) => row.id === item.id);
+            if (!existing) throw new Error(`Purchase item #${item.id} not found on this lot`);
+            try {
+              await reverseJournalEntries(`PURCH-${existing.lotId}-${existing.id}`, user.userId, tx);
+            } catch (je) {
+              console.error("Reverse journal (lot purchase update):", je);
+            }
+            await tx.lotPurchase.update({
+              where: { id: item.id },
+              data: {
+                supplierId: item.supplierId,
+                productId: item.productId,
+                qty: item.qtyMt,
+                weightPerCartonKg: item.weightPerCartonKg,
+                unitPriceUsd: item.unitPriceUsdPerMt,
+                totalPriceUsd,
+              },
+            });
+            await journalLotPurchase(
+              { id: item.id, supplierId: item.supplierId, lotId: id, totalUsd: totalPriceUsd, createdBy: user.userId },
+              tx,
+            );
+          } else {
+            const purchase = await tx.lotPurchase.create({
+              data: {
+                lotId: id,
+                supplierId: item.supplierId,
+                productId: item.productId,
+                qty: item.qtyMt,
+                weightPerCartonKg: item.weightPerCartonKg,
+                unitPriceUsd: item.unitPriceUsdPerMt,
+                totalPriceUsd,
+                createdBy: user.userId,
+              },
+            });
+            await journalLotPurchase(
+              { id: purchase.id, supplierId: item.supplierId, lotId: id, totalUsd: totalPriceUsd, createdBy: user.userId },
+              tx,
+            );
+          }
+        }
+
+        const nextProductIds = new Set(Object.keys(productCartons).map(Number));
+        const currentProducts = await tx.lotProduct.findMany({ where: { lotId: id } });
+        for (const row of currentProducts) {
+          if (!nextProductIds.has(row.productId)) {
+            await tx.lotProduct.delete({ where: { id: row.id } });
+          }
+        }
+        for (const [productId, totalQty] of Object.entries(productCartons)) {
+          await tx.lotProduct.upsert({
+            where: { lotId_productId: { lotId: id, productId: Number(productId) } },
+            create: { lotId: id, productId: Number(productId), totalQty },
+            update: { totalQty },
+          });
+        }
+      });
+    } else {
+      await prisma.lot.update({
+        where: { id },
+        data: {
+          countryId: nextCountryId,
+          lotNumber: nextLotNumber,
+          lotDate: data.lotDate ? new Date(data.lotDate) : lot.lotDate,
+          notes: data.notes !== undefined ? data.notes : lot.notes,
+          updatedAt: new Date(),
+        },
+      });
+    }
+
+    const updated = await prisma.lot.findUnique({ where: { id }, select: { id: true, lotNumber: true } });
+    await createAuditLog(
+      user.userId,
+      null,
+      "lots",
+      id,
+      "update",
+      { lotNumber: lot.lotNumber, notes: lot.notes },
+      { lotNumber: updated?.lotNumber, purchaseItemsUpdated: Boolean(data.purchaseItems) },
+      getClientIP(request),
+    );
+    return successResponse({ id: updated?.id, lotNumber: updated?.lotNumber }, "Lot updated");
+  } catch (error: any) {
+    if (error?.message?.includes("only purchase item")) {
+      return errorResponse("VALIDATION_ERROR", error.message, 400);
+    }
+    console.error("Update lot error:", error);
     return serverError();
   }
 });

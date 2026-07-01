@@ -470,6 +470,8 @@ export async function apiCall<T = unknown>(
       if (method === "GET") {
         await cacheApiResponse(url, options.params, data.data as T, data.pagination);
         await cacheLocalReadModel(url, options.params, data.data as T, data.pagination);
+      } else if (["PUT", "PATCH", "DELETE"].includes(method)) {
+        await applyQueuedMutationLocalReadModel(url, method, options.body);
       }
       return { success: true, data: data.data as T, pagination: data.pagination, meta: data.meta };
     }
