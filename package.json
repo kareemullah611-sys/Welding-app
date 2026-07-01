@@ -24,6 +24,7 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "npx tsx prisma/seed.ts",
     "db:bootstrap": "tsx scripts/bootstrap.ts",
+    "db:migrate:deploy": "tsx scripts/migrate-deploy.ts",
     "setup:offline": "bash scripts/setup-offline.sh",
     "setup": "bash setup.sh",
     "db:backup": "bash scripts/backup-db.sh",

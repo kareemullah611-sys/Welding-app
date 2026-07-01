@@ -2,6 +2,11 @@ import { execSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
+import {
+  assertProductionDatabaseEnv,
+  isPrismaP1002,
+  runMigrateDeployWithRetry,
+} from "./migrate-deploy";
 
 const prisma = new PrismaClient();
 
@@ -158,9 +163,10 @@ async function deployMigrationsWithBaselineFallback() {
 
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      runCapture("npx prisma migrate deploy");
+      await runMigrateDeployWithRetry({ stdio: "pipe" });
       return;
     } catch (error) {
+      if (isPrismaP1002(error)) throw error;
       if (isPrismaP3009(error)) {
         const failed = extractFailedMigrationNames(error);
         if (!failed.length) throw error;
@@ -192,20 +198,24 @@ async function deployMigrationsWithBaselineFallback() {
   for (const migration of migrations) {
     await markMigrationApplied(migration);
   }
-  run("npx prisma migrate deploy");
+  await runMigrateDeployWithRetry({ stdio: "inherit" });
 }
 
 async function main() {
   console.log("Bootstrapping database...");
+  assertProductionDatabaseEnv();
   const mode = (process.env.PRISMA_BOOTSTRAP_MODE || "").trim().toLowerCase();
   const isProduction =
     process.env.NODE_ENV === "production" || process.env.RENDER === "true";
+  const migrateAtBuild = process.env.PRISMA_MIGRATE_AT_BUILD === "true";
 
   // Safety default:
   // - production / Render -> migrations only (avoids db push + generate OOM on small instances)
   // - non-production -> db push convenience (skip generate — client already built in CI)
   if (mode === "db_push") {
     run("npx prisma db push --skip-generate");
+  } else if (migrateAtBuild) {
+    console.log("Skipping migrate deploy on start (PRISMA_MIGRATE_AT_BUILD=true).");
   } else if (mode === "migrate") {
     await deployMigrationsWithBaselineFallback();
   } else if (isProduction) {

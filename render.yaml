@@ -6,7 +6,7 @@ services:
     runtime: node
     plan: free
     region: singapore
-    buildCommand: npm ci --include=dev && npx prisma generate && npm run build
+    buildCommand: npm ci --include=dev && npx prisma generate && tsx scripts/migrate-deploy.ts && npm run build
     startCommand: npm run start
     healthCheckPath: /api/health
     autoDeploy: true
@@ -17,6 +17,8 @@ services:
         value: production
       - key: PRISMA_BOOTSTRAP_MODE
         value: migrate
+      - key: PRISMA_MIGRATE_AT_BUILD
+        value: "true"
       - key: DATABASE_URL
         sync: false
       - key: DIRECT_URL
