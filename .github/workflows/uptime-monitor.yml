@@ -2,8 +2,8 @@ name: Uptime Monitor
 
 on:
   schedule:
-    # Every 5 minutes — keeps Render free-tier web service awake (~720 h/month).
-    - cron: "*/5 * * * *"
+    # Every 10 minutes — keeps Render free-tier web service awake (~720 h/month).
+    - cron: "*/10 * * * *"
   workflow_dispatch:
 
 env:
