@@ -7,7 +7,7 @@ import { InlineSpinner } from "@/components/ui/BrandLoader";
 import BrandLogo from "@/components/brand/BrandLogo";
 import { LOGIN_PHOTOS } from "@/config/loginPhotos";
 import { EmbedAuthRecovery } from "@/components/quickform/EmbedAuthRecovery";
-import { isAuthLogoutPending } from "@/lib/auth-logout-client";
+import { clearAuthLogoutPending, isAuthLogoutPending } from "@/lib/auth-logout-client";
 
 const SLIDE_INTERVAL = 5000;
 
@@ -52,6 +52,7 @@ export default function LoginPage() {
     const result = await login(username, password);
 
     if (result.success) {
+      clearAuthLogoutPending();
       window.location.href = "/dashboard";
       return;
     }

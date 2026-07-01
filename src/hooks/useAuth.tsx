@@ -155,7 +155,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
             if (packaged) setPackagedServerReachable(true);
             setLoading(false);
-            clearAuthLogoutPending();
             return;
           }
           if (data.success && data.data == null) {
@@ -269,20 +268,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
 
     const packaged = isPackagedOfflineActive();
+    const persistLogin = async (loggedInUser: User, pwd: string) => {
+      clearAuthLogoutPending();
+      setUser(loggedInUser);
+      writeOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null, {
+        username: normalizedUsername,
+        passwordVerifier: await buildOfflinePasswordVerifier(pwd),
+        user: loggedInUser,
+        updatedAt: new Date().toISOString(),
+      });
+    };
 
     if (packaged && cacheMatches) {
       setPackagedServerReachable(false);
+      clearAuthLogoutPending();
       setUser(cached!.user);
       void (async () => {
         const online = await tryOnlineLogin(username, password);
         if (online.ok && online.user) {
-          setUser(online.user);
-          writeOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null, {
-            username: normalizedUsername,
-            passwordVerifier: await buildOfflinePasswordVerifier(password),
-            user: online.user,
-            updatedAt: new Date().toISOString(),
-          });
+          await persistLogin(online.user, password);
         } else {
           const reachable = await probeServerReachable();
           setPackagedServerReachable(reachable);
@@ -293,18 +297,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const online = await tryOnlineLogin(username, password);
     if (online.ok && online.user) {
-      setUser(online.user);
-      writeOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null, {
-        username: normalizedUsername,
-        passwordVerifier: await buildOfflinePasswordVerifier(password),
-        user: online.user,
-        updatedAt: new Date().toISOString(),
-      });
+      await persistLogin(online.user, password);
       return { success: true };
     }
 
     if (packaged && cacheMatches) {
       setPackagedServerReachable(false);
+      clearAuthLogoutPending();
       setUser(cached!.user);
       return { success: true };
     }
@@ -322,6 +321,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: "{}",
+        cache: "no-store",
       });
     } catch {
       // Keep local logout deterministic even when offline.

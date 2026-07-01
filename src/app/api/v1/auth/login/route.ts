@@ -7,6 +7,10 @@ import { checkRateLimit, rejectIfRateLimited } from "@/lib/rate-limit";
 import { allowSuperAdminInLockedDeployment, isAllowedCityName, isCityLockedDeployment } from "@/lib/deployment-profile";
 import { hashToken } from "@/lib/session";
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function parseUserAgent(ua: string | null): string {
   if (!ua) return "Unknown device";
   let browser = "Unknown Browser";
@@ -109,8 +113,34 @@ export async function POST(request: NextRequest) {
         },
       });
     } catch (sessionError) {
-      // Don't fail login if session tracking fails (table might not exist yet)
-      console.error("Session creation error (non-fatal):", sessionError);
+      // Neon cold start / transient DB errors — retry before rejecting login.
+      let sessionCreated = false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        await sleep(800 * (attempt + 1));
+        try {
+          await prisma.userSession.create({
+            data: {
+              userId: user.id,
+              tokenHash: hashToken(token),
+              deviceInfo: parseUserAgent(userAgent),
+              ipAddress,
+              expiresAt: new Date(Date.now() + getJwtExpiryMs()),
+            },
+          });
+          sessionCreated = true;
+          break;
+        } catch (retryError) {
+          console.error(`Session creation retry ${attempt + 1} failed:`, retryError);
+        }
+      }
+      if (!sessionCreated) {
+        console.error("Session creation error:", sessionError);
+        return errorResponse(
+          "SERVER_ERROR",
+          "Database unavailable, please try again in a moment",
+          503
+        );
+      }
     }
 
     // Set cookie for web app
