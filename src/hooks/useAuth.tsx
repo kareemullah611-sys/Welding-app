@@ -1,12 +1,16 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { clearOfflineAuthCache, readOfflineAuthCache, writeOfflineAuthCache, buildOfflinePasswordVerifier, verifyOfflinePassword } from "@/lib/offline-auth-cache";
 import { isPackagedOfflineActive } from "@/lib/offline-cache";
 import { probeServerReachable, setPackagedServerReachable } from "@/lib/offline-reachability";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { getEmbedFromLocation } from "@/lib/quickform-embed";
+import {
+  clearAuthLogoutPending,
+  isAuthLogoutPending,
+  markAuthLogoutPending,
+} from "@/lib/auth-logout-client";
 
 interface User {
   id: number;
@@ -80,7 +84,6 @@ async function parseAuthJson(res: Response): Promise<{
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const router = useRouter();
 
   const refreshOnlineSession = useCallback(async () => {
     try {
@@ -112,10 +115,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const checkAuth = useCallback(async () => {
     const packaged = isPackagedOfflineActive();
     const isEmbed = typeof window !== "undefined" && getEmbedFromLocation();
+    const onLoginPage = typeof window !== "undefined" && window.location.pathname === "/login";
+    const logoutPending = isAuthLogoutPending();
     const cached = readOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
     const maxAttempts = isEmbed ? 6 : 4;
 
-    if (packaged && cached?.user) {
+    if (packaged && cached?.user && !logoutPending && !onLoginPage) {
       setUser(cached.user);
       setPackagedServerReachable(false);
       setLoading(false);
@@ -132,6 +137,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (res.ok) {
           const data = await res.json();
           if (data.success && data.data) {
+            if (logoutPending) {
+              setUser(null);
+              setLoading(false);
+              return;
+            }
             setUser(data.data);
             const storage = typeof window !== "undefined" ? window.localStorage : null;
             const existing = readOfflineAuthCache(storage);
@@ -145,11 +155,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
             if (packaged) setPackagedServerReachable(true);
             setLoading(false);
+            clearAuthLogoutPending();
             return;
           }
           if (data.success && data.data == null) {
             setUser(null);
             setLoading(false);
+            clearAuthLogoutPending();
             return;
           }
         }
@@ -159,13 +171,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             await sleep(250 + attempt * 350);
             continue;
           }
-          if (isEmbed && cached?.user) {
+          if (isEmbed && cached?.user && !logoutPending) {
             setUser(cached.user);
             setLoading(false);
             return;
           }
           setUser(null);
           setLoading(false);
+          clearAuthLogoutPending();
           return;
         }
 
@@ -174,7 +187,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           continue;
         }
       } catch {
-        if (cached?.user) {
+        if (cached?.user && !logoutPending && !onLoginPage) {
           setUser(cached.user);
           if (packaged) setPackagedServerReachable(false);
           setLoading(false);
@@ -196,8 +209,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [checkAuth]);
 
   useEffect(() => {
-    const cached = readOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
-    if (cached?.user) setUser(cached.user);
+    const onLoginPage = typeof window !== "undefined" && window.location.pathname === "/login";
+    const logoutPending = isAuthLogoutPending();
+    if (!onLoginPage && !logoutPending) {
+      const cached = readOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
+      if (cached?.user) setUser(cached.user);
+    }
     void checkAuth();
   }, [checkAuth]);
 
@@ -296,14 +313,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
+    markAuthLogoutPending();
     clearOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
     setUser(null);
     try {
-      await fetch("/api/v1/auth/logout", { method: "POST", credentials: "include" });
+      await fetch("/api/v1/auth/logout", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
     } catch {
       // Keep local logout deterministic even when offline.
     }
-    router.replace("/login");
+    if (typeof window !== "undefined") {
+      window.location.replace("/login");
+    }
   };
 
   // Auto-logout after 30 minutes of inactivity

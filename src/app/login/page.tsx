@@ -2,18 +2,17 @@
 
 import React, { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { useRouter } from "next/navigation";
 import { useLang, LangSwitcher } from "@/lib/lang";
 import { InlineSpinner } from "@/components/ui/BrandLoader";
 import BrandLogo from "@/components/brand/BrandLogo";
 import { LOGIN_PHOTOS } from "@/config/loginPhotos";
 import { EmbedAuthRecovery } from "@/components/quickform/EmbedAuthRecovery";
+import { isAuthLogoutPending } from "@/lib/auth-logout-client";
 
 const SLIDE_INTERVAL = 5000;
 
 export default function LoginPage() {
   const { login, user, loading } = useAuth();
-  const router = useRouter();
   const { t, dir } = useLang();
   const [isElectron, setIsElectron] = useState(false);
   const [inIframe, setInIframe] = useState(false);
@@ -27,10 +26,10 @@ export default function LoginPage() {
   const [currentIdx, setCurrentIdx] = useState(0);
 
   useEffect(() => {
-    if (!loading && user) {
-      router.replace("/dashboard");
+    if (!loading && user && !isAuthLogoutPending()) {
+      window.location.replace("/dashboard");
     }
-  }, [loading, user, router]);
+  }, [loading, user]);
 
   useEffect(() => {
     setIsElectron(typeof window !== "undefined" && window.platformInfo?.runtime === "electron");
@@ -53,7 +52,7 @@ export default function LoginPage() {
     const result = await login(username, password);
 
     if (result.success) {
-      router.push("/dashboard");
+      window.location.href = "/dashboard";
       return;
     }
 
