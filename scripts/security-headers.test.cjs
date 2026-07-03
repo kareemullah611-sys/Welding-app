@@ -8,6 +8,7 @@ test("buildContentSecurityPolicy allows same-origin frames and cloudinary images
   assert.match(csp, /frame-src 'self'/);
   assert.match(csp, /img-src[^;]*https:\/\/res\.cloudinary\.com/);
   assert.match(csp, /upgrade-insecure-requests/);
+  assert.match(csp, /report-uri \/api\/csp-report/);
 });
 
 test("getSecurityHeaders includes baseline hardening headers in production", () => {
@@ -31,4 +32,9 @@ test("buildContentSecurityPolicy allows unsafe-eval in development only", () => 
   assert.doesNotMatch(prod, /unsafe-eval/);
   assert.match(dev, /script-src[^;]*'unsafe-eval'/);
   assert.match(dev, /connect-src[^;]*ws:/);
+});
+
+test("buildContentSecurityPolicy can use configured report URI", () => {
+  const csp = buildContentSecurityPolicy(true, { reportUri: "https://reports.example.com/csp" });
+  assert.match(csp, /report-uri https:\/\/reports\.example\.com\/csp/);
 });

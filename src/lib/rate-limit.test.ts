@@ -34,3 +34,24 @@ test("rejectIfRateLimited does not increment counter", async () => {
     if (prev) process.env.REDIS_URL = prev;
   }
 });
+
+test("production requires Redis-backed rate limiting unless explicitly overridden", async () => {
+  const prevRedisUrl = process.env.REDIS_URL;
+  const prevNodeEnv = process.env.NODE_ENV;
+  const prevAllowMemory = process.env.ALLOW_MEMORY_RATE_LIMIT_IN_PRODUCTION;
+  delete process.env.REDIS_URL;
+  delete process.env.ALLOW_MEMORY_RATE_LIMIT_IN_PRODUCTION;
+  process.env.NODE_ENV = "production";
+  try {
+    await assert.rejects(
+      () => rateLimit(`prod:${Date.now()}`, 1, 60_000),
+      /REDIS_URL is required in production/
+    );
+  } finally {
+    if (prevRedisUrl) process.env.REDIS_URL = prevRedisUrl;
+    else delete process.env.REDIS_URL;
+    process.env.NODE_ENV = prevNodeEnv;
+    if (prevAllowMemory) process.env.ALLOW_MEMORY_RATE_LIMIT_IN_PRODUCTION = prevAllowMemory;
+    else delete process.env.ALLOW_MEMORY_RATE_LIMIT_IN_PRODUCTION;
+  }
+});

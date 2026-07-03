@@ -6,6 +6,8 @@ import { parseJwtExpiryMs, jwtExpirySeconds as parseJwtExpirySeconds } from "@/l
 
 const JWT_EXPIRY = process.env.JWT_EXPIRY || "24h";
 const MIN_JWT_SECRET_LENGTH = 32;
+const JWT_ISSUER = "welding-app";
+const JWT_AUDIENCE = "welding-app-api";
 
 function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
@@ -59,12 +61,21 @@ function normalizeJwtPayload(payload: unknown): JWTPayload | null {
 }
 
 export function generateToken(payload: JWTPayload): string {
-  return jwt.sign(payload, getJwtSecret(), { expiresIn: JWT_EXPIRY as any });
+  return jwt.sign(payload, getJwtSecret(), {
+    expiresIn: JWT_EXPIRY as any,
+    issuer: JWT_ISSUER,
+    audience: JWT_AUDIENCE,
+    algorithm: "HS256",
+  });
 }
 
 export function verifyToken(token: string): JWTPayload | null {
   try {
-    return normalizeJwtPayload(jwt.verify(token, getJwtSecret()));
+    return normalizeJwtPayload(jwt.verify(token, getJwtSecret(), {
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE,
+      algorithms: ["HS256"],
+    }));
   } catch {
     return null;
   }

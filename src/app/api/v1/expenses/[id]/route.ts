@@ -4,6 +4,7 @@ import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { reverseJournalEntries, journalExpenseCreated } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
+import { updateExpenseSchema } from "@/lib/validations";
 
 export const GET = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -29,10 +30,13 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
   try {
     const id = parseInt(context.params.id);
     const body = await request.json();
+    const parsed = updateExpenseSchema.safeParse(body);
+    if (!parsed.success) return errorResponse("VALIDATION_ERROR", "Invalid expense update", 400, parsed.error.errors);
+    const data = parsed.data;
     const expense = await prisma.expense.findUnique({ where: { id }, include: { currency: true } });
     if (!expense || expense.deletedAt !== null) return errorResponse("NOT_FOUND", "Expense not found", 404);
     if (user.role === "city_admin" && expense.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
-    if ((expense as any).paidFrom === "cheque" && body.amount !== undefined && Number(body.amount) !== Number(expense.amount)) {
+    if ((expense as any).paidFrom === "cheque" && data.amount !== undefined && Number(data.amount) !== Number(expense.amount)) {
       return errorResponse("VALIDATION_ERROR", "Cannot change the amount of an expense that was paid from a cheque");
     }
 
@@ -50,9 +54,9 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       const next = await tx.expense.update({
         where: { id },
         data: {
-          amount: body.amount || expense.amount,
-          detail: body.detail || expense.detail,
-          notes: body.notes !== undefined ? body.notes : expense.notes,
+          amount: data.amount || expense.amount,
+          detail: data.detail || expense.detail,
+          notes: data.notes !== undefined ? data.notes : expense.notes,
           updatedAt: new Date(),
         },
       });

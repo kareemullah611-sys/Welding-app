@@ -47,6 +47,13 @@ function redisKey(key: string): string {
   return `ratelimit:${key}`;
 }
 
+function requireRedisForProduction(): void {
+  if (process.env.NODE_ENV !== "production") return;
+  if (process.env.REDIS_URL?.trim()) return;
+  if (process.env.ALLOW_MEMORY_RATE_LIMIT_IN_PRODUCTION === "true") return;
+  throw new Error("REDIS_URL is required in production for shared rate limiting");
+}
+
 // Purge expired keys every 5 minutes so the Map doesn't grow forever
 const purgeTimer = setInterval(() => {
   const now = Date.now();
@@ -149,6 +156,7 @@ export async function rateLimit(
   limit: number,
   windowMs: number
 ): Promise<RateLimitResult> {
+  requireRedisForProduction();
   if (process.env.REDIS_URL?.trim()) {
     return redisRateLimit(key, limit, windowMs);
   }
@@ -161,6 +169,7 @@ export async function rejectIfRateLimited(
   limit: number,
   windowMs: number
 ): Promise<Response | null> {
+  requireRedisForProduction();
   const blocked = process.env.REDIS_URL?.trim()
     ? await redisRejectIfRateLimited(key, limit, windowMs)
     : memoryRejectIfRateLimited(key, limit, windowMs);

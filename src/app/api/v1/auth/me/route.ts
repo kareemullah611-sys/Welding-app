@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { getTokenFromRequest, shouldUseSecureAuthCookie, verifyToken } from "@/lib/auth";
 import { successResponse, serverError } from "@/lib/api-response";
 import { isSessionActive } from "@/lib/session";
+import { getDatabaseUserForToken } from "@/lib/middleware";
 
 function loggedOutResponse(request: NextRequest): NextResponse {
   const response = successResponse(null);
@@ -26,9 +27,11 @@ export async function GET(request: NextRequest) {
     if (!(await isSessionActive(token))) {
       return loggedOutResponse(request);
     }
+    const currentClaims = await getDatabaseUserForToken(payload);
+    if (!currentClaims) return loggedOutResponse(request);
 
     const user = await prisma.user.findUnique({
-      where: { id: payload.userId },
+      where: { id: currentClaims.userId },
       include: {
         city: { include: { country: true, cityCurrencies: { include: { currency: true } } } },
       },

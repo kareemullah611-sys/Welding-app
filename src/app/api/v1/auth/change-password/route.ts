@@ -13,7 +13,7 @@ import {
 import { changePasswordSchema } from "@/lib/validations";
 import { successResponse, unauthorizedResponse, validationError, errorResponse, serverError } from "@/lib/api-response";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { isCsrfSafe } from "@/lib/middleware";
+import { getDatabaseUserForToken, isCsrfSafe } from "@/lib/middleware";
 import { isSessionActive, hashToken } from "@/lib/session";
 
 export async function PUT(request: NextRequest) {
@@ -32,9 +32,11 @@ export async function PUT(request: NextRequest) {
     if (!(await isSessionActive(token))) {
       return unauthorizedResponse("Session expired or revoked");
     }
+    const currentClaims = await getDatabaseUserForToken(payload);
+    if (!currentClaims) return unauthorizedResponse("Invalid or expired token");
 
     // Rate limit: 5 password-change attempts per user per 15 minutes
-    const limited = await checkRateLimit(`chpwd:${payload.userId}`, 5, 15 * 60 * 1000);
+    const limited = await checkRateLimit(`chpwd:${currentClaims.userId}`, 5, 15 * 60 * 1000);
     if (limited) return limited;
 
     const body = await request.json();

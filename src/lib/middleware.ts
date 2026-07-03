@@ -3,6 +3,7 @@ import { getTokenFromRequest, JWTPayload, verifyToken } from "@/lib/auth";
 import { isSessionActive } from "@/lib/session";
 import { unauthorizedResponse, forbiddenResponse } from "@/lib/api-response";
 import prisma from "@/lib/prisma";
+import { runWithPrismaRequestContext } from "@/lib/prisma-request-context";
 import { Prisma, PrismaClient } from "@prisma/client";
 
 export type ApiHandler = (
@@ -63,7 +64,7 @@ export function isCsrfSafe(request: NextRequest): boolean {
     return true;
   }
 
-  // Allow same host (covers both http and https variants when behind a proxy)
+  if (process.env.TRUST_HOST_HEADER_CSRF !== "true") return false;
   const requestHost = new URL(requestOrigin).hostname;
   const host = request.headers.get("host");
   if (host && requestHost === host.split(":")[0]) return true;
@@ -86,7 +87,7 @@ function trustProxyHeaders(): boolean {
   );
 }
 
-async function getDatabaseUserForToken(user: JWTPayload): Promise<JWTPayload | null> {
+export async function getDatabaseUserForToken(user: JWTPayload): Promise<JWTPayload | null> {
   const databaseUser = await prisma.user.findUnique({
     where: { id: user.userId },
     select: {
@@ -128,6 +129,9 @@ export function withAuth(handler: ApiHandler) {
     }
     const databaseUser = await getDatabaseUserForToken(user);
     if (!databaseUser) return unauthorizedResponse("Invalid or expired token");
+    if (process.env.ENABLE_PRISMA_RLS_CONTEXT === "true") {
+      return runWithPrismaRequestContext(prisma, databaseUser, () => handler(request, context, databaseUser));
+    }
     return handler(request, context, databaseUser);
   };
 }

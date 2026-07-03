@@ -45,6 +45,29 @@ enum PaymentDestination {
   our_account
 }
 
+enum AgentType {
+  customs
+  transport
+  freight
+  other
+  clearing
+}
+
+enum AgentPaymentMethod {
+  cash
+  bank_transfer
+  online
+  cheque
+  intermediary
+  super_admin_cash
+}
+
+enum CityTransferStatus {
+  pending
+  approved
+  rejected
+}
+
 enum HajiTransferType {
   direct
   from_in_hand
@@ -1182,7 +1205,7 @@ model JournalEntry {
 model Agent {
   id        Int      @id @default(autoincrement())
   name      String   @db.VarChar(200)
-  agentType String   @map("agent_type") @db.VarChar(50) // customs, transport, freight, other
+  agentType AgentType @map("agent_type") // customs, transport, freight, other
   cityId    Int?     @map("city_id") // linked to a city/port
   phone     String?  @db.VarChar(50)
   notes     String?  @db.Text
@@ -1209,7 +1232,7 @@ model AgentPayment {
   paymentDate   DateTime @map("payment_date") @db.Date
   amount        Decimal  @db.Decimal(15, 2)
   currencyCode  String   @map("currency_code") @db.VarChar(10)
-  paymentMethod String   @map("payment_method") @db.VarChar(50)
+  paymentMethod AgentPaymentMethod @map("payment_method")
   bankAccountId  Int?    @map("bank_account_id")  // if paid from bank
   intermediaryId Int?    @map("intermediary_id")   // if paid through intermediary
   superAdminCashAccountId Int? @map("super_admin_cash_account_id")
@@ -1247,7 +1270,7 @@ model CityTransfer {
   productId       Int      @map("product_id")
   lotId           Int      @map("lot_id")
   qty             Decimal  @db.Decimal(12, 2)
-  status          String   @default("pending") @db.VarChar(20) // pending, approved, rejected
+  status          CityTransferStatus @default(pending) // pending, approved, rejected
   notes           String?  @db.Text
   approvalNotes   String?  @map("approval_notes") @db.Text
   sentBy          Int      @map("sent_by")

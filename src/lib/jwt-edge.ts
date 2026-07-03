@@ -1,5 +1,9 @@
 import { jwtVerify } from "jose";
 
+const MIN_JWT_SECRET_LENGTH = 32;
+const JWT_ISSUER = "welding-app";
+const JWT_AUDIENCE = "welding-app-api";
+
 export interface EdgeJWTPayload {
   userId: number;
   username: string;
@@ -11,9 +15,13 @@ export interface EdgeJWTPayload {
 /** Edge-safe JWT verification for Next.js middleware (no Node jsonwebtoken). */
 export async function verifyTokenEdge(token: string): Promise<EdgeJWTPayload | null> {
   const secret = process.env.JWT_SECRET;
-  if (!secret) return null;
+  if (!secret || secret.length < MIN_JWT_SECRET_LENGTH) return null;
   try {
-    const { payload } = await jwtVerify(token, new TextEncoder().encode(secret));
+    const { payload } = await jwtVerify(token, new TextEncoder().encode(secret), {
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE,
+      algorithms: ["HS256"],
+    });
     const userId = payload.userId;
     const username = payload.username;
     const role = payload.role;

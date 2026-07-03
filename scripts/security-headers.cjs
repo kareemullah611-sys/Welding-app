@@ -3,7 +3,7 @@
  * Kept in a separate module so we can unit-test the policy without a full build.
  */
 
-function buildContentSecurityPolicy(isProduction) {
+function buildContentSecurityPolicy(isProduction, options = {}) {
   const scriptSrc = isProduction
     ? "script-src 'self' 'unsafe-inline'"
     // Next.js dev (React Fast Refresh / webpack) requires eval; never use in production.
@@ -28,6 +28,7 @@ function buildContentSecurityPolicy(isProduction) {
   ];
   if (isProduction) {
     directives.push("upgrade-insecure-requests");
+    directives.push(`report-uri ${options.reportUri || process.env.CSP_REPORT_URI || "/api/csp-report"}`);
   }
   return directives.join("; ");
 }
@@ -48,7 +49,7 @@ function getSecurityHeaders(options = {}) {
     },
     {
       key: "Content-Security-Policy",
-      value: buildContentSecurityPolicy(isProduction),
+      value: buildContentSecurityPolicy(isProduction, { reportUri: options.cspReportUri }),
     },
   ];
   if (isProduction) {

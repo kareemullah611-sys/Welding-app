@@ -178,6 +178,22 @@ export const createPaymentSchema = z.object({
   notes: z.string().optional(),
 });
 
+export const updatePaymentSchema = z.object({
+  detail: z.string().trim().min(1).max(500).optional(),
+  amount: z.coerce.number().positive().optional(),
+  notes: z.string().optional().nullable(),
+});
+
+export const paymentActionSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("set_haji_audit"),
+    confirmed: z.boolean().optional().default(false),
+  }),
+  z.object({
+    action: z.literal("bounce_cheque"),
+  }),
+]);
+
 
 // ============================================================
 // EXPENSES
@@ -193,6 +209,24 @@ export const createExpenseSchema = z.object({
   chequePaymentId: optionalPositiveInt,
   notes: z.string().optional(),
 });
+
+export const updateExpenseSchema = z.object({
+  amount: z.coerce.number().positive().optional(),
+  detail: z.string().trim().min(1).max(500).optional(),
+  notes: z.string().optional().nullable(),
+});
+
+export const godownPermissionSchema = z.object({
+  fromCityId: z.coerce.number().int().positive(),
+  toCityId: z.coerce.number().int().positive().optional(),
+  toGodownId: z.coerce.number().int().positive().optional(),
+}).refine(
+  (data) => Boolean(data.toCityId) !== Boolean(data.toGodownId),
+  { message: "Provide either toCityId or toGodownId" }
+).refine(
+  (data) => !data.toCityId || data.fromCityId !== data.toCityId,
+  { message: "Invalid city IDs" }
+);
 
 
 // ============================================================

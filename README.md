@@ -179,11 +179,17 @@ This repo now includes a [render.yaml](/Users/kareemullah/Desktop/welding-app/re
 
 # 4. In the Render dashboard, set these environment variables:
 #    JWT_SECRET
+#    DATA_ENCRYPTION_KEY
 #    NEXT_PUBLIC_APP_URL
+#    REDIS_URL
+#    ENABLE_PRISMA_RLS_CONTEXT (keep "false" until RLS policies are verified)
+#    CSP_REPORT_URI
+#    TRUST_HOST_HEADER_CSRF (keep "false" unless proxy host headers are trusted)
 #    CLOUDINARY_CLOUD_NAME
 #    CLOUDINARY_API_KEY
 #    CLOUDINARY_API_SECRET
 #    DEEPSEEK_API_KEY
+#    ASSISTANT_ALLOW_EXTERNAL_FINANCIAL_DATA (only after confirming DeepSeek usage caps)
 ```
 
 Notes:
@@ -204,3 +210,15 @@ Notes:
 - City-scoped data isolation for city admins
 - Input validation with Zod on all endpoints
 - Audit logging on all create/update/delete operations
+
+### Row-Level Security Operations
+
+RLS policies are installed by migrations but are not enabled automatically during deploy.
+
+- Check coverage/status: `npm run rls:status`
+- Enable enforcement only after app smoke/E2E verification with Prisma request context enabled:
+  `ENABLE_PRISMA_RLS_CONTEXT=true CONFIRM_ENABLE_CITY_RLS=YES npm run rls:enable`
+- Disable enforcement during rollback:
+  `CONFIRM_DISABLE_CITY_RLS=YES npm run rls:disable`
+
+Keep `ENABLE_PRISMA_RLS_CONTEXT=false` until you intentionally enable RLS and verify city-scoped flows.

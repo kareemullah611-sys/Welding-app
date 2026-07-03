@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyTokenEdge } from "@/lib/jwt-edge";
 
 // Pages that don't require authentication
-const publicPaths = ["/login", "/api/v1/auth/login", "/api/v1/auth/me", "/api/v1/auth/logout", "/api/health", "/api/ping"];
+const publicPaths = ["/login", "/api/v1/auth/login", "/api/v1/auth/me", "/api/v1/auth/logout", "/api/health", "/api/ping", "/api/csp-report"];
+const STATIC_FILE_EXTENSION_PATTERN = /\.(?:avif|bmp|css|gif|ico|jpeg|jpg|js|json|map|png|svg|txt|webmanifest|webp|woff|woff2)$/i;
 
 function isPublicPath(pathname: string): boolean {
   return publicPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`));
@@ -43,7 +44,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Allow static files
-  if (pathname.startsWith("/_next") || pathname.startsWith("/favicon") || pathname.includes(".")) {
+  if (pathname.startsWith("/_next") || pathname.startsWith("/favicon") || STATIC_FILE_EXTENSION_PATTERN.test(pathname)) {
     return NextResponse.next();
   }
 

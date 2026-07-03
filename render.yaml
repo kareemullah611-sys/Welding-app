@@ -6,7 +6,7 @@ services:
     runtime: node
     plan: free
     region: singapore
-    buildCommand: npm ci --include=dev && npx prisma generate && tsx scripts/migrate-deploy.ts && npm run build
+    buildCommand: npm ci --include=dev && npm audit --omit=dev --audit-level=high && npx prisma generate && tsx scripts/migrate-deploy.ts && npm run build
     startCommand: npm run start
     healthCheckPath: /api/health
     autoDeploy: true
@@ -25,6 +25,14 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
+      - key: DATA_ENCRYPTION_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: ENABLE_PRISMA_RLS_CONTEXT
+        value: "false"
+      - key: CSP_REPORT_URI
+        value: /api/csp-report
       - key: NEXT_PUBLIC_APP_URL
         value: https://welding-app-jhhc.onrender.com
       - key: CLOUDINARY_CLOUD_NAME
@@ -35,3 +43,5 @@ services:
         sync: false
       - key: DEEPSEEK_API_KEY
         sync: false
+      - key: ASSISTANT_ALLOW_EXTERNAL_FINANCIAL_DATA
+        value: "false"

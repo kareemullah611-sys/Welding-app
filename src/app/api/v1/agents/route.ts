@@ -4,6 +4,7 @@ import { withSuperAdmin } from "@/lib/middleware";
 import { successResponse, paginatedResponse, validationError, serverError, getPaginationParams } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import type { Prisma } from "@prisma/client";
 
 const AGENT_SYNC_MODULE = "agents";
 const SUPERADMIN_SYNC_CITY_ID = 0;
@@ -12,7 +13,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
   try {
     const { page, limit, skip } = getPaginationParams(request.nextUrl.searchParams);
     const agentType = String(request.nextUrl.searchParams.get("agentType") || "").toLowerCase();
-    const where: { isActive: boolean; agentType?: string | { not: string } } = { isActive: true };
+    const where: Prisma.AgentWhereInput = { isActive: true };
     if (agentType === "customs") where.agentType = "customs";
     else if (agentType === "clearing") where.agentType = { not: "customs" };
     const agents = await prisma.agent.findMany({

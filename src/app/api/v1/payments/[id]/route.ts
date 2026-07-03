@@ -5,6 +5,7 @@ import { successResponse, errorResponse, serverError } from "@/lib/api-response"
 import { JWTPayload } from "@/lib/auth";
 import { reverseJournalEntries, journalPaymentReceived, journalChequeReceived } from "@/lib/accounting";
 import { getPaymentHajiAuditStateMap, isHajiAuditEligible } from "@/lib/payment-audit";
+import { paymentActionSchema, updatePaymentSchema } from "@/lib/validations";
 
 export const GET = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -47,8 +48,11 @@ export const PATCH = withAuth(async (request: NextRequest, context: any, user: J
   try {
     const id = parseInt(context.params.id);
     const body = await request.json();
+    const parsed = paymentActionSchema.safeParse(body);
+    if (!parsed.success) return errorResponse("VALIDATION_ERROR", "Invalid payment action", 400, parsed.error.errors);
+    const actionBody = parsed.data;
 
-    if (body.action === "set_haji_audit") {
+    if (actionBody.action === "set_haji_audit") {
       const payment = await prisma.payment.findUnique({ where: { id } });
       if (!payment) return errorResponse("NOT_FOUND", "Payment not found", 404);
       if (user.role !== "super_admin") return errorResponse("FORBIDDEN", "Only super admin can confirm Haji payments", 403);
@@ -57,7 +61,7 @@ export const PATCH = withAuth(async (request: NextRequest, context: any, user: J
         return errorResponse("VALIDATION_ERROR", "Only Haji-destination cash or bank payments can be audit-confirmed");
       }
 
-      const confirmed = !!body.confirmed;
+      const confirmed = actionBody.confirmed;
       const stateById = await getPaymentHajiAuditStateMap([payment.id]);
       const current = stateById[payment.id] || null;
       if ((current?.confirmed || false) === confirmed) {
@@ -93,7 +97,7 @@ export const PATCH = withAuth(async (request: NextRequest, context: any, user: J
       }, confirmed ? "Haji payment confirmed" : "Haji payment confirmation removed");
     }
 
-    if (body.action === "bounce_cheque") {
+    if (actionBody.action === "bounce_cheque") {
       const payment = await prisma.payment.findUnique({ where: { id } });
       if (!payment) return errorResponse("NOT_FOUND", "Payment not found", 404);
       if (user.role === "city_admin" && payment.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
@@ -143,6 +147,9 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
   try {
     const id = parseInt(context.params.id);
     const body = await request.json();
+    const parsed = updatePaymentSchema.safeParse(body);
+    if (!parsed.success) return errorResponse("VALIDATION_ERROR", "Invalid payment update", 400, parsed.error.errors);
+    const data = parsed.data;
     const payment = await prisma.payment.findUnique({
       where: { id },
       include: { customer: { select: { name: true } }, currency: { select: { code: true, symbol: true } } },
@@ -155,7 +162,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     // deposited into a bank — the DEP-* journal entries would become wrong if we only
     // repost PAY-* without cascading the fix to the deposit journal.
     const isDepositedCheque = (payment as any).chequeStatus === "deposited_to_bank";
-    const amountChanged = body.amount !== undefined && Number(body.amount) !== Number(payment.amount);
+    const amountChanged = data.amount !== undefined && Number(data.amount) !== Number(payment.amount);
     if (amountChanged && isDepositedCheque) {
       return errorResponse(
         "VALIDATION_ERROR",
@@ -176,9 +183,9 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       const next = await tx.payment.update({
         where: { id },
         data: {
-          detail: body.detail || payment.detail,
-          amount: body.amount || payment.amount,
-          notes: body.notes !== undefined ? body.notes : payment.notes,
+          detail: data.detail || payment.detail,
+          amount: data.amount || payment.amount,
+          notes: data.notes !== undefined ? data.notes : payment.notes,
           updatedAt: new Date(),
         },
       });

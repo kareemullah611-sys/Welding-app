@@ -52,6 +52,45 @@ test("production allows mutation when Origin matches app URL", () => {
   }
 });
 
+test("production rejects Host-header-only CSRF fallback unless explicitly trusted", () => {
+  const prevNodeEnv = process.env.NODE_ENV;
+  const prevAppUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const prevTrustHost = process.env.TRUST_HOST_HEADER_CSRF;
+  process.env.NODE_ENV = "production";
+  delete process.env.NEXT_PUBLIC_APP_URL;
+  delete process.env.TRUST_HOST_HEADER_CSRF;
+  try {
+    assert.equal(
+      isCsrfSafe(mutationRequest({
+        origin: "https://app.example.com",
+        host: "app.example.com",
+      })),
+      false
+    );
+    process.env.TRUST_HOST_HEADER_CSRF = "true";
+    assert.equal(
+      isCsrfSafe(mutationRequest({
+        origin: "https://app.example.com",
+        host: "app.example.com",
+      })),
+      true
+    );
+  } finally {
+    process.env.NODE_ENV = prevNodeEnv;
+    if (prevAppUrl) process.env.NEXT_PUBLIC_APP_URL = prevAppUrl;
+    else delete process.env.NEXT_PUBLIC_APP_URL;
+    if (prevTrustHost) process.env.TRUST_HOST_HEADER_CSRF = prevTrustHost;
+    else delete process.env.TRUST_HOST_HEADER_CSRF;
+  }
+});
+
+test("CSP report endpoint is public", async () => {
+  const response = await middleware(new NextRequest("http://localhost/api/csp-report", { method: "POST" }));
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-middleware-next"), "1");
+});
+
 test("development allows mutation without Origin", () => {
   const prevNodeEnv = process.env.NODE_ENV;
   process.env.NODE_ENV = "development";

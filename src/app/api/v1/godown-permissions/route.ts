@@ -11,6 +11,7 @@ import {
   revokeSpecificGodownAccess,
 } from "@/lib/godown-access";
 import prisma from "@/lib/prisma";
+import { godownPermissionSchema } from "@/lib/validations";
 
 // GET /api/v1/godown-permissions — list all permissions with city names
 export const GET = withAuth(async (_request: NextRequest, _context, user: JWTPayload) => {
@@ -45,17 +46,17 @@ export const GET = withAuth(async (_request: NextRequest, _context, user: JWTPay
 export const POST = withAuth(async (request: NextRequest, _context, user: JWTPayload) => {
   if (user.role !== "super_admin") return errorResponse("FORBIDDEN", "Super admin only", 403);
   try {
-    const { fromCityId, toCityId, toGodownId } = await request.json();
-    if (!fromCityId) return errorResponse("VALIDATION_ERROR", "Invalid city ID");
+    const parsed = godownPermissionSchema.safeParse(await request.json());
+    if (!parsed.success) return errorResponse("VALIDATION_ERROR", "Invalid godown permission", 400, parsed.error.errors);
+    const { fromCityId, toCityId, toGodownId } = parsed.data;
     if (toGodownId) {
-      const godown = await prisma.godown.findUnique({ where: { id: Number(toGodownId) }, select: { id: true, cityId: true } });
+      const godown = await prisma.godown.findUnique({ where: { id: toGodownId }, select: { id: true, cityId: true } });
       if (!godown) return errorResponse("NOT_FOUND", "Godown not found");
-      if (Number(fromCityId) === godown.cityId) return errorResponse("VALIDATION_ERROR", "Own city godown access is implicit");
-      await grantSpecificGodownAccess(Number(fromCityId), Number(toGodownId));
+      if (fromCityId === godown.cityId) return errorResponse("VALIDATION_ERROR", "Own city godown access is implicit");
+      await grantSpecificGodownAccess(fromCityId, toGodownId);
       return successResponse({}, "Specific godown permission granted");
     }
-    if (!toCityId || fromCityId === toCityId) return errorResponse("VALIDATION_ERROR", "Invalid city IDs");
-    await grantGodownAccess(Number(fromCityId), Number(toCityId));
+    await grantGodownAccess(fromCityId, toCityId!);
     return successResponse({}, "Permission granted");
   } catch { return serverError(); }
 });
