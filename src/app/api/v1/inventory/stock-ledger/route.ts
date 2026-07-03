@@ -1,10 +1,27 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth } from "@/lib/middleware";
-import { successResponse, serverError } from "@/lib/api-response";
+import { getPaginationParams, paginatedResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 
-// GET /api/v1/inventory/stock-ledger?godown_id=1&product_id=2&date_from=2024-01-01&date_to=2024-12-31
+function mapStockLedgerRow(r: Record<string, unknown>) {
+  return {
+    date: r.date instanceof Date ? r.date.toISOString().split("T")[0] : String(r.date).split("T")[0],
+    type: r.type,
+    reference: r.reference,
+    productId: r.product_id,
+    productName: r.product_name,
+    godownId: r.godown_id,
+    godownName: r.godown_name,
+    cityName: r.city_name,
+    qtyIn: Math.round(Number(r.qty_in) * 100) / 100,
+    qtyOut: Math.round(Number(r.qty_out) * 100) / 100,
+    runningStock: Math.round(Number(r.running_stock || 0) * 100) / 100,
+    customerName: r.customer_name || null,
+  };
+}
+
+// GET /api/v1/inventory/stock-ledger?godown_id=1&product_id=2&date_from=2024-01-01&date_to=2024-12-31&page=1&limit=15
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
     const sp = request.nextUrl.searchParams;
@@ -12,9 +29,93 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const productId  = sp.get("product_id") ? parseInt(sp.get("product_id")!) : null;
     const dateFrom   = sp.get("date_from") || null;
     const dateTo     = sp.get("date_to")   || null;
+    const { page, limit, skip } = getPaginationParams(sp);
 
     // Scope by city for city_admin
     const cityId = user.role === "city_admin" ? user.cityId! : null;
+
+    const countRows: { total: number }[] = await prisma.$queryRaw`
+      WITH movements AS (
+
+        -- 1. ALLOCATION IN — stock assigned to a godown from a lot (includes OLD-STOCK legacy lot)
+        SELECT
+          lcga.created_at                          AS date,
+          lcd.product_id,
+          lcga.godown_id,
+          g.city_id
+        FROM lot_city_godown_allocations lcga
+        JOIN lot_city_distributions lcd ON lcd.id = lcga.lot_city_distribution_id
+        JOIN godowns g  ON g.id = lcga.godown_id
+
+        UNION ALL
+
+        -- 3. SALE OUT
+        SELECT
+          s.sale_date                              AS date,
+          si.product_id,
+          s.godown_id,
+          g.city_id
+        FROM sale_items si
+        JOIN sales s   ON s.id  = si.sale_id AND s.status IN ('active','marked_short')
+        JOIN godowns g  ON g.id = s.godown_id
+
+        UNION ALL
+
+        -- 4. GODOWN TRANSFER OUT (within city)
+        SELECT
+          gt.transfer_date                         AS date,
+          gt.product_id,
+          gt.from_godown_id                        AS godown_id,
+          gf.city_id
+        FROM godown_transfers gt
+        JOIN godowns gf ON gf.id = gt.from_godown_id
+
+        UNION ALL
+
+        -- 5. GODOWN TRANSFER IN (within city)
+        SELECT
+          gt.transfer_date                         AS date,
+          gt.product_id,
+          gt.to_godown_id                          AS godown_id,
+          gt2.city_id
+        FROM godown_transfers gt
+        JOIN godowns gt2 ON gt2.id = gt.to_godown_id
+
+        UNION ALL
+
+        -- 6. CITY TRANSFER OUT (approved — deducted from sending godown)
+        SELECT
+          COALESCE(ct.approved_at, ct.transfer_date) AS date,
+          ct.product_id,
+          ct.from_godown_id                        AS godown_id,
+          gf.city_id
+        FROM city_transfers ct
+        JOIN godowns gf ON gf.id = ct.from_godown_id
+        WHERE ct.status = 'approved'
+
+        UNION ALL
+
+        -- 7. CITY TRANSFER IN (approved — added to receiving godown)
+        SELECT
+          COALESCE(ct.approved_at, ct.transfer_date) AS date,
+          ct.product_id,
+          ct.to_godown_id                          AS godown_id,
+          gr.city_id
+        FROM city_transfers ct
+        JOIN godowns gr ON gr.id = ct.to_godown_id
+        WHERE ct.status = 'approved' AND ct.to_godown_id IS NOT NULL
+
+      )
+      SELECT COUNT(*)::int AS total
+      FROM movements
+      WHERE
+        (${godownId}::int IS NULL OR godown_id = ${godownId})
+        AND (${productId}::int IS NULL OR product_id = ${productId})
+        AND (${cityId}::int IS NULL OR city_id = ${cityId})
+        AND (${dateFrom}::date IS NULL OR date >= ${dateFrom}::date)
+        AND (${dateTo}::date IS NULL OR date <= ${dateTo}::date)
+    `;
+    const total = Number(countRows[0]?.total || 0);
 
     const rows: any[] = await prisma.$queryRaw`
       WITH movements AS (
@@ -168,23 +269,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         AND (${dateFrom}::date IS NULL OR date >= ${dateFrom}::date)
         AND (${dateTo}::date IS NULL OR date <= ${dateTo}::date)
       ORDER BY date DESC, reference DESC, type DESC
-      LIMIT 500
+      OFFSET ${skip}
+      LIMIT ${limit}
     `;
 
-    return successResponse(rows.map((r) => ({
-      date:        r.date instanceof Date ? r.date.toISOString().split("T")[0] : String(r.date).split("T")[0],
-      type:        r.type,
-      reference:   r.reference,
-      productId:   r.product_id,
-      productName: r.product_name,
-      godownId:    r.godown_id,
-      godownName:  r.godown_name,
-      cityName:    r.city_name,
-      qtyIn:       Math.round(Number(r.qty_in)  * 100) / 100,
-      qtyOut:      Math.round(Number(r.qty_out) * 100) / 100,
-      runningStock: Math.round(Number((r as any).running_stock || 0) * 100) / 100,
-      customerName: r.customer_name || null,
-    })));
+    return paginatedResponse(rows.map((r) => mapStockLedgerRow(r)), total, page, limit);
   } catch (error) {
     console.error("Stock ledger error:", error);
     return serverError();

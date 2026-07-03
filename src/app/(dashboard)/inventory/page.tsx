@@ -4,7 +4,8 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, Modal, formatNumber, MobileDateInput, RowActionMenu } from "@/components/ui";
+import { PageHeader, Modal, formatNumber, MobileDateInput, RowActionMenu, PaginationBar } from "@/components/ui";
+import { DEFAULT_LIST_PAGE_SIZE, paginateList } from "@/lib/pagination";
 import { GlassButton } from "@/components/ui/GlassButton";
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
@@ -66,6 +67,9 @@ export default function InventoryPage() {
   const [ledgerProductId, setLedgerProductId] = useState(0);
   const [ledgerDateFrom, setLedgerDateFrom] = useState("");
   const [ledgerDateTo, setLedgerDateTo] = useState("");
+  const [ledgerPage, setLedgerPage] = useState(1);
+  const [ledgerTotalPages, setLedgerTotalPages] = useState(1);
+  const [ledgerTotal, setLedgerTotal] = useState(0);
   const [godownList, setGodownList] = useState<any[]>([]);
   const [productList, setProductList] = useState<any[]>([]);
   const [showAssignedRows, setShowAssignedRows] = useState(false);
@@ -204,7 +208,10 @@ export default function InventoryPage() {
 
   const loadLedger = useCallback(async () => {
     setLedgerLoading(true);
-    const params: any = { limit: 500 };
+    const params: Record<string, string | number> = {
+      page: ledgerPage,
+      limit: DEFAULT_LIST_PAGE_SIZE,
+    };
     if (ledgerGodownId) params.godown_id = ledgerGodownId;
     if (ledgerProductId) params.product_id = ledgerProductId;
     if (ledgerDateFrom) params.date_from = ledgerDateFrom;
@@ -212,17 +219,23 @@ export default function InventoryPage() {
     const r = await apiCall("/api/v1/inventory/stock-ledger", { params });
     if (r.success) {
       setLedger(r.data as any[]);
+      const pagination = r.pagination as { totalPages?: number; total?: number } | undefined;
+      setLedgerTotalPages(pagination?.totalPages || 1);
+      setLedgerTotal(pagination?.total ?? (r.data as any[])?.length ?? 0);
       mergeSnapshot({ ledger: r.data as any[] });
       setShowOfflineSnapshot(false);
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
       if (snapshot?.ledger?.length) {
-        setLedger(snapshot.ledger);
+        const paged = paginateList(snapshot.ledger, ledgerPage, DEFAULT_LIST_PAGE_SIZE);
+        setLedger(paged.items as any[]);
+        setLedgerTotalPages(paged.pagination.totalPages);
+        setLedgerTotal(paged.pagination.total);
         setShowOfflineSnapshot(true);
       }
     }
     setLedgerLoading(false);
-  }, [isOnline, ledgerGodownId, ledgerProductId, ledgerDateFrom, ledgerDateTo, mergeSnapshot, readSnapshot]);
+  }, [isOnline, ledgerGodownId, ledgerProductId, ledgerDateFrom, ledgerDateTo, ledgerPage, mergeSnapshot, readSnapshot]);
 
   const loadLedgerHelpers = useCallback(async () => {
     const [gR, pR] = await Promise.all([
@@ -326,6 +339,10 @@ export default function InventoryPage() {
 
   useEffect(() => { loadInventory(); }, [loadInventory]);
   useEffect(() => { loadLots(); }, [loadLots]);
+  useEffect(() => {
+    setLedgerPage(1);
+  }, [ledgerGodownId, ledgerProductId, ledgerDateFrom, ledgerDateTo]);
+
   useEffect(() => { loadLedger(); }, [loadLedger]);
   useEffect(() => { loadLedgerHelpers(); }, [loadLedgerHelpers]);
 
@@ -983,6 +1000,20 @@ export default function InventoryPage() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+        {!ledgerLoading && ledgerTotalPages > 1 && (
+          <div className="mt-4">
+            <PaginationBar
+              bordered={false}
+              pagination={{
+                page: ledgerPage,
+                totalPages: ledgerTotalPages,
+                total: ledgerTotal,
+                pageSize: DEFAULT_LIST_PAGE_SIZE,
+                onPageChange: setLedgerPage,
+              }}
+            />
           </div>
         )}
       </div>

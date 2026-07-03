@@ -122,6 +122,53 @@ type OpeningData = {
   }[];
 };
 
+type CityCurrency = { id: number; code: string; symbol?: string };
+
+function resolveCityCurrencyId(currencies: CityCurrency[], currentId: number): number {
+  if (!currencies.length) return currentId;
+  if (currencies.length === 1) return currencies[0].id;
+  return currencies.some((c) => c.id === currentId) ? currentId : currencies[0].id;
+}
+
+function OpeningCurrencyField({
+  currencies,
+  value,
+  onChange,
+  disabled,
+}: {
+  currencies: CityCurrency[];
+  value: number;
+  onChange: (id: number) => void;
+  disabled?: boolean;
+}) {
+  if (currencies.length === 1) {
+    return (
+      <input
+        className="input bg-neutral-50 text-neutral-700 cursor-default"
+        value={currencies[0].code}
+        readOnly
+        tabIndex={-1}
+        disabled={disabled}
+        aria-label="Currency"
+      />
+    );
+  }
+  return (
+    <select
+      className="input"
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+      required
+      disabled={disabled}
+    >
+      <option value={0}>Currency</option>
+      {currencies.map((c) => (
+        <option key={c.id} value={c.id}>{c.code}</option>
+      ))}
+    </select>
+  );
+}
+
 function SavedTable({
   title,
   emptyLabel,
@@ -239,26 +286,20 @@ export default function OpeningsPage() {
         if (resolvedCityId && resolvedCityId !== selectedCityId) setSelectedCityId(resolvedCityId);
       }
 
-      if (!cashForm.currencyId && nextData.currencies[0]) {
-        setCashForm((prev) => ({ ...prev, currencyId: nextData.currencies[0].id }));
-      }
-      if (!customerForm.currencyId && nextData.currencies[0]) {
-        setCustomerForm((prev) => ({ ...prev, currencyId: nextData.currencies[0].id }));
-      }
+      const cityCurrencies = nextData.currencies;
+      setCashForm((prev) => ({ ...prev, currencyId: resolveCityCurrencyId(cityCurrencies, prev.currencyId) }));
+      setCustomerForm((prev) => ({ ...prev, currencyId: resolveCityCurrencyId(cityCurrencies, prev.currencyId) }));
+      setHistoricalSaleForm((prev) => ({
+        ...prev,
+        currencyId: resolveCityCurrencyId(cityCurrencies, prev.currencyId),
+      }));
+      setBankForm((prev) => ({ ...prev, currencyId: resolveCityCurrencyId(cityCurrencies, prev.currencyId) }));
+      setChequeForm((prev) => ({ ...prev, currencyId: resolveCityCurrencyId(cityCurrencies, prev.currencyId) }));
       if (!stockForm.lotId && nextData.ongoingLots?.[0]) {
         setStockForm((prev) => ({ ...prev, lotId: nextData.ongoingLots![0].id }));
       }
       if (!historicalSaleForm.lotId && nextData.ongoingLots?.[0]) {
         setHistoricalSaleForm((prev) => ({ ...prev, lotId: nextData.ongoingLots![0].id }));
-      }
-      if (!historicalSaleForm.currencyId && nextData.currencies[0]) {
-        setHistoricalSaleForm((prev) => ({ ...prev, currencyId: nextData.currencies[0].id }));
-      }
-      if (!bankForm.currencyId && nextData.currencies[0]) {
-        setBankForm((prev) => ({ ...prev, currencyId: nextData.currencies[0].id }));
-      }
-      if (!chequeForm.currencyId && nextData.currencies[0]) {
-        setChequeForm((prev) => ({ ...prev, currencyId: nextData.currencies[0].id }));
       }
       if (!liabilityForm.currencyId && nextData.liabilityOptions?.currencies?.[0]) {
         setLiabilityForm((prev) => ({ ...prev, currencyId: nextData.liabilityOptions.currencies[0].id }));
@@ -549,16 +590,12 @@ export default function OpeningsPage() {
           <p className="text-xs text-neutral-500 mt-1">Sets the opening cash balance for this city and currency. Saving again replaces the previous value.</p>
         </div>
         <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-3">
-          <select
-            className="input"
+          <OpeningCurrencyField
+            currencies={data?.currencies || []}
             value={cashForm.currencyId}
-            onChange={(e) => setCashForm((prev) => ({ ...prev, currencyId: Number(e.target.value) }))}
-            required
+            onChange={(currencyId) => setCashForm((prev) => ({ ...prev, currencyId }))}
             disabled={formsDisabled}
-          >
-            <option value={0}>Currency</option>
-            {(data?.currencies || []).map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
-          </select>
+          />
           <input
             className="input"
             type="number"
@@ -647,16 +684,12 @@ export default function OpeningsPage() {
             <option value={0}>Customer</option>
             {(data?.customers || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
-          <select
-            className="input"
+          <OpeningCurrencyField
+            currencies={data?.currencies || []}
             value={customerForm.currencyId}
-            onChange={(e) => setCustomerForm((prev) => ({ ...prev, currencyId: Number(e.target.value) }))}
-            required
+            onChange={(currencyId) => setCustomerForm((prev) => ({ ...prev, currencyId }))}
             disabled={formsDisabled}
-          >
-            <option value={0}>Currency</option>
-            {(data?.currencies || []).map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
-          </select>
+          />
           <input
             className="input"
             type="number"
@@ -782,16 +815,12 @@ export default function OpeningsPage() {
             <option value={0}>Product</option>
             {(data?.products || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          <select
-            className="input"
+          <OpeningCurrencyField
+            currencies={data?.currencies || []}
             value={historicalSaleForm.currencyId}
-            onChange={(e) => setHistoricalSaleForm((prev) => ({ ...prev, currencyId: Number(e.target.value) }))}
-            required
+            onChange={(currencyId) => setHistoricalSaleForm((prev) => ({ ...prev, currencyId }))}
             disabled={formsDisabled}
-          >
-            <option value={0}>Currency</option>
-            {(data?.currencies || []).map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
-          </select>
+          />
           <input
             className="input"
             type="number"
@@ -894,16 +923,12 @@ export default function OpeningsPage() {
               </option>
             ))}
           </select>
-          <select
-            className="input"
+          <OpeningCurrencyField
+            currencies={data?.currencies || []}
             value={bankForm.currencyId}
-            onChange={(e) => setBankForm((prev) => ({ ...prev, currencyId: Number(e.target.value) }))}
-            required
+            onChange={(currencyId) => setBankForm((prev) => ({ ...prev, currencyId }))}
             disabled={formsDisabled}
-          >
-            <option value={0}>Currency</option>
-            {(data?.currencies || []).map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
-          </select>
+          />
           <input
             className="input"
             type="number"
@@ -990,16 +1015,12 @@ export default function OpeningsPage() {
           </p>
         </div>
         <div className="grid md:grid-cols-2 lg:grid-cols-6 gap-3">
-          <select
-            className="input"
+          <OpeningCurrencyField
+            currencies={data?.currencies || []}
             value={chequeForm.currencyId}
-            onChange={(e) => setChequeForm((prev) => ({ ...prev, currencyId: Number(e.target.value) }))}
-            required
+            onChange={(currencyId) => setChequeForm((prev) => ({ ...prev, currencyId }))}
             disabled={formsDisabled}
-          >
-            <option value={0}>Currency</option>
-            {(data?.currencies || []).map((c) => <option key={c.id} value={c.id}>{c.code}</option>)}
-          </select>
+          />
           <input
             className="input"
             type="number"

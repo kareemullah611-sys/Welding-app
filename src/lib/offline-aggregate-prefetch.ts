@@ -4,6 +4,7 @@ import { getCachedGodownStockFromDb } from "@/lib/offline-inventory";
 import { searchOfflineSyncedModules } from "@/lib/offline-local-search";
 import { buildOfflineStockLedger } from "@/lib/offline-stock-ledger";
 import { buildOfflineLotProfitReport } from "@/lib/offline-lot-profit";
+import { paginateList } from "@/lib/pagination";
 
 const DASHBOARD_READ_CACHE_KEY = "mrf-dashboard-read-cache-v1";
 const INVENTORY_READ_CACHE_KEY = "mrf-inventory-read-cache-v1";
@@ -147,7 +148,7 @@ export function getOfflineAggregateForApiRequest<T = unknown>(
 export async function getOfflineSpecialApiRequest<T = unknown>(
   url: string,
   params?: Record<string, string | number | undefined>
-): Promise<{ data: T } | null> {
+): Promise<{ data: T; pagination?: { page: number; limit: number; total: number; totalPages: number } } | null> {
   const path = normalizeApiPath(url);
 
   if (path === "/api/v1/profit-report" && params?.lot_id) {
@@ -158,8 +159,10 @@ export async function getOfflineSpecialApiRequest<T = unknown>(
 
   if (path === "/api/v1/inventory/stock-ledger") {
     const rows = await buildOfflineStockLedger(params);
-    if (rows.length) return { data: rows as T };
-    return { data: [] as T };
+    const page = Number(params?.page || 1);
+    const limit = Number(params?.limit || 15);
+    const { items, pagination } = paginateList(rows, page, limit);
+    return { data: items as T, pagination };
   }
 
   if (path === "/api/v1/inventory/godown-stock") {
