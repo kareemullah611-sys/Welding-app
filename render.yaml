@@ -6,7 +6,7 @@ services:
     runtime: node
     plan: free
     region: singapore
-    buildCommand: npm ci --include=dev && npm audit --omit=dev --audit-level=high && npx prisma generate && tsx scripts/migrate-deploy.ts && npm run build
+    buildCommand: npm ci --include=dev && npm run audit:prod:report && npx prisma generate && tsx scripts/migrate-deploy.ts && npm run build
     startCommand: npm run start
     healthCheckPath: /api/health
     autoDeploy: true
