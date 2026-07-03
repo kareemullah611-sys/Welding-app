@@ -225,6 +225,7 @@ model City {
   openingBankBalances    OpeningBankBalance[]
   openingCheques         OpeningCheque[]
   openingHajiBalances    OpeningHajiBalance[]
+  syncRequests           SyncRequest[]
 
   @@unique([countryId, name])
   @@index([countryId])
@@ -312,6 +313,7 @@ model User {
   intermediaryExchangesDeleted IntermediaryExchange[] @relation("IntermediaryExchangeDeletedBy")
   superAdminBankAccountsCreated SuperAdminBankAccount[]
   superAdminPersonalExpensesCreated SuperAdminPersonalExpense[]
+  syncRequestsCreated SyncRequest[] @relation("SyncRequestCreatedBy")
 
   @@index([cityId])
   @@index([role])
@@ -452,7 +454,7 @@ model OpeningCash {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  city      City     @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  city      City     @relation(fields: [cityId], references: [id], onDelete: Restrict)
   currency  Currency @relation(fields: [currencyId], references: [id])
   creator   User     @relation(fields: [createdBy], references: [id])
 
@@ -473,7 +475,7 @@ model OpeningHajiBalance {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  city     City     @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  city     City     @relation(fields: [cityId], references: [id], onDelete: Restrict)
   currency Currency @relation(fields: [currencyId], references: [id])
   creator  User     @relation(fields: [createdBy], references: [id])
 
@@ -494,7 +496,7 @@ model OpeningCustomerBalance {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
   currency Currency @relation(fields: [currencyId], references: [id])
   creator  User     @relation(fields: [createdBy], references: [id])
 
@@ -516,8 +518,8 @@ model OpeningStock {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  city    City    @relation(fields: [cityId], references: [id], onDelete: Cascade)
-  godown  Godown  @relation(fields: [godownId], references: [id], onDelete: Cascade)
+  city    City    @relation(fields: [cityId], references: [id], onDelete: Restrict)
+  godown  Godown  @relation(fields: [godownId], references: [id], onDelete: Restrict)
   product Product @relation(fields: [productId], references: [id])
   creator User    @relation(fields: [createdBy], references: [id])
 
@@ -539,8 +541,8 @@ model OpeningBankBalance {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  city        City        @relation(fields: [cityId], references: [id], onDelete: Cascade)
-  bankAccount BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  city        City        @relation(fields: [cityId], references: [id], onDelete: Restrict)
+  bankAccount BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
   currency    Currency    @relation(fields: [currencyId], references: [id])
   creator     User        @relation(fields: [createdBy], references: [id])
 
@@ -563,7 +565,7 @@ model OpeningCheque {
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
-  city     City     @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  city     City     @relation(fields: [cityId], references: [id], onDelete: Restrict)
   currency Currency @relation(fields: [currencyId], references: [id])
   creator  User     @relation(fields: [createdBy], references: [id])
 
@@ -1276,7 +1278,7 @@ model CityTransfer {
 
 model Supplier {
   id        Int      @id @default(autoincrement())
-  name      String   @db.VarChar(200)
+  name      String   @unique @db.VarChar(200)
   country   String?  @db.VarChar(100)
   contact   String?  @db.VarChar(200)
   notes     String?  @db.Text
@@ -1412,7 +1414,7 @@ model SupplierPayment {
 
 model ShippingLine {
   id        Int      @id @default(autoincrement())
-  name      String   @db.VarChar(200)
+  name      String   @unique @db.VarChar(200)
   contact   String?  @db.VarChar(200)
   notes     String?  @db.Text
   isActive  Boolean  @default(true) @map("is_active")
@@ -1528,6 +1530,9 @@ model SyncRequest {
   createdBy  Int?     @map("created_by")
   createdAt  DateTime @default(now()) @map("created_at")
 
+  city        City     @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  creator    User?    @relation("SyncRequestCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+
   @@unique([cityId, module, requestId], name: "unique_sync_request_per_city_module")
   @@index([cityId])
   @@index([createdAt])
@@ -1640,7 +1645,7 @@ model InvestorWithdrawal {
 
 model Intermediary {
   id        Int      @id @default(autoincrement())
-  name      String   @db.VarChar(200)
+  name      String   @unique @db.VarChar(200)
   notes     String?  @db.Text
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")
@@ -1763,17 +1768,17 @@ model OpeningLiability {
   createdAt          DateTime             @default(now()) @map("created_at")
   updatedAt          DateTime             @updatedAt @map("updated_at")
 
-  supplier           Supplier?            @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-  shippingLine       ShippingLine?        @relation(fields: [shippingLineId], references: [id], onDelete: Cascade)
-  agent              Agent?               @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  intermediary       Intermediary?        @relation(fields: [intermediaryId], references: [id], onDelete: Cascade)
+  supplier           Supplier?            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  shippingLine       ShippingLine?        @relation(fields: [shippingLineId], references: [id], onDelete: Restrict)
+  agent              Agent?               @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  intermediary       Intermediary?        @relation(fields: [intermediaryId], references: [id], onDelete: Restrict)
   currency           Currency             @relation(fields: [currencyId], references: [id])
   creator            User                 @relation(fields: [createdBy], references: [id])
 
-  @@unique([supplierId, currencyId], name: "unique_opening_liability_supplier_currency")
-  @@unique([shippingLineId, currencyId], name: "unique_opening_liability_shipping_line_currency")
-  @@unique([agentId, currencyId], name: "unique_opening_liability_agent_currency")
-  @@unique([intermediaryId, currencyId], name: "unique_opening_liability_intermediary_currency")
+  @@index([supplierId, currencyId], name: "opening_liabilities_supplier_currency_idx")
+  @@index([shippingLineId, currencyId], name: "opening_liabilities_shipping_line_currency_idx")
+  @@index([agentId, currencyId], name: "opening_liabilities_agent_currency_idx")
+  @@index([intermediaryId, currencyId], name: "opening_liabilities_intermediary_currency_idx")
   @@index([liabilityType])
   @@index([openingDate])
   @@map("opening_liabilities")

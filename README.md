@@ -38,14 +38,14 @@ npm install
 ### 2. Configure Database
 ```bash
 cp .env.example .env
-# Edit .env and set your DATABASE_URL
+# Edit .env and set your DATABASE_URL, ADMIN_PASSWORD, and CITY_ADMIN_PASSWORD
 ```
 
 ### 3. Setup Database
 ```bash
 npx prisma generate
 npx prisma db push
-npx ts-node prisma/seed.ts
+npm run db:seed
 ```
 
 ### 4. Run Development Server
@@ -74,15 +74,17 @@ DATABASE_URL=... npm run db:backup
 DATABASE_URL=... npm run db:restore -- ./backups/<file>.dump
 ```
 
-### Default Login Credentials
+### Seeded Login Credentials
 
-| Role | Username | Password |
-|------|----------|----------|
-| Super Admin | superadmin | admin123 |
-| Quetta Admin | quetta_admin | city123 |
-| Lahore Admin | lahore_admin | city123 |
-| Saif Uddin Admin | kabul_admin | city123 |
-| Abdul Khaliq Admin | herat_admin | city123 |
+The seed script creates the following usernames and reads passwords from `ADMIN_PASSWORD` and `CITY_ADMIN_PASSWORD`.
+
+| Role | Username | Password Source |
+|------|----------|-----------------|
+| Super Admin | superadmin | `ADMIN_PASSWORD` |
+| Quetta Admin | quetta_admin | `CITY_ADMIN_PASSWORD` |
+| Lahore Admin | lahore_admin | `CITY_ADMIN_PASSWORD` |
+| Saif Uddin Admin | kabul_admin | `CITY_ADMIN_PASSWORD` |
+| Abdul Khaliq Admin | herat_admin | `CITY_ADMIN_PASSWORD` |
 
 ## Architecture
 

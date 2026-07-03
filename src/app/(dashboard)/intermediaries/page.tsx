@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate, RowActionMenu } from "@/components/ui";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingIntermediaries } from "@/lib/offline-queue-overlays";
 import { applyPendingIntermediaryLedger } from "@/lib/offline-intermediary-ledger";
@@ -544,7 +544,7 @@ export default function IntermediariesPage() {
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
 
-  const exportIntermediaryLedgerXlsx = () => {
+  const exportIntermediaryLedgerXlsx = async () => {
     if (!selected || !ledger?.ledger) return;
     const rows: any[][] = [];
     rows.push(["Intermediary Ledger", selected.name || ""]);
@@ -560,10 +560,10 @@ export default function IntermediariesPage() {
         entry.balance ?? "",
       ]);
     }
-    const sheet = XLSX.utils.aoa_to_sheet(rows);
-    const book = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(book, sheet, "Intermediary Ledger");
-    const wbout = XLSX.write(book, { bookType: "xlsx", type: "array" });
+    const book = new ExcelJS.Workbook();
+    const sheet = book.addWorksheet("Intermediary Ledger");
+    sheet.addRows(rows);
+    const wbout = await book.xlsx.writeBuffer();
     const blob = new Blob([wbout], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");

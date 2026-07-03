@@ -1,11 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { comparePassword, generateToken, getJwtExpiryMs, getJwtExpirySeconds } from "@/lib/auth";
+import { comparePassword, generateToken, getJwtExpiryMs, getJwtExpirySeconds, shouldUseSecureAuthCookie } from "@/lib/auth";
 import { loginSchema } from "@/lib/validations";
 import { successResponse, validationError, errorResponse } from "@/lib/api-response";
 import { checkRateLimit, rejectIfRateLimited } from "@/lib/rate-limit";
 import { allowSuperAdminInLockedDeployment, isAllowedCityName, isCityLockedDeployment } from "@/lib/deployment-profile";
-import { hashToken } from "@/lib/session";
+import { getClientIP } from "@/lib/middleware";
+import { cleanupExpiredSessions, hashToken } from "@/lib/session";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -33,10 +34,7 @@ function parseUserAgent(ua: string | null): string {
 
 export async function POST(request: NextRequest) {
   try {
-    const ip =
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      request.headers.get("x-real-ip") ||
-      "unknown";
+    const ip = getClientIP(request);
 
     const body = await request.json();
     const parsed = loginSchema.safeParse(body);
@@ -46,9 +44,12 @@ export async function POST(request: NextRequest) {
     }
 
     const { username, password } = parsed.data;
+    const usernameRateKey = `login-user:${username.toLowerCase()}`;
 
     const blocked = await rejectIfRateLimited(`login:${ip}`, 10, 15 * 60 * 1000);
     if (blocked) return blocked;
+    const usernameBlocked = await rejectIfRateLimited(usernameRateKey, 10, 15 * 60 * 1000);
+    if (usernameBlocked) return usernameBlocked;
 
     let user;
     try {
@@ -68,6 +69,7 @@ export async function POST(request: NextRequest) {
     if (!user || !user.isActive) {
       // Wrong username — this IS a genuine failed attempt, count it
       await checkRateLimit(`login:${ip}`, 10, 15 * 60 * 1000);
+      await checkRateLimit(usernameRateKey, 10, 15 * 60 * 1000);
       return errorResponse("AUTH_FAILED", "Invalid username or password", 401);
     }
 
@@ -75,6 +77,7 @@ export async function POST(request: NextRequest) {
     if (!passwordValid) {
       // Wrong password — count it
       await checkRateLimit(`login:${ip}`, 10, 15 * 60 * 1000);
+      await checkRateLimit(usernameRateKey, 10, 15 * 60 * 1000);
       return errorResponse("AUTH_FAILED", "Invalid username or password", 401);
     }
 
@@ -96,10 +99,8 @@ export async function POST(request: NextRequest) {
     });
 
     // Create session record
-    const ipAddress =
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      request.headers.get("x-real-ip") ||
-      "unknown";
+    await cleanupExpiredSessions();
+    const ipAddress = getClientIP(request);
     const userAgent = request.headers.get("user-agent");
 
     try {
@@ -160,7 +161,7 @@ export async function POST(request: NextRequest) {
 
     response.cookies.set("token", token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: shouldUseSecureAuthCookie(request),
       sameSite: "lax",
       maxAge: getJwtExpirySeconds(),
       path: "/",

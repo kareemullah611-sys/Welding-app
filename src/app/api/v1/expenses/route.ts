@@ -147,12 +147,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     }
 
     const city = await prisma.city.findUnique({ where: { id: cityId }, include: { country: true } });
-    const { lotId, expenseDate, amount, currencyId, detail, notes } = parsed.data;
-
-    // New payment source fields
-    const paidFrom: "cash_office" | "bank_account" | "cheque" = body.paidFrom ?? "cash_office";
-    const bankAccountId: number | undefined = body.bankAccountId ? parseInt(body.bankAccountId) : undefined;
-    const chequePaymentId: number | undefined = body.chequePaymentId ? parseInt(body.chequePaymentId) : undefined;
+    const { lotId, expenseDate, amount, currencyId, detail, notes, paidFrom, bankAccountId, chequePaymentId } = parsed.data;
 
     if (city?.country?.name === "Afghanistan" && paidFrom !== "cash_office") {
       return errorResponse("VALIDATION_ERROR", "Afghanistan city expenses can only be paid from office cash");
@@ -206,8 +201,8 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           cityId, lotId: lot.id, expenseDate: new Date(expenseDate), amount: resolvedAmount,
           currencyId: (resolvedCurrencyId ?? cityCurrency.currencyId) as number, detail, notes, createdBy: user.userId,
           ...(paidFrom !== "cash_office" ? { paidFrom } : {}),
-          ...(bankAccountId !== undefined ? { bankAccountId } : {}),
-          ...(chequePaymentId !== undefined ? { chequePaymentId } : {}),
+          ...(bankAccountId != null ? { bankAccountId } : {}),
+          ...(chequePaymentId != null ? { chequePaymentId } : {}),
         } as any,
         include: { lot: { select: { id: true, lotNumber: true } }, currency: true, creator: { select: { id: true, fullName: true } } },
       }) as any;

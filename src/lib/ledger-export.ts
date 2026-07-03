@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { apiCall } from "@/hooks/useApi";
 import { formatLedgerMoneyAmount } from "@/lib/city-money-format";
 import type { LotCostLedgerRow } from "@/lib/lot-cost-ledger";
@@ -307,19 +307,20 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-function writeWorkbookSheets(sheets: Array<{ name: string; rows: unknown[][] }>, filename: string) {
-  const workbook = XLSX.utils.book_new();
+async function writeWorkbookSheets(sheets: Array<{ name: string; rows: unknown[][] }>, filename: string) {
+  const workbook = new ExcelJS.Workbook();
   for (const sheet of sheets) {
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(sheet.rows), sheet.name);
+    const worksheet = workbook.addWorksheet(sheet.name);
+    worksheet.addRows(sheet.rows.map((row) => row.map((value) => value ?? "")));
   }
-  const wbout = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+  const wbout = await workbook.xlsx.writeBuffer();
   downloadBlob(
     new Blob([wbout], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
     filename,
   );
 }
 
-export function exportLotCostLedgerXlsx(input: {
+export async function exportLotCostLedgerXlsx(input: {
   lotNumber: string;
   lotDate?: string;
   countryName?: string;
@@ -418,7 +419,7 @@ export function exportLotCostLedgerPdf(input: {
   printHtmlDocument(html, `Lot Cost Ledger ${input.lotNumber}`);
 }
 
-export function exportSupplierLedgerXlsx(input: {
+export async function exportSupplierLedgerXlsx(input: {
   supplierName: string;
   statement: SupplierLotStatementRow[];
   runningLedger: SupplierRunningLedgerRow[];

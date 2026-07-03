@@ -154,13 +154,12 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const parsed = createPaymentSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid payment data", parsed.error.errors);
 
-    let { customerId, lotId, paymentDate, detail, amount, currencyId, exchangeRate, usdEquivalent, manualVoucherNo, paymentMethod, destination, notes } = parsed.data;
-    const chequeNumberInput: string | undefined = body.chequeNumber;
-    const chequeBank: string | undefined = body.chequeBank;
-    const chequeDueDate: string | undefined = body.chequeDueDate;
+    let {
+      customerId, lotId, paymentDate, detail, amount, currencyId, exchangeRate, usdEquivalent,
+      manualVoucherNo, paymentMethod, destination, notes, chequeNumber: chequeNumberInput,
+      chequeBank, chequeDueDate, bankAccountId, superAdminBankAccountId,
+    } = parsed.data;
     const cityId = user.cityId!;
-    const bankAccountId: number | undefined = body.bankAccountId ? parseInt(body.bankAccountId) : undefined;
-    const superAdminBankAccountId: number | undefined = body.superAdminBankAccountId ? parseInt(body.superAdminBankAccountId) : undefined;
     const chequeNumber = paymentMethod === "cheque"
       ? (manualVoucherNo?.trim() || chequeNumberInput?.trim() || undefined)
       : chequeNumberInput?.trim() || undefined;
@@ -280,8 +279,8 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           ...(chequeBank !== undefined ? { chequeBank } : {}),
           ...(chequeDueDate ? { chequeDueDate: new Date(chequeDueDate) } : {}),
           ...(chequeStatus !== undefined ? { chequeStatus } : {}),
-          ...(bankAccountId !== undefined ? { bankAccountId } : {}),
-          ...(superAdminBankAccountId !== undefined ? { superAdminBankAccountId } : {}),
+          ...(bankAccountId != null ? { bankAccountId } : {}),
+          ...(superAdminBankAccountId != null ? { superAdminBankAccountId } : {}),
         },
         include: {
           customer: { select: { id: true, name: true } },

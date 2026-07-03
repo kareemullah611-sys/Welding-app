@@ -3,8 +3,20 @@
 
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import "dotenv/config";
 
 const prisma = new PrismaClient();
+
+function requiredSeedPassword(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`${name} environment variable is required for seeding user accounts.`);
+  }
+  if (value.length < 8) {
+    throw new Error(`${name} must be at least 8 characters.`);
+  }
+  return value;
+}
 
 async function main() {
   console.log("🌱 Seeding database...");
@@ -154,7 +166,9 @@ async function main() {
   console.log("✅ Voucher sequences");
 
   // 6. Super Admin user
-  const passwordHash = await bcrypt.hash("admin123", 12);
+  const adminPassword = requiredSeedPassword("ADMIN_PASSWORD");
+  const cityAdminSeedPassword = requiredSeedPassword("CITY_ADMIN_PASSWORD");
+  const passwordHash = await bcrypt.hash(adminPassword, 12);
   const superAdmin = await prisma.user.upsert({
     where: { username: "superadmin" },
     update: {},
@@ -167,10 +181,10 @@ async function main() {
     },
   });
 
-  console.log("✅ Super Admin: superadmin / admin123");
+  console.log("✅ Super Admin: superadmin");
 
   // 7. City Admin users
-  const cityAdminPassword = await bcrypt.hash("city123", 12);
+  const cityAdminPassword = await bcrypt.hash(cityAdminSeedPassword, 12);
 
   const legacyKarachiAdmin = await prisma.user.findUnique({
     where: { username: "karachi_admin" },
@@ -216,7 +230,7 @@ async function main() {
     });
   }
 
-  console.log("✅ City Admins: quetta_admin, lahore_admin, kabul_admin, herat_admin, kandahar_admin, wesh_admin / city123");
+  console.log("✅ City Admins: quetta_admin, lahore_admin, kabul_admin, herat_admin, kandahar_admin, wesh_admin");
 
   // 8. Products (your real product names)
   const products = ["3.2mm", "7018-12", "5.0mm", "2.5mm", "7018-10", "4.0mm"];
@@ -298,14 +312,15 @@ async function main() {
 
   console.log("✅ Default supplier created");
 
-  console.log("\n🎉 Seed complete! Login credentials:");
-  console.log("   superadmin     / admin123  (Super Admin)");
-  console.log("   quetta_admin   / city123");
-  console.log("   lahore_admin   / city123");
-  console.log("   kabul_admin    / city123");
-  console.log("   herat_admin    / city123");
-  console.log("   kandahar_admin / city123");
-  console.log("   wesh_admin     / city123");
+  console.log("\n🎉 Seed complete! Usernames:");
+  console.log("   superadmin     (Super Admin)");
+  console.log("   quetta_admin");
+  console.log("   lahore_admin");
+  console.log("   kabul_admin");
+  console.log("   herat_admin");
+  console.log("   kandahar_admin");
+  console.log("   wesh_admin");
+  console.log("Passwords were read from ADMIN_PASSWORD and CITY_ADMIN_PASSWORD.");
 }
 
 main()

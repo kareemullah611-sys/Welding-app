@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { getTokenFromRequest } from "@/lib/auth";
+import { getTokenFromRequest, shouldUseSecureAuthCookie } from "@/lib/auth";
 import { successResponse } from "@/lib/api-response";
 import { hashToken } from "@/lib/session";
 
@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
   const response = successResponse({ message: "Logged out successfully" });
   response.cookies.set("token", "", {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureAuthCookie(request),
     sameSite: "lax",
     maxAge: 0,
     path: "/",

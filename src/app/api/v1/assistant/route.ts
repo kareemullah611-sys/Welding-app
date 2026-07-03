@@ -13,6 +13,10 @@ const ASSISTANT_MAX_HISTORY = 20;
 const AI_URL   = "https://api.deepseek.com/chat/completions";
 const AI_MODEL = "deepseek-chat"; // DeepSeek-V3
 
+function shouldShareAssistantFinancialContext(): boolean {
+  return process.env.ASSISTANT_ALLOW_EXTERNAL_FINANCIAL_DATA === "true";
+}
+
 async function askGroq(
   apiKey: string,
   systemPrompt: string,
@@ -303,8 +307,10 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       return NextResponse.json({ error: `Message too long (max ${ASSISTANT_MAX_MESSAGE_LEN} characters)` }, { status: 400 });
     }
 
-    // 1. Fetch relevant data from DB based on latest message
-    const context = await buildContext(message);
+    // 1. Fetch relevant data from DB only when explicitly allowed for external AI.
+    const context = shouldShareAssistantFinancialContext()
+      ? await buildContext(message)
+      : "Live financial database context is disabled. Do not answer with live totals, balances, or transaction data.";
 
     // 2. Build conversation history for DeepSeek (so it remembers the chat)
     const history = (clientHistory || []).slice(-ASSISTANT_MAX_HISTORY).map((m: any) => ({

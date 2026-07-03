@@ -261,16 +261,16 @@ print_success() {
   echo -e "${BOLD}Start production (local):${NC}"
   echo "  npm run start"
   echo ""
-  echo -e "${BOLD}Default login (super admin):${NC}"
+  echo -e "${BOLD}Seeded login (super admin):${NC}"
   echo -e "  Username: ${GREEN}superadmin${NC}"
-  echo -e "  Password: ${GREEN}admin123${NC}"
+  echo -e "  Password: ${GREEN}\$ADMIN_PASSWORD${NC}"
   echo ""
-  echo -e "${BOLD}City admin logins:${NC} quetta_admin, lahore_admin, kabul_admin, … / ${GREEN}city123${NC}"
+  echo -e "${BOLD}City admin logins:${NC} quetta_admin, lahore_admin, kabul_admin, … / ${GREEN}\$CITY_ADMIN_PASSWORD${NC}"
   echo ""
   echo -e "${BOLD}Electron (desktop):${NC} npm run package:mac:dev"
   echo -e "${BOLD}Packaged Mac app:${NC}   npm run package:mac:dist"
   echo ""
-  warn "Change JWT_SECRET and default passwords before any production deployment."
+  warn "Set JWT_SECRET, ADMIN_PASSWORD, and CITY_ADMIN_PASSWORD before seeding or deploying."
 }
 
 main() {

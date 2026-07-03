@@ -24,63 +24,6 @@ function adminCleanupGuard(requestSecret: string | null | undefined) {
   return null;
 }
 
-async function runDevMigration() {
-  await prisma.$executeRawUnsafe(`
-    DO $$ BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'IntermediarySourceType') THEN
-        CREATE TYPE "IntermediarySourceType" AS ENUM ('city_cash', 'bank_account');
-      END IF;
-    END $$;
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "intermediaries" (
-      "id" SERIAL PRIMARY KEY,
-      "name" VARCHAR(200) NOT NULL,
-      "notes" TEXT,
-      "is_active" BOOLEAN NOT NULL DEFAULT true,
-      "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "intermediary_deposits" (
-      "id" SERIAL PRIMARY KEY,
-      "intermediary_id" INTEGER NOT NULL REFERENCES "intermediaries"("id"),
-      "deposit_date" DATE NOT NULL,
-      "amount" DECIMAL(15,2) NOT NULL,
-      "currency_id" INTEGER NOT NULL REFERENCES "currencies"("id"),
-      "source_type" "IntermediarySourceType" NOT NULL,
-      "city_id" INTEGER REFERENCES "cities"("id"),
-      "bank_account_id" INTEGER REFERENCES "bank_accounts"("id"),
-      "notes" TEXT,
-      "created_by" INTEGER NOT NULL REFERENCES "users"("id"),
-      "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-
-  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "intermediary_deposits_intermediary_id_idx" ON "intermediary_deposits"("intermediary_id")`);
-  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "intermediary_deposits_deposit_date_idx" ON "intermediary_deposits"("deposit_date")`);
-
-  await prisma.$executeRawUnsafe(`
-    ALTER TABLE "supplier_payments"
-      ADD COLUMN IF NOT EXISTS "intermediary_id" INTEGER REFERENCES "intermediaries"("id");
-  `);
-
-  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "supplier_payments_intermediary_id_idx" ON "supplier_payments"("intermediary_id")`);
-
-  await prisma.$executeRawUnsafe(`ALTER TABLE "shipping_line_payments" ADD COLUMN IF NOT EXISTS "bank_account_id" INTEGER REFERENCES "bank_accounts"("id")`);
-  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "shipping_line_payments_bank_account_id_idx" ON "shipping_line_payments"("bank_account_id")`);
-  await prisma.$executeRawUnsafe(`ALTER TABLE "shipping_line_payments" ADD COLUMN IF NOT EXISTS "intermediary_id" INTEGER REFERENCES "intermediaries"("id")`);
-  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "shipping_line_payments_intermediary_id_idx" ON "shipping_line_payments"("intermediary_id")`);
-
-  await prisma.$executeRawUnsafe(`ALTER TABLE "agent_payments" ADD COLUMN IF NOT EXISTS "bank_account_id" INTEGER REFERENCES "bank_accounts"("id")`);
-  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "agent_payments_bank_account_id_idx" ON "agent_payments"("bank_account_id")`);
-  await prisma.$executeRawUnsafe(`ALTER TABLE "agent_payments" ADD COLUMN IF NOT EXISTS "intermediary_id" INTEGER REFERENCES "intermediaries"("id")`);
-  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "agent_payments_intermediary_id_idx" ON "agent_payments"("intermediary_id")`);
-}
-
 async function wipeTestData() {
   await prisma.profitAllocation.deleteMany();
   await prisma.investorWithdrawal.deleteMany();
@@ -119,7 +62,7 @@ async function wipeTestData() {
 
 /** Dev-only destructive tools — secret must be in POST JSON body, never query strings. */
 export const POST = withSuperAdmin(async (request: NextRequest, _ctx: unknown, _user: JWTPayload) => {
-  let body: { secret?: string; action?: string };
+  let body: { secret?: string };
   try {
     body = await request.json();
   } catch {
@@ -129,14 +72,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, _ctx: unknown, _
   const guard = adminCleanupGuard(body.secret);
   if (guard) return guard;
 
-  const action = body.action === "migrate" ? "migrate" : "wipe";
-
   try {
-    if (action === "migrate") {
-      await runDevMigration();
-      return Response.json({ success: true, message: "Migration complete" });
-    }
-
     await wipeTestData();
     return Response.json({ success: true, message: "All test data deleted" });
   } catch (error: unknown) {

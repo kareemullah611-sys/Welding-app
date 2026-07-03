@@ -22,7 +22,7 @@ echo -e "${BOLD}MRF Hardware — quick setup${NC}"
 
 if [[ ! -f .env ]]; then
   cp .env.example .env
-  ok "Created .env from .env.example — local Postgres URLs; edit if needed"
+  ok "Created .env from .env.example — edit DATABASE_URL and seed passwords if needed"
 else
   info ".env already exists"
 fi
@@ -35,6 +35,6 @@ echo ""
 ok "Setup finished."
 echo ""
 echo "  npm run dev          # development server → http://localhost:3000"
-echo "  superadmin / admin123"
+echo "  superadmin / \$ADMIN_PASSWORD"
 echo ""
 warn "For full checks (Node/Postgres install, build): npm run setup:offline"

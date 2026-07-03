@@ -15,8 +15,24 @@ export async function isSessionActive(token: string): Promise<boolean> {
     // Login always creates a row; missing row = invalid/revoked token.
     if (!session) return false;
     return session.isActive && session.expiresAt > new Date();
-  } catch {
-    // DB unavailable — trust the JWT rather than forcing logout mid-session.
-    return true;
+  } catch (error) {
+    console.error("Session validation failed:", error);
+    return false;
+  }
+}
+
+export async function cleanupExpiredSessions(now = new Date()): Promise<number> {
+  try {
+    const result = await prisma.userSession.updateMany({
+      where: {
+        isActive: true,
+        expiresAt: { lt: now },
+      },
+      data: { isActive: false },
+    });
+    return result.count;
+  } catch (error) {
+    console.error("Expired session cleanup failed:", error);
+    return 0;
   }
 }

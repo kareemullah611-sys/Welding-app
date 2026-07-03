@@ -3,7 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth, getCityScope } from "@/lib/middleware";
 import { JWTPayload } from "@/lib/auth";
 import { successResponse } from "@/lib/api-response";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import {
   appendExportMetaRows,
   buildExportDateFilter,
@@ -13,7 +13,6 @@ import {
   fmtReportMoney,
   matchesExportTextSearch,
   parseExportSearchQuery,
-  rowsToCsv,
   formatExportDateShort,
   type ExportPayload,
 } from "@/lib/report-export-helpers";
@@ -360,13 +359,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     fullRows.push(payload.headers);
     fullRows.push(...payload.rows);
 
-    const csv = rowsToCsv(fullRows);
-    const workbook = XLSX.read(csv, { type: "string" });
-    const sheetName = workbook.SheetNames[0] || "Report";
-    const sheet = workbook.Sheets[sheetName];
-    const finalBook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(finalBook, sheet, sheetName);
-    const xlsxBuffer = XLSX.write(finalBook, { type: "buffer", bookType: "xlsx" });
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Report");
+    sheet.addRows(fullRows);
+    const xlsxBuffer = await workbook.xlsx.writeBuffer();
     return new Response(xlsxBuffer, {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

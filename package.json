@@ -17,7 +17,7 @@
     "verify": "npm run lint && npm run test:smoke && npm run test:offline-gate && npm run build",
     "test:offline-gate": "node scripts/offline-feature-gate.cjs",
     "test:e2e": "playwright test",
-    "test:smoke": "node --import tsx --test src/lib/deployment-profile.test.ts src/lib/opening-calculations.test.ts src/app/api/health.test.ts src/app/api/ping.test.ts src/app/api/v1/auth/me.test.ts src/lib/offline-form-cache-hydrate.test.ts src/lib/offline-cache.test.ts src/lib/offline-aggregate-prefetch.test.ts src/lib/offline-full-sync-read.test.ts src/lib/offline-remaining-mutations.test.ts src/lib/offline-local-search.test.ts src/lib/offline-phase3.test.ts src/lib/sanitize-validation-details.test.ts src/lib/secret-exposure-guard.test.ts",
+    "test:smoke": "node --import tsx --test src/lib/deployment-profile.test.ts src/lib/opening-calculations.test.ts src/app/api/health.test.ts src/app/api/ping.test.ts src/app/api/v1/auth/me.test.ts src/lib/auth.test.ts src/lib/session.test.ts src/lib/middleware.test.ts src/lib/security-audit-regression.test.ts src/lib/accounting-race.test.ts src/lib/schema-integrity.test.ts src/lib/offline-form-cache-hydrate.test.ts src/lib/offline-cache.test.ts src/lib/offline-aggregate-prefetch.test.ts src/lib/offline-full-sync-read.test.ts src/lib/offline-remaining-mutations.test.ts src/lib/offline-local-search.test.ts src/lib/offline-phase3.test.ts src/lib/sanitize-validation-details.test.ts src/lib/secret-exposure-guard.test.ts",
     "test:critical-db": "node --import tsx --test src/app/api/v1/sync-idempotency-customers.test.ts src/app/api/v1/sync-idempotency-withdrawals.test.ts src/app/api/v1/sync-idempotency-openings.test.ts src/app/api/v1/sync-idempotency-suppliers.test.ts src/app/api/v1/sync-idempotency-intermediaries.test.ts src/app/api/v1/sync-idempotency-intermediary-deposits.test.ts src/app/api/v1/sync-idempotency-intermediary-exchanges.test.ts src/app/api/v1/sync-idempotency-products.test.ts src/app/api/v1/sync-idempotency-shipping-lines.test.ts src/app/api/v1/sync-idempotency-agents.test.ts src/app/api/v1/sync-idempotency-bank-accounts.test.ts src/app/api/v1/sync-idempotency-supplier-payments.test.ts src/app/api/v1/sync-idempotency-shipping-line-payments.test.ts src/app/api/v1/sync-idempotency-super-admin-expenses.test.ts src/app/api/v1/sync-idempotency-agent-payments.test.ts src/app/api/v1/sync-idempotency-lot-costs.test.ts src/app/api/v1/payments-completed-lot.test.ts src/app/api/v1/bank-deposits-transfer-type.test.ts src/app/api/v1/personal-withdrawal-names.test.ts src/app/api/v1/search-amount-column.test.ts src/app/api/v1/search-city-finance-modules.test.ts",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
@@ -49,6 +49,7 @@
     "class-variance-authority": "^0.7.1",
     "cloudinary": "^2.9.0",
     "clsx": "^2.1.1",
+    "exceljs": "^4.4.0",
     "ioredis": "^5.11.1",
     "jose": "^6.2.3",
     "jsonwebtoken": "^9.0.2",
@@ -61,7 +62,6 @@
     "tailwind-merge": "^3.5.0",
     "tailwindcss-animate": "^1.0.7",
     "tsx": "^4.21.0",
-    "xlsx": "^0.18.5",
     "zod": "^3.23.0"
   },
   "devDependencies": {

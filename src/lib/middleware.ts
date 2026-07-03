@@ -78,6 +78,43 @@ function csrfError(): Response {
   );
 }
 
+function trustProxyHeaders(): boolean {
+  return (
+    process.env.TRUST_PROXY_HEADERS === "true" ||
+    process.env.VERCEL === "1" ||
+    process.env.RENDER === "true"
+  );
+}
+
+async function getDatabaseUserForToken(user: JWTPayload): Promise<JWTPayload | null> {
+  const databaseUser = await prisma.user.findUnique({
+    where: { id: user.userId },
+    select: {
+      id: true,
+      username: true,
+      role: true,
+      cityId: true,
+      isActive: true,
+      city: { select: { countryId: true } },
+    },
+  });
+
+  if (!databaseUser?.isActive) return null;
+  const databasePayload: JWTPayload = {
+    userId: databaseUser.id,
+    username: databaseUser.username,
+    role: databaseUser.role,
+    cityId: databaseUser.cityId,
+    countryId: databaseUser.city?.countryId ?? null,
+  };
+
+  if (databasePayload.username !== user.username) return null;
+  if (databasePayload.role !== user.role) return null;
+  if (databasePayload.cityId !== user.cityId) return null;
+  if (databasePayload.countryId !== user.countryId) return null;
+  return databasePayload;
+}
+
 // Auth middleware - verifies JWT and attaches user
 export function withAuth(handler: ApiHandler) {
   return async (request: NextRequest, context: { params: Record<string, string> }) => {
@@ -89,7 +126,9 @@ export function withAuth(handler: ApiHandler) {
     if (!(await isSessionActive(token))) {
       return unauthorizedResponse("Session expired or revoked");
     }
-    return handler(request, context, user);
+    const databaseUser = await getDatabaseUserForToken(user);
+    if (!databaseUser) return unauthorizedResponse("Invalid or expired token");
+    return handler(request, context, databaseUser);
   };
 }
 
@@ -149,9 +188,10 @@ export async function createAuditLog(
 
 // Get client IP from request
 export function getClientIP(request: NextRequest): string {
-  return (
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    request.headers.get("x-real-ip") ||
-    "unknown"
-  );
+  const directIp = (request as unknown as { ip?: string }).ip;
+  if (directIp) return directIp;
+  if (!trustProxyHeaders()) return "unknown";
+  return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    || request.headers.get("x-real-ip")
+    || "unknown";
 }

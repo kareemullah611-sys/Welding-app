@@ -4,14 +4,19 @@ import { NextRequest } from "next/server";
 
 import { parseJwtExpiryMs, jwtExpirySeconds as parseJwtExpirySeconds } from "@/lib/jwt-expiry";
 
-const JWT_SECRET = process.env.JWT_SECRET || (() => {
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("JWT_SECRET environment variable must be set in production. Refusing to start with an insecure default.");
-  }
-  console.warn("⚠️  JWT_SECRET is not set. Using an insecure default secret — DO NOT run this in production without setting JWT_SECRET in your environment.");
-  return "dev-secret-change-in-production";
-})();
 const JWT_EXPIRY = process.env.JWT_EXPIRY || "24h";
+const MIN_JWT_SECRET_LENGTH = 32;
+
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error("JWT_SECRET environment variable must be set. Refusing to use an insecure default.");
+  }
+  if (secret.length < MIN_JWT_SECRET_LENGTH) {
+    throw new Error(`JWT_SECRET must be at least ${MIN_JWT_SECRET_LENGTH} characters.`);
+  }
+  return secret;
+}
 
 export function getJwtExpiryMs(): number {
   return parseJwtExpiryMs(JWT_EXPIRY);
@@ -19,6 +24,15 @@ export function getJwtExpiryMs(): number {
 
 export function getJwtExpirySeconds(): number {
   return parseJwtExpirySeconds(JWT_EXPIRY);
+}
+
+export function shouldUseSecureAuthCookie(request?: NextRequest): boolean {
+  if (process.env.NODE_ENV === "production") return true;
+  if (process.env.NEXT_PUBLIC_APP_URL?.startsWith("https://")) return true;
+  if (process.env.VERCEL_URL) return true;
+  if (request?.nextUrl.protocol === "https:") return true;
+  if (request?.headers.get("x-forwarded-proto") === "https") return true;
+  return false;
 }
 
 export interface JWTPayload {
@@ -29,13 +43,28 @@ export interface JWTPayload {
   countryId: number | null;
 }
 
+function normalizeJwtPayload(payload: unknown): JWTPayload | null {
+  if (!payload || typeof payload !== "object") return null;
+  const decoded = payload as Record<string, unknown>;
+  if (typeof decoded.userId !== "number") return null;
+  if (typeof decoded.username !== "string") return null;
+  if (decoded.role !== "super_admin" && decoded.role !== "city_admin") return null;
+  return {
+    userId: decoded.userId,
+    username: decoded.username,
+    role: decoded.role,
+    cityId: typeof decoded.cityId === "number" ? decoded.cityId : null,
+    countryId: typeof decoded.countryId === "number" ? decoded.countryId : null,
+  };
+}
+
 export function generateToken(payload: JWTPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRY as any });
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: JWT_EXPIRY as any });
 }
 
 export function verifyToken(token: string): JWTPayload | null {
   try {
-    return jwt.verify(token, JWT_SECRET) as JWTPayload;
+    return normalizeJwtPayload(jwt.verify(token, getJwtSecret()));
   } catch {
     return null;
   }

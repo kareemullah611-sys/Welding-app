@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { getTokenFromRequest, verifyToken } from "@/lib/auth";
+import { getTokenFromRequest, shouldUseSecureAuthCookie, verifyToken } from "@/lib/auth";
 import { successResponse, serverError } from "@/lib/api-response";
 import { isSessionActive } from "@/lib/session";
 
-function loggedOutResponse(): NextResponse {
+function loggedOutResponse(request: NextRequest): NextResponse {
   const response = successResponse(null);
   response.cookies.set("token", "", {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureAuthCookie(request),
     sameSite: "lax",
     maxAge: 0,
     path: "/",
@@ -20,11 +20,11 @@ export async function GET(request: NextRequest) {
   const token = getTokenFromRequest(request);
   if (!token) return successResponse(null);
   const payload = verifyToken(token);
-  if (!payload) return loggedOutResponse();
+  if (!payload) return loggedOutResponse(request);
 
   try {
     if (!(await isSessionActive(token))) {
-      return loggedOutResponse();
+      return loggedOutResponse(request);
     }
 
     const user = await prisma.user.findUnique({
@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    if (!user || !user.isActive) return loggedOutResponse();
+    if (!user || !user.isActive) return loggedOutResponse(request);
 
     return successResponse({
       id: user.id,

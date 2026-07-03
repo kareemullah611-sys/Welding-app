@@ -5,12 +5,11 @@ import { computeLotLandedCostPkr, groupExpensesByCurrency } from "@/lib/landed-c
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
 async function getOrCreateAccount(code: string, name: string, type: AccountType, cityId?: number | null, db: DbClient = prisma): Promise<number> {
-  let acc = await db.account.findUnique({ where: { code } });
-  if (!acc) {
-    acc = await db.account.create({
-      data: { code, name, accountType: type, cityId: cityId || null, isSystem: true },
-    });
-  }
+  const acc = await db.account.upsert({
+    where: { code },
+    update: {},
+    create: { code, name, accountType: type, cityId: cityId || null, isSystem: true },
+  });
   return acc.id;
 }
 

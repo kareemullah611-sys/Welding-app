@@ -1,6 +1,15 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { getTokenFromRequest, comparePassword, hashPassword, verifyToken } from "@/lib/auth";
+import {
+  comparePassword,
+  generateToken,
+  getJwtExpiryMs,
+  getJwtExpirySeconds,
+  getTokenFromRequest,
+  hashPassword,
+  shouldUseSecureAuthCookie,
+  verifyToken,
+} from "@/lib/auth";
 import { changePasswordSchema } from "@/lib/validations";
 import { successResponse, unauthorizedResponse, validationError, errorResponse, serverError } from "@/lib/api-response";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -32,7 +41,10 @@ export async function PUT(request: NextRequest) {
     const parsed = changePasswordSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid input", parsed.error.errors);
 
-    const user = await prisma.user.findUnique({ where: { id: payload.userId } });
+    const user = await prisma.user.findUnique({
+      where: { id: payload.userId },
+      include: { city: { select: { countryId: true } } },
+    });
     if (!user) return unauthorizedResponse("User not found");
 
     const valid = await comparePassword(parsed.data.currentPassword, user.passwordHash);
@@ -48,12 +60,35 @@ export async function PUT(request: NextRequest) {
       where: {
         userId: payload.userId,
         isActive: true,
-        NOT: { tokenHash: hashToken(token) },
       },
       data: { isActive: false },
     });
 
-    return successResponse({ message: "Password changed successfully" });
+    const newToken = generateToken({
+      userId: user.id,
+      username: user.username,
+      role: user.role,
+      cityId: user.cityId,
+      countryId: user.city?.countryId ?? null,
+    });
+
+    await prisma.userSession.create({
+      data: {
+        userId: user.id,
+        tokenHash: hashToken(newToken),
+        expiresAt: new Date(Date.now() + getJwtExpiryMs()),
+      },
+    });
+
+    const response = successResponse({ message: "Password changed successfully" });
+    response.cookies.set("token", newToken, {
+      httpOnly: true,
+      secure: shouldUseSecureAuthCookie(request),
+      sameSite: "lax",
+      maxAge: getJwtExpirySeconds(),
+      path: "/",
+    });
+    return response;
   } catch (error) {
     console.error("Change password error:", error);
     return serverError();

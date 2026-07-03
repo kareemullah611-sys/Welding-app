@@ -7,7 +7,7 @@ import { applyPendingBankLedger } from "@/lib/offline-bank-ledger";
 import { PageHeader, DataTable, Modal, formatDate, formatNumber, RowActionMenu, PaginationBar } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 
 const BANK_ACCOUNTS_READ_CACHE_KEY = "mrf-bank-accounts-read-cache-v1";
@@ -517,10 +517,10 @@ export default function BankAccountsPage() {
         row.runningBalance ?? "",
       ]);
     }
-    const sheet = XLSX.utils.aoa_to_sheet(rows);
-    const book = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(book, sheet, "Bank Ledger");
-    const wbout = XLSX.write(book, { bookType: "xlsx", type: "array" });
+    const book = new ExcelJS.Workbook();
+    const sheet = book.addWorksheet("Bank Ledger");
+    sheet.addRows(rows);
+    const wbout = await book.xlsx.writeBuffer();
     const blob = new Blob([wbout], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");

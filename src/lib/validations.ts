@@ -139,6 +139,11 @@ const saleItemSchema = z.object({
   ratePerCarton: z.number().min(0),
 });
 
+const optionalPositiveInt = z.preprocess(
+  (value) => (value === "" || value === undefined ? undefined : value),
+  z.coerce.number().int().positive().optional().nullable()
+);
+
 export const createSaleSchema = z.object({
   customerId: z.number().int().refine((v) => v === -1 || v > 0, "Invalid customer"),
   godownId: z.number().int().positive(),
@@ -165,6 +170,11 @@ export const createPaymentSchema = z.object({
   manualVoucherNo: z.string().max(50).optional(),
   paymentMethod: z.enum(["cash", "cheque", "bank_transfer", "online"]),
   destination: z.enum(["haji", "our_account"]),
+  chequeNumber: z.string().trim().max(50).optional().nullable(),
+  chequeBank: z.string().trim().max(100).optional().nullable(),
+  chequeDueDate: z.string().optional().nullable(),
+  bankAccountId: optionalPositiveInt,
+  superAdminBankAccountId: optionalPositiveInt,
   notes: z.string().optional(),
 });
 
@@ -178,6 +188,9 @@ export const createExpenseSchema = z.object({
   amount: z.number().positive(),
   currencyId: z.number().int().optional().nullable(),
   detail: z.string().min(1).max(500),
+  paidFrom: z.enum(["cash_office", "bank_account", "cheque"]).default("cash_office"),
+  bankAccountId: optionalPositiveInt,
+  chequePaymentId: optionalPositiveInt,
   notes: z.string().optional(),
 });
 
