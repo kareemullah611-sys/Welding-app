@@ -11,15 +11,19 @@ test("personal withdrawals support city bank account as a source of funds", () =
 
   assert.match(schema, /enum WithdrawalSourceType\s*{[^}]*bank_account/s);
   assert.match(schema, /model PersonalWithdrawal[\s\S]*bankAccountId\s+Int\?\s+@map\("bank_account_id"\)/);
-  assert.match(route, /sourceType:\s*"cash_office"\s*\|\s*"cheque"\s*\|\s*"bank_account"/);
+  assert.match(route, /sourceType:\s*"cash_office"\s*\|\s*"bank_account"/);
+  assert.match(route, /Cheque is no longer a valid withdrawal source/);
   assert.match(route, /bankAccountId/);
   assert.match(route, /Bank account is required when source is bank account/);
   assert.match(route, /journalWithdrawal\([\s\S]*bankAccountId/);
   assert.match(accounting, /sourceType\?\:\s*string\s*\|\s*null;\s*bankAccountId\?\:\s*number\s*\|\s*null/);
   assert.match(accounting, /w\.sourceType === "bank_account" && w\.bankAccountId/);
-  assert.match(validations, /sourceType:\s*z\.enum\(\["cash_office", "cheque", "bank_account"\]\)/);
+  assert.match(validations, /sourceType:\s*z\.enum\(\["cash_office", "bank_account"\]\)/);
   assert.match(page, /bankAccounts/);
-  assert.match(page, /value="bank_account"/);
-  assert.match(page, /form\.sourceType === "bank_account"/);
+  assert.match(page, /value=\{`bank_account:\$\{account\.id\}`\}/);
+  assert.match(page, /sourceValue\.startsWith\("bank_account:"\)/);
+  assert.doesNotMatch(page, /<option value="cheque">/);
+  assert.doesNotMatch(page, /form\.sourceType === "cheque"/);
+  assert.doesNotMatch(page, /<option value="bank_account">Bank Account<\/option>/);
   assert.match(page, /bankAccountId/);
 });

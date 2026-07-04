@@ -123,6 +123,9 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     if (user.role !== "city_admin") return errorResponse("FORBIDDEN", "Only city admins can record withdrawals", 403);
     const syncMeta = getSyncRequestMeta(request);
     const body = await request.json();
+    if (body?.sourceType === "cheque" || body?.chequePaymentId) {
+      return errorResponse("VALIDATION_ERROR", "Cheque is no longer a valid withdrawal source");
+    }
     const parsed = createWithdrawalSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid data", parsed.error.errors);
 
@@ -155,39 +158,21 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
     const city = await prisma.city.findUnique({ where: { id: cityId }, include: { country: true } });
     const { withdrawalDate, amount, currencyId, detail, withdrawnBy, notes } = parsed.data;
-    const sourceType: "cash_office" | "cheque" | "bank_account" = parsed.data.sourceType ?? "cash_office";
-    const chequePaymentId = parsed.data.chequePaymentId ?? undefined;
+    const sourceType: "cash_office" | "bank_account" = parsed.data.sourceType ?? "cash_office";
     const bankAccountId = parsed.data.bankAccountId ?? undefined;
 
     if (city?.country?.name === "Afghanistan" && sourceType !== "cash_office") {
       return errorResponse("VALIDATION_ERROR", "Afghanistan city withdrawals can only use office cash");
     }
 
-    if (sourceType === "cheque" && !chequePaymentId) {
-      return errorResponse("VALIDATION_ERROR", "Cheque is required when source is cheque");
-    }
     if (sourceType === "bank_account" && !bankAccountId) {
       return errorResponse("VALIDATION_ERROR", "Bank account is required when source is bank account");
-    }
-    if (sourceType !== "cheque" && chequePaymentId) {
-      return errorResponse("VALIDATION_ERROR", "Cheque can only be selected when source is cheque");
     }
     if (sourceType !== "bank_account" && bankAccountId) {
       return errorResponse("VALIDATION_ERROR", "Bank account can only be selected when source is bank account");
     }
 
     const withdrawal = await prisma.$transaction(async (tx) => {
-      let chequePayment: any = null;
-      if (sourceType === "cheque" && chequePaymentId) {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${32001}, ${chequePaymentId})`;
-        chequePayment = await tx.payment.findUnique({ where: { id: chequePaymentId } });
-        if (!chequePayment) throw new Error("CHEQUE_NOT_FOUND");
-        if (chequePayment.cityId !== cityId) throw new Error("CHEQUE_FORBIDDEN");
-        if ((chequePayment as any).paymentMethod !== "cheque") throw new Error("CHEQUE_NOT_CHEQUE");
-        if (chequePayment.destination !== "our_account") throw new Error("CHEQUE_NOT_OUR_ACCOUNT");
-        if ((chequePayment as any).chequeStatus !== "in_hand") throw new Error("CHEQUE_NOT_IN_HAND");
-        if (Number(chequePayment.amount) !== Number(amount)) throw new Error(`CHEQUE_AMOUNT_MISMATCH:${Number(chequePayment.amount)}`);
-      }
       if (sourceType === "bank_account" && bankAccountId) {
         const bankAccount = await tx.bankAccount.findUnique({ where: { id: bankAccountId } });
         if (!bankAccount) throw new Error("BANK_NOT_FOUND");
@@ -195,17 +180,9 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         if (!bankAccount.isActive) throw new Error("BANK_INACTIVE");
       }
 
-      const resolvedCurrencyId = chequePayment?.currencyId ?? currencyId;
+      const resolvedCurrencyId = currencyId;
       const cityCurrency = await tx.cityCurrency.findFirst({ where: { cityId, currencyId: resolvedCurrencyId } });
       if (!cityCurrency) throw new Error("CURRENCY_NOT_SUPPORTED");
-
-      if (sourceType === "cheque" && chequePaymentId) {
-        const claimed = await tx.payment.updateMany({
-          where: { id: chequePaymentId, chequeStatus: "in_hand" as any },
-          data: { chequeStatus: "used_for_withdrawal" } as any,
-        });
-        if (claimed.count !== 1) throw new Error("CHEQUE_ALREADY_USED");
-      }
 
       const createdWithdrawal = await tx.personalWithdrawal.create({
         data: {
@@ -217,7 +194,6 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           withdrawnBy,
           notes,
           sourceType,
-          ...(chequePaymentId !== undefined ? { chequePaymentId } : {}),
           ...(bankAccountId !== undefined ? { bankAccountId } : {}),
           createdBy: user.userId,
         } as any,

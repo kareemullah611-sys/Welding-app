@@ -238,7 +238,7 @@ export const createWithdrawalSchema = z.object({
   currencyId: z.number().int().positive(),
   detail: z.string().min(1).max(500),
   withdrawnBy: z.string().trim().min(1).max(100),
-  sourceType: z.enum(["cash_office", "cheque", "bank_account"]).default("cash_office"),
+  sourceType: z.enum(["cash_office", "bank_account"]).default("cash_office"),
   bankAccountId: optionalPositiveInt,
   chequePaymentId: optionalPositiveInt,
   notes: z.string().optional(),
