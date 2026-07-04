@@ -50,7 +50,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       }),
       prisma.personalWithdrawal.findMany({
         where: { cityId, ...dateFilter("withdrawalDate") },
-        include: { currency: true },
+        include: { currency: true, bankAccount: { select: { bankName: true } } },
         orderBy: { withdrawalDate: "asc" },
       }),
       prisma.hajiTransfer.findMany({
@@ -120,7 +120,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         description: w.detail,
         debit: Number(w.amount), credit: 0,
         currency: w.currency.code, lot: null,
-        account: "Personal Drawings", counterAccount: "Cash In Hand",
+        account: "Personal Drawings", counterAccount: (w as any).sourceType === "bank_account" ? "Bank" : "Cash In Hand",
+        method: (w as any).sourceType,
       });
     }
 
@@ -185,7 +186,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         cashByCurr[cc] -= e.debit;
         hajiOwedByCurr[cc] -= Number(e.hajiCredit || 0);
       }
-      if (e.type === "withdrawal") { cashByCurr[cc] -= e.debit; }
+      if (e.type === "withdrawal" && e.method !== "bank_account") { cashByCurr[cc] -= e.debit; }
       if (e.type === "haji_transfer" && e.transferType === "from_in_hand") {
         cashByCurr[cc] -= e.debit;
         hajiOwedByCurr[cc] -= Number(e.hajiCredit || 0);

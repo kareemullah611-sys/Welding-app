@@ -115,6 +115,7 @@ enum ExpensePaidFrom {
 enum WithdrawalSourceType {
   cash_office
   cheque
+  bank_account
 }
 
 enum SupplierPaymentMethod {
@@ -937,6 +938,7 @@ model PersonalWithdrawal {
   notes          String?   @db.Text
   sourceType     WithdrawalSourceType @default(cash_office) @map("source_type")
   chequePaymentId Int?     @map("cheque_payment_id")
+  bankAccountId  Int?      @map("bank_account_id")
   approvedBy     Int?      @map("approved_by")
   approvedAt     DateTime? @map("approved_at")
   hajiTransferId Int?      @unique @map("haji_transfer_id")
@@ -950,8 +952,10 @@ model PersonalWithdrawal {
   approver     User?         @relation("WithdrawalApprover", fields: [approvedBy], references: [id])
   hajiTransfer HajiTransfer? @relation(fields: [hajiTransferId], references: [id])
   chequePayment Payment?     @relation("WithdrawalCheque", fields: [chequePaymentId], references: [id])
+  bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id])
 
   @@index([cityId])
+  @@index([bankAccountId])
   @@index([withdrawalDate])
   @@index([approvedBy])
   @@map("personal_withdrawals")
@@ -1039,7 +1043,7 @@ model BankAccount {
   id            Int      @id @default(autoincrement())
   cityId        Int      @map("city_id")
   bankName      String   @map("bank_name") @db.VarChar(100)
-  accountNumber String?  @map("account_number") @db.VarChar(50)
+  accountNumber String?  @map("account_number") @db.VarChar(255)
   isActive      Boolean  @default(true) @map("is_active")
   createdAt     DateTime @default(now()) @map("created_at")
 
@@ -1054,6 +1058,7 @@ model BankAccount {
   intermediaryDeposits    IntermediaryDeposit[]
   incomingPayments        Payment[]                @relation("PaymentBankAccount")
   openingBankBalances     OpeningBankBalance[]
+  personalWithdrawals     PersonalWithdrawal[]
 
   @@index([cityId])
   @@map("bank_accounts")
@@ -1085,7 +1090,7 @@ model BankDeposit {
 model SuperAdminBankAccount {
   id            Int      @id @default(autoincrement())
   bankName      String   @map("bank_name") @db.VarChar(100)
-  accountNumber String?  @map("account_number") @db.VarChar(50)
+  accountNumber String?  @map("account_number") @db.VarChar(255)
   currencyId    Int      @map("currency_id")
   accountKind   SuperAdminAccountKind @default(bank) @map("account_kind")
   isActive      Boolean  @default(true) @map("is_active")

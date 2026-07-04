@@ -22,6 +22,7 @@ const WITHDRAWALS_READ_CACHE_KEY = "mrf-withdrawals-read-cache-v1";
 type WithdrawalsFormCache = {
   currencies: any[];
   inHandCheques: any[];
+  bankAccounts: any[];
   withdraweeOptions: string[];
 };
 
@@ -108,7 +109,8 @@ export default function PersonalWithdrawalsPage() {
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "approved">(user?.role === "super_admin" ? "pending" : "all");
   const [currencies, setCurrencies] = useState<any[]>([]);
   const [inHandCheques, setInHandCheques] = useState<any[]>([]);
-  const [form, setForm] = useState({ withdrawalDate: new Date().toISOString().split("T")[0], amount: 0, detail: "", withdrawnBy: "", notes: "", currencyId: 0, sourceType: "cash_office", chequePaymentId: 0 });
+  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
+  const [form, setForm] = useState({ withdrawalDate: new Date().toISOString().split("T")[0], amount: 0, detail: "", withdrawnBy: "", notes: "", currencyId: 0, sourceType: "cash_office", chequePaymentId: 0, bankAccountId: 0 });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
@@ -271,6 +273,7 @@ export default function PersonalWithdrawalsPage() {
       const cached = readOfflineFormCache<WithdrawalsFormCache>(WITHDRAWALS_FORM_CACHE_KEY, [
         "currencies",
         "inHandCheques",
+        "bankAccounts",
         "withdraweeOptions",
       ]);
       if (!cached) {
@@ -284,6 +287,7 @@ export default function PersonalWithdrawalsPage() {
       }
       setCurrencies(cached.currencies);
       setInHandCheques(cached.inHandCheques);
+      setBankAccounts(cached.bankAccounts || []);
       setWithdraweeOptions(cached.withdraweeOptions);
       const nextWithdrawnBy = (preset?.withdrawnBy as string) || "";
       setForm((f) => ({
@@ -295,6 +299,7 @@ export default function PersonalWithdrawalsPage() {
         notes: "",
         sourceType: "cash_office",
         chequePaymentId: 0,
+        bankAccountId: 0,
         currencyId: cached.currencies[0]?.id || 0,
         ...preset,
       }));
@@ -311,8 +316,9 @@ export default function PersonalWithdrawalsPage() {
       requests.push(apiCall("/api/v1/payments", {
         params: { all: 1, status: "active", payment_method: "cheque", destination: "our_account", cheque_status: "in_hand" },
       }));
+      requests.push(apiCall("/api/v1/bank-accounts", { params: { limit: 100 } }));
     }
-    const [cityRes, nameRes, chequeRes] = await Promise.all(requests);
+    const [cityRes, nameRes, chequeRes, bankRes] = await Promise.all(requests);
     if (cityRes.success && user?.cityId) {
       const city = (cityRes.data as any[]).find((c: any) => c.id === user.cityId);
       if (city?.currencies?.length) { setCurrencies(city.currencies); setForm((f) => ({ ...f, currencyId: city.currencies[0].id })); }
@@ -321,6 +327,8 @@ export default function PersonalWithdrawalsPage() {
     else setWithdraweeOptions([]);
     if (!isAfghanistanCity && chequeRes?.success) setInHandCheques(chequeRes.data as any[]);
     else setInHandCheques([]);
+    if (!isAfghanistanCity && bankRes?.success) setBankAccounts(bankRes.data as any[]);
+    else setBankAccounts([]);
     const cachedCurrencies = cityRes.success && user?.cityId
       ? (((cityRes.data as any[]).find((c: any) => c.id === user.cityId)?.currencies) || [])
       : [];
@@ -328,11 +336,12 @@ export default function PersonalWithdrawalsPage() {
       writeOfflineFormCache<WithdrawalsFormCache>(WITHDRAWALS_FORM_CACHE_KEY, {
         currencies: cachedCurrencies,
         inHandCheques: !isAfghanistanCity && chequeRes?.success ? (chequeRes.data as any[]) : [],
+        bankAccounts: !isAfghanistanCity && bankRes?.success ? (bankRes.data as any[]) : [],
         withdraweeOptions: nameRes?.success ? ((nameRes.data as string[]) || []) : [],
       });
     }
     const nextWithdrawnBy = (preset?.withdrawnBy as string) || "";
-    setForm((f) => ({ ...f, withdrawalDate: new Date().toISOString().split("T")[0], amount: 0, detail: "", withdrawnBy: "", notes: "", sourceType: "cash_office", chequePaymentId: 0, ...preset }));
+    setForm((f) => ({ ...f, withdrawalDate: new Date().toISOString().split("T")[0], amount: 0, detail: "", withdrawnBy: "", notes: "", sourceType: "cash_office", chequePaymentId: 0, bankAccountId: 0, ...preset }));
     setWithdraweeSearch(nextWithdrawnBy);
     setShowWithdraweeMenu(false);
     setShowCreate(true); setFormError("");
@@ -342,6 +351,7 @@ export default function PersonalWithdrawalsPage() {
     if (!form.amount || !form.detail) { setFormError(t("amount") + " " + t("and") + " " + t("detail") + " required"); return; }
     if (!normalizeWithdraweeName(form.withdrawnBy)) { setFormError("Withdrawn By is required"); return; }
     if (form.sourceType === "cheque" && !form.chequePaymentId) { setFormError("Please select a cheque"); return; }
+    if (form.sourceType === "bank_account" && !form.bankAccountId) { setFormError("Please select a bank account"); return; }
 
     const resolvedCurrencyId = form.currencyId || currencies[0]?.id || 0;
     if (!resolvedCurrencyId) {
@@ -358,6 +368,8 @@ export default function PersonalWithdrawalsPage() {
       withdrawnBy: normalizeWithdraweeName(form.withdrawnBy),
       currencyId: resolvedCurrencyId,
     };
+    if (payload.sourceType !== "cheque") delete (payload as any).chequePaymentId;
+    if (payload.sourceType !== "bank_account") delete (payload as any).bankAccountId;
 
     if (resolvingQueueId) {
       const updateOk = await updateQueuedItem(resolvingQueueId, { body: JSON.stringify(payload) });
@@ -398,6 +410,8 @@ export default function PersonalWithdrawalsPage() {
         withdrawnBy: payload.withdrawnBy,
         notes: form.notes || null,
         sourceType: form.sourceType,
+        bankAccountId: form.bankAccountId || null,
+        bankAccount: bankAccounts.find((account: any) => account.id === form.bankAccountId) || null,
         approvedAt: null,
         _pending: true,
       }, ...prev];
@@ -439,7 +453,7 @@ export default function PersonalWithdrawalsPage() {
 
   const openEdit = (w: any) => {
     setSelected(w);
-    setForm({ withdrawalDate: w.withdrawalDate, amount: w.amount, detail: w.detail, withdrawnBy: w.withdrawnBy || "", notes: w.notes || "", currencyId: 0, sourceType: w.sourceType || "cash_office", chequePaymentId: w.chequePaymentId || 0 });
+    setForm({ withdrawalDate: w.withdrawalDate, amount: w.amount, detail: w.detail, withdrawnBy: w.withdrawnBy || "", notes: w.notes || "", currencyId: 0, sourceType: w.sourceType || "cash_office", chequePaymentId: w.chequePaymentId || 0, bankAccountId: w.bankAccountId || 0 });
     setShowEdit(true); setFormError("");
   };
 
@@ -687,7 +701,11 @@ export default function PersonalWithdrawalsPage() {
           ? "bg-amber-50 text-amber-700 border-amber-200"
           : "bg-green-50 text-green-700 border-green-200"
       }`}>
-        {w.sourceType === "cheque" ? "🧾 Cheque in Hand" : "💵 Cash from Office"}
+        {w.sourceType === "cheque"
+          ? "🧾 Cheque in Hand"
+          : w.sourceType === "bank_account"
+            ? `🏦 ${w.bankAccount?.bankName || "Bank Account"}`
+            : "💵 Cash from Office"}
       </span>
     ),
   };
@@ -894,9 +912,10 @@ export default function PersonalWithdrawalsPage() {
           {!isAfghanistanCity && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("source_of_funds")}</label>
-            <select value={form.sourceType} onChange={(e) => setForm((f) => ({ ...f, sourceType: e.target.value, chequePaymentId: 0 }))} className="select-field">
+            <select value={form.sourceType} onChange={(e) => setForm((f) => ({ ...f, sourceType: e.target.value, chequePaymentId: 0, bankAccountId: 0 }))} className="select-field">
               <option value="cash_office">{t("cash_from_office")}</option>
               <option value="cheque">{t("cheque")}</option>
+              <option value="bank_account">Bank Account</option>
             </select>
           </div>
           )}
@@ -926,6 +945,29 @@ export default function PersonalWithdrawalsPage() {
                   {inHandCheques.map((c: any) => (
                     <option key={c.id} value={c.id}>
                       #{c.chequeNumber || c.manualVoucherNo || c.id} · {c.customer?.name} · {c.currency?.symbol || c.currency?.code || ""} {Number(c.amount || 0).toLocaleString("en-US")}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+          {!isAfghanistanCity && form.sourceType === "bank_account" && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Bank Account *</label>
+              {bankAccounts.length === 0 ? (
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-700">
+                  No city bank accounts found. Create a bank account first.
+                </div>
+              ) : (
+                <select
+                  value={form.bankAccountId || 0}
+                  onChange={(e) => setForm((f) => ({ ...f, bankAccountId: parseInt(e.target.value) || 0 }))}
+                  className="select-field"
+                >
+                  <option value={0}>— Select a bank account —</option>
+                  {bankAccounts.map((account: any) => (
+                    <option key={account.id} value={account.id}>
+                      {account.bankName}{account.accountNumber ? ` · ${account.accountNumber}` : ""}
                     </option>
                   ))}
                 </select>
@@ -973,7 +1015,7 @@ export default function PersonalWithdrawalsPage() {
             <input type="number" value={form.amount || ""} onChange={(e) => setForm((f) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" readOnly={form.sourceType === "cheque"} onWheel={e => e.currentTarget.blur()} />
           </div>
           <div className="p-2 bg-gray-50 border rounded text-xs text-gray-600">
-            Source: <strong>{selected?.sourceType === "cheque" ? "🧾 Cheque in Hand" : "💵 Cash from Office"}</strong> (cannot change after creation)
+            Source: <strong>{selected?.sourceType === "cheque" ? "🧾 Cheque in Hand" : selected?.sourceType === "bank_account" ? `🏦 ${selected?.bankAccount?.bankName || "Bank Account"}` : "💵 Cash from Office"}</strong> (cannot change after creation)
           </div>
           {!isSuperAdmin && (
           <div>

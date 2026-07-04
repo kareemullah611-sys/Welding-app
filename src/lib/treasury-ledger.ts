@@ -203,6 +203,7 @@ export async function computeCityTreasuryNet(
     depositedChequesRaw,
     hajiFromBankRaw,
     expensesFromBankRaw,
+    withdrawalsFromBankRaw,
     cityBankAccounts,
   ] = await Promise.all([
     prisma.payment.groupBy({
@@ -270,6 +271,11 @@ export async function computeCityTreasuryNet(
       where: { cityId, paidFrom: "bank_account", deletedAt: null },
       _sum: { amount: true },
     }),
+    prisma.personalWithdrawal.groupBy({
+      by: ["currencyId"],
+      where: { cityId, sourceType: "bank_account" } as any,
+      _sum: { amount: true },
+    }),
     prisma.bankAccount.findMany({ where: { cityId }, select: { id: true } }),
   ]);
 
@@ -311,7 +317,10 @@ export async function computeCityTreasuryNet(
     await mapRows(depositedChequesRaw)
   );
   bankBalance = subtractMap(
-    subtractMap(subtractMap(bankBalance, await mapRows(hajiFromBankRaw)), await mapRows(expensesFromBankRaw)),
+    subtractMap(
+      subtractMap(subtractMap(bankBalance, await mapRows(hajiFromBankRaw)), await mapRows(expensesFromBankRaw)),
+      await mapRows(withdrawalsFromBankRaw)
+    ),
     supplierBankOut
   );
 

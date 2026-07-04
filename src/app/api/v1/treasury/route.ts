@@ -287,6 +287,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       },
       _sum: { amount: true },
     });
+    const withdrawalsFromBankRaw = await prisma.personalWithdrawal.groupBy({
+      by: ["currencyId"],
+      where: { cityId, sourceType: "bank_account" } as any,
+      _sum: { amount: true },
+    });
 
     const cityBankAccounts = await prisma.bankAccount.findMany({
       where: { cityId },
@@ -313,6 +318,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       ...depositedChequesRaw.map((r) => r.currencyId),
       ...hajiFromBankRaw.map((r) => r.currencyId),
       ...expensesFromBankRaw.map((r) => r.currencyId),
+      ...withdrawalsFromBankRaw.map((r) => r.currencyId),
     ].filter((id) => !codeById[id]);
 
     if (newIds.length > 0) {
@@ -357,6 +363,12 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         total: Number(r._sum.amount ?? 0),
       }))
     );
+    const withdrawalBankOut = toBalanceMap(
+      withdrawalsFromBankRaw.map((r) => ({
+        currencyCode: codeById[r.currencyId] ?? String(r.currencyId),
+        total: Number(r._sum.amount ?? 0),
+      }))
+    );
 
     const supplierBankOutByCurrency: Record<string, number> = {};
     const supplierBankOutByAccount = new Map<number, Record<string, number>>();
@@ -383,7 +395,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     // bankBalance = openingBank + bankPaymentsIn + depositCashIn + depositedChequesIn - outflows
     let bankBalance = addMap(addMap(addMap(addMap(openingBankIn, bankPaymentsIn), depositCashOut), depositedChequesIn), {});
-    bankBalance = subtractMap(subtractMap(subtractMap(bankBalance, hajiFromBankOut), expenseBankOut), supplierBankOutByCurrency);
+    bankBalance = subtractMap(subtractMap(subtractMap(subtractMap(bankBalance, hajiFromBankOut), expenseBankOut), withdrawalBankOut), supplierBankOutByCurrency);
 
     // ----------------------------------------------------------------
     // 4. Per-account bank breakdown
@@ -471,6 +483,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         where: { cityId, bankAccountId: acct.id, deletedAt: null },
         _sum: { amount: true },
       });
+      const acctWithdrawalsRaw = await prisma.personalWithdrawal.groupBy({
+        by: ["currencyId"],
+        where: { cityId, bankAccountId: acct.id, sourceType: "bank_account" } as any,
+        _sum: { amount: true },
+      });
 
       // Ensure currencies are resolved
       const acctNewIds = [
@@ -480,6 +497,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         ...acctDepositedChequesRaw.map((r) => r.currencyId),
         ...acctHajiRaw.map((r) => r.currencyId),
         ...acctExpensesRaw.map((r) => r.currencyId),
+        ...acctWithdrawalsRaw.map((r) => r.currencyId),
       ].filter((id) => !codeById[id]);
 
       if (acctNewIds.length > 0) {
@@ -531,10 +549,19 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           total: Number(r._sum.amount ?? 0),
         }))
       );
+      const acctWithdrawalsOut = toBalanceMap(
+        acctWithdrawalsRaw.map((r) => ({
+          currencyCode: codeById[r.currencyId] ?? String(r.currencyId),
+          total: Number(r._sum.amount ?? 0),
+        }))
+      );
 
       const acctBalance = subtractMap(
         subtractMap(
-          subtractMap(addMap(addMap(addMap(acctOpeningIn, acctBankPaymentsIn), acctDepositsIn), acctChequesIn), acctHajiOut),
+          subtractMap(
+            subtractMap(addMap(addMap(addMap(acctOpeningIn, acctBankPaymentsIn), acctDepositsIn), acctChequesIn), acctHajiOut),
+            acctWithdrawalsOut
+          ),
           acctExpensesOut
         ),
         supplierBankOutByAccount.get(acct.id) || {}

@@ -309,9 +309,11 @@ export async function journalExpenseCreated(e: { id: number; cityId: number; lot
 }
 
 // WITHDRAWAL
-export async function journalWithdrawal(w: { id: number; cityId: number; amount: number; currencyCode: string; date: Date; createdBy: number; sourceType?: string | null; }, db: DbClient = prisma) {
+export async function journalWithdrawal(w: { id: number; cityId: number; amount: number; currencyCode: string; date: Date; createdBy: number; sourceType?: string | null; bankAccountId?: number | null; }, db: DbClient = prisma) {
   const creditAccId = w.sourceType === "cheque"
     ? await getChequesInHandAccountId(w.cityId, db)
+    : w.sourceType === "bank_account" && w.bankAccountId
+      ? await getBankGLAccountId(w.bankAccountId, db)
     : await getCashAccountId(w.cityId, db);
   await createJournalEntries(`WDRAW-${w.id}`, [
     { accountId: await getOwnerWithdrawalAccountId(db), debit: w.amount, credit: 0, description: `Owner withdrawal` },

@@ -52,8 +52,15 @@ test("tsx is not installed as a production dependency", () => {
 
 test("bank account numbers are encrypted before persistence", async () => {
   const prisma = readFileSync("src/lib/prisma.ts", "utf8");
+  const schema = readFileSync("prisma/schema.prisma", "utf8");
+  const migration = readFileSync("prisma/migrations/20260703000500_expand_encrypted_account_numbers/migration.sql", "utf8");
+
   assert.match(prisma, /encryptAccountNumberInData\(params\.args\.data\)/);
   assert.match(prisma, /decryptSensitiveFields\(result\)/);
+  assert.match(schema, /model BankAccount[\s\S]*accountNumber\s+String\?\s+@map\("account_number"\)\s+@db\.VarChar\(255\)/);
+  assert.match(schema, /model SuperAdminBankAccount[\s\S]*accountNumber\s+String\?\s+@map\("account_number"\)\s+@db\.VarChar\(255\)/);
+  assert.match(migration, /ALTER TABLE "bank_accounts"[\s\S]*"account_number" TYPE VARCHAR\(255\)/);
+  assert.match(migration, /ALTER TABLE "super_admin_bank_accounts"[\s\S]*"account_number" TYPE VARCHAR\(255\)/);
 
   process.env.DATA_ENCRYPTION_KEY = "test-data-encryption-key-with-32-bytes";
   const { decryptSensitiveText, encryptSensitiveText, isEncryptedSensitiveText } = await import("./sensitive-encryption");

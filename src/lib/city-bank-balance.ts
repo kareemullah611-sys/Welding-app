@@ -17,6 +17,7 @@ export async function getCityBankAccountAvailableBalance(
     depositsSum,
     hajiSum,
     expensesSum,
+    withdrawalsSum,
     depositIds,
     currency,
     supplierPayments,
@@ -48,6 +49,10 @@ export async function getCityBankAccountAvailableBalance(
       where: { cityId, bankAccountId, currencyId, deletedAt: null },
       _sum: { amount: true },
     }),
+    db.personalWithdrawal.aggregate({
+      where: { cityId, bankAccountId, currencyId, sourceType: "bank_account" },
+      _sum: { amount: true },
+    } as any),
     db.bankDeposit.findMany({
       where: { cityId, bankAccountId },
       select: { id: true },
@@ -96,6 +101,7 @@ export async function getCityBankAccountAvailableBalance(
     Number(chequesSum._sum.amount || 0) -
     Number(hajiSum._sum.amount || 0) -
     Number(expensesSum._sum.amount || 0) -
+    Number(withdrawalsSum._sum?.amount || 0) -
     supplierOut;
 
   return round2(balance);

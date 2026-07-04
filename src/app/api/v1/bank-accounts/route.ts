@@ -174,7 +174,14 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const currencies = await prisma.currency.findMany({ select: { id: true, code: true } });
     const currencyCodeById = Object.fromEntries(currencies.map((currency) => [currency.id, currency.code]));
 
-    const [paymentsIn, deposits, depositedCheques, expenses, hajiTransfers, supplierPayments, shippingLinePayments, agentPayments, lotCosts, intermediaryDeposits] = await Promise.all([
+    const [openingBalances, paymentsIn, deposits, depositedCheques, expenses, hajiTransfers, supplierPayments, shippingLinePayments, agentPayments, lotCosts, intermediaryDeposits, personalWithdrawals] = await Promise.all([
+      prisma.openingBankBalance.groupBy({
+        by: ["bankAccountId", "currencyId"],
+        where: cityId
+          ? { bankAccountId: { in: scopedBankAccountIds.length > 0 ? scopedBankAccountIds : [-1] } }
+          : {},
+        _sum: { amount: true },
+      }),
       prisma.payment.groupBy({
         by: ["bankAccountId", "currencyId"],
         where: {
@@ -281,6 +288,16 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           currencyId: true,
         },
       }),
+      prisma.personalWithdrawal.groupBy({
+        by: ["bankAccountId", "currencyId"],
+        where: {
+          bankAccountId: cityId
+            ? { in: scopedBankAccountIds.length > 0 ? scopedBankAccountIds : [-1] }
+            : { not: null },
+          sourceType: "bank_account",
+        } as any,
+        _sum: { amount: true },
+      }),
     ]);
     const balanceByAccount = new Map<number, Record<string, number>>();
     const addBalance = (accountId: number | null, currencyId: number, amount: number) => {
@@ -297,6 +314,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       pot[key] = Math.round(((pot[key] || 0) + amount) * 100) / 100;
       balanceByAccount.set(accountId, pot);
     };
+    for (const row of openingBalances) addBalance(row.bankAccountId, row.currencyId, Number(row._sum.amount || 0));
     for (const row of paymentsIn) addBalance(row.bankAccountId, row.currencyId, Number(row._sum.amount || 0));
     for (const row of deposits) addBalance(row.bankAccountId, row.currencyId, Number(row._sum.cashAmount || 0));
     const depositedChequeTotals = new Map<string, number>();
@@ -336,6 +354,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     for (const row of agentPayments) addBalanceByCode(row.bankAccountId, row.currencyCode, -Number(row.amount || 0));
     for (const row of lotCosts) addBalanceByCode(row.bankAccountId, row.currencyCode, -Number(row.amount || 0));
     for (const row of intermediaryDeposits) addBalance(row.bankAccountId, row.currencyId, -Number(row.amount || 0));
+    for (const row of personalWithdrawals) addBalance(row.bankAccountId, row.currencyId, -Number(row._sum.amount || 0));
 
     const accounts = await prisma.bankAccount.findMany({
       where,
