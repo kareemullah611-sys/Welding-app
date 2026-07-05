@@ -3,13 +3,22 @@ import prisma from "@/lib/prisma";
 import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { createProductSchema } from "@/lib/validations";
 
 export const GET = withSuperAdmin(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
     const id = parseInt(context.params.id);
     const product = await prisma.product.findUnique({ where: { id } });
     if (!product) return errorResponse("NOT_FOUND", "Product not found", 404);
-    return successResponse({ id: product.id, name: product.name, isActive: product.isActive });
+    return successResponse({
+      id: product.id,
+      name: product.name,
+      unitOfMeasure: product.unitOfMeasure,
+      defaultWeightPerCartonKg: product.defaultWeightPerCartonKg ? Number(product.defaultWeightPerCartonKg) : null,
+      packetsPerCarton: product.packetsPerCarton,
+      piecesPerCarton: product.piecesPerCarton,
+      isActive: product.isActive,
+    });
   } catch (error) { return serverError(); }
 });
 
@@ -19,13 +28,70 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     const body = await request.json();
     const product = await prisma.product.findUnique({ where: { id } });
     if (!product) return errorResponse("NOT_FOUND", "Product not found", 404);
+    const isStatusOnlyUpdate = Object.keys(body).every((key) => key === "isActive");
+    if (isStatusOnlyUpdate) {
+      const updated = await prisma.product.update({
+        where: { id },
+        data: { isActive: body.isActive !== undefined ? body.isActive : product.isActive, updatedAt: new Date() },
+      });
+      await createAuditLog(user.userId, null, "products", id, "update", { isActive: product.isActive }, { isActive: updated.isActive }, getClientIP(request));
+      return successResponse({
+        id: updated.id,
+        name: updated.name,
+        unitOfMeasure: updated.unitOfMeasure,
+        defaultWeightPerCartonKg: updated.defaultWeightPerCartonKg ? Number(updated.defaultWeightPerCartonKg) : null,
+        packetsPerCarton: updated.packetsPerCarton,
+        piecesPerCarton: updated.piecesPerCarton,
+        isActive: updated.isActive,
+      }, "Product updated");
+    }
+    const nextUnitOfMeasure = body.unitOfMeasure ?? product.unitOfMeasure;
+    const nextDefaultWeightPerCartonKg = body.defaultWeightPerCartonKg !== undefined ? body.defaultWeightPerCartonKg : product.defaultWeightPerCartonKg ? Number(product.defaultWeightPerCartonKg) : null;
+    const nextPacketsPerCarton = body.packetsPerCarton !== undefined ? body.packetsPerCarton : product.packetsPerCarton;
+    const nextPiecesPerCarton = body.piecesPerCarton !== undefined ? body.piecesPerCarton : product.piecesPerCarton;
+    const parsed = createProductSchema.safeParse({
+      name: body.name || product.name,
+      unitOfMeasure: nextUnitOfMeasure,
+      defaultWeightPerCartonKg: nextDefaultWeightPerCartonKg,
+      packetsPerCarton: nextPacketsPerCarton,
+      piecesPerCarton: nextPiecesPerCarton,
+    });
+    if (!parsed.success) return errorResponse("VALIDATION_ERROR", "Invalid product data", 400);
 
     const updated = await prisma.product.update({
       where: { id },
-      data: { name: body.name || product.name, isActive: body.isActive !== undefined ? body.isActive : product.isActive, updatedAt: new Date() },
+      data: {
+        name: parsed.data.name,
+        unitOfMeasure: parsed.data.unitOfMeasure,
+        defaultWeightPerCartonKg: parsed.data.defaultWeightPerCartonKg,
+        packetsPerCarton: parsed.data.packetsPerCarton,
+        piecesPerCarton: parsed.data.piecesPerCarton,
+        isActive: body.isActive !== undefined ? body.isActive : product.isActive,
+        updatedAt: new Date(),
+      },
     });
-    await createAuditLog(user.userId, null, "products", id, "update", { name: product.name }, { name: updated.name }, getClientIP(request));
-    return successResponse({ id: updated.id, name: updated.name }, "Product updated");
+    await createAuditLog(user.userId, null, "products", id, "update", {
+      name: product.name,
+      unitOfMeasure: product.unitOfMeasure,
+      defaultWeightPerCartonKg: product.defaultWeightPerCartonKg ? Number(product.defaultWeightPerCartonKg) : null,
+      packetsPerCarton: product.packetsPerCarton,
+      piecesPerCarton: product.piecesPerCarton,
+    }, {
+      name: updated.name,
+      unitOfMeasure: updated.unitOfMeasure,
+      defaultWeightPerCartonKg: updated.defaultWeightPerCartonKg ? Number(updated.defaultWeightPerCartonKg) : null,
+      packetsPerCarton: updated.packetsPerCarton,
+      piecesPerCarton: updated.piecesPerCarton,
+    }, getClientIP(request));
+    return successResponse({
+      id: updated.id,
+      name: updated.name,
+      unitOfMeasure: updated.unitOfMeasure,
+      defaultWeightPerCartonKg: updated.defaultWeightPerCartonKg ? Number(updated.defaultWeightPerCartonKg) : null,
+      packetsPerCarton: updated.packetsPerCarton,
+      piecesPerCarton: updated.piecesPerCarton,
+      isActive: updated.isActive,
+    }, "Product updated");
   } catch (error) { return serverError(); }
 });
 

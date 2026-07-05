@@ -556,6 +556,11 @@ function ProductsTab() {
   const [showEdit, setShowEdit] = useState(false);
   const [selected, setSelected] = useState<any>(null);
   const [name, setName] = useState("");
+  const [unitOfMeasure, setUnitOfMeasure] = useState<"MT" | "PCS">("MT");
+  const [defaultWeightPerCartonKg, setDefaultWeightPerCartonKg] = useState("");
+  const [packetMode, setPacketMode] = useState<"nil" | "packets">("nil");
+  const [packetsPerCarton, setPacketsPerCarton] = useState("");
+  const [piecesPerCarton, setPiecesPerCarton] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const getPendingQueueId = (id: unknown) => {
@@ -599,15 +604,23 @@ function ProductsTab() {
   }, [isOnline, mergeSnapshot, queuedItems, readSnapshot]);
   useEffect(() => { load(); }, [load]);
 
-  const handleCreate = async () => { if (!name.trim()) return; setSubmitting(true); const r = await apiCall("/api/v1/products", { method: "POST", body: { name } }); setSubmitting(false); if (r.success) { setShowCreate(false); setName(""); load(); } };
-  const openEdit = (p: any) => { setSelected(p); setName(p.name); setShowEdit(true); };
+  const productPayload = () => ({
+    name,
+    unitOfMeasure,
+    defaultWeightPerCartonKg: unitOfMeasure === "MT" ? Number(defaultWeightPerCartonKg) : null,
+    packetsPerCarton: unitOfMeasure === "MT" && packetMode === "packets" ? Number(packetsPerCarton) : null,
+    piecesPerCarton: unitOfMeasure === "PCS" ? Number(piecesPerCarton) : null,
+  });
+  const resetProductForm = () => { setName(""); setUnitOfMeasure("MT"); setDefaultWeightPerCartonKg(""); setPacketMode("nil"); setPacketsPerCarton(""); setPiecesPerCarton(""); };
+  const handleCreate = async () => { if (!name.trim()) return; setSubmitting(true); const r = await apiCall("/api/v1/products", { method: "POST", body: productPayload() }); setSubmitting(false); if (r.success) { setShowCreate(false); resetProductForm(); load(); } };
+  const openEdit = (p: any) => { setSelected(p); setName(p.name); setUnitOfMeasure(p.unitOfMeasure || "MT"); setDefaultWeightPerCartonKg(p.defaultWeightPerCartonKg ? String(p.defaultWeightPerCartonKg) : ""); setPacketMode(p.packetsPerCarton ? "packets" : "nil"); setPacketsPerCarton(p.packetsPerCarton ? String(p.packetsPerCarton) : ""); setPiecesPerCarton(p.piecesPerCarton ? String(p.piecesPerCarton) : ""); setShowEdit(true); };
   const handleEdit = async () => {
     const pendingQueueId = getPendingQueueId(selected?.id);
     if (pendingQueueId) {
-      const ok = await updateQueuedItem(pendingQueueId, { body: JSON.stringify({ name }) });
+      const ok = await updateQueuedItem(pendingQueueId, { body: JSON.stringify(productPayload()) });
       if (!ok) return;
       setProducts((prev) => {
-        const next = prev.map((row: any) => (row.id === selected.id ? { ...row, name, _pending: true } : row));
+        const next = prev.map((row: any) => (row.id === selected.id ? { ...row, ...productPayload(), _pending: true } : row));
         mergeSnapshot({ products: next });
         return next;
       });
@@ -615,7 +628,7 @@ function ProductsTab() {
       return;
     }
     setSubmitting(true);
-    await apiCall(`/api/v1/products/${selected.id}`, { method: "PUT", body: { name } });
+    await apiCall(`/api/v1/products/${selected.id}`, { method: "PUT", body: productPayload() });
     setSubmitting(false);
     setShowEdit(false);
     load();
@@ -662,7 +675,7 @@ function ProductsTab() {
           Offline snapshot mode: showing last cached products data for this device.
         </div>
       )}
-      <div className="flex justify-end mb-4"><button onClick={() => { setName(""); setShowCreate(true); }} className="btn-primary text-sm">+ {t("new_product")}</button></div>
+      <div className="flex justify-end mb-4"><button onClick={() => { resetProductForm(); setShowCreate(true); }} className="btn-primary text-sm">+ {t("new_product")}</button></div>
       {deleteError && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-start gap-2">
           <span className="mt-0.5">⚠️</span>
@@ -675,6 +688,10 @@ function ProductsTab() {
       )}
       <DataTable columns={[
         { key: "name", label: t("name"), render: (p: any) => <span className="font-medium">{p.name}</span> },
+        { key: "unitOfMeasure", label: "Unit", render: (p: any) => <span>{p.unitOfMeasure || "MT"}</span> },
+        { key: "defaultWeightPerCartonKg", label: "WT/CRT (KG)", render: (p: any) => <span>{p.unitOfMeasure === "MT" ? p.defaultWeightPerCartonKg || "—" : "—"}</span> },
+        { key: "packetsPerCarton", label: "Packets/CTN", render: (p: any) => <span>{p.unitOfMeasure === "MT" ? p.packetsPerCarton || "Nil" : "—"}</span> },
+        { key: "piecesPerCarton", label: "PCS/CTN", render: (p: any) => <span>{p.unitOfMeasure === "PCS" ? p.piecesPerCarton : "—"}</span> },
         { key: "isActive", label: t("status"), render: (p: any) => <span className={p.isActive ? "badge-active" : "badge-cancelled"}>{p.isActive ? t("active") : t("inactive")}</span> },
         { key: "actions", label: "", render: (p: any) => (
           <div className="flex gap-2">
@@ -686,10 +703,20 @@ function ProductsTab() {
       ]} data={products} loading={loading} />
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t("new_product")} size="sm">
         <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("name")} *</label><input value={name} onChange={(e) => setName(e.target.value)} className="input-field" /></div>
+        <div className="mt-3"><label className="block text-sm font-medium text-gray-700 mb-1">Unit *</label><select value={unitOfMeasure} onChange={(e) => setUnitOfMeasure(e.target.value as "MT" | "PCS")} className="select-field"><option value="MT">MT</option><option value="PCS">PCS</option></select></div>
+        {unitOfMeasure === "MT" && <div className="mt-3"><label className="block text-sm font-medium text-gray-700 mb-1">WT/CRT (KG) *</label><input type="number" value={defaultWeightPerCartonKg} onChange={(e) => setDefaultWeightPerCartonKg(e.target.value)} className="input-field" min="0.001" step="0.001" /></div>}
+        {unitOfMeasure === "MT" && <div className="mt-3"><label className="block text-sm font-medium text-gray-700 mb-1">Packets</label><select value={packetMode} onChange={(e) => setPacketMode(e.target.value as "nil" | "packets")} className="select-field"><option value="nil">Nil</option><option value="packets">Has packets</option></select></div>}
+        {unitOfMeasure === "MT" && packetMode === "packets" && <div className="mt-3"><label className="block text-sm font-medium text-gray-700 mb-1">Packets/CTN *</label><input type="number" value={packetsPerCarton} onChange={(e) => setPacketsPerCarton(e.target.value)} className="input-field" min="1" step="1" /></div>}
+        {unitOfMeasure === "PCS" && <div className="mt-3"><label className="block text-sm font-medium text-gray-700 mb-1">PCS/CTN *</label><input type="number" value={piecesPerCarton} onChange={(e) => setPiecesPerCarton(e.target.value)} className="input-field" min="1" step="1" /></div>}
         <div className="flex justify-end gap-3 pt-4 mt-4"><button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("create")}</button></div>
       </Modal>
       <Modal open={showEdit} onClose={() => setShowEdit(false)} title={`${t("edit")}: ${selected?.name || ""}`} size="sm">
         <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("name")}</label><input value={name} onChange={(e) => setName(e.target.value)} className="input-field" /></div>
+        <div className="mt-3"><label className="block text-sm font-medium text-gray-700 mb-1">Unit</label><select value={unitOfMeasure} onChange={(e) => setUnitOfMeasure(e.target.value as "MT" | "PCS")} className="select-field"><option value="MT">MT</option><option value="PCS">PCS</option></select></div>
+        {unitOfMeasure === "MT" && <div className="mt-3"><label className="block text-sm font-medium text-gray-700 mb-1">WT/CRT (KG) *</label><input type="number" value={defaultWeightPerCartonKg} onChange={(e) => setDefaultWeightPerCartonKg(e.target.value)} className="input-field" min="0.001" step="0.001" /></div>}
+        {unitOfMeasure === "MT" && <div className="mt-3"><label className="block text-sm font-medium text-gray-700 mb-1">Packets</label><select value={packetMode} onChange={(e) => setPacketMode(e.target.value as "nil" | "packets")} className="select-field"><option value="nil">Nil</option><option value="packets">Has packets</option></select></div>}
+        {unitOfMeasure === "MT" && packetMode === "packets" && <div className="mt-3"><label className="block text-sm font-medium text-gray-700 mb-1">Packets/CTN *</label><input type="number" value={packetsPerCarton} onChange={(e) => setPacketsPerCarton(e.target.value)} className="input-field" min="1" step="1" /></div>}
+        {unitOfMeasure === "PCS" && <div className="mt-3"><label className="block text-sm font-medium text-gray-700 mb-1">PCS/CTN *</label><input type="number" value={piecesPerCarton} onChange={(e) => setPiecesPerCarton(e.target.value)} className="input-field" min="1" step="1" /></div>}
         <div className="flex justify-end gap-3 pt-4 mt-4"><button onClick={handleEdit} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button></div>
       </Modal>
     </>

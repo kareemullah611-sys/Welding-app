@@ -47,6 +47,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       SELECT
         g.id as godown_id, g.name as godown_name,
         p.id as product_id, p.name as product_name,
+        p.unit_of_measure, p.pieces_per_carton,
         COALESCE(r.qty, 0) as received,
         COALESCE(s.qty, 0) as sold,
         COALESCE(tout.qty, 0) as transferred_out,
@@ -65,17 +66,26 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       ORDER BY g.name, p.name
     `;
 
+    const displayQty = (value: unknown, row: any) => {
+      const qty = Number(value || 0);
+      return row.unit_of_measure === "PCS" && Number(row.pieces_per_carton || 0) > 0
+        ? qty / Number(row.pieces_per_carton)
+        : qty;
+    };
+
     return successResponse(stock.map((row) => ({
       godownId: row.godown_id,
       godownName: row.godown_name,
       productId: row.product_id,
       productName: row.product_name,
+      unitOfMeasure: row.unit_of_measure,
+      piecesPerCarton: row.pieces_per_carton,
       openingQty: 0,
-      received: Math.round(Number(row.received) * 100) / 100,
-      sold: Math.round(Number(row.sold) * 100) / 100,
-      transferredOut: Math.round(Number(row.transferred_out) * 100) / 100,
-      transferredIn: Math.round(Number(row.transferred_in) * 100) / 100,
-      available: Math.round(Number(row.available) * 100) / 100,
+      received: Math.round(displayQty(row.received, row) * 100) / 100,
+      sold: Math.round(displayQty(row.sold, row) * 100) / 100,
+      transferredOut: Math.round(displayQty(row.transferred_out, row) * 100) / 100,
+      transferredIn: Math.round(displayQty(row.transferred_in, row) * 100) / 100,
+      available: Math.round(displayQty(row.available, row) * 100) / 100,
     })));
   } catch (error) {
     console.error("Godown stock error:", error);

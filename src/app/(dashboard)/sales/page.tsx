@@ -33,6 +33,8 @@ type SalesFormCache = {
   currencies: any[];
 };
 
+const emptySaleItem = () => ({ productId: 0, qty: 0, ratePerCarton: 0, ratePerPieceLocal: 0, ratePerPieceUsd: 0 });
+
 function readSalesFormCache(): SalesFormCache | null {
   if (typeof window === "undefined") return null;
   try {
@@ -160,7 +162,7 @@ export default function SalesPage() {
   const [form, setForm] = useState({
     customerId: 0, godownId: 0, lotId: 0, saleDate: new Date().toISOString().split("T")[0],
     currencyId: 0, notes: "",
-    items: [{ productId: 0, qty: 0, ratePerCarton: 0 }],
+    items: [emptySaleItem()],
   });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
@@ -410,7 +412,7 @@ export default function SalesPage() {
       saleDate: new Date().toISOString().split("T")[0],
       currencyId: currencies[0]?.id || 0,
       notes: "",
-      items: [{ productId: 0, qty: 0, ratePerCarton: 0 }],
+      items: [emptySaleItem()],
     });
     setGodownStock([]);
     setShortConfirmed(false);
@@ -419,7 +421,7 @@ export default function SalesPage() {
   const openCreate = async (preset?: Partial<typeof form>) => {
     const loaded = await loadDropdowns();
     if (!loaded) return;
-    const nextItems = preset?.items?.length ? preset.items : [{ productId: 0, qty: 0, ratePerCarton: 0 }];
+    const nextItems = preset?.items?.length ? preset.items : [emptySaleItem()];
     setForm((prev) => ({
       customerId: 0, godownId: 0, lotId: 0, saleDate: new Date().toISOString().split("T")[0],
       currencyId: prev.currencyId || 0, notes: "",
@@ -437,7 +439,7 @@ export default function SalesPage() {
   };
 
 
-  const addItem = () => setForm((f) => ({ ...f, items: [...f.items, { productId: 0, qty: 0, ratePerCarton: 0 }] }));
+  const addItem = () => setForm((f) => ({ ...f, items: [...f.items, emptySaleItem()] }));
   const removeItem = (idx: number) => setForm((f) => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));
   const updateItem = (idx: number, field: string, value: number) => setForm((f) => ({ ...f, items: f.items.map((item, i) => (i === idx ? { ...item, [field]: value } : item)) }));
 
@@ -446,15 +448,27 @@ export default function SalesPage() {
     return s?.available || 0;
   };
 
-  const totalAmount = form.items.reduce((sum, i) => sum + i.qty * i.ratePerCarton, 0);
   const selectedCurrency = currencies.find((c) => c.id === form.currencyId);
   const amountPrefix = selectedCurrency?.symbol ? `${selectedCurrency.symbol} ` : "";
+  const selectedCurrencyCode = String(selectedCurrency?.code || "").toUpperCase();
+  const isAfghanistanSale = selectedCurrencyCode === "AFN";
+  const productForItem = (item: any) => products.find((p: any) => p.id === Number(item.productId));
+  const isPcsItem = (item: any) => productForItem(item)?.unitOfMeasure === "PCS";
+  const itemPieces = (item: any) => {
+    const product = productForItem(item);
+    return product?.unitOfMeasure === "PCS" ? Number(item.qty || 0) * Number(product.piecesPerCarton || 0) : Number(item.qty || 0);
+  };
+  const itemLocalAmount = (item: any) => isPcsItem(item)
+    ? itemPieces(item) * Number(item.ratePerPieceLocal || 0)
+    : Number(item.qty || 0) * Number(item.ratePerCarton || 0);
+  const itemUsdAmount = (item: any) => isPcsItem(item) ? itemPieces(item) * Number(item.ratePerPieceUsd || 0) : 0;
+  const totalAmount = form.items.reduce((sum, i) => sum + itemLocalAmount(i), 0);
 
   const handleSubmit = async () => {
     setFormError("");
     if (!form.customerId) { setFormError("Please select a customer"); return; }
     if (!form.godownId) { setFormError("Please select a godown"); return; }
-    const validItems = form.items.filter((i) => i.productId && i.qty > 0);
+    const validItems = form.items.filter((i) => i.productId && i.qty > 0 && (isPcsItem(i) ? Number(i.ratePerPieceLocal || 0) > 0 : Number(i.ratePerCarton || 0) > 0));
     if (!validItems.length) { setFormError("Add at least one product with quantity"); return; }
 
     // Warn (non-blocking) if any item exceeds available stock — API will mark sale as "marked_short"
@@ -470,7 +484,22 @@ export default function SalesPage() {
     }
     setShortConfirmed(false);
 
-    const payload = { customerId: form.customerId, godownId: form.godownId, lotId: form.lotId || null, saleDate: form.saleDate, currencyId: form.currencyId, notes: form.notes, items: validItems };
+    const payload = {
+      customerId: form.customerId,
+      godownId: form.godownId,
+      lotId: form.lotId || null,
+      saleDate: form.saleDate,
+      currencyId: form.currencyId,
+      notes: form.notes,
+      items: validItems.map((item: any) => isPcsItem(item)
+        ? {
+          productId: item.productId,
+          cartonQty: Number(item.qty),
+          ratePerPieceLocal: Number(item.ratePerPieceLocal),
+          ...(Number(item.ratePerPieceUsd || 0) > 0 ? { ratePerPieceUsd: Number(item.ratePerPieceUsd) } : {}),
+        }
+        : { productId: item.productId, qty: Number(item.qty), ratePerCarton: Number(item.ratePerCarton) }),
+    };
 
     if (resolvingQueueId) {
       const ok = await updateQueuedItem(resolvingQueueId, { body: JSON.stringify(payload) });
@@ -567,7 +596,7 @@ export default function SalesPage() {
         saleDate: String(parsed.saleDate || new Date().toISOString().split("T")[0]),
         currencyId: Number(parsed.currencyId || 0),
         notes: String(parsed.notes || ""),
-        items: Array.isArray(parsed.items) ? (parsed.items as any[]) : [{ productId: 0, qty: 0, ratePerCarton: 0 }],
+        items: Array.isArray(parsed.items) ? (parsed.items as any[]) : [emptySaleItem()],
       });
       setResolvingQueueId(queueId);
       setFormError("Resolving queued sale. Save to update and re-sync.");
@@ -1040,6 +1069,8 @@ export default function SalesPage() {
                 </div>
                 {form.items.map((item, idx) => {
                   const avail = getAvailable(item.productId);
+                  const pcsItem = isPcsItem(item);
+                  const localPcsLabel = isAfghanistanSale ? "AFN/PCS" : "PKR/PCS";
                   return (
                     <div key={idx} className="grid grid-cols-[minmax(0,1fr)_68px_52px_80px_84px_24px] gap-2 items-center">
                       <select
@@ -1064,16 +1095,24 @@ export default function SalesPage() {
                       <span className={`text-center text-xs font-semibold tabular-nums ${item.productId ? (avail > 0 ? "text-green-700" : "text-red-500") : "text-gray-300"}`}>
                         {item.productId ? avail : "—"}
                       </span>
-                      <input
-                        type="number"
-                        value={item.ratePerCarton || ""}
-                        onChange={(e) => updateItem(idx, "ratePerCarton", parseFloat(e.target.value) || 0)}
-                        className="input-field text-sm text-right"
-                        placeholder="0"
-                        onWheel={(e) => e.currentTarget.blur()}
-                      />
+                      {pcsItem ? (
+                        <div className="space-y-1">
+                          <input type="number" value={item.ratePerPieceLocal || ""} onChange={(e) => updateItem(idx, "ratePerPieceLocal", parseFloat(e.target.value) || 0)} className="input-field text-sm text-right" placeholder={localPcsLabel} onWheel={(e) => e.currentTarget.blur()} />
+                          {isAfghanistanSale && <input type="number" value={item.ratePerPieceUsd || ""} onChange={(e) => updateItem(idx, "ratePerPieceUsd", parseFloat(e.target.value) || 0)} className="input-field text-sm text-right" placeholder="USD/PCS" onWheel={(e) => e.currentTarget.blur()} />}
+                        </div>
+                      ) : (
+                        <input
+                          type="number"
+                          value={item.ratePerCarton || ""}
+                          onChange={(e) => updateItem(idx, "ratePerCarton", parseFloat(e.target.value) || 0)}
+                          className="input-field text-sm text-right"
+                          placeholder="0"
+                          onWheel={(e) => e.currentTarget.blur()}
+                        />
+                      )}
                       <p className="text-right text-sm font-medium tabular-nums text-gray-900">
-                        {amountPrefix}{(item.qty * item.ratePerCarton).toLocaleString("en-US")}
+                        {amountPrefix}{itemLocalAmount(item).toLocaleString("en-US")}
+                        {pcsItem && isAfghanistanSale && Number(item.ratePerPieceUsd || 0) > 0 && <span className="block text-[10px] text-gray-500">${itemUsdAmount(item).toLocaleString("en-US")}</span>}
                       </p>
                       {form.items.length > 1 ? (
                         <button type="button" onClick={() => removeItem(idx)} className="text-red-500 hover:text-red-700 text-lg leading-none" aria-label="Remove item">×</button>
@@ -1222,6 +1261,8 @@ export default function SalesPage() {
           <div className="space-y-2">
             {form.items.map((item, idx) => {
               const avail = getAvailable(item.productId);
+              const pcsItem = isPcsItem(item);
+              const localPcsLabel = isAfghanistanSale ? "AFN/PCS" : "PKR/PCS";
               return (
                 <div key={idx} className="flex gap-2 items-end">
                   <div className="flex-1">
@@ -1235,7 +1276,7 @@ export default function SalesPage() {
                     </select>
                   </div>
                   <div className="w-24">
-                    {idx === 0 && <label className="block text-xs text-gray-500 mb-1">{t("qty")}</label>}
+                    {idx === 0 && <label className="block text-xs text-gray-500 mb-1">{pcsItem ? "Qty (CTN)" : t("qty")}</label>}
                     <input type="number" value={item.qty || ""} onChange={(e) => updateItem(idx, "qty", parseFloat(e.target.value) || 0)} className={`input-field text-sm ${item.productId && item.qty > avail ? "border-red-400 bg-red-50" : ""}`} placeholder="0" max={avail || undefined} />
                   </div>
                   <div className="w-14 text-center">
@@ -1243,12 +1284,19 @@ export default function SalesPage() {
                     <span className={`text-xs font-medium ${item.productId ? (avail > 0 ? "text-green-600" : "text-red-500") : "text-gray-300"}`}>{item.productId ? avail : "-"}</span>
                   </div>
                   <div className="w-32">
-                    {idx === 0 && <label className="block text-xs text-gray-500 mb-1">{t("rate_per_carton")}</label>}
-                    <input type="number" value={item.ratePerCarton || ""} onChange={(e) => updateItem(idx, "ratePerCarton", parseFloat(e.target.value) || 0)} className="input-field text-sm" placeholder="0" />
+                    {idx === 0 && <label className="block text-xs text-gray-500 mb-1">{pcsItem ? localPcsLabel : t("rate_per_carton")}</label>}
+                    {pcsItem ? (
+                      <div className="space-y-1">
+                        <input type="number" value={item.ratePerPieceLocal || ""} onChange={(e) => updateItem(idx, "ratePerPieceLocal", parseFloat(e.target.value) || 0)} className="input-field text-sm" placeholder={localPcsLabel} />
+                        {isAfghanistanSale && <input type="number" value={item.ratePerPieceUsd || ""} onChange={(e) => updateItem(idx, "ratePerPieceUsd", parseFloat(e.target.value) || 0)} className="input-field text-sm" placeholder="USD/PCS" />}
+                      </div>
+                    ) : (
+                      <input type="number" value={item.ratePerCarton || ""} onChange={(e) => updateItem(idx, "ratePerCarton", parseFloat(e.target.value) || 0)} className="input-field text-sm" placeholder="0" />
+                    )}
                   </div>
                   <div className="w-28 text-right">
                     {idx === 0 && <label className="block text-xs text-gray-500 mb-1">{t("amount")}</label>}
-                    <p className="py-2 text-sm font-medium">{amountPrefix}{(item.qty * item.ratePerCarton).toLocaleString("en-US")}</p>
+                    <p className="py-2 text-sm font-medium">{amountPrefix}{itemLocalAmount(item).toLocaleString("en-US")}{pcsItem && isAfghanistanSale && Number(item.ratePerPieceUsd || 0) > 0 && <span className="block text-xs text-gray-500">${itemUsdAmount(item).toLocaleString("en-US")}</span>}</p>
                   </div>
                   {form.items.length > 1 && <button onClick={() => removeItem(idx)} className="text-red-500 hover:text-red-700 pb-2 text-lg">×</button>}
                 </div>
@@ -1359,7 +1407,7 @@ export default function SalesPage() {
               <div className="flex gap-1 items-center"><span className="text-sm text-gray-600">{((item.qty || 0) * (item.ratePerCarton || 0)).toLocaleString("en-US")}</span>{correctItems.length > 1 && <button onClick={() => setCorrectItems(ci => ci.filter((_, idx) => idx !== i))} className="text-red-500 text-lg">×</button>}</div>
             </div>
           ))}
-          <button onClick={() => setCorrectItems(ci => [...ci, { productId: 0, qty: 0, ratePerCarton: 0 }])} className="text-xs text-primary-600 hover:underline">+ {t("add_item")}</button>
+          <button onClick={() => setCorrectItems(ci => [...ci, emptySaleItem()])} className="text-xs text-primary-600 hover:underline">+ {t("add_item")}</button>
         </div>
         <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("cancel_reason")} *</label><input value={correctReason} onChange={e => setCorrectReason(e.target.value)} className="input-field" /></div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">

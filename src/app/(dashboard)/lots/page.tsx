@@ -51,7 +51,7 @@ export default function LotsPage() {
   const [products,    setProducts]    = useState<any[]>([]);
   const [suppliers,   setSuppliers]   = useState<any[]>([]);
 
-  const emptyItem = () => ({ supplierId: 0, productId: 0, weightPerCartonKg: "", qtyMt: "", unitPriceUsdPerMt: "" });
+  const emptyItem = () => ({ supplierId: 0, productId: 0, weightPerCartonKg: "", qtyMt: "", unitPriceUsdPerMt: "", qtyPcs: "", unitPriceUsdPerPcs: "" });
   type LotFormState = {
     countryId: number;
     lotNumber: string;
@@ -292,7 +292,7 @@ export default function LotsPage() {
 
       <div className="border border-gray-200 rounded-lg overflow-hidden mb-3">
         <div className="grid grid-cols-[1fr_1fr_90px_90px_110px_100px_32px] gap-0 bg-gray-50 border-b border-gray-200">
-          {["Supplier", "Product", "Wt/crt (kg)", "Qty (MT)", "USD/MT", "Amount USD", ""].map((h, i) => (
+          {["Supplier", "Product", "WT/CRT (KG) / PCS/CTN", "QTY (MT/PCS)", "USD/MT/PCS", "Amount USD", ""].map((h, i) => (
             <div key={i} className="px-2 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide border-r last:border-r-0 border-gray-200">
               {h}
             </div>
@@ -300,8 +300,12 @@ export default function LotsPage() {
         </div>
 
         {form.purchaseItems.map((item: any, i: number) => {
-          const amt = Number(item.qtyMt) > 0 && Number(item.unitPriceUsdPerMt) > 0
-            ? Math.round(Number(item.qtyMt) * Number(item.unitPriceUsdPerMt) * 100) / 100
+          const selectedProduct = products.find((p: any) => p.id === Number(item.productId));
+          const isPcsProduct = selectedProduct?.unitOfMeasure === "PCS";
+          const purchaseQty = isPcsProduct ? Number(item.qtyPcs) : Number(item.qtyMt);
+          const purchaseRate = isPcsProduct ? Number(item.unitPriceUsdPerPcs) : Number(item.unitPriceUsdPerMt);
+          const amt = purchaseQty > 0 && purchaseRate > 0
+            ? Math.round(purchaseQty * purchaseRate * 100) / 100
             : 0;
           const updateItem = (field: string, val: any) => {
             const u = [...form.purchaseItems]; u[i] = { ...u[i], [field]: val };
@@ -324,18 +328,22 @@ export default function LotsPage() {
                 </select>
               </div>
               <div className="px-2 py-1.5 border-r border-gray-100">
-                <input type="number" value={item.weightPerCartonKg} placeholder="20"
-                  onChange={e => updateItem("weightPerCartonKg", e.target.value)}
+                {isPcsProduct ? (
+                  <input type="number" value={selectedProduct?.piecesPerCarton || ""} readOnly aria-label="PCS/CTN"
+                    className="w-full text-sm border-0 bg-transparent focus:outline-none text-right text-gray-500" />
+                ) : (
+                  <input type="number" value={selectedProduct?.defaultWeightPerCartonKg || ""} readOnly aria-label="WT/CRT (KG)"
+                    className="w-full text-sm border-0 bg-transparent focus:outline-none text-right text-gray-500" />
+                )}
+              </div>
+              <div className="px-2 py-1.5 border-r border-gray-100">
+                <input type="number" value={isPcsProduct ? item.qtyPcs : item.qtyMt} placeholder={isPcsProduct ? "QTY (PCS)" : "Qty (MT)"}
+                  onChange={e => updateItem(isPcsProduct ? "qtyPcs" : "qtyMt", e.target.value)}
                   className="w-full text-sm border-0 bg-transparent focus:outline-none text-right" min="0.001" step="0.001" />
               </div>
               <div className="px-2 py-1.5 border-r border-gray-100">
-                <input type="number" value={item.qtyMt} placeholder="0.00"
-                  onChange={e => updateItem("qtyMt", e.target.value)}
-                  className="w-full text-sm border-0 bg-transparent focus:outline-none text-right" min="0.001" step="0.001" />
-              </div>
-              <div className="px-2 py-1.5 border-r border-gray-100">
-                <input type="number" value={item.unitPriceUsdPerMt} placeholder="0.00"
-                  onChange={e => updateItem("unitPriceUsdPerMt", e.target.value)}
+                <input type="number" value={isPcsProduct ? item.unitPriceUsdPerPcs : item.unitPriceUsdPerMt} placeholder={isPcsProduct ? "USD/PCS" : "USD/MT"}
+                  onChange={e => updateItem(isPcsProduct ? "unitPriceUsdPerPcs" : "unitPriceUsdPerMt", e.target.value)}
                   className="w-full text-sm border-0 bg-transparent focus:outline-none text-right" min="0.01" step="0.01" />
               </div>
               <div className="px-2 py-1.5 border-r border-gray-100 flex items-center justify-end">
@@ -370,13 +378,18 @@ export default function LotsPage() {
           <span className="text-xs text-gray-400 uppercase tracking-wide font-semibold">Total Amount (USD)</span>
           <span className="text-2xl font-bold text-gray-800">
             ${form.purchaseItems.reduce((s: number, p: any) => {
-              const amt = Number(p.qtyMt) * Number(p.unitPriceUsdPerMt);
+              const prod = products.find((row: any) => row.id === Number(p.productId));
+              const amt = prod?.unitOfMeasure === "PCS"
+                ? Number(p.qtyPcs) * Number(p.unitPriceUsdPerPcs)
+                : Number(p.qtyMt) * Number(p.unitPriceUsdPerMt);
               return s + (isNaN(amt) ? 0 : amt);
             }, 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
           <span className="text-xs text-gray-400">
             {form.purchaseItems.reduce((s: number, p: any) => {
-              const wt = Number(p.weightPerCartonKg);
+              const prod = products.find((row: any) => row.id === Number(p.productId));
+              if (prod?.unitOfMeasure === "PCS") return s + Math.floor(Number(p.qtyPcs || 0) / Number(prod.piecesPerCarton || 1));
+              const wt = Number(prod?.defaultWeightPerCartonKg);
               const mt = Number(p.qtyMt);
               return s + (wt > 0 && mt > 0 ? Math.round((mt * 1000) / wt) : 0);
             }, 0).toLocaleString("en-US")} cartons (calculated)
@@ -388,7 +401,11 @@ export default function LotsPage() {
 
   const buildLotPayload = (form: LotFormState) => {
     const validItems = form.purchaseItems.filter(
-      (p: any) => p.supplierId > 0 && p.productId > 0 && Number(p.weightPerCartonKg) > 0 && Number(p.qtyMt) > 0 && Number(p.unitPriceUsdPerMt) > 0
+      (p: any) => {
+        const prod = products.find((row: any) => row.id === Number(p.productId));
+        if (prod?.unitOfMeasure === "PCS") return p.supplierId > 0 && p.productId > 0 && Number(p.qtyPcs) > 0 && Number(p.unitPriceUsdPerPcs) > 0;
+        return p.supplierId > 0 && p.productId > 0 && Number(prod?.defaultWeightPerCartonKg) > 0 && Number(p.qtyMt) > 0 && Number(p.unitPriceUsdPerMt) > 0;
+      }
     );
     return {
       validItems,
@@ -401,9 +418,9 @@ export default function LotsPage() {
           ...(p.id ? { id: Number(p.id) } : {}),
           supplierId: Number(p.supplierId),
           productId: Number(p.productId),
-          weightPerCartonKg: Number(p.weightPerCartonKg),
-          qtyMt: Number(p.qtyMt),
-          unitPriceUsdPerMt: Number(p.unitPriceUsdPerMt),
+          ...(products.find((row: any) => row.id === Number(p.productId))?.unitOfMeasure === "PCS"
+            ? { qtyPcs: Number(p.qtyPcs), unitPriceUsdPerPcs: Number(p.unitPriceUsdPerPcs) }
+            : { qtyMt: Number(p.qtyMt), unitPriceUsdPerMt: Number(p.unitPriceUsdPerMt) }),
         })),
       },
     };

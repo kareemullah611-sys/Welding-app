@@ -559,35 +559,74 @@ export async function journalSaleCOGS(params: {
 }, db: DbClient = prisma) {
   const { saleId, lotId, totalQtySold, saleDate, cityId, createdBy } = params;
 
-  const [lot, purchases, costs, lotProducts, lotExpenses] = await Promise.all([
+  const [lot, costs, lotProducts, lotExpenses, saleItems] = await Promise.all([
     db.lot.findUnique({ where: { id: lotId }, select: { pkrExchangeRate: true } }),
-    db.lotPurchase.aggregate({ where: { lotId }, _sum: { totalPriceUsd: true } }),
     db.lotCost.findMany({
       where: { lotId },
       select: { amount: true, currencyCode: true, exchangeRate: true, costType: true },
     }),
-    db.lotProduct.aggregate({ where: { lotId }, _sum: { totalQty: true } }),
+    db.lotProduct.findMany({
+      where: { lotId },
+      select: { productId: true, totalQty: true, product: { select: { unitOfMeasure: true } } },
+    }),
     db.expense.findMany({
       where: { lotId, deletedAt: null },
       select: { amount: true, currency: { select: { code: true } } },
     }),
+    db.saleItem.findMany({
+      where: { saleId },
+      select: { productId: true, qty: true, product: { select: { unitOfMeasure: true } } },
+    }),
   ]);
 
   const usdPkrRate = Number(lot?.pkrExchangeRate || 0);
-  const totalCartons = Number(lotProducts._sum.totalQty || 0);
-  if (totalCartons === 0 || totalQtySold === 0 || usdPkrRate <= 0) return;
+  if (totalQtySold === 0 || usdPkrRate <= 0) return;
 
-  const landed = computeLotLandedCostPkr({
-    totalPurchaseUsd: Number(purchases._sum.totalPriceUsd || 0),
-    totalCartons,
-    lotCosts: costs,
-    lotExpensesByCurrency: groupExpensesByCurrency(lotExpenses),
-    usdPkrRate,
-  });
+  const mtProductIds = lotProducts
+    .filter((lp) => lp.product.unitOfMeasure !== "PCS")
+    .map((lp) => lp.productId);
+  const pcsSaleItems = saleItems.filter((item) => item.product.unitOfMeasure === "PCS");
+  const mtQtySold = saleItems
+    .filter((item) => item.product.unitOfMeasure !== "PCS")
+    .reduce((sum, item) => sum + Number(item.qty || 0), 0);
 
-  if (landed.landedCostPerCartonPkr <= 0) return;
+  let cogsAmount = 0;
+  if (mtQtySold > 0) {
+    const mtTotalQty = lotProducts
+      .filter((lp) => lp.product.unitOfMeasure !== "PCS")
+      .reduce((sum, lp) => sum + Number(lp.totalQty || 0), 0);
+    const mtPurchases = mtProductIds.length
+      ? await db.lotPurchase.aggregate({
+          where: { lotId, productId: { in: mtProductIds } },
+          _sum: { totalPriceUsd: true },
+        })
+      : null;
+    if (mtTotalQty > 0) {
+      const landed = computeLotLandedCostPkr({
+        totalPurchaseUsd: Number(mtPurchases?._sum.totalPriceUsd || 0),
+        totalCartons: mtTotalQty,
+        lotCosts: costs,
+        lotExpensesByCurrency: groupExpensesByCurrency(lotExpenses),
+        usdPkrRate,
+      });
+      if (landed.landedCostPerCartonPkr > 0) {
+        cogsAmount += mtQtySold * landed.landedCostPerCartonPkr;
+      }
+    }
+  }
 
-  const cogsAmount = Math.round(totalQtySold * landed.landedCostPerCartonPkr * 100) / 100;
+  for (const item of pcsSaleItems) {
+    const pcsPurchases = await db.lotPurchase.aggregate({
+      where: { lotId, productId: item.productId },
+      _sum: { qty: true, totalPriceUsd: true },
+    });
+    const purchasedPieces = Number(pcsPurchases._sum.qty || 0);
+    if (purchasedPieces <= 0) continue;
+    const averageUsdPerPiece = Number(pcsPurchases._sum.totalPriceUsd || 0) / purchasedPieces;
+    cogsAmount += Number(item.qty || 0) * averageUsdPerPiece * usdPkrRate;
+  }
+
+  cogsAmount = Math.round(cogsAmount * 100) / 100;
   if (cogsAmount <= 0) return;
 
   await createJournalEntries(`COGS-${saleId}`, [

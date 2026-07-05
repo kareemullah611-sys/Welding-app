@@ -58,6 +58,15 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
     if (!fromGodownId || !toGodownId || !productId || !qty || qty <= 0) return validationError("All fields required, qty must be positive");
     if (fromGodownId === toGodownId) return validationError("Cannot transfer to same godown");
+    const product = await prisma.product.findUnique({
+      where: { id: Number(productId) },
+      select: { unitOfMeasure: true, piecesPerCarton: true, name: true },
+    });
+    if (!product) return errorResponse("NOT_FOUND", "Product not found", 404);
+    if (product.unitOfMeasure === "PCS" && !product.piecesPerCarton) {
+      return errorResponse("VALIDATION_ERROR", `${product.name}: PCS/CTN is required on product master`);
+    }
+    const baseQty = product.unitOfMeasure === "PCS" ? Number(qty) * Number(product.piecesPerCarton || 0) : Number(qty);
 
     // Validate godowns belong to user's city
     const [fromGd, toGd] = await Promise.all([
@@ -95,7 +104,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const available = Number(sr?.received || 0) - Number(sr?.sold || 0)
       - Number(sr?.transferred_out || 0) + Number(sr?.transferred_in || 0)
       - Number(sr?.city_out || 0);
-    if (qty > available) {
+    if (baseQty > available) {
       return errorResponse("VALIDATION_ERROR", `Insufficient stock: only ${Math.max(0, available)} available in this godown`);
     }
 
@@ -112,11 +121,11 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
     const transfer = await prisma.$transaction(async (tx) => {
       const created = await tx.godownTransfer.create({
-        data: { fromGodownId, toGodownId, productId, lotId: effectiveLotId, qty, transferDate: transferDate ? new Date(transferDate) : new Date(), notes, createdBy: user.userId },
+        data: { fromGodownId, toGodownId, productId, lotId: effectiveLotId, qty: baseQty, transferDate: transferDate ? new Date(transferDate) : new Date(), notes, createdBy: user.userId },
         include: { fromGodown: true, toGodown: true, product: true },
       });
 
-      await createAuditLog(user.userId, user.cityId!, "godown_transfers", created.id, "create", undefined, { fromGodownId, toGodownId, productId, qty }, getClientIP(request), tx);
+      await createAuditLog(user.userId, user.cityId!, "godown_transfers", created.id, "create", undefined, { fromGodownId, toGodownId, productId, qty: baseQty }, getClientIP(request), tx);
       if (syncMeta) {
         await tx.syncRequest.create({
           data: {

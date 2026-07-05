@@ -43,6 +43,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         g.id as godown_id, g.name as godown_name, c.id as city_id, c.name as city_name,
         co.id as country_id, co.name as country_name,
         p.id as product_id, p.name as product_name,
+        p.unit_of_measure, p.pieces_per_carton,
         (COALESCE(r.qty, 0) - COALESCE(s.qty, 0) - COALESCE(tout.qty, 0) + COALESCE(tin.qty, 0)) as qty
       FROM godowns g
       JOIN cities c ON c.id = g.city_id
@@ -65,11 +66,14 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     let grandTotal = 0;
 
     for (const row of inventory) {
-      const qty = Number(row.qty);
+      const baseQty = Number(row.qty);
+      const qty = row.unit_of_measure === "PCS" && Number(row.pieces_per_carton || 0) > 0
+        ? baseQty / Number(row.pieces_per_carton)
+        : baseQty;
       if (qty === 0) continue;
       grandTotal += qty;
 
-      if (!productTotals[row.product_id]) productTotals[row.product_id] = { productId: row.product_id, productName: row.product_name, totalQty: 0 };
+      if (!productTotals[row.product_id]) productTotals[row.product_id] = { productId: row.product_id, productName: row.product_name, unitOfMeasure: row.unit_of_measure, piecesPerCarton: row.pieces_per_carton, totalQty: 0 };
       productTotals[row.product_id].totalQty += qty;
 
       if (!countryTotals[row.country_id]) countryTotals[row.country_id] = { countryId: row.country_id, countryName: row.country_name, totalQty: 0 };
@@ -83,7 +87,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
       if (!detailed[row.godown_id]) detailed[row.godown_id] = { godownId: row.godown_id, godownName: row.godown_name, cityId: row.city_id, cityName: row.city_name, countryId: row.country_id, countryName: row.country_name, totalQty: 0, products: [] };
       detailed[row.godown_id].totalQty += qty;
-      detailed[row.godown_id].products.push({ productId: row.product_id, productName: row.product_name, qty: Math.round(qty * 100) / 100 });
+      detailed[row.godown_id].products.push({ productId: row.product_id, productName: row.product_name, unitOfMeasure: row.unit_of_measure, piecesPerCarton: row.pieces_per_carton, qty: Math.round(qty * 100) / 100 });
     }
 
     return successResponse({

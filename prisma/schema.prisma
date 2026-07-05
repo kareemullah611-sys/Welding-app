@@ -371,12 +371,21 @@ model UserSession {
 // PRODUCTS
 // ============================================================
 
+enum ProductUnitOfMeasure {
+  MT
+  PCS
+}
+
 model Product {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique @db.VarChar(200)
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id              Int                  @id @default(autoincrement())
+  name            String               @unique @db.VarChar(200)
+  unitOfMeasure   ProductUnitOfMeasure @default(MT) @map("unit_of_measure")
+  defaultWeightPerCartonKg Decimal?    @map("default_weight_per_carton_kg") @db.Decimal(10, 3)
+  packetsPerCarton Int?                @map("packets_per_carton")
+  piecesPerCarton Int?                 @map("pieces_per_carton")
+  isActive        Boolean              @default(true) @map("is_active")
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
 
   lotProducts          LotProduct[]
   lotCityDistributions LotCityDistribution[]
@@ -761,12 +770,16 @@ model Sale {
 }
 
 model SaleItem {
-  id            Int     @id @default(autoincrement())
-  saleId        Int     @map("sale_id")
-  productId     Int     @map("product_id")
-  qty           Decimal @db.Decimal(12, 2)
-  ratePerCarton Decimal @map("rate_per_carton") @db.Decimal(12, 2)
-  amount        Decimal @db.Decimal(15, 2)
+  id                Int      @id @default(autoincrement())
+  saleId            Int      @map("sale_id")
+  productId         Int      @map("product_id")
+  qty               Decimal  @db.Decimal(12, 2)
+  cartonQty         Decimal? @map("carton_qty") @db.Decimal(12, 2)
+  ratePerCarton     Decimal  @map("rate_per_carton") @db.Decimal(12, 2)
+  ratePerPieceLocal Decimal? @map("rate_per_piece_local") @db.Decimal(12, 4)
+  ratePerPieceUsd   Decimal? @map("rate_per_piece_usd") @db.Decimal(12, 4)
+  amount            Decimal  @db.Decimal(15, 2)
+  amountUsd         Decimal? @map("amount_usd") @db.Decimal(15, 2)
 
   sale    Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id])

@@ -104,6 +104,15 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     if (!parsedToCityId || !parsedFromGodownId || !parsedProductId || !parsedQty) return validationError("Missing required fields");
     if (!Number.isFinite(parsedQty) || parsedQty <= 0) return validationError("Quantity must be greater than 0");
     if (parsedToCityId === user.cityId) return errorResponse("VALIDATION_ERROR", "Cannot transfer to same city");
+    const product = await prisma.product.findUnique({
+      where: { id: parsedProductId },
+      select: { unitOfMeasure: true, piecesPerCarton: true, name: true },
+    });
+    if (!product) return errorResponse("NOT_FOUND", "Product not found", 404);
+    if (product.unitOfMeasure === "PCS" && !product.piecesPerCarton) {
+      return errorResponse("VALIDATION_ERROR", `${product.name}: PCS/CTN is required on product master`);
+    }
+    const baseQty = product.unitOfMeasure === "PCS" ? parsedQty * Number(product.piecesPerCarton || 0) : parsedQty;
 
     const destinationCity = await prisma.city.findUnique({
       where: { id: parsedToCityId },
@@ -165,7 +174,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         0,
         Number(row?.received || 0) - Number(row?.sold || 0) - Number(row?.city_out || 0) - Number(row?.city_pending || 0)
       );
-      if (parsedQty > available) {
+      if (baseQty > available) {
         throw new Error(`INSUFFICIENT_STOCK:${available}`);
       }
 
@@ -176,7 +185,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           fromGodownId: parsedFromGodownId,
           productId: parsedProductId,
           lotId: effectiveLotId,
-          qty: parsedQty,
+          qty: baseQty,
           notes,
           transferDate: transferDate ? new Date(transferDate) : new Date(),
           sentBy: user.userId,

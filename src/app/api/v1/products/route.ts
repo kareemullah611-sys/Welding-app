@@ -26,7 +26,15 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     ]);
 
     return paginatedResponse(
-      products.map((p) => ({ id: p.id, name: p.name, isActive: p.isActive })),
+      products.map((p) => ({
+        id: p.id,
+        name: p.name,
+        unitOfMeasure: p.unitOfMeasure,
+        defaultWeightPerCartonKg: p.defaultWeightPerCartonKg ? Number(p.defaultWeightPerCartonKg) : null,
+        packetsPerCarton: p.packetsPerCarton,
+        piecesPerCarton: p.piecesPerCarton,
+        isActive: p.isActive,
+      })),
       total, page, limit
     );
   } catch (error) {
@@ -54,7 +62,15 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       if (existingSync?.entityId) {
         const existingProduct = await prisma.product.findUnique({ where: { id: existingSync.entityId } });
         if (existingProduct) {
-          return successResponse({ id: existingProduct.id, name: existingProduct.name, isActive: existingProduct.isActive }, "Product already synced");
+          return successResponse({
+            id: existingProduct.id,
+            name: existingProduct.name,
+            unitOfMeasure: existingProduct.unitOfMeasure,
+            defaultWeightPerCartonKg: existingProduct.defaultWeightPerCartonKg ? Number(existingProduct.defaultWeightPerCartonKg) : null,
+            packetsPerCarton: existingProduct.packetsPerCarton,
+            piecesPerCarton: existingProduct.piecesPerCarton,
+            isActive: existingProduct.isActive,
+          }, "Product already synced");
         }
       }
     }
@@ -63,8 +79,22 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     if (existing) return errorResponse("DUPLICATE", "Product with this name already exists", 409);
 
     const product = await prisma.$transaction(async (tx) => {
-      const created = await tx.product.create({ data: { name: parsed.data.name } });
-      await createAuditLog(user.userId, null, "products", created.id, "create", undefined, { name: created.name }, getClientIP(request), tx);
+      const created = await tx.product.create({
+        data: {
+          name: parsed.data.name,
+          unitOfMeasure: parsed.data.unitOfMeasure,
+          defaultWeightPerCartonKg: parsed.data.defaultWeightPerCartonKg,
+          packetsPerCarton: parsed.data.packetsPerCarton,
+          piecesPerCarton: parsed.data.piecesPerCarton,
+        },
+      });
+      await createAuditLog(user.userId, null, "products", created.id, "create", undefined, {
+        name: created.name,
+        unitOfMeasure: created.unitOfMeasure,
+        defaultWeightPerCartonKg: created.defaultWeightPerCartonKg ? Number(created.defaultWeightPerCartonKg) : null,
+        packetsPerCarton: created.packetsPerCarton,
+        piecesPerCarton: created.piecesPerCarton,
+      }, getClientIP(request), tx);
       if (syncMeta) {
         await tx.syncRequest.create({
           data: {
@@ -81,7 +111,15 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       return created;
     });
 
-    return successResponse({ id: product.id, name: product.name, isActive: product.isActive }, "Product created", 201);
+    return successResponse({
+      id: product.id,
+      name: product.name,
+      unitOfMeasure: product.unitOfMeasure,
+      defaultWeightPerCartonKg: product.defaultWeightPerCartonKg ? Number(product.defaultWeightPerCartonKg) : null,
+      packetsPerCarton: product.packetsPerCarton,
+      piecesPerCarton: product.piecesPerCarton,
+      isActive: product.isActive,
+    }, "Product created", 201);
   } catch (error) {
     if (syncMeta && isSyncRequestDuplicateError(error)) {
       const existingSync = await prisma.syncRequest.findUnique({
@@ -96,7 +134,15 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       if (existingSync?.entityId) {
         const existingProduct = await prisma.product.findUnique({ where: { id: existingSync.entityId } });
         if (existingProduct) {
-          return successResponse({ id: existingProduct.id, name: existingProduct.name, isActive: existingProduct.isActive }, "Product already synced");
+          return successResponse({
+            id: existingProduct.id,
+            name: existingProduct.name,
+            unitOfMeasure: existingProduct.unitOfMeasure,
+            defaultWeightPerCartonKg: existingProduct.defaultWeightPerCartonKg ? Number(existingProduct.defaultWeightPerCartonKg) : null,
+            packetsPerCarton: existingProduct.packetsPerCarton,
+            piecesPerCarton: existingProduct.piecesPerCarton,
+            isActive: existingProduct.isActive,
+          }, "Product already synced");
         }
       }
     }

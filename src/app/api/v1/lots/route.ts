@@ -15,6 +15,25 @@ import { aggregateLotSalesMetrics, fetchLotSalesForMetrics } from "@/lib/lot-sol
 const LOT_SYNC_MODULE = "lots";
 const SUPERADMIN_SYNC_CITY_ID = 0;
 
+type ProductUnitMeta = {
+  id: number;
+  name: string;
+  unitOfMeasure: "MT" | "PCS";
+  defaultWeightPerCartonKg: any;
+  piecesPerCarton: number | null;
+};
+
+function purchaseStockQty(item: any, product: ProductUnitMeta) {
+  if (product.unitOfMeasure === "PCS") return Number(item.qtyPcs || 0);
+  return Math.round((Number(item.qtyMt || 0) * 1000) / Number(product.defaultWeightPerCartonKg || 0));
+}
+
+function purchaseQtyAndPrice(item: any, product: ProductUnitMeta) {
+  const purchaseQty = product.unitOfMeasure === "PCS" ? Number(item.qtyPcs || 0) : Number(item.qtyMt || 0);
+  const unitPriceUsd = product.unitOfMeasure === "PCS" ? Number(item.unitPriceUsdPerPcs || 0) : Number(item.unitPriceUsdPerMt || 0);
+  return { purchaseQty, unitPriceUsd };
+}
+
 // GET /api/v1/lots - List lots
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
@@ -247,13 +266,26 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       return errorResponse("NOT_FOUND", "One or more suppliers not found or inactive");
     }
 
-    // Derive LotProduct totals: sum cartons per product
-    // cartons = round((qtyMt * 1000) / weightPerCartonKg)
+    const productById = new Map(existingProducts.map((p) => [p.id, p as ProductUnitMeta]));
+    for (const item of purchaseItems) {
+      const product = productById.get(item.productId);
+      if (!product) continue;
+      if (product.unitOfMeasure === "PCS") {
+        if (!product.piecesPerCarton) return errorResponse("VALIDATION_ERROR", `${product.name}: PCS/CTN is required on product master`);
+        if (!item.qtyPcs || !item.unitPriceUsdPerPcs) return errorResponse("VALIDATION_ERROR", `${product.name}: QTY (PCS) and USD/PCS are required`);
+      } else {
+        if (!product.defaultWeightPerCartonKg) return errorResponse("VALIDATION_ERROR", `${product.name}: WT/CRT (KG) is required on product master`);
+        if (!item.qtyMt || !item.unitPriceUsdPerMt) return errorResponse("VALIDATION_ERROR", `${product.name}: QTY (MT) and USD/MT are required`);
+      }
+    }
+
+    // Derive LotProduct totals: MT products store cartons; PCS products store pieces.
     const round2 = (n: number) => Math.round(n * 100) / 100;
     const productCartons: Record<number, number> = {};
     for (const item of purchaseItems) {
-      const cartons = Math.round((item.qtyMt * 1000) / item.weightPerCartonKg);
-      productCartons[item.productId] = (productCartons[item.productId] || 0) + cartons;
+      const product = productById.get(item.productId)!;
+      const stockQty = purchaseStockQty(item, product);
+      productCartons[item.productId] = (productCartons[item.productId] || 0) + stockQty;
     }
 
     // Validate distributions if provided
@@ -287,15 +319,17 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       }
 
       for (const item of purchaseItems) {
-        const totalPriceUsd = round2(item.qtyMt * item.unitPriceUsdPerMt);
+        const product = productById.get(item.productId)!;
+        const { purchaseQty, unitPriceUsd } = purchaseQtyAndPrice(item, product);
+        const totalPriceUsd = round2(purchaseQty * unitPriceUsd);
         const purchase = await tx.lotPurchase.create({
           data: {
             lotId: lot.id,
             supplierId: item.supplierId,
             productId: item.productId,
-            qty: item.qtyMt,
-            weightPerCartonKg: item.weightPerCartonKg,
-            unitPriceUsd: item.unitPriceUsdPerMt,
+            qty: purchaseQty,
+            weightPerCartonKg: product.unitOfMeasure === "PCS" ? null : product.defaultWeightPerCartonKg,
+            unitPriceUsd,
             totalPriceUsd,
             createdBy: user.userId,
           },
@@ -319,7 +353,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         include: {
           country: true,
           lotProducts: { include: { product: true } },
-          lotPurchases: { include: { supplier: { select: { id: true, name: true } }, product: { select: { id: true, name: true } } } },
+          lotPurchases: { include: { supplier: { select: { id: true, name: true } }, product: { select: { id: true, name: true, unitOfMeasure: true, defaultWeightPerCartonKg: true, piecesPerCarton: true } } } },
           lotCityDistributions: { include: { city: true, product: true } },
           creator: { select: { id: true, fullName: true } },
         },
@@ -361,6 +395,9 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       products: lotFull.lotProducts.map((lp) => ({
         productId: lp.productId,
         productName: lp.product.name,
+        unitOfMeasure: lp.product.unitOfMeasure,
+        defaultWeightPerCartonKg: lp.product.defaultWeightPerCartonKg ? Number(lp.product.defaultWeightPerCartonKg) : null,
+        piecesPerCarton: lp.product.piecesPerCarton,
         totalQty: Number(lp.totalQty),
       })),
       purchaseItems: lotFull.lotPurchases.map((p) => ({
@@ -369,9 +406,14 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         supplierName: p.supplier.name,
         productId: p.productId,
         productName: p.product.name,
-        qtyMt: Number(p.qty),
+        unitOfMeasure: p.product.unitOfMeasure,
+        defaultWeightPerCartonKg: p.product.defaultWeightPerCartonKg ? Number(p.product.defaultWeightPerCartonKg) : null,
+        piecesPerCarton: p.product.piecesPerCarton,
+        qtyMt: p.product.unitOfMeasure === "PCS" ? null : Number(p.qty),
+        qtyPcs: p.product.unitOfMeasure === "PCS" ? Number(p.qty) : null,
         weightPerCartonKg: p.weightPerCartonKg ? Number(p.weightPerCartonKg) : null,
-        unitPriceUsdPerMt: Number(p.unitPriceUsd),
+        unitPriceUsdPerMt: p.product.unitOfMeasure === "PCS" ? null : Number(p.unitPriceUsd),
+        unitPriceUsdPerPcs: p.product.unitOfMeasure === "PCS" ? Number(p.unitPriceUsd) : null,
         totalPriceUsd: Number(p.totalPriceUsd),
       })),
       distributions: lotFull.lotCityDistributions.map((d) => ({

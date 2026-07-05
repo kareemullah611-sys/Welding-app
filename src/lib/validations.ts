@@ -56,7 +56,22 @@ export const createCitySchema = z.object({
 // ============================================================
 export const createProductSchema = z.object({
   name: z.string().min(1).max(200),
-});
+  unitOfMeasure: z.enum(["MT", "PCS"]).default("MT"),
+  defaultWeightPerCartonKg: z.number().positive().optional().nullable(),
+  packetsPerCarton: z.number().int().positive().optional().nullable(),
+  piecesPerCarton: z.number().int().positive().optional().nullable(),
+}).refine(
+  (data) => data.unitOfMeasure !== "MT" || Number(data.defaultWeightPerCartonKg || 0) > 0,
+  { message: "defaultWeightPerCartonKg is required for MT products", path: ["defaultWeightPerCartonKg"] },
+).refine(
+  (data) => data.unitOfMeasure !== "PCS" || Number(data.piecesPerCarton || 0) > 0,
+  { message: "piecesPerCarton is required for PCS products", path: ["piecesPerCarton"] },
+).transform((data) => ({
+  ...data,
+  defaultWeightPerCartonKg: data.unitOfMeasure === "MT" ? data.defaultWeightPerCartonKg : null,
+  packetsPerCarton: data.unitOfMeasure === "MT" ? data.packetsPerCarton ?? null : null,
+  piecesPerCarton: data.unitOfMeasure === "PCS" ? data.piecesPerCarton : null,
+}));
 
 
 // ============================================================
@@ -103,9 +118,11 @@ const lotDistributionSchema = z.object({
 const lotPurchaseItemSchema = z.object({
   supplierId:        z.number().int().positive(),
   productId:         z.number().int().positive(),
-  weightPerCartonKg: z.number().positive(),  // kg per carton e.g. 20
-  qtyMt:             z.number().positive(),  // quantity in metric tons
-  unitPriceUsdPerMt: z.number().positive(),  // USD per MT
+  weightPerCartonKg: z.number().positive().optional(),  // kg per carton e.g. 20
+  qtyMt:             z.number().positive().optional(),  // quantity in metric tons
+  unitPriceUsdPerMt: z.number().positive().optional(),  // USD per MT
+  qtyPcs:            z.number().positive().optional(),
+  unitPriceUsdPerPcs: z.number().positive().optional(),
 });
 
 export const createLotSchema = z.object({
@@ -135,8 +152,11 @@ export const updateLotSchema = z.object({
 // ============================================================
 const saleItemSchema = z.object({
   productId: z.number().int().positive(),
-  qty: z.number().positive(),
-  ratePerCarton: z.number().min(0),
+  qty: z.number().positive().optional(),
+  cartonQty: z.number().positive().optional(),
+  ratePerCarton: z.number().min(0).optional(),
+  ratePerPieceLocal: z.number().positive().optional(),
+  ratePerPieceUsd: z.number().positive().optional(),
 });
 
 const optionalPositiveInt = z.preprocess(

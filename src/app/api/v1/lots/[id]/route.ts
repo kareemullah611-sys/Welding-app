@@ -11,16 +11,37 @@ import { journalLotPurchase, reverseJournalEntries } from "@/lib/accounting";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+type ProductUnitMeta = {
+  id: number;
+  name: string;
+  unitOfMeasure: "MT" | "PCS";
+  defaultWeightPerCartonKg: any;
+  piecesPerCarton: number | null;
+};
+
 function cartonsFromPurchase(qtyMt: number, weightPerCartonKg: number) {
   if (weightPerCartonKg <= 0 || qtyMt <= 0) return 0;
   return Math.round((qtyMt * 1000) / weightPerCartonKg);
 }
 
-function productCartonsFromItems(items: Array<{ productId: number; qtyMt: number; weightPerCartonKg: number }>) {
+function stockQtyFromPurchase(item: any, product: ProductUnitMeta) {
+  if (product.unitOfMeasure === "PCS") return Number(item.qtyPcs || 0);
+  return cartonsFromPurchase(Number(item.qtyMt || 0), Number(product.defaultWeightPerCartonKg || 0));
+}
+
+function purchaseQtyAndPrice(item: any, product: ProductUnitMeta) {
+  const purchaseQty = product.unitOfMeasure === "PCS" ? Number(item.qtyPcs || 0) : Number(item.qtyMt || 0);
+  const unitPriceUsd = product.unitOfMeasure === "PCS" ? Number(item.unitPriceUsdPerPcs || 0) : Number(item.unitPriceUsdPerMt || 0);
+  return { purchaseQty, unitPriceUsd };
+}
+
+function productCartonsFromItems(items: any[], productById: Map<number, ProductUnitMeta>) {
   const totals: Record<number, number> = {};
   for (const item of items) {
-    const cartons = cartonsFromPurchase(item.qtyMt, item.weightPerCartonKg);
-    totals[item.productId] = (totals[item.productId] || 0) + cartons;
+    const product = productById.get(item.productId);
+    if (!product) continue;
+    const stockQty = stockQtyFromPurchase(item, product);
+    totals[item.productId] = (totals[item.productId] || 0) + stockQty;
   }
   return totals;
 }
@@ -100,7 +121,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         where: { lotId: id },
         include: {
           supplier: { select: { id: true, name: true } },
-          product: { select: { id: true, name: true } },
+          product: { select: { id: true, name: true, unitOfMeasure: true, defaultWeightPerCartonKg: true, piecesPerCarton: true } },
         },
         orderBy: { id: "asc" },
       });
@@ -163,6 +184,9 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       return {
         productId: lp.productId,
         productName: lp.product.name,
+        unitOfMeasure: lp.product.unitOfMeasure,
+        defaultWeightPerCartonKg: lp.product.defaultWeightPerCartonKg ? Number(lp.product.defaultWeightPerCartonKg) : null,
+        piecesPerCarton: lp.product.piecesPerCarton,
         totalQty,
         soldQty: Math.min(totalQty, soldQty),
         remainingQty: Math.max(0, totalQty - soldQty),
@@ -337,9 +361,14 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         supplierName: p.supplier?.name || "",
         productId: p.productId,
         productName: p.product?.name || "",
-        qtyMt: Number(p.qty),
+        unitOfMeasure: p.product?.unitOfMeasure || "MT",
+        defaultWeightPerCartonKg: p.product?.defaultWeightPerCartonKg ? Number(p.product.defaultWeightPerCartonKg) : null,
+        piecesPerCarton: p.product?.piecesPerCarton || null,
+        qtyMt: p.product?.unitOfMeasure === "PCS" ? null : Number(p.qty),
+        qtyPcs: p.product?.unitOfMeasure === "PCS" ? Number(p.qty) : null,
         weightPerCartonKg: p.weightPerCartonKg ? Number(p.weightPerCartonKg) : null,
-        unitPriceUsdPerMt: Number(p.unitPriceUsd),
+        unitPriceUsdPerMt: p.product?.unitOfMeasure === "PCS" ? null : Number(p.unitPriceUsd),
+        unitPriceUsdPerPcs: p.product?.unitOfMeasure === "PCS" ? Number(p.unitPriceUsd) : null,
         totalPriceUsd: Number(p.totalPriceUsd),
       })),
       costSummary: {
@@ -414,13 +443,20 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
         return errorResponse("NOT_FOUND", "One or more suppliers not found or inactive");
       }
 
-      const productCartons = productCartonsFromItems(
-        data.purchaseItems.map((p) => ({
-          productId: p.productId,
-          qtyMt: p.qtyMt,
-          weightPerCartonKg: p.weightPerCartonKg,
-        })),
-      );
+      const productById = new Map(products.map((p) => [p.id, p as ProductUnitMeta]));
+      for (const item of data.purchaseItems) {
+        const product = productById.get(item.productId);
+        if (!product) continue;
+        if (product.unitOfMeasure === "PCS") {
+          if (!product.piecesPerCarton) return errorResponse("VALIDATION_ERROR", `${product.name}: PCS/CTN is required on product master`);
+          if (!item.qtyPcs || !item.unitPriceUsdPerPcs) return errorResponse("VALIDATION_ERROR", `${product.name}: QTY (PCS) and USD/PCS are required`);
+        } else {
+          if (!product.defaultWeightPerCartonKg) return errorResponse("VALIDATION_ERROR", `${product.name}: WT/CRT (KG) is required on product master`);
+          if (!item.qtyMt || !item.unitPriceUsdPerMt) return errorResponse("VALIDATION_ERROR", `${product.name}: QTY (MT) and USD/MT are required`);
+        }
+      }
+
+      const productCartons = productCartonsFromItems(data.purchaseItems, productById);
 
       for (const [productId, totalQty] of Object.entries(productCartons)) {
         const distTotal = await prisma.lotCityDistribution.aggregate({
@@ -469,7 +505,9 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
         }
 
         for (const item of data.purchaseItems!) {
-          const totalPriceUsd = round2(item.qtyMt * item.unitPriceUsdPerMt);
+          const product = productById.get(item.productId)!;
+          const { purchaseQty, unitPriceUsd } = purchaseQtyAndPrice(item, product);
+          const totalPriceUsd = round2(purchaseQty * unitPriceUsd);
           if (item.id) {
             const existing = existingPurchases.find((row) => row.id === item.id);
             if (!existing) throw new Error(`Purchase item #${item.id} not found on this lot`);
@@ -483,9 +521,9 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
               data: {
                 supplierId: item.supplierId,
                 productId: item.productId,
-                qty: item.qtyMt,
-                weightPerCartonKg: item.weightPerCartonKg,
-                unitPriceUsd: item.unitPriceUsdPerMt,
+                qty: purchaseQty,
+                weightPerCartonKg: product.unitOfMeasure === "PCS" ? null : product.defaultWeightPerCartonKg,
+                unitPriceUsd,
                 totalPriceUsd,
               },
             });
@@ -499,9 +537,9 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
                 lotId: id,
                 supplierId: item.supplierId,
                 productId: item.productId,
-                qty: item.qtyMt,
-                weightPerCartonKg: item.weightPerCartonKg,
-                unitPriceUsd: item.unitPriceUsdPerMt,
+                qty: purchaseQty,
+                weightPerCartonKg: product.unitOfMeasure === "PCS" ? null : product.defaultWeightPerCartonKg,
+                unitPriceUsd,
                 totalPriceUsd,
                 createdBy: user.userId,
               },

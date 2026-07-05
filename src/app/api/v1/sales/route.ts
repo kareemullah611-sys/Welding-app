@@ -110,9 +110,15 @@ function formatSaleCreateResponse(
     items: sale.items.map((i: any) => ({
       productId: i.productId,
       productName: i.product.name,
+      unitOfMeasure: i.product.unitOfMeasure,
+      piecesPerCarton: i.product.piecesPerCarton,
       qty: Number(i.qty),
+      cartonQty: i.cartonQty === null || i.cartonQty === undefined ? null : Number(i.cartonQty),
       ratePerCarton: Number(i.ratePerCarton),
+      ratePerPieceLocal: i.ratePerPieceLocal === null || i.ratePerPieceLocal === undefined ? null : Number(i.ratePerPieceLocal),
+      ratePerPieceUsd: i.ratePerPieceUsd === null || i.ratePerPieceUsd === undefined ? null : Number(i.ratePerPieceUsd),
       amount: Number(i.amount),
+      amountUsd: i.amountUsd === null || i.amountUsd === undefined ? null : Number(i.amountUsd),
     })),
     createdBy: sale.creator,
     ...(stockWarnings && stockWarnings.length > 0 ? { stockWarnings } : {}),
@@ -184,9 +190,15 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         id: i.id,
         productId: i.productId,
         productName: i.product.name,
+        unitOfMeasure: i.product.unitOfMeasure,
+        piecesPerCarton: i.product.piecesPerCarton,
         qty: Number(i.qty),
+        cartonQty: i.cartonQty === null || i.cartonQty === undefined ? null : Number(i.cartonQty),
         ratePerCarton: Number(i.ratePerCarton),
+        ratePerPieceLocal: i.ratePerPieceLocal === null || i.ratePerPieceLocal === undefined ? null : Number(i.ratePerPieceLocal),
+        ratePerPieceUsd: i.ratePerPieceUsd === null || i.ratePerPieceUsd === undefined ? null : Number(i.ratePerPieceUsd),
         amount: Number(i.amount),
+        amountUsd: i.amountUsd === null || i.amountUsd === undefined ? null : Number(i.amountUsd),
       })),
       createdBy: s.creator,
     });
@@ -202,7 +214,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
             godown: { select: { id: true, name: true, cityId: true, city: { select: { name: true } } } },
             city: { select: { id: true, name: true } },
             currency: true,
-            items: { include: { product: { select: { id: true, name: true } } } },
+            items: { include: { product: { select: { id: true, name: true, unitOfMeasure: true, piecesPerCarton: true } } } },
             creator: { select: { id: true, fullName: true } },
           },
           orderBy: [{ saleDate: "desc" }, { id: "desc" }],
@@ -223,7 +235,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         godown: { select: { id: true, name: true, cityId: true, city: { select: { name: true } } } },
         city: { select: { id: true, name: true } },
         currency: true,
-        items: { include: { product: { select: { id: true, name: true } } } },
+        items: { include: { product: { select: { id: true, name: true, unitOfMeasure: true, piecesPerCarton: true } } } },
         creator: { select: { id: true, fullName: true } },
       },
       orderBy: [{ saleDate: "desc" }, { id: "desc" }],
@@ -300,7 +312,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
             lot: { select: { id: true, lotNumber: true, status: true } },
             godown: { include: { city: { select: { id: true, name: true } } } },
             currency: true,
-            items: { include: { product: { select: { id: true, name: true } } } },
+            items: { include: { product: { select: { id: true, name: true, unitOfMeasure: true, piecesPerCarton: true } } } },
             creator: { select: { id: true, fullName: true } },
           },
         });
@@ -382,14 +394,61 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       return errorResponse("NOT_FOUND", "One or more products not found or inactive");
     }
 
+    const productById = new Map(products.map((p) => [p.id, p]));
+    const normalizedItems: Array<{
+      productId: number;
+      stockQty: number;
+      cartonQty: number | null;
+      ratePerCarton: number;
+      ratePerPieceLocal: number | null;
+      ratePerPieceUsd: number | null;
+      amount: number;
+      amountUsd: number | null;
+    }> = [];
+    for (const item of items) {
+      const product = productById.get(item.productId)!;
+      if (product.unitOfMeasure === "PCS") {
+        if (!product.piecesPerCarton) return errorResponse("VALIDATION_ERROR", `${product.name}: PCS/CTN is required on product master`);
+        const cartonQty = Number(item.cartonQty || item.qty || 0);
+        const stockQty = cartonQty * product.piecesPerCarton;
+        const ratePerPieceLocal = Number(item.ratePerPieceLocal || 0);
+        const ratePerPieceUsd = item.ratePerPieceUsd ? Number(item.ratePerPieceUsd) : null;
+        if (cartonQty <= 0 || ratePerPieceLocal <= 0) return errorResponse("VALIDATION_ERROR", `${product.name}: carton quantity and local price/PCS are required`);
+        normalizedItems.push({
+          productId: item.productId,
+          stockQty,
+          cartonQty,
+          ratePerCarton: roundMoney(ratePerPieceLocal * product.piecesPerCarton),
+          ratePerPieceLocal,
+          ratePerPieceUsd,
+          amount: roundMoney(stockQty * ratePerPieceLocal),
+          amountUsd: ratePerPieceUsd ? roundMoney(stockQty * ratePerPieceUsd) : null,
+        });
+        continue;
+      }
+      const stockQty = Number(item.qty || 0);
+      const ratePerCarton = Number(item.ratePerCarton || 0);
+      if (stockQty <= 0 || ratePerCarton <= 0) return errorResponse("VALIDATION_ERROR", `${product.name}: quantity and rate/carton are required`);
+      normalizedItems.push({
+        productId: item.productId,
+        stockQty,
+        cartonQty: null,
+        ratePerCarton,
+        ratePerPieceLocal: null,
+        ratePerPieceUsd: null,
+        amount: roundMoney(stockQty * ratePerCarton),
+        amountUsd: null,
+      });
+    }
+
     let stockWarnings: string[] = [];
     let hasShortage = false;
 
     // Calculate total using integer-rounded arithmetic to avoid floating-point errors
-    const totalAmount = roundMoney(items.reduce((sum, i) => sum + roundMoney(i.qty * i.ratePerCarton), 0));
+    const totalAmount = roundMoney(normalizedItems.reduce((sum, i) => sum + i.amount, 0));
 
     const sale = await prisma.$transaction(async (tx) => {
-      const productIdsToLock = Array.from(new Set(items.map((item) => item.productId)));
+      const productIdsToLock = Array.from(new Set(normalizedItems.map((item) => item.productId)));
       if (productIdsToLock.length > 0) {
         await tx.$executeRaw`
           SELECT id
@@ -402,11 +461,11 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
       const txStockWarnings: string[] = [];
       let txHasShortage = false;
-      for (const item of items) {
+      for (const item of normalizedItems) {
         const available = await getGodownStock(godownId, item.productId, tx);
-        if (available < item.qty) {
+        if (available < item.stockQty) {
           const productName = products.find((p) => p.id === item.productId)?.name || `Product #${item.productId}`;
-          txStockWarnings.push(`${productName}: available ${available}, requested ${item.qty}`);
+          txStockWarnings.push(`${productName}: available ${available}, requested ${item.stockQty}`);
           txHasShortage = true;
         }
       }
@@ -429,11 +488,15 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           stockShortFlag: txHasShortage,
           createdBy: user.userId,
           items: {
-            create: items.map((i) => ({
+            create: normalizedItems.map((i) => ({
               productId: i.productId,
-              qty: i.qty,
+              qty: i.stockQty,
+              cartonQty: i.cartonQty,
               ratePerCarton: i.ratePerCarton,
-              amount: roundMoney(i.qty * i.ratePerCarton),
+              ratePerPieceLocal: i.ratePerPieceLocal,
+              ratePerPieceUsd: i.ratePerPieceUsd,
+              amount: i.amount,
+              amountUsd: i.amountUsd,
             })),
           },
         },
@@ -442,7 +505,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           lot: { select: { id: true, lotNumber: true, status: true } },
           godown: { select: { id: true, name: true } },
           currency: true,
-          items: { include: { product: { select: { id: true, name: true } } } },
+          items: { include: { product: { select: { id: true, name: true, unitOfMeasure: true, piecesPerCarton: true } } } },
           creator: { select: { id: true, fullName: true } },
         },
       }) as any;
@@ -452,7 +515,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         date: saleDate,
         customer: createdSale.customer.name,
         total: `${Number(totalAmount).toLocaleString("en-US")}`,
-        items: createdSale.items.map((i: any) => `${i.product.name} ×${Number(i.qty)}`).join(", ") || undefined,
+        items: createdSale.items.map((i: any) => `${i.product.name} ×${Number(i.cartonQty || i.qty)}`).join(", ") || undefined,
       }, getClientIP(request), tx);
 
       if (createdSale.customer.name === "Walk-in Customer") {
@@ -502,7 +565,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         saleDate: createdSale.saleDate, createdBy: user.userId,
       }, tx);
 
-      const totalQtySold = items.reduce((s, i) => s + i.qty, 0);
+      const totalQtySold = normalizedItems.reduce((s, i) => s + i.stockQty, 0);
       await journalSaleCOGS({
         saleId: createdSale.id, lotId: createdSale.lotId!, totalQtySold,
         saleDate: createdSale.saleDate, cityId: createdSale.cityId, createdBy: user.userId,
@@ -555,7 +618,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
             lot: { select: { id: true, lotNumber: true, status: true } },
             godown: { include: { city: { select: { id: true, name: true } } } },
             currency: true,
-            items: { include: { product: { select: { id: true, name: true } } } },
+            items: { include: { product: { select: { id: true, name: true, unitOfMeasure: true, piecesPerCarton: true } } } },
             creator: { select: { id: true, fullName: true } },
           },
         });
