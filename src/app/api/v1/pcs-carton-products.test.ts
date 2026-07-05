@@ -59,6 +59,9 @@ test("PCS carton products are modeled from product master through purchase and s
   }
 
   assert.match(lotsRoute, /defaultWeightPerCartonKg/);
+  assert.match(lotsRoute, /toDisplayStockQty/);
+  assert.match(lotsRoute, /displayTotalQty/);
+  assert.match(lotsRoute, /displayAllocatedQty/);
   assert.match(lotsRoute, /weightPerCartonKg:\s*product\.unitOfMeasure === "PCS" \? null : product\.defaultWeightPerCartonKg/);
   assert.match(lotsRoute, /unitOfMeasure.*PCS/s);
   assert.match(lotsRoute, /qtyPcs/);

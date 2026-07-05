@@ -877,11 +877,14 @@ export default function LotsPage() {
       const qtyKey = isCityView ? "assignedQty" : "totalQty";
       return (
       <div className="flex flex-wrap gap-1">
-        {items.map((p: any) => (
-          <span key={p.productId} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs font-medium border border-blue-100 whitespace-nowrap">
-            {p.productName} <span className="font-bold text-blue-900">{formatNumber(Number(p[qtyKey] || p.allocatedQty || 0))}</span>
-          </span>
-        ))}
+        {items.map((p: any) => {
+          const displayQty = Number(p.displayAssignedQty ?? p.displayTotalQty ?? p.displayAllocatedQty ?? p[qtyKey] ?? p.allocatedQty ?? 0);
+          return (
+            <span key={p.productId} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs font-medium border border-blue-100 whitespace-nowrap">
+              {p.productName} <span className="font-bold text-blue-900">{formatNumber(displayQty)}</span>
+            </span>
+          );
+        })}
       </div>
       );
     }},

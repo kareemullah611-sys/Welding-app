@@ -35,6 +35,14 @@ function purchaseQtyAndPrice(item: any, product: ProductUnitMeta) {
   return { purchaseQty, unitPriceUsd };
 }
 
+function toDisplayStockQty(qty: number, product: { unitOfMeasure?: string | null; piecesPerCarton?: number | null }) {
+  const piecesPerCarton = Number(product.piecesPerCarton || 0);
+  if (product.unitOfMeasure === "PCS" && piecesPerCarton > 0) {
+    return round2(qty / piecesPerCarton);
+  }
+  return round2(qty);
+}
+
 function productCartonsFromItems(items: any[], productById: Map<number, ProductUnitMeta>) {
   const totals: Record<number, number> = {};
   for (const item of items) {
@@ -75,8 +83,16 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       });
       distributions = dists.map((d: any) => ({
         cityId: d.cityId, cityName: d.city.name, productId: d.productId, productName: d.product.name,
+        unitOfMeasure: d.product.unitOfMeasure,
+        piecesPerCarton: d.product.piecesPerCarton,
         allocatedQty: Number(d.allocatedQty),
-        godownAllocations: d.godownAllocations.map((ga: any) => ({ godownId: ga.godownId, godownName: ga.godown.name, qty: Number(ga.qty) })),
+        displayAllocatedQty: toDisplayStockQty(Number(d.allocatedQty), d.product),
+        godownAllocations: d.godownAllocations.map((ga: any) => ({
+          godownId: ga.godownId,
+          godownName: ga.godown.name,
+          qty: Number(ga.qty),
+          displayQty: toDisplayStockQty(Number(ga.qty), d.product),
+        })),
       }));
     } catch (e) {}
 
@@ -181,6 +197,8 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     const stockByProduct = lotProducts.map((lp: any) => {
       const totalQty = Number(lp.totalQty || 0);
       const soldQty = Number(soldQtyByProduct[lp.productId] || 0);
+      const cappedSoldQty = Math.min(totalQty, soldQty);
+      const remainingQty = Math.max(0, totalQty - soldQty);
       return {
         productId: lp.productId,
         productName: lp.product.name,
@@ -188,13 +206,16 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         defaultWeightPerCartonKg: lp.product.defaultWeightPerCartonKg ? Number(lp.product.defaultWeightPerCartonKg) : null,
         piecesPerCarton: lp.product.piecesPerCarton,
         totalQty,
-        soldQty: Math.min(totalQty, soldQty),
-        remainingQty: Math.max(0, totalQty - soldQty),
+        soldQty: cappedSoldQty,
+        remainingQty,
+        displayTotalQty: toDisplayStockQty(totalQty, lp.product),
+        displaySoldQty: toDisplayStockQty(cappedSoldQty, lp.product),
+        displayRemainingQty: toDisplayStockQty(remainingQty, lp.product),
       };
     });
-    const totalCartons = stockByProduct.reduce((s: number, p: any) => s + Number(p.totalQty), 0);
-    const soldCartons = stockByProduct.reduce((s: number, p: any) => s + Number(p.soldQty), 0);
-    const remainingCartons = stockByProduct.reduce((s: number, p: any) => s + Number(p.remainingQty), 0);
+    const totalCartons = stockByProduct.reduce((s: number, p: any) => s + Number(p.displayTotalQty), 0);
+    const soldCartons = stockByProduct.reduce((s: number, p: any) => s + Number(p.displaySoldQty), 0);
+    const remainingCartons = stockByProduct.reduce((s: number, p: any) => s + Number(p.displayRemainingQty), 0);
 
     // Group lot costs by currency — avoids mixing PKR + USD into a meaningless total
     const costsByCurrency: Record<string, number> = {};

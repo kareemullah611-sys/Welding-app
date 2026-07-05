@@ -34,6 +34,14 @@ function purchaseQtyAndPrice(item: any, product: ProductUnitMeta) {
   return { purchaseQty, unitPriceUsd };
 }
 
+function toDisplayStockQty(qty: number, product: { unitOfMeasure?: string | null; piecesPerCarton?: number | null }) {
+  const piecesPerCarton = Number(product.piecesPerCarton || 0);
+  if (product.unitOfMeasure === "PCS" && piecesPerCarton > 0) {
+    return Math.round((qty / piecesPerCarton) * 100) / 100;
+  }
+  return Math.round(qty * 100) / 100;
+}
+
 // GET /api/v1/lots - List lots
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
@@ -104,7 +112,6 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     ]);
 
     // Sold cartons + sales amounts per lot (active + marked_short both consume stock)
-    const soldByLotId: Record<number, number> = {};
     const soldByLotProduct: Record<number, Record<number, number>> = {};
     const soldAmountByLotProduct: Record<number, Record<number, number>> = {};
     const soldSalesByLot: Record<number, Record<string, number>> = {};
@@ -115,9 +122,12 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         user.role === "city_admin" ? { cityId: user.cityId! } : {}
       );
       const metricsByLot = aggregateLotSalesMetrics(lotSales);
-      for (const sale of lotSales) {
-        const qty = sale.items.reduce((s, it) => s + Number(it.qty || 0), 0);
-        soldByLotId[sale.lotId] = (soldByLotId[sale.lotId] || 0) + qty;
+      for (const lotId of lotIds) {
+        const metrics = metricsByLot.get(lotId);
+        if (!metrics) continue;
+        soldByLotProduct[lotId] = metrics.soldQtyByProduct;
+        soldAmountByLotProduct[lotId] = metrics.soldAmountByProduct;
+        soldSalesByLot[lotId] = metrics.soldSalesByCurrency;
       }
       if (user.role === "city_admin") {
         for (const lotId of lotIds) {
@@ -137,10 +147,14 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         cityName: d.city.name,
         productId: d.productId,
         productName: d.product.name,
+        unitOfMeasure: d.product.unitOfMeasure,
+        piecesPerCarton: d.product.piecesPerCarton,
         allocatedQty: Number(d.allocatedQty),
+        displayAllocatedQty: toDisplayStockQty(Number(d.allocatedQty), d.product),
         godownAllocations: d.godownAllocations.map((ga) => ({
           godownId: ga.godownId,
           qty: Number(ga.qty),
+          displayQty: toDisplayStockQty(Number(ga.qty), d.product),
         })),
       }));
 
@@ -167,10 +181,21 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         soldCartons = metrics.soldCartons;
         remainingCartons = metrics.remainingCartons;
         assignmentProducts = metrics.byProduct;
+        assignmentProducts = metrics.byProduct.map((product) => {
+          const distribution = cityDists.find((d) => d.productId === product.productId);
+          return distribution
+            ? {
+                ...product,
+                displayAssignedQty: toDisplayStockQty(product.assignedQty, distribution),
+                displaySoldQty: toDisplayStockQty(product.soldQty, distribution),
+                displayRemainingQty: toDisplayStockQty(product.remainingQty, distribution),
+              }
+            : product;
+        });
         soldSalesByCurrency = soldSalesByLot[lot.id] || {};
       } else {
-        totalCartons = lot.lotProducts.reduce((s, lp) => s + Number(lp.totalQty), 0);
-        soldCartons = Number(soldByLotId[lot.id] || 0);
+        totalCartons = lot.lotProducts.reduce((s, lp) => s + toDisplayStockQty(Number(lp.totalQty), lp.product), 0);
+        soldCartons = lot.lotProducts.reduce((s, lp) => s + toDisplayStockQty(Number(soldByLotProduct[lot.id]?.[lp.productId] || 0), lp.product), 0);
         remainingCartons = Math.max(0, totalCartons - soldCartons);
       }
 
@@ -196,7 +221,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           id: lp.id,
           productId: lp.productId,
           productName: lp.product.name,
+          unitOfMeasure: lp.product.unitOfMeasure,
+          piecesPerCarton: lp.product.piecesPerCarton,
           totalQty: Number(lp.totalQty),
+          displayTotalQty: toDisplayStockQty(Number(lp.totalQty), lp.product),
         })),
         distributions: cityDists,
         salesCount: lot._count.sales,
@@ -399,6 +427,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         defaultWeightPerCartonKg: lp.product.defaultWeightPerCartonKg ? Number(lp.product.defaultWeightPerCartonKg) : null,
         piecesPerCarton: lp.product.piecesPerCarton,
         totalQty: Number(lp.totalQty),
+        displayTotalQty: toDisplayStockQty(Number(lp.totalQty), lp.product),
       })),
       purchaseItems: lotFull.lotPurchases.map((p) => ({
         id: p.id,
@@ -421,7 +450,10 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         cityName: d.city.name,
         productId: d.productId,
         productName: d.product.name,
+        unitOfMeasure: d.product.unitOfMeasure,
+        piecesPerCarton: d.product.piecesPerCarton,
         allocatedQty: Number(d.allocatedQty),
+        displayAllocatedQty: toDisplayStockQty(Number(d.allocatedQty), d.product),
       })),
       createdBy: lotFull.creator,
     }, "Lot created successfully", 201);
