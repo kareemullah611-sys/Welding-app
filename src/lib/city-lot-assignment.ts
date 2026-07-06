@@ -7,12 +7,29 @@ type DbClient = PrismaClient | Prisma.TransactionClient;
 export type CityLotAssignmentProduct = {
   productId: number;
   productName: string;
+  unitOfMeasure?: string | null;
+  piecesPerCarton?: number | null;
   assignedQty: number;
+  displayAssignedQty?: number;
   soldQty: number;
+  displaySoldQty?: number;
   soldAmount: number;
   remainingQty: number;
-  godownAllocations: Array<{ godownId: number; godownName: string; qty: number }>;
+  displayRemainingQty?: number;
+  godownAllocations: Array<{ godownId: number; godownName: string; qty: number; displayQty?: number }>;
 };
+
+function round2(n: number) {
+  return Math.round(n * 100) / 100;
+}
+
+function toDisplayStockQty(qty: number, product: { unitOfMeasure?: string | null; piecesPerCarton?: number | null }) {
+  const piecesPerCarton = Number(product.piecesPerCarton || 0);
+  if (product.unitOfMeasure === "PCS" && piecesPerCarton > 0) {
+    return round2(qty / piecesPerCarton);
+  }
+  return round2(qty);
+}
 
 export async function getCitySoldQtyByProduct(
   lotId: number,
@@ -64,7 +81,7 @@ export async function buildCityLotAssignmentDetail(
   const dists = await db.lotCityDistribution.findMany({
     where: { lotId, cityId },
     include: {
-      product: { select: { id: true, name: true } },
+      product: { select: { id: true, name: true, unitOfMeasure: true, piecesPerCarton: true } },
       godownAllocations: { include: { godown: { select: { id: true, name: true } } } },
     },
     orderBy: [{ productId: "asc" }],
@@ -83,21 +100,27 @@ export async function buildCityLotAssignmentDetail(
     return {
       productId: d.productId,
       productName: d.product.name,
+      unitOfMeasure: d.product.unitOfMeasure,
+      piecesPerCarton: d.product.piecesPerCarton,
       assignedQty,
+      displayAssignedQty: toDisplayStockQty(assignedQty, d.product),
       soldQty,
+      displaySoldQty: toDisplayStockQty(soldQty, d.product),
       soldAmount: Number(soldAmountByProduct[d.productId] || 0),
       remainingQty,
+      displayRemainingQty: toDisplayStockQty(remainingQty, d.product),
       godownAllocations: d.godownAllocations.map((ga) => ({
         godownId: ga.godownId,
         godownName: ga.godown.name,
         qty: Number(ga.qty),
+        displayQty: toDisplayStockQty(Number(ga.qty), d.product),
       })),
     };
   });
 
-  const totalCartons = byProduct.reduce((s, p) => s + p.assignedQty, 0);
-  const soldCartons = byProduct.reduce((s, p) => s + p.soldQty, 0);
-  const remainingCartons = byProduct.reduce((s, p) => s + p.remainingQty, 0);
+  const totalCartons = byProduct.reduce((s, p) => s + Number(p.displayAssignedQty ?? p.assignedQty), 0);
+  const soldCartons = byProduct.reduce((s, p) => s + Number(p.displaySoldQty ?? p.soldQty), 0);
+  const remainingCartons = byProduct.reduce((s, p) => s + Number(p.displayRemainingQty ?? p.remainingQty), 0);
 
   return {
     ok: true,
@@ -122,7 +145,7 @@ export async function buildCityLotAssignmentDetail(
 }
 
 export function cityAssignmentMetricsFromDistributions(
-  distributions: Array<{ productId: number; productName: string; allocatedQty: number }>,
+  distributions: Array<{ productId: number; productName: string; allocatedQty: number; unitOfMeasure?: string | null; piecesPerCarton?: number | null }>,
   soldByProduct: Record<number, number>,
   soldAmountByProduct: Record<number, number> = {}
 ) {
@@ -132,18 +155,23 @@ export function cityAssignmentMetricsFromDistributions(
     return {
       productId: d.productId,
       productName: d.productName,
+      unitOfMeasure: d.unitOfMeasure,
+      piecesPerCarton: d.piecesPerCarton,
       assignedQty,
+      displayAssignedQty: toDisplayStockQty(assignedQty, d),
       soldQty,
+      displaySoldQty: toDisplayStockQty(soldQty, d),
       soldAmount: Number(soldAmountByProduct[d.productId] || 0),
       remainingQty: Math.max(0, assignedQty - soldQty),
+      displayRemainingQty: toDisplayStockQty(Math.max(0, assignedQty - soldQty), d),
     };
   });
-  const totalCartons = byProduct.reduce((s, p) => s + p.assignedQty, 0);
-  const soldCartons = byProduct.reduce((s, p) => s + p.soldQty, 0);
+  const totalCartons = byProduct.reduce((s, p) => s + Number(p.displayAssignedQty ?? p.assignedQty), 0);
+  const soldCartons = byProduct.reduce((s, p) => s + Number(p.displaySoldQty ?? p.soldQty), 0);
   return {
     totalCartons,
     soldCartons,
-    remainingCartons: Math.max(0, totalCartons - soldCartons),
+    remainingCartons: byProduct.reduce((s, p) => s + Number(p.displayRemainingQty ?? p.remainingQty), 0),
     byProduct,
   };
 }

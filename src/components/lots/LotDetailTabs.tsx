@@ -53,26 +53,32 @@ export function LotDetailSummary({ selectedLot, userRole, t, onAddCost, onEditPu
                 <tr className="border-b border-[#eadfce] bg-[#f9f3ea] text-left text-[11px] uppercase tracking-[0.12em] text-[#8b7b6c]">
                   <th className="px-3 py-2.5">Supplier</th>
                   <th className="px-3 py-2.5">Product</th>
-                  <th className="px-3 py-2.5 text-right">Qty (MT)</th>
+                  <th className="px-3 py-2.5 text-right">Qty (MT/CTN)</th>
                   <th className="px-3 py-2.5 text-right">Amount USD</th>
                   {userRole === "super_admin" && <th className="px-3 py-2.5 text-right">Actions</th>}
                 </tr>
               </thead>
               <tbody>
-                {selectedLot.purchaseItems.map((p: any) => (
-                  <tr key={p.id} className="border-b border-[#f1e8dd]">
-                    <td className="px-3 py-2.5">{p.supplierName}</td>
-                    <td className="px-3 py-2.5">{p.productName}</td>
-                    <td className="px-3 py-2.5 text-right">{Number(p.qtyMt).toLocaleString("en-US", { minimumFractionDigits: 3 })}</td>
-                    <td className="px-3 py-2.5 text-right font-semibold text-blue-700">${Number(p.totalPriceUsd).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
-                    {userRole === "super_admin" && (
-                      <td className="px-3 py-2.5 text-right">
-                        <button onClick={() => onEditPurchase(p)} className="p-1 text-gray-400 hover:text-blue-600" title="Edit"><Pencil size={12} /></button>
-                        <button onClick={() => onDeletePurchase(p)} className="ml-1 p-1 text-gray-400 hover:text-red-600" title="Delete"><Trash2 size={12} /></button>
-                      </td>
-                    )}
-                  </tr>
-                ))}
+                {selectedLot.purchaseItems.map((p: any) => {
+                  const piecesPerCarton = Number(p.piecesPerCarton || 0);
+                  const displayPurchaseQty = p.unitOfMeasure === "PCS" && piecesPerCarton > 0
+                    ? Number(p.qtyPcs || 0) / piecesPerCarton
+                    : Number(p.qtyMt || 0);
+                  return (
+                    <tr key={p.id} className="border-b border-[#f1e8dd]">
+                      <td className="px-3 py-2.5">{p.supplierName}</td>
+                      <td className="px-3 py-2.5">{p.productName}</td>
+                      <td className="px-3 py-2.5 text-right">{displayPurchaseQty.toLocaleString("en-US", { minimumFractionDigits: 3 })}</td>
+                      <td className="px-3 py-2.5 text-right font-semibold text-blue-700">${Number(p.totalPriceUsd).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
+                      {userRole === "super_admin" && (
+                        <td className="px-3 py-2.5 text-right">
+                          <button onClick={() => onEditPurchase(p)} className="p-1 text-gray-400 hover:text-blue-600" title="Edit"><Pencil size={12} /></button>
+                          <button onClick={() => onDeletePurchase(p)} className="ml-1 p-1 text-gray-400 hover:text-red-600" title="Delete"><Trash2 size={12} /></button>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -93,14 +99,19 @@ export function LotDetailSummary({ selectedLot, userRole, t, onAddCost, onEditPu
                 </tr>
               </thead>
               <tbody>
-                {(selectedLot.stockSummary?.byProduct || selectedLot.products || []).map((p: any) => (
-                  <tr key={p.productId} className="border-b border-[#f1e8dd]">
-                    <td className="px-3 py-2.5">{p.productName}</td>
-                    <td className="px-3 py-2.5 text-right">{formatNumber(Number(p.totalQty || 0))}</td>
-                    <td className="px-3 py-2.5 text-right text-green-700">{formatNumber(Number(p.soldQty || 0))}</td>
-                    <td className="px-3 py-2.5 text-right text-blue-700">{formatNumber(Number(p.remainingQty || 0))}</td>
-                  </tr>
-                ))}
+                {(selectedLot.stockSummary?.byProduct || selectedLot.products || []).map((p: any) => {
+                  const totalQty = Number(p.displayTotalQty ?? p.displayAssignedQty ?? p.totalQty ?? p.assignedQty ?? 0);
+                  const soldQty = Number(p.displaySoldQty ?? p.soldQty ?? 0);
+                  const remainingQty = Number(p.displayRemainingQty ?? p.remainingQty ?? 0);
+                  return (
+                    <tr key={p.productId} className="border-b border-[#f1e8dd]">
+                      <td className="px-3 py-2.5">{p.productName}</td>
+                      <td className="px-3 py-2.5 text-right">{formatNumber(totalQty)}</td>
+                      <td className="px-3 py-2.5 text-right text-green-700">{formatNumber(soldQty)}</td>
+                      <td className="px-3 py-2.5 text-right text-blue-700">{formatNumber(remainingQty)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -218,22 +229,27 @@ export function CityLotAssignmentDetail({ selectedLot, t }: { selectedLot: any; 
                 </tr>
               </thead>
               <tbody>
-                {byProduct.map((p: any) => (
-                  <tr key={p.productId} className="border-b border-[#f1e8dd]">
-                    <td className="px-3 py-2.5 font-medium">{p.productName}</td>
-                    <td className="px-3 py-2.5 text-right">{formatNumber(Number(p.assignedQty || 0))}</td>
-                    <td className="px-3 py-2.5 text-right text-green-700">{formatNumber(Number(p.soldQty || 0))}</td>
-                    <td className="px-3 py-2.5 text-right font-medium text-green-800">
-                      {formatCityAmount(user, Number(p.soldAmount || 0))}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-blue-700">{formatNumber(Number(p.remainingQty || 0))}</td>
-                    <td className="px-3 py-2.5 text-xs text-gray-600">
-                      {(p.godownAllocations || []).length
-                        ? (p.godownAllocations || []).map((g: any) => `${g.godownName}: ${formatNumber(g.qty)}`).join(" · ")
-                        : "—"}
-                    </td>
-                  </tr>
-                ))}
+                {byProduct.map((p: any) => {
+                  const assignedQty = Number(p.displayAssignedQty ?? p.assignedQty ?? 0);
+                  const soldQty = Number(p.displaySoldQty ?? p.soldQty ?? 0);
+                  const remainingQty = Number(p.displayRemainingQty ?? p.remainingQty ?? 0);
+                  return (
+                    <tr key={p.productId} className="border-b border-[#f1e8dd]">
+                      <td className="px-3 py-2.5 font-medium">{p.productName}</td>
+                      <td className="px-3 py-2.5 text-right">{formatNumber(assignedQty)}</td>
+                      <td className="px-3 py-2.5 text-right text-green-700">{formatNumber(soldQty)}</td>
+                      <td className="px-3 py-2.5 text-right font-medium text-green-800">
+                        {formatCityAmount(user, Number(p.soldAmount || 0))}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-blue-700">{formatNumber(remainingQty)}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-600">
+                        {(p.godownAllocations || []).length
+                          ? (p.godownAllocations || []).map((g: any) => `${g.godownName}: ${formatNumber(g.displayQty ?? g.qty)}`).join(" · ")
+                          : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

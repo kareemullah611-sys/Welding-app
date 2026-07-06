@@ -12,6 +12,8 @@ test("PCS carton products are modeled from product master through purchase and s
   const productsRoute = readFileSync("src/app/api/v1/products/route.ts", "utf8");
   const productRoute = readFileSync("src/app/api/v1/products/[id]/route.ts", "utf8");
   const lotsRoute = readFileSync("src/app/api/v1/lots/route.ts", "utf8");
+  const cityLotAssignment = readFileSync("src/lib/city-lot-assignment.ts", "utf8");
+  const lotDetailTabs = readFileSync("src/components/lots/LotDetailTabs.tsx", "utf8");
   const salesRoute = readFileSync("src/app/api/v1/sales/route.ts", "utf8");
   const accounting = readFileSync("src/lib/accounting.ts", "utf8");
   const lotsPage = readFileSync("src/app/(dashboard)/lots/page.tsx", "utf8");
@@ -62,6 +64,12 @@ test("PCS carton products are modeled from product master through purchase and s
   assert.match(lotsRoute, /toDisplayStockQty/);
   assert.match(lotsRoute, /displayTotalQty/);
   assert.match(lotsRoute, /displayAllocatedQty/);
+  assert.match(cityLotAssignment, /displayAssignedQty/);
+  assert.match(cityLotAssignment, /displayRemainingQty/);
+  assert.match(lotDetailTabs, /displayTotalQty/);
+  assert.match(lotDetailTabs, /displayAssignedQty/);
+  assert.match(lotDetailTabs, /displayPurchaseQty/);
+  assert.match(lotDetailTabs, /Number\(p\.qtyPcs \|\| 0\) \/ piecesPerCarton/);
   assert.match(lotsRoute, /weightPerCartonKg:\s*product\.unitOfMeasure === "PCS" \? null : product\.defaultWeightPerCartonKg/);
   assert.match(lotsRoute, /unitOfMeasure.*PCS/s);
   assert.match(lotsRoute, /qtyPcs/);
