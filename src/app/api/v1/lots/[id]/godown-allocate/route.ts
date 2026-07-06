@@ -24,17 +24,27 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
     });
     if (!dist) return errorResponse("NOT_FOUND", "No distribution found for this lot/city/product combination");
 
-    // Validate total allocation doesn't exceed distribution
-    const totalAllocated = allocations.reduce((s: number, a: any) => s + (a.qty || 0), 0);
-    if (totalAllocated > Number(dist.allocatedQty)) {
-      return errorResponse("VALIDATION_ERROR", `Total godown allocation (${totalAllocated}) exceeds city distribution (${dist.allocatedQty})`);
-    }
-
     // Validate godowns belong to this city
     const godownIds = allocations.map((a: any) => a.godownId);
     const godowns = await prisma.godown.findMany({ where: { id: { in: godownIds }, cityId: effectiveCityId } });
     if (godowns.length !== godownIds.length) {
       return errorResponse("VALIDATION_ERROR", "One or more godowns don't belong to this city");
+    }
+
+    const incomingByGodown = new Map<number, number>();
+    for (const allocation of allocations) {
+      incomingByGodown.set(Number(allocation.godownId), Number(allocation.qty || 0));
+    }
+    const existingRows = await prisma.lotCityGodownAllocation.findMany({
+      where: { lotCityDistributionId: dist.id },
+      select: { godownId: true, qty: true },
+    });
+    const existingGodownIds = new Set(existingRows.map((row) => row.godownId));
+    const nextTotal =
+      existingRows.reduce((sum, row) => sum + (incomingByGodown.has(row.godownId) ? Number(incomingByGodown.get(row.godownId)) : Number(row.qty)), 0) +
+      [...incomingByGodown.entries()].filter(([godownId]) => !existingGodownIds.has(godownId)).reduce((sum, [, qty]) => sum + qty, 0);
+    if (nextTotal > Number(dist.allocatedQty)) {
+      return errorResponse("VALIDATION_ERROR", `Total godown allocation (${nextTotal}) exceeds city distribution (${dist.allocatedQty})`);
     }
 
     // Upsert godown allocations one by one (no transaction - avoids Neon timeout)

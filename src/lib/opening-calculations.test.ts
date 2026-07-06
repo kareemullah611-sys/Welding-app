@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { applyOpeningByCurrency, computeAvailableStockWithOpening } from "@/lib/opening-calculations";
@@ -25,4 +26,16 @@ test("computeAvailableStockWithOpening includes opening stock", () => {
   });
 
   assert.equal(available, 25);
+});
+
+test("lot godown stock cannot exceed assigned city distribution", () => {
+  const source = readFileSync("src/lib/lot-godown-stock.ts", "utf8");
+  const legacyEndpoint = readFileSync("src/app/api/v1/lots/[id]/godown-allocate/route.ts", "utf8");
+
+  assert.match(source, /No distribution found for this lot\/city\/product combination/);
+  assert.match(source, /nextCityTotal > Number\(dist\.allocatedQty\)/);
+  assert.doesNotMatch(source, /data: \{ allocatedQty: cityTotal \}/);
+  assert.doesNotMatch(source, /lotProduct\.upsert/);
+  assert.match(legacyEndpoint, /incomingByGodown/);
+  assert.match(legacyEndpoint, /nextTotal > Number\(dist\.allocatedQty\)/);
 });

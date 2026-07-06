@@ -1057,7 +1057,7 @@ export default function SalesPage() {
               <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("product")} *</p>
               <button type="button" onClick={addItem} className="text-xs font-semibold text-primary-700 hover:text-primary-800">+ {t("add_item")}</button>
             </div>
-            <div className="module-scroll-x overflow-x-auto -mx-1 px-1">
+            <div className="module-scroll-x overflow-x-auto -mx-1 px-1 py-1">
               <div className="min-w-[520px] space-y-2">
                 <div className="grid grid-cols-[minmax(0,1fr)_68px_52px_80px_84px_24px] gap-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
                   <span>{t("product")}</span>

@@ -15,7 +15,7 @@ import { useSearchParams } from "next/navigation";
 import { getEmbedFromLocation, getEmbedQuickformPath, shouldSimplifyCityModals } from "@/lib/quickform-embed";
 import { formatCityAmount, formatCurrencySelectLabel } from "@/lib/city-money-format";
 import { buildPaymentCancellationReversalRow } from "@/lib/treasury-ledger";
-import { formatPaymentModuleDetail, buildPaymentSubmitPayload, validatePakistanPaymentForm, formatSuperAdminPaymentDetail, formatPakistanCityPaymentDetail, getPakistanPaymentAccountSelectValue, parsePakistanPaymentAccountSelectValue, buildPakistanPaymentAccountOptions } from "@/lib/payment-module-detail";
+import { formatPaymentModuleDetail, buildPaymentSubmitPayload, validatePakistanPaymentForm, formatSuperAdminPaymentDetail, formatPakistanCityPaymentDetail, getPakistanPaymentAccountSelectValue, parsePakistanPaymentAccountSelectValue, buildPakistanPaymentAccountOptions, sanitizePaymentSubmitPayload } from "@/lib/payment-module-detail";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
 import { LedgerExportButtons } from "@/components/LedgerExportButtons";
 
@@ -631,7 +631,7 @@ export default function PaymentsPage() {
             cityBankAccounts,
             superAdminBankAccounts,
           })
-        : { ...form, currencyId: resolvedCurrencyId };
+        : sanitizePaymentSubmitPayload({ ...form, currencyId: resolvedCurrencyId });
     } else if (createType === "expense") {
       if (!(form.amount > 0) || !form.detail) { setError(t("amount") + " (must be > 0) and " + t("detail") + " required"); setSubmitting(false); return; }
       endpoint = "/api/v1/expenses";
@@ -753,7 +753,7 @@ export default function PaymentsPage() {
           cityBankAccounts,
           superAdminBankAccounts,
         })
-      : { ...form, currencyId: form.currencyId || currencies[0]?.id };
+      : sanitizePaymentSubmitPayload({ ...form, currencyId: form.currencyId || currencies[0]?.id });
     setPaymentQueue(prev => [...prev, {
       tempId: `q-${Date.now()}-${Math.random()}`,
       customerName: form.customerName || "Customer",

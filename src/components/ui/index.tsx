@@ -381,7 +381,7 @@ export function DataTable<T extends Record<string, any>>({
   };
 
   return (
-    <div className="module-page rounded-[1.4rem] border border-white/60 bg-white/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_22px_56px_-30px_rgba(42,6,8,0.24)] backdrop-blur-2xl backdrop-saturate-[1.8]">
+    <div className="module-page overflow-hidden rounded-[1.4rem] border border-white/60 bg-white/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_22px_56px_-30px_rgba(42,6,8,0.24)] backdrop-blur-2xl backdrop-saturate-[1.8]">
       {searchable && (
         <div className="border-b border-[#e4e4e7] bg-[#f4f4f5]/90 px-3 py-2 sm:px-4">
           <div className="flex flex-wrap items-center gap-2">

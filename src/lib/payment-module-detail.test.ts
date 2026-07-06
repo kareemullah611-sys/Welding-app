@@ -7,6 +7,8 @@ import {
   getPakistanPaymentAccountSelectValue,
   parsePakistanPaymentAccountSelectValue,
   buildPakistanPaymentAccountOptions,
+  buildPaymentSubmitPayload,
+  sanitizePaymentSubmitPayload,
 } from "@/lib/payment-module-detail";
 
 test("formatPakistanCityPaymentDetail formats online payment to super admin account", () => {
@@ -107,4 +109,30 @@ test("formatSuperAdminPaymentDetail formats account and method", () => {
     }),
     "meezan (4002)-bank transfer",
   );
+});
+
+test("payment submit payload omits placeholder zero bank account ids", () => {
+  assert.deepEqual(
+    sanitizePaymentSubmitPayload({
+      customerId: 1,
+      amount: 100,
+      bankAccountId: 0,
+      superAdminBankAccountId: 0,
+    }),
+    { customerId: 1, amount: 100 },
+  );
+
+  const payload = buildPaymentSubmitPayload(
+    {
+      customerId: 1,
+      amount: 100,
+      paymentMethod: "cash",
+      destination: "our_account",
+      bankAccountId: 0,
+      superAdminBankAccountId: 0,
+    },
+    { currencyId: 1 },
+  );
+  assert.equal("bankAccountId" in payload, false);
+  assert.equal("superAdminBankAccountId" in payload, false);
 });

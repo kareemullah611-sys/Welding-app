@@ -192,7 +192,14 @@ export function buildPaymentSubmitPayload(
     bankAccount,
     superAdminBankAccount,
   });
-  return { ...form, currencyId: options.currencyId, paymentMethod: method, destination, detail };
+  return sanitizePaymentSubmitPayload({ ...form, currencyId: options.currencyId, paymentMethod: method, destination, detail });
+}
+
+export function sanitizePaymentSubmitPayload<T extends Record<string, unknown>>(payload: T): T {
+  const next = { ...payload };
+  if (!Number(next.bankAccountId || 0)) delete next.bankAccountId;
+  if (!Number(next.superAdminBankAccountId || 0)) delete next.superAdminBankAccountId;
+  return next;
 }
 
 export function validatePakistanPaymentForm(form: Record<string, unknown>): string | null {

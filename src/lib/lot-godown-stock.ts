@@ -36,40 +36,27 @@ export async function setLotGodownStock(
       },
     },
   });
+  if (!dist) throw new Error("No distribution found for this lot/city/product combination");
 
   const qty = round2(Number(params.qty));
 
   if (qty <= 0) {
-    if (dist) {
-      await db.lotCityGodownAllocation.deleteMany({
-        where: { lotCityDistributionId: dist.id, godownId: params.godownId },
-      });
-      const citySum = await db.lotCityGodownAllocation.aggregate({
-        where: { lotCityDistributionId: dist.id },
-        _sum: { qty: true },
-      });
-      const cityTotal = round2(Number(citySum._sum.qty || 0));
-      if (cityTotal <= 0) {
-        await db.lotCityDistribution.delete({ where: { id: dist.id } });
-      } else {
-        await db.lotCityDistribution.update({
-          where: { id: dist.id },
-          data: { allocatedQty: cityTotal },
-        });
-      }
-    }
+    await db.lotCityGodownAllocation.deleteMany({
+      where: { lotCityDistributionId: dist.id, godownId: params.godownId },
+    });
     return { lotId: params.lotId };
   }
 
-  if (!dist) {
-    dist = await db.lotCityDistribution.create({
-      data: {
-        lotId: params.lotId,
-        cityId: params.cityId,
-        productId: params.productId,
-        allocatedQty: qty,
-      },
-    });
+  const existingCitySum = await db.lotCityGodownAllocation.aggregate({
+    where: {
+      lotCityDistributionId: dist.id,
+      NOT: { godownId: params.godownId },
+    },
+    _sum: { qty: true },
+  });
+  const nextCityTotal = round2(Number(existingCitySum._sum.qty || 0) + qty);
+  if (nextCityTotal > Number(dist.allocatedQty)) {
+    throw new Error(`Total godown allocation (${nextCityTotal}) exceeds city distribution (${Number(dist.allocatedQty)})`);
   }
 
   await db.lotCityGodownAllocation.upsert({
@@ -87,28 +74,6 @@ export async function setLotGodownStock(
     },
     update: { qty },
   });
-
-  const citySum = await db.lotCityGodownAllocation.aggregate({
-    where: { lotCityDistributionId: dist.id },
-    _sum: { qty: true },
-  });
-  await db.lotCityDistribution.update({
-    where: { id: dist.id },
-    data: { allocatedQty: round2(Number(citySum._sum.qty || 0)) },
-  });
-
-  const countrySum = await db.lotCityDistribution.aggregate({
-    where: { lotId: params.lotId, productId: params.productId },
-    _sum: { allocatedQty: true },
-  });
-  const totalQty = round2(Number(countrySum._sum.allocatedQty || 0));
-  if (totalQty > 0) {
-    await db.lotProduct.upsert({
-      where: { lotId_productId: { lotId: params.lotId, productId: params.productId } },
-      create: { lotId: params.lotId, productId: params.productId, totalQty },
-      update: { totalQty },
-    });
-  }
 
   return { lotId: params.lotId, distributionId: dist.id };
 }
