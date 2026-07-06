@@ -448,7 +448,17 @@ export default function PersonalWithdrawalsPage() {
   };
 
   const handleEdit = async () => {
-    const body = { amount: form.amount, detail: form.detail, withdrawnBy: form.withdrawnBy, notes: form.notes };
+    if (!normalizeWithdraweeName(form.withdrawnBy)) { setFormError("Withdrawn By is required"); return; }
+    if (form.sourceType === "bank_account" && !form.bankAccountId) { setFormError("Please select a bank account"); return; }
+    const body: any = {
+      withdrawalDate: form.withdrawalDate,
+      amount: form.amount,
+      detail: form.detail,
+      withdrawnBy: normalizeWithdraweeName(form.withdrawnBy),
+      sourceType: form.sourceType,
+      notes: form.notes,
+    };
+    if (form.sourceType === "bank_account") body.bankAccountId = form.bankAccountId;
     if (!isOnline) {
       const pendingQueueId = getPendingQueueId(selected?.id);
       if (pendingQueueId) {
@@ -459,7 +469,16 @@ export default function PersonalWithdrawalsPage() {
         }
         setItems((prev) => {
           const next = prev.map((row: any) =>
-            row.id === selected.id ? { ...row, amount: form.amount, detail: form.detail, withdrawnBy: form.withdrawnBy, notes: form.notes } : row
+            row.id === selected.id ? {
+              ...row,
+              withdrawalDate: form.withdrawalDate,
+              amount: form.amount,
+              detail: form.detail,
+              withdrawnBy: body.withdrawnBy,
+              sourceType: form.sourceType,
+              bankAccountId: form.sourceType === "bank_account" ? form.bankAccountId : null,
+              notes: form.notes,
+            } : row
           );
           persistWithdrawalsSnapshot(next);
           return next;
@@ -485,9 +504,12 @@ export default function PersonalWithdrawalsPage() {
           row.id === selected.id
             ? {
                 ...row,
+                withdrawalDate: form.withdrawalDate,
                 amount: form.amount,
                 detail: form.detail,
-                withdrawnBy: form.withdrawnBy,
+                withdrawnBy: body.withdrawnBy,
+                sourceType: form.sourceType,
+                bankAccountId: form.sourceType === "bank_account" ? form.bankAccountId : null,
                 notes: form.notes,
               }
             : row
@@ -951,6 +973,10 @@ export default function PersonalWithdrawalsPage() {
         {formError && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{formError}</div>}
         <div className="space-y-3">
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")}</label>
+            <input type="date" value={form.withdrawalDate} onChange={(e) => setForm((f) => ({ ...f, withdrawalDate: e.target.value }))} className="input-field" />
+          </div>
+          <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Withdrawn By</label>
             <input value={form.withdrawnBy} onChange={(e) => setForm((f) => ({ ...f, withdrawnBy: e.target.value }))} className="input-field" placeholder="e.g. Ali, Rehman" />
           </div>
@@ -962,9 +988,38 @@ export default function PersonalWithdrawalsPage() {
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")}</label>
             <input type="number" value={form.amount || ""} onChange={(e) => setForm((f) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" readOnly={selected?.sourceType === "cheque"} onWheel={e => e.currentTarget.blur()} />
           </div>
-          <div className="p-2 bg-gray-50 border rounded text-xs text-gray-600">
-            Source: <strong>{selected?.sourceType === "cheque" ? "🧾 Cheque in Hand" : selected?.sourceType === "bank_account" ? `🏦 ${selected?.bankAccount?.bankName || "Bank Account"}` : "💵 Cash from Office"}</strong> (cannot change after creation)
-          </div>
+          {selected?.sourceType === "cheque" ? (
+            <div className="p-2 bg-gray-50 border rounded text-xs text-gray-600">
+              Source: <strong>🧾 Cheque in Hand</strong> (cannot change after creation)
+            </div>
+          ) : !isAfghanistanCity && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t("source_of_funds")}</label>
+              <select
+                value={sourceValue}
+                onChange={(e) => {
+                  const sourceValue = e.target.value;
+                  if (sourceValue.startsWith("bank_account:")) {
+                    setForm((f) => ({
+                      ...f,
+                      sourceType: "bank_account",
+                      bankAccountId: parseInt(sourceValue.split(":")[1] || "0") || 0,
+                    }));
+                    return;
+                  }
+                  setForm((f) => ({ ...f, sourceType: "cash_office", bankAccountId: 0 }));
+                }}
+                className="select-field"
+              >
+                <option value="cash_office">{t("cash_from_office")}</option>
+                {bankAccounts.map((account: any) => (
+                  <option key={account.id} value={`bank_account:${account.id}`}>
+                    {account.bankName}{account.accountNumber ? ` · ${account.accountNumber}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           {!isSuperAdmin && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>

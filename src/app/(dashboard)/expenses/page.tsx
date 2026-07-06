@@ -377,7 +377,16 @@ export default function ExpensesPage() {
   };
 
   const handleEdit = async () => {
-    const body = { amount: form.amount, detail: form.detail, notes: form.notes };
+    if (form.paidFrom === "bank_account" && !form.bankAccountId) { setFormError(t("select") + " " + t("bank_account").toLowerCase()); return; }
+    const body: any = {
+      expenseDate: form.expenseDate,
+      amount: form.amount,
+      detail: form.detail,
+      paidFrom: form.paidFrom,
+      notes: form.notes,
+    };
+    if (form.paidFrom === "bank_account") body.bankAccountId = form.bankAccountId;
+    if (form.paidFrom === "cheque") body.chequePaymentId = form.chequePaymentId;
     if (!isOnline) {
       const pendingQueueId = getPendingQueueId(selected?.id);
       if (pendingQueueId) {
@@ -388,7 +397,15 @@ export default function ExpensesPage() {
         }
         setExpenses((prev) => {
           const next = prev.map((exp: any) =>
-            exp.id === selected.id ? { ...exp, amount: form.amount, detail: form.detail, notes: form.notes } : exp
+            exp.id === selected.id ? {
+              ...exp,
+              expenseDate: form.expenseDate,
+              amount: form.amount,
+              detail: form.detail,
+              paidFrom: form.paidFrom,
+              bankAccountId: form.paidFrom === "bank_account" ? form.bankAccountId : null,
+              notes: form.notes,
+            } : exp
           );
           persistExpensesSnapshot(next);
           return next;
@@ -412,7 +429,15 @@ export default function ExpensesPage() {
       setExpenses((prev) => {
         const next = prev.map((exp: any) =>
           exp.id === selected.id
-            ? { ...exp, amount: form.amount, detail: form.detail, notes: form.notes }
+            ? {
+                ...exp,
+                expenseDate: form.expenseDate,
+                amount: form.amount,
+                detail: form.detail,
+                paidFrom: form.paidFrom,
+                bankAccountId: form.paidFrom === "bank_account" ? form.bankAccountId : null,
+                notes: form.notes,
+              }
             : exp
         );
         persistExpensesSnapshot(next);
@@ -615,20 +640,36 @@ export default function ExpensesPage() {
       <Modal open={showEdit} onClose={() => setShowEdit(false)} title={t("edit_expense")} size="md">
         {formError && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{formError}</div>}
         <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-gray-700">{t("date")} *</label>
+              <input type="date" value={form.expenseDate} onChange={e => setForm((f: any) => ({ ...f, expenseDate: e.target.value }))} className="input-field" />
+            </div>
+            {selected?.paidFrom === "cheque" ? (
+              <div className="p-2 bg-gray-50 border rounded text-xs text-gray-600">
+                Paid from: <strong>🧾 Cheque in Hand</strong> (cannot change after creation)
+              </div>
+            ) : (
+              <div className="min-w-0">
+                <label className="mb-1 block text-sm font-medium text-gray-700">{t("from")} *</label>
+                <select
+                  value={expenseFromValue}
+                  onChange={(e) => handleExpenseFromChange(e.target.value)}
+                  className="select-field"
+                >
+                  <option value="cash_office">{t("cash_from_office")}</option>
+                  {activeCityBankAccounts.map((b: any) => (
+                    <option key={b.id} value={`bank:${b.id}`}>
+                      {b.bankName}{b.accountNumber ? ` (${b.accountNumber})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("detail")}</label><input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" /></div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")}</label><input type="number" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} /></div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label><input value={form.notes} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" /></div>
-          {selected?.paidFrom && (
-            <div className="p-2 bg-gray-50 border rounded text-xs text-gray-600">
-              Paid from: <strong>{
-                selected.paidFrom === "bank_account"
-                  ? `🏦 ${selected.bankAccount?.bankName || "Bank"}`
-                  : selected.paidFrom === "cheque"
-                    ? "🧾 Cheque in Hand"
-                    : "💵 Cash from Office"
-              }</strong> (cannot change after creation)
-            </div>
-          )}
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
           <button onClick={handleEdit} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button>

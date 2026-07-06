@@ -1,0 +1,27 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+
+test("payment edit supports creation fields and reposts journals for accounting changes", () => {
+  const validations = readFileSync("src/lib/validations.ts", "utf8");
+  const route = readFileSync("src/app/api/v1/payments/[id]/route.ts", "utf8");
+  const page = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+
+  assert.match(validations, /paymentMethod:\s*z\.enum\(\["cash", "cheque", "bank_transfer", "online"\]\)\.optional\(\)/);
+  assert.match(validations, /manualVoucherNo:\s*z\.string\(\)\.max\(50\)\.optional\(\)\.nullable\(\)/);
+  assert.match(validations, /bankAccountId:\s*optionalPositiveInt/);
+  assert.match(validations, /superAdminBankAccountId:\s*optionalPositiveInt/);
+
+  assert.match(route, /const accountingChanged =/);
+  assert.match(route, /if \(accountingChanged\)/);
+  assert.match(route, /journalFn\(\{/);
+  assert.match(route, /paymentMethod:\s*nextPaymentMethod/);
+  assert.match(route, /bankAccountId:\s*nextBankAccountId/);
+  assert.match(route, /superAdminBankAccountId:\s*nextSuperAdminBankAccountId/);
+
+  assert.match(page, /paymentMethod:\s*raw\.paymentMethod \|\| "cash"/);
+  assert.match(page, /manualVoucherNo:\s*raw\.manualVoucherNo \|\| ""/);
+  assert.match(page, /sanitizePaymentSubmitPayload\(form\)/);
+  assert.match(page, /t\("payment_method"\)/);
+  assert.match(page, /getPakistanPaymentAccountSelectValue\(form\)/);
+});

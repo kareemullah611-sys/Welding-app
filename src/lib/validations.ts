@@ -199,8 +199,19 @@ export const createPaymentSchema = z.object({
 });
 
 export const updatePaymentSchema = z.object({
+  customerId: z.number().int().positive().optional(),
+  paymentDate: z.string().optional(),
   detail: z.string().trim().min(1).max(500).optional(),
   amount: z.coerce.number().positive().optional(),
+  currencyId: z.number().int().positive().optional().nullable(),
+  manualVoucherNo: z.string().max(50).optional().nullable(),
+  paymentMethod: z.enum(["cash", "cheque", "bank_transfer", "online"]).optional(),
+  destination: z.enum(["haji", "our_account"]).optional(),
+  chequeNumber: z.string().trim().max(50).optional().nullable(),
+  chequeBank: z.string().trim().max(100).optional().nullable(),
+  chequeDueDate: z.string().optional().nullable(),
+  bankAccountId: optionalPositiveInt,
+  superAdminBankAccountId: optionalPositiveInt,
   notes: z.string().optional().nullable(),
 });
 
@@ -231,8 +242,22 @@ export const createExpenseSchema = z.object({
 });
 
 export const updateExpenseSchema = z.object({
+  expenseDate: z.string().optional(),
   amount: z.coerce.number().positive().optional(),
   detail: z.string().trim().min(1).max(500).optional(),
+  paidFrom: z.enum(["cash_office", "bank_account", "cheque"]).optional(),
+  bankAccountId: optionalPositiveInt,
+  chequePaymentId: optionalPositiveInt,
+  notes: z.string().optional().nullable(),
+});
+
+export const updateWithdrawalSchema = z.object({
+  withdrawalDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  amount: z.coerce.number().positive().optional(),
+  detail: z.string().trim().min(1).max(500).optional(),
+  withdrawnBy: z.string().trim().min(1).max(100).optional(),
+  sourceType: z.enum(["cash_office", "bank_account"]).optional(),
+  bankAccountId: optionalPositiveInt,
   notes: z.string().optional().nullable(),
 });
 

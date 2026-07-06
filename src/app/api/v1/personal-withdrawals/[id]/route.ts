@@ -4,16 +4,46 @@ import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { reverseJournalEntries, journalWithdrawal } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
+import { updateWithdrawalSchema } from "@/lib/validations";
 
 export const PUT = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
     const id = parseInt(context.params.id);
     const body = await request.json();
-    const w = await prisma.personalWithdrawal.findUnique({ where: { id }, include: { currency: true } });
+    const parsed = updateWithdrawalSchema.safeParse(body);
+    if (!parsed.success) return errorResponse("VALIDATION_ERROR", "Invalid withdrawal update", 400, parsed.error.errors);
+    const data = parsed.data;
+    const w = await prisma.personalWithdrawal.findUnique({
+      where: { id },
+      include: { currency: true, city: { include: { country: true } } },
+    });
     if (!w) return errorResponse("NOT_FOUND", "Not found", 404);
     if (user.role === "city_admin" && w.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
-    if ((w as any).sourceType === "cheque" && body.amount !== undefined && Number(body.amount) !== Number(w.amount)) {
-      return errorResponse("VALIDATION_ERROR", "Cannot change the amount of a withdrawal that was funded by a cheque");
+
+    const nextWithdrawalDate = data.withdrawalDate ? new Date(data.withdrawalDate) : w.withdrawalDate;
+    if (Number.isNaN(nextWithdrawalDate.getTime())) return errorResponse("VALIDATION_ERROR", "Invalid withdrawal date");
+    const nextSourceType = data.sourceType ?? ((w as any).sourceType ?? "cash_office");
+    const nextBankAccountId = nextSourceType === "bank_account"
+      ? (data.bankAccountId ?? ((w as any).bankAccountId ?? null))
+      : null;
+
+    if ((w as any).sourceType === "cheque") {
+      const amountChanged = data.amount !== undefined && Number(data.amount) !== Number(w.amount);
+      const sourceChanged = nextSourceType !== "cheque";
+      if (amountChanged || sourceChanged) {
+        return errorResponse("VALIDATION_ERROR", "Cannot change amount or source for a withdrawal that was funded by a cheque");
+      }
+    }
+    if (w.city.country?.name === "Afghanistan" && nextSourceType !== "cash_office") {
+      return errorResponse("VALIDATION_ERROR", "Afghanistan city withdrawals can only use office cash");
+    }
+    if (nextSourceType === "bank_account" && !nextBankAccountId) {
+      return errorResponse("VALIDATION_ERROR", "Bank account is required when source is bank account");
+    }
+    if (nextSourceType === "bank_account" && nextBankAccountId) {
+      const bankAccount = await prisma.bankAccount.findUnique({ where: { id: nextBankAccountId } });
+      if (!bankAccount || !bankAccount.isActive) return errorResponse("NOT_FOUND", "Selected bank account not found", 404);
+      if (bankAccount.cityId !== w.cityId) return errorResponse("FORBIDDEN", "Selected bank account does not belong to your city", 403);
     }
 
     await prisma.$transaction(async (tx) => {
@@ -28,12 +58,15 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       const updated = await tx.personalWithdrawal.update({
         where: { id },
         data: {
-          amount: body.amount || w.amount,
-          detail: body.detail || w.detail,
-          withdrawnBy: body.withdrawnBy !== undefined ? body.withdrawnBy : w.withdrawnBy,
-          notes: body.notes !== undefined ? body.notes : w.notes,
+          withdrawalDate: nextWithdrawalDate,
+          amount: data.amount || w.amount,
+          detail: data.detail || w.detail,
+          withdrawnBy: data.withdrawnBy !== undefined ? data.withdrawnBy : w.withdrawnBy,
+          sourceType: nextSourceType,
+          bankAccountId: nextBankAccountId,
+          notes: data.notes !== undefined ? data.notes : w.notes,
           updatedAt: new Date(),
-        },
+        } as any,
       });
 
       await journalWithdrawal({
@@ -41,9 +74,10 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         cityId: w.cityId,
         amount: Number(updated.amount),
         currencyCode: w.currency.code,
-        date: w.withdrawalDate,
+        date: updated.withdrawalDate,
         createdBy: user.userId,
-        sourceType: (w as any).sourceType ?? "cash_office",
+        sourceType: nextSourceType,
+        bankAccountId: nextBankAccountId,
       }, tx);
 
       await createAuditLog(
@@ -52,8 +86,24 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         "personal_withdrawals",
         id,
         "update",
-        { amount: Number(w.amount), withdrawnBy: w.withdrawnBy, detail: w.detail, notes: w.notes },
-        { amount: Number(updated.amount), withdrawnBy: updated.withdrawnBy, detail: updated.detail, notes: updated.notes },
+        {
+          date: w.withdrawalDate.toISOString().split("T")[0],
+          amount: Number(w.amount),
+          withdrawnBy: w.withdrawnBy,
+          detail: w.detail,
+          sourceType: (w as any).sourceType ?? "cash_office",
+          bankAccountId: (w as any).bankAccountId ?? null,
+          notes: w.notes,
+        },
+        {
+          date: updated.withdrawalDate.toISOString().split("T")[0],
+          amount: Number(updated.amount),
+          withdrawnBy: updated.withdrawnBy,
+          detail: updated.detail,
+          sourceType: nextSourceType,
+          bankAccountId: nextBankAccountId,
+          notes: updated.notes,
+        },
         getClientIP(request),
         tx
       );

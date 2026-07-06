@@ -101,6 +101,29 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       return errorResponse("VALIDATION_ERROR", "Afghanistan city Haji transfers can only use office cash");
     }
 
+    const nextTransferDate = body.transferDate ? new Date(body.transferDate) : h.transferDate;
+    if (Number.isNaN(nextTransferDate.getTime())) return errorResponse("VALIDATION_ERROR", "Invalid transfer date");
+    const nextSourceType = body.sourceType ?? ((h as any).sourceType ?? "cash_office");
+    const nextBankAccountId = nextSourceType === "bank_transfer"
+      ? (body.bankAccountId ? parseInt(body.bankAccountId) : ((h as any).bankAccountId ?? null))
+      : null;
+
+    if ((h as any).chequePaymentId) {
+      const sourceChanged = nextSourceType !== ((h as any).sourceType ?? "cheque");
+      if (sourceChanged) {
+        return errorResponse("VALIDATION_ERROR", "Cannot change source for a transfer that was funded by a cheque");
+      }
+    }
+    if (["cheque", "mixed_cash_cheque"].includes(nextSourceType) && !(h as any).chequePaymentId) {
+      return errorResponse("VALIDATION_ERROR", "Cheque-funded transfer source cannot be selected during edit");
+    }
+    if (nextSourceType === "bank_transfer") {
+      if (!nextBankAccountId) return errorResponse("VALIDATION_ERROR", "Please select a bank account");
+      const bankAccount = await prisma.bankAccount.findUnique({ where: { id: nextBankAccountId } });
+      if (!bankAccount || !bankAccount.isActive) return errorResponse("NOT_FOUND", "Selected bank account not found", 404);
+      if (bankAccount.cityId !== h.cityId) return errorResponse("FORBIDDEN", "Selected bank account does not belong to your city", 403);
+    }
+
     let transferredTo = body.transferredTo !== undefined ? body.transferredTo : h.transferredTo;
     let settlementDestination = h.settlementDestination ?? "standard";
     let intermediaryId = h.intermediaryId;
@@ -160,6 +183,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       const updated = await tx.hajiTransfer.update({
         where: { id },
         data: {
+          transferDate: nextTransferDate,
           amount: body.amount || h.amount,
           detail: body.detail || h.detail,
           transferredTo,
@@ -170,9 +194,11 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           intermediaryId,
           superAdminCashAccountId,
           superAdminBankAccountId,
+          sourceType: nextSourceType,
+          bankAccountId: nextBankAccountId,
           notes: body.notes !== undefined ? body.notes : h.notes,
           updatedAt: new Date(),
-        },
+        } as any,
         include: { currency: true },
       });
 

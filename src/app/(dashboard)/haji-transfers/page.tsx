@@ -29,7 +29,7 @@ const SOURCE_CONFIG: Record<string, { label: string; color: string; icon?: strin
   cash_office:    { label: "Cash from Office", color: "bg-green-50 text-green-700" },
   cheque:         { label: "Cheque", color: "bg-blue-50 text-blue-700"  },
   mixed_cash_cheque: { label: "Cash + Cheques", color: "bg-teal-50 text-teal-700" },
-  bank_transfer:  { label: "Bank Transfer", color: "bg-purple-50 text-purple-700" },
+  bank_transfer:  { label: "Online", color: "bg-purple-50 text-purple-700" },
   // legacy
   from_in_hand:   { label: "Cash from Office", color: "bg-green-50 text-green-700" },
   direct:         { label: "Bank Transfer", color: "bg-purple-50 text-purple-700" },
@@ -752,7 +752,12 @@ export default function HajiTransfersPage() {
       setError("Please select a destination account");
       return;
     }
+    if (form.sourceType === "bank_transfer" && !form.bankAccountId) {
+      setError("Please select a bank account");
+      return;
+    }
     const body: any = {
+      transferDate: form.transferDate,
       amount: form.amount, detail: form.detail, referenceNo: form.referenceNo?.trim() || null,
       sourceType: form.sourceType,
       transferType: form.sourceType === "cash_office" ? "from_in_hand" : form.sourceType === "bank_transfer" ? "direct" : "from_in_hand",
@@ -781,6 +786,7 @@ export default function HajiTransfersPage() {
               ? {
                   ...row,
                   amount: form.amount,
+                  transferDate: form.transferDate,
                   detail: form.detail,
                   referenceNo: form.referenceNo?.trim() || null,
                   sourceType: form.sourceType,
@@ -812,6 +818,7 @@ export default function HajiTransfersPage() {
           row.id === selected.id
             ? {
                 ...row,
+                transferDate: form.transferDate,
                 amount: form.amount,
                 detail: form.detail,
                 sourceType: form.sourceType,
@@ -1204,7 +1211,7 @@ export default function HajiTransfersPage() {
                 <option value="cash_office">{simplifyModals ? t("cash") : t("cash_from_office")}</option>
                 <option value="cheque">{t("cheque")}</option>
                 <option value="mixed_cash_cheque">Cash + Cheques</option>
-                <option value="bank_transfer">{t("bank_transfer")}</option>
+                <option value="bank_transfer">Online</option>
               </select>
             </div>
           </div>
@@ -1432,9 +1439,48 @@ export default function HajiTransfersPage() {
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
           {!isAfghanistanCity && (
-          <div className="p-2 bg-gray-50 border rounded text-xs text-gray-600">
-            {t("source_of_funds")}: <strong>{getSourceTypeLabel(form.sourceType)}</strong> (cannot change after creation)
-          </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">{t("date")}</label>
+                <MobileDateInput value={form.transferDate} onChange={(transferDate) => setForm((f: any) => ({ ...f, transferDate }))} placeholder={t("date")} />
+              </div>
+              {isChequeFundedTransfer ? (
+                <div className="p-2 bg-gray-50 border rounded text-xs text-gray-600">
+                  {t("source_of_funds")}: <strong>{getSourceTypeLabel(form.sourceType)}</strong> (cannot change after creation)
+                </div>
+              ) : (
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">From *</label>
+                  <select
+                    value={form.sourceType}
+                    onChange={e => setForm((f: any) => ({
+                      ...f,
+                      sourceType: e.target.value,
+                      bankAccountId: 0,
+                    }))}
+                    className="select-field"
+                  >
+                    <option value="cash_office">{simplifyModals ? t("cash") : t("cash_from_office")}</option>
+                    <option value="bank_transfer">Online</option>
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
+          {!isAfghanistanCity && !isChequeFundedTransfer && form.sourceType === "bank_transfer" && (
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-gray-700">{t("bank_account")} *</label>
+              {bankAccounts.length === 0 ? (
+                <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-700">{t("no_bank_accounts")}. Add one in Settings → Bank Accounts.</div>
+              ) : (
+                <select value={form.bankAccountId || 0} onChange={e => setForm((f: any) => ({ ...f, bankAccountId: parseInt(e.target.value, 10) }))} className="select-field">
+                  <option value={0}>Select</option>
+                  {bankAccounts.map((b: any) => (
+                    <option key={b.id} value={b.id}>{b.bankName}{b.accountNumber ? ` (${b.accountNumber})` : ""}</option>
+                  ))}
+                </select>
+              )}
+            </div>
           )}
           {isAfghanistanCity ? (
             <>
