@@ -102,7 +102,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
               lot: { select: { lotNumber: true } },
               godown: { select: { name: true } },
               currency: { select: { code: true } },
-              items: { include: { product: { select: { name: true } } } },
+              items: { include: { product: { select: { name: true, unitOfMeasure: true, piecesPerCarton: true } } } },
             },
             orderBy: [{ saleDate: "desc" }, { id: "desc" }],
             take: 200,
@@ -222,7 +222,9 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         totalAmount: Number(s.totalAmount),
         items: s.items.map((i) => ({
           productName: i.product.name,
-          qty: Number(i.qty),
+          qty: i.product.unitOfMeasure === "PCS" && i.product.piecesPerCarton
+            ? Number(i.cartonQty ?? Number(i.qty) / Number(i.product.piecesPerCarton))
+            : Number(i.qty),
           amount: Number(i.amount),
         })),
       })),

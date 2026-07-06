@@ -15,6 +15,8 @@ test("PCS carton products are modeled from product master through purchase and s
   const cityLotAssignment = readFileSync("src/lib/city-lot-assignment.ts", "utf8");
   const lotDetailTabs = readFileSync("src/components/lots/LotDetailTabs.tsx", "utf8");
   const salesRoute = readFileSync("src/app/api/v1/sales/route.ts", "utf8");
+  const historicalSaleImport = readFileSync("src/lib/historical-sale-import.ts", "utf8");
+  const openingsRoute = readFileSync("src/app/api/v1/openings/route.ts", "utf8");
   const accounting = readFileSync("src/lib/accounting.ts", "utf8");
   const lotsPage = readFileSync("src/app/(dashboard)/lots/page.tsx", "utf8");
   const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
@@ -81,6 +83,11 @@ test("PCS carton products are modeled from product master through purchase and s
   assert.match(salesRoute, /ratePerPieceUsd/);
   assert.match(salesRoute, /piecesPerCarton/);
   assert.match(salesRoute, /stockQty\s*=\s*cartonQty\s*\*\s*product\.piecesPerCarton/);
+  assert.match(historicalSaleImport, /stockQty\s*=\s*product\.unitOfMeasure === "PCS" \? cartonQty!\s*\*\s*piecesPerCarton : qty/);
+  assert.match(historicalSaleImport, /cartonQty/);
+  assert.match(historicalSaleImport, /ratePerPieceLocal/);
+  assert.match(openingsRoute, /i\.product\.unitOfMeasure === "PCS"/);
+  assert.match(openingsRoute, /i\.cartonQty/);
   assert.match(accounting, /pcsSaleItems/);
   assert.match(accounting, /averageUsdPerPiece/);
   assert.match(accounting, /Number\(item\.qty \|\| 0\) \* averageUsdPerPiece \* usdPkrRate/);

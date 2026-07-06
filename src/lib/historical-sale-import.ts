@@ -59,8 +59,21 @@ export async function createHistoricalSale(input: HistoricalSaleInput, db: DbCli
   if (qty <= 0) throw new Error("Quantity must be greater than 0");
   if (amount < 0) throw new Error("Amount cannot be negative");
 
+  const product = await db.product.findFirst({
+    where: { id: input.productId, isActive: true },
+    select: { id: true, name: true, unitOfMeasure: true, piecesPerCarton: true },
+  });
+  if (!product) throw new Error("Product not found");
+
   const voucherNo = await generateOpeningVoucherNo(input.cityId, db);
+  const cartonQty = product.unitOfMeasure === "PCS" ? qty : null;
+  if (product.unitOfMeasure === "PCS" && !product.piecesPerCarton) {
+    throw new Error(`${product.name}: PCS/CTN is required on product master`);
+  }
+  const piecesPerCarton = Number(product.piecesPerCarton || 0);
+  const stockQty = product.unitOfMeasure === "PCS" ? cartonQty! * piecesPerCarton : qty;
   const ratePerCarton = qty > 0 ? roundMoney(amount / qty) : 0;
+  const ratePerPieceLocal = product.unitOfMeasure === "PCS" && stockQty > 0 ? roundMoney(amount / stockQty) : null;
 
   const sale = await db.sale.create({
     data: {
@@ -79,8 +92,10 @@ export async function createHistoricalSale(input: HistoricalSaleInput, db: DbCli
       items: {
         create: [{
           productId: input.productId,
-          qty,
+          qty: stockQty,
+          cartonQty,
           ratePerCarton,
+          ratePerPieceLocal,
           amount,
         }],
       },
