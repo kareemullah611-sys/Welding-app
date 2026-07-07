@@ -337,10 +337,10 @@ export default function DashboardPage() {
           />
           <QuickActionCard 
             icon={Banknote} 
-            title="Receive Payment" 
+            title="Payment" 
             src="/payments?create=payment&embed=1"
             color="green"
-            onClick={() => openQuickForm("Receive Payment", "/payments?create=payment&embed=1")}
+            onClick={() => openQuickForm("Payment", "/payments?create=payment&embed=1")}
           />
           
           </div>
