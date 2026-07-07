@@ -48,6 +48,20 @@ export async function getCustomerAccountId(customerId: number, db: DbClient = pr
   return getOrCreateAccount(`1200-C${customerId}`, `AR - ${customer?.name || customerId}`, "asset", undefined, db);
 }
 
+export async function getCityLiabilityAccountId(accountId: number, db: DbClient = prisma): Promise<number> {
+  const account = await db.cityLiabilityAccount.findUnique({
+    where: { id: accountId },
+    select: { name: true, cityId: true },
+  });
+  return getOrCreateAccount(
+    `2400-CL${accountId}`,
+    `City Payable - ${account?.name || accountId}`,
+    "liability",
+    account?.cityId ?? undefined,
+    db,
+  );
+}
+
 export async function getSupplierAccountId(supplierId: number, db: DbClient = prisma): Promise<number> {
   const supplier = await db.supplier.findUnique({ where: { id: supplierId }, select: { name: true } });
   return getOrCreateAccount(`2100-S${supplierId}`, `Payable - ${supplier?.name || supplierId}`, "liability", undefined, db);
@@ -321,6 +335,61 @@ export async function journalWithdrawal(w: { id: number; cityId: number; amount:
   ], { currencyCode: w.currencyCode, entityType: "withdrawal", entityId: w.id, cityId: w.cityId, entryDate: w.date, createdBy: w.createdBy }, db);
 }
 
+export async function journalCityLiabilityCharge(e: {
+  id: number;
+  accountId: number;
+  cityId: number;
+  lotId: number | null;
+  amount: number;
+  currencyCode: string;
+  detail: string;
+  entryDate: Date;
+  createdBy: number;
+}, db: DbClient = prisma) {
+  await createJournalEntries(`CITYLIAB-${e.id}`, [
+    { accountId: await getExpenseAccountId("loading_unloading", db), debit: e.amount, credit: 0, description: e.detail },
+    { accountId: await getCityLiabilityAccountId(e.accountId, db), debit: 0, credit: e.amount, description: e.detail },
+  ], {
+    currencyCode: e.currencyCode,
+    entityType: "city_liability_entry",
+    entityId: e.id,
+    lotId: e.lotId,
+    cityId: e.cityId,
+    entryDate: e.entryDate,
+    createdBy: e.createdBy,
+  }, db);
+}
+
+export async function journalCityLiabilityPayment(e: {
+  id: number;
+  accountId: number;
+  cityId: number;
+  amount: number;
+  currencyCode: string;
+  detail: string;
+  entryDate: Date;
+  createdBy: number;
+  paymentSource?: string | null;
+  bankAccountId?: number | null;
+}, db: DbClient = prisma) {
+  const creditAccId = e.paymentSource === "cheque"
+    ? await getChequesInHandAccountId(e.cityId, db)
+    : e.paymentSource === "bank_account" && e.bankAccountId
+      ? await getBankGLAccountId(e.bankAccountId, db)
+      : await getCashAccountId(e.cityId, db);
+  await createJournalEntries(`CITYLIAB-${e.id}`, [
+    { accountId: await getCityLiabilityAccountId(e.accountId, db), debit: e.amount, credit: 0, description: e.detail },
+    { accountId: creditAccId, debit: 0, credit: e.amount, description: e.detail },
+  ], {
+    currencyCode: e.currencyCode,
+    entityType: "city_liability_entry",
+    entityId: e.id,
+    cityId: e.cityId,
+    entryDate: e.entryDate,
+    createdBy: e.createdBy,
+  }, db);
+}
+
 // HAJI TRANSFER
 // sourceType "cheque" → CR Cheques in Hand; "bank_transfer" → CR Bank GL; default → CR Cash in Hand
 // Afghanistan settlementDestination "intermediary" → DR Intermediary asset
@@ -499,6 +568,55 @@ export async function journalOpeningLiability(
     currencyCode: p.currencyCode,
     entityType: "opening_liability",
     entityId: p.id,
+    entryDate: p.openingDate,
+    createdBy: p.createdBy,
+  }, db);
+}
+
+export async function journalOpeningCityLiability(
+  p: {
+    id: number;
+    accountId: number;
+    cityId: number;
+    amount: number;
+    currencyCode: string;
+    openingDate: Date;
+    createdBy: number;
+  },
+  db: DbClient = prisma
+) {
+  await createJournalEntries(`OPENCITYLIAB-${p.id}`, [
+    { accountId: await getOpeningBalanceAccountId(db), debit: p.amount, credit: 0, description: "Opening city liability" },
+    { accountId: await getCityLiabilityAccountId(p.accountId, db), debit: 0, credit: p.amount, description: "Opening city liability" },
+  ], {
+    currencyCode: p.currencyCode,
+    entityType: "opening_city_liability",
+    entityId: p.id,
+    cityId: p.cityId,
+    entryDate: p.openingDate,
+    createdBy: p.createdBy,
+  }, db);
+}
+
+export async function journalOpeningHajiBalance(
+  p: {
+    id: number;
+    cityId: number;
+    amount: number;
+    currencyCode: string;
+    openingDate: Date;
+    createdBy: number;
+  },
+  db: DbClient = prisma
+) {
+  await createJournalEntries(`OPENHAJI-${p.id}`, [
+    { accountId: await getOpeningBalanceAccountId(db), debit: p.amount, credit: 0, description: "Opening Haji balance" },
+    { accountId: await getHajiAccountId(db), debit: 0, credit: p.amount, description: "Opening Haji balance" },
+  ], {
+    currencyCode: p.currencyCode,
+    entityType: "opening_haji_balance",
+    entityId: p.id,
+    cityId: p.cityId,
     entryDate: p.openingDate,
     createdBy: p.createdBy,
   }, db);

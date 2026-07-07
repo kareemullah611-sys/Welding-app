@@ -21,6 +21,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     if ((payment as any).chequeStatus === "deposited_to_bank") return errorResponse("VALIDATION_ERROR", "Cannot cancel a cheque that has already been deposited to bank — use bounce instead");
     if ((payment as any).chequeStatus === "sent_to_haji") return errorResponse("VALIDATION_ERROR", "Cannot cancel a cheque that has been sent to haji — cancel the haji transfer first");
     if ((payment as any).chequeStatus === "used_for_expense") return errorResponse("VALIDATION_ERROR", "Cannot cancel a cheque that has already been used for an expense");
+    if ((payment as any).chequeStatus === "used_for_liability") return errorResponse("VALIDATION_ERROR", "Cannot cancel a cheque that has already been used for a liability payment");
     if ((payment as any).chequeStatus === "used_for_withdrawal") return errorResponse("VALIDATION_ERROR", "Cannot cancel a cheque that has already been used for a withdrawal");
 
     await prisma.$transaction(async (tx) => {

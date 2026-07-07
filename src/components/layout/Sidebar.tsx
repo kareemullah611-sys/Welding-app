@@ -137,6 +137,7 @@ const cityAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
       { label: "Personal Withdrawals",   key: "personal_withdrawals", href: "/personal-withdrawals", icon: PiggyBank,      roles: ["city_admin"] },
       { label: "Haji Transfers",         key: "haji_transfers",       href: "/haji-transfers",       icon: ArrowLeftRight, roles: ["city_admin"] },
       { label: "Customers",              key: "customers",            href: "/customers",            icon: Users,          roles: ["city_admin"] },
+      { label: "Liabilities",            key: "liabilities",          href: "/liabilities",          icon: Handshake,      roles: ["city_admin"] },
     ],
   },
   {

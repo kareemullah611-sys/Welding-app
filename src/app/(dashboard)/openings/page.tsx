@@ -101,6 +101,16 @@ type OpeningData = {
     notes?: string | null;
     _pending?: boolean;
   }[];
+  openingHajiBalances: {
+    id: number | string;
+    currencyId: number;
+    currencyCode: string;
+    currencySymbol?: string | null;
+    amount: number;
+    openingDate: string;
+    notes?: string | null;
+    _pending?: boolean;
+  }[];
   liabilityOptions: {
     currencies: { id: number; code: string; symbol: string }[];
     suppliers: { id: number; name: string }[];
@@ -108,11 +118,25 @@ type OpeningData = {
     agents: { id: number; name: string; agentType: string }[];
     intermediaries: { id: number; name: string }[];
   };
+  cityLiabilityOptions: {
+    accounts: { id: number; name: string }[];
+  };
   openingLiabilities: {
     id: number | string;
     liabilityType: "supplier" | "shipping_line" | "agent" | "intermediary";
     partyId: number;
     partyName: string;
+    currencyId: number;
+    currencyCode: string;
+    amount: number;
+    openingDate: string;
+    notes?: string | null;
+    _pending?: boolean;
+  }[];
+  openingCityLiabilities: {
+    id: number | string;
+    accountId: number;
+    accountName: string;
     currencyId: number;
     currencyCode: string;
     amount: number;
@@ -216,6 +240,7 @@ export default function OpeningsPage() {
   const customerRef = useRef<HTMLFormElement>(null);
   const bankRef = useRef<HTMLFormElement>(null);
   const chequeRef = useRef<HTMLFormElement>(null);
+  const hajiRef = useRef<HTMLFormElement>(null);
   const stockRef = useRef<HTMLFormElement>(null);
   const historicalSaleRef = useRef<HTMLFormElement>(null);
   const legacyStockRef = useRef<HTMLFormElement>(null);
@@ -234,6 +259,7 @@ export default function OpeningsPage() {
     openingDate: today,
     notes: "",
   });
+  const [hajiForm, setHajiForm] = useState({ currencyId: 0, amount: "", openingDate: today, notes: "" });
   const [stockForm, setStockForm] = useState({ lotId: 0, godownId: 0, productId: 0, qty: "" });
   const [legacyStockForm, setLegacyStockForm] = useState({ godownId: 0, productId: 0, qty: "" });
   const [historicalSaleForm, setHistoricalSaleForm] = useState({
@@ -258,6 +284,13 @@ export default function OpeningsPage() {
   }>({
     liabilityType: "supplier",
     partyId: 0,
+    currencyId: 0,
+    amount: "",
+    openingDate: today,
+    notes: "",
+  });
+  const [cityLiabilityForm, setCityLiabilityForm] = useState({
+    accountId: 0,
     currencyId: 0,
     amount: "",
     openingDate: today,
@@ -295,6 +328,7 @@ export default function OpeningsPage() {
       }));
       setBankForm((prev) => ({ ...prev, currencyId: resolveCityCurrencyId(cityCurrencies, prev.currencyId) }));
       setChequeForm((prev) => ({ ...prev, currencyId: resolveCityCurrencyId(cityCurrencies, prev.currencyId) }));
+      setHajiForm((prev) => ({ ...prev, currencyId: resolveCityCurrencyId(cityCurrencies, prev.currencyId) }));
       if (!stockForm.lotId && nextData.ongoingLots?.[0]) {
         setStockForm((prev) => ({ ...prev, lotId: nextData.ongoingLots![0].id }));
       }
@@ -304,6 +338,11 @@ export default function OpeningsPage() {
       if (!liabilityForm.currencyId && nextData.liabilityOptions?.currencies?.[0]) {
         setLiabilityForm((prev) => ({ ...prev, currencyId: nextData.liabilityOptions.currencies[0].id }));
       }
+      setCityLiabilityForm((prev) => ({
+        ...prev,
+        currencyId: resolveCityCurrencyId(cityCurrencies, prev.currencyId),
+        accountId: prev.accountId || nextData.cityLiabilityOptions?.accounts?.[0]?.id || 0,
+      }));
     } else {
       const snapshot = readOfflineReadSnapshot<OpeningData>(OPENINGS_READ_CACHE_KEY)?.data;
       if (!isOnline && snapshot) {
@@ -448,6 +487,27 @@ export default function OpeningsPage() {
     load();
   };
 
+  const submitHaji = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canEdit) return toast.error("Opening entries are locked");
+    if (!cityReady) return toast.error("Select a city first");
+    const result = await apiCall("/api/v1/openings", {
+      method: "POST",
+      body: {
+        kind: "haji",
+        cityId: isSuperAdmin ? selectedCityId : undefined,
+        currencyId: hajiForm.currencyId,
+        amount: Number(hajiForm.amount || 0),
+        openingDate: hajiForm.openingDate,
+        notes: hajiForm.notes || null,
+      },
+    });
+    if (!result.success) return toast.error(result.error || "Failed");
+    toast.success("Opening Haji balance saved");
+    setHajiForm((prev) => ({ ...prev, amount: "", notes: "" }));
+    load();
+  };
+
   const submitStock = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canEdit) return toast.error("Opening entries are locked");
@@ -536,6 +596,26 @@ export default function OpeningsPage() {
     if (!result.success) return toast.error(result.error || "Failed");
     toast.success("Opening liability saved");
     setLiabilityForm((prev) => ({ ...prev, amount: "", notes: "" }));
+    load();
+  };
+
+  const submitCityLiability = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canEdit) return toast.error("Opening entries are locked");
+    const result = await apiCall("/api/v1/openings", {
+      method: "POST",
+      body: {
+        kind: "city_liability",
+        accountId: cityLiabilityForm.accountId,
+        currencyId: cityLiabilityForm.currencyId,
+        amount: Number(cityLiabilityForm.amount || 0),
+        openingDate: cityLiabilityForm.openingDate,
+        notes: cityLiabilityForm.notes || null,
+      },
+    });
+    if (!result.success) return toast.error(result.error || "Failed");
+    toast.success("Opening city liability saved");
+    setCityLiabilityForm((prev) => ({ ...prev, amount: "", notes: "" }));
     load();
   };
 
@@ -656,6 +736,90 @@ export default function OpeningsPage() {
                       type="button"
                       className="text-xs text-red-600 hover:underline"
                       onClick={() => deleteOpening("cash", row.id)}
+                    >
+                      Delete
+                    </button>
+                  </span>
+                )}
+              </td>
+            </tr>
+          ))}
+        />
+      </form>
+
+      {/* Step 1b: Opening Haji balance */}
+      <form ref={hajiRef} onSubmit={submitHaji} className="card space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-neutral-500">Opening Haji balance</h2>
+          <p className="text-xs text-neutral-500 mt-1">Sets the opening amount owed to Haji for this city and currency. Saving again replaces the previous value.</p>
+        </div>
+        <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-3">
+          <OpeningCurrencyField
+            currencies={data?.currencies || []}
+            value={hajiForm.currencyId}
+            onChange={(currencyId) => setHajiForm((prev) => ({ ...prev, currencyId }))}
+            disabled={formsDisabled}
+          />
+          <input
+            className="input"
+            type="number"
+            step="0.01"
+            placeholder="Amount"
+            value={hajiForm.amount}
+            onChange={(e) => setHajiForm((prev) => ({ ...prev, amount: e.target.value }))}
+            required
+            disabled={formsDisabled}
+          />
+          <input
+            className="input"
+            type="date"
+            value={hajiForm.openingDate}
+            onChange={(e) => setHajiForm((prev) => ({ ...prev, openingDate: e.target.value }))}
+            required
+            disabled={formsDisabled}
+          />
+          <input
+            className="input lg:col-span-2"
+            placeholder="Notes (optional)"
+            value={hajiForm.notes}
+            onChange={(e) => setHajiForm((prev) => ({ ...prev, notes: e.target.value }))}
+            disabled={formsDisabled}
+          />
+        </div>
+        <button className="btn-primary" type="submit" disabled={formsDisabled}>Save Haji opening</button>
+
+        <SavedTable
+          title="Saved Haji opening balances"
+          emptyLabel="No opening Haji balances for this city yet."
+          headers={["Currency", "Amount", "Date", "Notes", ""]}
+          rows={(data?.openingHajiBalances || []).map((row) => (
+            <tr key={String(row.id)} className={`border-b last:border-0 ${row._pending ? "bg-amber-50/60" : ""}`}>
+              <td className="py-2 px-3">{row.currencyCode}</td>
+              <td className="py-2 px-3">{row.amount.toLocaleString("en-US")}</td>
+              <td className="py-2 px-3">{row.openingDate}</td>
+              <td className="py-2 px-3 text-neutral-500">{row.notes || "—"}</td>
+              <td className="py-2 px-3">
+                {!row._pending && canEdit && (
+                  <span className="inline-flex gap-2">
+                    <button
+                      type="button"
+                      className="text-xs text-primary-600 hover:underline"
+                      onClick={() => {
+                        setHajiForm({
+                          currencyId: row.currencyId,
+                          amount: String(row.amount),
+                          openingDate: row.openingDate,
+                          notes: row.notes || "",
+                        });
+                        scrollTo(hajiRef);
+                      }}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs text-red-600 hover:underline"
+                      onClick={() => deleteOpening("haji", row.id)}
                     >
                       Delete
                     </button>
@@ -1299,7 +1463,106 @@ export default function OpeningsPage() {
         />
       </form>
 
-      {/* Step 4: Liabilities (super admin) */}
+      {/* Step 4: City Liabilities */}
+      {!isSuperAdmin && (
+        <form onSubmit={submitCityLiability} className="card space-y-3">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-neutral-500">Opening liabilities</h2>
+            <p className="text-xs text-neutral-500 mt-1">Starting balances for loading/unloading liability accounts. Saving replaces the row for that account + currency.</p>
+          </div>
+          <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-3">
+            <select
+              className="input"
+              value={cityLiabilityForm.accountId}
+              onChange={(e) => setCityLiabilityForm((prev) => ({ ...prev, accountId: Number(e.target.value) }))}
+              required
+              disabled={formsDisabled}
+            >
+              <option value={0}>Liability account</option>
+              {(data?.cityLiabilityOptions?.accounts || []).map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+            </select>
+            <select
+              className="input"
+              value={cityLiabilityForm.currencyId}
+              onChange={(e) => setCityLiabilityForm((prev) => ({ ...prev, currencyId: Number(e.target.value) }))}
+              required
+              disabled={formsDisabled}
+            >
+              <option value={0}>Currency</option>
+              {(data?.currencies || []).map((currency) => <option key={currency.id} value={currency.id}>{currency.code}</option>)}
+            </select>
+            <input
+              className="input"
+              type="number"
+              step="0.01"
+              placeholder="Amount"
+              value={cityLiabilityForm.amount}
+              onChange={(e) => setCityLiabilityForm((prev) => ({ ...prev, amount: e.target.value }))}
+              required
+              disabled={formsDisabled}
+            />
+            <input
+              className="input"
+              type="date"
+              value={cityLiabilityForm.openingDate}
+              onChange={(e) => setCityLiabilityForm((prev) => ({ ...prev, openingDate: e.target.value }))}
+              required
+              disabled={formsDisabled}
+            />
+            <input
+              className="input"
+              placeholder="Notes (optional)"
+              value={cityLiabilityForm.notes}
+              onChange={(e) => setCityLiabilityForm((prev) => ({ ...prev, notes: e.target.value }))}
+              disabled={formsDisabled}
+            />
+          </div>
+          <button className="btn-primary" type="submit" disabled={formsDisabled}>Save opening liability</button>
+
+          <SavedTable
+            title="Saved opening liabilities"
+            emptyLabel="No opening liabilities recorded yet."
+            headers={["Account", "Currency", "Amount", "Date", "Notes", ""]}
+            rows={(data?.openingCityLiabilities || []).map((row) => (
+              <tr key={String(row.id)} className={`border-b last:border-0 ${row._pending ? "bg-amber-50/60" : ""}`}>
+                <td className="py-2 px-3">{row.accountName}</td>
+                <td className="py-2 px-3">{row.currencyCode}</td>
+                <td className="py-2 px-3">{row.amount.toLocaleString("en-US")}</td>
+                <td className="py-2 px-3">{row.openingDate}</td>
+                <td className="py-2 px-3 text-neutral-500">{row.notes || "—"}</td>
+                <td className="py-2 px-3">
+                  {!row._pending && canEdit && (
+                    <span className="inline-flex gap-2">
+                      <button
+                        type="button"
+                        className="text-xs text-primary-600 hover:underline"
+                        onClick={() => setCityLiabilityForm({
+                          accountId: row.accountId,
+                          currencyId: row.currencyId,
+                          amount: String(row.amount),
+                          openingDate: row.openingDate,
+                          notes: row.notes || "",
+                        })}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs text-red-600 hover:underline"
+                        onClick={() => deleteOpening("city_liability", row.id)}
+                      >
+                        Delete
+                      </button>
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          />
+        </form>
+      )}
+
+      {/* Step 5: Liabilities (super admin) */}
       {isSuperAdmin && (
         <>
           <form ref={liabilityRef} onSubmit={submitLiability} className="card space-y-3">

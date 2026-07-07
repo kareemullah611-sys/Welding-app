@@ -78,6 +78,7 @@ enum ChequeStatus {
   deposited_to_bank
   sent_to_haji
   used_for_expense
+  used_for_liability
   used_for_withdrawal
   bounced
 }
@@ -146,6 +147,17 @@ enum OpeningLiabilityType {
   intermediary
 }
 
+enum CityLiabilityEntryType {
+  charge
+  payment
+}
+
+enum CityLiabilityPaymentSource {
+  cash_office
+  cheque
+  bank_account
+}
+
 enum EntityType {
   sale
   payment
@@ -204,6 +216,8 @@ model Currency {
   openingCashes         OpeningCash[]
   openingCustomerBalances OpeningCustomerBalance[]
   openingLiabilities    OpeningLiability[]
+  cityLiabilityEntries  CityLiabilityEntry[]
+  openingCityLiabilities OpeningCityLiability[]
   openingBankBalances   OpeningBankBalance[]
   openingCheques        OpeningCheque[]
   openingHajiBalances   OpeningHajiBalance[]
@@ -249,6 +263,9 @@ model City {
   openingBankBalances    OpeningBankBalance[]
   openingCheques         OpeningCheque[]
   openingHajiBalances    OpeningHajiBalance[]
+  cityLiabilityAccounts  CityLiabilityAccount[]
+  cityLiabilityEntries   CityLiabilityEntry[]
+  openingCityLiabilities OpeningCityLiability[]
   syncRequests           SyncRequest[]
 
   @@unique([countryId, name])
@@ -316,6 +333,9 @@ model User {
   openingCustomerBalances OpeningCustomerBalance[]
   openingStocks      OpeningStock[]
   openingLiabilities OpeningLiability[]
+  cityLiabilityAccounts CityLiabilityAccount[]
+  cityLiabilityEntries CityLiabilityEntry[]
+  openingCityLiabilities OpeningCityLiability[]
   openingBankBalances OpeningBankBalance[]
   openingCheques     OpeningCheque[]
   openingHajiBalances OpeningHajiBalance[]
@@ -645,6 +665,7 @@ model Lot {
   supplierPayments           SupplierPayment[]
   shippingLinePayments       ShippingLinePayment[]
   cityTransfers              CityTransfer[]
+  cityLiabilityEntries       CityLiabilityEntry[]
 
   @@unique([countryId, lotNumber])
   @@index([countryId])
@@ -862,6 +883,7 @@ model Payment {
   hajiTransferCheque  HajiTransfer?        @relation("HajiCheque")
   expenseCheques      Expense[]            @relation("ExpenseCheque")
   withdrawalCheques   PersonalWithdrawal[] @relation("WithdrawalCheque")
+  cityLiabilityChequeEntries CityLiabilityEntry[] @relation("CityLiabilityCheque")
 
   @@index([cityId])
   @@index([customerId])
@@ -1072,6 +1094,7 @@ model BankAccount {
   incomingPayments        Payment[]                @relation("PaymentBankAccount")
   openingBankBalances     OpeningBankBalance[]
   personalWithdrawals     PersonalWithdrawal[]
+  cityLiabilityEntries    CityLiabilityEntry[]
 
   @@index([cityId])
   @@map("bank_accounts")
@@ -1823,6 +1846,86 @@ model OpeningLiability {
   @@index([liabilityType])
   @@index([openingDate])
   @@map("opening_liabilities")
+}
+
+model CityLiabilityAccount {
+  id        Int      @id @default(autoincrement())
+  cityId    Int      @map("city_id")
+  name      String   @db.VarChar(200)
+  phone     String?  @db.VarChar(50)
+  notes     String?  @db.Text
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy Int      @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  city      City      @relation(fields: [cityId], references: [id], onDelete: Restrict)
+  creator   User      @relation(fields: [createdBy], references: [id])
+  entries   CityLiabilityEntry[]
+  openings  OpeningCityLiability[]
+
+  @@unique([cityId, name], name: "unique_city_liability_account_name")
+  @@index([cityId])
+  @@index([isActive])
+  @@map("city_liability_accounts")
+}
+
+model CityLiabilityEntry {
+  id             Int                       @id @default(autoincrement())
+  accountId      Int                       @map("account_id")
+  cityId         Int                       @map("city_id")
+  lotId          Int?                      @map("lot_id")
+  currencyId     Int                       @map("currency_id")
+  entryDate      DateTime                  @map("entry_date") @db.Date
+  entryType      CityLiabilityEntryType    @map("entry_type")
+  amount         Decimal                   @db.Decimal(15, 2)
+  detail         String                    @db.VarChar(500)
+  note           String?                   @db.Text
+  paymentSource  CityLiabilityPaymentSource? @map("payment_source")
+  bankAccountId  Int?                      @map("bank_account_id")
+  chequePaymentId Int?                     @map("cheque_payment_id")
+  referenceNo    String?                   @map("reference_no") @db.VarChar(50)
+  createdBy      Int                       @map("created_by")
+  createdAt      DateTime                  @default(now()) @map("created_at")
+  updatedAt      DateTime                  @updatedAt @map("updated_at")
+
+  account       CityLiabilityAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  city          City                 @relation(fields: [cityId], references: [id], onDelete: Restrict)
+  lot           Lot?                 @relation(fields: [lotId], references: [id], onDelete: Restrict)
+  currency      Currency             @relation(fields: [currencyId], references: [id])
+  bankAccount   BankAccount?         @relation(fields: [bankAccountId], references: [id])
+  chequePayment Payment?             @relation("CityLiabilityCheque", fields: [chequePaymentId], references: [id])
+  creator       User                 @relation(fields: [createdBy], references: [id])
+
+  @@index([accountId])
+  @@index([cityId])
+  @@index([lotId])
+  @@index([entryDate])
+  @@index([entryType])
+  @@map("city_liability_entries")
+}
+
+model OpeningCityLiability {
+  id          Int      @id @default(autoincrement())
+  accountId   Int      @map("account_id")
+  cityId      Int      @map("city_id")
+  currencyId  Int      @map("currency_id")
+  amount      Decimal  @db.Decimal(15, 2)
+  openingDate DateTime @map("opening_date") @db.Date
+  notes       String?  @db.Text
+  createdBy   Int      @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  account  CityLiabilityAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  city     City                 @relation(fields: [cityId], references: [id], onDelete: Restrict)
+  currency Currency             @relation(fields: [currencyId], references: [id])
+  creator  User                 @relation(fields: [createdBy], references: [id])
+
+  @@unique([accountId, currencyId], name: "unique_opening_city_liability_account_currency")
+  @@index([cityId])
+  @@index([openingDate])
+  @@map("opening_city_liabilities")
 }
 
 model ProfitAllocation {

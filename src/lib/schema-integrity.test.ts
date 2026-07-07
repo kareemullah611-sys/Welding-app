@@ -69,3 +69,21 @@ test("opening balance records use restrict deletes instead of cascade deletes", 
   assert.match(migration, /ON DELETE RESTRICT ON UPDATE CASCADE/);
   assert.doesNotMatch(migration, /ON DELETE CASCADE/);
 });
+
+test("city liabilities have city-scoped accounts, entries, openings, and cheque lock status", () => {
+  const account = modelBlock("CityLiabilityAccount");
+  const entry = modelBlock("CityLiabilityEntry");
+  const opening = modelBlock("OpeningCityLiability");
+
+  assert.match(account, /@@unique\(\[cityId, name\], name: "unique_city_liability_account_name"\)/);
+  assert.match(entry, /entryType\s+CityLiabilityEntryType\s+@map\("entry_type"\)/);
+  assert.match(entry, /paymentSource\s+CityLiabilityPaymentSource\?\s+@map\("payment_source"\)/);
+  assert.match(opening, /@@unique\(\[accountId, currencyId\], name: "unique_opening_city_liability_account_currency"\)/);
+
+  const migration = readFileSync("prisma/migrations/20260707090000_add_city_liabilities/migration.sql", "utf8");
+  assert.match(migration, /ALTER TYPE "ChequeStatus" ADD VALUE IF NOT EXISTS 'used_for_liability'/);
+  assert.match(migration, /CREATE TABLE "city_liability_accounts"/);
+  assert.match(migration, /CREATE TABLE "city_liability_entries"/);
+  assert.match(migration, /CREATE TABLE "opening_city_liabilities"/);
+  assert.match(migration, /city_liability_entries_payment_source_check/);
+});

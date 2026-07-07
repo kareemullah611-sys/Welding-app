@@ -5,7 +5,7 @@ import { successResponse, errorResponse, validationError, serverError } from "@/
 import { JWTPayload } from "@/lib/auth";
 import { OpeningLiabilityType } from "@prisma/client";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
-import { journalOpeningLiability, reverseJournalEntries } from "@/lib/accounting";
+import { journalOpeningCityLiability, journalOpeningHajiBalance, journalOpeningLiability, reverseJournalEntries } from "@/lib/accounting";
 import { setLegacyGodownStock, listLegacyStockForCity, purgeLegacyOpeningStockData } from "@/lib/legacy-stock-lot";
 import { listLotGodownStockForCity, setLotGodownStock } from "@/lib/lot-godown-stock";
 import { createHistoricalSale } from "@/lib/historical-sale-import";
@@ -35,7 +35,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
 
     const cityId = getScopedCityId(user, request.nextUrl.searchParams.get("city_id"));
 
-    const [cities, currenciesRaw, customers, godowns, products, bankAccounts, openingCash, openingCustomerBalances, openingStocks, legacyStocks, ongoingLots, historicalSales, openingBankBalances, openingCheques, liabilityCurrencies, suppliers, shippingLines, agents, intermediaries, openingLiabilities] = await Promise.all([
+    const [cities, currenciesRaw, customers, godowns, products, bankAccounts, openingCash, openingCustomerBalances, openingStocks, legacyStocks, ongoingLots, historicalSales, openingBankBalances, openingCheques, openingHajiBalances, liabilityCurrencies, suppliers, shippingLines, agents, intermediaries, openingLiabilities, cityLiabilityAccounts, openingCityLiabilities] = await Promise.all([
       user.role === "super_admin"
         ? prisma.city.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
         : Promise.resolve([]),
@@ -125,6 +125,13 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
             orderBy: [{ openingDate: "asc" }, { id: "asc" }],
           })
         : Promise.resolve([]),
+      cityId
+        ? prisma.openingHajiBalance.findMany({
+            where: { cityId },
+            include: { currency: { select: { code: true, symbol: true } } },
+            orderBy: [{ currencyId: "asc" }, { openingDate: "asc" }],
+          })
+        : Promise.resolve([]),
       user.role === "super_admin"
         ? prisma.currency.findMany({ select: { id: true, code: true, symbol: true }, orderBy: { code: "asc" } })
         : Promise.resolve([]),
@@ -150,6 +157,23 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
               intermediary: { select: { id: true, name: true } },
             },
             orderBy: [{ liabilityType: "asc" }, { openingDate: "asc" }],
+          })
+        : Promise.resolve([]),
+      cityId
+        ? prisma.cityLiabilityAccount.findMany({
+            where: { cityId, isActive: true },
+            select: { id: true, name: true },
+            orderBy: { name: "asc" },
+          })
+        : Promise.resolve([]),
+      cityId
+        ? prisma.openingCityLiability.findMany({
+            where: { cityId },
+            include: {
+              account: { select: { id: true, name: true } },
+              currency: { select: { id: true, code: true, symbol: true } },
+            },
+            orderBy: [{ openingDate: "asc" }, { id: "asc" }],
           })
         : Promise.resolve([]),
     ]);
@@ -250,12 +274,24 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         openingDate: o.openingDate.toISOString().split("T")[0],
         notes: o.notes,
       })),
+      openingHajiBalances: openingHajiBalances.map((o) => ({
+        id: o.id,
+        currencyId: o.currencyId,
+        currencyCode: o.currency.code,
+        currencySymbol: o.currency.symbol,
+        amount: Number(o.amount),
+        openingDate: o.openingDate.toISOString().split("T")[0],
+        notes: o.notes,
+      })),
       liabilityOptions: {
         currencies: liabilityCurrencies,
         suppliers,
         shippingLines,
         agents,
         intermediaries,
+      },
+      cityLiabilityOptions: {
+        accounts: cityLiabilityAccounts,
       },
       openingLiabilities: openingLiabilities.map((o) => ({
         id: o.id,
@@ -267,6 +303,17 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         notes: o.notes,
         partyId: o.supplierId || o.shippingLineId || o.agentId || o.intermediaryId,
         partyName: o.supplier?.name || o.shippingLine?.name || o.agent?.name || o.intermediary?.name || "-",
+      })),
+      openingCityLiabilities: openingCityLiabilities.map((o) => ({
+        id: o.id,
+        accountId: o.accountId,
+        accountName: o.account.name,
+        currencyId: o.currencyId,
+        currencyCode: o.currency.code,
+        currencySymbol: o.currency.symbol,
+        amount: Number(o.amount),
+        openingDate: o.openingDate.toISOString().split("T")[0],
+        notes: o.notes,
       })),
     });
   } catch (error) {
@@ -423,7 +470,70 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
     }
 
     if (kind === "haji") {
-      return validationError("Opening Haji balance is removed. Owed to Haji is calculated from ongoing lots only.");
+      if (!cityId) return validationError("City is required");
+      const scopedCityId = cityId;
+      const currencyId = Number(body.currencyId);
+      const amount = Number(body.amount);
+      if (!Number.isInteger(currencyId) || currencyId <= 0) return validationError("Currency is required");
+      if (!Number.isFinite(amount)) return validationError("Amount is required");
+      const [currency, cityCurrency] = await Promise.all([
+        prisma.currency.findUnique({ where: { id: currencyId } }),
+        prisma.cityCurrency.findFirst({ where: { cityId: scopedCityId, currencyId } }),
+      ]);
+      if (!currency) return errorResponse("NOT_FOUND", "Currency not found");
+      if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not available for this city");
+      const existing = await prisma.openingHajiBalance.findFirst({ where: { cityId: scopedCityId, currencyId } });
+      const row = await prisma.$transaction(async (tx) => {
+        const saved = existing
+          ? await tx.openingHajiBalance.update({
+              where: { id: existing.id },
+              data: { amount, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
+            })
+          : await tx.openingHajiBalance.create({
+              data: {
+                cityId: scopedCityId,
+                currencyId,
+                amount,
+                openingDate: dateOnly(body.openingDate),
+                notes: body.notes || null,
+                createdBy: user.userId,
+              },
+            });
+        await reverseJournalEntries(`OPENHAJI-${saved.id}`, user.userId, tx);
+        await journalOpeningHajiBalance({
+          id: saved.id,
+          cityId: scopedCityId,
+          amount: Number(saved.amount),
+          currencyCode: currency.code,
+          openingDate: saved.openingDate,
+          createdBy: user.userId,
+        }, tx);
+        return saved;
+      });
+      await createAuditLog(
+        user.userId,
+        scopedCityId,
+        "opening_haji_balances",
+        row.id,
+        existing ? "update" : "create",
+        existing ? { amount: Number(existing.amount) } : undefined,
+        { amount },
+        getClientIP(request),
+      );
+      if (syncMeta) {
+        await prisma.syncRequest.create({
+          data: {
+            cityId: scopedCityId,
+            module: OPENINGS_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "opening_haji_balances",
+            entityId: row.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+      return successResponse({ id: row.id }, "Opening Haji balance saved");
     }
 
     if (kind === "historical_sale") {
@@ -766,6 +876,70 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       return successResponse({ id: row.id }, "Opening liability saved");
     }
 
+    if (kind === "city_liability") {
+      if (user.role !== "city_admin") return errorResponse("FORBIDDEN", "Only city admins can manage city opening liabilities", 403);
+      const cityId = user.cityId!;
+      const accountId = Number(body.accountId);
+      const currencyId = Number(body.currencyId);
+      const amount = Number(body.amount);
+      if (!Number.isInteger(accountId) || accountId <= 0) return validationError("Liability account is required");
+      if (!Number.isInteger(currencyId) || currencyId <= 0) return validationError("Currency is required");
+      if (!Number.isFinite(amount) || amount <= 0) return validationError("Amount must be greater than zero");
+
+      const [account, currency, cityCurrency] = await Promise.all([
+        prisma.cityLiabilityAccount.findFirst({ where: { id: accountId, cityId, isActive: true } }),
+        prisma.currency.findUnique({ where: { id: currencyId } }),
+        prisma.cityCurrency.findFirst({ where: { cityId, currencyId } }),
+      ]);
+      if (!account) return errorResponse("NOT_FOUND", "Liability account not found");
+      if (!currency) return errorResponse("NOT_FOUND", "Currency not found");
+      if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not available for this city");
+
+      const existing = await prisma.openingCityLiability.findFirst({ where: { accountId, currencyId } });
+      const row = await prisma.$transaction(async (tx) => {
+        const saved = existing
+          ? await tx.openingCityLiability.update({
+              where: { id: existing.id },
+              data: { amount, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
+            })
+          : await tx.openingCityLiability.create({
+              data: {
+                accountId,
+                cityId,
+                currencyId,
+                amount,
+                openingDate: dateOnly(body.openingDate),
+                notes: body.notes || null,
+                createdBy: user.userId,
+              },
+            });
+
+        await reverseJournalEntries(`OPENCITYLIAB-${saved.id}`, user.userId, tx);
+        await journalOpeningCityLiability({
+          id: saved.id,
+          accountId,
+          cityId,
+          amount: Number(saved.amount),
+          currencyCode: currency.code,
+          openingDate: saved.openingDate,
+          createdBy: user.userId,
+        }, tx);
+        return saved;
+      });
+
+      await createAuditLog(
+        user.userId,
+        cityId,
+        "opening_city_liabilities",
+        row.id,
+        existing ? "update" : "create",
+        existing ? { accountId: existing.accountId, amount: Number(existing.amount) } : undefined,
+        { accountId, amount },
+        getClientIP(request),
+      );
+      return successResponse({ id: row.id }, "Opening city liability saved");
+    }
+
     return validationError("Invalid opening kind");
   } catch (error) {
     if (syncMeta && kind === "liability" && isSyncRequestDuplicateError(error)) {
@@ -843,7 +1017,15 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
     }
 
     if (kind === "haji") {
-      return validationError("Opening Haji balance is removed. Owed to Haji is calculated from ongoing lots only.");
+      if (!cityId) return validationError("City is required");
+      const row = await prisma.openingHajiBalance.findFirst({ where: { id, cityId } });
+      if (!row) return errorResponse("NOT_FOUND", "Opening Haji balance not found");
+      await prisma.$transaction(async (tx) => {
+        await reverseJournalEntries(`OPENHAJI-${row.id}`, user.userId, tx);
+        await tx.openingHajiBalance.delete({ where: { id: row.id } });
+      });
+      await createAuditLog(user.userId, cityId, "opening_haji_balances", row.id, "delete", { amount: Number(row.amount) }, undefined, getClientIP(request));
+      return successResponse({ id: row.id }, "Opening Haji balance deleted");
     }
 
     if (kind === "historical_sale") {
@@ -926,6 +1108,18 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       });
       await createAuditLog(user.userId, null, "opening_liabilities", row.id, "delete", { amount: Number(row.amount) }, undefined, getClientIP(request));
       return successResponse({ id: row.id }, "Opening liability deleted");
+    }
+
+    if (kind === "city_liability") {
+      if (!cityId) return validationError("City is required");
+      const row = await prisma.openingCityLiability.findFirst({ where: { id, cityId } });
+      if (!row) return errorResponse("NOT_FOUND", "Opening city liability not found");
+      await prisma.$transaction(async (tx) => {
+        await reverseJournalEntries(`OPENCITYLIAB-${row.id}`, user.userId, tx);
+        await tx.openingCityLiability.delete({ where: { id: row.id } });
+      });
+      await createAuditLog(user.userId, cityId, "opening_city_liabilities", row.id, "delete", { amount: Number(row.amount) }, undefined, getClientIP(request));
+      return successResponse({ id: row.id }, "Opening city liability deleted");
     }
 
     return validationError("Invalid opening kind");

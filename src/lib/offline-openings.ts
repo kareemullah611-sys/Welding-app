@@ -23,6 +23,7 @@ type OpeningDataLike = {
   openingCustomerBalances: any[];
   openingBankBalances: any[];
   openingCheques: any[];
+  openingHajiBalances?: any[];
   openingStocks: any[];
   legacyStocks?: any[];
   historicalSales?: any[];
@@ -48,6 +49,7 @@ export function applyPendingOpeningsData(base: OpeningDataLike, queuedItems: Que
     openingCustomerBalances: [...(base.openingCustomerBalances || [])],
     openingBankBalances: [...(base.openingBankBalances || [])],
     openingCheques: [...(base.openingCheques || [])],
+    openingHajiBalances: [...(base.openingHajiBalances || [])],
     openingStocks: [...(base.openingStocks || [])],
     legacyStocks: [...(base.legacyStocks || [])],
     historicalSales: [...(base.historicalSales || [])],
@@ -121,6 +123,20 @@ export function applyPendingOpeningsData(base: OpeningDataLike, queuedItems: Que
         chequeNumber: parsed?.chequeNumber || "Pending",
         chequeBank: parsed?.chequeBank || null,
         chequeDueDate: parsed?.chequeDueDate || null,
+        openingDate: parsed?.openingDate || new Date().toISOString().split("T")[0],
+        notes: parsed?.notes || null,
+        _pending: true,
+      });
+      continue;
+    }
+
+    if (kind === "haji") {
+      const currencyId = Number(parsed?.currencyId || 0);
+      next.openingHajiBalances!.unshift({
+        id: `pending-${queued.id}`,
+        currencyId,
+        currencyCode: findCurrencyCode(base.currencies || [], currencyId),
+        amount: Number(parsed?.amount || 0),
         openingDate: parsed?.openingDate || new Date().toISOString().split("T")[0],
         notes: parsed?.notes || null,
         _pending: true,

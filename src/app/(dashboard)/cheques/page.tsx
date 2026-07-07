@@ -24,6 +24,7 @@ const CHEQUE_STATUS_CONFIG: Record<string, { label: string; shortLabel: string; 
   deposited_to_bank:  { label: "Deposited to Bank",  shortLabel: "Deposited",          icon: "🏦", color: "bg-blue-50 text-blue-700 border-blue-200",       glassVariant: "primary" },
   sent_to_haji:       { label: "Sent to Haji",       shortLabel: "Sent to Haji",       icon: "↗️", color: "bg-green-50 text-green-700 border-green-200",    glassVariant: "xlsx" },
   used_for_expense:   { label: "Used for Expense",   shortLabel: "Used for Expense",   icon: "🧾", color: "bg-orange-50 text-orange-700 border-orange-200", glassVariant: "warning" },
+  used_for_liability: { label: "Used for Liability", shortLabel: "Used for Liability", icon: "🤝", color: "bg-orange-50 text-orange-700 border-orange-200", glassVariant: "warning" },
   used_for_withdrawal:{ label: "Used for Withdrawal", shortLabel: "Used for Withdrawal", icon: "👤", color: "bg-purple-50 text-purple-700 border-purple-200", glassVariant: "pdf" },
   bounced:            { label: "Bounced",             shortLabel: "Bounced",            icon: "⚠️", color: "bg-red-50 text-red-700 border-red-200",          glassVariant: "danger" },
 };
@@ -36,7 +37,7 @@ const filterBtnClass = (active: boolean, variant: GlassVariant) =>
     active ? `glass-btn-${variant}` : "glass-btn-secondary",
   );
 
-const TABS = ["all", "in_hand", "deposited_to_bank", "sent_to_haji", "used_for_expense", "used_for_withdrawal", "bounced"] as const;
+const TABS = ["all", "in_hand", "deposited_to_bank", "sent_to_haji", "used_for_expense", "used_for_liability", "used_for_withdrawal", "bounced"] as const;
 type Tab = typeof TABS[number];
 
 export default function ChequesPage() {
