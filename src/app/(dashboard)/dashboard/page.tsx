@@ -330,10 +330,10 @@ export default function DashboardPage() {
           <div className="relative grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-3 xl:grid-cols-5">
           <QuickActionCard 
             icon={ShoppingCart} 
-            title="New Sale" 
+            title="Sale" 
             src="/sales?create=1&embed=1"
             color="blue"
-            onClick={() => openQuickForm("New Sale", "/sales?create=1&embed=1")}
+            onClick={() => openQuickForm("Sale", "/sales?create=1&embed=1")}
           />
           <QuickActionCard 
             icon={Banknote} 
