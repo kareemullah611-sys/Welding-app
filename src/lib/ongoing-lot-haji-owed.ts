@@ -28,7 +28,7 @@ export async function computeOngoingLotHajiOwedByCity(
   const cityFilter = options.cityId ? { cityId: options.cityId } : {};
   const lotFilter = { lotId: { in: ongoingLotIds } };
 
-  const [sales, expenses, hajiTransfers, hajiPayments, overflowCredits] = await Promise.all([
+  const [sales, expenses, hajiTransfers, hajiPayments, overflowCredits, openingHaji] = await Promise.all([
     db.sale.groupBy({
       by: ["cityId", "currencyId"],
       where: { ...cityFilter, ...lotFilter, status: { in: [...ACTIVE_SALE_STATUSES] } },
@@ -57,6 +57,11 @@ export async function computeOngoingLotHajiOwedByCity(
       },
       _sum: { overflowAmount: true },
     }),
+    db.openingHajiBalance.groupBy({
+      by: ["cityId", "currencyId"],
+      where: cityFilter,
+      _sum: { amount: true },
+    }),
   ]);
 
   const add = (cityId: number, currencyId: number, delta: number) => {
@@ -82,6 +87,10 @@ export async function computeOngoingLotHajiOwedByCity(
   for (const row of overflowCredits) {
     // Overflow credits into ongoing lots are not real remittances — add back
     add(row.cityId, row.currencyId, Number(row._sum.overflowAmount || 0));
+  }
+  for (const row of openingHaji) {
+    // Opening haji balance = amount already transferred in previous system; reduces what's owed
+    add(row.cityId, row.currencyId, -Number(row._sum.amount || 0));
   }
 
   // Discounts: need cityId from sale join

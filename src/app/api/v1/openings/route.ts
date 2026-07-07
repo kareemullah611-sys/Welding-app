@@ -508,6 +508,32 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           openingDate: saved.openingDate,
           createdBy: user.userId,
         }, tx);
+        // Remove old opening-balance haji transfer if it exists
+        await tx.hajiTransfer.deleteMany({
+          where: {
+            cityId: scopedCityId,
+            currencyId,
+            detail: { startsWith: "Opening Haji balance" },
+          },
+        });
+        // Create a haji transfer record so it appears in haji transfers view/reports
+        await tx.hajiTransfer.create({
+          data: {
+            cityId: scopedCityId,
+            lotId: null,
+            transferDate: saved.openingDate,
+            amount: Number(saved.amount),
+            currencyId,
+            detail: `Opening Haji balance (OPENHAJI-${saved.id})`,
+            referenceNo: null,
+            transferType: "from_in_hand",
+            transferredTo: null,
+            notes: body.notes || null,
+            sourceType: "cash_office",
+            settlementDestination: "standard",
+            createdBy: user.userId,
+          },
+        });
         return saved;
       });
       await createAuditLog(
@@ -1022,6 +1048,13 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       if (!row) return errorResponse("NOT_FOUND", "Opening Haji balance not found");
       await prisma.$transaction(async (tx) => {
         await reverseJournalEntries(`OPENHAJI-${row.id}`, user.userId, tx);
+        await tx.hajiTransfer.deleteMany({
+          where: {
+            cityId,
+            currencyId: row.currencyId,
+            detail: { startsWith: "Opening Haji balance" },
+          },
+        });
         await tx.openingHajiBalance.delete({ where: { id: row.id } });
       });
       await createAuditLog(user.userId, cityId, "opening_haji_balances", row.id, "delete", { amount: Number(row.amount) }, undefined, getClientIP(request));

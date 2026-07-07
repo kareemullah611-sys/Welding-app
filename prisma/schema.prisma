@@ -1003,7 +1003,7 @@ model PersonalWithdrawal {
 model HajiTransfer {
   id           Int              @id @default(autoincrement())
   cityId       Int              @map("city_id")
-  lotId        Int              @map("lot_id")
+  lotId        Int?             @map("lot_id")
   transferDate DateTime         @map("transfer_date") @db.Date
   amount       Decimal          @db.Decimal(15, 2)
   currencyId   Int              @map("currency_id")
@@ -1025,7 +1025,7 @@ model HajiTransfer {
   updatedAt    DateTime         @updatedAt @map("updated_at")
 
   city          City         @relation(fields: [cityId], references: [id])
-  lot           Lot          @relation(fields: [lotId], references: [id])
+  lot           Lot?         @relation(fields: [lotId], references: [id])
   currency      Currency     @relation(fields: [currencyId], references: [id])
   creator       User         @relation(fields: [createdBy], references: [id])
   bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id])

@@ -131,9 +131,9 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         type: "haji_transfer", category: "Transfer to Haji",
         description: `${h.detail} (${h.transferType === "direct" ? "Direct" : "From In-Hand"})`,
         debit: Number(h.amount), credit: 0,
-        hajiCredit: h.lot.status === "ongoing" ? Number(h.amount) : 0,
-        currency: h.currency.code, lot: h.lot.lotNumber,
-        lotStatus: h.lot.status,
+        hajiCredit: h.lot?.status === "ongoing" ? Number(h.amount) : 0,
+        currency: h.currency.code, lot: h.lot?.lotNumber ?? null,
+        lotStatus: h.lot?.status ?? null,
         account: "Haji Account", counterAccount: h.transferType === "from_in_hand" ? "Cash In Hand" : "Bank",
         transferType: h.transferType,
       });

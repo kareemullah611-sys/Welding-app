@@ -109,7 +109,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       })).map((h) => ({
         id: h.id, detail: h.detail, amount: Number(h.amount), currency: h.currency.code,
         date: h.transferDate.toISOString().split("T")[0], transferType: h.transferType,
-        lotNumber: h.lot.lotNumber, city: h.city.name,
+        lotNumber: h.lot?.lotNumber ?? null, city: h.city.name,
       }));
     }
 

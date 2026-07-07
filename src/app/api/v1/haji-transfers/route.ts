@@ -20,8 +20,8 @@ function mapTransferRow(t: any, auditById: Record<number, any>) {
     cityId: t.cityId,
     lotId: t.lotId,
     recordType: "haji_transfer",
-    lotNumber: t.lot.lotNumber,
-    lotStatus: t.lot.status,
+    lotNumber: t.lot?.lotNumber ?? null,
+    lotStatus: t.lot?.status ?? null,
     transferDate: t.transferDate.toISOString().split("T")[0],
     amount: Number(t.amount),
     detail: t.detail,
@@ -233,7 +233,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         if (existingTransfer) {
           return successResponse({
             id: existingTransfer.id,
-            lotNumber: existingTransfer.lot.lotNumber,
+            lotNumber: existingTransfer.lot?.lotNumber ?? null,
             transferDate: existingTransfer.transferDate.toISOString().split("T")[0],
             amount: Number(existingTransfer.amount),
             detail: existingTransfer.detail,

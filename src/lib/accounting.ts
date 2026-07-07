@@ -610,8 +610,8 @@ export async function journalOpeningHajiBalance(
   db: DbClient = prisma
 ) {
   await createJournalEntries(`OPENHAJI-${p.id}`, [
-    { accountId: await getOpeningBalanceAccountId(db), debit: p.amount, credit: 0, description: "Opening Haji balance" },
-    { accountId: await getHajiAccountId(db), debit: 0, credit: p.amount, description: "Opening Haji balance" },
+    { accountId: await getHajiAccountId(db), debit: p.amount, credit: 0, description: "Opening Haji balance" },
+    { accountId: await getOpeningBalanceAccountId(db), debit: 0, credit: p.amount, description: "Opening Haji balance" },
   ], {
     currencyCode: p.currencyCode,
     entityType: "opening_haji_balance",
