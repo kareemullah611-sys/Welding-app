@@ -597,25 +597,27 @@ export default function ExpensesPage() {
             <label className="mb-1 block text-sm font-medium text-gray-700">{t("detail")} *</label>
             <input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" />
           </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
-            <input
-              type="number"
-              value={form.amount || ""}
-              onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
-              className="input-field"
-              onWheel={e => e.currentTarget.blur()}
-            />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
+              <input
+                type="number"
+                value={form.amount || ""}
+                onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
+                className="input-field"
+                onWheel={e => e.currentTarget.blur()}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">{t("lot")}</label>
+              <select value={form.lotId} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
+                <option value={0}>{t("auto_fifo")}</option>
+                {lots.map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}</option>)}
+              </select>
+            </div>
           </div>
           {!isEmbed && (
             <>
-              <div>
-                <label className="block mb-1">{t("lot")}</label>
-                <select value={form.lotId} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
-                  <option value={0}>{t("auto_fifo")}</option>
-                  {lots.map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}</option>)}
-                </select>
-              </div>
               <div>
                 <label className="block mb-1">{t("notes")}</label>
                 <input value={form.notes} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" />

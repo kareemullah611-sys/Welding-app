@@ -342,7 +342,31 @@ export default function DashboardPage() {
             color="green"
             onClick={() => openQuickForm("Payment", "/payments?create=payment&embed=1")}
           />
-          
+          <QuickActionCard 
+            icon={ArrowRightLeft} 
+            title="Haji Transfer" 
+            src="/haji-transfers?create=1&embed=1"
+            color="orange"
+            onClick={() => openQuickForm("Haji Transfer", "/haji-transfers?create=1&embed=1")}
+          />
+          <QuickActionCard 
+            icon={Receipt} 
+            title="Record Expense" 
+            src="/expenses?create=1&embed=1"
+            color="red"
+            onClick={() => openQuickForm("Record Expense", "/expenses?create=1&embed=1")}
+          />
+          <div className="col-span-2 flex justify-center lg:col-span-1 lg:col-start-2 xl:col-span-1 xl:col-start-auto">
+            <div className="w-[calc((100%-0.625rem)/2)] sm:w-[calc((100%-0.75rem)/2)] lg:w-full">
+              <QuickActionCard 
+                icon={Wallet} 
+                title="Withdrawal" 
+                src="/personal-withdrawals?create=1&embed=1"
+                color="purple"
+                onClick={() => openQuickForm("Personal Withdrawal", "/personal-withdrawals?create=1&embed=1")}
+              />
+            </div>
+          </div>
           </div>
         </div>
         <BalanceHub user={user} treasury={treasury} glass />
