@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma";
+import { journalSaleCOGS } from "@/lib/accounting";
 
 /**
  * After new stock arrives in a godown, auto-activate any marked_short sales
@@ -9,6 +10,9 @@ import prisma from "@/lib/prisma";
  *     (marked_short sales are NOT deducted — they are what we want to fulfil)
  *  2. Sort marked_short sales for this godown oldest-first
  *  3. Greedily activate oldest sales first as long as capacity covers all their items
+ *
+ * Fix C4: when a marked_short sale flips to active, we post the deferred COGS journal
+ * entry that was skipped at sale-creation time.
  */
 export async function autoActivateShortSales(godownId: number): Promise<number> {
   // Get all marked_short sales in this godown, oldest first
@@ -71,7 +75,23 @@ export async function autoActivateShortSales(godownId: number): Promise<number> 
         where: { id: sale.id, status: "marked_short" },
         data: { status: "active", stockShortFlag: false },
       });
-      if (count > 0) activated++;
+      if (count > 0) {
+        activated++;
+        // Fix C4: post the deferred COGS journal entry now that the sale is active.
+        try {
+          const totalQtySold = sale.items.reduce((s, i) => s + Number(i.qty), 0);
+          await journalSaleCOGS({
+            saleId: sale.id,
+            lotId: sale.lotId,
+            totalQtySold,
+            saleDate: sale.saleDate,
+            cityId: sale.cityId,
+            createdBy: sale.createdBy,
+          });
+        } catch (cogsErr) {
+          console.error(`Failed to post deferred COGS for sale ${sale.id} on activation:`, cogsErr);
+        }
+      }
     }
   }
 

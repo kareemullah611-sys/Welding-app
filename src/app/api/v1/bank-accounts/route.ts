@@ -295,6 +295,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
             ? { in: scopedBankAccountIds.length > 0 ? scopedBankAccountIds : [-1] }
             : { not: null },
           sourceType: "bank_account",
+          approvedAt: { not: null },
         } as any,
         _sum: { amount: true },
       }),

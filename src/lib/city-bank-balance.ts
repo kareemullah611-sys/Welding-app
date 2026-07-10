@@ -50,7 +50,8 @@ export async function getCityBankAccountAvailableBalance(
       _sum: { amount: true },
     }),
     db.personalWithdrawal.aggregate({
-      where: { cityId, bankAccountId, currencyId, sourceType: "bank_account" },
+      // Fix C7: only count APPROVED withdrawals.
+      where: { cityId, bankAccountId, currencyId, sourceType: "bank_account", approvedAt: { not: null } } as any,
       _sum: { amount: true },
     } as any),
     db.bankDeposit.findMany({

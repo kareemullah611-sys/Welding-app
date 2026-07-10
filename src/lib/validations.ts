@@ -242,6 +242,7 @@ export const createExpenseSchema = z.object({
 });
 
 export const updateExpenseSchema = z.object({
+  lotId: z.number().int().optional().nullable(),
   expenseDate: z.string().optional(),
   amount: z.coerce.number().positive().optional(),
   detail: z.string().trim().min(1).max(500).optional(),

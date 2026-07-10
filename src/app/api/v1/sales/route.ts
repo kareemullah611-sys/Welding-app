@@ -17,21 +17,21 @@ const SALE_SYNC_MODULE = "sales.create";
 // Round a financial value to 2 decimal places to avoid floating-point precision errors
 function roundMoney(n: number): number { return Math.round(n * 100) / 100; }
 
-// Helper: Generate next 4-digit voucher
+// Helper: Generate next 4-digit voucher (atomic wrap-around via single SQL UPDATE)
+// Fix C1+H6: previous upsert+update pattern had a TOCTOU race on wrap-around at 9999.
 async function generateVoucherNo(cityId: number, db: PrismaClient | Prisma.TransactionClient = prisma): Promise<string> {
-  const result = await db.voucherSequence.upsert({
+  await db.voucherSequence.upsert({
     where: { cityId },
-    create: { cityId, currentNumber: 1 },
-    update: { currentNumber: { increment: 1 } },
+    create: { cityId, currentNumber: 0 },
+    update: {},
   });
-  let num = result.currentNumber;
-  if (num > 9999) {
-    await db.voucherSequence.update({
-      where: { cityId },
-      data: { currentNumber: 1 },
-    });
-    num = 1;
-  }
+  const rows = await db.$queryRaw<Array<{ current_number: number }>>`
+    UPDATE voucher_sequences
+    SET current_number = CASE WHEN current_number >= 9999 THEN 1 ELSE current_number + 1 END
+    WHERE city_id = ${cityId}
+    RETURNING current_number
+  `;
+  const num = Number(rows[0]?.current_number ?? 1);
   return String(num).padStart(4, "0");
 }
 
@@ -565,11 +565,14 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         saleDate: createdSale.saleDate, createdBy: user.userId,
       }, tx);
 
-      const totalQtySold = normalizedItems.reduce((s, i) => s + i.stockQty, 0);
-      await journalSaleCOGS({
-        saleId: createdSale.id, lotId: createdSale.lotId!, totalQtySold,
-        saleDate: createdSale.saleDate, cityId: createdSale.cityId, createdBy: user.userId,
-      }, tx);
+      // Fix C4: defer COGS posting when the sale is marked_short.
+      if (!txHasShortage) {
+        const totalQtySold = normalizedItems.reduce((s, i) => s + i.stockQty, 0);
+        await journalSaleCOGS({
+          saleId: createdSale.id, lotId: createdSale.lotId!, totalQtySold,
+          saleDate: createdSale.saleDate, cityId: createdSale.cityId, createdBy: user.userId,
+        }, tx);
+      }
 
       if (syncMeta) {
         await tx.syncRequest.create({

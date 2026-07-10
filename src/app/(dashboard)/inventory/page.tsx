@@ -618,16 +618,14 @@ export default function InventoryPage() {
     setCityTransferLoading(false);
   };
 
-  const resolveCityTransferFromGodown = async (): Promise<number | null> => {
+  const resolveCityTransferFromGodown = async (productId: number, qty: number): Promise<number | null> => {
     const stockRes = await apiCall("/api/v1/inventory/godown-stock");
-    if (stockRes.success) {
-      const rows = ((stockRes.data as any[]) || [])
-        .filter((row) => row.godownId)
-        .sort((a, b) => Number(b.available) - Number(a.available));
-      if (rows.length) return rows[0].godownId;
-    }
+    if (!stockRes.success) return godownList[0]?.id ?? null;
+    const rows = ((stockRes.data as any[]) || [])
+      .filter((row) => row.productId === productId && Number(row.available) >= qty)
+      .sort((a, b) => Number(b.available) - Number(a.available));
+    if (rows.length) return rows[0].godownId;
     if (godownList.length === 1) return godownList[0].id;
-    if (godownList.length > 1) return godownList[0].id;
     return null;
   };
 
@@ -638,9 +636,9 @@ export default function InventoryPage() {
       return;
     }
 
-    const fromGodownId = await resolveCityTransferFromGodown();
+    const fromGodownId = await resolveCityTransferFromGodown(cityTransferForm.productId, cityTransferForm.qty);
     if (!fromGodownId) {
-      setCityTransferError("No active godown found for this city.");
+      setCityTransferError("No godown has enough stock for this product and quantity.");
       return;
     }
 

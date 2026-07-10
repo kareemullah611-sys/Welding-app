@@ -42,17 +42,11 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       await reverseJournalEntries(`COGS-${id}`, user.userId, tx);
 
       // If walk-in sale, cancel the auto-created payment and reverse its journal.
+      // Fix C1: drop manualVoucherNo fallback — saleId is the only reliable link.
       if (sale.customer.name === "Walk-in Customer") {
         const walkinPayment = await tx.payment.findFirst({
           where: {
-            OR: [
-              { saleId: sale.id },
-              {
-                manualVoucherNo: String(sale.voucherNo),
-                customerId: sale.customerId,
-                cityId: sale.cityId,
-              },
-            ],
+            saleId: sale.id,
             status: "active",
           },
         });

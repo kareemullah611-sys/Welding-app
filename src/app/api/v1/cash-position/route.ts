@@ -31,7 +31,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     // Money going OUT from in-hand (exclude soft-deleted expenses)
     const [expenses, withdrawals, hajiTransfers] = await Promise.all([
       prisma.expense.aggregate({ where: { ...cityFilter, deletedAt: null }, _sum: { amount: true } }),
-      prisma.personalWithdrawal.aggregate({ where: cityFilter, _sum: { amount: true } }),
+      prisma.personalWithdrawal.aggregate({ where: { ...cityFilter, approvedAt: { not: null } }, _sum: { amount: true } }),
       prisma.hajiTransfer.aggregate({ where: { ...cityFilter, transferType: "from_in_hand" } as any, _sum: { amount: true } }),
     ]);
 

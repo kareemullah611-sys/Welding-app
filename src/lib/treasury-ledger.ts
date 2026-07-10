@@ -94,6 +94,7 @@ export function getCombinedItemNetDelta(item: CombinedItem): number {
   }
 
   if (item.type === "withdrawal") {
+    if (item.status !== "approved") return 0;
     const source = item.raw?.sourceType || "cash_office";
     if (source === "cash_office" || source === "cheque") return -amount;
     return 0;
@@ -233,7 +234,7 @@ export async function computeCityTreasuryNet(
     prisma.bankDeposit.groupBy({ by: ["currencyId"], where: { cityId }, _sum: { cashAmount: true } }),
     prisma.personalWithdrawal.groupBy({
       by: ["currencyId"],
-      where: { cityId, sourceType: "cash_office" } as any,
+      where: { cityId, sourceType: "cash_office", approvedAt: { not: null } } as any,
       _sum: { amount: true },
     }),
     prisma.payment.groupBy({
@@ -291,7 +292,7 @@ export async function computeCityTreasuryNet(
     }),
     prisma.personalWithdrawal.groupBy({
       by: ["currencyId"],
-      where: { cityId, sourceType: "bank_account" } as any,
+      where: { cityId, sourceType: "bank_account", approvedAt: { not: null } } as any,
       _sum: { amount: true },
     }),
     prisma.bankAccount.findMany({ where: { cityId }, select: { id: true } }),

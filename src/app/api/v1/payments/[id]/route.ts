@@ -109,31 +109,34 @@ export const PATCH = withAuth(async (request: NextRequest, context: any, user: J
       if ((payment as any).chequeStatus === "used_for_liability") return errorResponse("VALIDATION_ERROR", "Cannot bounce a cheque that has already been used for a liability payment");
       if ((payment as any).chequeStatus === "used_for_withdrawal") return errorResponse("VALIDATION_ERROR", "Cannot bounce a cheque that has already been used for a withdrawal");
 
-      await prisma.payment.update({
-        where: { id },
-        data: {
-          chequeStatus: "bounced",
-          status: "cancelled",
-          cancellationReason: "Cheque bounced",
-          cancelledAt: new Date(),
-          cancelledBy: user.userId,
-        } as any,
-      });
-
-      // Reverse the cheque receipt entry (PAY-{id})
-      try { await reverseJournalEntries(`PAY-${id}`, user.userId); } catch (je) { console.error("Journal reversal error (bounce PAY):", je); }
-
-      // If the cheque was already deposited, also reverse that deposit leg
       const bankDepositId = (payment as any).bankDepositId;
-      if (bankDepositId) {
-        try { await reverseJournalEntries(`DEP-${bankDepositId}-PAY-${id}`, user.userId); } catch (je) { console.error("Journal reversal error (bounce DEP):", je); }
-      }
 
-      await createAuditLog(user.userId, payment.cityId, "payments", id, "update",
-        { chequeStatus: (payment as any).chequeStatus, status: payment.status },
-        { chequeStatus: "bounced", status: "cancelled", cancellationReason: "Cheque bounced" },
-        getClientIP(request)
-      );
+      // Fix C9: wrap payment status update + both journal reversals + audit log in a transaction.
+      await prisma.$transaction(async (tx) => {
+        await tx.payment.update({
+          where: { id },
+          data: {
+            chequeStatus: "bounced",
+            status: "cancelled",
+            cancellationReason: "Cheque bounced",
+            cancelledAt: new Date(),
+            cancelledBy: user.userId,
+          } as any,
+        });
+
+        await reverseJournalEntries(`PAY-${id}`, user.userId, tx);
+
+        if (bankDepositId) {
+          await reverseJournalEntries(`DEP-${bankDepositId}-PAY-${id}`, user.userId, tx);
+        }
+
+        await createAuditLog(
+          user.userId, payment.cityId, "payments", id, "update",
+          { chequeStatus: (payment as any).chequeStatus, status: payment.status },
+          { chequeStatus: "bounced", status: "cancelled", cancellationReason: "Cheque bounced" },
+          getClientIP(request), tx,
+        );
+      });
 
       return successResponse({ success: true }, "Cheque marked as bounced. Please create a new payment for this customer.");
     }

@@ -125,9 +125,21 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
   try {
     const syncMeta = getSyncRequestMeta(request);
     const body = await request.json();
-    if (!body.name || !body.name.trim()) return validationError("Customer name is required");
 
-    const cityId = user.role === "city_admin" ? user.cityId! : (body.cityId || user.cityId);
+    // Fix C6: activate the Zod schema.
+    const parsed = createCustomerSchema.safeParse(body);
+    if (!parsed.success) return validationError("Invalid customer data", parsed.error.errors);
+    const { name, phone, address } = parsed.data;
+
+    // Fix C6: validate cityId type explicitly.
+    let cityId: number | null = null;
+    if (user.role === "city_admin") {
+      cityId = user.cityId ?? null;
+    } else if (typeof parsed.data.cityId === "number" && Number.isInteger(parsed.data.cityId) && parsed.data.cityId > 0) {
+      cityId = parsed.data.cityId;
+    } else if (typeof user.cityId === "number") {
+      cityId = user.cityId;
+    }
     if (!cityId) return validationError("City is required");
 
     const city = await prisma.city.findFirst({ where: { id: cityId, isActive: true } });
@@ -159,7 +171,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
     const customer = await prisma.$transaction(async (tx) => {
       const createdCustomer = await tx.customer.create({
-        data: { cityId, name: body.name.trim(), phone: body.phone || null, address: body.address || null },
+        data: { cityId, name: name.trim(), phone: phone || null, address: address || null },
         include: { city: { select: { id: true, name: true } } },
       });
 

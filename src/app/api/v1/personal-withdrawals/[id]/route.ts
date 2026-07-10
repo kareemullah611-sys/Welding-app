@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
-import { reverseJournalEntries, journalWithdrawal } from "@/lib/accounting";
+import { reverseJournalEntries } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { updateWithdrawalSchema } from "@/lib/validations";
 
@@ -19,6 +19,14 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     });
     if (!w) return errorResponse("NOT_FOUND", "Not found", 404);
     if (user.role === "city_admin" && w.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
+    // Fix C8: refuse to edit an approved withdrawal.
+    if (w.approvedAt) {
+      return errorResponse(
+        "CONFLICT",
+        "Cannot edit an approved withdrawal — cancel it and create a new one instead",
+        409,
+      );
+    }
 
     const nextWithdrawalDate = data.withdrawalDate ? new Date(data.withdrawalDate) : w.withdrawalDate;
     if (Number.isNaN(nextWithdrawalDate.getTime())) return errorResponse("VALIDATION_ERROR", "Invalid withdrawal date");
@@ -47,6 +55,8 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     }
 
     await prisma.$transaction(async (tx) => {
+      // Fix C7+C8: pending withdrawals have no WDRAW journal. We do NOT call
+      // journalWithdrawal here — the journal is only posted at approval time.
       await tx.journalEntry.deleteMany({
         where: {
           transactionId: {
@@ -68,17 +78,6 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           updatedAt: new Date(),
         } as any,
       });
-
-      await journalWithdrawal({
-        id,
-        cityId: w.cityId,
-        amount: Number(updated.amount),
-        currencyCode: w.currency.code,
-        date: updated.withdrawalDate,
-        createdBy: user.userId,
-        sourceType: nextSourceType,
-        bankAccountId: nextBankAccountId,
-      }, tx);
 
       await createAuditLog(
         user.userId,
@@ -120,8 +119,17 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
     if (!w) return errorResponse("NOT_FOUND", "Not found", 404);
     if (user.role === "city_admin" && w.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
 
+    // Fix C8: refuse to hard-delete an approved withdrawal.
+    if (w.approvedAt) {
+      return errorResponse(
+        "CONFLICT",
+        "Cannot delete an approved withdrawal — it has committed journal entries and a linked Haji transfer. Use the cancel flow instead.",
+        409,
+      );
+    }
+
     await prisma.$transaction(async (tx) => {
-      // Reverse the WDRAW journal (cash was credited on create, must be reversed on delete)
+      // Reverse any WDRAW journal (defensive — pending withdrawals don't have one).
       await reverseJournalEntries(`WDRAW-${id}`, user.userId, tx);
 
       if ((w as any).chequePaymentId) {

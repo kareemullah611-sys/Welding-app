@@ -46,10 +46,41 @@ SELECT
   p."payment_date",
   p."amount",
   p."currency_id",
-  CONCAT('Customer payment to Haji (PAY-', p."id", ')'),
-  COALESCE(NULLIF(p."manual_voucher_no", ''), CONCAT('PAY-', p."id")),
+  CONCAT(
+    COALESCE(
+      NULLIF(
+        CONCAT(
+          COALESCE(NULLIF(sab."bank_name", ''), ''),
+          CASE
+            WHEN sab."bank_name" IS NOT NULL AND sab."bank_name" <> ''
+              AND sab."account_number" IS NOT NULL AND sab."account_number" <> ''
+            THEN CONCAT(' (', sab."account_number", ')')
+            ELSE COALESCE(NULLIF(sab."account_number", ''), '')
+          END
+        ),
+        ''
+      ),
+      'Haji Account'
+    ),
+    CASE WHEN p."payment_method" = 'online' THEN ' online' ELSE ' transfer' END
+  ),
+  NULLIF(p."manual_voucher_no", ''),
   'direct'::"HajiTransferType",
-  'Customer payment',
+  COALESCE(
+    NULLIF(
+      CONCAT(
+        COALESCE(NULLIF(sab."bank_name", ''), ''),
+        CASE
+          WHEN sab."bank_name" IS NOT NULL AND sab."bank_name" <> ''
+            AND sab."account_number" IS NOT NULL AND sab."account_number" <> ''
+          THEN CONCAT(' (', sab."account_number", ')')
+          ELSE COALESCE(NULLIF(sab."account_number", ''), '')
+        END
+      ),
+      ''
+    ),
+    'Haji Account'
+  ),
   p."notes",
   CASE
     WHEN p."payment_method" = 'cheque' THEN 'cheque'::"HajiSourceType"
@@ -63,6 +94,7 @@ SELECT
   p."created_at",
   p."updated_at"
 FROM "payments" p
+LEFT JOIN "super_admin_bank_accounts" sab ON sab."id" = p."super_admin_bank_account_id"
 WHERE p."destination" = 'haji'
   AND p."status" = 'active'
   AND NOT EXISTS (

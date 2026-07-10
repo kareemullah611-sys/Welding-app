@@ -288,7 +288,7 @@ export default function ExpensesPage() {
 
     const createBody: any = {
       ...form,
-      lotId: form.lotId || null,
+      lotId: form.lotId || selected?.lotId || null,
       currencyId: resolvedCurrencyId,
     };
     if (form.paidFrom !== "bank_account") delete createBody.bankAccountId;
@@ -366,11 +366,36 @@ export default function ExpensesPage() {
     }
   }, [isEmbed, queuedItems, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const openEdit = (e: any) => {
+  const openEdit = async (e: any) => {
     setSelected(e);
+    if (!isOnline) {
+      const cached = readOfflineFormCache<ExpensesFormCache>(EXPENSES_FORM_CACHE_KEY, [
+        "lots",
+        "currencies",
+        "bankAccounts",
+        "inHandCheques",
+      ]);
+      if (cached) {
+        setLots(cached.lots);
+        setCurrencies(cached.currencies);
+        setBankAccounts(cached.bankAccounts);
+        setInHandCheques(cached.inHandCheques);
+      }
+    } else {
+      const requests: Promise<any>[] = [
+        apiCall("/api/v1/lots", { params: { limit: 100, status: "ongoing" } }),
+      ];
+      if (!isAfghanistanCity) {
+        requests.push(apiCall("/api/v1/bank-accounts"));
+      }
+      const [lotRes, baRes] = await Promise.all(requests);
+      if (lotRes.success) setLots(lotRes.data as any[]);
+      if (!isAfghanistanCity && baRes?.success) setBankAccounts(baRes.data as any[]);
+      else setBankAccounts([]);
+    }
     setForm({
       expenseDate: e.expenseDate, amount: e.amount, detail: e.detail,
-      notes: e.notes || "", lotId: 0, currencyId: 0,
+      notes: e.notes || "", lotId: e.lotId || 0, currencyId: e.currency?.id || 0,
       paidFrom: e.paidFrom || "cash_office", bankAccountId: e.bankAccountId || 0, chequePaymentId: e.chequePaymentId || 0,
     });
     setShowEdit(true); setFormError("");
@@ -382,6 +407,7 @@ export default function ExpensesPage() {
       expenseDate: form.expenseDate,
       amount: form.amount,
       detail: form.detail,
+      lotId: form.lotId || null,
       paidFrom: form.paidFrom,
       notes: form.notes,
     };
@@ -402,6 +428,8 @@ export default function ExpensesPage() {
               expenseDate: form.expenseDate,
               amount: form.amount,
               detail: form.detail,
+              lotId: form.lotId || exp.lotId,
+              lotNumber: lots.find((lot: any) => lot.id === form.lotId)?.lotNumber || exp.lotNumber,
               paidFrom: form.paidFrom,
               bankAccountId: form.paidFrom === "bank_account" ? form.bankAccountId : null,
               notes: form.notes,
@@ -434,6 +462,8 @@ export default function ExpensesPage() {
                 expenseDate: form.expenseDate,
                 amount: form.amount,
                 detail: form.detail,
+                lotId: form.lotId || exp.lotId,
+                lotNumber: lots.find((lot: any) => lot.id === form.lotId)?.lotNumber || exp.lotNumber,
                 paidFrom: form.paidFrom,
                 bankAccountId: form.paidFrom === "bank_account" ? form.bankAccountId : null,
                 notes: form.notes,
@@ -561,7 +591,7 @@ export default function ExpensesPage() {
               open={openActionId === e.id}
               onOpenChange={(open) => setOpenActionId(open ? e.id : null)}
             >
-              <button onClick={() => { setOpenActionId(null); openEdit(e); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
+              <button onClick={() => { setOpenActionId(null); void openEdit(e); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("edit")}</button>
               <button onClick={() => { setOpenActionId(null); handleDelete(e); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("delete")}</button>
             </RowActionMenu>
           ),
@@ -670,7 +700,16 @@ export default function ExpensesPage() {
             )}
           </div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("detail")}</label><input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" /></div>
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")}</label><input type="number" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} /></div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")}</label><input type="number" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} /></div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t("lot")}</label>
+              <select value={form.lotId} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
+                <option value={0}>{t("auto_fifo")}</option>
+                {lots.map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}</option>)}
+              </select>
+            </div>
+          </div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label><input value={form.notes} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" /></div>
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">

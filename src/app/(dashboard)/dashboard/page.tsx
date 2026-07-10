@@ -16,8 +16,6 @@ import Link from "next/link";
 import { 
   ShoppingCart, 
   Banknote, 
-  Receipt, 
-  Wallet, 
   ArrowRightLeft, 
   Package, 
   TrendingUp, 
@@ -327,7 +325,7 @@ export default function DashboardPage() {
 
         <div className="quick-action-panel relative overflow-hidden rounded-[1.75rem] border border-white/55 p-3">
           <div className="pointer-events-none absolute inset-0 opacity-90 [background:radial-gradient(circle_at_12%_22%,rgba(56,189,248,0.16),transparent_44%),radial-gradient(circle_at_88%_68%,rgba(168,85,247,0.12),transparent_40%),radial-gradient(circle_at_50%_95%,rgba(16,185,129,0.1),transparent_36%)]" />
-          <div className="relative grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-3 xl:grid-cols-5">
+          <div className="relative grid grid-cols-2 gap-2.5 sm:gap-3">
           <QuickActionCard 
             icon={ShoppingCart} 
             title="Sale" 
@@ -342,31 +340,6 @@ export default function DashboardPage() {
             color="green"
             onClick={() => openQuickForm("Payment", "/payments?create=payment&embed=1")}
           />
-          <QuickActionCard 
-            icon={ArrowRightLeft} 
-            title="Haji Transfer" 
-            src="/haji-transfers?create=1&embed=1"
-            color="orange"
-            onClick={() => openQuickForm("Haji Transfer", "/haji-transfers?create=1&embed=1")}
-          />
-          <QuickActionCard 
-            icon={Receipt} 
-            title="Record Expense" 
-            src="/expenses?create=1&embed=1"
-            color="red"
-            onClick={() => openQuickForm("Record Expense", "/expenses?create=1&embed=1")}
-          />
-          <div className="col-span-2 flex justify-center lg:col-span-1 lg:col-start-2 xl:col-span-1 xl:col-start-auto">
-            <div className="w-[calc((100%-0.625rem)/2)] sm:w-[calc((100%-0.75rem)/2)] lg:w-full">
-              <QuickActionCard 
-                icon={Wallet} 
-                title="Withdrawal" 
-                src="/personal-withdrawals?create=1&embed=1"
-                color="purple"
-                onClick={() => openQuickForm("Personal Withdrawal", "/personal-withdrawals?create=1&embed=1")}
-              />
-            </div>
-          </div>
           </div>
         </div>
         <BalanceHub user={user} treasury={treasury} glass />

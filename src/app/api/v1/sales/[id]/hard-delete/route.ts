@@ -37,14 +37,12 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
       await tx.saleDiscount.deleteMany({ where: { saleId: id } });
       await tx.saleItem.deleteMany({ where: { saleId: id } });
 
-      // Fix: for walk-in sales, auto-payment was created at sale time — remove it too
+      // Fix: for walk-in sales, auto-payment was created at sale time — remove it too.
+      // Fix C1: drop manualVoucherNo fallback — saleId is the only reliable link.
       if (sale.customer.name === "Walk-in Customer") {
         const walkinPayment = await tx.payment.findFirst({
           where: {
-            OR: [
-              { saleId: sale.id },
-              { manualVoucherNo: String(sale.voucherNo), customerId: sale.customerId, cityId: sale.cityId },
-            ],
+            saleId: sale.id,
           },
           select: { id: true },
         });

@@ -92,7 +92,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           },
         }),
         prisma.personalWithdrawal.findMany({
-          where: { cityId, sourceType: "cash_office" } as any,
+          where: { cityId, sourceType: "cash_office", approvedAt: { not: null } } as any,
           select: { id: true, withdrawalDate: true, createdAt: true, amount: true, currencyId: true, detail: true },
         }),
       ]);

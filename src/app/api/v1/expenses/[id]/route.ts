@@ -65,11 +65,26 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       if (!bankAccount || !bankAccount.isActive) return errorResponse("NOT_FOUND", "Selected bank account not found", 404);
       if (bankAccount.cityId !== expense.cityId) return errorResponse("FORBIDDEN", "Selected bank account does not belong to your city", 403);
     }
+    const nextLotId = data.lotId !== undefined && data.lotId ? data.lotId : expense.lotId;
+    if (!nextLotId) return errorResponse("VALIDATION_ERROR", "Lot is required");
+    const lotChanged = nextLotId !== expense.lotId;
+    const nextLot = lotChanged
+      ? await prisma.lot.findFirst({
+          where: {
+            id: nextLotId,
+            status: "ongoing",
+            lotCityDistributions: { some: { cityId: expense.cityId } },
+          },
+          select: { id: true, lotNumber: true },
+        })
+      : await prisma.lot.findUnique({ where: { id: nextLotId }, select: { id: true, lotNumber: true } });
+    if (!nextLot) return errorResponse("VALIDATION_ERROR", "Lot not found, completed, or not distributed to your city");
 
     const old = {
       date: expense.expenseDate.toISOString().split("T")[0],
       amount: Number(expense.amount),
       detail: expense.detail,
+      lotId: expense.lotId,
       paidFrom: (expense as any).paidFrom ?? "cash_office",
       bankAccountId: (expense as any).bankAccountId ?? null,
     };
@@ -86,6 +101,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       const next = await tx.expense.update({
         where: { id },
         data: {
+          lotId: nextLot.id,
           expenseDate: nextExpenseDate,
           amount: data.amount || expense.amount,
           detail: data.detail || expense.detail,
@@ -100,7 +116,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       await journalExpenseCreated({
         id,
         cityId: expense.cityId,
-        lotId: expense.lotId!,
+        lotId: nextLot.id,
         amount: Number(next.amount),
         currencyCode: expense.currency.code,
         detail: next.detail,
@@ -121,6 +137,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           date: next.expenseDate.toISOString().split("T")[0],
           amount: Number(next.amount),
           detail: next.detail,
+          lotId: nextLot.id,
           paidFrom: nextPaidFrom,
           bankAccountId: nextBankAccountId,
         },

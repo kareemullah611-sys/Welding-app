@@ -205,6 +205,7 @@ model Currency {
   hajiTransfers          HajiTransfer[]
   saleDiscounts          SaleDiscount[]
   lotSettlementOverflows LotSettlementOverflow[]
+  lotSettlementUnresolvedOverflows LotSettlementUnresolvedOverflow[]
   bankDeposits           BankDeposit[]
   investorAccounts       InvestorAccount[]
   intermediaryDeposits   IntermediaryDeposit[]
@@ -248,6 +249,7 @@ model City {
   voucherSequence    VoucherSequence?
   auditLogs          AuditLog[]
   lotSettlementOverflows LotSettlementOverflow[]
+  lotSettlementUnresolvedOverflows LotSettlementUnresolvedOverflow[]
   cityTransfersFrom  CityTransfer[] @relation("TransferFromCity")
   cityTransfersTo    CityTransfer[] @relation("TransferToCity")
   accounts           Account[]
@@ -328,6 +330,7 @@ model User {
   saleDiscounts      SaleDiscount[]
   paymentLotTransfers PaymentLotTransfer[]
   lotSettlementOverflows LotSettlementOverflow[]
+  lotSettlementUnresolvedOverflows LotSettlementUnresolvedOverflow[]
   purchasesCreated   LotPurchase[]  @relation("PurchaseCreatedBy")
   openingCashes      OpeningCash[]
   openingCustomerBalances OpeningCustomerBalance[]
@@ -660,6 +663,7 @@ model Lot {
   paymentLotTransfersTo   PaymentLotTransfer[] @relation("TransferToLot")
   lotSettlementOverflowsFrom LotSettlementOverflow[] @relation("OverflowFromLot")
   lotSettlementOverflowsTo   LotSettlementOverflow[] @relation("OverflowToLot")
+  lotSettlementUnresolvedOverflows LotSettlementUnresolvedOverflow[] @relation("UnresolvedOverflowLot")
   lotPurchases               LotPurchase[]
   lotCosts                   LotCost[]
   supplierPayments           SupplierPayment[]
@@ -787,6 +791,7 @@ model Sale {
   @@index([cityId, voucherNo])
   @@index([cityId, saleDate])
   @@index([cityId, status, saleDate])
+  @@unique([cityId, voucherNo], name: "unique_sale_city_voucher")
   @@map("sales")
 }
 
@@ -1071,6 +1076,36 @@ model LotSettlementOverflow {
   @@index([fromLotId])
   @@index([toLotId])
   @@map("lot_settlement_overflows")
+}
+
+// ============================================================
+// LOT SETTLEMENT — UNRESOLVED OVERFLOWS
+// Persisted record of overflows that had no ongoing lot to absorb them.
+// Previously these were returned only in the HTTP response and lost on
+// browser close. Fix C3: persist so they can be reconciled later.
+// ============================================================
+model LotSettlementUnresolvedOverflow {
+  id             Int       @id @default(autoincrement())
+  cityId         Int       @map("city_id")
+  fromLotId      Int       @map("from_lot_id")
+  overflowAmount Decimal   @map("overflow_amount") @db.Decimal(15, 2)
+  currencyId     Int       @map("currency_id")
+  notes          String?   @db.Text
+  createdBy      Int       @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  resolvedAt     DateTime? @map("resolved_at")
+  resolvedBy     Int?      @map("resolved_by")
+  resolutionNotes String?  @map("resolution_notes") @db.Text
+
+  city     City     @relation(fields: [cityId], references: [id])
+  fromLot  Lot      @relation("UnresolvedOverflowLot", fields: [fromLotId], references: [id])
+  currency Currency @relation(fields: [currencyId], references: [id])
+  creator  User     @relation(fields: [createdBy], references: [id])
+
+  @@index([cityId])
+  @@index([fromLotId])
+  @@index([resolvedAt])
+  @@map("lot_settlement_unresolved_overflows")
 }
 
 // ============================================================

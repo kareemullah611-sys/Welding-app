@@ -49,7 +49,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         orderBy: { expenseDate: "asc" },
       }),
       prisma.personalWithdrawal.findMany({
-        where: { cityId, ...dateFilter("withdrawalDate") },
+        where: { cityId, approvedAt: { not: null }, ...dateFilter("withdrawalDate") },
         include: { currency: true, bankAccount: { select: { bankName: true } } },
         orderBy: { withdrawalDate: "asc" },
       }),

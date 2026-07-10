@@ -92,6 +92,7 @@ test("Haji openings stay historical and customer-to-Haji payments get linked tra
   const hajiTransfer = modelBlock("HajiTransfer");
   const payment = modelBlock("Payment");
   const openingsRoute = readFileSync("src/app/api/v1/openings/route.ts", "utf8");
+  const paymentsRoute = readFileSync("src/app/api/v1/payments/route.ts", "utf8");
   const migration = readFileSync("prisma/migrations/20260710103000_link_haji_payment_transfers/migration.sql", "utf8");
 
   assert.match(hajiTransfer, /paymentId\s+Int\?\s+@unique\s+@map\("payment_id"\)/);
@@ -101,8 +102,74 @@ test("Haji openings stay historical and customer-to-Haji payments get linked tra
   assert.match(migration, /DELETE FROM "haji_transfers"\s+WHERE "detail" LIKE 'Opening Haji balance%'/);
   assert.match(migration, /INSERT INTO "haji_transfers"/);
   assert.match(migration, /p\."destination" = 'haji'/);
+  assert.match(paymentsRoute, /detail: linkedHajiTransferDetail\(createdPayment\)/);
+  assert.match(paymentsRoute, /referenceNo: createdPayment\.manualVoucherNo/);
+  assert.match(migration, /NULLIF\(p\."manual_voucher_no", ''\)/);
+  assert.match(migration, /p\."payment_method" = 'online' THEN ' online' ELSE ' transfer'/);
 
   const hajiOpeningBlock = openingsRoute.match(/if \(kind === "haji"\) \{[\s\S]*?return successResponse\(\{ id: row\.id \}/);
   assert.ok(hajiOpeningBlock, "opening haji route block should exist");
   assert.doesNotMatch(hajiOpeningBlock![0], /hajiTransfer\.create/);
+});
+
+test("city expense edit keeps creation-time fields available", () => {
+  const validations = readFileSync("src/lib/validations.ts", "utf8");
+  const expenseUpdateRoute = readFileSync("src/app/api/v1/expenses/[id]/route.ts", "utf8");
+  const expensesPage = readFileSync("src/app/(dashboard)/expenses/page.tsx", "utf8");
+
+  assert.match(validations, /export const updateExpenseSchema = z\.object\(\{\s+lotId:/);
+  assert.match(expenseUpdateRoute, /const lotChanged = nextLotId !== expense\.lotId/);
+  assert.match(expenseUpdateRoute, /lotCityDistributions: \{ some: \{ cityId: expense\.cityId \} \}/);
+  assert.match(expenseUpdateRoute, /lotId: nextLot\.id/);
+  assert.match(expensesPage, /const openEdit = async/);
+  assert.match(expensesPage, /apiCall\("\/api\/v1\/lots", \{ params: \{ limit: 100, status: "ongoing" \} \}\)/);
+  assert.match(expensesPage, /lotId: form\.lotId \|\| selected\?\.lotId \|\| null/);
+});
+
+test("city payment modal owns haji expense and withdrawal creation", () => {
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+  const dashboardPage = readFileSync("src/app/(dashboard)/dashboard/page.tsx", "utf8");
+
+  assert.match(paymentsPage, /<option value="haji_transfer">Haji Transfer<\/option>/);
+  assert.match(paymentsPage, /<option value="expense">Expense<\/option>/);
+  assert.match(paymentsPage, /<option value="withdrawal">Withdrawal<\/option>/);
+  assert.match(paymentsPage, /chequePaymentIds/);
+  assert.match(paymentsPage, /superAdminDestinationAccountId/);
+  assert.match(paymentsPage, /paidFrom: "bank_account"/);
+  assert.match(paymentsPage, /Withdrawn By \*/);
+  assert.match(paymentsPage, /sourceType: "bank_account"/);
+  assert.doesNotMatch(dashboardPage, /\/haji-transfers\?create=1&embed=1/);
+  assert.doesNotMatch(dashboardPage, /\/expenses\?create=1&embed=1/);
+  assert.doesNotMatch(dashboardPage, /\/personal-withdrawals\?create=1&embed=1/);
+});
+
+test("GLM critical audit fixes remain wired", () => {
+  const sale = modelBlock("Sale");
+  const unresolved = modelBlock("LotSettlementUnresolvedOverflow");
+  const cityTransferCreate = readFileSync("src/app/api/v1/city-transfers/route.ts", "utf8");
+  const cityTransferApprove = readFileSync("src/app/api/v1/city-transfers/[id]/route.ts", "utf8");
+  const withdrawalsCreate = readFileSync("src/app/api/v1/personal-withdrawals/route.ts", "utf8");
+  const withdrawalsApprove = readFileSync("src/app/api/v1/personal-withdrawals/[id]/approve/route.ts", "utf8");
+  const withdrawalsEdit = readFileSync("src/app/api/v1/personal-withdrawals/[id]/route.ts", "utf8");
+  const customerRoute = readFileSync("src/app/api/v1/customers/route.ts", "utf8");
+  const adminCleanupRoute = readFileSync("src/app/api/v1/admin-cleanup/route.ts", "utf8");
+  const saleRoute = readFileSync("src/app/api/v1/sales/route.ts", "utf8");
+  const stockActivation = readFileSync("src/lib/stock-activation.ts", "utf8");
+  const withdrawalCleanupMigration = readFileSync("prisma/migrations/20260710110000_remove_pending_withdrawal_journals/migration.sql", "utf8");
+
+  assert.match(sale, /@@unique\(\[cityId, voucherNo\], name: "unique_sale_city_voucher"\)/);
+  assert.match(unresolved, /@@map\("lot_settlement_unresolved_overflows"\)/);
+  assert.match(cityTransferCreate, /INSUFFICIENT_STOCK/);
+  assert.match(cityTransferApprove, /pg_advisory_xact_lock/);
+  assert.match(cityTransferApprove, /SENDER_INSUFFICIENT_STOCK/);
+  assert.doesNotMatch(withdrawalsCreate, /journalWithdrawal\(/);
+  assert.match(withdrawalsApprove, /journalWithdrawal\(/);
+  assert.match(withdrawalsEdit, /Cannot edit an approved withdrawal/);
+  assert.match(withdrawalsEdit, /Cannot delete an approved withdrawal/);
+  assert.match(withdrawalCleanupMigration, /pw\."approved_at" IS NULL/);
+  assert.match(customerRoute, /createCustomerSchema\.safeParse/);
+  assert.match(adminCleanupRoute, /REQUIRED_CONFIRM_PHRASE/);
+  assert.match(adminCleanupRoute, /timingSafeEqual/);
+  assert.match(saleRoute, /CASE WHEN current_number >= 9999 THEN 1 ELSE current_number \+ 1 END/);
+  assert.match(stockActivation, /journalSaleCOGS/);
 });

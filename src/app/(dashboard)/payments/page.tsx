@@ -15,6 +15,7 @@ import { useSearchParams } from "next/navigation";
 import { getEmbedFromLocation, getEmbedQuickformPath, shouldSimplifyCityModals } from "@/lib/quickform-embed";
 import { formatCityAmount, formatCurrencySelectLabel } from "@/lib/city-money-format";
 import { buildSettlementTargetValue, parseSettlementTargetValue } from "@/lib/haji-settlement-target";
+import { formatSuperAdminBankLabel } from "@/lib/haji-transfer-detail";
 import { buildPaymentCancellationReversalRow } from "@/lib/treasury-ledger";
 import { formatPaymentModuleDetail, buildPaymentSubmitPayload, validatePakistanPaymentForm, formatSuperAdminPaymentDetail, formatPakistanCityPaymentDetail, getPakistanPaymentAccountSelectValue, parsePakistanPaymentAccountSelectValue, buildPakistanPaymentAccountOptions, sanitizePaymentSubmitPayload } from "@/lib/payment-module-detail";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
@@ -196,6 +197,7 @@ type PaymentsFormCache = {
   currencies: any[];
   cityBankAccounts: any[];
   superAdminBankAccounts: any[];
+  inHandCheques: any[];
 };
 
 function formatInputDate(date: Date): string {
@@ -250,6 +252,7 @@ export default function PaymentsPage() {
   const [lots, setLots] = useState<any[]>([]);
   const [cityBankAccounts, setCityBankAccounts] = useState<any[]>([]);
   const [superAdminBankAccounts, setSuperAdminBankAccounts] = useState<any[]>([]);
+  const [inHandCheques, setInHandCheques] = useState<any[]>([]);
   const [settlementIntermediaries, setSettlementIntermediaries] = useState<any[]>([]);
   const [settlementCashAccounts, setSettlementCashAccounts] = useState<any[]>([]);
   const [settlementOptionsLoading, setSettlementOptionsLoading] = useState(false);
@@ -452,6 +455,7 @@ export default function PaymentsPage() {
         "currencies",
         "cityBankAccounts",
         "superAdminBankAccounts",
+        "inHandCheques",
       ]);
       if (!cached) {
         return { loadedCurrencies: [] as any[] };
@@ -460,18 +464,31 @@ export default function PaymentsPage() {
       setCurrencies(cached.currencies);
       setCityBankAccounts(cached.cityBankAccounts);
       setSuperAdminBankAccounts(cached.superAdminBankAccounts);
+      setInHandCheques(cached.inHandCheques || []);
       return { loadedCurrencies: cached.currencies };
     }
 
-    const [lR, ciR, cityBanksR, superAdminBanksR] = await Promise.all([
+    const [lR, ciR, cityBanksR, superAdminBanksR, chequesR] = await Promise.all([
       apiCall("/api/v1/lots", { params: { limit: 100 } }),
       apiCall("/api/v1/cities"),
       apiCall("/api/v1/bank-accounts"),
       apiCall("/api/v1/bank-accounts", { params: { scope: "super_admin" } }),
+      isAfghanistanCity
+        ? Promise.resolve({ success: true, data: [] })
+        : apiCall("/api/v1/payments", {
+            params: {
+              all: 1,
+              status: "active",
+              payment_method: "cheque",
+              destination: "our_account",
+              cheque_status: "in_hand",
+            },
+          }),
     ]);
     if (lR.success) setLots(lR.data as any[]);
     if (cityBanksR.success) setCityBankAccounts(cityBanksR.data as any[]);
     if (superAdminBanksR.success) setSuperAdminBankAccounts(superAdminBanksR.data as any[]);
+    if (chequesR.success) setInHandCheques(chequesR.data as any[]);
     let loadedCurrencies: any[] = [];
     if (ciR.success && user?.cityId) {
       const city = (ciR.data as any[]).find((c: any) => c.id === user.cityId);
@@ -483,6 +500,7 @@ export default function PaymentsPage() {
         currencies: loadedCurrencies,
         cityBankAccounts: cityBanksR.success ? (cityBanksR.data as any[]) : [],
         superAdminBankAccounts: superAdminBanksR.success ? (superAdminBanksR.data as any[]) : [],
+        inHandCheques: chequesR.success ? (chequesR.data as any[]) : [],
       });
     }
     return { loadedCurrencies };
@@ -573,11 +591,23 @@ export default function PaymentsPage() {
         ...preset,
       });
     } else if (type === "expense") {
-      setForm({ expenseDate: today, amount: 0, detail: "", notes: "", currencyId: loadedCurrencies[0]?.id || 0, ...preset });
+      setForm({
+        expenseDate: today,
+        amount: 0,
+        detail: "",
+        notes: "",
+        lotId: 0,
+        currencyId: loadedCurrencies[0]?.id || 0,
+        paidFrom: "cash_office",
+        bankAccountId: 0,
+        ...preset,
+      });
     } else if (type === "haji_transfer") {
       setForm({
+        lotId: 0,
         transferDate: today,
         amount: 0,
+        cashAmount: 0,
         detail: "",
         notes: "",
         currencyId: loadedCurrencies[0]?.id || 0,
@@ -586,12 +616,25 @@ export default function PaymentsPage() {
         settlementDestination: "intermediary",
         intermediaryId: 0,
         superAdminCashAccountId: 0,
+        superAdminDestinationAccountId: 0,
         referenceNo: "",
         bankAccountId: 0,
+        chequePaymentIds: [],
+        transferredTo: "",
         ...preset,
       });
     } else {
-      setForm({ withdrawalDate: today, amount: 0, detail: "", notes: "", currencyId: loadedCurrencies[0]?.id || 0, ...preset });
+      setForm({
+        withdrawalDate: today,
+        amount: 0,
+        detail: "",
+        withdrawnBy: "",
+        notes: "",
+        currencyId: loadedCurrencies[0]?.id || 0,
+        sourceType: "cash_office",
+        bankAccountId: 0,
+        ...preset,
+      });
     }
     setPaymentQueue([]);
     setQueueSaved(false);
@@ -680,14 +723,28 @@ export default function PaymentsPage() {
         : sanitizePaymentSubmitPayload({ ...form, currencyId: resolvedCurrencyId });
     } else if (createType === "expense") {
       if (!(form.amount > 0) || !form.detail) { setError(t("amount") + " (must be > 0) and " + t("detail") + " required"); setSubmitting(false); return; }
+      if (form.paidFrom === "bank_account" && !form.bankAccountId) { setError(t("select") + " " + t("bank_account").toLowerCase()); setSubmitting(false); return; }
       endpoint = "/api/v1/expenses";
-      body = { ...form, currencyId: resolvedCurrencyId };
+      body = {
+        ...form,
+        lotId: form.lotId || null,
+        currencyId: resolvedCurrencyId,
+        bankAccountId: form.paidFrom === "bank_account" ? form.bankAccountId : undefined,
+      };
     } else if (createType === "haji_transfer") {
-      if (!(form.amount > 0) || !form.detail) { setError(t("amount") + " (must be > 0) and " + t("detail") + " required"); setSubmitting(false); return; }
+      const chequePaymentIds = Array.isArray(form.chequePaymentIds) ? form.chequePaymentIds : [];
+      const isChequeSource = form.sourceType === "cheque" || form.sourceType === "mixed_cash_cheque";
+      if (!form.detail) { setError(t("detail") + " required"); setSubmitting(false); return; }
+      if (!isChequeSource && !(form.amount > 0)) { setError(t("amount") + " (must be > 0) required"); setSubmitting(false); return; }
+      if (form.sourceType === "bank_transfer" && !form.bankAccountId) { setError(t("select") + " " + t("bank_account").toLowerCase()); setSubmitting(false); return; }
+      if (form.sourceType === "cheque" && chequePaymentIds.length === 0) { setError(t("select_cheques")); setSubmitting(false); return; }
+      if (form.sourceType === "mixed_cash_cheque" && !(form.cashAmount > 0) && chequePaymentIds.length === 0) { setError("Enter a cash amount or select at least one cheque"); setSubmitting(false); return; }
       endpoint = "/api/v1/haji-transfers";
       body = {
+        lotId: form.lotId || null,
         transferDate: form.transferDate || form.paymentDate || new Date().toISOString().split("T")[0],
         amount: Number(form.amount || 0),
+        cashAmount: form.sourceType === "mixed_cash_cheque" ? Number(form.cashAmount || 0) : undefined,
         currencyId: resolvedCurrencyId,
         detail: form.detail,
         notes: form.notes || undefined,
@@ -695,14 +752,28 @@ export default function PaymentsPage() {
         transferType: form.sourceType === "bank_transfer" ? "direct" : "from_in_hand",
         sourceType: form.sourceType || "cash_office",
         bankAccountId: form.sourceType === "bank_transfer" ? form.bankAccountId || undefined : undefined,
+        chequePaymentIds: isChequeSource ? chequePaymentIds : undefined,
+        superAdminDestinationAccountId: !isAfghanistanCity ? form.superAdminDestinationAccountId || undefined : undefined,
+        transferredTo: !isAfghanistanCity
+          ? (superAdminBankAccounts.find((a: any) => a.id === form.superAdminDestinationAccountId)
+              ? formatSuperAdminBankLabel(superAdminBankAccounts.find((a: any) => a.id === form.superAdminDestinationAccountId))
+              : undefined)
+          : undefined,
         settlementDestination: isAfghanistanCity ? form.settlementDestination || "intermediary" : undefined,
         intermediaryId: isAfghanistanCity && form.settlementDestination === "intermediary" ? Number(form.intermediaryId || 0) : undefined,
         superAdminCashAccountId: isAfghanistanCity && form.settlementDestination === "super_admin_cash" ? Number(form.superAdminCashAccountId || 0) : undefined,
       };
     } else {
       if (!(form.amount > 0) || !form.detail) { setError(t("amount") + " (must be > 0) and " + t("detail") + " required"); setSubmitting(false); return; }
+      if (!String(form.withdrawnBy || "").trim()) { setError("Withdrawn By is required"); setSubmitting(false); return; }
+      if (form.sourceType === "bank_account" && !form.bankAccountId) { setError(t("select") + " " + t("bank_account").toLowerCase()); setSubmitting(false); return; }
       endpoint = "/api/v1/personal-withdrawals";
-      body = { ...form, currencyId: resolvedCurrencyId };
+      body = {
+        ...form,
+        withdrawnBy: String(form.withdrawnBy || "").trim(),
+        currencyId: resolvedCurrencyId,
+        bankAccountId: form.sourceType === "bank_account" ? form.bankAccountId : undefined,
+      };
     }
     // ── Offline: queue and optimistically add to list ──
     if (resolvingQueueId) {
@@ -1548,6 +1619,12 @@ export default function PaymentsPage() {
       : typeFilter === "withdrawal"
         ? "withdrawals"
         : "payments";
+  const selectedHajiChequeIds = Array.isArray(form.chequePaymentIds) ? form.chequePaymentIds : [];
+  const selectedHajiCheques = inHandCheques.filter((cheque: any) => selectedHajiChequeIds.includes(cheque.id));
+  const selectedHajiChequeTotal = selectedHajiCheques.reduce((sum: number, cheque: any) => sum + Number(cheque.amount || 0), 0);
+  const withdrawalSourceValue = form.sourceType === "bank_account" && form.bankAccountId
+    ? `bank_account:${form.bankAccountId}`
+    : "cash_office";
 
   return (
     <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
@@ -1888,6 +1965,18 @@ export default function PaymentsPage() {
             />
           )}
 
+          {createType === "withdrawal" && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Withdrawn By *</label>
+              <input
+                value={form.withdrawnBy || ""}
+                onChange={e => setForm((f: any) => ({ ...f, withdrawnBy: e.target.value }))}
+                className="input-field"
+                placeholder="e.g. Ali, Rehman"
+              />
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("detail")} *</label>
             <input value={form.detail || ""} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" />
@@ -1903,10 +1992,90 @@ export default function PaymentsPage() {
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
-            <input type="number" min="0.01" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field"
-              onWheel={e => e.currentTarget.blur()} />
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {createType === "haji_transfer" && form.sourceType === "mixed_cash_cheque" ? "Cash Amount" : t("amount")}{" "}
+              {createType === "haji_transfer" && form.sourceType === "cheque" ? <span className="font-normal text-gray-400">(auto)</span> : "*"}
+            </label>
+            {createType === "haji_transfer" && form.sourceType === "cheque" ? (
+              <div className="input-field bg-gray-50 tabular-nums text-gray-800">
+                {selectedHajiChequeTotal > 0 ? selectedHajiChequeTotal.toLocaleString("en-US") : "—"}
+              </div>
+            ) : (
+              <input
+                type="number"
+                min="0.01"
+                value={createType === "haji_transfer" && form.sourceType === "mixed_cash_cheque" ? (form.cashAmount || "") : (form.amount || "")}
+                onChange={e => setForm((f: any) => createType === "haji_transfer" && form.sourceType === "mixed_cash_cheque"
+                  ? ({ ...f, cashAmount: parseFloat(e.target.value) || 0 })
+                  : ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
+                className="input-field"
+                onWheel={e => e.currentTarget.blur()}
+              />
+            )}
           </div>
+
+          {createType === "expense" && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {!isAfghanistanCity && (
+                <div className="min-w-0">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("from")} *</label>
+                  <select
+                    value={form.paidFrom === "bank_account" && form.bankAccountId ? `bank:${form.bankAccountId}` : "cash_office"}
+                    onChange={e => {
+                      const value = e.target.value;
+                      if (value.startsWith("bank:")) {
+                        setForm((f: any) => ({ ...f, paidFrom: "bank_account", bankAccountId: parseInt(value.slice(5), 10) || 0 }));
+                        return;
+                      }
+                      setForm((f: any) => ({ ...f, paidFrom: "cash_office", bankAccountId: 0 }));
+                    }}
+                    className="select-field"
+                  >
+                    <option value="cash_office">{t("cash_from_office")}</option>
+                    {cityBankAccounts.filter((a: any) => a.isActive).map((account: any) => (
+                      <option key={account.id} value={`bank:${account.id}`}>
+                        {account.bankName}{account.accountNumber ? ` (${account.accountNumber})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="min-w-0">
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t("lot")}</label>
+                <select value={form.lotId || 0} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value, 10) || 0 }))} className="select-field">
+                  <option value={0}>{t("auto_fifo")}</option>
+                  {lots.filter((lot: any) => lot.status === "ongoing" || !lot.status).map((lot: any) => (
+                    <option key={lot.id} value={lot.id}>{lot.lotNumber}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {createType === "withdrawal" && !isAfghanistanCity && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t("source_of_funds")}</label>
+              <select
+                value={withdrawalSourceValue}
+                onChange={e => {
+                  const value = e.target.value;
+                  if (value.startsWith("bank_account:")) {
+                    setForm((f: any) => ({ ...f, sourceType: "bank_account", bankAccountId: parseInt(value.split(":")[1] || "0", 10) || 0 }));
+                    return;
+                  }
+                  setForm((f: any) => ({ ...f, sourceType: "cash_office", bankAccountId: 0 }));
+                }}
+                className="select-field"
+              >
+                <option value="cash_office">{t("cash_from_office")}</option>
+                {cityBankAccounts.filter((account: any) => account.isActive).map((account: any) => (
+                  <option key={account.id} value={`bank_account:${account.id}`}>
+                    {account.bankName}{account.accountNumber ? ` · ${account.accountNumber}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {createType === "payment" && !isAfghanistanCity && createFormReady && (
             <div className={isEmbed ? "quickform-panel space-y-3" : "space-y-3 rounded-xl border border-gray-200 bg-gray-50/70 p-4"}>
@@ -2057,13 +2226,60 @@ export default function PaymentsPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">From</label>
                 <select
                   value={form.sourceType || "cash_office"}
-                  onChange={e => setForm((f: any) => ({ ...f, sourceType: e.target.value, bankAccountId: 0 }))}
+                  onChange={e => setForm((f: any) => ({
+                    ...f,
+                    sourceType: e.target.value,
+                    bankAccountId: 0,
+                    chequePaymentIds: [],
+                    amount: e.target.value === "cheque" || e.target.value === "mixed_cash_cheque" ? 0 : f.amount,
+                    cashAmount: e.target.value === "mixed_cash_cheque" ? f.cashAmount : 0,
+                  }))}
                   className="select-field"
                 >
                   <option value="cash_office">Cash</option>
+                  {!isAfghanistanCity && <option value="cheque">Cheque</option>}
+                  {!isAfghanistanCity && <option value="mixed_cash_cheque">Cash + Cheques</option>}
                   {!isAfghanistanCity && <option value="bank_transfer">Online</option>}
                 </select>
               </div>
+              {(form.sourceType === "cheque" || form.sourceType === "mixed_cash_cheque") && !isAfghanistanCity && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("select_cheques")} {form.sourceType === "cheque" ? "*" : ""}</label>
+                  {inHandCheques.length === 0 ? (
+                    <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-700">No cheques in hand. Record a cheque payment first.</div>
+                  ) : (
+                    <div className="max-h-52 overflow-auto rounded-lg border border-gray-200 divide-y divide-gray-100 bg-white">
+                      {inHandCheques.map((cheque: any) => {
+                        const checked = selectedHajiChequeIds.includes(cheque.id);
+                        const ref = cheque.chequeNumber || cheque.manualVoucherNo || String(cheque.id);
+                        const symbol = cheque.currency?.symbol || cheque.currency?.code || "";
+                        return (
+                          <label key={cheque.id} className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-sm leading-tight hover:bg-gray-50">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => setForm((f: any) => {
+                                const current = Array.isArray(f.chequePaymentIds) ? f.chequePaymentIds : [];
+                                return {
+                                  ...f,
+                                  chequePaymentIds: current.includes(cheque.id)
+                                    ? current.filter((id: number) => id !== cheque.id)
+                                    : [...current, cheque.id],
+                                };
+                              })}
+                              className="shrink-0 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                            />
+                            <span className="min-w-0 truncate font-medium text-gray-800">{ref}</span>
+                            <span className="ml-auto shrink-0 pl-4 text-right tabular-nums font-medium text-gray-700">
+                              {symbol} {Number(cheque.amount || 0).toLocaleString("en-US")}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
               {form.sourceType === "bank_transfer" && !isAfghanistanCity && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Bank Account *</label>
@@ -2077,6 +2293,21 @@ export default function PaymentsPage() {
                       <option key={a.id} value={a.id}>
                         {a.bankName}{a.accountNumber ? ` (${a.accountNumber})` : ""}{a.currency?.code ? ` · ${a.currency.code}` : ""}
                       </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {!isAfghanistanCity && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Destination *</label>
+                  <select
+                    value={form.superAdminDestinationAccountId || 0}
+                    onChange={e => setForm((f: any) => ({ ...f, superAdminDestinationAccountId: parseInt(e.target.value, 10) || 0 }))}
+                    className="select-field"
+                  >
+                    <option value={0}>Select</option>
+                    {superAdminBankAccounts.filter((a: any) => a.isActive).map((account: any) => (
+                      <option key={account.id} value={account.id}>{formatSuperAdminBankLabel(account)}</option>
                     ))}
                   </select>
                 </div>
@@ -2118,6 +2349,20 @@ export default function PaymentsPage() {
                       )}
                     </select>
                   )}
+                </div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t("lot")}</label>
+                <select value={form.lotId || 0} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value, 10) || 0 }))} className="select-field">
+                  <option value={0}>{t("auto_fifo")}</option>
+                  {lots.filter((lot: any) => lot.status === "ongoing" || !lot.status).map((lot: any) => (
+                    <option key={lot.id} value={lot.id}>{lot.lotNumber}</option>
+                  ))}
+                </select>
+              </div>
+              {form.sourceType === "mixed_cash_cheque" && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-700">
+                  Slip total: {selectedHajiCheques[0]?.currency?.symbol || selectedHajiCheques[0]?.currency?.code || ""} {(Number(form.cashAmount || 0) + selectedHajiChequeTotal).toLocaleString("en-US")}
                 </div>
               )}
               <div>

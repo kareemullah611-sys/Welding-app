@@ -28,74 +28,78 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       const godown = await prisma.godown.findFirst({ where: { id: toGodownId, cityId: transfer.toCityId, isActive: true } });
       if (!godown) return errorResponse("NOT_FOUND", "Godown not found in receiving city");
 
-      // Verify the lot is still ongoing
       const lot = await prisma.lot.findUnique({ where: { id: transfer.lotId }, select: { status: true, lotNumber: true } });
       if (!lot || lot.status === "completed") {
         return errorResponse("VALIDATION_ERROR", `Cannot approve — lot ${lot?.lotNumber || transfer.lotId} is completed. Ask super admin to reopen it first.`);
       }
 
-      // Approve: update status and create godown allocation for receiver
-      await prisma.cityTransfer.update({
-        where: { id },
-        data: { status: "approved", toGodownId, approvalNotes, approvedBy: user.userId, approvedAt: new Date() },
+      const transferQty = Number(transfer.qty);
+
+      // Fix C2: wrap the entire approval in a single transaction with an advisory lock.
+      const approvedResult = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${31001}, ${transfer.fromGodownId * 100000 + transfer.productId})`;
+
+        const fresh = await tx.cityTransfer.findUnique({ where: { id }, select: { status: true } });
+        if (!fresh || fresh.status !== "pending") {
+          throw new Error("TRANSFER_NOT_PENDING");
+        }
+
+        const senderLcd = await tx.lotCityDistribution.findUnique({
+          where: { lotId_cityId_productId: { lotId: transfer.lotId, cityId: transfer.fromCityId, productId: transfer.productId } },
+          include: { godownAllocations: { where: { godownId: transfer.fromGodownId }, select: { id: true, qty: true } } },
+        });
+        if (!senderLcd || senderLcd.godownAllocations.length === 0) {
+          throw new Error("SENDER_NO_STOCK");
+        }
+        const senderAllocRow = senderLcd.godownAllocations[0];
+        if (Number(senderAllocRow.qty) < transferQty) {
+          throw new Error("SENDER_INSUFFICIENT_STOCK");
+        }
+
+        await tx.cityTransfer.update({
+          where: { id },
+          data: { status: "approved", toGodownId, approvalNotes, approvedBy: user.userId, approvedAt: new Date() },
+        });
+
+        let lcd = await tx.lotCityDistribution.findUnique({
+          where: { lotId_cityId_productId: { lotId: transfer.lotId, cityId: transfer.toCityId, productId: transfer.productId } },
+        });
+        if (!lcd) {
+          lcd = await tx.lotCityDistribution.create({
+            data: { lotId: transfer.lotId, cityId: transfer.toCityId, productId: transfer.productId, allocatedQty: transferQty },
+          });
+        } else {
+          await tx.lotCityDistribution.update({ where: { id: lcd.id }, data: { allocatedQty: { increment: transferQty } } });
+        }
+
+        const existingAlloc = await tx.lotCityGodownAllocation.findFirst({ where: { lotCityDistributionId: lcd.id, godownId: toGodownId } });
+        if (existingAlloc) {
+          await tx.lotCityGodownAllocation.update({ where: { id: existingAlloc.id }, data: { qty: { increment: transferQty } } });
+        } else {
+          await tx.lotCityGodownAllocation.create({ data: { lotCityDistributionId: lcd.id, godownId: toGodownId, productId: transfer.productId, qty: transferQty } });
+        }
+
+        await tx.lotCityGodownAllocation.update({ where: { id: senderAllocRow.id }, data: { qty: { decrement: transferQty } } });
+        await tx.lotCityDistribution.update({ where: { id: senderLcd.id }, data: { allocatedQty: { decrement: transferQty } } });
+
+        await createAuditLog(user.userId, transfer.toCityId, "city_transfers", id, "update", { status: "pending" }, { status: "approved", toGodownId }, getClientIP(request), tx);
+        return { ok: true as const };
+      }).catch((err: unknown) => {
+        const msg = (err as Error)?.message ?? "";
+        if (msg === "TRANSFER_NOT_PENDING") return { ok: false as const, code: "CONFLICT", message: "Transfer is no longer pending" };
+        if (msg === "SENDER_NO_STOCK") return { ok: false as const, code: "NOT_FOUND", message: "Sender has no stock allocation for this godown/lot/product — refresh and try again" };
+        if (msg === "SENDER_INSUFFICIENT_STOCK") return { ok: false as const, code: "CONFLICT", message: `Sender has insufficient stock (${transferQty} requested). Refresh and reject the transfer if needed.` };
+        throw err;
       });
 
-      // Add stock to receiving godown (create allocation record)
-      // Find or create lot city distribution for receiving city
-      let lcd = await prisma.lotCityDistribution.findUnique({
-        where: { lotId_cityId_productId: { lotId: transfer.lotId, cityId: transfer.toCityId, productId: transfer.productId } },
-      });
-      if (!lcd) {
-        lcd = await prisma.lotCityDistribution.create({
-          data: { lotId: transfer.lotId, cityId: transfer.toCityId, productId: transfer.productId, allocatedQty: Number(transfer.qty) },
-        });
-      } else {
-        await prisma.lotCityDistribution.update({
-          where: { id: lcd.id },
-          data: { allocatedQty: { increment: Number(transfer.qty) } },
-        });
+      if (!approvedResult.ok) {
+        return errorResponse(approvedResult.code, approvedResult.message, approvedResult.code === "CONFLICT" ? 409 : 404);
       }
 
-      // Create godown allocation for receiving city
-      const existingAlloc = await prisma.lotCityGodownAllocation.findFirst({
-        where: { lotCityDistributionId: lcd.id, godownId: toGodownId },
-      });
-      if (existingAlloc) {
-        await prisma.lotCityGodownAllocation.update({
-          where: { id: existingAlloc.id },
-          data: { qty: { increment: Number(transfer.qty) } },
-        });
-      } else {
-        await prisma.lotCityGodownAllocation.create({
-          data: { lotCityDistributionId: lcd.id, godownId: toGodownId, productId: transfer.productId, qty: Number(transfer.qty) },
-        });
-      }
-
-      // Deduct stock from sending city's godown allocation
-      const sendingAlloc = await prisma.lotCityGodownAllocation.findFirst({
-        where: { godownId: transfer.fromGodownId, lotCityDistribution: { lotId: transfer.lotId, cityId: transfer.fromCityId, productId: transfer.productId } },
-      });
-      if (sendingAlloc) {
-        await prisma.lotCityGodownAllocation.update({
-          where: { id: sendingAlloc.id },
-          data: { qty: { decrement: Number(transfer.qty) } },
-        });
-      }
-      // Also decrement sending city's distribution total
-      await prisma.lotCityDistribution.updateMany({
-        where: { lotId: transfer.lotId, cityId: transfer.fromCityId, productId: transfer.productId },
-        data: { allocatedQty: { decrement: Number(transfer.qty) } },
-      });
-
-      await createAuditLog(user.userId, transfer.toCityId, "city_transfers", id, "update", { status: "pending" }, { status: "approved", toGodownId }, getClientIP(request));
-
-      // Auto-activate any marked_short sales now covered by the incoming stock
       const activated = await autoActivateShortSales(toGodownId);
       return successResponse(
         { id, salesActivated: activated },
-        activated > 0
-          ? `Transfer approved — ${activated} short sale(s) auto-activated`
-          : "Transfer approved — goods added to godown"
+        activated > 0 ? `Transfer approved — ${activated} short sale(s) auto-activated` : "Transfer approved — goods added to godown"
       );
 
     } else if (action === "reject") {

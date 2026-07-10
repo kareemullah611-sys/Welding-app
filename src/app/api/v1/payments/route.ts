@@ -10,8 +10,17 @@ import {
 } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import { formatSuperAdminBankLabel } from "@/lib/haji-transfer-detail";
 
 const PAYMENT_SYNC_MODULE = "payments.create";
+
+function linkedHajiTransferDetail(payment: any) {
+  const accountLabel = payment.superAdminBankAccount
+    ? formatSuperAdminBankLabel(payment.superAdminBankAccount)
+    : "Haji Account";
+  const mode = payment.paymentMethod === "online" ? "online" : "transfer";
+  return `${accountLabel} ${mode}`;
+}
 
 // Helper: Get FIFO lot for a city
 async function getFIFOLot(cityId: number, countryId: number): Promise<number | null> {
@@ -332,10 +341,12 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
             transferDate: createdPayment.paymentDate,
             amount: Number(createdPayment.amount),
             currencyId: createdPayment.currencyId,
-            detail: `Customer payment to Haji (PAY-${createdPayment.id})`,
-            referenceNo: createdPayment.manualVoucherNo || `PAY-${createdPayment.id}`,
+            detail: linkedHajiTransferDetail(createdPayment),
+            referenceNo: createdPayment.manualVoucherNo,
             transferType: "direct",
-            transferredTo: "Customer payment",
+            transferredTo: createdPayment.superAdminBankAccount
+              ? formatSuperAdminBankLabel(createdPayment.superAdminBankAccount)
+              : "Haji Account",
             notes: createdPayment.notes,
             sourceType: createdPayment.paymentMethod === "cheque"
               ? "cheque"

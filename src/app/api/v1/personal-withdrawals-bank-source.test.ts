@@ -5,6 +5,7 @@ import test from "node:test";
 test("personal withdrawals support city bank account as a source of funds", () => {
   const schema = readFileSync("prisma/schema.prisma", "utf8");
   const route = readFileSync("src/app/api/v1/personal-withdrawals/route.ts", "utf8");
+  const approveRoute = readFileSync("src/app/api/v1/personal-withdrawals/[id]/approve/route.ts", "utf8");
   const page = readFileSync("src/app/(dashboard)/personal-withdrawals/page.tsx", "utf8");
   const accounting = readFileSync("src/lib/accounting.ts", "utf8");
   const validations = readFileSync("src/lib/validations.ts", "utf8");
@@ -15,7 +16,9 @@ test("personal withdrawals support city bank account as a source of funds", () =
   assert.match(route, /Cheque is no longer a valid withdrawal source/);
   assert.match(route, /bankAccountId/);
   assert.match(route, /Bank account is required when source is bank account/);
-  assert.match(route, /journalWithdrawal\([\s\S]*bankAccountId/);
+  // Fix C7: WDRAW journal posted at APPROVAL time, not create-time.
+  assert.doesNotMatch(route, /journalWithdrawal\(/);
+  assert.match(approveRoute, /journalWithdrawal\([\s\S]*bankAccountId/);
   assert.match(accounting, /sourceType\?\:\s*string\s*\|\s*null;\s*bankAccountId\?\:\s*number\s*\|\s*null/);
   assert.match(accounting, /w\.sourceType === "bank_account" && w\.bankAccountId/);
   assert.match(validations, /sourceType:\s*z\.enum\(\["cash_office", "bank_account"\]\)/);

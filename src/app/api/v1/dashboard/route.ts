@@ -5,12 +5,14 @@ import { successResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { SaleStatus } from "@prisma/client";
 import { computeOngoingLotHajiOwedByCity, computeOngoingLotHajiOwedForCity } from "@/lib/ongoing-lot-haji-owed";
+import { REVENUE_SALE_STATUSES } from "@/lib/sale-status";
 
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
     const cityId = user.role === "city_admin" ? user.cityId! : undefined;
     const cityFilter = cityId ? { cityId } : {};
-    const includedSaleStatuses: SaleStatus[] = ["active", "marked_short"];
+    // Fix C5: use the shared constant so dashboard and lot-completion agree.
+    const includedSaleStatuses: SaleStatus[] = REVENUE_SALE_STATUSES;
 
     // Build a currency-id → code lookup once (tiny table, very fast)
     const currencies = await prisma.currency.findMany({ select: { id: true, code: true } });
@@ -35,7 +37,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       }),
       prisma.personalWithdrawal.groupBy({
         by: ["currencyId"],
-        where: cityFilter,
+        // Fix C7: only count APPROVED withdrawals.
+        where: { ...cityFilter, approvedAt: { not: null } } as any,
         _sum: { amount: true },
       }),
       prisma.expense.groupBy({
@@ -198,6 +201,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         }),
         prisma.personalWithdrawal.groupBy({
           by: ["cityId", "currencyId"],
+          where: { approvedAt: { not: null } } as any,
           _sum: { amount: true },
         }),
         prisma.openingCash.groupBy({

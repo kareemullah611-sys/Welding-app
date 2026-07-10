@@ -1,6 +1,5 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { journalWithdrawal } from "@/lib/accounting";
 import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middleware";
 import { createWithdrawalSchema } from "@/lib/validations";
 import { successResponse, paginatedResponse, validationError, errorResponse, serverError, getPaginationParams, getDateRange } from "@/lib/api-response";
@@ -205,7 +204,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       }) as any;
 
       await createAuditLog(user.userId, cityId, "personal_withdrawals", createdWithdrawal.id, "create", undefined, { amount, detail, withdrawnBy, sourceType, bankAccountId }, getClientIP(request), tx);
-      await journalWithdrawal({ id: createdWithdrawal.id, cityId, amount: Number(createdWithdrawal.amount), currencyCode: createdWithdrawal.currency.code, date: createdWithdrawal.withdrawalDate, createdBy: user.userId, sourceType, bankAccountId: bankAccountId ?? null }, tx);
+      // Fix C7: do NOT post the WDRAW journal at create-time. Posted at approval time.
 
       if (syncMeta) {
         await tx.syncRequest.create({

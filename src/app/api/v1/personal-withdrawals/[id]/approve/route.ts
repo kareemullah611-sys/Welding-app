@@ -3,13 +3,15 @@ import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { journalWithdrawal } from "@/lib/accounting";
 
 // POST /api/v1/personal-withdrawals/[id]/approve
-// Super admin approves a withdrawal → auto-creates a HajiTransfer (administrative link only).
-// IMPORTANT: The WDRAW-* journal created at withdrawal creation already records the cash
-// outflow (DR Owner Withdrawals / CR Cash). Calling journalHajiTransfer here would credit
-// cash a second time for the same event. The hajiTransfer is purely a management record —
-// no additional journal is created.
+// Super admin approves a withdrawal → posts the WDRAW journal AND auto-creates a
+// HajiTransfer (administrative link only).
+//
+// Fix C7: the WDRAW-* journal is now posted here at approval time, NOT at withdrawal
+// creation. Previously it was posted at create-time, which meant pending (un-approved)
+// withdrawals distorted treasury and bank-balance reports.
 export const POST = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
     if (user.role !== "super_admin") {
@@ -46,9 +48,8 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
 
     const now = new Date();
     const hajiTransfer = await prisma.$transaction(async (tx) => {
-      // Create HajiTransfer as an administrative link — no journal fired here.
-      // The WDRAW-{withdrawalId} journal already captured cash leaving (DR Owner Withdrawals / CR Cash).
-      // Creating another HAJI journal would double-credit cash for the same physical event.
+      // Create HajiTransfer as an administrative link — no HAJI journal fired here.
+      // The WDRAW-{withdrawalId} journal (posted below) captures cash leaving.
       const createdTransfer = await tx.hajiTransfer.create({
         data: {
           cityId: withdrawal.cityId,
@@ -77,6 +78,18 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
       if (approved.count !== 1) {
         throw new Error("ALREADY_APPROVED");
       }
+
+      // Fix C7: post the WDRAW journal now that the withdrawal is approved.
+      await journalWithdrawal({
+        id: withdrawal.id,
+        cityId: withdrawal.cityId,
+        amount: Number(withdrawal.amount),
+        currencyCode: withdrawal.currency.code,
+        date: now,
+        createdBy: user.userId,
+        sourceType: (withdrawal as any).sourceType ?? "cash_office",
+        bankAccountId: (withdrawal as any).bankAccountId ?? null,
+      }, tx);
 
       await createAuditLog(user.userId, withdrawal.cityId, "personal_withdrawals", id, "update",
         { approvedBy: null }, { approvedBy: user.userId, hajiTransferId: createdTransfer.id },

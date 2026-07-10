@@ -88,7 +88,7 @@ async function fetchFinancialSummary(msg: string) {
     prisma.payment.aggregate({ where: { status: "active", paymentDate: { gte: from, lte: to } }, _sum: { amount: true }, _count: true }),
     prisma.expense.aggregate({ where: { deletedAt: null, expenseDate: { gte: from, lte: to } }, _sum: { amount: true }, _count: true }),
     prisma.hajiTransfer.aggregate({ where: { transferDate: { gte: from, lte: to } }, _sum: { amount: true }, _count: true }),
-    prisma.personalWithdrawal.aggregate({ where: { withdrawalDate: { gte: from, lte: to } }, _sum: { amount: true }, _count: true }),
+    prisma.personalWithdrawal.aggregate({ where: { approvedAt: { not: null }, withdrawalDate: { gte: from, lte: to } }, _sum: { amount: true }, _count: true }),
   ]);
   const period = `${from?.toISOString().split("T")[0]} to ${to?.toISOString().split("T")[0]}`;
   return `FINANCIAL SUMMARY (${period}):\n- Sales: $${Number(sales._sum.totalAmount||0).toLocaleString()} (${sales._count} transactions)\n- Payments Received: $${Number(payments._sum.amount||0).toLocaleString()} (${payments._count})\n- Expenses: $${Number(expenses._sum.amount||0).toLocaleString()} (${expenses._count})\n- Haji Transfers: $${Number(hajiTransfers._sum.amount||0).toLocaleString()} (${hajiTransfers._count})\n- Withdrawals: $${Number(withdrawals._sum.amount||0).toLocaleString()} (${withdrawals._count})`;
@@ -97,7 +97,7 @@ async function fetchFinancialSummary(msg: string) {
 async function fetchWithdrawals(msg: string) {
   const { from, to } = parseDateRange(msg);
   const rows = await prisma.personalWithdrawal.findMany({
-    where: { withdrawalDate: { gte: from, lte: to } },
+    where: { approvedAt: { not: null }, withdrawalDate: { gte: from, lte: to } },
     include: { currency: { select: { symbol: true } } },
     orderBy: { withdrawalDate: "desc" }, take: 50,
   });
