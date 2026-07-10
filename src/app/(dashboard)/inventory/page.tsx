@@ -340,6 +340,19 @@ export default function InventoryPage() {
   useEffect(() => { loadInventory(); }, [loadInventory]);
   useEffect(() => { loadLots(); }, [loadLots]);
   useEffect(() => {
+    if (user?.role !== "city_admin") return;
+    const refresh = () => {
+      void loadInventory();
+      void loadLedger();
+    };
+    window.addEventListener("focus", refresh);
+    window.addEventListener("pageshow", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("pageshow", refresh);
+    };
+  }, [loadInventory, loadLedger, user?.role]);
+  useEffect(() => {
     setLedgerPage(1);
   }, [ledgerGodownId, ledgerProductId, ledgerDateFrom, ledgerDateTo]);
 
@@ -376,7 +389,7 @@ export default function InventoryPage() {
       body: { action: "approve", ...approveForm },
     });
     setSubmitting(false);
-    if (r.success) { setShowApprove(false); loadInventory(); }
+    if (r.success) { setShowApprove(false); loadInventory(); loadLedger(); }
     else { setApproveError(r.error || "Failed"); }
   };
 
@@ -388,6 +401,7 @@ export default function InventoryPage() {
       body: { action: "reject", approvalNotes: reason },
     });
     loadInventory();
+    loadLedger();
   };
 
   // ── Godown allocation ──────────────────────────────────────────────────────
@@ -546,17 +560,20 @@ export default function InventoryPage() {
   };
 
   const loadCityTransferHelpers = async () => {
-    const [cR, pR, lR] = await Promise.all([
+    const [cR, gR, pR, lR] = await Promise.all([
       apiCall("/api/v1/cities", { params: { all: "true" } }),
+      apiCall("/api/v1/godowns", { params: { limit: 100 } }),
       apiCall("/api/v1/products", { params: { limit: 100 } }),
       apiCall("/api/v1/lots", { params: { limit: 100 } }),
     ]);
     const nextCities = cR.success
       ? (cR.data as any[]).filter((c: any) => c.id !== user?.cityId && c.countryName === user?.countryName)
       : [];
+    const nextGodowns = gR.success ? (gR.data as any[]).filter((g: any) => g.cityId === user?.cityId && g.isActive) : [];
     const nextProducts = pR.success ? (pR.data as any[]).filter((p: any) => p.isActive !== false) : [];
     const nextLots = lR.success ? (lR.data as any[]) : [];
     if (cR.success) setCityTransferCities(nextCities);
+    if (gR.success) setGodownList(nextGodowns);
     if (pR.success) setCityTransferProducts(nextProducts);
     if (lR.success) setCityTransferLots(nextLots);
     if (nextCities.length > 0 && nextProducts.length > 0) {
@@ -601,14 +618,16 @@ export default function InventoryPage() {
     setCityTransferLoading(false);
   };
 
-  const resolveCityTransferFromGodown = async (productId: number, qty: number): Promise<number | null> => {
+  const resolveCityTransferFromGodown = async (): Promise<number | null> => {
     const stockRes = await apiCall("/api/v1/inventory/godown-stock");
-    if (!stockRes.success) return godownList[0]?.id ?? null;
-    const rows = ((stockRes.data as any[]) || [])
-      .filter((row) => row.productId === productId && Number(row.available) >= qty)
-      .sort((a, b) => Number(b.available) - Number(a.available));
-    if (rows.length) return rows[0].godownId;
+    if (stockRes.success) {
+      const rows = ((stockRes.data as any[]) || [])
+        .filter((row) => row.godownId)
+        .sort((a, b) => Number(b.available) - Number(a.available));
+      if (rows.length) return rows[0].godownId;
+    }
     if (godownList.length === 1) return godownList[0].id;
+    if (godownList.length > 1) return godownList[0].id;
     return null;
   };
 
@@ -619,9 +638,9 @@ export default function InventoryPage() {
       return;
     }
 
-    const fromGodownId = await resolveCityTransferFromGodown(cityTransferForm.productId, cityTransferForm.qty);
+    const fromGodownId = await resolveCityTransferFromGodown();
     if (!fromGodownId) {
-      setCityTransferError("No godown has enough stock for this product and quantity.");
+      setCityTransferError("No active godown found for this city.");
       return;
     }
 
@@ -661,6 +680,7 @@ export default function InventoryPage() {
     if (r.success) {
       setShowCityTransfer(false);
       await loadInventory();
+      await loadLedger();
     } else {
       setCityTransferError(r.error || "Failed to send transfer");
     }
@@ -892,7 +912,7 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      <div className="card mt-6">
+      {isCityAdmin && <div className="card mt-6">
         <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-gray-900">Stock Movements</h2>
@@ -1016,7 +1036,7 @@ export default function InventoryPage() {
             />
           </div>
         )}
-      </div>
+      </div>}
 
       {/* Approve Transfer Modal */}
       <Modal open={showApprove} onClose={() => setShowApprove(false)} title={t("approve_transfer")} size="md">

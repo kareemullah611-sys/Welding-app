@@ -3,7 +3,6 @@ import prisma from "@/lib/prisma";
 import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, paginatedResponse, errorResponse, validationError, serverError, getPaginationParams } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
-import { canAccessGodownCity } from "@/lib/godown-access";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 
 const CITY_TRANSFER_SYNC_MODULE = "city_transfers";
@@ -121,11 +120,6 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     if (!destinationCity || !destinationCity.isActive) {
       return errorResponse("NOT_FOUND", "Destination city not found", 404);
     }
-    const permitted = await canAccessGodownCity(user.cityId!, parsedToCityId);
-    if (!permitted) {
-      return errorResponse("FORBIDDEN", "Your city is not permitted to transfer stock to that city", 403);
-    }
-
     // Verify godown belongs to sender
     const godown = await prisma.godown.findFirst({ where: { id: parsedFromGodownId, cityId: user.cityId!, isActive: true } });
     if (!godown) return errorResponse("NOT_FOUND", "Godown not found in your city");
@@ -148,35 +142,6 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
     const transfer = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${31001}, ${parsedFromGodownId * 100000 + parsedProductId})`;
-
-      const stockRows: any[] = await tx.$queryRaw`
-        SELECT
-          COALESCE(SUM(lcga.qty), 0) as received,
-          COALESCE((
-            SELECT SUM(si.qty) FROM sale_items si
-            JOIN sales s ON s.id = si.sale_id AND s.status IN ('active','marked_short')
-            WHERE s.godown_id = ${parsedFromGodownId} AND si.product_id = ${parsedProductId}
-          ), 0) as sold,
-          COALESCE((
-            SELECT SUM(ct.qty) FROM city_transfers ct
-            WHERE ct.from_godown_id = ${parsedFromGodownId} AND ct.product_id = ${parsedProductId} AND ct.status = 'approved'
-          ), 0) as city_out,
-          COALESCE((
-            SELECT SUM(ct.qty) FROM city_transfers ct
-            WHERE ct.from_godown_id = ${parsedFromGodownId} AND ct.product_id = ${parsedProductId} AND ct.status = 'pending'
-          ), 0) as city_pending
-        FROM lot_city_godown_allocations lcga
-        JOIN lot_city_distributions lcd ON lcd.id = lcga.lot_city_distribution_id
-        WHERE lcga.godown_id = ${parsedFromGodownId} AND lcd.product_id = ${parsedProductId}
-      `;
-      const row = stockRows[0];
-      const available = Math.max(
-        0,
-        Number(row?.received || 0) - Number(row?.sold || 0) - Number(row?.city_out || 0) - Number(row?.city_pending || 0)
-      );
-      if (baseQty > available) {
-        throw new Error(`INSUFFICIENT_STOCK:${available}`);
-      }
 
       const createdTransfer = await tx.cityTransfer.create({
         data: {
@@ -227,10 +192,6 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       }
     }
     console.error("Create city transfer:", error);
-    if (typeof error?.message === "string" && error.message.startsWith("INSUFFICIENT_STOCK:")) {
-      const available = Number(error.message.split(":")[1] || 0);
-      return errorResponse("VALIDATION_ERROR", `Insufficient stock: only ${available} available (including pending transfers) in this godown`);
-    }
     return serverError();
   }
 });

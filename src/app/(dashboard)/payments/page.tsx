@@ -19,6 +19,7 @@ import { buildPaymentCancellationReversalRow } from "@/lib/treasury-ledger";
 import { formatPaymentModuleDetail, buildPaymentSubmitPayload, validatePakistanPaymentForm, formatSuperAdminPaymentDetail, formatPakistanCityPaymentDetail, getPakistanPaymentAccountSelectValue, parsePakistanPaymentAccountSelectValue, buildPakistanPaymentAccountOptions, sanitizePaymentSubmitPayload } from "@/lib/payment-module-detail";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
 import { LedgerExportButtons } from "@/components/LedgerExportButtons";
+import type { LedgerExportType } from "@/lib/ledger-export";
 
 
 const TYPE_CONFIG: Record<string, { label: string; color: string; amountColor: string }> = {
@@ -27,6 +28,8 @@ const TYPE_CONFIG: Record<string, { label: string; color: string; amountColor: s
   expense:      { label: "Expense",    color: "bg-red-50 text-red-700",     amountColor: "text-red-600" },
   haji_transfer:{ label: "Haji",       color: "bg-orange-50 text-orange-700", amountColor: "text-orange-600" },
   withdrawal:   { label: "Withdrawal", color: "bg-purple-50 text-purple-700", amountColor: "text-purple-600" },
+  opening_cash: { label: "Opening Cash", color: "bg-slate-50 text-slate-700", amountColor: "text-slate-700" },
+  opening_bank: { label: "Opening Bank", color: "bg-slate-50 text-slate-700", amountColor: "text-slate-700" },
 };
 
 function safeParseQueueBody(body: string): any {
@@ -1538,6 +1541,13 @@ export default function PaymentsPage() {
         superAdminBankAccounts,
       })
     : [];
+  const paymentExportType: LedgerExportType = typeFilter === "expense"
+    ? "expenses"
+    : typeFilter === "haji_transfer"
+      ? "haji_transfers"
+      : typeFilter === "withdrawal"
+        ? "withdrawals"
+        : "payments";
 
   return (
     <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
@@ -1592,17 +1602,15 @@ export default function PaymentsPage() {
               />
             </>
           )}
-          {(isSuperAdmin || typeFilter === "all" || typeFilter === "payment") && (
-            <LedgerExportButtons
-              type="payments"
-              dateFrom={fromDate || undefined}
-              dateTo={toDate || undefined}
-              cityId={user?.cityId ?? undefined}
-              query={searchQuery}
-              disabled={!isOnline}
-              className="ml-auto"
-            />
-          )}
+          <LedgerExportButtons
+            type={paymentExportType}
+            dateFrom={fromDate || undefined}
+            dateTo={toDate || undefined}
+            cityId={user?.cityId ?? undefined}
+            query={searchQuery}
+            disabled={!isOnline}
+            className="ml-auto"
+          />
         </div>
       )}
       {!isEmbed && showOfflineSnapshot && (

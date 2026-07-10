@@ -10,6 +10,7 @@ export type LedgerExportType =
   | "sales"
   | "payments"
   | "expenses"
+  | "withdrawals"
   | "customer_ledger"
   | "haji_transfers"
   | "ledger";
@@ -154,8 +155,8 @@ function printPaymentsReportPayload(payload: ExportPayload) {
       <td class="col-date">${escapeHtml(row[0])}</td>
       <td class="col-customer">${escapeHtml(row[1])}</td>
       <td class="col-particulars">${escapeHtml(row[2])}</td>
-      <td class="col-amount">${escapeHtml(row[3])}</td>
-      <td class="col-ref">${escapeHtml(row[4])}</td>
+      <td class="col-ref">${escapeHtml(row[3])}</td>
+      <td class="col-amount">${escapeHtml(row[4])}</td>
       <td class="col-dest">${escapeHtml(row[5])}</td>
       <td class="col-status">${escapeHtml(row[6])}</td>
     </tr>
@@ -192,8 +193,8 @@ function printPaymentsReportPayload(payload: ExportPayload) {
               <th class="col-date">Date</th>
               <th class="col-customer">Customer</th>
               <th class="col-particulars">Particulars</th>
-              <th class="col-amount">Amount</th>
               <th class="col-ref">Ref. No.</th>
+              <th class="col-amount">Amount</th>
               <th class="col-dest">Destination</th>
               <th class="col-status">Status</th>
             </tr>

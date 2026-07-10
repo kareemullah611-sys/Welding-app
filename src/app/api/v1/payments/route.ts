@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middleware";
-import { journalPaymentReceived, journalChequeReceived } from "@/lib/accounting";
+import { journalPaymentReceived, journalChequeReceived, journalHajiTransfer } from "@/lib/accounting";
 import { createPaymentSchema } from "@/lib/validations";
 import { getPaymentHajiAuditStateMap, isHajiAuditEligible } from "@/lib/payment-audit";
 import {
@@ -323,6 +323,46 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         bankAccountId: (createdPayment as any).bankAccountId ?? null,
         paymentMethod: createdPayment.paymentMethod,
       }, tx);
+
+      if (createdPayment.destination === "haji") {
+        const linkedTransfer = await tx.hajiTransfer.create({
+          data: {
+            cityId: createdPayment.cityId,
+            lotId: createdPayment.lotId,
+            transferDate: createdPayment.paymentDate,
+            amount: Number(createdPayment.amount),
+            currencyId: createdPayment.currencyId,
+            detail: `Customer payment to Haji (PAY-${createdPayment.id})`,
+            referenceNo: createdPayment.manualVoucherNo || `PAY-${createdPayment.id}`,
+            transferType: "direct",
+            transferredTo: "Customer payment",
+            notes: createdPayment.notes,
+            sourceType: createdPayment.paymentMethod === "cheque"
+              ? "cheque"
+              : createdPayment.paymentMethod === "bank_transfer" || createdPayment.paymentMethod === "online"
+                ? "bank_transfer"
+                : "cash_office",
+            settlementDestination: "standard",
+            superAdminBankAccountId: (createdPayment as any).superAdminBankAccountId ?? null,
+            paymentId: createdPayment.id,
+            createdBy: user.userId,
+          },
+          include: { currency: true },
+        } as any) as any;
+        await journalHajiTransfer({
+          id: linkedTransfer.id,
+          cityId: linkedTransfer.cityId,
+          lotId: linkedTransfer.lotId,
+          amount: Number(linkedTransfer.amount),
+          currencyCode: linkedTransfer.currency.code,
+          date: linkedTransfer.transferDate,
+          createdBy: user.userId,
+          sourceType: linkedTransfer.sourceType,
+          bankAccountId: linkedTransfer.bankAccountId,
+          settlementDestination: linkedTransfer.settlementDestination,
+          superAdminBankAccountId: linkedTransfer.superAdminBankAccountId,
+        }, tx);
+      }
 
       if (syncMeta) {
         await tx.syncRequest.create({

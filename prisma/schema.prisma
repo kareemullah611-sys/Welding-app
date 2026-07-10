@@ -881,6 +881,7 @@ model Payment {
   attachments         Attachment[]
   paymentLotTransfers PaymentLotTransfer[]
   hajiTransferCheque  HajiTransfer?        @relation("HajiCheque")
+  hajiTransferPayment HajiTransfer?        @relation("HajiPayment")
   expenseCheques      Expense[]            @relation("ExpenseCheque")
   withdrawalCheques   PersonalWithdrawal[] @relation("WithdrawalCheque")
   cityLiabilityChequeEntries CityLiabilityEntry[] @relation("CityLiabilityCheque")
@@ -1020,6 +1021,7 @@ model HajiTransfer {
   superAdminBankAccountId Int?                    @map("super_admin_bank_account_id")
   bankAccountId    Int?           @map("bank_account_id")
   chequePaymentId  Int?           @unique @map("cheque_payment_id")
+  paymentId        Int?           @unique @map("payment_id")
   createdBy     Int              @map("created_by")
   createdAt    DateTime         @default(now()) @map("created_at")
   updatedAt    DateTime         @updatedAt @map("updated_at")
@@ -1030,6 +1032,7 @@ model HajiTransfer {
   creator       User         @relation(fields: [createdBy], references: [id])
   bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id])
   chequePayment Payment?     @relation("HajiCheque", fields: [chequePaymentId], references: [id])
+  payment       Payment?     @relation("HajiPayment", fields: [paymentId], references: [id])
   intermediary  Intermediary? @relation(fields: [intermediaryId], references: [id])
   superAdminCashAccount SuperAdminBankAccount? @relation("HajiSuperAdminCash", fields: [superAdminCashAccountId], references: [id])
   superAdminBankAccount SuperAdminBankAccount? @relation("HajiSuperAdminBank", fields: [superAdminBankAccountId], references: [id])

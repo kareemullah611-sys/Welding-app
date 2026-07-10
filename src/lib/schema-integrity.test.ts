@@ -87,3 +87,22 @@ test("city liabilities have city-scoped accounts, entries, openings, and cheque 
   assert.match(migration, /CREATE TABLE "opening_city_liabilities"/);
   assert.match(migration, /city_liability_entries_payment_source_check/);
 });
+
+test("Haji openings stay historical and customer-to-Haji payments get linked transfers", () => {
+  const hajiTransfer = modelBlock("HajiTransfer");
+  const payment = modelBlock("Payment");
+  const openingsRoute = readFileSync("src/app/api/v1/openings/route.ts", "utf8");
+  const migration = readFileSync("prisma/migrations/20260710103000_link_haji_payment_transfers/migration.sql", "utf8");
+
+  assert.match(hajiTransfer, /paymentId\s+Int\?\s+@unique\s+@map\("payment_id"\)/);
+  assert.match(hajiTransfer, /payment\s+Payment\?\s+@relation\("HajiPayment", fields: \[paymentId\], references: \[id\]\)/);
+  assert.match(payment, /hajiTransferPayment\s+HajiTransfer\?\s+@relation\("HajiPayment"\)/);
+  assert.match(migration, /ADD COLUMN IF NOT EXISTS "payment_id"/);
+  assert.match(migration, /DELETE FROM "haji_transfers"\s+WHERE "detail" LIKE 'Opening Haji balance%'/);
+  assert.match(migration, /INSERT INTO "haji_transfers"/);
+  assert.match(migration, /p\."destination" = 'haji'/);
+
+  const hajiOpeningBlock = openingsRoute.match(/if \(kind === "haji"\) \{[\s\S]*?return successResponse\(\{ id: row\.id \}/);
+  assert.ok(hajiOpeningBlock, "opening haji route block should exist");
+  assert.doesNotMatch(hajiOpeningBlock![0], /hajiTransfer\.create/);
+});

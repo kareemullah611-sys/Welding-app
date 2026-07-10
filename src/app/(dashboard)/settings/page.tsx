@@ -775,8 +775,6 @@ function GodownAccessTab() {
   const [permissions, setPermissions] = useState<{ fromCityId: number; toCityId: number }[]>([]);
   const [godowns, setGodowns] = useState<{ id: number; name: string; cityId: number; cityName: string; country: string }[]>([]);
   const [specificPermissions, setSpecificPermissions] = useState<{ fromCityId: number; toGodownId: number }[]>([]);
-  const [selectedFromCityId, setSelectedFromCityId] = useState(0);
-  const [selectedToGodownId, setSelectedToGodownId] = useState(0);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
@@ -827,27 +825,6 @@ function GodownAccessTab() {
   };
 
   const countries = Array.from(new Set(cities.map((c) => c.country)));
-  const selectedFromCity = cities.find((c) => c.id === selectedFromCityId);
-  const targetGodowns = godowns.filter((g) => {
-    if (!selectedFromCity) return false;
-    return g.cityId !== selectedFromCity.id && g.country === selectedFromCity.country;
-  });
-
-  const addSpecificPermission = async () => {
-    if (!selectedFromCityId || !selectedToGodownId) return;
-    setSubmitting(true);
-    await apiCall("/api/v1/godown-permissions", { method: "POST", body: { fromCityId: selectedFromCityId, toGodownId: selectedToGodownId } });
-    await load();
-    setSubmitting(false);
-  };
-
-  const removeSpecificPermission = async (fromCityId: number, toGodownId: number) => {
-    setSubmitting(true);
-    await apiCall("/api/v1/godown-permissions", { method: "DELETE", body: { fromCityId, toGodownId } });
-    await load();
-    setSubmitting(false);
-  };
-
   if (loading) return <div className="flex items-center justify-center py-12"><div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" /></div>;
 
   return (
@@ -907,51 +884,6 @@ function GodownAccessTab() {
           </div>
         );
       })}
-
-      <div className="card mt-6">
-        <h4 className="text-sm font-semibold text-gray-700 mb-3">Specific Godown Access</h4>
-        <p className="text-sm text-gray-500 mb-3">
-          Grant access to one specific godown of another city admin.
-        </p>
-        <div className="grid md:grid-cols-3 gap-3 items-end">
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">From City Admin</label>
-            <select value={selectedFromCityId} onChange={(e) => { setSelectedFromCityId(Number(e.target.value)); setSelectedToGodownId(0); }} className="select-field">
-              <option value={0}>Select city</option>
-              {cities.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.country})</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Specific Godown</label>
-            <select value={selectedToGodownId} onChange={(e) => setSelectedToGodownId(Number(e.target.value))} className="select-field" disabled={!selectedFromCityId}>
-              <option value={0}>Select godown</option>
-              {targetGodowns.map((g) => (
-                <option key={g.id} value={g.id}>{g.cityName} - {g.name}</option>
-              ))}
-            </select>
-          </div>
-          <button onClick={addSpecificPermission} disabled={submitting || !selectedFromCityId || !selectedToGodownId} className="btn-primary">
-            Add Specific Access
-          </button>
-        </div>
-
-        <div className="mt-4 space-y-2">
-          {specificPermissions.length === 0 && <p className="text-sm text-gray-400">No specific godown access granted yet.</p>}
-          {specificPermissions.map((p, idx) => {
-            const fromCity = cities.find((c) => c.id === p.fromCityId);
-            const toGodown = godowns.find((g) => g.id === p.toGodownId);
-            if (!fromCity || !toGodown) return null;
-            return (
-              <div key={`${p.fromCityId}-${p.toGodownId}-${idx}`} className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
-                <span>{fromCity.name} can use {toGodown.cityName} - {toGodown.name}</span>
-                <button onClick={() => removeSpecificPermission(p.fromCityId, p.toGodownId)} disabled={submitting} className="text-red-600 hover:underline">
-                  Remove
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
     </div>
   );
 }

@@ -20,8 +20,6 @@ function paymentDebitTarget(input: {
   bankAccountId?: number | null;
   paymentMethod?: string | null;
 }) {
-  if (input.destination === "haji" && input.superAdminBankAccountId) return "sa_bank";
-  if (input.destination === "haji") return "haji";
   if (input.bankAccountId && input.paymentMethod === "bank_transfer") return "city_bank";
   return "city_cash";
 }
@@ -33,14 +31,10 @@ describe("accounting journal routing", () => {
     assert.equal(leg.amount, 278500);
   });
 
-  it("routes direct-to-haji with SA bank to super-admin bank GL", () => {
+  it("routes customer-to-haji payment through city treasury before linked transfer display", () => {
     assert.equal(
       paymentDebitTarget({ destination: "haji", superAdminBankAccountId: 2 }),
-      "sa_bank"
+      "city_cash"
     );
-  });
-
-  it("routes direct-to-haji without SA bank to haji equity account", () => {
-    assert.equal(paymentDebitTarget({ destination: "haji" }), "haji");
   });
 });

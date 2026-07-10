@@ -27,9 +27,9 @@ function mapTransferRow(t: any, auditById: Record<number, any>) {
     detail: t.detail,
     referenceNo: t.referenceNo ?? null,
     transferType: t.transferType,
-    transferredTo: t.transferredTo,
+    transferredTo: t.payment?.customer?.name ?? t.transferredTo,
     sourceType: t.sourceType ?? null,
-    chequeCustomerName: t.chequePayment?.customer?.name ?? null,
+    chequeCustomerName: t.chequePayment?.customer?.name ?? t.payment?.customer?.name ?? null,
     settlementDestination,
     intermediaryId: t.intermediaryId ?? null,
     superAdminCashAccountId: t.superAdminCashAccountId ?? null,
@@ -120,6 +120,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         : {}),
       destination: "haji",
       status: "active",
+      hajiTransferPayment: null,
     };
     if (shouldApplySearch) {
       directPaymentsWhere.OR = [
@@ -143,6 +144,12 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           currency: true,
           creator: { select: { id: true, fullName: true } },
           chequePayment: {
+            select: {
+              manualVoucherNo: true,
+              customer: { select: { id: true, name: true } },
+            },
+          },
+          payment: {
             select: {
               manualVoucherNo: true,
               customer: { select: { id: true, name: true } },

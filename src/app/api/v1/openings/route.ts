@@ -508,30 +508,12 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           openingDate: saved.openingDate,
           createdBy: user.userId,
         }, tx);
-        // Remove old opening-balance haji transfer if it exists
+        // Opening Haji is historical bookkeeping only, not a cash-office transfer.
         await tx.hajiTransfer.deleteMany({
           where: {
             cityId: scopedCityId,
             currencyId,
             detail: { startsWith: "Opening Haji balance" },
-          },
-        });
-        // Create a haji transfer record so it appears in haji transfers view/reports
-        await tx.hajiTransfer.create({
-          data: {
-            cityId: scopedCityId,
-            lotId: null,
-            transferDate: saved.openingDate,
-            amount: Number(saved.amount),
-            currencyId,
-            detail: `Opening Haji balance (OPENHAJI-${saved.id})`,
-            referenceNo: null,
-            transferType: "from_in_hand",
-            transferredTo: null,
-            notes: body.notes || null,
-            sourceType: "cash_office",
-            settlementDestination: "standard",
-            createdBy: user.userId,
           },
         });
         return saved;

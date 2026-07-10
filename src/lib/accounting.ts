@@ -128,7 +128,7 @@ export async function journalSaleCreated(sale: { id: number; customerId: number;
   await createJournalEntries(`SALE-${sale.id}`, lines, { currencyCode: sale.currencyCode, entityType: "sale", entityId: sale.id, lotId: sale.lotId, cityId: sale.cityId, entryDate: sale.saleDate, createdBy: sale.createdBy }, db);
 }
 
-// PAYMENT RECEIVED (cash / bank transfer / online / direct-to-haji)
+// PAYMENT RECEIVED (cash / bank transfer / online)
 export async function journalPaymentReceived(
   p: {
     id: number; customerId: number; cityId: number; lotId: number;
@@ -139,11 +139,7 @@ export async function journalPaymentReceived(
   db: DbClient = prisma
 ) {
   let debitAccId: number;
-  if (p.destination === "haji" && p.superAdminBankAccountId) {
-    debitAccId = await getSuperAdminBankGLAccountId(p.superAdminBankAccountId, db);
-  } else if (p.destination === "haji") {
-    debitAccId = await getHajiAccountId(db);
-  } else if (p.bankAccountId && p.paymentMethod === "bank_transfer") {
+  if (p.bankAccountId && p.paymentMethod === "bank_transfer") {
     debitAccId = await getBankGLAccountId(p.bankAccountId, db);
   } else {
     debitAccId = await getCashAccountId(p.cityId, db);

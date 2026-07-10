@@ -47,7 +47,7 @@ function subtractMap(base: Pot, deductions: Pot): Pot {
 /** Credit amount that hit city treasury when a payment was received. */
 export function getPaymentTreasuryCreditAmount(raw: CombinedItem["raw"], amount: number): number {
   const value = Number(amount || 0);
-  if (!value || raw?.destination !== "our_account") return 0;
+  if (!value || (raw?.destination !== "our_account" && raw?.destination !== "haji")) return 0;
 
   const method = raw?.paymentMethod;
   if (method === "cheque") {
@@ -58,6 +58,7 @@ export function getPaymentTreasuryCreditAmount(raw: CombinedItem["raw"], amount:
   }
   if (method === "cash") return value;
   if (method === "bank_transfer" || method === "online") {
+    if (raw?.destination === "haji") return value;
     return raw?.bankAccountId ? value : 0;
   }
   return 0;
@@ -194,12 +195,14 @@ export async function computeCityTreasuryNet(
   const [
     cashPaymentsRaw,
     openingCashRaw,
+    openingBankRaw,
     hajiFromCashRaw,
     expensesFromCashRaw,
     depositsRaw,
     withdrawalsRaw,
     chequesInHandRaw,
     bankPaymentsRaw,
+    hajiDirectPaymentsRaw,
     depositedChequesRaw,
     hajiFromBankRaw,
     expensesFromBankRaw,
@@ -212,6 +215,11 @@ export async function computeCityTreasuryNet(
       _sum: { amount: true },
     }),
     prisma.openingCash.groupBy({ by: ["currencyId"], where: { cityId }, _sum: { amount: true } }),
+    prisma.openingBankBalance.groupBy({
+      by: ["currencyId"],
+      where: { bankAccount: { cityId } },
+      _sum: { amount: true },
+    }),
     prisma.hajiTransfer.groupBy({
       by: ["currencyId"],
       where: { cityId, sourceType: "cash_office" },
@@ -247,6 +255,16 @@ export async function computeCityTreasuryNet(
         destination: "our_account",
         status: "active",
         bankAccountId: { not: null },
+      },
+      _sum: { amount: true },
+    } as any),
+    prisma.payment.groupBy({
+      by: ["currencyId"],
+      where: {
+        cityId,
+        paymentMethod: { in: ["bank_transfer", "online"] },
+        destination: "haji",
+        status: "active",
       },
       _sum: { amount: true },
     } as any),
@@ -313,7 +331,10 @@ export async function computeCityTreasuryNet(
   }
 
   let bankBalance = addMap(
-    addMap(await mapRows(bankPaymentsRaw), await mapRows(depositsRaw, "cashAmount")),
+    addMap(
+      addMap(addMap(await mapRows(openingBankRaw), await mapRows(bankPaymentsRaw)), await mapRows(hajiDirectPaymentsRaw)),
+      await mapRows(depositsRaw, "cashAmount")
+    ),
     await mapRows(depositedChequesRaw)
   );
   bankBalance = subtractMap(

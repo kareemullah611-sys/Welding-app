@@ -58,7 +58,7 @@ function parseStatusFilter(statusParam: string | null) {
   return { in: statusValues };
 }
 
-// GET /api/v1/reports/export?type=sales|payments|expenses|ledger|haji_transfers|customer_ledger
+// GET /api/v1/reports/export?type=sales|payments|expenses|withdrawals|ledger|haji_transfers|customer_ledger
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
     const searchParams = request.nextUrl.searchParams;
@@ -151,13 +151,13 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         include: { customer: { select: { name: true } }, currency: true },
         orderBy: { paymentDate: "asc" },
       });
-      const headers = ["Date", "Customer Name", "Particulars", "Amount", "Ref. No.", "Destination", "Status"];
+      const headers = ["Date", "Customer Name", "Particulars", "Ref. No.", "Amount", "Destination", "Status"];
       const dataRows = payments.map((p) => [
         formatDate(p.paymentDate),
         cleanText(p.customer.name),
         cleanText(p.detail),
-        fmtReportMoney(Number(p.amount), p.currency.symbol, p.currency.code),
         cleanText(p.manualVoucherNo || ""),
+        fmtReportMoney(Number(p.amount), p.currency.symbol, p.currency.code),
         formatLabel(p.destination),
         formatStatus(p.status),
       ]);
@@ -184,6 +184,32 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         fmtReportMoney(Number(e.amount), e.currency.symbol, e.currency.code),
         cleanText(e.lot.lotNumber),
         cleanText(e.notes || ""),
+      ]);
+      payload = { title, meta, headers, rows: dataRows };
+    } else if (type === "withdrawals") {
+      const { title, meta } = buildExportMeta("Withdrawals Report", city?.name, dateFrom, dateTo, search.rawQuery);
+      const withdrawalDate = buildExportDateFilter(dateFrom, dateTo);
+      const withdrawals = await prisma.personalWithdrawal.findMany({
+        where: { ...cityFilter, ...(withdrawalDate ? { withdrawalDate } : {}) },
+        include: { currency: true, city: { select: { name: true } } },
+        orderBy: { withdrawalDate: "asc" },
+      });
+      const filtered = withdrawals.filter((w) =>
+        matchesExportTextSearch(
+          search,
+          [w.detail, w.withdrawnBy, w.sourceType, w.notes, w.city?.name, w.currency?.code],
+          [Number(w.amount || 0)],
+        ),
+      );
+      const headers = ["Date", "City", "Particulars", "Withdrawn By", "Amount", "Source", "Notes"];
+      const dataRows = filtered.map((w) => [
+        formatDate(w.withdrawalDate),
+        cleanText(w.city.name),
+        cleanText(w.detail),
+        cleanText(w.withdrawnBy),
+        fmtReportMoney(Number(w.amount), w.currency.symbol, w.currency.code),
+        formatLabel(String(w.sourceType || "")),
+        cleanText(w.notes || ""),
       ]);
       payload = { title, meta, headers, rows: dataRows };
     } else if (type === "haji_transfers") {

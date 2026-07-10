@@ -287,12 +287,76 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
       })));
     }
 
+    if (typeFilter === "all" && !isSuperAdminHajiView) {
+      const openingCashRows = await prisma.openingCash.findMany({
+        where: cityWhere,
+        include: {
+          currency: { select: { id: true, code: true, symbol: true } },
+          city: { select: { id: true, name: true } },
+        },
+        orderBy: [{ openingDate: "desc" }, { id: "desc" }],
+      });
+      combined.push(...openingCashRows.map((row) => ({
+        id: row.id,
+        type: "opening_cash",
+        date: row.openingDate.toISOString().split("T")[0],
+        detail: "Opening cash",
+        amount: Number(row.amount),
+        currencySymbol: row.currency.symbol,
+        currencyCode: row.currency.code,
+        person: null,
+        cityName: row.city?.name ?? null,
+        status: null,
+        raw: {
+          ...row,
+          amount: Number(row.amount),
+          sourceType: "opening_cash",
+        },
+      })));
+
+      const openingBankRows = await prisma.openingBankBalance.findMany({
+        where: cityId ? { bankAccount: { cityId } } : {},
+        include: {
+          currency: { select: { id: true, code: true, symbol: true } },
+          bankAccount: { select: { id: true, bankName: true, accountNumber: true, city: { select: { id: true, name: true } } } },
+        },
+        orderBy: [{ openingDate: "desc" }, { id: "desc" }],
+      });
+      combined.push(...openingBankRows.map((row) => ({
+        id: row.id,
+        type: "opening_bank",
+        date: row.openingDate.toISOString().split("T")[0],
+        detail: `Opening bank — ${row.bankAccount.bankName}`,
+        amount: Number(row.amount),
+        currencySymbol: row.currency.symbol,
+        currencyCode: row.currency.code,
+        person: row.bankAccount.accountNumber ?? null,
+        cityName: row.bankAccount.city?.name ?? null,
+        status: null,
+        raw: {
+          ...row,
+          amount: Number(row.amount),
+          bankAccount: row.bankAccount,
+          bankAccountId: row.bankAccountId,
+          sourceType: "opening_bank",
+        },
+      })));
+    }
+
     const openingCashRows = await prisma.openingCash.findMany({
       where: cityWhere,
       include: { currency: { select: { code: true } } },
     });
+    const openingBankRows = await prisma.openingBankBalance.findMany({
+      where: cityId ? { bankAccount: { cityId } } : {},
+      include: { currency: { select: { code: true } } },
+    });
     const openingCashByCurrency: Record<string, number> = {};
     for (const row of openingCashRows) {
+      const code = row.currency.code;
+      openingCashByCurrency[code] = (openingCashByCurrency[code] || 0) + Number(row.amount || 0);
+    }
+    for (const row of openingBankRows) {
       const code = row.currency.code;
       openingCashByCurrency[code] = (openingCashByCurrency[code] || 0) + Number(row.amount || 0);
     }
