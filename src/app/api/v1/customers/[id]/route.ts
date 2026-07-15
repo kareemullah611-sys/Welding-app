@@ -11,6 +11,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     const searchParams = request.nextUrl.searchParams;
     const dateFrom = searchParams.get("date_from");
     const dateTo = searchParams.get("date_to");
+    const ledgerType = (searchParams.get("ledger_type") || "all").trim().toLowerCase();
     const customer = await prisma.customer.findUnique({
       where: { id },
       include: { city: { include: { country: true } } },
@@ -97,7 +98,8 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         currencySymbol: p.currency.symbol || p.currency.code,
         lotNumber: p.lot.lotNumber,
       })),
-    ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    ].filter((t) => ledgerType === "all" || t.type === ledgerType)
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     // Track running balance separately per currency to avoid mixing USD and AFN
     const runningByCurrency: Record<string, number> = {};

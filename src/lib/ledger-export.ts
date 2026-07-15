@@ -21,6 +21,7 @@ export type LedgerExportParams = {
   dateTo?: string;
   cityId?: string | number;
   customerId?: string | number;
+  ledgerType?: string;
   query?: string;
   status?: string;
   format?: "xlsx" | "json";
@@ -35,6 +36,7 @@ export function buildLedgerExportParams(params: LedgerExportParams): Record<stri
   if (params.dateTo) searchParams.date_to = params.dateTo;
   if (params.cityId) searchParams.city_id = String(params.cityId);
   if (params.customerId) searchParams.customer_id = String(params.customerId);
+  if (params.ledgerType && params.ledgerType !== "all") searchParams.ledger_type = params.ledgerType;
   if (params.query && params.query.trim().length >= 2) searchParams.q = params.query.trim();
   if (params.status) searchParams.status = params.status;
   return searchParams;

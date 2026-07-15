@@ -103,6 +103,7 @@ export default function CustomersPage() {
   const [ledgerDateFrom, setLedgerDateFrom] = useState("");
   const [ledgerDateTo, setLedgerDateTo] = useState("");
   const [ledgerSearchQuery, setLedgerSearchQuery] = useState("");
+  const [ledgerTypeFilter, setLedgerTypeFilter] = useState("all");
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [form, setForm] = useState({ name: "", phone: "", address: "", cityId: 0 });
   const [submitting, setSubmitting] = useState(false);
@@ -427,12 +428,13 @@ export default function CustomersPage() {
     load();
   };
 
-  const loadLedger = async (c: any, dates?: { from?: string; to?: string }) => {
+  const loadLedger = async (c: any, dates?: { from?: string; to?: string; type?: string }) => {
     setLedgerLoading(true);
     setLedgerData(null);
     const params: Record<string, string> = {};
     if (dates?.from) params.date_from = dates.from;
     if (dates?.to) params.date_to = dates.to;
+    if (dates?.type && dates.type !== "all") params.ledger_type = dates.type;
     const result = await apiCall(`/api/v1/customers/${c.id}`, { params });
     if (result.success) {
       const mergedLedger = !isOnline
@@ -462,6 +464,7 @@ export default function CustomersPage() {
     setLedgerDateFrom("");
     setLedgerDateTo("");
     setLedgerSearchQuery("");
+    setLedgerTypeFilter("all");
     await loadLedger(c);
   };
 
@@ -470,6 +473,7 @@ export default function CustomersPage() {
     await loadLedger(selected, {
       from: ledgerDateFrom || undefined,
       to: ledgerDateTo || undefined,
+      type: ledgerTypeFilter,
     });
   };
 
@@ -674,6 +678,7 @@ export default function CustomersPage() {
               dateFrom={ledgerDateFrom || undefined}
               dateTo={ledgerDateTo || undefined}
               cityId={user?.cityId ?? undefined}
+              ledgerType={ledgerTypeFilter}
               query={ledgerSearchQuery.trim().length >= 2 ? ledgerSearchQuery.trim() : undefined}
               disabled={!isOnline || !selected?.id}
               onPrintPdf={() => {
@@ -684,7 +689,7 @@ export default function CustomersPage() {
                   balanceSummary: buildLedgerBalanceSummary(ledgerData),
                   dateFrom: ledgerDateFrom || undefined,
                   dateTo: ledgerDateTo || undefined,
-                  query: ledgerSearchQuery,
+                  query: ledgerTypeFilter === "all" ? ledgerSearchQuery : `${ledgerSearchQuery || ""} ${ledgerTypeFilter}`.trim(),
                 });
               }}
             />
@@ -701,6 +706,29 @@ export default function CustomersPage() {
                   placeholder="Search entries…"
                   className="input-field h-9 w-full text-sm"
                 />
+              </div>
+              <div className="shrink-0">
+                <label className={LEDGER_FIELD_LABEL}>Type</label>
+                <select
+                  value={ledgerTypeFilter}
+                  onChange={(e) => {
+                    const nextType = e.target.value;
+                    setLedgerTypeFilter(nextType);
+                    if (selected) {
+                      void loadLedger(selected, {
+                        from: ledgerDateFrom || undefined,
+                        to: ledgerDateTo || undefined,
+                        type: nextType,
+                      });
+                    }
+                  }}
+                  className="select-field h-9 w-full text-sm sm:w-[9rem]"
+                >
+                  <option value="all">All</option>
+                  <option value="sale">Sale</option>
+                  <option value="payment">Receipt</option>
+                  <option value="opening">Opening</option>
+                </select>
               </div>
               <div className="shrink-0">
                 <label className={LEDGER_FIELD_LABEL}>{t("from")}</label>

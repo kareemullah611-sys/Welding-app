@@ -11,6 +11,7 @@ type Props = {
   dateTo?: string;
   cityId?: string | number;
   customerId?: string | number;
+  ledgerType?: string;
   query?: string;
   status?: string;
   disabled?: boolean;
@@ -24,6 +25,7 @@ export function LedgerExportButtons({
   dateTo,
   cityId,
   customerId,
+  ledgerType,
   query,
   status,
   disabled,
@@ -32,7 +34,7 @@ export function LedgerExportButtons({
 }: Props) {
   const [printing, setPrinting] = useState(false);
 
-  const exportParams = { type, dateFrom, dateTo, cityId, customerId, query, status };
+  const exportParams = { type, dateFrom, dateTo, cityId, customerId, ledgerType, query, status };
 
   const handlePrint = async () => {
     setPrinting(true);

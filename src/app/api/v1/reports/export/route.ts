@@ -240,6 +240,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       payload = { title, meta, headers, rows: dataRows };
     } else if (type === "customer_ledger") {
       const customerId = searchParams.get("customer_id") ? parseInt(searchParams.get("customer_id")!) : undefined;
+      const ledgerType = (searchParams.get("ledger_type") || "all").trim().toLowerCase();
       if (!customerId) return new Response("customer_id required for customer ledger export", { status: 400 });
 
       const customer = await prisma.customer.findUnique({
@@ -299,7 +300,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           currencySymbol: p.currency.symbol || p.currency.code,
           lotNumber: p.lot?.lotNumber || "",
         })),
-      ].sort((a, b) => a.date.getTime() - b.date.getTime());
+      ].filter((t) => ledgerType === "all" || t.type === ledgerType)
+        .sort((a, b) => a.date.getTime() - b.date.getTime());
 
       if (search.normalizedQuery) {
         transactions = transactions.filter((t) =>

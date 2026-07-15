@@ -138,9 +138,44 @@ test("city payment modal owns haji expense and withdrawal creation", () => {
   assert.match(paymentsPage, /paidFrom: "bank_account"/);
   assert.match(paymentsPage, /Withdrawn By \*/);
   assert.match(paymentsPage, /sourceType: "bank_account"/);
+  assert.match(paymentsPage, /key: "actions", label: t\("actions"\)/);
+  assert.match(paymentsPage, /item\.type === "expense" \? t\("edit_expense"\) : t\("edit"\)/);
   assert.doesNotMatch(dashboardPage, /\/haji-transfers\?create=1&embed=1/);
   assert.doesNotMatch(dashboardPage, /\/expenses\?create=1&embed=1/);
   assert.doesNotMatch(dashboardPage, /\/personal-withdrawals\?create=1&embed=1/);
+});
+
+test("payment modal haji quickform matches standalone haji creation flow", () => {
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+  const hajiQuickform = paymentsPage.match(/\{createType === "haji_transfer" && \([\s\S]*?\n\s*\{!isEmbed && \(/);
+
+  assert.ok(hajiQuickform, "payments modal haji quickform should exist");
+  assert.match(paymentsPage, /buildCityHajiTransferDetail/);
+  assert.match(paymentsPage, /isAfghanistanCity && !hajiDetail/);
+  assert.match(hajiQuickform![0], /From \*/);
+  assert.match(hajiQuickform![0], /Going to \*/);
+  assert.match(hajiQuickform![0], /Ref\. No\./);
+  assert.match(hajiQuickform![0], /Cash Amount/);
+  assert.match(hajiQuickform![0], /Slip total:/);
+  assert.match(hajiQuickform![0], /formatCurrencySelectLabel/);
+  assert.match(hajiQuickform![0], /\{isAfghanistanCity && \([\s\S]*\{t\("detail"\)\} \*/);
+});
+
+test("customer ledger supports transaction type filtering", () => {
+  const customerRoute = readFileSync("src/app/api/v1/customers/[id]/route.ts", "utf8");
+  const customersPage = readFileSync("src/app/(dashboard)/customers/page.tsx", "utf8");
+  const exportRoute = readFileSync("src/app/api/v1/reports/export/route.ts", "utf8");
+  const ledgerExport = readFileSync("src/lib/ledger-export.ts", "utf8");
+
+  assert.match(customerRoute, /searchParams\.get\("ledger_type"\)/);
+  assert.match(customerRoute, /ledgerType === "all" \|\| t\.type === ledgerType/);
+  assert.match(customersPage, /const \[ledgerTypeFilter, setLedgerTypeFilter\] = useState\("all"\)/);
+  assert.match(customersPage, /<option value="sale">Sale<\/option>/);
+  assert.match(customersPage, /<option value="payment">Receipt<\/option>/);
+  assert.match(customersPage, /ledgerType=\{ledgerTypeFilter\}/);
+  assert.match(exportRoute, /searchParams\.get\("ledger_type"\)/);
+  assert.match(ledgerExport, /ledgerType\?: string/);
+  assert.match(ledgerExport, /searchParams\.ledger_type = params\.ledgerType/);
 });
 
 test("GLM critical audit fixes remain wired", () => {
