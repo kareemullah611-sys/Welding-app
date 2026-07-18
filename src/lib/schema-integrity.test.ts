@@ -183,28 +183,23 @@ test("payment modal haji edit keeps source and date fields aligned", () => {
   assert.match(hajiUpdateRoute, /transferType: nextTransferType/);
 });
 
-test("haji transfers support manual party account destinations", () => {
+test("haji party account destination feature remains removed", () => {
+  const schema = readFileSync("prisma/schema.prisma", "utf8");
   const accounting = readFileSync("src/lib/accounting.ts", "utf8");
   const hajiRoute = readFileSync("src/app/api/v1/haji-transfers/route.ts", "utf8");
   const hajiUpdateRoute = readFileSync("src/app/api/v1/haji-transfers/[id]/route.ts", "utf8");
   const hajiPage = readFileSync("src/app/(dashboard)/haji-transfers/page.tsx", "utf8");
   const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
-  const migration = readFileSync("prisma/migrations/20260715130000_haji_party_account_destination/migration.sql", "utf8");
-  const checkMigration = readFileSync("prisma/migrations/20260715130500_haji_party_account_check/migration.sql", "utf8");
 
-  assert.match(migration, /ADD VALUE IF NOT EXISTS 'party_account'/);
-  assert.match(checkMigration, /NULLIF\(BTRIM\("transferred_to"\), ''\) IS NOT NULL/);
-  assert.match(accounting, /settlementDestination === "party_account"/);
-  assert.match(accounting, /getSuperAdminPartiesAccountId/);
-  assert.match(hajiRoute, /resolvePartyDestination/);
-  assert.match(hajiRoute, /Please enter party account name/);
-  assert.match(hajiUpdateRoute, /Please enter party account name/);
-  assert.match(hajiPage, /Party Account/);
-  assert.match(hajiPage, /Enter party\/account name/);
-  assert.match(paymentsPage, /Party Account/);
-  assert.match(paymentsPage, /Enter party\/account name/);
-  assert.doesNotMatch(hajiPage, /Select party account/);
-  assert.doesNotMatch(paymentsPage, /Select party account/);
+  for (const source of [schema, accounting, hajiRoute, hajiUpdateRoute, hajiPage, paymentsPage]) {
+    assert.doesNotMatch(source, /party_account/);
+    assert.doesNotMatch(source, /destinationParty/);
+    assert.doesNotMatch(source, /Party Account/);
+    assert.doesNotMatch(source, /Enter party\/account name/);
+  }
+  assert.doesNotMatch(accounting, /getSuperAdminPartiesAccountId/);
+  assert.doesNotMatch(hajiRoute, /resolvePartyDestination/);
+  assert.doesNotMatch(hajiUpdateRoute, /resolvePartyDestination/);
 });
 
 test("customer ledger supports transaction type filtering", () => {

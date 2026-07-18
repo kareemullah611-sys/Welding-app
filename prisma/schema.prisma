@@ -93,7 +93,6 @@ enum HajiSettlementDestination {
   standard
   intermediary
   super_admin_cash
-  party_account
 }
 
 enum SuperAdminAccountKind {
@@ -1025,11 +1024,6 @@ model HajiTransfer {
   intermediaryId        Int?                      @map("intermediary_id")
   superAdminCashAccountId Int?                    @map("super_admin_cash_account_id")
   superAdminBankAccountId Int?                    @map("super_admin_bank_account_id")
-  destinationPartyType    OpeningLiabilityType?   @map("destination_party_type")
-  destinationSupplierId   Int?                    @map("destination_supplier_id")
-  destinationShippingLineId Int?                  @map("destination_shipping_line_id")
-  destinationAgentId      Int?                    @map("destination_agent_id")
-  destinationIntermediaryId Int?                  @map("destination_intermediary_id")
   bankAccountId    Int?           @map("bank_account_id")
   chequePaymentId  Int?           @unique @map("cheque_payment_id")
   paymentId        Int?           @unique @map("payment_id")
@@ -1047,10 +1041,6 @@ model HajiTransfer {
   intermediary  Intermediary? @relation(fields: [intermediaryId], references: [id])
   superAdminCashAccount SuperAdminBankAccount? @relation("HajiSuperAdminCash", fields: [superAdminCashAccountId], references: [id])
   superAdminBankAccount SuperAdminBankAccount? @relation("HajiSuperAdminBank", fields: [superAdminBankAccountId], references: [id])
-  destinationSupplier Supplier? @relation("HajiDestinationSupplier", fields: [destinationSupplierId], references: [id], onDelete: Restrict)
-  destinationShippingLine ShippingLine? @relation("HajiDestinationShippingLine", fields: [destinationShippingLineId], references: [id], onDelete: Restrict)
-  destinationAgent Agent? @relation("HajiDestinationAgent", fields: [destinationAgentId], references: [id], onDelete: Restrict)
-  destinationIntermediary Intermediary? @relation("HajiDestinationIntermediary", fields: [destinationIntermediaryId], references: [id], onDelete: Restrict)
 
   withdrawalSource PersonalWithdrawal?
   attachments      Attachment[]
@@ -1062,11 +1052,6 @@ model HajiTransfer {
   @@index([intermediaryId])
   @@index([superAdminCashAccountId])
   @@index([superAdminBankAccountId])
-  @@index([destinationPartyType])
-  @@index([destinationSupplierId])
-  @@index([destinationShippingLineId])
-  @@index([destinationAgentId])
-  @@index([destinationIntermediaryId])
   @@map("haji_transfers")
 }
 
@@ -1313,7 +1298,6 @@ model Agent {
   agentPayments AgentPayment[]
   lotCosts      LotCost[]
   openingLiabilities OpeningLiability[]
-  hajiDestinationTransfers HajiTransfer[] @relation("HajiDestinationAgent")
 
   @@index([agentType])
   @@index([cityId])
@@ -1408,7 +1392,6 @@ model Supplier {
   supplierPayments SupplierPayment[]
   lotCosts         LotCost[]
   openingLiabilities OpeningLiability[]
-  hajiDestinationTransfers HajiTransfer[] @relation("HajiDestinationSupplier")
 
   @@map("suppliers")
 }
@@ -1543,7 +1526,6 @@ model ShippingLine {
   lotCosts LotCost[]
   payments ShippingLinePayment[]
   openingLiabilities OpeningLiability[]
-  hajiDestinationTransfers HajiTransfer[] @relation("HajiDestinationShippingLine")
 
   @@map("shipping_lines")
 }
@@ -1779,7 +1761,6 @@ model Intermediary {
   openingLiabilities   OpeningLiability[]
   hajiTransfers        HajiTransfer[]
   hajiCashReceipts     HajiCashReceipt[]
-  hajiDestinationTransfers HajiTransfer[] @relation("HajiDestinationIntermediary")
 
   @@map("intermediaries")
 }

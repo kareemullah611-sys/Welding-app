@@ -34,9 +34,6 @@ function mapTransferRow(t: any, auditById: Record<number, any>) {
     intermediaryId: t.intermediaryId ?? null,
     superAdminCashAccountId: t.superAdminCashAccountId ?? null,
     superAdminBankAccountId: t.superAdminBankAccountId ?? null,
-    destinationPartyType: t.destinationPartyType ?? null,
-    destinationPartyId: t.destinationSupplierId ?? t.destinationShippingLineId ?? t.destinationAgentId ?? t.destinationIntermediaryId ?? null,
-    destinationPartyName: t.destinationSupplier?.name ?? t.destinationShippingLine?.name ?? t.destinationAgent?.name ?? t.destinationIntermediary?.name ?? null,
     bankAccountId: t.bankAccountId ?? null,
     chequePaymentId: t.chequePaymentId ?? null,
     destinationAccount: t.superAdminBankAccount || t.superAdminCashAccount || null,
@@ -54,12 +51,6 @@ function mapTransferRow(t: any, auditById: Record<number, any>) {
 }
 
 function journalInputFromTransfer(transfer: any, createdBy: number) {
-  const destinationPartyId =
-    transfer.destinationSupplierId ??
-    transfer.destinationShippingLineId ??
-    transfer.destinationAgentId ??
-    transfer.destinationIntermediaryId ??
-    null;
   return {
     id: transfer.id,
     cityId: transfer.cityId,
@@ -74,30 +65,6 @@ function journalInputFromTransfer(transfer: any, createdBy: number) {
     intermediaryId: transfer.intermediaryId ?? null,
     superAdminCashAccountId: transfer.superAdminCashAccountId ?? null,
     superAdminBankAccountId: transfer.superAdminBankAccountId ?? null,
-    destinationPartyType: transfer.destinationPartyType ?? null,
-    destinationPartyId,
-  };
-}
-
-async function resolvePartyDestination(body: any) {
-  if (body.settlementDestination !== "party_account") return null;
-  const partyName = typeof body.transferredTo === "string" ? body.transferredTo.trim() : "";
-  if (!partyName) return { ok: false as const, message: "Please enter party account name" };
-
-  return {
-    ok: true as const,
-    partyName,
-    data: {
-      settlementDestination: "party_account" as const,
-      destinationPartyType: null,
-      destinationSupplierId: null,
-      destinationShippingLineId: null,
-      destinationAgentId: null,
-      destinationIntermediaryId: null,
-      intermediaryId: null,
-      superAdminCashAccountId: null,
-      superAdminBankAccountId: null,
-    },
   };
 }
 
@@ -190,10 +157,6 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           },
           superAdminBankAccount: { select: { bankName: true, accountNumber: true } },
           superAdminCashAccount: { select: { bankName: true, accountNumber: true } },
-          destinationSupplier: { select: { id: true, name: true } },
-          destinationShippingLine: { select: { id: true, name: true } },
-          destinationAgent: { select: { id: true, name: true } },
-          destinationIntermediary: { select: { id: true, name: true } },
           attachments: { select: { id: true, fileName: true, filePath: true, fileType: true } },
         },
         orderBy: { transferDate: "desc" },
@@ -334,14 +297,10 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       const cashAmount = Number(body.cashAmount || 0);
       const currencyId = body.currencyId ? parseInt(body.currencyId) : undefined;
       const lotIdInput = body.lotId ? parseInt(body.lotId) : undefined;
-      const partyDestination = await resolvePartyDestination(body);
-      if (partyDestination && !partyDestination.ok) return errorResponse("VALIDATION_ERROR", partyDestination.message);
-      const pakistanDestination = partyDestination?.ok
-        ? partyDestination.data
-        : shouldUseSuperAdminTarget
+      const pakistanDestination = shouldUseSuperAdminTarget
         ? await resolvePakistanDestinationAccount(body.superAdminDestinationAccountId, transferredTo)
         : {};
-      const resolvedTransferredTo = partyDestination?.ok ? partyDestination.partyName : transferredTo;
+      const resolvedTransferredTo = transferredTo;
       const chequePaymentIds: number[] = Array.isArray(body.chequePaymentIds)
         ? Array.from(new Set(body.chequePaymentIds.map((id: any) => parseInt(id)).filter((id: number) => Number.isFinite(id) && id > 0))) as number[]
         : [];
@@ -510,8 +469,6 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           transferType: transfer.transferType,
           sourceType: transfer.sourceType ?? null,
           settlementDestination: transfer.settlementDestination ?? "standard",
-          destinationPartyType: transfer.destinationPartyType ?? null,
-          destinationPartyId: transfer.destinationSupplierId ?? transfer.destinationShippingLineId ?? transfer.destinationAgentId ?? transfer.destinationIntermediaryId ?? null,
           bankAccountId: transfer.bankAccountId ?? null,
           chequePaymentId: transfer.chequePaymentId ?? null,
           currency: { id: transfer.currency.id, code: transfer.currency.code, symbol: transfer.currency.symbol },
@@ -573,31 +530,12 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported");
     const resolvedCurrencyId = currencyId ?? cityCurrency.currencyId;
 
-    let settlementDestination: "standard" | "intermediary" | "super_admin_cash" | "party_account" = "standard";
+    let settlementDestination: "standard" | "intermediary" | "super_admin_cash" = "standard";
     let intermediaryId: number | null = null;
     let superAdminCashAccountId: number | null = null;
     let superAdminBankAccountId: number | null = null;
-    let destinationPartyType: string | null = null;
-    let destinationSupplierId: number | null = null;
-    let destinationShippingLineId: number | null = null;
-    let destinationAgentId: number | null = null;
-    let destinationIntermediaryId: number | null = null;
 
-    const partyDestination = await resolvePartyDestination(body);
-    if (partyDestination && !partyDestination.ok) return errorResponse("VALIDATION_ERROR", partyDestination.message);
-
-    if (partyDestination?.ok) {
-      settlementDestination = "party_account";
-      transferredTo = partyDestination.partyName;
-      destinationPartyType = partyDestination.data.destinationPartyType;
-      destinationSupplierId = partyDestination.data.destinationSupplierId;
-      destinationShippingLineId = partyDestination.data.destinationShippingLineId;
-      destinationAgentId = partyDestination.data.destinationAgentId;
-      destinationIntermediaryId = partyDestination.data.destinationIntermediaryId;
-      intermediaryId = null;
-      superAdminCashAccountId = null;
-      superAdminBankAccountId = null;
-    } else if (shouldUseSuperAdminTarget) {
+    if (shouldUseSuperAdminTarget) {
       const pakistanDestination = await resolvePakistanDestinationAccount(
         body.superAdminDestinationAccountId,
         transferredTo,
@@ -611,7 +549,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       }
     }
 
-    if (isAfghanistanCity && !partyDestination?.ok) {
+    if (isAfghanistanCity) {
       sourceType = "cash_office";
       transferType = "from_in_hand";
       const settlement = await resolveAfghanistanSettlement(prisma, {
@@ -652,11 +590,6 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           intermediaryId,
           superAdminCashAccountId,
           superAdminBankAccountId,
-          destinationPartyType,
-          destinationSupplierId,
-          destinationShippingLineId,
-          destinationAgentId,
-          destinationIntermediaryId,
           ...(sourceType !== undefined ? { sourceType } : {}),
           ...(bankAccountId !== undefined ? { bankAccountId } : {}),
           ...(chequePaymentId !== undefined ? { chequePaymentId } : {}),
@@ -688,8 +621,6 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       amount: Number(transfer.amount), detail: transfer.detail, transferType: transfer.transferType,
       sourceType: transfer.sourceType ?? null,
       settlementDestination: transfer.settlementDestination ?? "standard",
-      destinationPartyType: transfer.destinationPartyType ?? null,
-      destinationPartyId: transfer.destinationSupplierId ?? transfer.destinationShippingLineId ?? transfer.destinationAgentId ?? transfer.destinationIntermediaryId ?? null,
       bankAccountId: transfer.bankAccountId ?? null,
       chequePaymentId: transfer.chequePaymentId ?? null,
       currency: { id: transfer.currency.id, code: transfer.currency.code, symbol: transfer.currency.symbol },

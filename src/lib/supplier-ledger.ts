@@ -25,7 +25,7 @@ export type SupplierRunningLedgerRow = {
   debitUsd: number;
   creditUsd: number;
   balanceUsd: number;
-  sourceType: "purchase" | "payment" | "haji_party_deposit";
+  sourceType: "purchase" | "payment";
   sourceId: number;
 };
 
@@ -41,7 +41,6 @@ function num(v: unknown) {
 export function buildSupplierStatement(supplier: {
   lotPurchases?: any[];
   supplierPayments?: any[];
-  hajiDestinationTransfers?: any[];
 }): { rows: SupplierLotStatementRow[]; nextLotToPay: SupplierLotStatementRow | null } {
   const byLot = new Map<
     number,
@@ -85,22 +84,15 @@ export function buildSupplierStatement(supplier: {
 
   const rowsInternal = Array.from(byLot.values()).sort((a, b) => a.lotDate.getTime() - b.lotDate.getTime());
 
-  const sortedPayments = [
-    ...(supplier.supplierPayments || []).map((payment) => ({
+  const sortedPayments = (supplier.supplierPayments || [])
+    .map((payment) => ({
       id: payment.id,
       paymentDate: payment.paymentDate,
       amountUsd: payment.amountUsd,
       lotId: payment.lotId,
       reference: payment.reference,
-    })),
-    ...(supplier.hajiDestinationTransfers || []).map((transfer) => ({
-      id: transfer.id,
-      paymentDate: transfer.transferDate,
-      amountUsd: transfer.amount,
-      lotId: transfer.lotId,
-      reference: transfer.referenceNo,
-    })),
-  ].sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime());
+    }))
+    .sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime());
 
   for (const payment of sortedPayments) {
     let remaining = num(payment.amountUsd);
@@ -156,7 +148,6 @@ export function buildSupplierStatement(supplier: {
 export function buildSupplierRunningLedger(supplier: {
   lotPurchases?: any[];
   supplierPayments?: any[];
-  hajiDestinationTransfers?: any[];
 }): SupplierRunningLedgerRow[] {
   const lotDebits = new Map<number, { date: Date; lotNumber: string; amountUsd: number }>();
 
@@ -196,17 +187,6 @@ export function buildSupplierRunningLedger(supplier: {
       creditUsd: round2(num(p.amountUsd)),
       sourceType: "payment",
       sourceId: Number(p.id),
-    });
-  }
-
-  for (const h of supplier.hajiDestinationTransfers || []) {
-    entries.push({
-      date: new Date(h.transferDate).toISOString().split("T")[0],
-      particulars: `Haji party deposit${h.lot?.lotNumber ? ` — Lot ${h.lot.lotNumber}` : ""}${h.referenceNo ? ` (${h.referenceNo})` : ""}`,
-      debitUsd: 0,
-      creditUsd: round2(num(h.amount)),
-      sourceType: "haji_party_deposit",
-      sourceId: Number(h.id),
     });
   }
 

@@ -11,7 +11,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, _us
     const sl = await prisma.shippingLine.findUnique({ where: { id } });
     if (!sl) return errorResponse("NOT_FOUND", "Shipping line not found", 404);
 
-    const [costs, payments, hajiPayments] = await Promise.all([
+    const [costs, payments] = await Promise.all([
       prisma.lotCost.findMany({
         where: { shippingLineId: id },
         include: { lot: { select: { id: true, lotNumber: true } } },
@@ -21,11 +21,6 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, _us
         where: { shippingLineId: id },
         include: { lot: { select: { id: true, lotNumber: true } } },
         orderBy: { paymentDate: "desc" },
-      }),
-      prisma.hajiTransfer.findMany({
-        where: { destinationShippingLineId: id, settlementDestination: "party_account" },
-        include: { lot: { select: { id: true, lotNumber: true } } },
-        orderBy: { transferDate: "desc" },
       }),
     ]);
 
@@ -37,7 +32,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, _us
       acc[currencyCode] = Math.round(((acc[currencyCode] || 0) + Number(cost.amount)) * 100) / 100;
       return acc;
     }, {});
-    const totalPaidUsd = payments.reduce((s, p) => s + Number(p.amountUsd), 0) + hajiPayments.reduce((s, p) => s + Number(p.amount), 0);
+    const totalPaidUsd = payments.reduce((s, p) => s + Number(p.amountUsd), 0);
     const totalPaidPkr = payments.reduce((s, p) => s + Number(p.amountPkr || 0), 0);
 
     return successResponse({
@@ -64,14 +59,6 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, _us
         exchangeRate: p.exchangeRate ? Number(p.exchangeRate) : null,
         amountPkr: p.amountPkr ? Number(p.amountPkr) : null,
         reference: p.reference, notes: p.notes,
-        })),
-        ...hajiPayments.map(h => ({
-          id: `haji-${h.id}`, lotNumber: h.lot?.lotNumber || null, lotId: h.lotId,
-          paymentDate: h.transferDate.toISOString().split("T")[0],
-          amountUsd: Number(h.amount),
-          exchangeRate: null,
-          amountPkr: null,
-          reference: h.referenceNo, notes: h.notes || "Haji party deposit",
         })),
       ],
     });
