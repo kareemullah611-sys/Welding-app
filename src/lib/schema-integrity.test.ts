@@ -174,7 +174,7 @@ test("payment modal haji edit keeps source and date fields aligned", () => {
   assert.match(paymentsPage, /No cheque details available for this transfer/);
   assert.match(paymentsPage, /<option value="cash_office">Cash<\/option>/);
   assert.match(paymentsPage, /<option value="bank_transfer">Online<\/option>/);
-  assert.match(paymentsPage, /<option value="super_admin_account">Superadmin Account<\/option>/);
+  assert.match(paymentsPage, /Superadmin Account \*/);
   assert.match(paymentsPage, /Superadmin Account \*/);
   assert.match(paymentsPage, /superAdminDestinationAccountId: nextId/);
   assert.match(paymentsPage, /transferredTo: account \? formatSuperAdminBankLabel\(account\) : f\.transferredTo/);

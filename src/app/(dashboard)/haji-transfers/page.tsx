@@ -1120,26 +1120,9 @@ export default function HajiTransfersPage() {
         <div className="space-y-3">
           {isAfghanistanCity ? (
             <>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("date")} *</label>
-                  <MobileDateInput value={form.transferDate} onChange={(transferDate) => setForm((f: any) => ({ ...f, transferDate }))} placeholder={t("date")} />
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">Destination *</label>
-                  <select
-                    value="haji_account"
-                    onChange={(e) => setForm((f: any) => ({
-                      ...f,
-                      settlementDestination: "intermediary",
-                      intermediaryId: 0,
-                      superAdminCashAccountId: 0,
-                    }))}
-                    className="select-field"
-                  >
-                    <option value="haji_account">Superadmin/Haji Account</option>
-                  </select>
-                </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">{t("date")} *</label>
+                <MobileDateInput value={form.transferDate} onChange={(transferDate) => setForm((f: any) => ({ ...f, transferDate }))} placeholder={t("date")} />
               </div>
               {renderGoingToSelect()}
               <div>
@@ -1275,23 +1258,6 @@ export default function HajiTransfersPage() {
                   ))}
                 </select>
               )}
-            </div>
-          )}
-
-          {shouldUseSuperAdminTarget && (
-            <div className="min-w-0">
-              <label className="mb-1 block text-sm font-medium text-gray-700">Destination *</label>
-              <select
-                value="super_admin_account"
-                onChange={(e) => setForm((f: any) => ({
-                  ...f,
-                  settlementDestination: "standard",
-                  superAdminDestinationAccountId: 0,
-                }))}
-                className="select-field"
-              >
-                <option value="super_admin_account">Superadmin Account</option>
-              </select>
             </div>
           )}
 

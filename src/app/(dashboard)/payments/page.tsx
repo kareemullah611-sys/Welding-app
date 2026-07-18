@@ -2326,39 +2326,6 @@ export default function PaymentsPage() {
               )}
               {isAfghanistanCity && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Destination *</label>
-                  <select
-                    value="haji_account"
-                    onChange={(e) => setForm((f: any) => ({
-                      ...f,
-                      settlementDestination: "intermediary",
-                      intermediaryId: 0,
-                      superAdminCashAccountId: 0,
-                    }))}
-                    className="select-field"
-                  >
-                    <option value="haji_account">Superadmin/Haji Account</option>
-                  </select>
-                </div>
-              )}
-              {!isAfghanistanCity && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Destination *</label>
-                  <select
-                    value="super_admin_account"
-                    onChange={(e) => setForm((f: any) => ({
-                      ...f,
-                      settlementDestination: "standard",
-                      superAdminDestinationAccountId: 0,
-                    }))}
-                    className="select-field"
-                  >
-                    <option value="super_admin_account">Superadmin Account</option>
-                  </select>
-                </div>
-              )}
-              {isAfghanistanCity && (
-                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Going to *</label>
                   {settlementOptionsLoading ? (
                     <div className="select-field text-sm text-gray-500">Loading…</div>
@@ -2887,39 +2854,6 @@ export default function PaymentsPage() {
                           <option value="cheque">Cheque</option>
                           <option value="mixed_cash_cheque">Cash + Cheques</option>
                           <option value="bank_transfer">Online</option>
-                        </select>
-                      </div>
-                    )}
-                    {isAfghanistanCity && (
-                      <div className="min-w-0">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Destination *</label>
-                        <select
-                          value="haji_account"
-                          onChange={(e) => setForm((f: any) => ({
-                            ...f,
-                            settlementDestination: "intermediary",
-                            intermediaryId: 0,
-                            superAdminCashAccountId: 0,
-                          }))}
-                          className="select-field"
-                        >
-                          <option value="haji_account">Superadmin/Haji Account</option>
-                        </select>
-                      </div>
-                    )}
-                    {!isAfghanistanCity && (
-                      <div className="min-w-0">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Destination *</label>
-                        <select
-                          value="super_admin_account"
-                          onChange={(e) => setForm((f: any) => ({
-                            ...f,
-                            settlementDestination: "standard",
-                            superAdminDestinationAccountId: 0,
-                          }))}
-                          className="select-field"
-                        >
-                          <option value="super_admin_account">Superadmin Account</option>
                         </select>
                       </div>
                     )}
