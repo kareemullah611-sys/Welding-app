@@ -43,6 +43,10 @@ export async function getSuperAdminCashGLAccountId(cashAccountId: number, db: Db
   return getOrCreateAccount(`1051-SACASH${cashAccountId}`, `Super Admin Cash - ${label}`, "asset", undefined, db);
 }
 
+export async function getSuperAdminPartiesAccountId(db: DbClient = prisma): Promise<number> {
+  return getOrCreateAccount("1052-SAPARTIES", "Super Admin Parties", "asset", undefined, db);
+}
+
 export async function getCustomerAccountId(customerId: number, db: DbClient = prisma): Promise<number> {
   const customer = await db.customer.findUnique({ where: { id: customerId }, select: { name: true } });
   return getOrCreateAccount(`1200-C${customerId}`, `AR - ${customer?.name || customerId}`, "asset", undefined, db);
@@ -75,6 +79,17 @@ export async function getAgentAccountId(agentId: number, db: DbClient = prisma):
 export async function getShippingLineAccountId(shippingLineId: number, db: DbClient = prisma): Promise<number> {
   const sl = await db.shippingLine.findUnique({ where: { id: shippingLineId }, select: { name: true } });
   return getOrCreateAccount(`2300-SL${shippingLineId}`, `Payable - ${sl?.name || shippingLineId}`, "liability", undefined, db);
+}
+
+export async function getPayablePartyAccountId(
+  partyType: string,
+  partyId: number,
+  db: DbClient = prisma
+): Promise<number> {
+  if (partyType === "supplier") return getSupplierAccountId(partyId, db);
+  if (partyType === "shipping_line") return getShippingLineAccountId(partyId, db);
+  if (partyType === "agent") return getAgentAccountId(partyId, db);
+  return getIntermediaryAccountId(partyId, db);
 }
 
 export async function getInventoryAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("1100", "Inventory", "asset", undefined, db); }
@@ -405,6 +420,8 @@ export async function journalHajiTransfer(h: {
   intermediaryId?: number | null;
   superAdminCashAccountId?: number | null;
   superAdminBankAccountId?: number | null;
+  destinationPartyType?: string | null;
+  destinationPartyId?: number | null;
 }, db: DbClient = prisma) {
   let creditAccId: number;
   if (h.sourceType === "cheque") {
@@ -416,7 +433,9 @@ export async function journalHajiTransfer(h: {
   }
 
   let debitAccId: number;
-  if (h.settlementDestination === "intermediary" && h.intermediaryId) {
+  if (h.settlementDestination === "party_account") {
+    debitAccId = await getSuperAdminPartiesAccountId(db);
+  } else if (h.settlementDestination === "intermediary" && h.intermediaryId) {
     debitAccId = await getIntermediaryAccountId(h.intermediaryId, db);
   } else if (h.settlementDestination === "super_admin_cash" && h.superAdminCashAccountId) {
     debitAccId = await getSuperAdminCashGLAccountId(h.superAdminCashAccountId, db);

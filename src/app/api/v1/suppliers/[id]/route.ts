@@ -26,12 +26,19 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, use
           },
           orderBy: { paymentDate: "desc" },
         },
+        hajiDestinationTransfers: {
+          include: {
+            lot: { select: { id: true, lotNumber: true } },
+          },
+          orderBy: { transferDate: "desc" },
+        },
       },
     });
     if (!supplier) return errorResponse("NOT_FOUND", "Supplier not found", 404);
 
     const totalPurchasedUsd = supplier.lotPurchases.reduce((s, p) => s + Number(p.totalPriceUsd), 0);
-    const totalPaidUsd = supplier.supplierPayments.reduce((s, p) => s + Number(p.amountUsd), 0);
+    const totalHajiPartyDepositsUsd = supplier.hajiDestinationTransfers.reduce((s, p) => s + Number(p.amount), 0);
+    const totalPaidUsd = supplier.supplierPayments.reduce((s, p) => s + Number(p.amountUsd), 0) + totalHajiPartyDepositsUsd;
     const balanceOwed = totalPurchasedUsd - totalPaidUsd;
     const { rows: statement, nextLotToPay } = buildSupplierStatement(supplier);
     const runningLedger = buildSupplierRunningLedger(supplier);
@@ -60,6 +67,15 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, use
           : null,
         intermediaryName: p.intermediary?.name || null,
         notes: p.notes || "",
+      })),
+      hajiPartyDeposits: supplier.hajiDestinationTransfers.map((h) => ({
+        id: h.id,
+        lotNumber: h.lot?.lotNumber || "General",
+        lotId: h.lotId || null,
+        paymentDate: h.transferDate.toISOString().split("T")[0],
+        amountUsd: Number(h.amount),
+        reference: h.referenceNo,
+        notes: h.notes || "",
       })),
       ledger: runningLedger,
       runningLedger,

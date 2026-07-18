@@ -161,6 +161,52 @@ test("payment modal haji quickform matches standalone haji creation flow", () =>
   assert.match(hajiQuickform![0], /\{isAfghanistanCity && \([\s\S]*\{t\("detail"\)\} \*/);
 });
 
+test("payment modal haji edit keeps source and date fields aligned", () => {
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+  const hajiUpdateRoute = readFileSync("src/app/api/v1/haji-transfers/[id]/route.ts", "utf8");
+  const financeCombinedRoute = readFileSync("src/app/api/v1/finance/combined/route.ts", "utf8");
+
+  assert.match(paymentsPage, /transferDate: item\.date \|\| \(raw\.transferDate \? String\(raw\.transferDate\)\.slice\(0, 10\) : ""\)/);
+  assert.match(paymentsPage, /sourceType: raw\.sourceType \|\| \(raw\.transferType === "direct" \? "bank_transfer" : "cash_office"\)/);
+  assert.match(financeCombinedRoute, /chequePayment: \{\s+select:/);
+  assert.match(paymentsPage, /existingHajiCheques: raw\.chequePayment \? \[raw\.chequePayment\] : \[\]/);
+  assert.match(paymentsPage, /const hajiChequeOptions = \[/);
+  assert.match(paymentsPage, /No cheque details available for this transfer/);
+  assert.match(paymentsPage, /<option value="cash_office">Cash<\/option>/);
+  assert.match(paymentsPage, /<option value="bank_transfer">Online<\/option>/);
+  assert.match(paymentsPage, /<option value="super_admin_account">Superadmin Account<\/option>/);
+  assert.match(paymentsPage, /Superadmin Account \*/);
+  assert.match(paymentsPage, /superAdminDestinationAccountId: nextId/);
+  assert.match(paymentsPage, /transferredTo: account \? formatSuperAdminBankLabel\(account\) : f\.transferredTo/);
+  assert.doesNotMatch(paymentsPage, /<option value="from_in_hand">\{t\("from_in_hand"\)\}<\/option><option value="direct">\{t\("direct_transfer"\)\}<\/option>/);
+  assert.match(hajiUpdateRoute, /const nextTransferType = nextSourceType === "bank_transfer" \? "direct" : "from_in_hand"/);
+  assert.match(hajiUpdateRoute, /transferType: nextTransferType/);
+});
+
+test("haji transfers support manual party account destinations", () => {
+  const accounting = readFileSync("src/lib/accounting.ts", "utf8");
+  const hajiRoute = readFileSync("src/app/api/v1/haji-transfers/route.ts", "utf8");
+  const hajiUpdateRoute = readFileSync("src/app/api/v1/haji-transfers/[id]/route.ts", "utf8");
+  const hajiPage = readFileSync("src/app/(dashboard)/haji-transfers/page.tsx", "utf8");
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+  const migration = readFileSync("prisma/migrations/20260715130000_haji_party_account_destination/migration.sql", "utf8");
+  const checkMigration = readFileSync("prisma/migrations/20260715130500_haji_party_account_check/migration.sql", "utf8");
+
+  assert.match(migration, /ADD VALUE IF NOT EXISTS 'party_account'/);
+  assert.match(checkMigration, /NULLIF\(BTRIM\("transferred_to"\), ''\) IS NOT NULL/);
+  assert.match(accounting, /settlementDestination === "party_account"/);
+  assert.match(accounting, /getSuperAdminPartiesAccountId/);
+  assert.match(hajiRoute, /resolvePartyDestination/);
+  assert.match(hajiRoute, /Please enter party account name/);
+  assert.match(hajiUpdateRoute, /Please enter party account name/);
+  assert.match(hajiPage, /Party Account/);
+  assert.match(hajiPage, /Enter party\/account name/);
+  assert.match(paymentsPage, /Party Account/);
+  assert.match(paymentsPage, /Enter party\/account name/);
+  assert.doesNotMatch(hajiPage, /Select party account/);
+  assert.doesNotMatch(paymentsPage, /Select party account/);
+});
+
 test("customer ledger supports transaction type filtering", () => {
   const customerRoute = readFileSync("src/app/api/v1/customers/[id]/route.ts", "utf8");
   const customersPage = readFileSync("src/app/(dashboard)/customers/page.tsx", "utf8");

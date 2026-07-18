@@ -219,6 +219,21 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           currency: { select: { id: true, code: true, symbol: true } },
           lot: { select: { id: true, lotNumber: true } },
           city: { select: { id: true, name: true } },
+          destinationSupplier: { select: { id: true, name: true } },
+          destinationShippingLine: { select: { id: true, name: true } },
+          destinationAgent: { select: { id: true, name: true } },
+          destinationIntermediary: { select: { id: true, name: true } },
+          chequePayment: {
+            select: {
+              id: true,
+              amount: true,
+              manualVoucherNo: true,
+              chequeNumber: true,
+              chequeStatus: true,
+              customer: { select: { id: true, name: true } },
+              currency: { select: { id: true, code: true, symbol: true } },
+            },
+          },
         },
         orderBy: [{ transferDate: "desc" }, { id: "desc" }],
       });
@@ -238,6 +253,8 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           amount: Number(h.amount),
           lotNumber: h.lot?.lotNumber ?? null,
           referenceNo: h.referenceNo ?? null,
+          destinationPartyId: h.destinationSupplierId ?? h.destinationShippingLineId ?? h.destinationAgentId ?? h.destinationIntermediaryId ?? null,
+          destinationPartyName: h.destinationSupplier?.name ?? h.destinationShippingLine?.name ?? h.destinationAgent?.name ?? h.destinationIntermediary?.name ?? null,
           attachments: (h as any).attachments ?? [],
         },
       })));

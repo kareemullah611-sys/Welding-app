@@ -7,13 +7,22 @@ import { JWTPayload } from "@/lib/auth";
 export const GET = withSuperAdmin(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
     const id = parseInt(context.params.id);
-    const agent = await prisma.agent.findUnique({ where: { id }, include: { city: true, lotCosts: { where: { paidFromCash: false }, include: { lot: { select: { lotNumber: true } } }, orderBy: { createdAt: "desc" } }, agentPayments: { orderBy: { paymentDate: "desc" } } } });
+    const agent = await prisma.agent.findUnique({
+      where: { id },
+      include: {
+        city: true,
+        lotCosts: { where: { paidFromCash: false }, include: { lot: { select: { lotNumber: true } } }, orderBy: { createdAt: "desc" } },
+        agentPayments: { orderBy: { paymentDate: "desc" } },
+        hajiDestinationTransfers: { include: { lot: { select: { lotNumber: true } }, currency: { select: { code: true } } }, orderBy: { transferDate: "desc" } },
+      },
+    });
     if (!agent) return errorResponse("NOT_FOUND", "Agent not found", 404);
 
     // Build ledger
     const entries: any[] = [];
     for (const c of agent.lotCosts) { entries.push({ date: c.costDate || c.createdAt, type: "charge", description: `${c.costType}: ${c.description} (Lot ${c.lot.lotNumber})`, debit: Number(c.amount), credit: 0, currency: c.currencyCode }); }
     for (const p of agent.agentPayments) { entries.push({ date: p.paymentDate, type: "payment", description: `Payment ${p.paymentMethod} ${p.reference || ""}`, debit: 0, credit: Number(p.amount), currency: p.currencyCode }); }
+    for (const h of agent.hajiDestinationTransfers) { entries.push({ date: h.transferDate, type: "haji_party_deposit", description: `Haji party deposit${h.lot?.lotNumber ? ` (Lot ${h.lot.lotNumber})` : ""}${h.referenceNo ? ` ${h.referenceNo}` : ""}`, debit: 0, credit: Number(h.amount), currency: h.currency.code }); }
     entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     // Per-currency running balances
     const currencyBalances: Record<string, number> = {};

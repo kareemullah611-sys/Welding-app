@@ -16,6 +16,12 @@ import {
 } from "@/lib/pakistan-haji-destination";
 
 function journalInputFromTransfer(transfer: any, createdBy: number) {
+  const destinationPartyId =
+    transfer.destinationSupplierId ??
+    transfer.destinationShippingLineId ??
+    transfer.destinationAgentId ??
+    transfer.destinationIntermediaryId ??
+    null;
   return {
     id: transfer.id,
     cityId: transfer.cityId,
@@ -30,6 +36,26 @@ function journalInputFromTransfer(transfer: any, createdBy: number) {
     intermediaryId: transfer.intermediaryId ?? null,
     superAdminCashAccountId: transfer.superAdminCashAccountId ?? null,
     superAdminBankAccountId: transfer.superAdminBankAccountId ?? null,
+    destinationPartyType: transfer.destinationPartyType ?? null,
+    destinationPartyId,
+  };
+}
+
+async function resolvePartyDestination(body: any) {
+  if (body.settlementDestination !== "party_account") return null;
+  const partyName = typeof body.transferredTo === "string" ? body.transferredTo.trim() : "";
+  if (!partyName) return { ok: false as const, message: "Please enter party account name" };
+
+  return {
+    ok: true as const,
+    partyName,
+    data: {
+      destinationPartyType: null,
+      destinationSupplierId: null,
+      destinationShippingLineId: null,
+      destinationAgentId: null,
+      destinationIntermediaryId: null,
+    },
   };
 }
 
@@ -104,6 +130,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     const nextTransferDate = body.transferDate ? new Date(body.transferDate) : h.transferDate;
     if (Number.isNaN(nextTransferDate.getTime())) return errorResponse("VALIDATION_ERROR", "Invalid transfer date");
     const nextSourceType = body.sourceType ?? ((h as any).sourceType ?? "cash_office");
+    const nextTransferType = nextSourceType === "bank_transfer" ? "direct" : "from_in_hand";
     const nextBankAccountId = nextSourceType === "bank_transfer"
       ? (body.bankAccountId ? parseInt(body.bankAccountId) : ((h as any).bankAccountId ?? null))
       : null;
@@ -129,8 +156,27 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     let intermediaryId = h.intermediaryId;
     let superAdminCashAccountId = h.superAdminCashAccountId;
     let superAdminBankAccountId = h.superAdminBankAccountId;
+    let destinationPartyType = (h as any).destinationPartyType ?? null;
+    let destinationSupplierId = (h as any).destinationSupplierId ?? null;
+    let destinationShippingLineId = (h as any).destinationShippingLineId ?? null;
+    let destinationAgentId = (h as any).destinationAgentId ?? null;
+    let destinationIntermediaryId = (h as any).destinationIntermediaryId ?? null;
 
-    if (isPakistan) {
+    const partyDestination = await resolvePartyDestination(body);
+    if (partyDestination && !partyDestination.ok) return errorResponse("VALIDATION_ERROR", partyDestination.message);
+
+    if (partyDestination?.ok) {
+      settlementDestination = "party_account" as any;
+      transferredTo = partyDestination.partyName;
+      intermediaryId = null;
+      superAdminCashAccountId = null;
+      superAdminBankAccountId = null;
+      destinationPartyType = partyDestination.data.destinationPartyType as any;
+      destinationSupplierId = partyDestination.data.destinationSupplierId;
+      destinationShippingLineId = partyDestination.data.destinationShippingLineId;
+      destinationAgentId = partyDestination.data.destinationAgentId;
+      destinationIntermediaryId = partyDestination.data.destinationIntermediaryId;
+    } else if (isPakistan) {
       const hasDestinationUpdate =
         body.superAdminDestinationAccountId != null
         || body.transferredTo !== undefined;
@@ -143,10 +189,20 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           settlementDestination = "super_admin_cash";
           superAdminCashAccountId = pakistanDestination.superAdminCashAccountId ?? null;
           superAdminBankAccountId = null;
+          destinationPartyType = null;
+          destinationSupplierId = null;
+          destinationShippingLineId = null;
+          destinationAgentId = null;
+          destinationIntermediaryId = null;
         } else if (pakistanDestination.superAdminBankAccountId) {
           settlementDestination = "standard";
           superAdminBankAccountId = pakistanDestination.superAdminBankAccountId;
           superAdminCashAccountId = null;
+          destinationPartyType = null;
+          destinationSupplierId = null;
+          destinationShippingLineId = null;
+          destinationAgentId = null;
+          destinationIntermediaryId = null;
         }
         transferredTo = await transferredToLabelForPakistanDestination(
           pakistanDestination,
@@ -157,7 +213,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       }
     }
 
-    if (isAfghanistan) {
+    if (isAfghanistan && !partyDestination?.ok) {
       const settlement = await resolveAfghanistanSettlement(prisma, {
         settlementDestination: body.settlementDestination ?? h.settlementDestination,
         intermediaryId: body.intermediaryId ?? h.intermediaryId,
@@ -169,6 +225,11 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       intermediaryId = settlement.data.intermediaryId;
       superAdminCashAccountId = settlement.data.superAdminCashAccountId;
       transferredTo = settlement.data.transferredTo;
+      destinationPartyType = null;
+      destinationSupplierId = null;
+      destinationShippingLineId = null;
+      destinationAgentId = null;
+      destinationIntermediaryId = null;
     }
 
     await prisma.$transaction(async (tx) => {
@@ -194,6 +255,12 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           intermediaryId,
           superAdminCashAccountId,
           superAdminBankAccountId,
+          destinationPartyType,
+          destinationSupplierId,
+          destinationShippingLineId,
+          destinationAgentId,
+          destinationIntermediaryId,
+          transferType: nextTransferType,
           sourceType: nextSourceType,
           bankAccountId: nextBankAccountId,
           notes: body.notes !== undefined ? body.notes : h.notes,

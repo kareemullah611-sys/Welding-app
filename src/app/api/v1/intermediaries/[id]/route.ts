@@ -37,8 +37,10 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, _us
   const wherePayments: Record<string, unknown> = { intermediaryId: id };
   const whereExchanges: Record<string, unknown> = { intermediaryId: id, isActive: true };
   const whereHajiTransfers: Record<string, unknown> = {
-    intermediaryId: id,
-    settlementDestination: "intermediary",
+    OR: [
+      { intermediaryId: id, settlementDestination: "intermediary" },
+      { destinationIntermediaryId: id, settlementDestination: "party_account" },
+    ],
   };
   const whereHajiCashReceipts: Record<string, unknown> = { intermediaryId: id };
 

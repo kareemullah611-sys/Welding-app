@@ -134,6 +134,7 @@ export default function HajiTransfersPage() {
     settlementDestination: "intermediary", intermediaryId: 0, superAdminCashAccountId: 0,
     bankAccountId: 0, chequePaymentId: 0, chequePaymentIds: [] as number[], cashAmount: 0, transferredTo: "", notes: "",
     superAdminDestinationAccountId: 0,
+    destinationPartyType: "", destinationPartyId: 0,
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -381,6 +382,8 @@ export default function HajiTransfersPage() {
       transferredTo: shouldUseSuperAdminTarget ? PAKISTAN_HAJI_TARGET : "",
       notes: "",
       superAdminDestinationAccountId: 0,
+      destinationPartyType: "",
+      destinationPartyId: 0,
     });
     if (!isAfghanistanCity && isOnline) {
       const chR = await apiCall("/api/v1/payments", {
@@ -450,6 +453,8 @@ export default function HajiTransfersPage() {
         notes: "",
         lotId: 0,
         superAdminDestinationAccountId: 0,
+        destinationPartyType: "",
+        destinationPartyId: 0,
         settlementDestination: "intermediary",
         intermediaryId: 0,
         superAdminCashAccountId: 0,
@@ -520,6 +525,8 @@ export default function HajiTransfersPage() {
       transferredTo: shouldUseSuperAdminTarget ? PAKISTAN_HAJI_TARGET : "",
       notes: "", lotId: 0,
       superAdminDestinationAccountId: 0,
+      destinationPartyType: "",
+      destinationPartyId: 0,
       settlementDestination: "intermediary", intermediaryId: 0, superAdminCashAccountId: 0,
       currencyId: defaultCurrencyId,
       ...preset,
@@ -531,7 +538,10 @@ export default function HajiTransfersPage() {
   };
 
   const handleCreate = async () => {
+    const isPartyDestination = form.settlementDestination === "party_account";
+    const partyAccountName = String(form.transferredTo || "").trim();
     const resolvePakistanTransferredTo = () => {
+      if (isPartyDestination) return partyAccountName;
       if (form.transferredTo?.trim()) return form.transferredTo.trim();
       if (form.superAdminDestinationAccountId) {
         const acct = superAdminBankAccounts.find((a: any) => a.id === form.superAdminDestinationAccountId);
@@ -539,23 +549,24 @@ export default function HajiTransfersPage() {
       }
       return PAKISTAN_HAJI_TARGET;
     };
-    const createDetail = isAfghanistanCity
+    const createDetail = isAfghanistanCity && !isPartyDestination
       ? form.detail
       : buildCityHajiTransferDetail({
           sourceType: form.sourceType,
-          transferredTo: shouldUseSuperAdminTarget ? resolvePakistanTransferredTo() : form.transferredTo,
+          transferredTo: isPartyDestination ? partyAccountName : shouldUseSuperAdminTarget ? resolvePakistanTransferredTo() : form.transferredTo,
           destinationAccount: shouldUseSuperAdminTarget
             ? superAdminBankAccounts.find((a: any) => a.id === form.superAdminDestinationAccountId)
             : null,
         });
     const pakistanTransferredTo = shouldUseSuperAdminTarget ? resolvePakistanTransferredTo() : (form.transferredTo || undefined);
 
-    if (isAfghanistanCity && !form.detail) { setError(t("detail") + " required"); return; }
+    if (isPartyDestination && !partyAccountName) { setError("Please enter party account name"); return; }
+    if (isAfghanistanCity && !isPartyDestination && !form.detail) { setError(t("detail") + " required"); return; }
     if (form.sourceType === "cash_office" && !form.amount) { setError(t("amount") + " required"); return; }
     if (form.sourceType === "cheque" && form.chequePaymentIds.length === 0) { setError("Please select at least one cheque"); return; }
     if (form.sourceType === "mixed_cash_cheque" && !form.cashAmount && form.chequePaymentIds.length === 0) { setError("Enter a cash amount or select at least one cheque"); return; }
     if (form.sourceType === "bank_transfer" && !form.bankAccountId) { setError("Please select a bank account"); return; }
-    if (isAfghanistanCity) {
+    if (isAfghanistanCity && !isPartyDestination) {
       const target = buildSettlementTargetValue(
         form.settlementDestination,
         form.intermediaryId,
@@ -566,7 +577,7 @@ export default function HajiTransfersPage() {
         return;
       }
     }
-    if (shouldUseSuperAdminTarget && superAdminBankAccounts.length > 0 && !form.superAdminDestinationAccountId) {
+    if (!isPartyDestination && shouldUseSuperAdminTarget && superAdminBankAccounts.length > 0 && !form.superAdminDestinationAccountId) {
       setError("Please select a destination account");
       return;
     }
@@ -592,7 +603,8 @@ export default function HajiTransfersPage() {
         notes: form.notes || undefined,
         lotId: form.lotId || undefined,
         currencyId: resolvedCurrencyId || undefined,
-        superAdminDestinationAccountId: form.superAdminDestinationAccountId || undefined,
+        superAdminDestinationAccountId: !isPartyDestination ? form.superAdminDestinationAccountId || undefined : undefined,
+        settlementDestination: isPartyDestination ? "party_account" : undefined,
         cashAmount: form.sourceType === "mixed_cash_cheque" ? Number(form.cashAmount || 0) : 0,
         chequePaymentIds: form.chequePaymentIds,
       };
@@ -602,18 +614,22 @@ export default function HajiTransfersPage() {
         currencyId: resolvedCurrencyId,
         detail: createDetail,
         transferredTo: pakistanTransferredTo,
-        superAdminDestinationAccountId: form.superAdminDestinationAccountId || undefined,
+        superAdminDestinationAccountId: !isPartyDestination ? form.superAdminDestinationAccountId || undefined : undefined,
         sourceType: isAfghanistanCity ? "cash_office" : form.sourceType,
         transferType: "from_in_hand",
       };
-      if (isAfghanistanCity) {
+      if (isPartyDestination) {
+        body.settlementDestination = "party_account";
+        delete body.intermediaryId;
+        delete body.superAdminCashAccountId;
+      } else if (isAfghanistanCity) {
         body.settlementDestination = form.settlementDestination;
         body.intermediaryId = form.settlementDestination === "intermediary" ? Number(form.intermediaryId) : undefined;
         body.superAdminCashAccountId = form.settlementDestination === "super_admin_cash" ? Number(form.superAdminCashAccountId) : undefined;
       }
       if (!body.lotId) delete body.lotId;
       if (!body.transferredTo) delete body.transferredTo;
-      if (!shouldUseSuperAdminTarget) delete body.superAdminDestinationAccountId;
+      if (!shouldUseSuperAdminTarget || isPartyDestination) delete body.superAdminDestinationAccountId;
       if (body.sourceType !== "bank_transfer") delete body.bankAccountId;
       delete body.chequePaymentIds;
       delete body.cashAmount;
@@ -714,7 +730,7 @@ export default function HajiTransfersPage() {
       lotId: item.lotId, transferDate: item.transferDate, amount: item.amount,
       currencyId: item.currencyId || item.currency?.id || 0, detail: item.detail, referenceNo: item.referenceNo || "",
       sourceType, transferType: item.transferType || "from_in_hand",
-      settlementDestination: item.settlementDestination === "super_admin_cash" ? "super_admin_cash" : "intermediary",
+      settlementDestination: item.settlementDestination === "party_account" ? "party_account" : item.settlementDestination === "super_admin_cash" ? "super_admin_cash" : "intermediary",
       intermediaryId: item.intermediaryId || 0,
       superAdminCashAccountId: item.superAdminCashAccountId || 0,
       superAdminDestinationAccountId: item.superAdminBankAccountId || item.superAdminCashAccountId || 0,
@@ -737,7 +753,12 @@ export default function HajiTransfersPage() {
   };
 
   const handleEdit = async () => {
-    if (isAfghanistanCity) {
+    const isPartyDestination = form.settlementDestination === "party_account";
+    if (isPartyDestination && !String(form.transferredTo || "").trim()) {
+      setError("Please enter party account name");
+      return;
+    }
+    if (isAfghanistanCity && !isPartyDestination) {
       const target = buildSettlementTargetValue(
         form.settlementDestination,
         form.intermediaryId,
@@ -748,7 +769,7 @@ export default function HajiTransfersPage() {
         return;
       }
     }
-    if (shouldUseSuperAdminTarget && superAdminBankAccounts.length > 0 && !form.superAdminDestinationAccountId) {
+    if (!isPartyDestination && shouldUseSuperAdminTarget && superAdminBankAccounts.length > 0 && !form.superAdminDestinationAccountId) {
       setError("Please select a destination account");
       return;
     }
@@ -763,10 +784,15 @@ export default function HajiTransfersPage() {
       transferType: form.sourceType === "cash_office" ? "from_in_hand" : form.sourceType === "bank_transfer" ? "direct" : "from_in_hand",
       transferredTo: form.transferredTo || null, notes: form.notes,
     };
-    if (shouldUseSuperAdminTarget) {
+    if (!isPartyDestination && shouldUseSuperAdminTarget) {
       body.superAdminDestinationAccountId = form.superAdminDestinationAccountId || undefined;
     }
-    if (selected?.settlementDestination === "intermediary" || selected?.settlementDestination === "super_admin_cash" || isAfghanistanCity) {
+    if (isPartyDestination) {
+      body.settlementDestination = "party_account";
+      body.transferredTo = String(form.transferredTo || "").trim();
+      body.intermediaryId = null;
+      body.superAdminCashAccountId = null;
+    } else if (selected?.settlementDestination === "intermediary" || selected?.settlementDestination === "super_admin_cash" || isAfghanistanCity) {
       body.settlementDestination = form.settlementDestination;
       body.intermediaryId = form.settlementDestination === "intermediary" ? Number(form.intermediaryId) : null;
       body.superAdminCashAccountId = form.settlementDestination === "super_admin_cash" ? Number(form.superAdminCashAccountId) : null;
@@ -1125,12 +1151,45 @@ export default function HajiTransfersPage() {
                   <label className="mb-1 block text-sm font-medium text-gray-700">{t("date")} *</label>
                   <MobileDateInput value={form.transferDate} onChange={(transferDate) => setForm((f: any) => ({ ...f, transferDate }))} placeholder={t("date")} />
                 </div>
-                {renderGoingToSelect()}
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Destination *</label>
+                  <select
+                    value={form.settlementDestination === "party_account" ? "party_account" : "haji_account"}
+                    onChange={(e) => setForm((f: any) => ({
+                      ...f,
+                      settlementDestination: e.target.value === "party_account" ? "party_account" : "intermediary",
+                      transferredTo: "",
+                      destinationPartyType: "",
+                      destinationPartyId: 0,
+                      intermediaryId: 0,
+                      superAdminCashAccountId: 0,
+                    }))}
+                    className="select-field"
+                  >
+                    <option value="haji_account">Superadmin/Haji Account</option>
+                    <option value="party_account">Party Account</option>
+                  </select>
+                </div>
               </div>
+              {form.settlementDestination === "party_account" ? (
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Account Name *</label>
+                  <input
+                    value={form.transferredTo || ""}
+                    onChange={e => setForm((f: any) => ({ ...f, transferredTo: e.target.value }))}
+                    className="input-field"
+                    placeholder="Enter party/account name"
+                  />
+                </div>
+              ) : (
+                renderGoingToSelect()
+              )}
+              {form.settlementDestination !== "party_account" && (
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">{t("detail")} *</label>
                 <input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" />
               </div>
+              )}
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
                 <div className="min-w-0">
                   <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
@@ -1159,7 +1218,7 @@ export default function HajiTransfersPage() {
                       setForm((f: any) => ({
                         ...f,
                         currencyId: nextCurrencyId,
-                        settlementDestination: "intermediary",
+                        settlementDestination: f.settlementDestination === "party_account" ? "party_account" : "intermediary",
                         intermediaryId: 0,
                         superAdminCashAccountId: 0,
                       }));
@@ -1266,6 +1325,27 @@ export default function HajiTransfersPage() {
           {shouldUseSuperAdminTarget && (
             <div className="min-w-0">
               <label className="mb-1 block text-sm font-medium text-gray-700">Destination *</label>
+              <select
+                value={form.settlementDestination === "party_account" ? "party_account" : "super_admin_account"}
+                onChange={(e) => setForm((f: any) => ({
+                  ...f,
+                  settlementDestination: e.target.value === "party_account" ? "party_account" : "standard",
+                  transferredTo: e.target.value === "party_account" ? "" : f.transferredTo,
+                  destinationPartyType: "",
+                  destinationPartyId: 0,
+                  superAdminDestinationAccountId: 0,
+                }))}
+                className="select-field"
+              >
+                <option value="super_admin_account">Superadmin Account</option>
+                <option value="party_account">Party Account</option>
+              </select>
+            </div>
+          )}
+
+          {shouldUseSuperAdminTarget && form.settlementDestination !== "party_account" && (
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-gray-700">Superadmin Account *</label>
               {destinationAccountsLoading ? (
                 <div className="select-field bg-gray-50 text-sm text-gray-500">Loading accounts…</div>
               ) : superAdminBankAccounts.length === 0 ? (
@@ -1294,6 +1374,18 @@ export default function HajiTransfersPage() {
                   ))}
                 </select>
               )}
+            </div>
+          )}
+
+          {shouldUseSuperAdminTarget && form.settlementDestination === "party_account" && (
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-gray-700">Account Name *</label>
+              <input
+                value={form.transferredTo || ""}
+                onChange={e => setForm((f: any) => ({ ...f, transferredTo: e.target.value }))}
+                className="input-field"
+                placeholder="Enter party/account name"
+              />
             </div>
           )}
 
@@ -1489,7 +1581,17 @@ export default function HajiTransfersPage() {
                   <label className="mb-1 block text-sm font-medium text-gray-700">{t("date")}</label>
                   <MobileDateInput value={form.transferDate} onChange={(transferDate) => setForm((f: any) => ({ ...f, transferDate }))} placeholder={t("date")} />
                 </div>
-                {renderGoingToSelect()}
+                {form.settlementDestination === "party_account" ? (
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700">Account Name *</label>
+                    <input
+                      value={form.transferredTo || ""}
+                      onChange={e => setForm((f: any) => ({ ...f, transferredTo: e.target.value }))}
+                      className="input-field"
+                      placeholder="Enter party/account name"
+                    />
+                  </div>
+                ) : renderGoingToSelect()}
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">{t("detail")}</label>
@@ -1530,6 +1632,17 @@ export default function HajiTransfersPage() {
               placeholder="Person or account name"
             />
           </div>
+          )}
+          {shouldUseSuperAdminTarget && form.settlementDestination === "party_account" && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Account Name *</label>
+              <input
+                value={form.transferredTo || ""}
+                onChange={e => setForm((f: any) => ({ ...f, transferredTo: e.target.value }))}
+                className="input-field"
+                placeholder="Enter party/account name"
+              />
+            </div>
           )}
           {(selected?.settlementDestination === "intermediary" || selected?.settlementDestination === "super_admin_cash") && (
           <div className="space-y-3 rounded-lg border border-[#e4e4e7] bg-[#fafafa] p-3">
