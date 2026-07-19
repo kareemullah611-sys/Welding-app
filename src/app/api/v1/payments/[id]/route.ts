@@ -3,9 +3,18 @@ import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
-import { reverseJournalEntries, journalPaymentReceived, journalChequeReceived } from "@/lib/accounting";
+import { reverseJournalEntries, journalPaymentReceived, journalChequeReceived, journalHajiTransfer } from "@/lib/accounting";
 import { getPaymentHajiAuditStateMap, isHajiAuditEligible } from "@/lib/payment-audit";
 import { paymentActionSchema, updatePaymentSchema } from "@/lib/validations";
+import { formatSuperAdminBankLabel } from "@/lib/haji-transfer-detail";
+
+function linkedHajiTransferDetail(payment: { paymentMethod?: string | null; superAdminBankAccount?: any }) {
+  const accountLabel = payment.superAdminBankAccount
+    ? formatSuperAdminBankLabel(payment.superAdminBankAccount)
+    : "Haji Account";
+  const mode = payment.paymentMethod === "online" ? "online" : "transfer";
+  return `${accountLabel} ${mode}`;
+}
 
 export const GET = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -216,12 +225,14 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       if (!bankAccount || !bankAccount.isActive) return errorResponse("NOT_FOUND", "Selected city bank account not found", 404);
       if (bankAccount.cityId !== payment.cityId) return errorResponse("FORBIDDEN", "Selected bank account does not belong to your city", 403);
     }
+    let nextSuperAdminBankAccount: any = null;
     if (isBankLikePayment && nextDestination === "haji") {
       if (!nextSuperAdminBankAccountId) {
         return errorResponse("VALIDATION_ERROR", "Please select the super admin bank account that received this payment");
       }
       const superAdminAccount = await prisma.superAdminBankAccount.findUnique({ where: { id: nextSuperAdminBankAccountId } });
       if (!superAdminAccount || !superAdminAccount.isActive) return errorResponse("NOT_FOUND", "Selected super admin bank account not found", 404);
+      nextSuperAdminBankAccount = superAdminAccount;
     }
     if (nextBankAccountId && nextSuperAdminBankAccountId) {
       return errorResponse("VALIDATION_ERROR", "Select only one bank account");
@@ -329,6 +340,88 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           bankAccountId: nextBankAccountId,
           paymentMethod: nextPaymentMethod,
         }, tx);
+      }
+
+      const linkedHajiTransfer = await tx.hajiTransfer.findUnique({
+        where: { paymentId: id },
+        include: { currency: true },
+      } as any) as any;
+
+      if (nextDestination === "haji") {
+        const hajiTransferData = {
+          cityId: payment.cityId,
+          lotId: payment.lotId,
+          transferDate: nextPaymentDate,
+          amount: Number(nextAmount),
+          currencyId: nextCurrencyId,
+          detail: linkedHajiTransferDetail({
+            paymentMethod: nextPaymentMethod,
+            superAdminBankAccount: nextSuperAdminBankAccount,
+          }),
+          referenceNo: nextManualVoucherNo,
+          transferType: "direct",
+          transferredTo: nextSuperAdminBankAccount
+            ? formatSuperAdminBankLabel(nextSuperAdminBankAccount)
+            : "Haji Account",
+          notes: data.notes !== undefined ? data.notes : payment.notes,
+          sourceType: nextPaymentMethod === "cheque"
+            ? "cheque"
+            : nextPaymentMethod === "bank_transfer" || nextPaymentMethod === "online"
+              ? "bank_transfer"
+              : "cash_office",
+          settlementDestination: "standard",
+          superAdminBankAccountId: nextSuperAdminBankAccountId,
+          bankAccountId: null,
+          chequePaymentId: null,
+          paymentId: id,
+          createdBy: user.userId,
+        } as any;
+        const hajiTransfer: any = linkedHajiTransfer
+          ? await tx.hajiTransfer.update({
+              where: { id: linkedHajiTransfer.id },
+              data: {
+                ...hajiTransferData,
+                createdBy: linkedHajiTransfer.createdBy,
+                updatedAt: new Date(),
+              },
+              include: { currency: true },
+            } as any)
+          : await tx.hajiTransfer.create({
+              data: hajiTransferData,
+              include: { currency: true },
+            } as any);
+
+        await tx.journalEntry.deleteMany({
+          where: {
+            transactionId: {
+              in: [`HAJI-${hajiTransfer.id}`, `REV-HAJI-${hajiTransfer.id}`],
+            },
+          },
+        });
+        await journalHajiTransfer({
+          id: hajiTransfer.id,
+          cityId: hajiTransfer.cityId,
+          lotId: hajiTransfer.lotId,
+          amount: Number(hajiTransfer.amount),
+          currencyCode: hajiTransfer.currency.code,
+          date: hajiTransfer.transferDate,
+          createdBy: user.userId,
+          sourceType: hajiTransfer.sourceType,
+          bankAccountId: hajiTransfer.bankAccountId,
+          settlementDestination: hajiTransfer.settlementDestination,
+          intermediaryId: hajiTransfer.intermediaryId,
+          superAdminCashAccountId: hajiTransfer.superAdminCashAccountId,
+          superAdminBankAccountId: hajiTransfer.superAdminBankAccountId,
+        }, tx);
+      } else if (linkedHajiTransfer) {
+        await tx.journalEntry.deleteMany({
+          where: {
+            transactionId: {
+              in: [`HAJI-${linkedHajiTransfer.id}`, `REV-HAJI-${linkedHajiTransfer.id}`],
+            },
+          },
+        });
+        await tx.hajiTransfer.delete({ where: { id: linkedHajiTransfer.id } });
       }
 
       await createAuditLog(user.userId, payment.cityId, "payments", id, "update", old, {
