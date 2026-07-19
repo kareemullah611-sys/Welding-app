@@ -1577,11 +1577,16 @@ export default function PaymentsPage() {
     },
     {
       key: "ref", label: "Ref No.",
-      render: (item: any) => item.raw?.manualVoucherNo ? (
-        <span className="font-mono text-xs text-gray-600">{item.raw.manualVoucherNo}</span>
-      ) : (
-        <span className="text-gray-300">—</span>
-      ),
+      render: (item: any) => {
+        const ref = item.type === "haji_transfer"
+          ? item.raw?.referenceNo
+          : item.raw?.manualVoucherNo;
+        return ref ? (
+          <span className="font-mono text-xs text-gray-600">{ref}</span>
+        ) : (
+          <span className="text-gray-300">—</span>
+        );
+      },
     },
     {
       key: "amount", label: t("amount"),
@@ -1912,42 +1917,6 @@ export default function PaymentsPage() {
                 </div>
               )}
 
-              {currencies.length > 1 ? (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="min-w-0">
-                    <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
-                    <FormattedNumberInput
-                      min="0.01"
-                      value={form.amount || ""}
-                      onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))}
-                      className="input-field"
-                    />
-                  </div>
-                  <div className="min-w-0">
-                    <label className="mb-1 block text-sm font-medium text-gray-700">{t("currency")}</label>
-                    <select
-                      value={form.currencyId || currencies[0]?.id || 0}
-                      onChange={e => setForm((f: any) => ({ ...f, currencyId: parseInt(e.target.value, 10) || 0, bankAccountId: 0, superAdminBankAccountId: 0 }))}
-                      className="select-field"
-                    >
-                      {currencies.map((c: any) => (
-                        <option key={c.id} value={c.id}>{formatCurrencySelectLabel(c)}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
-                  <FormattedNumberInput
-                    min="0.01"
-                    value={form.amount || ""}
-                    onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))}
-                    className="input-field"
-                  />
-                </div>
-              )}
-
               {!isAfghanistanCity && createFormReady && (
                 <div className={isEmbed ? "quickform-panel space-y-3" : "space-y-3 rounded-xl border border-gray-200 bg-gray-50/70 p-4"}>
                   <div>
@@ -2040,6 +2009,42 @@ export default function PaymentsPage() {
                       </select>
                     </div>
                   )}
+                </div>
+              )}
+
+              {currencies.length > 1 ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="min-w-0">
+                    <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
+                    <FormattedNumberInput
+                      min="0.01"
+                      value={form.amount || ""}
+                      onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))}
+                      className="input-field"
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <label className="mb-1 block text-sm font-medium text-gray-700">{t("currency")}</label>
+                    <select
+                      value={form.currencyId || currencies[0]?.id || 0}
+                      onChange={e => setForm((f: any) => ({ ...f, currencyId: parseInt(e.target.value, 10) || 0, bankAccountId: 0, superAdminBankAccountId: 0 }))}
+                      className="select-field"
+                    >
+                      {currencies.map((c: any) => (
+                        <option key={c.id} value={c.id}>{formatCurrencySelectLabel(c)}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
+                  <FormattedNumberInput
+                    min="0.01"
+                    value={form.amount || ""}
+                    onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))}
+                    className="input-field"
+                  />
                 </div>
               )}
 
@@ -2142,7 +2147,7 @@ export default function PaymentsPage() {
             </div>
           )}
 
-          {createType !== "haji_transfer" && currencies.length > 1 && (
+          {createType !== "haji_transfer" && createType !== "payment" && currencies.length > 1 && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
               <select value={form.currencyId || 0} onChange={e => setForm((f: any) => ({ ...f, currencyId: parseInt(e.target.value) }))} className="select-field">
@@ -2151,7 +2156,7 @@ export default function PaymentsPage() {
             </div>
           )}
 
-          {createType !== "haji_transfer" && (
+          {createType !== "haji_transfer" && createType !== "payment" && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
               <FormattedNumberInput
@@ -2338,6 +2343,38 @@ export default function PaymentsPage() {
                 </div>
               )}
             </div>
+          )}
+
+          {createType === "payment" && (
+            currencies.length > 1 ? (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="min-w-0">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
+                  <FormattedNumberInput
+                    min="0.01"
+                    value={form.amount || ""}
+                    onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))}
+                    className="input-field"
+                  />
+                </div>
+                <div className="min-w-0">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
+                  <select value={form.currencyId || 0} onChange={e => setForm((f: any) => ({ ...f, currencyId: parseInt(e.target.value) }))} className="select-field">
+                    {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code} ({c.symbol})</option>)}
+                  </select>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
+                <FormattedNumberInput
+                  min="0.01"
+                  value={form.amount || ""}
+                  onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))}
+                  className="input-field"
+                />
+              </div>
+            )
           )}
 
           {createType === "payment" && !simplifyModals && (
@@ -2692,26 +2729,6 @@ export default function PaymentsPage() {
                 </div>
               )}
 
-              {currencies.length > 1 ? (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="min-w-0">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
-                    <FormattedNumberInput min="0.01" value={form.amount || ""} onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))} className="input-field" />
-                  </div>
-                  <div className="min-w-0">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
-                    <select value={form.currencyId || currencies[0]?.id || 0} onChange={e => setForm((f: any) => ({ ...f, currencyId: parseInt(e.target.value, 10) || 0, bankAccountId: 0, superAdminBankAccountId: 0 }))} className="select-field">
-                      {currencies.map((c: any) => <option key={c.id} value={c.id}>{formatCurrencySelectLabel(c)}</option>)}
-                    </select>
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
-                  <FormattedNumberInput min="0.01" value={form.amount || ""} onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))} className="input-field" />
-                </div>
-              )}
-
               {!isAfghanistanCity && createFormReady && (
                 <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50/70 p-4">
                   <div>
@@ -2790,6 +2807,26 @@ export default function PaymentsPage() {
                       </select>
                     </div>
                   )}
+                </div>
+              )}
+
+              {currencies.length > 1 ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="min-w-0">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
+                    <FormattedNumberInput min="0.01" value={form.amount || ""} onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))} className="input-field" />
+                  </div>
+                  <div className="min-w-0">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
+                    <select value={form.currencyId || currencies[0]?.id || 0} onChange={e => setForm((f: any) => ({ ...f, currencyId: parseInt(e.target.value, 10) || 0, bankAccountId: 0, superAdminBankAccountId: 0 }))} className="select-field">
+                      {currencies.map((c: any) => <option key={c.id} value={c.id}>{formatCurrencySelectLabel(c)}</option>)}
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
+                  <FormattedNumberInput min="0.01" value={form.amount || ""} onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))} className="input-field" />
                 </div>
               )}
 

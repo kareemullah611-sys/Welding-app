@@ -201,6 +201,36 @@ test("payment modal edit reuses create validation and supports type switching", 
   assert.match(paymentsPage, /const submission = await buildSubmissionForType\(createType, originalType === createType\)/);
 });
 
+test("receive payment amount appears after method and account fields", () => {
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+
+  const simplifiedStart = paymentsPage.indexOf('{simplifyModals && createType === "payment" ? (');
+  const simplifiedAccount = paymentsPage.indexOf("getPakistanPaymentAccountSelectValue(form)", simplifiedStart);
+  const simplifiedAmount = paymentsPage.indexOf('{t("amount")} *', simplifiedAccount);
+  assert.ok(simplifiedStart >= 0, "simplified receive payment section should exist");
+  assert.ok(simplifiedAccount > simplifiedStart, "simplified account fields should appear before amount");
+  assert.ok(simplifiedAmount > simplifiedAccount, "simplified amount should appear after account fields");
+
+  const createMethod = paymentsPage.indexOf('{createType === "payment" && !isAfghanistanCity && createFormReady && (');
+  const createAmount = paymentsPage.indexOf('{createType === "payment" && (', createMethod);
+  assert.ok(createMethod >= 0, "create payment method fields should exist");
+  assert.ok(createAmount > createMethod, "create payment amount should appear after method fields");
+
+  const editStart = paymentsPage.indexOf("<Modal open={showEdit}");
+  const editMethod = paymentsPage.indexOf('{t("payment_method")}', editStart);
+  const editAmount = paymentsPage.indexOf('{t("amount")} *', editMethod);
+  assert.ok(editMethod > editStart, "edit payment method fields should exist");
+  assert.ok(editAmount > editMethod, "edit payment amount should appear after method fields");
+});
+
+test("city payment ref column shows linked haji transfer reference numbers", () => {
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+  const cityColumns = paymentsPage.slice(paymentsPage.indexOf("] : ["));
+
+  assert.match(cityColumns, /key: "ref", label: "Ref No\."/);
+  assert.match(cityColumns, /item\.type === "haji_transfer"\s+\?\s+item\.raw\?\.referenceNo\s+:\s+item\.raw\?\.manualVoucherNo/);
+});
+
 test("combined payments list sorts newest first and groups linked haji transfers", () => {
   const financeCombinedRoute = readFileSync("src/app/api/v1/finance/combined/route.ts", "utf8");
 
