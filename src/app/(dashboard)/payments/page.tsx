@@ -233,10 +233,9 @@ export default function PaymentsPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
-  const defaultDateRange = getCurrentMonthDateRange();
-  const [fromDate, setFromDate] = useState(defaultDateRange.from);
-  const [toDate, setToDate] = useState(defaultDateRange.to);
-  const [dateRangePreset, setDateRangePreset] = useState<"today" | "last7" | "month" | "all" | "custom">("month");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [dateRangePreset, setDateRangePreset] = useState<"today" | "last7" | "month" | "all" | "custom">("all");
   const [searchQuery, setSearchQuery] = useState("");
 
   // Type filter for the list

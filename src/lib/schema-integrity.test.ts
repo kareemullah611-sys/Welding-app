@@ -232,12 +232,31 @@ test("receive payment amount appears after method and account fields", () => {
   assert.ok(editAmount > editMethod, "edit payment amount should appear after method fields");
 });
 
+test("payments date range defaults to all dates", () => {
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+
+  assert.match(paymentsPage, /const \[fromDate, setFromDate\] = useState\(""\)/);
+  assert.match(paymentsPage, /const \[toDate, setToDate\] = useState\(""\)/);
+  assert.match(paymentsPage, /useState<"today" \| "last7" \| "month" \| "all" \| "custom">\("all"\)/);
+});
+
 test("city payment ref column shows linked haji transfer reference numbers", () => {
   const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
   const cityColumns = paymentsPage.slice(paymentsPage.indexOf("] : ["));
 
   assert.match(cityColumns, /key: "ref", label: "Ref No\."/);
   assert.match(cityColumns, /item\.type === "haji_transfer"\s+\?\s+item\.raw\?\.referenceNo\s+:\s+item\.raw\?\.manualVoucherNo/);
+});
+
+test("combined payments search covers non-payment row details", () => {
+  const financeCombinedRoute = readFileSync("src/app/api/v1/finance/combined/route.ts", "utf8");
+
+  assert.match(financeCombinedRoute, /\{ referenceNo: \{ contains: query, mode: "insensitive" \} \}/);
+  assert.match(financeCombinedRoute, /chequePayment: \{\s+manualVoucherNo: \{ contains: query, mode: "insensitive" \}/);
+  assert.match(financeCombinedRoute, /chequePayment: \{\s+customer: \{\s+name: \{ contains: query, mode: "insensitive" \}/);
+  assert.match(financeCombinedRoute, /item\.raw\?\.referenceNo/);
+  assert.match(financeCombinedRoute, /item\.raw\?\.chequePayment\?\.manualVoucherNo/);
+  assert.match(financeCombinedRoute, /item\.raw\?\.chequePayment\?\.customer\?\.name/);
 });
 
 test("combined payments list sorts newest first and groups linked haji transfers", () => {

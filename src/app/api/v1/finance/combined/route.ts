@@ -178,6 +178,11 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
                   { lot: { lotNumber: { contains: query, mode: "insensitive" } } },
                   { currency: { code: { contains: query, mode: "insensitive" } } },
                   { currency: { symbol: { contains: query, mode: "insensitive" } } },
+                  { bankAccount: { bankName: { contains: query, mode: "insensitive" } } },
+                  { bankAccount: { accountNumber: { contains: query, mode: "insensitive" } } },
+                  { chequePayment: { manualVoucherNo: { contains: query, mode: "insensitive" } } },
+                  { chequePayment: { chequeNumber: { contains: query, mode: "insensitive" } } },
+                  { chequePayment: { customer: { name: { contains: query, mode: "insensitive" } } } },
                   ...(hasNumericQuery ? [{ amount: { gte: numericQuery, lt: numericQueryUpper } }] : []),
                 ],
               }
@@ -186,6 +191,18 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         include: {
           currency: { select: { id: true, code: true, symbol: true } },
           lot: { select: { id: true, lotNumber: true } },
+          bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+          chequePayment: {
+            select: {
+              id: true,
+              amount: true,
+              manualVoucherNo: true,
+              chequeNumber: true,
+              chequeStatus: true,
+              customer: { select: { id: true, name: true } },
+              currency: { select: { id: true, code: true, symbol: true } },
+            },
+          },
         },
         orderBy: [{ expenseDate: "desc" }, { id: "desc" }],
       });
@@ -203,6 +220,9 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           ...e,
           amount: Number(e.amount),
           lotNumber: e.lot?.lotNumber ?? null,
+          bankAccount: (e as any).bankAccount ?? null,
+          bankAccountId: (e as any).bankAccountId ?? null,
+          chequePayment: (e as any).chequePayment ?? null,
           attachments: (e as any).attachments ?? [],
         },
       })));
@@ -219,11 +239,20 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
                 OR: [
                   { detail: { contains: query, mode: "insensitive" } },
                   { notes: { contains: query, mode: "insensitive" } },
+                  { referenceNo: { contains: query, mode: "insensitive" } },
                   { transferredTo: { contains: query, mode: "insensitive" } },
                   { city: { name: { contains: query, mode: "insensitive" } } },
                   { lot: { lotNumber: { contains: query, mode: "insensitive" } } },
                   { currency: { code: { contains: query, mode: "insensitive" } } },
                   { currency: { symbol: { contains: query, mode: "insensitive" } } },
+                  { bankAccount: { bankName: { contains: query, mode: "insensitive" } } },
+                  { bankAccount: { accountNumber: { contains: query, mode: "insensitive" } } },
+                  { chequePayment: { manualVoucherNo: { contains: query, mode: "insensitive" } } },
+                  { chequePayment: { chequeNumber: { contains: query, mode: "insensitive" } } },
+                  { chequePayment: { customer: { name: { contains: query, mode: "insensitive" } } } },
+                  { payment: { manualVoucherNo: { contains: query, mode: "insensitive" } } },
+                  { payment: { chequeNumber: { contains: query, mode: "insensitive" } } },
+                  { payment: { customer: { name: { contains: query, mode: "insensitive" } } } },
                   ...(transferTypeQuery ? [{ transferType: transferTypeQuery as any }] : []),
                   ...(hasNumericQuery ? [{ amount: { gte: numericQuery, lt: numericQueryUpper } }] : []),
                 ],
@@ -234,6 +263,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           currency: { select: { id: true, code: true, symbol: true } },
           lot: { select: { id: true, lotNumber: true } },
           city: { select: { id: true, name: true } },
+          bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
           chequePayment: {
             select: {
               id: true,
@@ -243,6 +273,14 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
               chequeStatus: true,
               customer: { select: { id: true, name: true } },
               currency: { select: { id: true, code: true, symbol: true } },
+            },
+          },
+          payment: {
+            select: {
+              id: true,
+              manualVoucherNo: true,
+              chequeNumber: true,
+              customer: { select: { id: true, name: true } },
             },
           },
         },
@@ -264,6 +302,8 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           amount: Number(h.amount),
           lotNumber: h.lot?.lotNumber ?? null,
           referenceNo: h.referenceNo ?? null,
+          bankAccount: (h as any).bankAccount ?? null,
+          bankAccountId: (h as any).bankAccountId ?? null,
           attachments: (h as any).attachments ?? [],
         },
       })));
@@ -284,6 +324,11 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
                   { city: { name: { contains: query, mode: "insensitive" } } },
                   { currency: { code: { contains: query, mode: "insensitive" } } },
                   { currency: { symbol: { contains: query, mode: "insensitive" } } },
+                  { bankAccount: { bankName: { contains: query, mode: "insensitive" } } },
+                  { bankAccount: { accountNumber: { contains: query, mode: "insensitive" } } },
+                  { chequePayment: { manualVoucherNo: { contains: query, mode: "insensitive" } } },
+                  { chequePayment: { chequeNumber: { contains: query, mode: "insensitive" } } },
+                  { chequePayment: { customer: { name: { contains: query, mode: "insensitive" } } } },
                   ...(withdrawalStatusQuery === "approved" ? [{ approvedBy: { not: null } }] : []),
                   ...(withdrawalStatusQuery === "pending" ? [{ approvedBy: null }] : []),
                   ...(hasNumericQuery ? [{ amount: { gte: numericQuery, lt: numericQueryUpper } }] : []),
@@ -293,6 +338,18 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         },
         include: {
           currency: { select: { id: true, code: true, symbol: true } },
+          bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+          chequePayment: {
+            select: {
+              id: true,
+              amount: true,
+              manualVoucherNo: true,
+              chequeNumber: true,
+              chequeStatus: true,
+              customer: { select: { id: true, name: true } },
+              currency: { select: { id: true, code: true, symbol: true } },
+            },
+          },
         },
         orderBy: [{ withdrawalDate: "desc" }, { id: "desc" }],
       });
@@ -309,6 +366,9 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         raw: {
           ...w,
           amount: Number(w.amount),
+          bankAccount: (w as any).bankAccount ?? null,
+          bankAccountId: (w as any).bankAccountId ?? null,
+          chequePayment: (w as any).chequePayment ?? null,
         },
       })));
     }
@@ -414,6 +474,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           item.currencyCode,
           item.currencySymbol,
           item.raw?.manualVoucherNo,
+          item.raw?.referenceNo,
           item.raw?.chequeNumber,
           item.raw?.paymentMethod,
           item.raw?.destination,
@@ -425,10 +486,19 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           item.raw?.transferType,
           item.raw?.transferredTo,
           item.raw?.withdrawnBy,
+          item.raw?.paidFrom,
+          item.raw?.sourceType,
           item.raw?.bankAccount?.bankName,
           item.raw?.bankAccount?.accountNumber,
           item.raw?.superAdminBankAccount?.bankName,
           item.raw?.superAdminBankAccount?.accountNumber,
+          item.raw?.chequePayment?.manualVoucherNo,
+          item.raw?.chequePayment?.chequeNumber,
+          item.raw?.chequePayment?.chequeStatus,
+          item.raw?.chequePayment?.customer?.name,
+          item.raw?.payment?.manualVoucherNo,
+          item.raw?.payment?.chequeNumber,
+          item.raw?.payment?.customer?.name,
           item.raw?.hajiAudit?.confirmed ? "confirmed" : "",
         ];
         if (searchableFields.some(includesQuery)) return true;
