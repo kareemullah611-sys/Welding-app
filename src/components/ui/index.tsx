@@ -849,6 +849,7 @@ export { formatCurrency, formatDate, formatNumber } from "@/lib/format-helpers";
 
 export { RowActionMenu } from "@/components/ui/RowActionMenu";
 export { MobileDateInput } from "@/components/ui/MobileDateInput";
+export { FormattedNumberInput, FormattedNumberEditable } from "@/components/ui/FormattedNumberInput";
 export { ProcessingSpinner } from "@/components/ui/ProcessingLoader";
 export { default as ProcessingLoader } from "@/components/ui/ProcessingLoader";
 export { default as CuttingDiscSpinner, DEFAULT_CUTTING_DISC_SRC } from "@/components/ui/CuttingDiscSpinner";

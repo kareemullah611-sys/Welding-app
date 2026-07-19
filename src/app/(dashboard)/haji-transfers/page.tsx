@@ -3,7 +3,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, DataTable, Modal, formatNumber, formatDate, RowActionMenu, MobileDateInput } from "@/components/ui";
+import { PageHeader, DataTable, Modal, formatNumber, formatDate, RowActionMenu, MobileDateInput, FormattedNumberInput } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
 import { getEmbedQuickformPath, shouldSimplifyCityModals } from "@/lib/quickform-embed";
@@ -1129,15 +1129,13 @@ export default function HajiTransfersPage() {
                 <label className="mb-1 block text-sm font-medium text-gray-700">{t("detail")} *</label>
                 <input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" />
               </div>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 sm:gap-3">
                 <div className="min-w-0">
                   <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
-                  <input
-                    type="number"
+                  <FormattedNumberInput
                     value={form.amount || ""}
-                    onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
+                    onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))}
                     className="input-field"
-                    onWheel={e => e.currentTarget.blur()}
                   />
                 </div>
                 <div className="min-w-0">
@@ -1182,6 +1180,12 @@ export default function HajiTransfersPage() {
                     ))}
                   </select>
                 </div>
+                {!isEmbed && (
+                  <div className="min-w-0">
+                    <label className="mb-1 block text-sm font-medium text-gray-700">{t("notes")}</label>
+                    <input value={form.notes} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" />
+                  </div>
+                )}
               </div>
             </>
           ) : (
@@ -1296,7 +1300,7 @@ export default function HajiTransfersPage() {
           )}
 
           {currencies.length > 1 ? (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             <div className="min-w-0">
               <label className="mb-1 block text-sm font-medium text-gray-700">
                 {form.sourceType === "mixed_cash_cheque" ? "Cash Amount" : t("amount")}{" "}
@@ -1307,14 +1311,12 @@ export default function HajiTransfersPage() {
                   {selectedChequeTotal > 0 ? selectedChequeTotal.toLocaleString("en-US") : "—"}
                 </div>
               ) : (
-              <input
-                type="number"
+              <FormattedNumberInput
                 value={form.sourceType === "mixed_cash_cheque" ? (form.cashAmount || "") : (form.amount || "")}
-                onChange={e => setForm((f: any) => form.sourceType === "mixed_cash_cheque"
-                  ? ({ ...f, cashAmount: parseFloat(e.target.value) || 0 })
-                  : ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
+                onValueChange={(value) => setForm((f: any) => form.sourceType === "mixed_cash_cheque"
+                  ? ({ ...f, cashAmount: value || 0 })
+                  : ({ ...f, amount: value || 0 }))}
                 className="input-field"
-                onWheel={e => e.currentTarget.blur()}
               />
               )}
             </div>
@@ -1361,9 +1363,15 @@ export default function HajiTransfersPage() {
                 ))}
               </select>
             </div>
+            {!isEmbed && (
+              <div className="min-w-0">
+                <label className="mb-1 block text-sm font-medium text-gray-700">{t("notes")}</label>
+                <input value={form.notes} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" />
+              </div>
+            )}
           </div>
           ) : (
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="min-w-0">
               <label className="mb-1 block text-sm font-medium text-gray-700">
                 {form.sourceType === "mixed_cash_cheque" ? "Cash Amount" : t("amount")}{" "}
@@ -1374,14 +1382,12 @@ export default function HajiTransfersPage() {
                   {selectedChequeTotal > 0 ? selectedChequeTotal.toLocaleString("en-US") : "—"}
                 </div>
               ) : (
-              <input
-                type="number"
+              <FormattedNumberInput
                 value={form.sourceType === "mixed_cash_cheque" ? (form.cashAmount || "") : (form.amount || "")}
-                onChange={e => setForm((f: any) => form.sourceType === "mixed_cash_cheque"
-                  ? ({ ...f, cashAmount: parseFloat(e.target.value) || 0 })
-                  : ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
+                onValueChange={(value) => setForm((f: any) => form.sourceType === "mixed_cash_cheque"
+                  ? ({ ...f, cashAmount: value || 0 })
+                  : ({ ...f, amount: value || 0 }))}
                 className="input-field"
-                onWheel={e => e.currentTarget.blur()}
               />
               )}
             </div>
@@ -1402,6 +1408,12 @@ export default function HajiTransfersPage() {
                 ))}
               </select>
             </div>
+            {!isEmbed && (
+              <div className="min-w-0">
+                <label className="mb-1 block text-sm font-medium text-gray-700">{t("notes")}</label>
+                <input value={form.notes} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" />
+              </div>
+            )}
           </div>
           )}
 
@@ -1411,13 +1423,6 @@ export default function HajiTransfersPage() {
             </div>
           )}
             </>
-          )}
-
-          {!isEmbed && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
-            <input value={form.notes} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" />
-          </div>
           )}
 
         </div>
@@ -1496,7 +1501,7 @@ export default function HajiTransfersPage() {
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")}</label>
-                  <input type="number" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} />
+                  <FormattedNumberInput value={form.amount || ""} onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))} className="input-field" />
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">Ref. No.</label>
@@ -1580,7 +1585,7 @@ export default function HajiTransfersPage() {
                   {Number(form.amount || 0).toLocaleString("en-US")}
                 </div>
               ) : (
-                <input type="number" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} />
+                <FormattedNumberInput value={form.amount || ""} onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))} className="input-field" />
               )}
             </div>
             <div><label className="block text-sm font-medium text-gray-700 mb-1">Ref. No.</label><input value={form.referenceNo || ""} onChange={e => setForm((f: any) => ({ ...f, referenceNo: e.target.value }))} className="input-field" /></div>

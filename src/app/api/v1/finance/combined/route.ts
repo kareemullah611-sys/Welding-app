@@ -7,6 +7,21 @@ import { getPaymentHajiAuditStateMap, isHajiAuditEligible } from "@/lib/payment-
 import { computeCityTreasuryNet, computeRunningBalances, computeSuperAdminRunningBalances, buildPaymentCancellationReversalRow } from "@/lib/treasury-ledger";
 import { formatPaymentModuleDetail, formatSuperAdminPaymentDetail } from "@/lib/payment-module-detail";
 
+function createdAtMs(item: any): number {
+  const value = item.raw?.createdAt;
+  const time = value ? new Date(value).getTime() : NaN;
+  return Number.isFinite(time) ? time : 0;
+}
+
+function compareCombinedPaymentsNewestFirst(a: any, b: any): number {
+  if (a.date !== b.date) return b.date.localeCompare(a.date);
+  if (a.type === "payment" && b.type === "haji_transfer" && b.raw?.paymentId === a.id) return -1;
+  if (b.type === "payment" && a.type === "haji_transfer" && a.raw?.paymentId === b.id) return 1;
+  const createdAtDiff = createdAtMs(b) - createdAtMs(a);
+  if (createdAtDiff !== 0) return createdAtDiff;
+  return b.id - a.id;
+}
+
 export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayload) => {
   try {
     const sp = request.nextUrl.searchParams;
@@ -381,11 +396,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
       runningBalance: balanceById.get(`${item.type}:${item.id}`) ?? 0,
     }));
 
-    // Newest first for the payments list UI.
-    combined.sort((a, b) => {
-      if (a.date !== b.date) return b.date.localeCompare(a.date);
-      return b.id - a.id;
-    });
+    combined.sort(compareCombinedPaymentsNewestFirst);
 
     if (shouldApplySearch) {
       const includesQuery = (value: unknown) => String(value ?? "").toLowerCase().includes(normalizedQuery);

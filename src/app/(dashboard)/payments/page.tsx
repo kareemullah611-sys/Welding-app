@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, DataTable, Modal, StatusBadge, formatDate, RowActionMenu, MobileDateInput } from "@/components/ui";
+import { PageHeader, DataTable, Modal, StatusBadge, formatDate, RowActionMenu, MobileDateInput, FormattedNumberInput } from "@/components/ui";
 import CustomerFieldWithNew from "@/components/CustomerFieldWithNew";
 import { useLang } from "@/lib/lang";
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
@@ -530,10 +530,10 @@ export default function PaymentsPage() {
   }, [isAfghanistanCity]);
 
   useEffect(() => {
-    if (!showCreate || createType !== "haji_transfer" || !isAfghanistanCity) return;
+    if ((!showCreate && !showEdit) || createType !== "haji_transfer" || !isAfghanistanCity) return;
     const currencyId = Number(form.currencyId || currencies[0]?.id || 0);
     if (currencyId) void loadSettlementOptions(currencyId);
-  }, [showCreate, createType, isAfghanistanCity, form.currencyId, currencies, loadSettlementOptions]);
+  }, [showCreate, showEdit, createType, isAfghanistanCity, form.currencyId, currencies, loadSettlementOptions]);
 
   const resetPaymentCreateForm = useCallback(() => {
     const today = new Date().toISOString().split("T")[0];
@@ -556,6 +556,77 @@ export default function PaymentsPage() {
     });
   }, [currencies]);
 
+  const buildInitialFormForType = useCallback((type: string, loadedCurrencies: any[], preset: Record<string, any> = {}) => {
+    const today = new Date().toISOString().split("T")[0];
+    const currencyId = loadedCurrencies[0]?.id || currencies[0]?.id || 0;
+    if (type === "payment") {
+      return {
+        customerId: 0,
+        customerName: "",
+        paymentDate: today,
+        amount: 0,
+        detail: "",
+        currencyId,
+        paymentMethod: "cash",
+        destination: "our_account",
+        notes: "",
+        chequeNumber: "",
+        chequeBank: "",
+        chequeDueDate: "",
+        bankAccountId: 0,
+        superAdminBankAccountId: 0,
+        manualVoucherNo: "",
+        ...preset,
+      };
+    }
+    if (type === "expense") {
+      return {
+        expenseDate: today,
+        amount: 0,
+        detail: "",
+        notes: "",
+        lotId: 0,
+        currencyId,
+        paidFrom: "cash_office",
+        bankAccountId: 0,
+        ...preset,
+      };
+    }
+    if (type === "haji_transfer") {
+      return {
+        lotId: 0,
+        transferDate: today,
+        amount: 0,
+        cashAmount: 0,
+        detail: "",
+        notes: "",
+        currencyId,
+        transferType: "from_in_hand",
+        sourceType: "cash_office",
+        settlementDestination: "intermediary",
+        intermediaryId: 0,
+        superAdminCashAccountId: 0,
+        superAdminDestinationAccountId: 0,
+        referenceNo: "",
+        bankAccountId: 0,
+        chequePaymentIds: [],
+        transferredTo: "",
+        ...preset,
+      };
+    }
+    return {
+      withdrawalDate: today,
+      amount: 0,
+      detail: "",
+      withdrawnBy: "",
+      notes: "",
+      currencyId,
+      sourceType: "cash_office",
+      bankAccountId: 0,
+      ...preset,
+    };
+  }, [currencies]);
+
   const openCreate = async (type: string, preset?: Record<string, any>) => {
     setCreateFormReady(false);
     setCreateType(type);
@@ -572,75 +643,133 @@ export default function PaymentsPage() {
       setShowCreate(true);
       return;
     }
-    const today = new Date().toISOString().split("T")[0];
-    if (type === "payment") {
-      setForm({
-        customerId: 0,
-        customerName: "",
-        paymentDate: today,
-        amount: 0,
-        detail: "",
-        currencyId: loadedCurrencies[0]?.id || 0,
-        paymentMethod: "cash",
-        destination: "our_account",
-        notes: "",
-        chequeNumber: "",
-        chequeBank: "",
-        chequeDueDate: "",
-        bankAccountId: 0,
-        superAdminBankAccountId: 0,
-        ...preset,
-      });
-    } else if (type === "expense") {
-      setForm({
-        expenseDate: today,
-        amount: 0,
-        detail: "",
-        notes: "",
-        lotId: 0,
-        currencyId: loadedCurrencies[0]?.id || 0,
-        paidFrom: "cash_office",
-        bankAccountId: 0,
-        ...preset,
-      });
-    } else if (type === "haji_transfer") {
-      setForm({
-        lotId: 0,
-        transferDate: today,
-        amount: 0,
-        cashAmount: 0,
-        detail: "",
-        notes: "",
-        currencyId: loadedCurrencies[0]?.id || 0,
-        transferType: "from_in_hand",
-        sourceType: "cash_office",
-        settlementDestination: "intermediary",
-        intermediaryId: 0,
-        superAdminCashAccountId: 0,
-        superAdminDestinationAccountId: 0,
-        referenceNo: "",
-        bankAccountId: 0,
-        chequePaymentIds: [],
-        transferredTo: "",
-        ...preset,
-      });
-    } else {
-      setForm({
-        withdrawalDate: today,
-        amount: 0,
-        detail: "",
-        withdrawnBy: "",
-        notes: "",
-        currencyId: loadedCurrencies[0]?.id || 0,
-        sourceType: "cash_office",
-        bankAccountId: 0,
-        ...preset,
-      });
-    }
+    setForm(buildInitialFormForType(type, loadedCurrencies, preset));
     setPaymentQueue([]);
     setQueueSaved(false);
     setCreateFormReady(true);
     setShowCreate(true); setError("");
+  };
+
+  const resetCurrentCreateFormAfterSave = useCallback(() => {
+    if (createType === "payment") {
+      resetPaymentCreateForm();
+      return;
+    }
+    setForm(buildInitialFormForType(createType, currencies));
+  }, [buildInitialFormForType, createType, currencies, resetPaymentCreateForm]);
+
+  const buildSubmissionForType = async (type: string, forceVoucher = false) => {
+    const resolvedCurrencyId = form.currencyId || currencies[0]?.id || 0;
+    if (!resolvedCurrencyId) {
+      return {
+        error: getOfflineFormReadinessError({
+          isOnline,
+          currencyCount: currencies.length,
+          moduleTitle: "Payment",
+        }) || "Currency setup missing",
+      };
+    }
+
+    if (type === "payment") {
+      if (isPakistanSimplified) {
+        const validationError = validatePakistanPaymentForm(form);
+        if (validationError) return { error: validationError };
+      } else if (!form.customerId || !(form.amount > 0) || !form.detail) {
+        return { error: t("customer") + ", " + t("amount") + " (must be > 0), " + t("detail") + " required" };
+      }
+      if (!forceVoucher && form.manualVoucherNo?.trim()) {
+        const check = await apiCall(`/api/v1/payments/check-voucher?voucher_no=${encodeURIComponent(form.manualVoucherNo.trim())}`);
+        if (check.success && (check.data as any).isDuplicate) return { duplicateMatches: (check.data as any).matches };
+      }
+      return {
+        endpoint: "/api/v1/payments",
+        body: isPakistanSimplified
+          ? buildPaymentSubmitPayload(form, {
+              currencyId: resolvedCurrencyId,
+              cityBankAccounts,
+              superAdminBankAccounts,
+            })
+          : sanitizePaymentSubmitPayload({ ...form, currencyId: resolvedCurrencyId }),
+      };
+    }
+
+    if (type === "expense") {
+      if (!(form.amount > 0) || !form.detail) return { error: t("amount") + " (must be > 0) and " + t("detail") + " required" };
+      if (form.paidFrom === "bank_account" && !form.bankAccountId) return { error: t("select") + " " + t("bank_account").toLowerCase() };
+      return {
+        endpoint: "/api/v1/expenses",
+        body: {
+          ...form,
+          lotId: form.lotId || null,
+          currencyId: resolvedCurrencyId,
+          bankAccountId: form.paidFrom === "bank_account" ? form.bankAccountId : undefined,
+        },
+      };
+    }
+
+    if (type === "haji_transfer") {
+      const chequePaymentIds = Array.isArray(form.chequePaymentIds) ? form.chequePaymentIds : [];
+      const isChequeSource = form.sourceType === "cheque" || form.sourceType === "mixed_cash_cheque";
+      const destinationAccount = !isAfghanistanCity
+        ? superAdminBankAccounts.find((a: any) => a.id === form.superAdminDestinationAccountId)
+        : null;
+      const transferredTo = !isAfghanistanCity
+        ? (destinationAccount ? formatSuperAdminBankLabel(destinationAccount) : PAKISTAN_HAJI_TARGET)
+        : undefined;
+      const hajiDetail = isAfghanistanCity
+        ? String(form.detail || "").trim()
+        : buildCityHajiTransferDetail({
+            sourceType: form.sourceType || "cash_office",
+            transferredTo,
+            destinationAccount,
+          });
+      if (isAfghanistanCity && !hajiDetail) return { error: t("detail") + " required" };
+      if (!isChequeSource && !(form.amount > 0)) return { error: t("amount") + " (must be > 0) required" };
+      if (form.sourceType === "bank_transfer" && !form.bankAccountId) return { error: t("select") + " " + t("bank_account").toLowerCase() };
+      if (form.sourceType === "cheque" && chequePaymentIds.length === 0) return { error: t("select_cheques") };
+      if (form.sourceType === "mixed_cash_cheque" && !(form.cashAmount > 0) && chequePaymentIds.length === 0) return { error: "Enter a cash amount or select at least one cheque" };
+      if (!isAfghanistanCity && superAdminBankAccounts.length > 0 && !form.superAdminDestinationAccountId) return { error: "Please select a destination account" };
+      if (isAfghanistanCity && !buildSettlementTargetValue(form.settlementDestination, form.intermediaryId, form.superAdminCashAccountId)) return { error: "Please select where funds are going" };
+      return {
+        endpoint: "/api/v1/haji-transfers",
+        body: {
+          lotId: form.lotId || null,
+          transferDate: form.transferDate || form.paymentDate || new Date().toISOString().split("T")[0],
+          amount: Number(form.amount || 0),
+          cashAmount: form.sourceType === "mixed_cash_cheque" ? Number(form.cashAmount || 0) : undefined,
+          currencyId: resolvedCurrencyId,
+          detail: hajiDetail,
+          notes: form.notes || undefined,
+          referenceNo: form.referenceNo || form.manualVoucherNo || undefined,
+          transferType: form.sourceType === "bank_transfer" ? "direct" : "from_in_hand",
+          sourceType: isAfghanistanCity
+            ? "cash_office"
+            : isChequeSource
+              ? "mixed_cash_cheque"
+              : form.sourceType || "cash_office",
+          bankAccountId: form.sourceType === "bank_transfer" ? form.bankAccountId || undefined : undefined,
+          chequePaymentIds: isChequeSource ? chequePaymentIds : undefined,
+          superAdminDestinationAccountId: !isAfghanistanCity ? form.superAdminDestinationAccountId || undefined : undefined,
+          transferredTo,
+          settlementDestination: isAfghanistanCity ? form.settlementDestination || "intermediary" : undefined,
+          intermediaryId: isAfghanistanCity && form.settlementDestination === "intermediary" ? Number(form.intermediaryId || 0) : undefined,
+          superAdminCashAccountId: isAfghanistanCity && form.settlementDestination === "super_admin_cash" ? Number(form.superAdminCashAccountId || 0) : undefined,
+        },
+      };
+    }
+
+    if (!(form.amount > 0) || !form.detail) return { error: t("amount") + " (must be > 0) and " + t("detail") + " required" };
+    if (!String(form.withdrawnBy || "").trim()) return { error: "Withdrawn By is required" };
+    if (form.sourceType === "bank_account" && !form.bankAccountId) return { error: t("select") + " " + t("bank_account").toLowerCase() };
+    return {
+      endpoint: "/api/v1/personal-withdrawals",
+      body: {
+        ...form,
+        withdrawnBy: String(form.withdrawnBy || "").trim(),
+        currencyId: resolvedCurrencyId,
+        bankAccountId: form.sourceType === "bank_account" ? form.bankAccountId : undefined,
+      },
+    };
   };
 
   useEffect(() => {
@@ -687,110 +816,19 @@ export default function PaymentsPage() {
 
   const handleCreate = async (forceVoucher = false) => {
     setSubmitting(true); setError("");
-    const resolvedCurrencyId = form.currencyId || currencies[0]?.id || 0;
-    if (!resolvedCurrencyId) {
-      setError(getOfflineFormReadinessError({
-        isOnline,
-        currencyCount: currencies.length,
-        moduleTitle: "Payment",
-      }) || "Currency setup missing");
+    const submission = await buildSubmissionForType(createType, forceVoucher);
+    if (submission.error) {
+      setError(submission.error);
       setSubmitting(false);
       return;
     }
-    let endpoint = "", body: any = {};
-    if (createType === "payment") {
-      if (isPakistanSimplified) {
-        const validationError = validatePakistanPaymentForm(form);
-        if (validationError) { setError(validationError); setSubmitting(false); return; }
-      } else if (!form.customerId || !(form.amount > 0) || !form.detail) {
-        setError(t("customer") + ", " + t("amount") + " (must be > 0), " + t("detail") + " required");
-        setSubmitting(false);
-        return;
-      }
-      if (!forceVoucher && form.manualVoucherNo?.trim()) {
-        const check = await apiCall(`/api/v1/payments/check-voucher?voucher_no=${encodeURIComponent(form.manualVoucherNo.trim())}`);
-        if (check.success && (check.data as any).isDuplicate) {
-          setVoucherWarning({ matches: (check.data as any).matches });
-          setSubmitting(false); return;
-        }
-      }
-      endpoint = "/api/v1/payments";
-      body = isPakistanSimplified
-        ? buildPaymentSubmitPayload(form, {
-            currencyId: resolvedCurrencyId,
-            cityBankAccounts,
-            superAdminBankAccounts,
-          })
-        : sanitizePaymentSubmitPayload({ ...form, currencyId: resolvedCurrencyId });
-    } else if (createType === "expense") {
-      if (!(form.amount > 0) || !form.detail) { setError(t("amount") + " (must be > 0) and " + t("detail") + " required"); setSubmitting(false); return; }
-      if (form.paidFrom === "bank_account" && !form.bankAccountId) { setError(t("select") + " " + t("bank_account").toLowerCase()); setSubmitting(false); return; }
-      endpoint = "/api/v1/expenses";
-      body = {
-        ...form,
-        lotId: form.lotId || null,
-        currencyId: resolvedCurrencyId,
-        bankAccountId: form.paidFrom === "bank_account" ? form.bankAccountId : undefined,
-      };
-    } else if (createType === "haji_transfer") {
-      const chequePaymentIds = Array.isArray(form.chequePaymentIds) ? form.chequePaymentIds : [];
-      const isChequeSource = form.sourceType === "cheque" || form.sourceType === "mixed_cash_cheque";
-      const destinationAccount = !isAfghanistanCity
-        ? superAdminBankAccounts.find((a: any) => a.id === form.superAdminDestinationAccountId)
-        : null;
-      const transferredTo = !isAfghanistanCity
-        ? (destinationAccount ? formatSuperAdminBankLabel(destinationAccount) : PAKISTAN_HAJI_TARGET)
-        : undefined;
-      const hajiDetail = isAfghanistanCity
-        ? String(form.detail || "").trim()
-        : buildCityHajiTransferDetail({
-            sourceType: form.sourceType || "cash_office",
-            transferredTo,
-            destinationAccount,
-          });
-      if (isAfghanistanCity && !hajiDetail) { setError(t("detail") + " required"); setSubmitting(false); return; }
-      if (!isChequeSource && !(form.amount > 0)) { setError(t("amount") + " (must be > 0) required"); setSubmitting(false); return; }
-      if (form.sourceType === "bank_transfer" && !form.bankAccountId) { setError(t("select") + " " + t("bank_account").toLowerCase()); setSubmitting(false); return; }
-      if (form.sourceType === "cheque" && chequePaymentIds.length === 0) { setError(t("select_cheques")); setSubmitting(false); return; }
-      if (form.sourceType === "mixed_cash_cheque" && !(form.cashAmount > 0) && chequePaymentIds.length === 0) { setError("Enter a cash amount or select at least one cheque"); setSubmitting(false); return; }
-      if (!isAfghanistanCity && superAdminBankAccounts.length > 0 && !form.superAdminDestinationAccountId) { setError("Please select a destination account"); setSubmitting(false); return; }
-      if (isAfghanistanCity && !buildSettlementTargetValue(form.settlementDestination, form.intermediaryId, form.superAdminCashAccountId)) { setError("Please select where funds are going"); setSubmitting(false); return; }
-      endpoint = "/api/v1/haji-transfers";
-      body = {
-        lotId: form.lotId || null,
-        transferDate: form.transferDate || form.paymentDate || new Date().toISOString().split("T")[0],
-        amount: Number(form.amount || 0),
-        cashAmount: form.sourceType === "mixed_cash_cheque" ? Number(form.cashAmount || 0) : undefined,
-        currencyId: resolvedCurrencyId,
-        detail: hajiDetail,
-        notes: form.notes || undefined,
-        referenceNo: form.referenceNo || form.manualVoucherNo || undefined,
-        transferType: form.sourceType === "bank_transfer" ? "direct" : "from_in_hand",
-        sourceType: isAfghanistanCity
-          ? "cash_office"
-          : isChequeSource
-            ? "mixed_cash_cheque"
-            : form.sourceType || "cash_office",
-        bankAccountId: form.sourceType === "bank_transfer" ? form.bankAccountId || undefined : undefined,
-        chequePaymentIds: isChequeSource ? chequePaymentIds : undefined,
-        superAdminDestinationAccountId: !isAfghanistanCity ? form.superAdminDestinationAccountId || undefined : undefined,
-        transferredTo,
-        settlementDestination: isAfghanistanCity ? form.settlementDestination || "intermediary" : undefined,
-        intermediaryId: isAfghanistanCity && form.settlementDestination === "intermediary" ? Number(form.intermediaryId || 0) : undefined,
-        superAdminCashAccountId: isAfghanistanCity && form.settlementDestination === "super_admin_cash" ? Number(form.superAdminCashAccountId || 0) : undefined,
-      };
-    } else {
-      if (!(form.amount > 0) || !form.detail) { setError(t("amount") + " (must be > 0) and " + t("detail") + " required"); setSubmitting(false); return; }
-      if (!String(form.withdrawnBy || "").trim()) { setError("Withdrawn By is required"); setSubmitting(false); return; }
-      if (form.sourceType === "bank_account" && !form.bankAccountId) { setError(t("select") + " " + t("bank_account").toLowerCase()); setSubmitting(false); return; }
-      endpoint = "/api/v1/personal-withdrawals";
-      body = {
-        ...form,
-        withdrawnBy: String(form.withdrawnBy || "").trim(),
-        currencyId: resolvedCurrencyId,
-        bankAccountId: form.sourceType === "bank_account" ? form.bankAccountId : undefined,
-      };
+    if (submission.duplicateMatches) {
+      setVoucherWarning({ matches: submission.duplicateMatches });
+      setSubmitting(false);
+      return;
     }
+    const endpoint = submission.endpoint!;
+    const body = submission.body;
     // ── Offline: queue and optimistically add to list ──
     if (resolvingQueueId) {
       const updateOk = await updateQueuedItem(resolvingQueueId, {
@@ -812,7 +850,7 @@ export default function PaymentsPage() {
       return;
     }
 
-    const keepPaymentModalOpen = createType === "payment";
+    const keepCreateModalOpen = canCreateRecords;
 
     if (!isOnline) {
       const entityType = createType === "payment" ? "payment" : createType;
@@ -842,10 +880,10 @@ export default function PaymentsPage() {
         persistPaymentsSnapshot(next, total + 1);
         return next;
       });
-      if (keepPaymentModalOpen) {
-        resetPaymentCreateForm();
+      if (keepCreateModalOpen) {
+        resetCurrentCreateFormAfterSave();
         setError("");
-        setPaymentSavedNotice("Payment queued for sync.");
+        setPaymentSavedNotice("Entry queued for sync.");
         setTimeout(() => setPaymentSavedNotice(null), 3000);
       } else {
         setShowCreate(false);
@@ -859,10 +897,10 @@ export default function PaymentsPage() {
     const r = await apiCall(endpoint, { method: "POST", body });
     if (r.success) {
       setResolvingQueueId(null);
-      if (keepPaymentModalOpen) {
-        resetPaymentCreateForm();
+      if (keepCreateModalOpen) {
+        resetCurrentCreateFormAfterSave();
         setError("");
-        setPaymentSavedNotice("Payment recorded.");
+        setPaymentSavedNotice("Entry recorded.");
         setTimeout(() => setPaymentSavedNotice(null), 3000);
         refreshToLatestPayments();
       } else {
@@ -1013,31 +1051,47 @@ export default function PaymentsPage() {
 
   const handleEdit = async () => {
     const id = selected.id;
-    const endpoint = createType === "payment" ? `/api/v1/payments/${id}` : createType === "expense" ? `/api/v1/expenses/${id}` : createType === "haji_transfer" ? `/api/v1/haji-transfers/${id}` : `/api/v1/personal-withdrawals/${id}`;
-    if (createType === "haji_transfer") {
-      if (!isAfghanistanCity && superAdminBankAccounts.length > 0 && !form.superAdminDestinationAccountId) {
-        setError("Please select a destination account");
-        return;
-      }
-      if (isAfghanistanCity && !buildSettlementTargetValue(form.settlementDestination, form.intermediaryId, form.superAdminCashAccountId)) {
-        setError("Please select where funds are going");
-        return;
-      }
-      if (form.sourceType === "bank_transfer" && !form.bankAccountId) {
-        setError("Please select a bank account");
-        return;
-      }
+    const originalType = selected?.type;
+    const submission = await buildSubmissionForType(createType, originalType === createType);
+    if (submission.error) {
+      setError(submission.error);
+      return;
     }
-    const body = createType === "payment"
-      ? (isPakistanSimplified
-        ? buildPaymentSubmitPayload(form, {
-            currencyId: form.currencyId || currencies[0]?.id,
-            cityBankAccounts,
-            superAdminBankAccounts,
-          })
-        : sanitizePaymentSubmitPayload(form))
-      : form;
+    if (submission.duplicateMatches) {
+      setVoucherWarning({ matches: submission.duplicateMatches });
+      return;
+    }
+    const endpoint = createType === "payment" ? `/api/v1/payments/${id}` : createType === "expense" ? `/api/v1/expenses/${id}` : createType === "haji_transfer" ? `/api/v1/haji-transfers/${id}` : `/api/v1/personal-withdrawals/${id}`;
+    const body = submission.body;
     const editedDate = form.paymentDate || form.transferDate || form.expenseDate || form.withdrawalDate || "";
+    if (originalType && createType !== originalType) {
+      if (!isOnline) {
+        setError("Changing payment type requires internet so the old entry can be reversed safely.");
+        return;
+      }
+      setSubmitting(true);
+      const createResult = await apiCall(submission.endpoint!, { method: "POST", body });
+      if (!createResult.success) {
+        setSubmitting(false);
+        setError(createResult.error || "Failed");
+        return;
+      }
+      const typeLabel = TYPE_CONFIG[createType]?.label || createType;
+      const previousTypeLabel = TYPE_CONFIG[originalType]?.label || originalType;
+      const cleanupEndpoint = originalType === "payment" ? `/api/v1/payments/${id}/cancel` : originalType === "expense" ? `/api/v1/expenses/${id}` : originalType === "haji_transfer" ? `/api/v1/haji-transfers/${id}` : `/api/v1/personal-withdrawals/${id}`;
+      const cleanupMethod = originalType === "payment" ? "PUT" : "DELETE";
+      const cleanupBody = originalType === "payment" ? { reason: `Converted from ${previousTypeLabel} to ${typeLabel}` } : undefined;
+      const cleanupResult = await apiCall(cleanupEndpoint, { method: cleanupMethod, body: cleanupBody });
+      setSubmitting(false);
+      if (cleanupResult.success) {
+        setShowEdit(false);
+        load();
+      } else {
+        setError(cleanupResult.error || `Created ${typeLabel}, but failed to remove old ${previousTypeLabel}. Please review before saving again.`);
+        load();
+      }
+      return;
+    }
     if (!isOnline) {
       const pendingQueueId = getPendingQueueId(id);
       if (pendingQueueId) {
@@ -1670,6 +1724,27 @@ export default function PaymentsPage() {
     });
   };
 
+  const switchEditType = (nextType: string) => {
+    const currentDate = form.paymentDate || form.expenseDate || form.transferDate || form.withdrawalDate || new Date().toISOString().split("T")[0];
+    const commonPreset = {
+      paymentDate: currentDate,
+      expenseDate: currentDate,
+      transferDate: currentDate,
+      withdrawalDate: currentDate,
+      amount: Number(form.amount || 0),
+      detail: form.detail || "",
+      notes: form.notes || "",
+      currencyId: form.currencyId || currencies[0]?.id || 0,
+      customerId: form.customerId || 0,
+      customerName: form.customerName || "",
+      manualVoucherNo: form.manualVoucherNo || form.referenceNo || "",
+      referenceNo: form.referenceNo || form.manualVoucherNo || "",
+    };
+    setCreateType(nextType);
+    setForm(buildInitialFormForType(nextType, currencies, commonPreset));
+    setError("");
+  };
+
   const effectivePaymentMethod = form.paymentMethod || "cash";
   const selectedMethod = PAYMENT_METHOD_OPTIONS.find((option) => option.value === effectivePaymentMethod);
   const selectedDestination = DESTINATION_OPTIONS.find((option) => option.value === form.destination);
@@ -1841,13 +1916,11 @@ export default function PaymentsPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="min-w-0">
                     <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
-                    <input
-                      type="number"
+                    <FormattedNumberInput
                       min="0.01"
                       value={form.amount || ""}
-                      onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
+                      onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))}
                       className="input-field"
-                      onWheel={e => e.currentTarget.blur()}
                     />
                   </div>
                   <div className="min-w-0">
@@ -1866,13 +1939,11 @@ export default function PaymentsPage() {
               ) : (
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
-                  <input
-                    type="number"
+                  <FormattedNumberInput
                     min="0.01"
                     value={form.amount || ""}
-                    onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
+                    onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))}
                     className="input-field"
-                    onWheel={e => e.currentTarget.blur()}
                   />
                 </div>
               )}
@@ -2083,13 +2154,11 @@ export default function PaymentsPage() {
           {createType !== "haji_transfer" && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
-              <input
-                type="number"
+              <FormattedNumberInput
                 min="0.01"
                 value={form.amount || ""}
-                onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
+                onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))}
                 className="input-field"
-                onWheel={e => e.currentTarget.blur()}
               />
             </div>
           )}
@@ -2439,7 +2508,7 @@ export default function PaymentsPage() {
                   </select>
                 </div>
               )}
-              <div className={`grid grid-cols-2 gap-3 ${currencies.length > 1 ? "sm:grid-cols-4" : "sm:grid-cols-3"}`}>
+              <div className={`grid grid-cols-2 gap-3 ${currencies.length > 1 ? "sm:grid-cols-5" : "sm:grid-cols-4"}`}>
                 <div className="min-w-0">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     {form.sourceType === "mixed_cash_cheque" ? "Cash Amount" : t("amount")}{" "}
@@ -2450,15 +2519,13 @@ export default function PaymentsPage() {
                       {selectedHajiChequeTotal > 0 ? selectedHajiChequeTotal.toLocaleString("en-US") : "—"}
                     </div>
                   ) : (
-                    <input
-                      type="number"
+                    <FormattedNumberInput
                       min="0.01"
                       value={form.sourceType === "mixed_cash_cheque" ? (form.cashAmount || "") : (form.amount || "")}
-                      onChange={e => setForm((f: any) => form.sourceType === "mixed_cash_cheque"
-                        ? ({ ...f, cashAmount: parseFloat(e.target.value) || 0 })
-                        : ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
+                      onValueChange={(value) => setForm((f: any) => form.sourceType === "mixed_cash_cheque"
+                        ? ({ ...f, cashAmount: value || 0 })
+                        : ({ ...f, amount: value || 0 }))}
                       className="input-field"
-                      onWheel={e => e.currentTarget.blur()}
                     />
                   )}
                 </div>
@@ -2505,6 +2572,12 @@ export default function PaymentsPage() {
                     ))}
                   </select>
                 </div>
+                {!isEmbed && (
+                  <div className="min-w-0">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
+                    <input value={form.notes || ""} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" />
+                  </div>
+                )}
               </div>
               {form.sourceType === "mixed_cash_cheque" && (
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-700">
@@ -2512,13 +2585,6 @@ export default function PaymentsPage() {
                 </div>
               )}
             </div>
-          )}
-
-          {!isEmbed && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
-            <input value={form.notes || ""} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" />
-          </div>
           )}
 
             </>
@@ -2586,14 +2652,30 @@ export default function PaymentsPage() {
         <div className="space-y-3">
           {createType === "payment" ? (
             <>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
-                <input
-                  type="date"
-                  value={form.paymentDate || ""}
-                  onChange={e => setForm((f: any) => ({ ...f, paymentDate: e.target.value }))}
-                  className="input-field"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="min-w-0">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
+                  <input
+                    type="date"
+                    value={form.paymentDate || ""}
+                    onChange={e => {
+                      const d = e.target.value;
+                      setForm((f: any) => ({ ...f, paymentDate: d, expenseDate: d, transferDate: d, withdrawalDate: d }));
+                    }}
+                    className="input-field"
+                  />
+                </div>
+                {canCreateRecords && (
+                  <div className="min-w-0">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                    <select value={createType} onChange={(e) => switchEditType(e.target.value)} className="select-field">
+                      <option value="payment">Receive Payment</option>
+                      <option value="haji_transfer">Haji Transfer</option>
+                      <option value="expense">Expense</option>
+                      <option value="withdrawal">Withdrawal</option>
+                    </select>
+                  </div>
+                )}
               </div>
 
               <CustomerFieldWithNew
@@ -2614,7 +2696,7 @@ export default function PaymentsPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="min-w-0">
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
-                    <input type="number" min="0.01" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} />
+                    <FormattedNumberInput min="0.01" value={form.amount || ""} onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))} className="input-field" />
                   </div>
                   <div className="min-w-0">
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
@@ -2626,7 +2708,7 @@ export default function PaymentsPage() {
               ) : (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
-                  <input type="number" min="0.01" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} />
+                  <FormattedNumberInput min="0.01" value={form.amount || ""} onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))} className="input-field" />
                 </div>
               )}
 
@@ -2731,25 +2813,40 @@ export default function PaymentsPage() {
             </>
           ) : (
             <>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")}</label>
-                <input type="date"
-                  value={form.expenseDate || form.withdrawalDate || form.transferDate || form.paymentDate || ""}
-                  onChange={e => {
-                    const d = e.target.value;
-                    setForm((f: any) => ({ ...f, expenseDate: d, withdrawalDate: d, transferDate: d, paymentDate: d }));
-                  }}
-                  className="input-field"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="min-w-0">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
+                  <input type="date"
+                    value={form.expenseDate || form.withdrawalDate || form.transferDate || form.paymentDate || ""}
+                    onChange={e => {
+                      const d = e.target.value;
+                      setForm((f: any) => ({ ...f, expenseDate: d, withdrawalDate: d, transferDate: d, paymentDate: d }));
+                    }}
+                    className="input-field"
+                  />
+                </div>
+                {canCreateRecords && (
+                  <div className="min-w-0">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                    <select value={createType} onChange={(e) => switchEditType(e.target.value)} className="select-field">
+                      <option value="payment">Receive Payment</option>
+                      <option value="haji_transfer">Haji Transfer</option>
+                      <option value="expense">Expense</option>
+                      <option value="withdrawal">Withdrawal</option>
+                    </select>
+                  </div>
+                )}
               </div>
 
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("detail")}</label><input value={form.detail || ""} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" /></div>
+              {createType !== "haji_transfer" && (
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("detail")} *</label><input value={form.detail || ""} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" /></div>
+              )}
 
-              {currencies.length > 1 ? (
+              {createType !== "haji_transfer" && currencies.length > 1 ? (
                 <div className="grid grid-cols-2 gap-3">
                   <div className="min-w-0">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")}</label>
-                    <input type="number" min="0.01" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} />
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
+                    <FormattedNumberInput min="0.01" value={form.amount || ""} onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))} className="input-field" />
                   </div>
                   <div className="min-w-0">
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
@@ -2758,9 +2855,9 @@ export default function PaymentsPage() {
                     </select>
                   </div>
                 </div>
-              ) : (
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")}</label><input type="number" min="0.01" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} /></div>
-              )}
+              ) : createType !== "haji_transfer" ? (
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label><FormattedNumberInput min="0.01" value={form.amount || ""} onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))} className="input-field" /></div>
+              ) : null}
 
               {createType === "expense" && (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -2974,10 +3071,86 @@ export default function PaymentsPage() {
                       </select>
                     </div>
                   )}
+                  <div className={`grid grid-cols-2 gap-3 ${currencies.length > 1 ? "sm:grid-cols-5" : "sm:grid-cols-4"}`}>
+                    <div className="min-w-0">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        {form.sourceType === "mixed_cash_cheque" ? "Cash Amount" : t("amount")}{" "}
+                        {form.sourceType === "cheque" ? <span className="font-normal text-gray-400">(auto)</span> : "*"}
+                      </label>
+                      {form.sourceType === "cheque" ? (
+                        <div className="input-field bg-gray-50 tabular-nums text-gray-800">
+                          {selectedHajiChequeTotal > 0 ? selectedHajiChequeTotal.toLocaleString("en-US") : "—"}
+                        </div>
+                      ) : (
+                        <FormattedNumberInput
+                          min="0.01"
+                          value={form.sourceType === "mixed_cash_cheque" ? (form.cashAmount || "") : (form.amount || "")}
+                          onValueChange={(value) => setForm((f: any) => form.sourceType === "mixed_cash_cheque"
+                            ? ({ ...f, cashAmount: value || 0 })
+                            : ({ ...f, amount: value || 0 }))}
+                          className="input-field"
+                        />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Ref. No.</label>
+                      <input
+                        value={form.referenceNo || ""}
+                        onChange={e => setForm((f: any) => ({ ...f, referenceNo: e.target.value }))}
+                        className="input-field"
+                      />
+                    </div>
+                    {currencies.length > 1 && (
+                      <div className="min-w-0">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")} *</label>
+                        <select
+                          value={form.currencyId || 0}
+                          onChange={e => {
+                            const currencyId = parseInt(e.target.value, 10) || 0;
+                            setForm((f: any) => ({
+                              ...f,
+                              currencyId,
+                              settlementDestination: isAfghanistanCity ? "intermediary" : f.settlementDestination,
+                              intermediaryId: isAfghanistanCity ? 0 : f.intermediaryId,
+                              superAdminCashAccountId: isAfghanistanCity ? 0 : f.superAdminCashAccountId,
+                              superAdminDestinationAccountId: !isAfghanistanCity ? 0 : f.superAdminDestinationAccountId,
+                            }));
+                            if (isAfghanistanCity && currencyId) void loadSettlementOptions(currencyId);
+                          }}
+                          className="select-field"
+                        >
+                          <option value={0}>Select</option>
+                          {currencies.map((currency: any) => (
+                            <option key={currency.id} value={currency.id}>{formatCurrencySelectLabel(currency)}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">{t("lot")}</label>
+                      <select value={form.lotId || 0} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value, 10) || 0 }))} className="select-field">
+                        <option value={0}>{t("auto_fifo")}</option>
+                        {lots.filter((lot: any) => lot.status === "ongoing" || !lot.status).map((lot: any) => (
+                          <option key={lot.id} value={lot.id}>{lot.lotNumber}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="min-w-0">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
+                      <input value={form.notes || ""} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" />
+                    </div>
+                  </div>
+                  {form.sourceType === "mixed_cash_cheque" && (
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-700">
+                      Slip total: {selectedHajiCheques[0]?.currency?.symbol || selectedHajiCheques[0]?.currency?.code || ""} {(Number(form.cashAmount || 0) + selectedHajiChequeTotal).toLocaleString("en-US")}
+                    </div>
+                  )}
                 </div>
               )}
 
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label><input value={form.notes || ""} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" /></div>
+              {createType !== "haji_transfer" && (
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label><input value={form.notes || ""} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" /></div>
+              )}
             </>
           )}
         </div>

@@ -138,6 +138,9 @@ test("city payment modal owns haji expense and withdrawal creation", () => {
   assert.match(paymentsPage, /paidFrom: "bank_account"/);
   assert.match(paymentsPage, /Withdrawn By \*/);
   assert.match(paymentsPage, /sourceType: "bank_account"/);
+  assert.match(paymentsPage, /const keepCreateModalOpen = canCreateRecords/);
+  assert.match(paymentsPage, /if \(keepCreateModalOpen\) \{\s+resetCurrentCreateFormAfterSave\(\);/);
+  assert.match(paymentsPage, /setPaymentSavedNotice\("Entry recorded\."\)/);
   assert.match(paymentsPage, /key: "actions", label: t\("actions"\)/);
   assert.match(paymentsPage, /item\.type === "expense" \? t\("edit_expense"\) : t\("edit"\)/);
   assert.doesNotMatch(dashboardPage, /\/haji-transfers\?create=1&embed=1/);
@@ -156,8 +159,9 @@ test("payment modal haji quickform matches standalone haji creation flow", () =>
   assert.match(hajiQuickform![0], /Going to \*/);
   assert.match(hajiQuickform![0], /Ref\. No\./);
   assert.match(hajiQuickform![0], /Cash Amount/);
-  assert.match(hajiQuickform![0], /Slip total:/);
-  assert.match(hajiQuickform![0], /formatCurrencySelectLabel/);
+  assert.match(paymentsPage, /Slip total:/);
+  assert.match(paymentsPage, /formatCurrencySelectLabel/);
+  assert.match(paymentsPage, /\{t\("lot"\)\}[\s\S]*\{t\("notes"\)\}/);
   assert.match(hajiQuickform![0], /\{isAfghanistanCity && \([\s\S]*\{t\("detail"\)\} \*/);
 });
 
@@ -181,6 +185,32 @@ test("payment modal haji edit keeps source and date fields aligned", () => {
   assert.doesNotMatch(paymentsPage, /<option value="from_in_hand">\{t\("from_in_hand"\)\}<\/option><option value="direct">\{t\("direct_transfer"\)\}<\/option>/);
   assert.match(hajiUpdateRoute, /const nextTransferType = nextSourceType === "bank_transfer" \? "direct" : "from_in_hand"/);
   assert.match(hajiUpdateRoute, /transferType: nextTransferType/);
+});
+
+test("payment modal edit reuses create validation and supports type switching", () => {
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+
+  assert.match(paymentsPage, /const buildInitialFormForType = useCallback/);
+  assert.match(paymentsPage, /const buildSubmissionForType = async \(type: string, forceVoucher = false\)/);
+  assert.match(paymentsPage, /const switchEditType = \(nextType: string\) =>/);
+  assert.match(paymentsPage, /onChange=\{\(e\) => switchEditType\(e\.target\.value\)\}/);
+  assert.match(paymentsPage, /if \(originalType && createType !== originalType\)/);
+  assert.match(paymentsPage, /Changing payment type requires internet so the old entry can be reversed safely/);
+  assert.match(paymentsPage, /const cleanupEndpoint = originalType === "payment" \? `\/api\/v1\/payments\/\$\{id\}\/cancel`/);
+  assert.match(paymentsPage, /const cleanupMethod = originalType === "payment" \? "PUT" : "DELETE"/);
+  assert.match(paymentsPage, /const submission = await buildSubmissionForType\(createType, originalType === createType\)/);
+});
+
+test("combined payments list sorts newest first and groups linked haji transfers", () => {
+  const financeCombinedRoute = readFileSync("src/app/api/v1/finance/combined/route.ts", "utf8");
+
+  assert.match(financeCombinedRoute, /function compareCombinedPaymentsNewestFirst\(a: any, b: any\): number/);
+  assert.match(financeCombinedRoute, /if \(a\.date !== b\.date\) return b\.date\.localeCompare\(a\.date\)/);
+  assert.match(financeCombinedRoute, /a\.type === "payment" && b\.type === "haji_transfer" && b\.raw\?\.paymentId === a\.id/);
+  assert.match(financeCombinedRoute, /b\.type === "payment" && a\.type === "haji_transfer" && a\.raw\?\.paymentId === b\.id/);
+  assert.match(financeCombinedRoute, /const createdAtDiff = createdAtMs\(b\) - createdAtMs\(a\)/);
+  assert.match(financeCombinedRoute, /combined\.sort\(compareCombinedPaymentsNewestFirst\)/);
+  assert.doesNotMatch(financeCombinedRoute, /combined\.sort\(\(a, b\) => \{\s+if \(a\.date !== b\.date\) return b\.date\.localeCompare\(a\.date\);\s+return b\.id - a\.id;/);
 });
 
 test("haji party account destination feature remains removed", () => {
