@@ -23,6 +23,8 @@ type LedgerRow = {
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const toCurrencyCode = (id: number, map: Record<number, string>) => map[id] || String(id);
+const paymentMethodLabel = (method?: string | null) => method === "online" ? "online" : method === "bank_transfer" ? "bank transfer" : method || "payment";
+const withRef = (detail: string, ref?: string | null) => ref ? `${detail} — Ref ${ref}` : detail;
 
 function respondLedgerView(
   searchParams: URLSearchParams,
@@ -377,7 +379,17 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       await Promise.all([
         prisma.payment.findMany({
           where: { bankAccountId: id, destination: "our_account", status: "active", cityId: account.cityId },
-          select: { id: true, paymentDate: true, createdAt: true, amount: true, detail: true, manualVoucherNo: true, currencyId: true },
+          select: {
+            id: true,
+            paymentDate: true,
+            createdAt: true,
+            amount: true,
+            detail: true,
+            manualVoucherNo: true,
+            paymentMethod: true,
+            currencyId: true,
+            customer: { select: { name: true } },
+          },
           orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
         }),
         prisma.bankDeposit.findMany({
@@ -438,13 +450,14 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
 
     const rows: LedgerRow[] = [];
     for (const p of paymentsIn) {
+      const source = p.customer?.name || p.detail || "Customer";
       rows.push({
         key: `pay-${p.id}`,
         date: new Date(p.paymentDate),
         createdAt: new Date(p.createdAt),
         type: "Payment In",
-        detail: p.detail || "Customer payment",
-        reference: p.manualVoucherNo || null,
+        detail: withRef(`${source} — ${paymentMethodLabel(p.paymentMethod)}`, p.manualVoucherNo),
+        reference: null,
         currencyCode: toCurrencyCode(p.currencyId, currencyCodeById),
         credit: Number(p.amount),
         debit: 0,
@@ -460,8 +473,8 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         date: new Date(d.depositDate),
         createdAt: new Date(d.createdAt),
         type: isB2BOut || isB2BIn ? "Bank Transfer" : isWithdrawal ? "Bank Withdrawal" : "Bank Deposit",
-        detail: isB2BOut ? "Transfer to another bank" : isB2BIn ? "Transfer from another bank" : isWithdrawal ? "Cash withdrawn to office" : "Cash deposited",
-        reference: d.slipNumber || null,
+        detail: withRef(isB2BOut ? "Transfer to another bank" : isB2BIn ? "Transfer from another bank" : isWithdrawal ? "Cash withdrawn to office" : "Cash deposit", d.slipNumber),
+        reference: null,
         currencyCode: toCurrencyCode(d.currencyId, currencyCodeById),
         credit: cash > 0 ? cash : 0,
         debit: cash < 0 ? Math.abs(cash) : 0,
@@ -473,8 +486,8 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         date: new Date(c.paymentDate),
         createdAt: new Date(c.createdAt),
         type: "Cheque Deposit",
-        detail: "Cheque deposited to bank",
-        reference: c.chequeNumber || null,
+        detail: withRef("Cheque deposit", c.chequeNumber),
+        reference: null,
         currencyCode: toCurrencyCode(c.currencyId, currencyCodeById),
         credit: Number(c.amount),
         debit: 0,

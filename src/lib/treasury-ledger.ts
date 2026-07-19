@@ -203,7 +203,6 @@ export async function computeCityTreasuryNet(
     withdrawalsRaw,
     chequesInHandRaw,
     bankPaymentsRaw,
-    hajiDirectPaymentsRaw,
     depositedChequesRaw,
     hajiFromBankRaw,
     expensesFromBankRaw,
@@ -263,36 +262,27 @@ export async function computeCityTreasuryNet(
       by: ["currencyId"],
       where: {
         cityId,
-        paymentMethod: { in: ["bank_transfer", "online"] },
-        destination: "haji",
-        status: "active",
-      },
-      _sum: { amount: true },
-    } as any),
-    prisma.payment.groupBy({
-      by: ["currencyId"],
-      where: {
-        cityId,
         paymentMethod: "cheque",
         destination: "our_account",
         status: "active",
         chequeStatus: "deposited_to_bank",
+        bankDepositId: { not: null },
       },
       _sum: { amount: true },
     }),
     prisma.hajiTransfer.groupBy({
       by: ["currencyId"],
-      where: { cityId, sourceType: "bank_transfer" },
+      where: { cityId, sourceType: "bank_transfer", bankAccountId: { not: null } },
       _sum: { amount: true },
     }),
     prisma.expense.groupBy({
       by: ["currencyId"],
-      where: { cityId, paidFrom: "bank_account", deletedAt: null },
+      where: { cityId, paidFrom: "bank_account", bankAccountId: { not: null }, deletedAt: null },
       _sum: { amount: true },
     }),
     prisma.personalWithdrawal.groupBy({
       by: ["currencyId"],
-      where: { cityId, sourceType: "bank_account", approvedAt: { not: null } } as any,
+      where: { cityId, sourceType: "bank_account", bankAccountId: { not: null }, approvedAt: { not: null } } as any,
       _sum: { amount: true },
     }),
     prisma.bankAccount.findMany({ where: { cityId }, select: { id: true } }),
@@ -332,10 +322,7 @@ export async function computeCityTreasuryNet(
   }
 
   let bankBalance = addMap(
-    addMap(
-      addMap(addMap(await mapRows(openingBankRaw), await mapRows(bankPaymentsRaw)), await mapRows(hajiDirectPaymentsRaw)),
-      await mapRows(depositsRaw, "cashAmount")
-    ),
+    addMap(addMap(await mapRows(openingBankRaw), await mapRows(bankPaymentsRaw)), await mapRows(depositsRaw, "cashAmount")),
     await mapRows(depositedChequesRaw)
   );
   bankBalance = subtractMap(

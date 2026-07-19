@@ -201,6 +201,16 @@ type PaymentsFormCache = {
   inHandCheques: any[];
 };
 
+type LatestPaymentEntrySummary = {
+  type: string;
+  title: string;
+  date: string;
+  primary: string;
+  amount: string;
+  meta: string[];
+  pending: boolean;
+};
+
 function formatInputDate(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -213,6 +223,45 @@ function getCurrentMonthDateRange() {
   return {
     from: formatInputDate(new Date(today.getFullYear(), today.getMonth(), 1)),
     to: formatInputDate(today),
+  };
+}
+
+function buildLatestPaymentEntrySummary(
+  type: string,
+  body: any,
+  formSnapshot: any,
+  currencies: any[],
+  lots: any[],
+  pending = false,
+): LatestPaymentEntrySummary {
+  const currencyId = Number(body?.currencyId || formSnapshot?.currencyId || 0);
+  const currency = currencies.find((row: any) => row.id === currencyId);
+  const currencyLabel = currency?.symbol || currency?.code || "";
+  const amount = Number(body?.amount || formSnapshot?.amount || 0);
+  const date = body?.paymentDate || body?.transferDate || body?.expenseDate || body?.withdrawalDate || formSnapshot?.paymentDate || formSnapshot?.transferDate || formSnapshot?.expenseDate || formSnapshot?.withdrawalDate || "";
+  const lotId = Number(body?.lotId || formSnapshot?.lotId || 0);
+  const lot = lots.find((row: any) => row.id === lotId);
+  const refNo = body?.manualVoucherNo || body?.referenceNo || formSnapshot?.manualVoucherNo || formSnapshot?.referenceNo || "";
+  const title = TYPE_CONFIG[type]?.label || type.replace("_", " ");
+  const primary = type === "payment"
+    ? (formSnapshot?.customerName || body?.customerName || body?.detail || "Customer payment")
+    : type === "withdrawal"
+      ? (body?.withdrawnBy || formSnapshot?.withdrawnBy || body?.detail || "Withdrawal")
+      : (body?.detail || formSnapshot?.detail || title);
+  const meta = [
+    refNo ? `Ref ${refNo}` : "",
+    lot?.lotNumber ? `Lot ${lot.lotNumber}` : "",
+    body?.paymentMethod || formSnapshot?.paymentMethod || body?.sourceType || formSnapshot?.sourceType || body?.paidFrom || formSnapshot?.paidFrom || "",
+  ].filter(Boolean);
+
+  return {
+    type,
+    title,
+    date,
+    primary,
+    amount: `${currencyLabel ? `${currencyLabel} ` : ""}${amount.toLocaleString("en-US")}`,
+    meta,
+    pending,
   };
 }
 
@@ -291,6 +340,7 @@ export default function PaymentsPage() {
   const [savingQueue, setSavingQueue] = useState(false);
   const [queueSaved, setQueueSaved] = useState(false);
   const [paymentSavedNotice, setPaymentSavedNotice] = useState<string | null>(null);
+  const [latestCreatedEntry, setLatestCreatedEntry] = useState<LatestPaymentEntrySummary | null>(null);
   const [createFormReady, setCreateFormReady] = useState(false);
   const prefillHandledRef = useRef(false);
   const closeEmbed = useCallback(() => {
@@ -534,27 +584,6 @@ export default function PaymentsPage() {
     if (currencyId) void loadSettlementOptions(currencyId);
   }, [showCreate, showEdit, createType, isAfghanistanCity, form.currencyId, currencies, loadSettlementOptions]);
 
-  const resetPaymentCreateForm = useCallback(() => {
-    const today = new Date().toISOString().split("T")[0];
-    setForm({
-      customerId: 0,
-      customerName: "",
-      paymentDate: today,
-      amount: 0,
-      detail: "",
-      currencyId: currencies[0]?.id || 0,
-      paymentMethod: "cash",
-      destination: "our_account",
-      notes: "",
-      chequeNumber: "",
-      chequeBank: "",
-      chequeDueDate: "",
-      bankAccountId: 0,
-      superAdminBankAccountId: 0,
-      manualVoucherNo: "",
-    });
-  }, [currencies]);
-
   const buildInitialFormForType = useCallback((type: string, loadedCurrencies: any[], preset: Record<string, any> = {}) => {
     const today = new Date().toISOString().split("T")[0];
     const currencyId = loadedCurrencies[0]?.id || currencies[0]?.id || 0;
@@ -631,6 +660,7 @@ export default function PaymentsPage() {
     setCreateType(type);
     setResolvingQueueId(null);
     setPaymentSavedNotice(null);
+    setLatestCreatedEntry(null);
     const { loadedCurrencies } = await loadHelpers();
     const offlineReadinessError = getOfflineFormReadinessError({
       isOnline,
@@ -650,12 +680,15 @@ export default function PaymentsPage() {
   };
 
   const resetCurrentCreateFormAfterSave = useCallback(() => {
-    if (createType === "payment") {
-      resetPaymentCreateForm();
-      return;
-    }
-    setForm(buildInitialFormForType(createType, currencies));
-  }, [buildInitialFormForType, createType, currencies, resetPaymentCreateForm]);
+    const currentDate = form.paymentDate || form.expenseDate || form.transferDate || form.withdrawalDate || new Date().toISOString().split("T")[0];
+    const preserveDatePreset = {
+      paymentDate: currentDate,
+      expenseDate: currentDate,
+      transferDate: currentDate,
+      withdrawalDate: currentDate,
+    };
+    setForm(buildInitialFormForType(createType, currencies, preserveDatePreset));
+  }, [buildInitialFormForType, createType, currencies, form.expenseDate, form.paymentDate, form.transferDate, form.withdrawalDate]);
 
   const buildSubmissionForType = async (type: string, forceVoucher = false) => {
     const resolvedCurrencyId = form.currencyId || currencies[0]?.id || 0;
@@ -828,6 +861,7 @@ export default function PaymentsPage() {
     }
     const endpoint = submission.endpoint!;
     const body = submission.body;
+    const formSnapshot = { ...form };
     // ── Offline: queue and optimistically add to list ──
     if (resolvingQueueId) {
       const updateOk = await updateQueuedItem(resolvingQueueId, {
@@ -880,6 +914,7 @@ export default function PaymentsPage() {
         return next;
       });
       if (keepCreateModalOpen) {
+        setLatestCreatedEntry(buildLatestPaymentEntrySummary(createType, body, formSnapshot, currencies, lots, true));
         resetCurrentCreateFormAfterSave();
         setError("");
         setPaymentSavedNotice("Entry queued for sync.");
@@ -897,6 +932,7 @@ export default function PaymentsPage() {
     if (r.success) {
       setResolvingQueueId(null);
       if (keepCreateModalOpen) {
+        setLatestCreatedEntry(buildLatestPaymentEntrySummary(createType, body, formSnapshot, currencies, lots));
         resetCurrentCreateFormAfterSave();
         setError("");
         setPaymentSavedNotice("Entry recorded.");
@@ -948,8 +984,8 @@ export default function PaymentsPage() {
       body,
     }]);
     // Reset form for next entry, keep modal open
-    const today = new Date().toISOString().split("T")[0];
-    setForm({ customerId: 0, customerName: "", paymentDate: today, amount: 0, detail: "", currencyId: currencies[0]?.id || 0, paymentMethod: "cash", destination: "our_account", notes: "", chequeNumber: "", chequeBank: "", chequeDueDate: "", bankAccountId: 0, superAdminBankAccountId: 0, manualVoucherNo: "" });
+    const selectedDate = form.paymentDate || new Date().toISOString().split("T")[0];
+    setForm({ customerId: 0, customerName: "", paymentDate: selectedDate, amount: 0, detail: "", currencyId: currencies[0]?.id || 0, paymentMethod: "cash", destination: "our_account", notes: "", chequeNumber: "", chequeBank: "", chequeDueDate: "", bankAccountId: 0, superAdminBankAccountId: 0, manualVoucherNo: "" });
     setQueueSaved(false);
   };
 
@@ -1871,9 +1907,24 @@ export default function PaymentsPage() {
       />}
 
       {/* ── CREATE MODAL ───────────────────────────────────────────────────── */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); setCreateFormReady(false); setPaymentSavedNotice(null); if (isEmbed) closeEmbed(); }} title={createTitle} size="md" inline={isEmbed} hideHeader={isEmbed}>
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); setCreateFormReady(false); setPaymentSavedNotice(null); setLatestCreatedEntry(null); if (isEmbed) closeEmbed(); }} title={createTitle} size="md" inline={isEmbed} hideHeader={isEmbed}>
         {paymentSavedNotice && (
           <div className="mb-3 p-2 bg-green-50 border border-green-200 rounded text-green-700 text-sm">{paymentSavedNotice}</div>
+        )}
+        {latestCreatedEntry && (
+          <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+            <div className="flex items-center justify-between gap-3">
+              <span className="shrink-0 font-semibold">{latestCreatedEntry.pending ? "Queued" : "Latest"} {latestCreatedEntry.title}</span>
+              <span className="shrink-0 tabular-nums text-emerald-700">{latestCreatedEntry.date ? formatDate(latestCreatedEntry.date) : "—"}</span>
+            </div>
+            <div className="mt-1 flex items-center justify-between gap-3">
+              <span className="min-w-0 truncate text-emerald-900">{latestCreatedEntry.primary}</span>
+              <span className="shrink-0 font-semibold tabular-nums">{latestCreatedEntry.amount}</span>
+            </div>
+            {latestCreatedEntry.meta.length > 0 && (
+              <div className="mt-1 truncate text-[11px] text-emerald-700">{latestCreatedEntry.meta.join(" · ")}</div>
+            )}
+          </div>
         )}
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
@@ -1888,6 +1939,7 @@ export default function PaymentsPage() {
                     onChange={(d) => setForm((f: any) => ({ ...f, paymentDate: d, expenseDate: d, transferDate: d, withdrawalDate: d }))}
                     placeholder={t("date")}
                     aria-label={t("date")}
+                    closeOnSelect
                   />
                 </div>
                 <div className="min-w-0">
@@ -2095,6 +2147,7 @@ export default function PaymentsPage() {
                   value={form.transferDate || ""}
                   onChange={(transferDate) => setForm((f: any) => ({ ...f, transferDate, paymentDate: transferDate, expenseDate: transferDate, withdrawalDate: transferDate }))}
                   placeholder={t("date")}
+                  closeOnSelect
                 />
               ) : (
                 <input type="date"
@@ -2102,6 +2155,7 @@ export default function PaymentsPage() {
                   onChange={e => {
                     const d = e.target.value;
                     setForm((f: any) => ({ ...f, paymentDate: d, expenseDate: d, transferDate: d, withdrawalDate: d }));
+                    e.currentTarget.blur();
                   }}
                   className="input-field"
                 />
@@ -2608,12 +2662,10 @@ export default function PaymentsPage() {
                     ))}
                   </select>
                 </div>
-                {!isEmbed && (
-                  <div className="min-w-0">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
-                    <input value={form.notes || ""} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" />
-                  </div>
-                )}
+                <div className="min-w-0">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
+                  <input value={form.notes || ""} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" />
+                </div>
               </div>
               {form.sourceType === "mixed_cash_cheque" && (
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-700">

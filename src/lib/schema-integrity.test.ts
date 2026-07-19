@@ -148,8 +148,14 @@ test("city payment modal owns haji expense and withdrawal creation", () => {
   assert.match(paymentsPage, /Withdrawn By \*/);
   assert.match(paymentsPage, /sourceType: "bank_account"/);
   assert.match(paymentsPage, /const keepCreateModalOpen = canCreateRecords/);
-  assert.match(paymentsPage, /if \(keepCreateModalOpen\) \{\s+resetCurrentCreateFormAfterSave\(\);/);
+  assert.match(paymentsPage, /if \(keepCreateModalOpen\) \{\s+setLatestCreatedEntry\(buildLatestPaymentEntrySummary\(createType, body, formSnapshot, currencies, lots/);
+  assert.match(paymentsPage, /setLatestCreatedEntry\(buildLatestPaymentEntrySummary\(createType, body, formSnapshot, currencies, lots[\s\S]*?resetCurrentCreateFormAfterSave\(\);/);
   assert.match(paymentsPage, /setPaymentSavedNotice\("Entry recorded\."\)/);
+  assert.match(paymentsPage, /type LatestPaymentEntrySummary = \{/);
+  assert.match(paymentsPage, /function buildLatestPaymentEntrySummary\(/);
+  assert.match(paymentsPage, /setLatestCreatedEntry\(buildLatestPaymentEntrySummary\(createType, body, formSnapshot, currencies, lots/);
+  assert.match(paymentsPage, /\{latestCreatedEntry && \(/);
+  assert.match(paymentsPage, /latestCreatedEntry\.meta\.join\(" · "\)/);
   assert.match(paymentsPage, /key: "actions", label: t\("actions"\)/);
   assert.match(paymentsPage, /item\.type === "expense" \? t\("edit_expense"\) : t\("edit"\)/);
   assert.doesNotMatch(dashboardPage, /\/haji-transfers\?create=1&embed=1/);
@@ -159,7 +165,7 @@ test("city payment modal owns haji expense and withdrawal creation", () => {
 
 test("payment modal haji quickform matches standalone haji creation flow", () => {
   const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
-  const hajiQuickform = paymentsPage.match(/\{createType === "haji_transfer" && \([\s\S]*?\n\s*\{!isEmbed && \(/);
+  const hajiQuickform = paymentsPage.match(/\{createType === "haji_transfer" && \([\s\S]*?Slip total:/);
 
   assert.ok(hajiQuickform, "payments modal haji quickform should exist");
   assert.match(paymentsPage, /buildCityHajiTransferDetail/);
@@ -171,6 +177,7 @@ test("payment modal haji quickform matches standalone haji creation flow", () =>
   assert.match(paymentsPage, /Slip total:/);
   assert.match(paymentsPage, /formatCurrencySelectLabel/);
   assert.match(paymentsPage, /\{t\("lot"\)\}[\s\S]*\{t\("notes"\)\}/);
+  assert.doesNotMatch(paymentsPage, /\{t\("lot"\)\}[\s\S]{0,700}\{!isEmbed && \(/);
   assert.match(hajiQuickform![0], /\{isAfghanistanCity && \([\s\S]*\{t\("detail"\)\} \*/);
 });
 
@@ -240,6 +247,25 @@ test("payments date range defaults to all dates", () => {
   assert.match(paymentsPage, /useState<"today" \| "last7" \| "month" \| "all" \| "custom">\("all"\)/);
 });
 
+test("payment modals preserve selected date after type changes and saves", () => {
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+
+  assert.match(paymentsPage, /const preserveDatePreset = \{\s+paymentDate: currentDate,\s+expenseDate: currentDate,\s+transferDate: currentDate,\s+withdrawalDate: currentDate,\s+\}/);
+  assert.match(paymentsPage, /setForm\(buildInitialFormForType\(createType, currencies, preserveDatePreset\)\)/);
+  assert.match(paymentsPage, /const selectedDate = form\.paymentDate \|\| new Date\(\)\.toISOString\(\)\.split\("T"\)\[0\]/);
+  assert.match(paymentsPage, /paymentDate: selectedDate/);
+});
+
+test("payment creation date pickers close after selecting a day", () => {
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+  const mobileDateInput = readFileSync("src/components/ui/MobileDateInput.tsx", "utf8");
+
+  assert.match(mobileDateInput, /closeOnSelect\?: boolean/);
+  assert.match(mobileDateInput, /if \(closeOnSelect\) e\.currentTarget\.blur\(\)/);
+  assert.match(paymentsPage, /<MobileDateInput[\s\S]*?closeOnSelect/);
+  assert.match(paymentsPage, /e\.currentTarget\.blur\(\)/);
+});
+
 test("city payment ref column shows linked haji transfer reference numbers", () => {
   const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
   const cityColumns = paymentsPage.slice(paymentsPage.indexOf("] : ["));
@@ -264,11 +290,48 @@ test("combined payments list sorts newest first and groups linked haji transfers
 
   assert.match(financeCombinedRoute, /function compareCombinedPaymentsNewestFirst\(a: any, b: any\): number/);
   assert.match(financeCombinedRoute, /if \(a\.date !== b\.date\) return b\.date\.localeCompare\(a\.date\)/);
-  assert.match(financeCombinedRoute, /a\.type === "payment" && b\.type === "haji_transfer" && b\.raw\?\.paymentId === a\.id/);
-  assert.match(financeCombinedRoute, /b\.type === "payment" && a\.type === "haji_transfer" && a\.raw\?\.paymentId === b\.id/);
+  assert.match(financeCombinedRoute, /a\.type === "payment" && b\.type === "haji_transfer" && b\.raw\?\.paymentId === a\.id\) return 1/);
+  assert.match(financeCombinedRoute, /b\.type === "payment" && a\.type === "haji_transfer" && a\.raw\?\.paymentId === b\.id\) return -1/);
   assert.match(financeCombinedRoute, /const createdAtDiff = createdAtMs\(b\) - createdAtMs\(a\)/);
   assert.match(financeCombinedRoute, /combined\.sort\(compareCombinedPaymentsNewestFirst\)/);
   assert.doesNotMatch(financeCombinedRoute, /combined\.sort\(\(a, b\) => \{\s+if \(a\.date !== b\.date\) return b\.date\.localeCompare\(a\.date\);\s+return b\.id - a\.id;/);
+});
+
+test("city bank balance particulars show transaction source instead of bank account", () => {
+  const bankAccountRoute = readFileSync("src/app/api/v1/bank-accounts/[id]/route.ts", "utf8");
+
+  assert.match(bankAccountRoute, /customer: \{ select: \{ name: true \} \}/);
+  assert.match(bankAccountRoute, /detail: withRef\(`\$\{source\} — \$\{paymentMethodLabel\(p\.paymentMethod\)\}`, p\.manualVoucherNo\)/);
+  assert.match(bankAccountRoute, /detail: withRef\(isB2BOut \? "Transfer to another bank" : isB2BIn \? "Transfer from another bank" : isWithdrawal \? "Cash withdrawn to office" : "Cash deposit", d\.slipNumber\)/);
+  assert.match(bankAccountRoute, /detail: withRef\("Cheque deposit", c\.chequeNumber\)/);
+});
+
+test("dashboard bank balance only counts movements tied to city bank accounts", () => {
+  const treasuryRoute = readFileSync("src/app/api/v1/treasury/route.ts", "utf8");
+  const treasuryLedger = readFileSync("src/lib/treasury-ledger.ts", "utf8");
+
+  const hajiFromBankBlock = treasuryRoute.match(/const hajiFromBankRaw = await prisma\.hajiTransfer\.groupBy\(\{[\s\S]*?\n    \}\);/);
+  assert.ok(hajiFromBankBlock, "treasury haji bank out block should exist");
+  assert.match(hajiFromBankBlock![0], /sourceType: "bank_transfer"/);
+  assert.match(hajiFromBankBlock![0], /bankAccountId: \{ not: null \}/);
+
+  const expenseBankBlock = treasuryRoute.match(/const expensesFromBankRaw = await prisma\.expense\.groupBy\(\{[\s\S]*?\n    \}\);/);
+  assert.ok(expenseBankBlock, "treasury expense bank out block should exist");
+  assert.match(expenseBankBlock![0], /paidFrom: "bank_account"/);
+  assert.match(expenseBankBlock![0], /bankAccountId: \{ not: null \}/);
+
+  const withdrawalBankBlock = treasuryRoute.match(/const withdrawalsFromBankRaw = await prisma\.personalWithdrawal\.groupBy\(\{[\s\S]*?\n    \}\);/);
+  assert.ok(withdrawalBankBlock, "treasury withdrawal bank out block should exist");
+  assert.match(withdrawalBankBlock![0], /sourceType: "bank_account"/);
+  assert.match(withdrawalBankBlock![0], /bankAccountId: \{ not: null \}/);
+
+  const depositedChequesBlock = treasuryRoute.match(/const depositedChequesRaw = await prisma\.payment\.groupBy\(\{[\s\S]*?\n    \}\);/);
+  assert.ok(depositedChequesBlock, "treasury deposited cheques block should exist");
+  assert.match(depositedChequesBlock![0], /bankDepositId: \{ not: null \}/);
+
+  assert.doesNotMatch(treasuryLedger, /hajiDirectPaymentsRaw/);
+  assert.match(treasuryLedger, /where: \{ cityId, sourceType: "bank_transfer", bankAccountId: \{ not: null \} \}/);
+  assert.match(treasuryLedger, /where: \{ cityId, paidFrom: "bank_account", bankAccountId: \{ not: null \}, deletedAt: null \}/);
 });
 
 test("haji party account destination feature remains removed", () => {

@@ -264,6 +264,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         destination: "our_account",
         status: "active",
         chequeStatus: "deposited_to_bank",
+        bankDepositId: { not: null },
       },
       _sum: { amount: true },
     });
@@ -274,6 +275,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       where: {
         cityId,
         sourceType: "bank_transfer",
+        bankAccountId: { not: null },
       },
       _sum: { amount: true },
     });
@@ -284,13 +286,14 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       where: {
         cityId,
         paidFrom: "bank_account",
+        bankAccountId: { not: null },
         deletedAt: null,
       },
       _sum: { amount: true },
     });
     const withdrawalsFromBankRaw = await prisma.personalWithdrawal.groupBy({
       by: ["currencyId"],
-      where: { cityId, sourceType: "bank_account", approvedAt: { not: null } } as any,
+      where: { cityId, sourceType: "bank_account", bankAccountId: { not: null }, approvedAt: { not: null } } as any,
       _sum: { amount: true },
     });
 

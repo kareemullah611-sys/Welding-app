@@ -15,8 +15,8 @@ function createdAtMs(item: any): number {
 
 function compareCombinedPaymentsNewestFirst(a: any, b: any): number {
   if (a.date !== b.date) return b.date.localeCompare(a.date);
-  if (a.type === "payment" && b.type === "haji_transfer" && b.raw?.paymentId === a.id) return -1;
-  if (b.type === "payment" && a.type === "haji_transfer" && a.raw?.paymentId === b.id) return 1;
+  if (a.type === "payment" && b.type === "haji_transfer" && b.raw?.paymentId === a.id) return 1;
+  if (b.type === "payment" && a.type === "haji_transfer" && a.raw?.paymentId === b.id) return -1;
   const createdAtDiff = createdAtMs(b) - createdAtMs(a);
   if (createdAtDiff !== 0) return createdAtDiff;
   return b.id - a.id;

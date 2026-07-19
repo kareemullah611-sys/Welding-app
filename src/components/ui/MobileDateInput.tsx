@@ -8,6 +8,7 @@ type MobileDateInputProps = {
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  closeOnSelect?: boolean;
   variant?: "filter" | "field";
   "aria-label"?: string;
 };
@@ -17,6 +18,7 @@ export function MobileDateInput({
   onChange,
   placeholder = "Select date",
   className,
+  closeOnSelect = false,
   variant = "field",
   "aria-label": ariaLabel,
 }: MobileDateInputProps) {
@@ -44,7 +46,10 @@ export function MobileDateInput({
       <input
         type="date"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => {
+          onChange(e.target.value);
+          if (closeOnSelect) e.currentTarget.blur();
+        }}
         aria-label={ariaLabel || placeholder}
         className="absolute inset-0 h-full w-full cursor-pointer opacity-[0.01] [color-scheme:light]"
       />
