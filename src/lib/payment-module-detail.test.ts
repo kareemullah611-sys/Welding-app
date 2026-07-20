@@ -144,4 +144,8 @@ test("Pakistan receive payment validation allows signed return amounts but rejec
     validatePakistanPaymentForm({ customerId: 1, amount: 0, paymentMethod: "cash" }),
     "Customer and non-zero amount are required",
   );
+  assert.equal(
+    validatePakistanPaymentForm({ customerId: 1, amount: "-", paymentMethod: "cash" }),
+    "Customer and non-zero amount are required",
+  );
 });

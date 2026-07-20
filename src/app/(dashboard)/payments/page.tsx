@@ -298,6 +298,10 @@ function buildLatestPaymentEntrySummaryFromRow(item: any): LatestPaymentEntrySum
   };
 }
 
+function preserveSignedPaymentAmount(value: number | null, rawValue: string): number | string {
+  return rawValue === "-" || rawValue === "." || rawValue === "-." || rawValue.endsWith(".") ? rawValue : value || 0;
+}
+
 export default function PaymentsPage() {
   const { user } = useAuth();
   const { t } = useLang();
@@ -736,10 +740,12 @@ export default function PaymentsPage() {
     }
 
     if (type === "payment") {
+      const paymentAmount = Number(form.amount);
+      const paymentForm = { ...form, amount: paymentAmount };
       if (isPakistanSimplified) {
         const validationError = validatePakistanPaymentForm(form);
         if (validationError) return { error: validationError };
-      } else if (!form.customerId || Number(form.amount) === 0 || !form.detail) {
+      } else if (!form.customerId || !Number.isFinite(paymentAmount) || paymentAmount === 0 || !form.detail) {
         return { error: t("customer") + ", non-zero " + t("amount") + ", " + t("detail") + " required" };
       }
       if (!forceVoucher && form.manualVoucherNo?.trim()) {
@@ -749,12 +755,12 @@ export default function PaymentsPage() {
       return {
         endpoint: "/api/v1/payments",
         body: isPakistanSimplified
-          ? buildPaymentSubmitPayload(form, {
+          ? buildPaymentSubmitPayload(paymentForm, {
               currencyId: resolvedCurrencyId,
               cityBankAccounts,
               superAdminBankAccounts,
             })
-          : sanitizePaymentSubmitPayload({ ...form, currencyId: resolvedCurrencyId }),
+          : sanitizePaymentSubmitPayload({ ...paymentForm, currencyId: resolvedCurrencyId }),
       };
     }
 
@@ -983,10 +989,12 @@ export default function PaymentsPage() {
   // ── Add current form to batch queue (payment only) ──────────────────────
   const addToQueue = async () => {
     setError("");
+    const paymentAmount = Number(form.amount);
+    const paymentForm = { ...form, amount: paymentAmount };
     if (isPakistanSimplified) {
       const validationError = validatePakistanPaymentForm(form);
       if (validationError) { setError(validationError); return; }
-    } else if (!form.customerId || Number(form.amount) === 0 || !form.detail) {
+    } else if (!form.customerId || !Number.isFinite(paymentAmount) || paymentAmount === 0 || !form.detail) {
       setError(t("customer") + ", non-zero amount, detail required");
       return;
     }
@@ -1000,12 +1008,12 @@ export default function PaymentsPage() {
     }
     const selectedCur = currencies.find((c: any) => c.id === form.currencyId);
     const body = isPakistanSimplified
-      ? buildPaymentSubmitPayload(form, {
+      ? buildPaymentSubmitPayload(paymentForm, {
           currencyId: form.currencyId || currencies[0]?.id,
           cityBankAccounts,
           superAdminBankAccounts,
         })
-      : sanitizePaymentSubmitPayload({ ...form, currencyId: form.currencyId || currencies[0]?.id });
+      : sanitizePaymentSubmitPayload({ ...paymentForm, currencyId: form.currencyId || currencies[0]?.id });
     setPaymentQueue(prev => [...prev, {
       tempId: `q-${Date.now()}-${Math.random()}`,
       customerName: form.customerName || "Customer",
@@ -2102,9 +2110,9 @@ export default function PaymentsPage() {
                   <div className="min-w-0">
                     <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
                     <FormattedNumberInput
-                      min="0.01"
+                      allowNegative
                       value={form.amount || ""}
-                      onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))}
+                      onValueChange={(value, rawValue) => setForm((f: any) => ({ ...f, amount: preserveSignedPaymentAmount(value, rawValue) }))}
                       className="input-field"
                     />
                   </div>
@@ -2125,9 +2133,9 @@ export default function PaymentsPage() {
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
                   <FormattedNumberInput
-                    min="0.01"
+                    allowNegative
                     value={form.amount || ""}
-                    onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))}
+                    onValueChange={(value, rawValue) => setForm((f: any) => ({ ...f, amount: preserveSignedPaymentAmount(value, rawValue) }))}
                     className="input-field"
                   />
                 </div>
@@ -2438,9 +2446,9 @@ export default function PaymentsPage() {
                 <div className="min-w-0">
                   <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
                   <FormattedNumberInput
-                    min="0.01"
+                    allowNegative
                     value={form.amount || ""}
-                    onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))}
+                    onValueChange={(value, rawValue) => setForm((f: any) => ({ ...f, amount: preserveSignedPaymentAmount(value, rawValue) }))}
                     className="input-field"
                   />
                 </div>
@@ -2455,9 +2463,9 @@ export default function PaymentsPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
                 <FormattedNumberInput
-                  min="0.01"
+                  allowNegative
                   value={form.amount || ""}
-                  onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))}
+                  onValueChange={(value, rawValue) => setForm((f: any) => ({ ...f, amount: preserveSignedPaymentAmount(value, rawValue) }))}
                   className="input-field"
                 />
               </div>
@@ -2899,7 +2907,7 @@ export default function PaymentsPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="min-w-0">
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
-                    <FormattedNumberInput min={createType === "payment" ? undefined : "0.01"} allowNegative={createType === "payment"} value={form.amount || ""} onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))} className="input-field" />
+                    <FormattedNumberInput min={createType === "payment" ? undefined : "0.01"} allowNegative={createType === "payment"} value={form.amount || ""} onValueChange={(value, rawValue) => setForm((f: any) => ({ ...f, amount: preserveSignedPaymentAmount(value, rawValue) }))} className="input-field" />
                   </div>
                   <div className="min-w-0">
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
@@ -2911,7 +2919,7 @@ export default function PaymentsPage() {
               ) : (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
-                  <FormattedNumberInput min={createType === "payment" ? undefined : "0.01"} allowNegative={createType === "payment"} value={form.amount || ""} onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))} className="input-field" />
+                  <FormattedNumberInput min={createType === "payment" ? undefined : "0.01"} allowNegative={createType === "payment"} value={form.amount || ""} onValueChange={(value, rawValue) => setForm((f: any) => ({ ...f, amount: preserveSignedPaymentAmount(value, rawValue) }))} className="input-field" />
                 </div>
               )}
 
@@ -2968,7 +2976,7 @@ export default function PaymentsPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="min-w-0">
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
-                    <FormattedNumberInput min={createType === "payment" ? undefined : "0.01"} allowNegative={createType === "payment"} value={form.amount || ""} onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))} className="input-field" />
+                    <FormattedNumberInput min={createType === "payment" ? undefined : "0.01"} allowNegative={createType === "payment"} value={form.amount || ""} onValueChange={(value, rawValue) => setForm((f: any) => ({ ...f, amount: preserveSignedPaymentAmount(value, rawValue) }))} className="input-field" />
                   </div>
                   <div className="min-w-0">
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
@@ -2978,7 +2986,7 @@ export default function PaymentsPage() {
                   </div>
                 </div>
               ) : createType !== "haji_transfer" ? (
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label><FormattedNumberInput min={createType === "payment" ? undefined : "0.01"} allowNegative={createType === "payment"} value={form.amount || ""} onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))} className="input-field" /></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label><FormattedNumberInput min={createType === "payment" ? undefined : "0.01"} allowNegative={createType === "payment"} value={form.amount || ""} onValueChange={(value, rawValue) => setForm((f: any) => ({ ...f, amount: preserveSignedPaymentAmount(value, rawValue) }))} className="input-field" /></div>
               ) : null}
 
               {createType === "expense" && (

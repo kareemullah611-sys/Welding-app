@@ -203,7 +203,8 @@ export function sanitizePaymentSubmitPayload<T extends Record<string, unknown>>(
 }
 
 export function validatePakistanPaymentForm(form: Record<string, unknown>): string | null {
-  if (!form.customerId || Number(form.amount) === 0) {
+  const amount = Number(form.amount);
+  if (!form.customerId || !Number.isFinite(amount) || amount === 0) {
     return "Customer and non-zero amount are required";
   }
   const method = String(form.paymentMethod || "cash");

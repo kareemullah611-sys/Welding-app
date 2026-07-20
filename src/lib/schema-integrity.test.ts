@@ -241,6 +241,8 @@ test("receive payment amount appears after method and account fields", () => {
   assert.ok(simplifiedStart >= 0, "simplified receive payment section should exist");
   assert.ok(simplifiedAccount > simplifiedStart, "simplified account fields should appear before amount");
   assert.ok(simplifiedAmount > simplifiedAccount, "simplified amount should appear after account fields");
+  assert.match(paymentsPage, /preserveSignedPaymentAmount\(value, rawValue\)/);
+  assert.match(paymentsPage, /rawValue === "\." \|\| rawValue === "-\." \|\| rawValue\.endsWith\("\."\)/);
 
   const createMethod = paymentsPage.indexOf('{createType === "payment" && !isAfghanistanCity && createFormReady && (');
   const createAmount = paymentsPage.indexOf('{createType === "payment" && (', createMethod);
