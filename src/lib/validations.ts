@@ -163,6 +163,8 @@ const optionalPositiveInt = z.preprocess(
   (value) => (value === "" || value === undefined ? undefined : value),
   z.coerce.number().int().positive().optional().nullable()
 );
+const nonZeroAmount = z.number().refine((value) => value !== 0, "Amount must be non-zero");
+const coercedNonZeroAmount = z.coerce.number().refine((value) => value !== 0, "Amount must be non-zero");
 
 export const createSaleSchema = z.object({
   customerId: z.number().int().refine((v) => v === -1 || v > 0, "Invalid customer"),
@@ -183,10 +185,10 @@ export const createPaymentSchema = z.object({
   lotId: z.number().int().optional().nullable(),
   paymentDate: z.string(),
   detail: z.string().min(1).max(500),
-  amount: z.number().positive(),
+  amount: nonZeroAmount,
   currencyId: z.number().int().optional().nullable(),
   exchangeRate: z.number().positive().optional().nullable(),  // AFN/USD rate on payment day
-  usdEquivalent: z.number().positive().optional().nullable(), // USD value of AFN payment
+  usdEquivalent: nonZeroAmount.optional().nullable(), // USD value of AFN payment
   manualVoucherNo: z.string().max(50).optional(),
   paymentMethod: z.enum(["cash", "cheque", "bank_transfer", "online"]),
   destination: z.enum(["haji", "our_account"]),
@@ -202,7 +204,7 @@ export const updatePaymentSchema = z.object({
   customerId: z.number().int().positive().optional(),
   paymentDate: z.string().optional(),
   detail: z.string().trim().min(1).max(500).optional(),
-  amount: z.coerce.number().positive().optional(),
+  amount: coercedNonZeroAmount.optional(),
   currencyId: z.number().int().positive().optional().nullable(),
   manualVoucherNo: z.string().max(50).optional().nullable(),
   paymentMethod: z.enum(["cash", "cheque", "bank_transfer", "online"]).optional(),

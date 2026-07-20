@@ -27,13 +27,21 @@ test("applies pending offline payment and sale to selected customer ledger", () 
         method: "POST",
         body: JSON.stringify({ customerId: 999, amount: 999 }),
       },
+      {
+        id: "q4",
+        url: "/api/v1/payments",
+        method: "POST",
+        body: JSON.stringify({ customerId: 10, amount: -200, paymentDate: "2026-04-04", currencyCode: "PKR" }),
+      },
     ],
     10
   );
 
-  assert.equal(merged.ledger?.length, 3);
-  assert.equal(merged.ledger?.[0].type, "sale");
-  assert.equal(merged.ledger?.[1].type, "payment");
-  assert.equal(merged.balanceByCurrency?.PKR, 1200);
+  assert.equal(merged.ledger?.length, 4);
+  assert.equal(merged.ledger?.[0].type, "payment");
+  assert.equal(merged.ledger?.[0].detail, "Pending offline payment return");
+  assert.equal(merged.ledger?.[0].debit, 200);
+  assert.equal(merged.ledger?.[1].type, "sale");
+  assert.equal(merged.ledger?.[2].type, "payment");
+  assert.equal(merged.balanceByCurrency?.PKR, 1400);
 });
-

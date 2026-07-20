@@ -43,6 +43,17 @@ describe("getCombinedItemNetDelta", () => {
     });
     assert.equal(delta, 5000);
   });
+
+  it("deducts treasury for negative customer return payments", () => {
+    const delta = getCombinedItemNetDelta({
+      type: "payment",
+      amount: -9000,
+      currencyCode: "PKR",
+      status: "active",
+      raw: cashReceiptRaw,
+    });
+    assert.equal(delta, -9000);
+  });
 });
 
 describe("buildPaymentCancellationReversalRow", () => {

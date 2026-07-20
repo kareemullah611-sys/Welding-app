@@ -73,14 +73,14 @@ export function applyPendingCustomerLedger(
     }
 
     const amount = Number(parsed?.amount || 0);
-    if (amount <= 0) continue;
+    if (amount === 0) continue;
     pendingEntries.push({
       date: String(parsed?.paymentDate || parsed?.date || new Date().toISOString().slice(0, 10)),
       type: "payment",
       currency,
-      detail: "Pending offline payment",
-      debit: 0,
-      credit: amount,
+      detail: amount < 0 ? "Pending offline payment return" : "Pending offline payment",
+      debit: amount < 0 ? Math.abs(amount) : 0,
+      credit: amount > 0 ? amount : 0,
       balance: null,
       status: "pending",
     });
@@ -97,4 +97,3 @@ export function applyPendingCustomerLedger(
     balanceByCurrency: baseBalanceByCurrency,
   };
 }
-

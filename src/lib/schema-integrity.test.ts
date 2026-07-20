@@ -153,7 +153,9 @@ test("city payment modal owns haji expense and withdrawal creation", () => {
   assert.match(paymentsPage, /setPaymentSavedNotice\("Entry recorded\."\)/);
   assert.match(paymentsPage, /type LatestPaymentEntrySummary = \{/);
   assert.match(paymentsPage, /function buildLatestPaymentEntrySummary\(/);
+  assert.match(paymentsPage, /function buildLatestPaymentEntrySummaryFromRow\(/);
   assert.match(paymentsPage, /setLatestCreatedEntry\(buildLatestPaymentEntrySummary\(createType, body, formSnapshot, currencies, lots/);
+  assert.match(paymentsPage, /setLatestCreatedEntry\(buildLatestPaymentEntrySummaryFromRow\(items\.find\(\(item: any\) => item\.type === type\) \|\| items\[0\]/);
   assert.match(paymentsPage, /\{latestCreatedEntry && \(/);
   assert.match(paymentsPage, /latestCreatedEntry\.meta\.join\(" · "\)/);
   assert.match(paymentsPage, /key: "actions", label: t\("actions"\)/);
@@ -168,8 +170,10 @@ test("city sale modal shows compact latest sale summary after save", () => {
 
   assert.match(salesPage, /type LatestSaleSummary = \{/);
   assert.match(salesPage, /function buildLatestSaleSummary\(/);
+  assert.match(salesPage, /function buildLatestSaleSummaryFromRow\(/);
   assert.match(salesPage, /const \[latestCreatedSale, setLatestCreatedSale\] = useState<LatestSaleSummary \| null>\(null\)/);
   assert.match(salesPage, /setLatestCreatedSale\(buildLatestSaleSummary\(/);
+  assert.match(salesPage, /setLatestCreatedSale\(buildLatestSaleSummaryFromRow\(sales\[0\]/);
   assert.match(salesPage, /\{latestCreatedSale && \(/);
   assert.match(salesPage, /latestCreatedSale\.meta\.join\(" · "\)/);
 });

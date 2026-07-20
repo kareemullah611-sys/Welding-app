@@ -82,6 +82,34 @@ function buildLatestSaleSummary(
   };
 }
 
+function buildLatestSaleSummaryFromRow(
+  sale: any,
+  products: any[],
+  godowns: any[],
+  lots: any[],
+  currencies: any[],
+): LatestSaleSummary | null {
+  if (!sale) return null;
+  return buildLatestSaleSummary(
+    sale,
+    {
+      customerId: sale.customerId || 0,
+      godownId: sale.godownId || sale.godown?.id || 0,
+      lotId: sale.lotId || sale.lot?.id || 0,
+      saleDate: sale.saleDate || "",
+      currencyId: sale.currencyId || sale.currency?.id || 0,
+      totalAmount: sale.totalAmount || 0,
+      items: sale.items || [],
+    },
+    sale.customer?.name || "",
+    products,
+    godowns,
+    lots,
+    currencies,
+    Boolean(sale._pending),
+  );
+}
+
 function readSalesFormCache(): SalesFormCache | null {
   if (typeof window === "undefined") return null;
   try {
@@ -480,7 +508,7 @@ export default function SalesPage() {
     }));
     setGodownStock([]);
     setSaleSavedNotice(null);
-    setLatestCreatedSale(null);
+    setLatestCreatedSale(buildLatestSaleSummaryFromRow(sales[0], products, godowns, lots, currencies));
     setSelectedCustomerName("");
     setShowCreate(true); setFormError("");
   };

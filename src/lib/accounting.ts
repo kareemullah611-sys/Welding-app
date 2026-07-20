@@ -144,19 +144,32 @@ export async function journalPaymentReceived(
   } else {
     debitAccId = await getCashAccountId(p.cityId, db);
   }
+  const amount = Math.abs(p.amount);
+  const isReturn = p.amount < 0;
+  const treasuryLine = isReturn
+    ? { accountId: debitAccId, debit: 0, credit: amount, description: `Payment return #${p.id}` }
+    : { accountId: debitAccId, debit: amount, credit: 0, description: `Payment #${p.id}` };
+  const customerLine = isReturn
+    ? { accountId: await getCustomerAccountId(p.customerId, db), debit: amount, credit: 0, description: `Payment return #${p.id}` }
+    : { accountId: await getCustomerAccountId(p.customerId, db), debit: 0, credit: amount, description: `Payment #${p.id}` };
 
-  await createJournalEntries(`PAY-${p.id}`, [
-    { accountId: debitAccId, debit: p.amount, credit: 0, description: `Payment #${p.id}` },
-    { accountId: await getCustomerAccountId(p.customerId, db), debit: 0, credit: p.amount, description: `Payment #${p.id}` },
-  ], { currencyCode: p.currencyCode, entityType: "payment", entityId: p.id, lotId: p.lotId, cityId: p.cityId, entryDate: p.paymentDate, createdBy: p.createdBy }, db);
+  await createJournalEntries(`PAY-${p.id}`, [treasuryLine, customerLine], { currencyCode: p.currencyCode, entityType: "payment", entityId: p.id, lotId: p.lotId, cityId: p.cityId, entryDate: p.paymentDate, createdBy: p.createdBy }, db);
 }
 
 // CHEQUE RECEIVED — stages into Cheques in Hand first, not Cash
 // DR Cheques in Hand | CR AR - Customer
 export async function journalChequeReceived(p: { id: number; customerId: number; cityId: number; lotId: number; amount: number; currencyCode: string; paymentDate: Date; createdBy: number; }, db: DbClient = prisma) {
+  const amount = Math.abs(p.amount);
+  const isReturn = p.amount < 0;
+  const chequeAccountId = await getChequesInHandAccountId(p.cityId, db);
+  const customerAccountId = await getCustomerAccountId(p.customerId, db);
   await createJournalEntries(`PAY-${p.id}`, [
-    { accountId: await getChequesInHandAccountId(p.cityId, db), debit: p.amount, credit: 0, description: `Cheque received #${p.id}` },
-    { accountId: await getCustomerAccountId(p.customerId, db), debit: 0, credit: p.amount, description: `Cheque received #${p.id}` },
+    isReturn
+      ? { accountId: chequeAccountId, debit: 0, credit: amount, description: `Cheque return #${p.id}` }
+      : { accountId: chequeAccountId, debit: amount, credit: 0, description: `Cheque received #${p.id}` },
+    isReturn
+      ? { accountId: customerAccountId, debit: amount, credit: 0, description: `Cheque return #${p.id}` }
+      : { accountId: customerAccountId, debit: 0, credit: amount, description: `Cheque received #${p.id}` },
   ], { currencyCode: p.currencyCode, entityType: "payment", entityId: p.id, lotId: p.lotId, cityId: p.cityId, entryDate: p.paymentDate, createdBy: p.createdBy }, db);
 }
 
@@ -426,9 +439,15 @@ export async function journalHajiTransfer(h: {
     debitAccId = await getHajiAccountId(db);
   }
 
+  const amount = Math.abs(h.amount);
+  const isReturn = h.amount < 0;
   await createJournalEntries(`HAJI-${h.id}`, [
-    { accountId: debitAccId, debit: h.amount, credit: 0, description: `Haji transfer` },
-    { accountId: creditAccId, debit: 0, credit: h.amount, description: `Haji transfer` },
+    isReturn
+      ? { accountId: debitAccId, debit: 0, credit: amount, description: `Haji transfer return` }
+      : { accountId: debitAccId, debit: amount, credit: 0, description: `Haji transfer` },
+    isReturn
+      ? { accountId: creditAccId, debit: amount, credit: 0, description: `Haji transfer return` }
+      : { accountId: creditAccId, debit: 0, credit: amount, description: `Haji transfer` },
   ], {
     currencyCode: h.currencyCode,
     entityType: "haji_transfer",

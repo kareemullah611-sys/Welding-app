@@ -44,6 +44,27 @@ test("payment create schema validates all payment source fields", () => {
   assert.equal(parsed.superAdminBankAccountId, null);
 });
 
+test("payment create schema allows negative customer return amounts but rejects zero", () => {
+  const parsed = createPaymentSchema.parse({
+    customerId: 1,
+    paymentDate: "2026-07-20",
+    detail: "Return to customer",
+    amount: -9000,
+    paymentMethod: "cash",
+    destination: "our_account",
+  });
+
+  assert.equal(parsed.amount, -9000);
+  assert.equal(createPaymentSchema.safeParse({
+    customerId: 1,
+    paymentDate: "2026-07-20",
+    detail: "Zero payment",
+    amount: 0,
+    paymentMethod: "cash",
+    destination: "our_account",
+  }).success, false);
+});
+
 test("expense create schema validates all payment source fields", () => {
   const parsed = createExpenseSchema.parse({
     expenseDate: "2026-07-03",

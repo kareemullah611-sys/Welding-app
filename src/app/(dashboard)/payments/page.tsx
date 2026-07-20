@@ -166,7 +166,10 @@ function applyQueuedMutationsToCombinedList(baseItems: any[], queueItems: any[])
   return next;
 }
 
-function TypeBadge({ type }: { type: string }) {
+function TypeBadge({ type, amount }: { type: string; amount?: number }) {
+  if (type === "payment" && Number(amount || 0) < 0) {
+    return <span className="text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap bg-rose-50 text-rose-700">Returned</span>;
+  }
   const cfg = TYPE_CONFIG[type] || { label: type, color: "bg-gray-50 text-gray-700" };
   return <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${cfg.color}`}>{cfg.label}</span>;
 }
@@ -262,6 +265,36 @@ function buildLatestPaymentEntrySummary(
     amount: `${currencyLabel ? `${currencyLabel} ` : ""}${amount.toLocaleString("en-US")}`,
     meta,
     pending,
+  };
+}
+
+function buildLatestPaymentEntrySummaryFromRow(item: any): LatestPaymentEntrySummary | null {
+  if (!item) return null;
+  const type = item.type || "payment";
+  const raw = item.raw || {};
+  const refNo = type === "haji_transfer" ? raw.referenceNo : raw.manualVoucherNo;
+  const lotNumber = raw.lot?.lotNumber || item.lot?.lotNumber;
+  const method = raw.paymentMethod || raw.sourceType || raw.paidFrom || "";
+  const title = TYPE_CONFIG[type]?.label || type.replace("_", " ");
+  const primary = type === "payment"
+    ? (item.person || raw.customer?.name || item.detail || "Customer payment")
+    : type === "withdrawal"
+      ? (item.person || raw.withdrawnBy || item.detail || "Withdrawal")
+      : (item.detail || title);
+  const meta = [
+    refNo ? `Ref ${refNo}` : "",
+    lotNumber ? `Lot ${lotNumber}` : "",
+    method,
+  ].filter(Boolean);
+
+  return {
+    type,
+    title,
+    date: item.date || raw.paymentDate || raw.transferDate || raw.expenseDate || raw.withdrawalDate || "",
+    primary,
+    amount: `${item.currencySymbol || raw.currency?.symbol || raw.currency?.code || ""} ${Number(item.amount || 0).toLocaleString("en-US")}`.trim(),
+    meta,
+    pending: Boolean(item._pending),
   };
 }
 
@@ -660,7 +693,7 @@ export default function PaymentsPage() {
     setCreateType(type);
     setResolvingQueueId(null);
     setPaymentSavedNotice(null);
-    setLatestCreatedEntry(null);
+    setLatestCreatedEntry(buildLatestPaymentEntrySummaryFromRow(items.find((item: any) => item.type === type) || items[0]));
     const { loadedCurrencies } = await loadHelpers();
     const offlineReadinessError = getOfflineFormReadinessError({
       isOnline,
@@ -706,8 +739,8 @@ export default function PaymentsPage() {
       if (isPakistanSimplified) {
         const validationError = validatePakistanPaymentForm(form);
         if (validationError) return { error: validationError };
-      } else if (!form.customerId || !(form.amount > 0) || !form.detail) {
-        return { error: t("customer") + ", " + t("amount") + " (must be > 0), " + t("detail") + " required" };
+      } else if (!form.customerId || Number(form.amount) === 0 || !form.detail) {
+        return { error: t("customer") + ", non-zero " + t("amount") + ", " + t("detail") + " required" };
       }
       if (!forceVoucher && form.manualVoucherNo?.trim()) {
         const check = await apiCall(`/api/v1/payments/check-voucher?voucher_no=${encodeURIComponent(form.manualVoucherNo.trim())}`);
@@ -953,8 +986,8 @@ export default function PaymentsPage() {
     if (isPakistanSimplified) {
       const validationError = validatePakistanPaymentForm(form);
       if (validationError) { setError(validationError); return; }
-    } else if (!form.customerId || !(form.amount > 0) || !form.detail) {
-      setError(t("customer") + ", amount (must be > 0), detail required");
+    } else if (!form.customerId || Number(form.amount) === 0 || !form.detail) {
+      setError(t("customer") + ", non-zero amount, detail required");
       return;
     }
     // Voucher duplicate check
@@ -1547,7 +1580,7 @@ export default function PaymentsPage() {
     },
     {
       key: "type", label: "Type",
-      render: (item: any) => <TypeBadge type={item.type} />,
+      render: (item: any) => <TypeBadge type={item.type} amount={item.amount} />,
     },
     {
       key: "person", label: isSuperAdmin ? "City / Name" : "Name",
@@ -1628,9 +1661,10 @@ export default function PaymentsPage() {
       render: (item: any) => {
         const cfg = TYPE_CONFIG[item.type];
         const isReversal = item.type === "payment_reversal";
+        const isReturn = item.type === "payment" && Number(item.amount || 0) < 0;
         return (
           <div>
-            <span className={`font-semibold tabular-nums ${cfg?.amountColor || "text-gray-700"}`}>
+            <span className={`font-semibold tabular-nums ${isReturn ? "text-rose-700" : cfg?.amountColor || "text-gray-700"}`}>
               {isReversal ? "−" : ""}{item.currencySymbol} {item.amount?.toLocaleString("en-US")}
             </span>
             {item.type === "payment" && item.raw?.currencyCode === "AFN" && item.raw?.usdEquivalent && (
@@ -2865,7 +2899,7 @@ export default function PaymentsPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="min-w-0">
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
-                    <FormattedNumberInput min="0.01" value={form.amount || ""} onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))} className="input-field" />
+                    <FormattedNumberInput min={createType === "payment" ? undefined : "0.01"} allowNegative={createType === "payment"} value={form.amount || ""} onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))} className="input-field" />
                   </div>
                   <div className="min-w-0">
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
@@ -2877,7 +2911,7 @@ export default function PaymentsPage() {
               ) : (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
-                  <FormattedNumberInput min="0.01" value={form.amount || ""} onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))} className="input-field" />
+                  <FormattedNumberInput min={createType === "payment" ? undefined : "0.01"} allowNegative={createType === "payment"} value={form.amount || ""} onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))} className="input-field" />
                 </div>
               )}
 
@@ -2934,7 +2968,7 @@ export default function PaymentsPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="min-w-0">
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
-                    <FormattedNumberInput min="0.01" value={form.amount || ""} onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))} className="input-field" />
+                    <FormattedNumberInput min={createType === "payment" ? undefined : "0.01"} allowNegative={createType === "payment"} value={form.amount || ""} onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))} className="input-field" />
                   </div>
                   <div className="min-w-0">
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
@@ -2944,7 +2978,7 @@ export default function PaymentsPage() {
                   </div>
                 </div>
               ) : createType !== "haji_transfer" ? (
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label><FormattedNumberInput min="0.01" value={form.amount || ""} onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))} className="input-field" /></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label><FormattedNumberInput min={createType === "payment" ? undefined : "0.01"} allowNegative={createType === "payment"} value={form.amount || ""} onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))} className="input-field" /></div>
               ) : null}
 
               {createType === "expense" && (

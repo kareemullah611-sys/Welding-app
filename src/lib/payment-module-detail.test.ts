@@ -9,6 +9,7 @@ import {
   buildPakistanPaymentAccountOptions,
   buildPaymentSubmitPayload,
   sanitizePaymentSubmitPayload,
+  validatePakistanPaymentForm,
 } from "@/lib/payment-module-detail";
 
 test("formatPakistanCityPaymentDetail formats online payment to super admin account", () => {
@@ -135,4 +136,12 @@ test("payment submit payload omits placeholder zero bank account ids", () => {
   );
   assert.equal("bankAccountId" in payload, false);
   assert.equal("superAdminBankAccountId" in payload, false);
+});
+
+test("Pakistan receive payment validation allows signed return amounts but rejects zero", () => {
+  assert.equal(validatePakistanPaymentForm({ customerId: 1, amount: -9000, paymentMethod: "cash" }), null);
+  assert.equal(
+    validatePakistanPaymentForm({ customerId: 1, amount: 0, paymentMethod: "cash" }),
+    "Customer and non-zero amount are required",
+  );
 });

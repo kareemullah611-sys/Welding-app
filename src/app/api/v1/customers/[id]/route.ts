@@ -85,19 +85,22 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         currencySymbol: s.currency.symbol || s.currency.code,
         lotNumber: s.lot.lotNumber,
       })),
-      ...payments.map((p) => ({
-        type: "payment" as const,
-        date: p.paymentDate.toISOString().split("T")[0],
-        voucherNo: p.manualVoucherNo || "-",
-        detail: formatCustomerLedgerPaymentDetail(p),
-        perCartonPrice: "-",
-        debit: 0,
-        credit: p.status === "active" ? Number(p.amount) : 0,
-        status: p.status,
-        currency: p.currency.code,
-        currencySymbol: p.currency.symbol || p.currency.code,
-        lotNumber: p.lot.lotNumber,
-      })),
+      ...payments.map((p) => {
+        const amount = p.status === "active" ? Number(p.amount) : 0;
+        return {
+          type: "payment" as const,
+          date: p.paymentDate.toISOString().split("T")[0],
+          voucherNo: p.manualVoucherNo || "-",
+          detail: amount < 0 ? `Returned — ${formatCustomerLedgerPaymentDetail(p)}` : formatCustomerLedgerPaymentDetail(p),
+          perCartonPrice: "-",
+          debit: amount < 0 ? Math.abs(amount) : 0,
+          credit: amount > 0 ? amount : 0,
+          status: p.status,
+          currency: p.currency.code,
+          currencySymbol: p.currency.symbol || p.currency.code,
+          lotNumber: p.lot.lotNumber,
+        };
+      }),
     ].filter((t) => ledgerType === "all" || t.type === ledgerType)
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
