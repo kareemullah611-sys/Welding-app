@@ -68,6 +68,43 @@ describe("buildPaymentCancellationReversalRow", () => {
 });
 
 describe("computeRunningBalances", () => {
+  it("keeps used cheque receipts in historical running balance", () => {
+    const { itemsWithBalance } = computeRunningBalances(
+      [
+        {
+          id: 1,
+          type: "payment",
+          date: "2026-07-13",
+          amount: 1500000,
+          currencyCode: "PKR",
+          status: "active",
+          raw: {
+            ...cashReceiptRaw,
+            paymentMethod: "cheque",
+            chequeStatus: "sent_to_haji",
+            createdAt: "2026-07-13T08:00:00.000Z",
+          },
+        },
+        {
+          id: 1,
+          type: "haji_transfer",
+          date: "2026-07-13",
+          amount: 1500000,
+          currencyCode: "PKR",
+          raw: {
+            sourceType: "cheque",
+            createdAt: "2026-07-13T08:05:00.000Z",
+          },
+        },
+      ],
+      { PKR: 6271867 }
+    );
+
+    const byKey = new Map(itemsWithBalance.map((row) => [`${row.type}:${row.id}`, row.runningBalance]));
+    assert.equal(byKey.get("payment:1"), 7771867);
+    assert.equal(byKey.get("haji_transfer:1"), 6271867);
+  });
+
   it("uses creation order for same-day mixed payment rows", () => {
     const { itemsWithBalance } = computeRunningBalances(
       [

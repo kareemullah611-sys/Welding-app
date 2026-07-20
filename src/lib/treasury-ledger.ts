@@ -73,8 +73,7 @@ export function getPaymentTreasuryCreditAmount(raw: CombinedItem["raw"], amount:
   if (method === "cheque") {
     const chequeStatus = raw?.chequeStatus;
     if (chequeStatus === "bounced") return 0;
-    if (!chequeStatus || chequeStatus === "in_hand" || chequeStatus === "deposited_to_bank") return value;
-    return 0;
+    return value;
   }
   if (method === "cash") return value;
   if (method === "bank_transfer" || method === "online") {
