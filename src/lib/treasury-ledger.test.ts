@@ -68,6 +68,54 @@ describe("buildPaymentCancellationReversalRow", () => {
 });
 
 describe("computeRunningBalances", () => {
+  it("uses creation order for same-day mixed payment rows", () => {
+    const { itemsWithBalance } = computeRunningBalances(
+      [
+        {
+          id: 2,
+          type: "payment",
+          date: "2026-07-06",
+          amount: 1000000,
+          currencyCode: "PKR",
+          status: "active",
+          raw: {
+            ...cashReceiptRaw,
+            createdAt: "2026-07-06T19:18:09.294Z",
+          },
+        },
+        {
+          id: 1,
+          type: "haji_transfer",
+          date: "2026-07-06",
+          amount: 100000,
+          currencyCode: "PKR",
+          raw: {
+            sourceType: "cash_office",
+            createdAt: "2026-07-06T19:15:35.682Z",
+          },
+        },
+        {
+          id: 1,
+          type: "payment",
+          date: "2026-07-06",
+          amount: 1200000,
+          currencyCode: "PKR",
+          status: "active",
+          raw: {
+            ...cashReceiptRaw,
+            createdAt: "2026-07-06T19:03:58.786Z",
+          },
+        },
+      ],
+      { PKR: 5263767 }
+    );
+
+    const byKey = new Map(itemsWithBalance.map((row) => [`${row.type}:${row.id}`, row.runningBalance]));
+    assert.equal(byKey.get("payment:1"), 6463767);
+    assert.equal(byKey.get("haji_transfer:1"), 6363767);
+    assert.equal(byKey.get("payment:2"), 7363767);
+  });
+
   it("nets cancelled payment plus reversal to match hand bookkeeping", () => {
     const { itemsWithBalance } = computeRunningBalances(
       [

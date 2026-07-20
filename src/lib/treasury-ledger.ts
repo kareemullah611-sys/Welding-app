@@ -8,6 +8,7 @@ type CombinedItem = {
   currencyCode?: string;
   status?: string | null;
   raw?: {
+    createdAt?: string | Date | null;
     destination?: string;
     paymentMethod?: string;
     chequeStatus?: string | null;
@@ -15,6 +16,7 @@ type CombinedItem = {
     paidFrom?: string;
     sourceType?: string;
     bankAccountId?: number | null;
+    paymentId?: number | null;
   };
 };
 
@@ -42,6 +44,24 @@ function subtractMap(base: Pot, deductions: Pot): Pot {
     result[code] = (result[code] || 0) - amount;
   }
   return result;
+}
+
+function createdAtMs(item: CombinedItem): number {
+  const value = item.raw?.createdAt;
+  const time = value ? new Date(value).getTime() : NaN;
+  return Number.isFinite(time) ? time : 0;
+}
+
+function compareCombinedLedgerOldestFirst(
+  a: CombinedItem & { id: number; date: string },
+  b: CombinedItem & { id: number; date: string }
+): number {
+  if (a.date !== b.date) return a.date.localeCompare(b.date);
+  if (a.type === "payment" && b.type === "haji_transfer" && b.raw?.paymentId === a.id) return -1;
+  if (b.type === "payment" && a.type === "haji_transfer" && a.raw?.paymentId === b.id) return 1;
+  const createdAtDiff = createdAtMs(a) - createdAtMs(b);
+  if (createdAtDiff !== 0) return createdAtDiff;
+  return a.id - b.id;
 }
 
 /** Credit amount that hit city treasury when a payment was received. */
@@ -125,10 +145,7 @@ export function getSuperAdminHajiIncomingDelta(item: CombinedItem): number {
 export function computeSuperAdminRunningBalances(
   items: Array<CombinedItem & { id: number; date: string }>,
 ): { itemsWithBalance: Array<CombinedItem & { id: number; date: string; runningBalance: number }>; balanceByCurrency: Pot } {
-  const asc = [...items].sort((a, b) => {
-    if (a.date !== b.date) return a.date.localeCompare(b.date);
-    return a.id - b.id;
-  });
+  const asc = [...items].sort(compareCombinedLedgerOldestFirst);
 
   const runningByCurrency: Pot = {};
   const itemsWithBalance = asc.map((item) => {
@@ -148,10 +165,7 @@ export function computeRunningBalances(
   items: Array<CombinedItem & { id: number; date: string }>,
   openingCashByCurrency: Pot
 ): { itemsWithBalance: Array<CombinedItem & { id: number; date: string; runningBalance: number }>; balanceByCurrency: Pot } {
-  const asc = [...items].sort((a, b) => {
-    if (a.date !== b.date) return a.date.localeCompare(b.date);
-    return a.id - b.id;
-  });
+  const asc = [...items].sort(compareCombinedLedgerOldestFirst);
 
   const runningByCurrency: Pot = { ...openingCashByCurrency };
   const itemsWithBalance = asc.map((item) => {

@@ -163,6 +163,17 @@ test("city payment modal owns haji expense and withdrawal creation", () => {
   assert.doesNotMatch(dashboardPage, /\/personal-withdrawals\?create=1&embed=1/);
 });
 
+test("city sale modal shows compact latest sale summary after save", () => {
+  const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
+
+  assert.match(salesPage, /type LatestSaleSummary = \{/);
+  assert.match(salesPage, /function buildLatestSaleSummary\(/);
+  assert.match(salesPage, /const \[latestCreatedSale, setLatestCreatedSale\] = useState<LatestSaleSummary \| null>\(null\)/);
+  assert.match(salesPage, /setLatestCreatedSale\(buildLatestSaleSummary\(/);
+  assert.match(salesPage, /\{latestCreatedSale && \(/);
+  assert.match(salesPage, /latestCreatedSale\.meta\.join\(" · "\)/);
+});
+
 test("payment modal haji quickform matches standalone haji creation flow", () => {
   const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
   const hajiQuickform = paymentsPage.match(/\{createType === "haji_transfer" && \([\s\S]*?Slip total:/);

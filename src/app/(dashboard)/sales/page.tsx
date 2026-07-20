@@ -33,7 +33,54 @@ type SalesFormCache = {
   currencies: any[];
 };
 
+type LatestSaleSummary = {
+  pending: boolean;
+  voucher: string;
+  date: string;
+  customer: string;
+  amount: string;
+  meta: string[];
+};
+
 const emptySaleItem = () => ({ productId: 0, qty: 0, ratePerCarton: 0, ratePerPieceLocal: 0, ratePerPieceUsd: 0 });
+
+function buildLatestSaleSummary(
+  sale: any,
+  formSnapshot: any,
+  customerName: string,
+  products: any[],
+  godowns: any[],
+  lots: any[],
+  currencies: any[],
+  pending = false,
+): LatestSaleSummary {
+  const currency = sale?.currency || currencies.find((c: any) => c.id === formSnapshot.currencyId);
+  const amountPrefix = currency?.symbol ? `${currency.symbol} ` : currency?.code ? `${currency.code} ` : "";
+  const items = Array.isArray(sale?.items) ? sale.items : formSnapshot.items || [];
+  const firstItem = items[0] || null;
+  const firstProductName = firstItem?.productName || products.find((p: any) => p.id === Number(firstItem?.productId))?.name || "Item";
+  const itemCount = items.length;
+  const qty = items.reduce((sum: number, item: any) => sum + Number(item.cartonQty ?? item.qty ?? 0), 0);
+  const lot = sale?.lot?.lotNumber || lots.find((l: any) => l.id === Number(formSnapshot.lotId))?.lotNumber;
+  const godown = sale?.godown?.name || godowns.find((g: any) => g.id === Number(formSnapshot.godownId))?.name;
+  const totalAmount = Number(sale?.totalAmount ?? formSnapshot.totalAmount ?? 0);
+  const meta = [
+    sale?.voucherNo ? `#${sale.voucherNo}` : null,
+    lot ? `Lot ${lot}` : null,
+    godown || null,
+    itemCount > 1 ? `${itemCount} items` : firstProductName,
+    qty ? `${qty.toLocaleString("en-US")} ctn` : null,
+  ].filter(Boolean) as string[];
+
+  return {
+    pending,
+    voucher: sale?.voucherNo ? `#${sale.voucherNo}` : "—",
+    date: sale?.saleDate || formSnapshot.saleDate || "",
+    customer: sale?.customer?.name || customerName || (formSnapshot.customerId === -1 ? "Walk-in Customer" : `Customer #${formSnapshot.customerId}`),
+    amount: `${amountPrefix}${totalAmount.toLocaleString("en-US")}`,
+    meta,
+  };
+}
 
 function readSalesFormCache(): SalesFormCache | null {
   if (typeof window === "undefined") return null;
@@ -168,6 +215,8 @@ export default function SalesPage() {
   const [formError, setFormError] = useState("");
   const [shortConfirmed, setShortConfirmed] = useState(false);
   const [saleSavedNotice, setSaleSavedNotice] = useState<string | null>(null);
+  const [latestCreatedSale, setLatestCreatedSale] = useState<LatestSaleSummary | null>(null);
+  const [selectedCustomerName, setSelectedCustomerName] = useState("");
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
   const [prefillHandled, setPrefillHandled] = useState(false);
@@ -416,6 +465,7 @@ export default function SalesPage() {
     });
     setGodownStock([]);
     setShortConfirmed(false);
+    setSelectedCustomerName("");
   }, [currencies]);
 
   const openCreate = async (preset?: Partial<typeof form>) => {
@@ -430,6 +480,8 @@ export default function SalesPage() {
     }));
     setGodownStock([]);
     setSaleSavedNotice(null);
+    setLatestCreatedSale(null);
+    setSelectedCustomerName("");
     setShowCreate(true); setFormError("");
   };
 
@@ -500,6 +552,7 @@ export default function SalesPage() {
         }
         : { productId: item.productId, qty: Number(item.qty), ratePerCarton: Number(item.ratePerCarton) }),
     };
+    const formSnapshot = { ...form, items: validItems, totalAmount };
 
     if (resolvingQueueId) {
       const ok = await updateQueuedItem(resolvingQueueId, { body: JSON.stringify(payload) });
@@ -542,6 +595,7 @@ export default function SalesPage() {
       });
       setGodownStock(updatedStock);
       await cacheGodownStock(form.godownId, updatedStock);
+      setLatestCreatedSale(buildLatestSaleSummary(null, formSnapshot, selectedCustomerName, products, godowns, lots, currencies, true));
 
       // Add an optimistic row to the sales list
       const currency = currencies.find((c) => c.id === form.currencyId);
@@ -573,6 +627,7 @@ export default function SalesPage() {
     setSubmitting(false);
     if (result.success) {
       setResolvingQueueId(null);
+      setLatestCreatedSale(buildLatestSaleSummary(result.data, formSnapshot, selectedCustomerName, products, godowns, lots, currencies));
       resetSaleCreateForm();
       setSaleSavedNotice("Sale recorded. Record payment if the customer paid on the spot.");
       setTimeout(() => setSaleSavedNotice(null), 5000);
@@ -991,9 +1046,22 @@ export default function SalesPage() {
       </>
       )}
       {/* ========== CREATE SALE MODAL ========== */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); setShortConfirmed(false); setFormError(""); setSaleSavedNotice(null); if (isEmbed) closeEmbed(); }} title={t("new_sale")} size={isEmbed ? "lg" : "xl"} inline={isEmbed} hideHeader={isEmbed}>
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); setShortConfirmed(false); setFormError(""); setSaleSavedNotice(null); setLatestCreatedSale(null); if (isEmbed) closeEmbed(); }} title={t("new_sale")} size={isEmbed ? "lg" : "xl"} inline={isEmbed} hideHeader={isEmbed}>
         {saleSavedNotice && (
           <div className="mb-3 p-2 bg-green-50 border border-green-200 rounded text-green-700 text-sm">{saleSavedNotice}</div>
+        )}
+        {latestCreatedSale && (
+          <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+            <div className="flex items-center gap-2">
+              <span className="shrink-0 font-semibold">{latestCreatedSale.pending ? "Queued" : "Latest"} Sale</span>
+              <span className="shrink-0 tabular-nums text-emerald-700">{latestCreatedSale.date ? formatDate(latestCreatedSale.date) : "—"}</span>
+              <span className="min-w-0 truncate text-emerald-900">{latestCreatedSale.customer}</span>
+              <span className="ml-auto shrink-0 font-semibold tabular-nums">{latestCreatedSale.amount}</span>
+            </div>
+            {latestCreatedSale.meta.length > 0 && (
+              <div className="mt-1 truncate text-[11px] text-emerald-700">{latestCreatedSale.meta.join(" · ")}</div>
+            )}
+          </div>
         )}
         {formError && (
           <div className={`mb-4 p-3 rounded-lg text-sm border ${shortConfirmed ? "bg-amber-50 border-amber-300 text-amber-800" : "bg-red-50 border-red-200 text-red-700"}`}>
@@ -1033,7 +1101,7 @@ export default function SalesPage() {
 
           <CustomerFieldWithNew
             value={form.customerId}
-            onChange={(id) => setForm((f) => ({ ...f, customerId: id }))}
+            onChange={(id, name) => { setSelectedCustomerName(name); setForm((f) => ({ ...f, customerId: id })); }}
             placeholder={t("search_customer")}
             label={t("customer")}
             cityId={
@@ -1162,7 +1230,7 @@ export default function SalesPage() {
           <div>
             <CustomerFieldWithNew
               value={form.customerId}
-              onChange={(id) => setForm((f) => ({ ...f, customerId: id }))}
+              onChange={(id, name) => { setSelectedCustomerName(name); setForm((f) => ({ ...f, customerId: id })); }}
               placeholder={t("search_customer")}
               cityId={
                 form.godownId > 0
