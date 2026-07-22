@@ -46,15 +46,14 @@ export default function ReportsPage() {
   const { user } = useAuth();
   const { t } = useLang();
   const { isOnline, queuedItems } = useOffline();
-  const defaultRange = getCurrentMonthDateRange();
   const [reportType, setReportType] = useState<ReportType>("city_ledger");
   const [filters, setFilters] = useState({
-    date_from: defaultRange.from,
-    date_to: defaultRange.to,
+    date_from: "",
+    date_to: "",
     customer_id: "",
     city_id: "",
   });
-  const [datePreset, setDatePreset] = useState<DatePreset>("month");
+  const [datePreset, setDatePreset] = useState<DatePreset>("all");
   const [data, setData] = useState<any[]>([]);
   const [summary, setSummary] = useState<any>(null);
   const [loading, setLoading] = useState(false);

@@ -152,7 +152,7 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
     totalCartonsBought,
   });
 
-  const salesWhere: any = { lotId, status: "active" };
+  const salesWhere: any = { OR: [{ lotId }, { items: { some: { lotId } } }], status: "active" };
   if (user.role === "city_admin") salesWhere.cityId = user.cityId;
 
   const sales = await prisma.sale.findMany({
@@ -164,6 +164,7 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
   const salesByProduct: Record<number, { qty: number; revenue: number; productName: string }> = {};
   for (const sale of sales) {
     for (const item of sale.items) {
+      if (Number(item.lotId || sale.lotId) !== lotId) continue;
       const pid = item.productId;
       if (!salesByProduct[pid]) {
         salesByProduct[pid] = { qty: 0, revenue: 0, productName: item.product.name };

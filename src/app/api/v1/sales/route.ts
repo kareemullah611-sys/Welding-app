@@ -11,6 +11,7 @@ import {
 import { JWTPayload } from "@/lib/auth";
 import { canAccessGodown } from "@/lib/godown-access";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import { allocateSaleItemAcrossLots, AvailableSaleLot, SaleLotAllocationItem } from "@/lib/sale-lot-allocation";
 
 const SALE_SYNC_MODULE = "sales.create";
 
@@ -35,29 +36,20 @@ async function generateVoucherNo(cityId: number, db: PrismaClient | Prisma.Trans
   return String(num).padStart(4, "0");
 }
 
-// Helper: Get FIFO lot for a city
-async function getFIFOLot(cityId: number, countryId: number): Promise<number | null> {
-  const lot = await prisma.lot.findFirst({
-    where: {
-      countryId,
-      status: "ongoing",
-      lotCityDistributions: { some: { cityId } },
-    },
-    orderBy: [{ lotDate: "asc" }, { id: "asc" }],
-    select: { id: true },
-  });
-  return lot?.id || null;
-}
-
 // Helper: Check godown stock for a product
 async function getGodownStock(
   godownId: number,
   productId: number,
+  lotId?: number,
   db: PrismaClient | Prisma.TransactionClient = prisma
 ): Promise<number> {
   // Received stock
   const received = await db.lotCityGodownAllocation.aggregate({
-    where: { godownId, productId },
+    where: {
+      godownId,
+      productId,
+      ...(lotId ? { lotCityDistribution: { lotId } } : {}),
+    },
     _sum: { qty: true },
   });
 
@@ -65,6 +57,7 @@ async function getGodownStock(
   const sold = await db.saleItem.aggregate({
     where: {
       productId,
+      ...(lotId ? { lotId } : {}),
       sale: { godownId, status: { in: ["active", "marked_short"] } },
     },
     _sum: { qty: true },
@@ -72,13 +65,13 @@ async function getGodownStock(
 
   // Transferred out
   const transferredOut = await db.godownTransfer.aggregate({
-    where: { fromGodownId: godownId, productId },
+    where: { fromGodownId: godownId, productId, ...(lotId ? { lotId } : {}) },
     _sum: { qty: true },
   });
 
   // Transferred in
   const transferredIn = await db.godownTransfer.aggregate({
-    where: { toGodownId: godownId, productId },
+    where: { toGodownId: godownId, productId, ...(lotId ? { lotId } : {}) },
     _sum: { qty: true },
   });
 
@@ -88,6 +81,30 @@ async function getGodownStock(
   const inn = Number(transferredIn._sum.qty || 0);
 
   return rcv - sld - out + inn;
+}
+
+async function getAvailableLotsForProduct(
+  cityId: number,
+  countryId: number,
+  godownId: number,
+  productId: number,
+  db: PrismaClient | Prisma.TransactionClient = prisma,
+): Promise<AvailableSaleLot[]> {
+  const saleLots = await db.lot.findMany({
+    where: {
+      countryId,
+      status: "ongoing",
+      lotCityDistributions: { some: { cityId, productId } },
+    },
+    orderBy: [{ lotDate: "asc" }, { id: "asc" }],
+    select: { id: true, lotNumber: true },
+  });
+  const rows: AvailableSaleLot[] = [];
+  for (const lot of saleLots) {
+    const available = await getGodownStock(godownId, productId, lot.id, db);
+    if (available > 0) rows.push({ lotId: lot.id, lotNumber: lot.lotNumber, available });
+  }
+  return rows;
 }
 
 function formatSaleCreateResponse(
@@ -109,6 +126,8 @@ function formatSaleCreateResponse(
     currency: { id: sale.currency.id, code: sale.currency.code, symbol: sale.currency.symbol },
     items: sale.items.map((i: any) => ({
       productId: i.productId,
+      lotId: i.lotId,
+      lot: i.lot,
       productName: i.product.name,
       unitOfMeasure: i.product.unitOfMeasure,
       piecesPerCarton: i.product.piecesPerCarton,
@@ -160,7 +179,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const baseWhere: any = {};
     if (cityId) baseWhere.cityId = cityId;
     if (customerId) baseWhere.customerId = customerId;
-    if (lotId) baseWhere.lotId = lotId;
+    if (lotId) baseWhere.OR = [{ lotId }, { items: { some: { lotId } } }];
     if (godownId) baseWhere.godownId = godownId;
     if (statusValues.length === 1) baseWhere.status = statusValues[0];
     else if (statusValues.length > 1) baseWhere.status = { in: statusValues };
@@ -189,6 +208,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       items: s.items.map((i: any) => ({
         id: i.id,
         productId: i.productId,
+        lotId: i.lotId,
+        lot: i.lot,
         productName: i.product.name,
         unitOfMeasure: i.product.unitOfMeasure,
         piecesPerCarton: i.product.piecesPerCarton,
@@ -214,7 +235,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
             godown: { select: { id: true, name: true, cityId: true, city: { select: { name: true } } } },
             city: { select: { id: true, name: true } },
             currency: true,
-            items: { include: { product: { select: { id: true, name: true, unitOfMeasure: true, piecesPerCarton: true } } } },
+            items: { include: { lot: { select: { id: true, lotNumber: true, status: true } }, product: { select: { id: true, name: true, unitOfMeasure: true, piecesPerCarton: true } } } },
             creator: { select: { id: true, fullName: true } },
           },
           orderBy: [{ saleDate: "desc" }, { id: "desc" }],
@@ -235,7 +256,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         godown: { select: { id: true, name: true, cityId: true, city: { select: { name: true } } } },
         city: { select: { id: true, name: true } },
         currency: true,
-        items: { include: { product: { select: { id: true, name: true, unitOfMeasure: true, piecesPerCarton: true } } } },
+        items: { include: { lot: { select: { id: true, lotNumber: true, status: true } }, product: { select: { id: true, name: true, unitOfMeasure: true, piecesPerCarton: true } } } },
         creator: { select: { id: true, fullName: true } },
       },
       orderBy: [{ saleDate: "desc" }, { id: "desc" }],
@@ -312,7 +333,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
             lot: { select: { id: true, lotNumber: true, status: true } },
             godown: { include: { city: { select: { id: true, name: true } } } },
             currency: true,
-            items: { include: { product: { select: { id: true, name: true, unitOfMeasure: true, piecesPerCarton: true } } } },
+            items: { include: { lot: { select: { id: true, lotNumber: true, status: true } }, product: { select: { id: true, name: true, unitOfMeasure: true, piecesPerCarton: true } } } },
             creator: { select: { id: true, fullName: true } },
           },
         });
@@ -369,24 +390,8 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported in your city");
     const resolvedCurrencyId = currencyId ?? cityCurrency.currencyId;
 
-    // FIFO lot assignment if not specified
-    if (!lotId) {
-      lotId = await getFIFOLot(cityId, user.countryId!);
-      if (!lotId) return errorResponse("VALIDATION_ERROR", "No ongoing lot available for this city");
-    }
-
-    // Validate lot is ongoing and city has distribution
-    const lot = await prisma.lot.findFirst({
-      where: {
-        id: lotId,
-        status: "ongoing",
-        lotCityDistributions: { some: { cityId } },
-      },
-    });
-    if (!lot) return errorResponse("VALIDATION_ERROR", "Lot not found, completed, or not distributed to your city");
-
     // Validate products exist
-    const productIds = items.map((i) => i.productId);
+    const productIds: number[] = Array.from(new Set<number>(items.map((i) => i.productId)));
     const products = await prisma.product.findMany({
       where: { id: { in: productIds }, isActive: true },
     });
@@ -395,18 +400,10 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     }
 
     const productById = new Map(products.map((p) => [p.id, p]));
-    const normalizedItems: Array<{
-      productId: number;
-      stockQty: number;
-      cartonQty: number | null;
-      ratePerCarton: number;
-      ratePerPieceLocal: number | null;
-      ratePerPieceUsd: number | null;
-      amount: number;
-      amountUsd: number | null;
-    }> = [];
+    const requestedItems: SaleLotAllocationItem[] = [];
     for (const item of items) {
       const product = productById.get(item.productId)!;
+      const itemLotId = Number(item.lotId || lotId || 0) || null;
       if (product.unitOfMeasure === "PCS") {
         if (!product.piecesPerCarton) return errorResponse("VALIDATION_ERROR", `${product.name}: PCS/CTN is required on product master`);
         const cartonQty = Number(item.cartonQty || item.qty || 0);
@@ -414,41 +411,67 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         const ratePerPieceLocal = Number(item.ratePerPieceLocal || 0);
         const ratePerPieceUsd = item.ratePerPieceUsd ? Number(item.ratePerPieceUsd) : null;
         if (cartonQty <= 0 || ratePerPieceLocal <= 0) return errorResponse("VALIDATION_ERROR", `${product.name}: carton quantity and local price/PCS are required`);
-        normalizedItems.push({
+        requestedItems.push({
           productId: item.productId,
+          lotId: itemLotId,
           stockQty,
           cartonQty,
           ratePerCarton: roundMoney(ratePerPieceLocal * product.piecesPerCarton),
           ratePerPieceLocal,
           ratePerPieceUsd,
-          amount: roundMoney(stockQty * ratePerPieceLocal),
-          amountUsd: ratePerPieceUsd ? roundMoney(stockQty * ratePerPieceUsd) : null,
         });
         continue;
       }
       const stockQty = Number(item.qty || 0);
       const ratePerCarton = Number(item.ratePerCarton || 0);
       if (stockQty <= 0 || ratePerCarton <= 0) return errorResponse("VALIDATION_ERROR", `${product.name}: quantity and rate/carton are required`);
-      normalizedItems.push({
+      requestedItems.push({
         productId: item.productId,
+        lotId: itemLotId,
         stockQty,
         cartonQty: null,
         ratePerCarton,
         ratePerPieceLocal: null,
         ratePerPieceUsd: null,
-        amount: roundMoney(stockQty * ratePerCarton),
-        amountUsd: null,
       });
     }
 
-    let stockWarnings: string[] = [];
-    let hasShortage = false;
+    const normalizedItems: SaleLotAllocationItem[] = [];
+    for (const item of requestedItems) {
+      const product = productById.get(item.productId)!;
+      try {
+        normalizedItems.push(...allocateSaleItemAcrossLots({
+          item,
+          availableLots: item.lotId
+            ? []
+            : await getAvailableLotsForProduct(cityId, user.countryId!, godownId, item.productId),
+          roundMoney,
+        }));
+      } catch {
+        return errorResponse("VALIDATION_ERROR", `${product.name}: auto lot allocation exceeds available stock`);
+      }
+    }
+
+    if (!normalizedItems.length) return errorResponse("VALIDATION_ERROR", "Lot is required for each product");
+    const itemLotIds: number[] = Array.from(new Set<number>(normalizedItems.map((i) => Number(i.lotId || 0))));
+    if (itemLotIds.some((id) => !Number.isInteger(id) || id <= 0)) return errorResponse("VALIDATION_ERROR", "Lot is required for each product");
+    const lots = await prisma.lot.findMany({
+      where: {
+        id: { in: itemLotIds },
+        status: "ongoing",
+        lotCityDistributions: { some: { cityId } },
+      },
+      select: { id: true, lotNumber: true, status: true },
+    });
+    if (lots.length !== itemLotIds.length) return errorResponse("VALIDATION_ERROR", "One or more lots are completed, missing, or not distributed to your city");
+    lotId = normalizedItems[0].lotId!;
+    const lot = lots.find((row) => row.id === lotId) || lots[0];
 
     // Calculate total using integer-rounded arithmetic to avoid floating-point errors
-    const totalAmount = roundMoney(normalizedItems.reduce((sum, i) => sum + i.amount, 0));
+    const totalAmount = roundMoney(normalizedItems.reduce((sum, i) => sum + Number(i.amount || 0), 0));
 
     const sale = await prisma.$transaction(async (tx) => {
-      const productIdsToLock = Array.from(new Set(normalizedItems.map((item) => item.productId)));
+      const productIdsToLock: number[] = Array.from(new Set<number>(normalizedItems.map((item) => item.productId)));
       if (productIdsToLock.length > 0) {
         await tx.$executeRaw`
           SELECT id
@@ -459,18 +482,14 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         `;
       }
 
-      const txStockWarnings: string[] = [];
-      let txHasShortage = false;
       for (const item of normalizedItems) {
-        const available = await getGodownStock(godownId, item.productId, tx);
+        const available = await getGodownStock(godownId, item.productId, item.lotId!, tx);
         if (available < item.stockQty) {
           const productName = products.find((p) => p.id === item.productId)?.name || `Product #${item.productId}`;
-          txStockWarnings.push(`${productName}: available ${available}, requested ${item.stockQty}`);
-          txHasShortage = true;
+          const lotNumber = lots.find((row) => row.id === item.lotId)?.lotNumber || item.lotId;
+          throw new Error(`STOCK_SHORT:${productName} Lot ${lotNumber}: requested ${item.stockQty} exceeds available stock ${available}`);
         }
       }
-      stockWarnings = txStockWarnings;
-      hasShortage = txHasShortage;
 
       const voucherNo = await generateVoucherNo(cityId, tx);
       const createdSale = await tx.sale.create({
@@ -484,18 +503,19 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           totalAmount,
           currencyId: resolvedCurrencyId,
           notes,
-          status: txHasShortage ? "marked_short" : "active",
-          stockShortFlag: txHasShortage,
+          status: "active",
+          stockShortFlag: false,
           createdBy: user.userId,
           items: {
             create: normalizedItems.map((i) => ({
               productId: i.productId,
+              lotId: i.lotId!,
               qty: i.stockQty,
               cartonQty: i.cartonQty,
               ratePerCarton: i.ratePerCarton,
               ratePerPieceLocal: i.ratePerPieceLocal,
               ratePerPieceUsd: i.ratePerPieceUsd,
-              amount: i.amount,
+              amount: i.amount || 0,
               amountUsd: i.amountUsd,
             })),
           },
@@ -505,7 +525,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           lot: { select: { id: true, lotNumber: true, status: true } },
           godown: { select: { id: true, name: true } },
           currency: true,
-          items: { include: { product: { select: { id: true, name: true, unitOfMeasure: true, piecesPerCarton: true } } } },
+          items: { include: { lot: { select: { id: true, lotNumber: true, status: true } }, product: { select: { id: true, name: true, unitOfMeasure: true, piecesPerCarton: true } } } },
           creator: { select: { id: true, fullName: true } },
         },
       }) as any;
@@ -565,11 +585,13 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         saleDate: createdSale.saleDate, createdBy: user.userId,
       }, tx);
 
-      // Fix C4: defer COGS posting when the sale is marked_short.
-      if (!txHasShortage) {
-        const totalQtySold = normalizedItems.reduce((s, i) => s + i.stockQty, 0);
+      const qtyByLot = normalizedItems.reduce((acc: Record<number, number>, item) => {
+        acc[item.lotId!] = (acc[item.lotId!] || 0) + item.stockQty;
+        return acc;
+      }, {});
+      for (const [itemLotId, totalQtySold] of Object.entries(qtyByLot) as Array<[string, number]>) {
         await journalSaleCOGS({
-          saleId: createdSale.id, lotId: createdSale.lotId!, totalQtySold,
+          saleId: createdSale.id, lotId: Number(itemLotId), totalQtySold,
           saleDate: createdSale.saleDate, cityId: createdSale.cityId, createdBy: user.userId,
         }, tx);
       }
@@ -591,16 +613,13 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       return createdSale;
     });
 
-    const responseData = formatSaleCreateResponse(sale, isCrossCity, godown.city.name, stockWarnings);
+    const responseData = formatSaleCreateResponse(sale, isCrossCity, godown.city.name);
 
-    return successResponse(
-      responseData,
-      hasShortage
-        ? `Sale created with stock shortage warnings: ${stockWarnings.join("; ")}`
-        : "Sale created successfully",
-      201
-    );
+    return successResponse(responseData, "Sale created successfully", 201);
   } catch (error) {
+    if (error instanceof Error && error.message.startsWith("STOCK_SHORT:")) {
+      return errorResponse("VALIDATION_ERROR", error.message.replace("STOCK_SHORT:", ""));
+    }
     const syncMeta = getSyncRequestMeta(request);
     const cityId = user.role === "city_admin" ? user.cityId! : null;
     if (syncMeta && cityId && isSyncRequestDuplicateError(error)) {
@@ -621,7 +640,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
             lot: { select: { id: true, lotNumber: true, status: true } },
             godown: { include: { city: { select: { id: true, name: true } } } },
             currency: true,
-            items: { include: { product: { select: { id: true, name: true, unitOfMeasure: true, piecesPerCarton: true } } } },
+            items: { include: { lot: { select: { id: true, lotNumber: true, status: true } }, product: { select: { id: true, name: true, unitOfMeasure: true, piecesPerCarton: true } } } },
             creator: { select: { id: true, fullName: true } },
           },
         });

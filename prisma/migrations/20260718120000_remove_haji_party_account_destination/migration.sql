@@ -1,9 +1,9 @@
+ALTER TABLE "haji_transfers"
+  DROP CONSTRAINT IF EXISTS "haji_transfers_party_destination_check";
+
 UPDATE "haji_transfers"
 SET "settlement_destination" = 'standard'
 WHERE "settlement_destination" = 'party_account';
-
-ALTER TABLE "haji_transfers"
-  DROP CONSTRAINT IF EXISTS "haji_transfers_party_destination_check";
 
 DROP INDEX IF EXISTS "haji_transfers_destination_party_type_idx";
 DROP INDEX IF EXISTS "haji_transfers_destination_supplier_id_idx";

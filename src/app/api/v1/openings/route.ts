@@ -587,7 +587,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       await createAuditLog(user.userId, cityId, "sales", sale.id, "create", undefined, {
         openingImport: true,
         voucherNo: sale.voucherNo,
-        lotNumber: sale.lot.lotNumber,
+        lotNumber: (sale as any).lot.lotNumber,
       }, getClientIP(request));
 
       if (syncMeta) {

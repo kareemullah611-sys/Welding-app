@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatCustomerLedgerPaymentDetail } from "@/lib/customer-ledger-detail";
+import {
+  formatCustomerLedgerPaymentDetail,
+  formatCustomerLedgerSaleDetail,
+  formatCustomerLedgerSaleRate,
+} from "@/lib/customer-ledger-detail";
 
 test("formatCustomerLedgerPaymentDetail shows method-destination (ref)", () => {
   assert.equal(
@@ -20,5 +24,26 @@ test("formatCustomerLedgerPaymentDetail omits empty ref", () => {
       destination: "haji",
     }),
     "bank-transfer-haji",
+  );
+});
+
+test("formatCustomerLedgerSaleDetail shows complete item quantities with @ carton rates", () => {
+  assert.equal(
+    formatCustomerLedgerSaleDetail([
+      { product: { name: "4.0mm" }, qty: 20, ratePerCarton: 23600 },
+      { product: { name: "3.2mm" }, qty: 20, ratePerCarton: 23600 },
+      { product: { name: "5.0mm" }, cartonQty: 4, qty: 200, ratePerCarton: 25000 },
+    ]),
+    "4.0mm × 20 @ 23,600, 3.2mm × 20 @ 23,600, 5.0mm × 4 @ 25,000",
+  );
+});
+
+test("formatCustomerLedgerSaleRate prefixes per-carton rates with @", () => {
+  assert.equal(
+    formatCustomerLedgerSaleRate([
+      { product: { name: "4.0mm" }, qty: 20, ratePerCarton: 23600 },
+      { product: { name: "5.0mm" }, qty: 4, ratePerCarton: 25000 },
+    ]),
+    "@ 23,600 - 25,000",
   );
 });

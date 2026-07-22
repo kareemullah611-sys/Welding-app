@@ -178,6 +178,80 @@ test("city sale modal shows compact latest sale summary after save", () => {
   assert.match(salesPage, /latestCreatedSale\.meta\.join\(" · "\)/);
 });
 
+test("city sales support per-item lot selection and locked completed sale item lots", () => {
+  const sale = modelBlock("Sale");
+  const saleItem = modelBlock("SaleItem");
+  const lot = modelBlock("Lot");
+  const validations = readFileSync("src/lib/validations.ts", "utf8");
+  const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
+  const salesRoute = readFileSync("src/app/api/v1/sales/route.ts", "utf8");
+  const saleDetailRoute = readFileSync("src/app/api/v1/sales/[id]/route.ts", "utf8");
+  const saleCorrectRoute = readFileSync("src/app/api/v1/sales/[id]/correct/route.ts", "utf8");
+  const migration = readFileSync("prisma/migrations/20260721090000_add_sale_item_lots/migration.sql", "utf8");
+
+  assert.match(saleItem, /lotId\s+Int\s+@map\("lot_id"\)/);
+  assert.match(saleItem, /lot\s+Lot\s+@relation\(fields: \[lotId\], references: \[id\], onDelete: Restrict\)/);
+  assert.match(saleItem, /@@index\(\[lotId\]\)/);
+  assert.match(lot, /saleItems\s+SaleItem\[\]/);
+  assert.match(sale, /items\s+SaleItem\[\]/);
+  assert.match(migration, /ADD COLUMN "lot_id" INTEGER/);
+  assert.match(migration, /UPDATE "sale_items" si\s+SET "lot_id" = s\."lot_id"/);
+  assert.match(validations, /lotId: z\.number\(\)\.int\(\)\.positive\(\)\.optional\(\)\.nullable\(\)/);
+  assert.match(salesRoute, /const itemLotIds: number\[\] = Array\.from\(new Set<number>\(normalizedItems\.map\(\(i\) => Number\(i\.lotId \|\| 0\)\)\)\)/);
+  assert.match(salesRoute, /lotId: i\.lotId/);
+  assert.match(salesRoute, /item\.lotId/);
+  assert.match(saleDetailRoute, /lot: i\.lot/);
+  assert.match(saleCorrectRoute, /lockedLotId/);
+  assert.match(saleCorrectRoute, /lockedLot\.status === "completed"/);
+  assert.match(salesPage, /updateItem\(idx, "lotId"/);
+  assert.match(salesPage, /isSaleItemLotLocked\(item\)/);
+});
+
+test("city sales auto lot selection expands sale items across FIFO lot availability", () => {
+  const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
+  const salesRoute = readFileSync("src/app/api/v1/sales/route.ts", "utf8");
+  const godownStockRoute = readFileSync("src/app/api/v1/inventory/godown-stock/route.ts", "utf8");
+
+  assert.match(salesPage, /<option value=\{0\}>Auto<\/option>/);
+  assert.match(salesPage, /autoLotAllocationPreview/);
+  assert.match(salesPage, /expandAutoLotItems/);
+  assert.match(salesRoute, /allocateSaleItemAcrossLots/);
+  assert.match(salesRoute, /getAvailableLotsForProduct/);
+  assert.match(salesRoute, /Lot is required for each product/);
+  assert.match(salesRoute, /exceeds available stock/);
+  assert.match(godownStockRoute, /lotBreakdown/);
+});
+
+test("city date filters default to all dates", () => {
+  const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
+  const reportsPage = readFileSync("src/app/(dashboard)/reports/page.tsx", "utf8");
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+
+  assert.match(salesPage, /const \[filters, setFilters\] = useState\(\{ status: "", lot_id: "", date_from: "", date_to: "", query: "" \}\)/);
+  assert.match(salesPage, /const \[dateRangePreset, setDateRangePreset\] = useState<"today" \| "last7" \| "month" \| "all" \| "custom">\("all"\)/);
+  assert.match(reportsPage, /const \[filters, setFilters\] = useState\(\{\s+date_from: "",\s+date_to: "",/);
+  assert.match(reportsPage, /const \[datePreset, setDatePreset\] = useState<DatePreset>\("all"\)/);
+  assert.match(paymentsPage, /const \[dateRangePreset, setDateRangePreset\] = useState<"today" \| "last7" \| "month" \| "all" \| "custom">\("all"\)/);
+});
+
+test("customer ledger sale details stay complete with at-rate display across table and PDF", () => {
+  const customerRoute = readFileSync("src/app/api/v1/customers/[id]/route.ts", "utf8");
+  const exportRoute = readFileSync("src/app/api/v1/reports/export/route.ts", "utf8");
+  const customersPage = readFileSync("src/app/(dashboard)/customers/page.tsx", "utf8");
+  const ledgerExport = readFileSync("src/lib/ledger-export.ts", "utf8");
+
+  assert.match(customerRoute, /formatCustomerLedgerSaleDetail/);
+  assert.match(customerRoute, /formatCustomerLedgerSaleRate/);
+  assert.match(exportRoute, /formatCustomerLedgerSaleDetail/);
+  assert.match(exportRoute, /formatCustomerLedgerSaleRate/);
+  assert.match(customersPage, /function compactCustomerLedgerDetail\(entry/);
+  assert.doesNotMatch(customersPage, /slice\(0,\s*40\)/);
+  assert.match(customersPage, /whitespace-normal/);
+  assert.match(customersPage, /break-words/);
+  assert.match(ledgerExport, /overflow-wrap: anywhere/);
+  assert.match(ledgerExport, /white-space: normal/);
+});
+
 test("payment modal haji quickform matches standalone haji creation flow", () => {
   const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
   const hajiQuickform = paymentsPage.match(/\{createType === "haji_transfer" && \([\s\S]*?Slip total:/);

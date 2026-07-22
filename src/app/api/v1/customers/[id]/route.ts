@@ -3,7 +3,11 @@ import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
-import { formatCustomerLedgerPaymentDetail } from "@/lib/customer-ledger-detail";
+import {
+  formatCustomerLedgerPaymentDetail,
+  formatCustomerLedgerSaleDetail,
+  formatCustomerLedgerSaleRate,
+} from "@/lib/customer-ledger-detail";
 
 export const GET = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -49,15 +53,6 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       }),
     ]);
 
-    const formatPerCartonRate = (rates: number[]) => {
-      if (!rates.length) return "-";
-      const uniqueRates = Array.from(new Set(rates.map((value) => Math.round(value * 100) / 100))).sort((a, b) => a - b);
-      if (uniqueRates.length === 1) return uniqueRates[0].toLocaleString("en-US");
-      const min = uniqueRates[0].toLocaleString("en-US");
-      const max = uniqueRates[uniqueRates.length - 1].toLocaleString("en-US");
-      return `${min} - ${max}`;
-    };
-
     const transactions = [
       ...openings.map((o) => ({
         type: "opening" as const,
@@ -76,8 +71,8 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         type: "sale" as const,
         date: s.saleDate.toISOString().split("T")[0],
         voucherNo: s.voucherNo,
-        detail: (s.items || []).map((i) => `${i.product.name} × ${Number(i.qty)}`).join(", "),
-        perCartonPrice: formatPerCartonRate((s.items || []).map((i) => Number(i.ratePerCarton)).filter((value) => !Number.isNaN(value))),
+        detail: formatCustomerLedgerSaleDetail(s.items || []),
+        perCartonPrice: formatCustomerLedgerSaleRate(s.items || []),
         debit: ["active", "marked_short"].includes(s.status) ? Number(s.totalAmount) : 0,
         credit: 0,
         status: s.status,

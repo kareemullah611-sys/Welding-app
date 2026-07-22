@@ -139,10 +139,12 @@ export function buildOfflineLotProfitFromModules(input: {
   const salesByProduct: Record<number, { qty: number; revenue: number; productName: string }> = {};
   for (const sale of asArray(sales)) {
     const s = sale as { lotId?: number; status?: string; cityId?: number; items?: unknown[]; discounts?: unknown[] };
-    if (Number(s.lotId) !== lotId || s.status !== "active") continue;
+    if (s.status !== "active") continue;
+    if (Number(s.lotId) !== lotId && !asArray(s.items).some((item) => Number((item as { lotId?: number }).lotId || 0) === lotId)) continue;
     if (cityScope && Number(s.cityId) !== cityScope) continue;
     for (const item of asArray(s.items)) {
-      const si = item as { productId?: number; qty?: number; amount?: number; product?: { name?: string } };
+      const si = item as { productId?: number; lotId?: number; qty?: number; amount?: number; product?: { name?: string } };
+      if (Number(si.lotId || s.lotId) !== lotId) continue;
       const pid = Number(si.productId || 0);
       if (!salesByProduct[pid]) {
         salesByProduct[pid] = { qty: 0, revenue: 0, productName: si.product?.name ?? "" };

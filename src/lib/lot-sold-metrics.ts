@@ -13,7 +13,7 @@ export type LotSoldMetrics = {
 type SaleRow = {
   lotId?: number;
   currency?: { code: string } | null;
-  items: Array<{ productId: number; qty: unknown; amount: unknown }>;
+  items: Array<{ productId: number; lotId?: number; qty: unknown; amount: unknown }>;
 };
 
 function emptyMetrics(): LotSoldMetrics {
@@ -28,12 +28,13 @@ function emptyMetrics(): LotSoldMetrics {
 export function aggregateLotSalesMetrics(sales: SaleRow[]): Map<number, LotSoldMetrics> {
   const byLot = new Map<number, LotSoldMetrics>();
   for (const sale of sales) {
-    const lotId = Number(sale.lotId || 0);
-    if (!lotId) continue;
-    if (!byLot.has(lotId)) byLot.set(lotId, emptyMetrics());
-    const metrics = byLot.get(lotId)!;
+    const saleLotId = Number(sale.lotId || 0);
     const currencyCode = String(sale.currency?.code || "PKR").toUpperCase();
     for (const item of sale.items || []) {
+      const lotId = Number(item.lotId || saleLotId || 0);
+      if (!lotId) continue;
+      if (!byLot.has(lotId)) byLot.set(lotId, emptyMetrics());
+      const metrics = byLot.get(lotId)!;
       const productId = Number(item.productId);
       const qty = Number(item.qty || 0);
       const amount = Number(item.amount || 0);
@@ -61,14 +62,14 @@ export async function fetchLotSalesForMetrics(
   if (!lotIds.length) return [];
   return db.sale.findMany({
     where: {
-      lotId: { in: lotIds },
+      OR: [{ lotId: { in: lotIds } }, { items: { some: { lotId: { in: lotIds } } } }],
       status: { in: ["active", "marked_short"] },
       ...(options.cityId ? { cityId: options.cityId } : {}),
     },
     select: {
       lotId: true,
       currency: { select: { code: true } },
-      items: { select: { productId: true, qty: true, amount: true } },
+      items: { select: { productId: true, lotId: true, qty: true, amount: true } },
     },
   });
 }

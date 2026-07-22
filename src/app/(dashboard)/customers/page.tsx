@@ -21,11 +21,10 @@ import { Play } from "lucide-react";
 
 function compactCustomerLedgerDetail(entry: { type?: string; detail?: string; voucherNo?: string }) {
   const detail = String(entry.detail || entry.voucherNo || "").trim();
-  if (entry.type === "payment") return detail.length > 42 ? `${detail.slice(0, 40)}…` : detail;
+  if (entry.type === "payment") return detail;
   const prefix = entry.type === "sale" ? "Sale" : "Rcpt";
   if (!detail) return prefix;
-  const combined = `${prefix} · ${detail}`;
-  return combined.length > 42 ? `${combined.slice(0, 40)}…` : combined;
+  return `${prefix} · ${detail}`;
 }
 
 function ledgerBalanceTone(balance: number) {
@@ -813,7 +812,7 @@ export default function CustomersPage() {
                             className={`border-t border-[#e4e4e7] transition-colors hover:bg-[#fafafa] ${e.status === "cancelled" ? "opacity-40 line-through" : ""}`}
                           >
                             <td className="whitespace-nowrap px-3 py-2 tabular-nums text-gray-600">{formatDate(e.date)}</td>
-                            <td className="truncate px-3 py-2 text-gray-800" title={String(e.detail || e.voucherNo || "")}>
+                            <td className="whitespace-normal break-words px-3 py-2 text-gray-800" title={String(e.detail || e.voucherNo || "")}>
                               {compactCustomerLedgerDetail(e)}
                             </td>
                             <td className="px-3 py-2 text-right tabular-nums text-red-700">

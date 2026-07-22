@@ -79,15 +79,21 @@ export async function autoActivateShortSales(godownId: number): Promise<number> 
         activated++;
         // Fix C4: post the deferred COGS journal entry now that the sale is active.
         try {
-          const totalQtySold = sale.items.reduce((s, i) => s + Number(i.qty), 0);
-          await journalSaleCOGS({
-            saleId: sale.id,
-            lotId: sale.lotId,
-            totalQtySold,
-            saleDate: sale.saleDate,
-            cityId: sale.cityId,
-            createdBy: sale.createdBy,
-          });
+          const qtyByLot = sale.items.reduce((acc: Record<number, number>, item) => {
+            const lotId = Number(item.lotId || sale.lotId);
+            acc[lotId] = (acc[lotId] || 0) + Number(item.qty);
+            return acc;
+          }, {});
+          for (const [lotId, totalQtySold] of Object.entries(qtyByLot) as Array<[string, number]>) {
+            await journalSaleCOGS({
+              saleId: sale.id,
+              lotId: Number(lotId),
+              totalQtySold,
+              saleDate: sale.saleDate,
+              cityId: sale.cityId,
+              createdBy: sale.createdBy,
+            });
+          }
         } catch (cogsErr) {
           console.error(`Failed to post deferred COGS for sale ${sale.id} on activation:`, cogsErr);
         }

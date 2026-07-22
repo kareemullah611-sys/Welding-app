@@ -670,6 +670,7 @@ model Lot {
   shippingLinePayments       ShippingLinePayment[]
   cityTransfers              CityTransfer[]
   cityLiabilityEntries       CityLiabilityEntry[]
+  saleItems                  SaleItem[]
 
   @@unique([countryId, lotNumber])
   @@index([countryId])
@@ -798,6 +799,7 @@ model Sale {
 model SaleItem {
   id                Int      @id @default(autoincrement())
   saleId            Int      @map("sale_id")
+  lotId             Int      @map("lot_id")
   productId         Int      @map("product_id")
   qty               Decimal  @db.Decimal(12, 2)
   cartonQty         Decimal? @map("carton_qty") @db.Decimal(12, 2)
@@ -808,9 +810,11 @@ model SaleItem {
   amountUsd         Decimal? @map("amount_usd") @db.Decimal(15, 2)
 
   sale    Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  lot     Lot     @relation(fields: [lotId], references: [id], onDelete: Restrict)
   product Product @relation(fields: [productId], references: [id])
 
   @@index([saleId])
+  @@index([lotId])
   @@index([productId])
   @@map("sale_items")
 }

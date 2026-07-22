@@ -152,6 +152,7 @@ export const updateLotSchema = z.object({
 // ============================================================
 const saleItemSchema = z.object({
   productId: z.number().int().positive(),
+  lotId: z.number().int().positive().optional().nullable(),
   qty: z.number().positive().optional(),
   cartonQty: z.number().positive().optional(),
   ratePerCarton: z.number().min(0).optional(),

@@ -707,7 +707,7 @@ export async function journalSaleCOGS(params: {
       select: { amount: true, currency: { select: { code: true } } },
     }),
     db.saleItem.findMany({
-      where: { saleId },
+      where: { saleId, lotId },
       select: { productId: true, qty: true, product: { select: { unitOfMeasure: true } } },
     }),
   ]);

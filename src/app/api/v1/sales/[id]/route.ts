@@ -14,7 +14,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         godown: { select: { id: true, name: true } }, currency: true,
         creator: { select: { id: true, fullName: true } },
         canceller: { select: { id: true, fullName: true } },  // was: cancelledByUser (wrong)
-        items: { include: { product: true } },                 // was: saleItems (wrong)
+        items: { include: { lot: { select: { id: true, lotNumber: true, status: true } }, product: true } },                 // was: saleItems (wrong)
         discounts: { include: { currency: true, appliedToLot: { select: { lotNumber: true } } } }, // was: saleDiscounts (wrong)
       },
     });
@@ -30,6 +30,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       currency: { id: sale.currency.id, code: sale.currency.code, symbol: sale.currency.symbol },
       items: sale.items.map((i) => ({
         id: i.id, productId: i.productId, productName: i.product.name,
+        lotId: i.lotId, lot: i.lot,
         qty: Number(i.qty), ratePerCarton: Number(i.ratePerCarton), amount: Number(i.amount),
       })),
       discounts: sale.discounts.map((d) => ({

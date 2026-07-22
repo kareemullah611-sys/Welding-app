@@ -42,7 +42,7 @@ type LatestSaleSummary = {
   meta: string[];
 };
 
-const emptySaleItem = () => ({ productId: 0, qty: 0, ratePerCarton: 0, ratePerPieceLocal: 0, ratePerPieceUsd: 0 });
+const emptySaleItem = () => ({ productId: 0, lotId: 0, qty: 0, ratePerCarton: 0, ratePerPieceLocal: 0, ratePerPieceUsd: 0 });
 
 function buildLatestSaleSummary(
   sale: any,
@@ -203,7 +203,6 @@ export default function SalesPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
-  const defaultDateRange = getCurrentMonthDateRange();
   const [showCreate, setShowCreate] = useState(false);
   const [showCancel, setShowCancel] = useState(false);
   const [showDiscount, setShowDiscount] = useState(false);
@@ -211,8 +210,8 @@ export default function SalesPage() {
   const [correctItems, setCorrectItems] = useState<any[]>([]);
   const [correctReason, setCorrectReason] = useState("");
   const [selectedSale, setSelectedSale] = useState<any>(null);
-  const [filters, setFilters] = useState({ status: "", lot_id: "", date_from: defaultDateRange.from, date_to: defaultDateRange.to, query: "" });
-  const [dateRangePreset, setDateRangePreset] = useState<"today" | "last7" | "month" | "all" | "custom">("month");
+  const [filters, setFilters] = useState({ status: "", lot_id: "", date_from: "", date_to: "", query: "" });
+  const [dateRangePreset, setDateRangePreset] = useState<"today" | "last7" | "month" | "all" | "custom">("all");
   const [showHardDelete, setShowHardDelete] = useState(false);
   const [hardDeleteTarget, setHardDeleteTarget] = useState<any>(null);
   const [hardDeletePassword, setHardDeletePassword] = useState("");
@@ -522,10 +521,25 @@ export default function SalesPage() {
   const addItem = () => setForm((f) => ({ ...f, items: [...f.items, emptySaleItem()] }));
   const removeItem = (idx: number) => setForm((f) => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));
   const updateItem = (idx: number, field: string, value: number) => setForm((f) => ({ ...f, items: f.items.map((item, i) => (i === idx ? { ...item, [field]: value } : item)) }));
+  const lotOptionsForItem = (item: any) => {
+    const currentLot = item?.lot;
+    return currentLot && !lots.some((lot: any) => Number(lot.id) === Number(currentLot.id))
+      ? [...lots, currentLot]
+      : lots;
+  };
+  const isSaleItemLotLocked = (item: any) => item?.lot?.status === "completed";
 
   const getAvailable = (productId: number) => {
     const s = godownStock.find((s) => s.productId === productId);
     return s?.available || 0;
+  };
+  const getLotBreakdown = (productId: number) => {
+    const row = godownStock.find((s) => Number(s.productId) === Number(productId));
+    return Array.isArray(row?.lotBreakdown) ? row.lotBreakdown : [];
+  };
+  const getLotAvailable = (productId: number, lotId: number) => {
+    const lot = getLotBreakdown(productId).find((row: any) => Number(row.lotId) === Number(lotId));
+    return Number(lot?.available || 0);
   };
 
   const selectedCurrency = currencies.find((c) => c.id === form.currencyId);
@@ -543,6 +557,41 @@ export default function SalesPage() {
     : Number(item.qty || 0) * Number(item.ratePerCarton || 0);
   const itemUsdAmount = (item: any) => isPcsItem(item) ? itemPieces(item) * Number(item.ratePerPieceUsd || 0) : 0;
   const totalAmount = form.items.reduce((sum, i) => sum + itemLocalAmount(i), 0);
+  const expandAutoLotItems = (items: any[]) => {
+    const expanded: any[] = [];
+    for (const item of items) {
+      if (Number(item.lotId || 0) > 0) {
+        expanded.push(item);
+        continue;
+      }
+      let remaining = Number(item.qty || 0);
+      for (const lot of getLotBreakdown(item.productId)) {
+        if (remaining <= 0) break;
+        const qty = Math.min(remaining, Number(lot.available || 0));
+        if (qty <= 0) continue;
+        expanded.push({ ...item, lotId: Number(lot.lotId), qty });
+        remaining = Math.round((remaining - qty) * 100) / 100;
+      }
+      if (remaining > 0) return null;
+    }
+    return expanded;
+  };
+  const autoLotAllocationPreview = (item: any) => {
+    if (!item.productId || Number(item.lotId || 0) > 0 || Number(item.qty || 0) <= 0) return "";
+    let remaining = Number(item.qty || 0);
+    const parts: string[] = [];
+    for (const lot of getLotBreakdown(item.productId)) {
+      if (remaining <= 0) break;
+      const qty = Math.min(remaining, Number(lot.available || 0));
+      if (qty <= 0) continue;
+      parts.push(`${lot.lotNumber} ${qty.toLocaleString("en-US")}`);
+      remaining = Math.round((remaining - qty) * 100) / 100;
+    }
+    if (!parts.length) return "Auto: no stock in ongoing lots";
+    return remaining > 0
+      ? `Auto: ${parts.join(" + ")}; short ${remaining.toLocaleString("en-US")}`
+      : `Auto: ${parts.join(" + ")}`;
+  };
 
   const handleSubmit = async () => {
     setFormError("");
@@ -550,37 +599,39 @@ export default function SalesPage() {
     if (!form.godownId) { setFormError("Please select a godown"); return; }
     const validItems = form.items.filter((i) => i.productId && i.qty > 0 && (isPcsItem(i) ? Number(i.ratePerPieceLocal || 0) > 0 : Number(i.ratePerCarton || 0) > 0));
     if (!validItems.length) { setFormError("Add at least one product with quantity"); return; }
+    const expandedItems = expandAutoLotItems(validItems);
+    if (!expandedItems) { setFormError("Auto lot allocation exceeds available stock. Split the remaining quantity manually or add stock."); return; }
 
-    // Warn (non-blocking) if any item exceeds available stock — API will mark sale as "marked_short"
-    const shortItems = validItems.filter((item) => item.qty > getAvailable(item.productId));
+    const shortItems = expandedItems.filter((item) => Number(item.lotId || 0) <= 0 || item.qty > getLotAvailable(item.productId, item.lotId));
     if (shortItems.length > 0) {
       const names = shortItems.map((item) => {
-        const avail = getAvailable(item.productId);
+        const avail = getLotAvailable(item.productId, item.lotId);
         const pName = products.find((p: any) => p.id === item.productId)?.name || "Item";
         return avail <= 0 ? `${pName} (no stock)` : `${pName} (${avail} available)`;
       });
-      setFormError(`⚠ Short stock: ${names.join(", ")} — sale will be marked short. Submit again to confirm.`);
-      if (!shortConfirmed) { setShortConfirmed(true); return; }
+      setFormError(`Stock shortage: ${names.join(", ")}`);
+      return;
     }
     setShortConfirmed(false);
 
     const payload = {
       customerId: form.customerId,
       godownId: form.godownId,
-      lotId: form.lotId || null,
+      lotId: expandedItems[0]?.lotId || form.lotId || null,
       saleDate: form.saleDate,
       currencyId: form.currencyId,
       notes: form.notes,
-      items: validItems.map((item: any) => isPcsItem(item)
+      items: expandedItems.map((item: any) => isPcsItem(item)
         ? {
           productId: item.productId,
+          lotId: Number(item.lotId),
           cartonQty: Number(item.qty),
           ratePerPieceLocal: Number(item.ratePerPieceLocal),
           ...(Number(item.ratePerPieceUsd || 0) > 0 ? { ratePerPieceUsd: Number(item.ratePerPieceUsd) } : {}),
         }
-        : { productId: item.productId, qty: Number(item.qty), ratePerCarton: Number(item.ratePerCarton) }),
+        : { productId: item.productId, lotId: Number(item.lotId), qty: Number(item.qty), ratePerCarton: Number(item.ratePerCarton) }),
     };
-    const formSnapshot = { ...form, items: validItems, totalAmount };
+    const formSnapshot = { ...form, lotId: expandedItems[0]?.lotId || form.lotId || 0, items: expandedItems, totalAmount };
 
     if (resolvingQueueId) {
       const ok = await updateQueuedItem(resolvingQueueId, { body: JSON.stringify(payload) });
@@ -618,8 +669,10 @@ export default function SalesPage() {
 
       // Deduct sold qty from local stock so the next sale uses the correct number
       const updatedStock = godownStock.map((s) => {
-        const sold = validItems.find((i) => i.productId === s.productId);
-        return sold ? { ...s, available: Math.max(0, s.available - sold.qty) } : s;
+        const soldQty = expandedItems
+          .filter((i) => i.productId === s.productId)
+          .reduce((sum, i) => sum + Number(i.qty || 0), 0);
+        return soldQty ? { ...s, available: Math.max(0, s.available - soldQty) } : s;
       });
       setGodownStock(updatedStock);
       await cacheGodownStock(form.godownId, updatedStock);
@@ -759,12 +812,19 @@ export default function SalesPage() {
     // Load products if not already loaded (fixes empty dropdown on first use)
     if (!products.length) await loadDropdowns();
     setSelectedSale(sale);
-    setCorrectItems(sale.items?.map((i: any) => ({ productId: i.productId || i.product?.id, qty: i.qty, ratePerCarton: i.ratePerCarton || i.rate })) || []);
+    setCorrectItems(sale.items?.map((i: any) => ({
+      id: i.id,
+      productId: i.productId || i.product?.id,
+      lotId: i.lotId || i.lot?.id || sale.lot?.id || 0,
+      lot: i.lot || sale.lot || null,
+      qty: i.qty,
+      ratePerCarton: i.ratePerCarton || i.rate,
+    })) || []);
     setCorrectReason(""); setShowCorrect(true); setFormError("");
   };
   const handleCorrect = async () => {
     if (!correctReason.trim()) { setFormError("Provide reason for correction"); return; }
-    const validItems = correctItems.filter(i => i.productId && i.qty > 0 && i.ratePerCarton > 0);
+    const validItems = correctItems.filter(i => i.productId && i.lotId && i.qty > 0 && i.ratePerCarton > 0);
     if (!validItems.length) { setFormError("Add at least one item"); return; }
     if (!isOnline) {
       const pendingId = String(selectedSale?.id || "");
@@ -1154,9 +1214,10 @@ export default function SalesPage() {
               <button type="button" onClick={addItem} className="text-xs font-semibold text-primary-700 hover:text-primary-800">+ {t("add_item")}</button>
             </div>
             <div className="module-scroll-x overflow-x-auto -mx-1 px-1 py-1">
-              <div className="min-w-[520px] space-y-2">
-                <div className="grid grid-cols-[minmax(0,1fr)_68px_52px_80px_84px_24px] gap-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+              <div className="min-w-[590px] space-y-2">
+                <div className="grid grid-cols-[minmax(0,1fr)_78px_68px_52px_80px_84px_24px] gap-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
                   <span>{t("product")}</span>
+                  <span>{t("lot")}</span>
                   <span className="text-right">{t("qty")}</span>
                   <span className="text-center">{t("available")}</span>
                   <span className="text-right truncate" title={t("rate_per_carton")}>Rate</span>
@@ -1168,7 +1229,7 @@ export default function SalesPage() {
                   const pcsItem = isPcsItem(item);
                   const localPcsLabel = isAfghanistanSale ? "AFN/PCS" : "PKR/PCS";
                   return (
-                    <div key={idx} className="grid grid-cols-[minmax(0,1fr)_68px_52px_80px_84px_24px] gap-2 items-center">
+                    <div key={idx} className="grid grid-cols-[minmax(0,1fr)_78px_68px_52px_80px_84px_24px] gap-2 items-center">
                       <select
                         value={item.productId}
                         onChange={(e) => updateItem(idx, "productId", parseInt(e.target.value))}
@@ -1178,6 +1239,10 @@ export default function SalesPage() {
                         {products.map((p: any) => (
                           <option key={p.id} value={p.id}>{p.name}</option>
                         ))}
+                      </select>
+                      <select value={item.lotId || 0} onChange={(e) => updateItem(idx, "lotId", parseInt(e.target.value))} className="select-field min-w-0 text-xs">
+                        <option value={0}>Auto</option>
+                        {lotOptionsForItem(item).map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}{l.status === "completed" ? " ✓" : ""}</option>)}
                       </select>
                       <input
                         type="number"
@@ -1215,6 +1280,7 @@ export default function SalesPage() {
                       ) : (
                         <span />
                       )}
+                      {autoLotAllocationPreview(item) && <p className="col-span-7 text-[11px] text-blue-700">{autoLotAllocationPreview(item)}</p>}
                     </div>
                   );
                 })}
@@ -1226,18 +1292,9 @@ export default function SalesPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="min-w-0">
-              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("lot")}</label>
-              <select value={form.lotId} onChange={(e) => setForm((f) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
-                <option value={0}>{t("auto_fifo")}</option>
-                {lots.map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}</option>)}
-              </select>
-            </div>
-            <div className="min-w-0">
+          <div>
               <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("notes")}</label>
               <input type="text" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" />
-            </div>
           </div>
         </div>
         ) : (
@@ -1299,18 +1356,9 @@ export default function SalesPage() {
           </div>
         )}
 
-        <div className="mb-4 grid grid-cols-2 gap-3 sm:gap-4">
-          <div className="min-w-0">
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("lot")}</label>
-            <select value={form.lotId} onChange={(e) => setForm((f) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
-              <option value={0}>{t("auto_fifo")}</option>
-              {lots.map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}</option>)}
-            </select>
-          </div>
-          <div className="min-w-0">
+        <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
             <input type="text" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" />
-          </div>
         </div>
 
         {/* GODOWN STOCK INFO */}
@@ -1370,6 +1418,14 @@ export default function SalesPage() {
                         return <option key={p.id} value={p.id}>{p.name} {stock > 0 ? `(${stock})` : "(—)"}</option>;
                       })}
                     </select>
+                  </div>
+                  <div className="w-24">
+                    {idx === 0 && <label className="block text-xs text-gray-500 mb-1">{t("lot")}</label>}
+                    <select value={item.lotId || 0} onChange={(e) => updateItem(idx, "lotId", parseInt(e.target.value))} className="select-field text-sm">
+                      <option value={0}>Auto</option>
+                      {lotOptionsForItem(item).map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}{l.status === "completed" ? " ✓" : ""}</option>)}
+                    </select>
+                    {autoLotAllocationPreview(item) && <p className="mt-1 text-[11px] text-blue-700">{autoLotAllocationPreview(item)}</p>}
                   </div>
                   <div className="w-24">
                     {idx === 0 && <label className="block text-xs text-gray-500 mb-1">{pcsItem ? "Qty (CTN)" : t("qty")}</label>}
@@ -1496,8 +1552,9 @@ export default function SalesPage() {
         {formError && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{formError}</div>}
         <div className="space-y-2 mb-3">
           {correctItems.map((item, i) => (
-            <div key={i} className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-end">
+            <div key={i} className="grid grid-cols-2 sm:grid-cols-5 gap-2 items-end">
               <div><label className="block text-xs text-gray-500 mb-1">{t("product")}</label><select value={item.productId} onChange={e => { const v = parseInt(e.target.value); setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, productId: v } : c)); }} className="select-field text-sm"><option value={0}>{t("select_product")}</option>{products.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+              <div><label className="block text-xs text-gray-500 mb-1">{t("lot")}</label><select value={item.lotId || 0} disabled={isSaleItemLotLocked(item)} onChange={e => { const v = parseInt(e.target.value); setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, lotId: v } : c)); }} className="select-field text-sm disabled:bg-gray-100 disabled:text-gray-500"><option value={0}>{t("lot")}</option>{lotOptionsForItem(item).map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}{l.status === "completed" ? " ✓" : ""}</option>)}</select></div>
               <div><label className="block text-xs text-gray-500 mb-1">{t("cartons")}</label><input type="number" value={item.qty || ""} onChange={e => { const v = parseFloat(e.target.value) || 0; setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, qty: v } : c)); }} className="input-field text-sm" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">{t("rate_per_carton")}</label><input type="number" value={item.ratePerCarton || ""} onChange={e => { const v = parseFloat(e.target.value) || 0; setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, ratePerCarton: v } : c)); }} className="input-field text-sm" /></div>
               <div className="flex gap-1 items-center"><span className="text-sm text-gray-600">{((item.qty || 0) * (item.ratePerCarton || 0)).toLocaleString("en-US")}</span>{correctItems.length > 1 && <button onClick={() => setCorrectItems(ci => ci.filter((_, idx) => idx !== i))} className="text-red-500 text-lg">×</button>}</div>

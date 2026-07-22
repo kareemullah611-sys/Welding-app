@@ -92,6 +92,7 @@ export async function createHistoricalSale(input: HistoricalSaleInput, db: DbCli
       items: {
         create: [{
           productId: input.productId,
+          lotId: input.lotId,
           qty: stockQty,
           cartonQty,
           ratePerCarton,

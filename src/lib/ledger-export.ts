@@ -111,7 +111,7 @@ export function printLedgerExportPayload(payload: ExportPayload) {
           h1 { margin: 0; font-size: 20px; }
           .meta { margin-top: 6px; color: #666; font-size: 12px; }
           table { width: 100%; border-collapse: collapse; margin-top: 14px; }
-          th, td { border: 1px solid #e5e7eb; padding: 7px; text-align: left; font-size: 12px; vertical-align: top; }
+          th, td { border: 1px solid #e5e7eb; padding: 7px; text-align: left; font-size: 12px; vertical-align: top; overflow-wrap: anywhere; white-space: normal; }
           th { background: #f8fafc; text-transform: uppercase; letter-spacing: .06em; font-size: 10px; color: #64748b; }
           .alt-row td { background: #f8fafc; }
           @page { margin: 12mm; size: A4 landscape; }
@@ -270,7 +270,7 @@ export function printCustomerLedgerStatement(options: {
           .meta { margin-top: 6px; color: #666; font-size: 12px; }
           .summary { margin-top: 10px; font-size: 13px; font-weight: 600; }
           table { width: 100%; border-collapse: collapse; margin-top: 14px; }
-          th, td { border: 1px solid #e5e7eb; padding: 7px; text-align: left; font-size: 12px; vertical-align: top; }
+          th, td { border: 1px solid #e5e7eb; padding: 7px; text-align: left; font-size: 12px; vertical-align: top; overflow-wrap: anywhere; white-space: normal; }
           th { background: #f8fafc; text-transform: uppercase; letter-spacing: .06em; font-size: 10px; color: #64748b; }
           .alt-row td { background: #f8fafc; }
           .cancelled td { opacity: 0.55; text-decoration: line-through; }
