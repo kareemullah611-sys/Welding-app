@@ -6,6 +6,7 @@ import { journalSaleCreated, journalSaleCOGS } from "@/lib/accounting";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { canAccessGodown } from "@/lib/godown-access";
+import { allocateSaleItemAcrossLots, AvailableSaleLot, SaleLotAllocationItem } from "@/lib/sale-lot-allocation";
 
 // PUT /api/v1/sales/:id/correct - Correct items on a sale (wrong product given)
 // Body: { items: [{ id?, productId, lotId, qty, ratePerCarton }], reason: string }
@@ -75,12 +76,21 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         return errorResponse("VALIDATION_ERROR", "New or changed sale item lots must be ongoing");
       }
     }
+    const candidateLots = await prisma.lot.findMany({
+      where: {
+        lotCityDistributions: { some: { cityId: sale.cityId, productId: { in: productIds } } },
+        OR: [{ status: "ongoing" }, { id: { in: lotIds } }],
+      },
+      orderBy: [{ lotDate: "asc" }, { id: "asc" }],
+      select: { id: true, lotNumber: true, status: true },
+    });
+    const candidateLotIds = Array.from(new Set(candidateLots.map((lot) => lot.id)));
 
-    // Validate corrected quantities against currently available godown stock.
+    // Normalize corrected quantities across available lots in the selected godown.
     // Because this sale is already part of the sold total, add back its own old quantities
     // so the correction is checked as a replacement, not as an extra sale.
     const stockKey = (lotId: number, productId: number) => `${lotId}:${productId}`;
-    const oldQtyByProduct = sale.items.reduce((acc: Record<string, number>, item) => {
+    const oldQtyByLotProduct = sale.items.reduce((acc: Record<string, number>, item) => {
       if (nextGodownId !== sale.godownId) return acc;
       const key = stockKey(item.lotId, item.productId);
       acc[key] = (acc[key] || 0) + Number(item.qty);
@@ -93,7 +103,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         JOIN lot_city_distributions lcd ON lcd.id = lcga.lot_city_distribution_id
         WHERE lcga.godown_id = ${nextGodownId}
           AND lcd.product_id IN (${Prisma.join(productIds)})
-          AND lcd.lot_id IN (${Prisma.join(lotIds)})
+          AND lcd.lot_id IN (${Prisma.join(candidateLotIds)})
         GROUP BY lcd.lot_id, lcd.product_id
       ),
       sold AS (
@@ -103,7 +113,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         WHERE s.godown_id = ${nextGodownId}
           AND s.status IN ('active', 'marked_short')
           AND si.product_id IN (${Prisma.join(productIds)})
-          AND si.lot_id IN (${Prisma.join(lotIds)})
+          AND si.lot_id IN (${Prisma.join(candidateLotIds)})
         GROUP BY si.lot_id, si.product_id
       ),
       city_out AS (
@@ -112,7 +122,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         WHERE ct.from_godown_id = ${nextGodownId}
           AND ct.status = 'approved'
           AND ct.product_id IN (${Prisma.join(productIds)})
-          AND ct.lot_id IN (${Prisma.join(lotIds)})
+          AND ct.lot_id IN (${Prisma.join(candidateLotIds)})
         GROUP BY ct.lot_id, ct.product_id
       ),
       city_in AS (
@@ -121,7 +131,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         WHERE ct.to_godown_id = ${nextGodownId}
           AND ct.status = 'approved'
           AND ct.product_id IN (${Prisma.join(productIds)})
-          AND ct.lot_id IN (${Prisma.join(lotIds)})
+          AND ct.lot_id IN (${Prisma.join(candidateLotIds)})
         GROUP BY ct.lot_id, ct.product_id
       )
       SELECT
@@ -129,45 +139,73 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         p.id as product_id,
         COALESCE(r.qty, 0) - COALESCE(s.qty, 0) - COALESCE(co.qty, 0) + COALESCE(ci.qty, 0) as available
       FROM products p
-      CROSS JOIN (SELECT UNNEST(ARRAY[${Prisma.join(lotIds)}])::int AS lot_id) lcd
+      CROSS JOIN (SELECT UNNEST(ARRAY[${Prisma.join(candidateLotIds)}])::int AS lot_id) lcd
       LEFT JOIN received r ON r.product_id = p.id AND r.lot_id = lcd.lot_id
       LEFT JOIN sold s ON s.product_id = p.id AND s.lot_id = lcd.lot_id
       LEFT JOIN city_out co ON co.product_id = p.id AND co.lot_id = lcd.lot_id
       LEFT JOIN city_in ci ON ci.product_id = p.id AND ci.lot_id = lcd.lot_id
       WHERE p.id IN (${Prisma.join(productIds)})
     `;
-    const availableByProduct = Object.fromEntries(
+    const availableByLotProduct = Object.fromEntries(
       stockRows.map((row) => [stockKey(Number(row.lot_id), Number(row.product_id)), Number(row.available || 0)])
     );
-    for (const item of items) {
-      const productId = Number(item.productId);
-      const itemLotId = Number(item.lotId);
-      const requestedQty = Number(item.qty);
-      const key = stockKey(itemLotId, productId);
-      const effectiveAvailable = Number(availableByProduct[key] || 0) + Number(oldQtyByProduct[key] || 0);
-      if (requestedQty > effectiveAvailable) {
-        const productName = products.find((p) => p.id === productId)?.name || `Product ${productId}`;
-        return errorResponse(
-          "VALIDATION_ERROR",
-          `${productName}: corrected quantity ${requestedQty} exceeds available stock ${effectiveAvailable} in ${godown.name}`
-        );
+
+    const availableLotsByProduct = new Map<number, AvailableSaleLot[]>();
+    for (const lot of candidateLots) {
+      for (const productId of productIds) {
+        const key = stockKey(lot.id, productId);
+        const effectiveAvailable = Number(availableByLotProduct[key] || 0) + Number(oldQtyByLotProduct[key] || 0);
+        if (effectiveAvailable > 0 || items.some((item: any) => Number(item.productId) === productId && Number(item.lotId) === lot.id)) {
+          const rows = availableLotsByProduct.get(productId) || [];
+          rows.push({ lotId: lot.id, lotNumber: lot.lotNumber, available: effectiveAvailable });
+          availableLotsByProduct.set(productId, rows);
+        }
       }
     }
 
     const roundMoney = (n: number) => Math.round(n * 100) / 100;
+    const normalizedItems: SaleLotAllocationItem[] = [];
+    for (const item of items) {
+      const productId = Number(item.productId);
+      const productName = products.find((p) => p.id === productId)?.name || `Product ${productId}`;
+      const lockedLot = oldItemById.get(Number(item.id || 0))?.lot;
+      const availableLots = lockedLot?.status === "completed"
+        ? (availableLotsByProduct.get(productId) || []).filter((lot) => Number(lot.lotId) === Number(lockedLot.id))
+        : (availableLotsByProduct.get(productId) || []);
+      const requestedItem: SaleLotAllocationItem = {
+        productId,
+        lotId: Number(item.lotId),
+        stockQty: Number(item.qty),
+        cartonQty: null,
+        ratePerCarton: Number(item.ratePerCarton),
+        ratePerPieceLocal: null,
+        ratePerPieceUsd: null,
+      };
+      try {
+        const allocatedItems = allocateSaleItemAcrossLots({ item: requestedItem, availableLots, roundMoney });
+        normalizedItems.push(...allocatedItems);
+        for (const allocatedItem of allocatedItems) {
+          const productLots = availableLotsByProduct.get(productId) || [];
+          const lot = productLots.find((row) => Number(row.lotId) === Number(allocatedItem.lotId));
+          if (lot) lot.available = roundMoney(Number(lot.available || 0) - Number(allocatedItem.stockQty || 0));
+        }
+      } catch {
+        return errorResponse("VALIDATION_ERROR", `${productName}: corrected quantity ${Number(item.qty)} exceeds available stock in ${godown.name}`);
+      }
+    }
 
     const oldItems = sale.items.map((i) => ({
       id: i.id, productId: i.productId, lotId: i.lotId, qty: Number(i.qty),
       ratePerCarton: Number(i.ratePerCarton), amount: Number(i.amount),
     }));
 
-    const newItemData = items.map((item: any) => ({
+    const newItemData = normalizedItems.map((item: any) => ({
       saleId,
       productId: Number(item.productId),
       lotId: Number(item.lotId),
-      qty: Number(item.qty),
+      qty: Number(item.stockQty),
       ratePerCarton: Number(item.ratePerCarton),
-      amount: roundMoney(Number(item.qty) * Number(item.ratePerCarton)),
+      amount: roundMoney(Number(item.stockQty) * Number(item.ratePerCarton)),
     }));
     const totalAmount = roundMoney(newItemData.reduce((sum: number, i: { amount: number }) => sum + i.amount, 0));
 

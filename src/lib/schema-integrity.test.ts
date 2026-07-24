@@ -276,6 +276,11 @@ test("city sales support per-item lot selection and locked completed sale item l
   assert.match(saleCorrectRoute, /const nextGodownId = Number\(body\.godownId \|\| sale\.godownId \|\| 0\)/);
   assert.match(saleCorrectRoute, /await canAccessGodown\(sale\.cityId, godown\.id, godown\.cityId\)/);
   assert.match(saleCorrectRoute, /godownId: nextGodownId/);
+  assert.match(saleCorrectRoute, /const candidateLots = await prisma\.lot\.findMany/);
+  assert.match(saleCorrectRoute, /OR: \[\{ status: "ongoing" \}, \{ id: \{ in: lotIds \} \}\]/);
+  assert.match(saleCorrectRoute, /const oldQtyByLotProduct = sale\.items\.reduce/);
+  assert.match(saleCorrectRoute, /normalizedItems\.push\(\.\.\.allocatedItems\)/);
+  assert.match(saleCorrectRoute, /const newItemData = normalizedItems\.map/);
   assert.match(salesPage, /updateItem\(idx, "lotId"/);
   assert.match(salesPage, /isSaleItemLotLocked\(item\)/);
   assert.match(salesPage, /const \[correctGodownId, setCorrectGodownId\] = useState\(0\)/);

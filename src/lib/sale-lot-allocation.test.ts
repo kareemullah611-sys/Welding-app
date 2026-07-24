@@ -75,3 +75,27 @@ test("allocateSaleItemAcrossLots uses selected lot first then oldest lots for re
     ],
   );
 });
+
+test("allocateSaleItemAcrossLots skips selected lot when it has no available stock", () => {
+  const result = allocateSaleItemAcrossLots({
+    item: {
+      productId: 1,
+      lotId: 11,
+      stockQty: 25,
+      cartonQty: null,
+      ratePerCarton: 1200,
+      ratePerPieceLocal: null,
+      ratePerPieceUsd: null,
+    },
+    availableLots: [
+      { lotId: 11, lotNumber: "Selected", available: -1630 },
+      { lotId: 12, lotNumber: "Ravi stock", available: 100 },
+    ],
+    roundMoney: (value) => Math.round(value * 100) / 100,
+  });
+
+  assert.deepEqual(
+    result.map((item) => ({ lotId: item.lotId, stockQty: item.stockQty, amount: item.amount })),
+    [{ lotId: 12, stockQty: 25, amount: 30000 }],
+  );
+});
