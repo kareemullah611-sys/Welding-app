@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
@@ -247,6 +247,7 @@ export default function SalesPage() {
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
   const [prefillHandled, setPrefillHandled] = useState(false);
+  const createRequestRef = useRef<{ signature: string; requestId: string } | null>(null);
   const closeEmbed = useCallback(() => {
     if (typeof window !== "undefined" && window.parent !== window) {
       window.parent.postMessage({ type: "dashboard-quick-close" }, window.location.origin);
@@ -333,6 +334,9 @@ export default function SalesPage() {
     }
     setLoading(false);
   }, [filters, isEmbed, isOnline, page, queuedItems]);
+  const refreshSalesAfterPaint = useCallback(() => {
+    window.setTimeout(() => loadSales(), 0);
+  }, [loadSales]);
 
   useEffect(() => { loadSales(); }, [loadSales]);
 
@@ -520,12 +524,29 @@ export default function SalesPage() {
 
   const addItem = () => setForm((f) => ({ ...f, items: [...f.items, emptySaleItem()] }));
   const removeItem = (idx: number) => setForm((f) => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));
-  const updateItem = (idx: number, field: string, value: number) => setForm((f) => ({ ...f, items: f.items.map((item, i) => (i === idx ? { ...item, [field]: value } : item)) }));
-  const lotOptionsForItem = (item: any) => {
+  const updateItem = (idx: number, field: string, value: number) => setForm((f) => ({
+    ...f,
+    items: f.items.map((item, i) => (i === idx ? { ...item, [field]: value, ...(field === "productId" ? { lotId: 0 } : {}) } : item)),
+  }));
+  const ownCorrectItemQty = (item: any, lotId: number) => {
+    if (!selectedSale || !item?.id) return 0;
+    const oldItem = selectedSale.items?.find((row: any) => Number(row.id) === Number(item.id));
+    if (!oldItem || Number(oldItem.productId || oldItem.product?.id) !== Number(item.productId)) return 0;
+    if (Number(oldItem.lotId || oldItem.lot?.id) !== Number(lotId)) return 0;
+    return Number(oldItem.qty || 0);
+  };
+  const lotOptionsForItem = (item: any, includeOwnCorrectQty = false) => {
     const currentLot = item?.lot;
-    return currentLot && !lots.some((lot: any) => Number(lot.id) === Number(currentLot.id))
-      ? [...lots, currentLot]
-      : lots;
+    const breakdown = getLotBreakdown(item?.productId);
+    const optionIds = new Set(
+      breakdown
+        .filter((lot: any) => Number(lot.available || 0) + (includeOwnCorrectQty ? ownCorrectItemQty(item, Number(lot.lotId)) : 0) > 0)
+        .map((lot: any) => Number(lot.lotId))
+    );
+    const options = lots.filter((lot: any) => optionIds.has(Number(lot.id)));
+    return currentLot && !options.some((lot: any) => Number(lot.id) === Number(currentLot.id))
+      ? [...options, currentLot]
+      : options;
   };
   const isSaleItemLotLocked = (item: any) => item?.lot?.status === "completed";
 
@@ -537,9 +558,9 @@ export default function SalesPage() {
     const row = godownStock.find((s) => Number(s.productId) === Number(productId));
     return Array.isArray(row?.lotBreakdown) ? row.lotBreakdown : [];
   };
-  const getLotAvailable = (productId: number, lotId: number) => {
+  const getLotAvailable = (productId: number, lotId: number, item?: any) => {
     const lot = getLotBreakdown(productId).find((row: any) => Number(row.lotId) === Number(lotId));
-    return Number(lot?.available || 0);
+    return Number(lot?.available || 0) + (item ? ownCorrectItemQty(item, lotId) : 0);
   };
 
   const selectedCurrency = currencies.find((c) => c.id === form.currencyId);
@@ -557,7 +578,7 @@ export default function SalesPage() {
     : Number(item.qty || 0) * Number(item.ratePerCarton || 0);
   const itemUsdAmount = (item: any) => isPcsItem(item) ? itemPieces(item) * Number(item.ratePerPieceUsd || 0) : 0;
   const totalAmount = form.items.reduce((sum, i) => sum + itemLocalAmount(i), 0);
-  const expandAutoLotItems = (items: any[]) => {
+  const expandAutoLotItems = (items: any[], includeOwnCorrectQty = false) => {
     const expanded: any[] = [];
     for (const item of items) {
       if (Number(item.lotId || 0) > 0) {
@@ -567,7 +588,7 @@ export default function SalesPage() {
       let remaining = Number(item.qty || 0);
       for (const lot of getLotBreakdown(item.productId)) {
         if (remaining <= 0) break;
-        const qty = Math.min(remaining, Number(lot.available || 0));
+        const qty = Math.min(remaining, Number(lot.available || 0) + (includeOwnCorrectQty ? ownCorrectItemQty(item, Number(lot.lotId)) : 0));
         if (qty <= 0) continue;
         expanded.push({ ...item, lotId: Number(lot.lotId), qty });
         remaining = Math.round((remaining - qty) * 100) / 100;
@@ -576,13 +597,13 @@ export default function SalesPage() {
     }
     return expanded;
   };
-  const autoLotAllocationPreview = (item: any) => {
+  const autoLotAllocationPreview = (item: any, includeOwnCorrectQty = false) => {
     if (!item.productId || Number(item.lotId || 0) > 0 || Number(item.qty || 0) <= 0) return "";
     let remaining = Number(item.qty || 0);
     const parts: string[] = [];
     for (const lot of getLotBreakdown(item.productId)) {
       if (remaining <= 0) break;
-      const qty = Math.min(remaining, Number(lot.available || 0));
+      const qty = Math.min(remaining, Number(lot.available || 0) + (includeOwnCorrectQty ? ownCorrectItemQty(item, Number(lot.lotId)) : 0));
       if (qty <= 0) continue;
       parts.push(`${lot.lotNumber} ${qty.toLocaleString("en-US")}`);
       remaining = Math.round((remaining - qty) * 100) / 100;
@@ -632,6 +653,11 @@ export default function SalesPage() {
         : { productId: item.productId, lotId: Number(item.lotId), qty: Number(item.qty), ratePerCarton: Number(item.ratePerCarton) }),
     };
     const formSnapshot = { ...form, lotId: expandedItems[0]?.lotId || form.lotId || 0, items: expandedItems, totalAmount };
+    const payloadSignature = JSON.stringify(payload);
+    if (!createRequestRef.current || createRequestRef.current.signature !== payloadSignature) {
+      createRequestRef.current = { signature: payloadSignature, requestId: `browser-${crypto.randomUUID()}` };
+    }
+    const createRequestHeaders = { "x-sync-request-id": createRequestRef.current.requestId };
 
     if (resolvingQueueId) {
       const ok = await updateQueuedItem(resolvingQueueId, { body: JSON.stringify(payload) });
@@ -704,15 +730,16 @@ export default function SalesPage() {
 
     // ── Online: normal submit ──
     setSubmitting(true);
-    const result = await apiCall("/api/v1/sales", { method: "POST", body: payload });
+    const result = await apiCall("/api/v1/sales", { method: "POST", body: payload, headers: createRequestHeaders });
     setSubmitting(false);
     if (result.success) {
+      createRequestRef.current = null;
       setResolvingQueueId(null);
       setLatestCreatedSale(buildLatestSaleSummary(result.data, formSnapshot, selectedCustomerName, products, godowns, lots, currencies));
       resetSaleCreateForm();
       setSaleSavedNotice("Sale recorded. Record payment if the customer paid on the spot.");
       setTimeout(() => setSaleSavedNotice(null), 5000);
-      loadSales();
+      refreshSalesAfterPaint();
     } else { setFormError(result.error || "Failed to create sale"); }
   };
 
@@ -811,6 +838,7 @@ export default function SalesPage() {
   const openCorrect = async (sale: any) => {
     // Load products if not already loaded (fixes empty dropdown on first use)
     if (!products.length) await loadDropdowns();
+    if (sale.godownId || sale.godown?.id) await loadGodownStock(Number(sale.godownId || sale.godown.id));
     setSelectedSale(sale);
     setCorrectItems(sale.items?.map((i: any) => ({
       id: i.id,
@@ -824,8 +852,20 @@ export default function SalesPage() {
   };
   const handleCorrect = async () => {
     if (!correctReason.trim()) { setFormError("Provide reason for correction"); return; }
-    const validItems = correctItems.filter(i => i.productId && i.lotId && i.qty > 0 && i.ratePerCarton > 0);
+    const validItems = correctItems.filter(i => i.productId && i.qty > 0 && i.ratePerCarton > 0);
     if (!validItems.length) { setFormError("Add at least one item"); return; }
+    const expandedItems = expandAutoLotItems(validItems, true);
+    if (!expandedItems) { setFormError("Auto lot allocation exceeds available stock. Split the remaining quantity manually or add stock."); return; }
+    const shortItems = expandedItems.filter((item) => Number(item.lotId || 0) <= 0 || item.qty > getLotAvailable(item.productId, item.lotId, item));
+    if (shortItems.length > 0) {
+      const names = shortItems.map((item) => {
+        const avail = getLotAvailable(item.productId, item.lotId, item);
+        const pName = products.find((p: any) => p.id === item.productId)?.name || "Item";
+        return avail <= 0 ? `${pName} (no stock)` : `${pName} (${avail} available)`;
+      });
+      setFormError(`Stock shortage: ${names.join(", ")}`);
+      return;
+    }
     if (!isOnline) {
       const pendingId = String(selectedSale?.id || "");
       if (pendingId.startsWith("pending-")) {
@@ -838,13 +878,13 @@ export default function SalesPage() {
           parsed = {};
         }
         const ok = await updateQueuedItem(queueId, {
-          body: JSON.stringify({ ...parsed, items: validItems }),
+          body: JSON.stringify({ ...parsed, items: expandedItems }),
         });
         if (!ok) {
           setFormError("Pending queued sale not found. Retry from Activity.");
           return;
         }
-        const correctedTotal = validItems.reduce((sum, item) => sum + Number(item.qty || 0) * Number(item.ratePerCarton || 0), 0);
+        const correctedTotal = expandedItems.reduce((sum, item) => sum + Number(item.qty || 0) * Number(item.ratePerCarton || 0), 0);
         setSales((prev) => {
           const next = prev.map((sale: any) =>
             String(sale.id) === pendingId
@@ -861,7 +901,7 @@ export default function SalesPage() {
         url: `/api/v1/sales/${selectedSale.id}/correct`,
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: validItems, reason: correctReason }),
+        body: JSON.stringify({ items: expandedItems, reason: correctReason }),
         pathname: "/sales",
         auditMeta: {
           action: "correct",
@@ -870,7 +910,7 @@ export default function SalesPage() {
           entityDetail: `${selectedSale?.voucherNo || "Sale"} — ${correctReason}`,
         },
       });
-      const correctedTotal = validItems.reduce((sum, item) => sum + Number(item.qty || 0) * Number(item.ratePerCarton || 0), 0);
+      const correctedTotal = expandedItems.reduce((sum, item) => sum + Number(item.qty || 0) * Number(item.ratePerCarton || 0), 0);
       setSales((prev) => {
         const next = prev.map((sale: any) =>
           sale.id === selectedSale.id
@@ -884,7 +924,7 @@ export default function SalesPage() {
       return;
     }
     setSubmitting(true);
-    const r = await apiCall(`/api/v1/sales/${selectedSale.id}/correct`, { method: "PUT", body: { items: validItems, reason: correctReason } });
+    const r = await apiCall(`/api/v1/sales/${selectedSale.id}/correct`, { method: "PUT", body: { items: expandedItems, reason: correctReason } });
     setSubmitting(false);
     if (r.success) { setShowCorrect(false); loadSales(); } else { setFormError(r.error || "Failed"); }
   };
@@ -1553,8 +1593,8 @@ export default function SalesPage() {
         <div className="space-y-2 mb-3">
           {correctItems.map((item, i) => (
             <div key={i} className="grid grid-cols-2 sm:grid-cols-5 gap-2 items-end">
-              <div><label className="block text-xs text-gray-500 mb-1">{t("product")}</label><select value={item.productId} onChange={e => { const v = parseInt(e.target.value); setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, productId: v } : c)); }} className="select-field text-sm"><option value={0}>{t("select_product")}</option>{products.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
-              <div><label className="block text-xs text-gray-500 mb-1">{t("lot")}</label><select value={item.lotId || 0} disabled={isSaleItemLotLocked(item)} onChange={e => { const v = parseInt(e.target.value); setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, lotId: v } : c)); }} className="select-field text-sm disabled:bg-gray-100 disabled:text-gray-500"><option value={0}>{t("lot")}</option>{lotOptionsForItem(item).map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}{l.status === "completed" ? " ✓" : ""}</option>)}</select></div>
+              <div><label className="block text-xs text-gray-500 mb-1">{t("product")}</label><select value={item.productId} onChange={e => { const v = parseInt(e.target.value); setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, productId: v, lotId: 0 } : c)); }} className="select-field text-sm"><option value={0}>{t("select_product")}</option>{products.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+              <div><label className="block text-xs text-gray-500 mb-1">{t("lot")}</label><select value={item.lotId || 0} disabled={isSaleItemLotLocked(item)} onChange={e => { const v = parseInt(e.target.value); setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, lotId: v } : c)); }} className="select-field text-sm disabled:bg-gray-100 disabled:text-gray-500"><option value={0}>Auto</option>{lotOptionsForItem(item, true).map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}{l.status === "completed" ? " ✓" : ""}</option>)}</select>{autoLotAllocationPreview(item, true) && <p className="mt-1 text-[11px] text-blue-700">{autoLotAllocationPreview(item, true)}</p>}</div>
               <div><label className="block text-xs text-gray-500 mb-1">{t("cartons")}</label><input type="number" value={item.qty || ""} onChange={e => { const v = parseFloat(e.target.value) || 0; setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, qty: v } : c)); }} className="input-field text-sm" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">{t("rate_per_carton")}</label><input type="number" value={item.ratePerCarton || ""} onChange={e => { const v = parseFloat(e.target.value) || 0; setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, ratePerCarton: v } : c)); }} className="input-field text-sm" /></div>
               <div className="flex gap-1 items-center"><span className="text-sm text-gray-600">{((item.qty || 0) * (item.ratePerCarton || 0)).toLocaleString("en-US")}</span>{correctItems.length > 1 && <button onClick={() => setCorrectItems(ci => ci.filter((_, idx) => idx !== i))} className="text-red-500 text-lg">×</button>}</div>

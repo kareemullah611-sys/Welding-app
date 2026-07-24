@@ -67,6 +67,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
             currencyId: true,
             detail: true,
             manualVoucherNo: true,
+            customer: { select: { name: true } },
           },
         }),
         prisma.hajiTransfer.findMany({
@@ -117,8 +118,8 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         key: `pay-${p.id}`,
         date: new Date(p.paymentDate),
         createdAt: new Date(p.createdAt),
-        type: "Cash Received",
-        detail: p.detail || "Customer payment",
+        type: p.customer?.name || "Customer",
+        detail: "cash received",
         reference: p.manualVoucherNo || null,
         currencyId: p.currencyId,
         credit: Number(p.amount),

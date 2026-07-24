@@ -33,6 +33,7 @@ interface FetchOptions {
   method?: string;
   body?: unknown;
   params?: Record<string, string | number | undefined>;
+  headers?: Record<string, string>;
 }
 
 const RETRYABLE_HTTP_STATUSES = new Set([502, 503, 504]);
@@ -339,7 +340,7 @@ export function useApi<T = unknown>() {
 
       const fetchOptions: RequestInit = {
         method,
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(options.headers || {}) },
       };
 
       if (options.body && method !== "GET") {
@@ -444,7 +445,7 @@ export async function apiCall<T = unknown>(
 
     const fetchOptions: RequestInit = {
       method,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     };
 
     if (options.body && method !== "GET") {

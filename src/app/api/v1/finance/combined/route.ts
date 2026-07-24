@@ -29,6 +29,8 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
     const limit = Math.max(1, Math.min(100, parseInt(sp.get("limit") || "20")));
     const typeFilter = sp.get("type") || "all";
     const destinationFilter = sp.get("destination");
+    const paymentMethodFilter = sp.get("payment_method") as "cash" | "bank_transfer" | "cheque" | "online" | null;
+    const chequeStatusFilter = sp.get("cheque_status") as "in_hand" | "deposited_to_bank" | "sent_to_haji" | "used_for_expense" | "used_for_liability" | "used_for_withdrawal" | "bounced" | null;
     const fromDate = sp.get("from_date");
     const toDate = sp.get("to_date");
     const query = (sp.get("q") || "").trim();
@@ -81,6 +83,8 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           ...cityWhere,
           ...dateWhere("paymentDate"),
           ...(destinationFilter ? { destination: destinationFilter } : {}),
+          ...(paymentMethodFilter ? { paymentMethod: paymentMethodFilter } : {}),
+          ...(chequeStatusFilter ? { chequeStatus: chequeStatusFilter } : {}),
           ...(shouldApplySearch && !isNumericLikeQuery
             ? {
                 OR: [

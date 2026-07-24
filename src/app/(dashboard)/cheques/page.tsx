@@ -101,15 +101,13 @@ export default function ChequesPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const params: any = { type: "payment", page, limit: DEFAULT_LIST_PAGE_SIZE };
+    const params: any = { type: "payment", page, limit: DEFAULT_LIST_PAGE_SIZE, payment_method: "cheque" };
+    if (tab !== "all") params.cheque_status = tab;
     const normalizedQuery = searchQuery.trim();
     if (normalizedQuery.length >= 2) params.q = normalizedQuery;
     const r = await apiCall("/api/v1/finance/combined", { params });
     if (r.success) {
-      // Filter for cheque payments only
-      const cheques = (r.data as any[]).filter(
-        (item: any) => item.type === "payment" && item.raw?.paymentMethod === "cheque"
-      );
+      const cheques = (r.data as any[]);
       let nextRows = [...buildPendingChequeRows(), ...cheques];
       nextRows = applyQueuedMutationsToCheques(nextRows, queuedItems as any[]);
       setAllCheques(nextRows);
@@ -138,14 +136,13 @@ export default function ChequesPage() {
       }
     }
     setLoading(false);
-  }, [buildPendingChequeRows, isOnline, page, queuedItems, readSnapshot, searchQuery, writeSnapshot]);
+  }, [buildPendingChequeRows, isOnline, page, queuedItems, readSnapshot, searchQuery, tab, writeSnapshot]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [searchQuery]);
+  useEffect(() => { setPage(1); }, [tab]);
 
-  const filtered = tab === "all"
-    ? allCheques
-    : allCheques.filter((c: any) => c.raw?.chequeStatus === tab);
+  const filtered = allCheques;
 
   const handleBounce = async () => {
     if (!bounceTarget) return;

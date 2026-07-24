@@ -380,6 +380,7 @@ export default function PaymentsPage() {
   const [latestCreatedEntry, setLatestCreatedEntry] = useState<LatestPaymentEntrySummary | null>(null);
   const [createFormReady, setCreateFormReady] = useState(false);
   const prefillHandledRef = useRef(false);
+  const createRequestRef = useRef<{ signature: string; requestId: string } | null>(null);
   const closeEmbed = useCallback(() => {
     if (typeof window !== "undefined" && window.parent !== window) {
       window.parent.postMessage({ type: "dashboard-quick-close" }, window.location.origin);
@@ -483,6 +484,9 @@ export default function PaymentsPage() {
     }
     load();
   }, [load, page, typeFilter]);
+  const refreshToLatestPaymentsAfterPaint = useCallback(() => {
+    window.setTimeout(() => refreshToLatestPayments(), 0);
+  }, [refreshToLatestPayments]);
 
   useEffect(() => { setPage(1); }, [typeFilter]);
   useEffect(() => { setPage(1); }, [fromDate, toDate]);
@@ -901,6 +905,11 @@ export default function PaymentsPage() {
     const endpoint = submission.endpoint!;
     const body = submission.body;
     const formSnapshot = { ...form };
+    const payloadSignature = `${endpoint}:${JSON.stringify(body)}`;
+    if (!createRequestRef.current || createRequestRef.current.signature !== payloadSignature) {
+      createRequestRef.current = { signature: payloadSignature, requestId: `browser-${crypto.randomUUID()}` };
+    }
+    const createRequestHeaders = { "x-sync-request-id": createRequestRef.current.requestId };
     // ── Offline: queue and optimistically add to list ──
     if (resolvingQueueId) {
       const updateOk = await updateQueuedItem(resolvingQueueId, {
@@ -967,8 +976,9 @@ export default function PaymentsPage() {
     }
 
     // ── Online: normal submit ──
-    const r = await apiCall(endpoint, { method: "POST", body });
+    const r = await apiCall(endpoint, { method: "POST", body, headers: createRequestHeaders });
     if (r.success) {
+      createRequestRef.current = null;
       setResolvingQueueId(null);
       if (keepCreateModalOpen) {
         setLatestCreatedEntry(buildLatestPaymentEntrySummary(createType, body, formSnapshot, currencies, lots));
@@ -976,11 +986,11 @@ export default function PaymentsPage() {
         setError("");
         setPaymentSavedNotice("Entry recorded.");
         setTimeout(() => setPaymentSavedNotice(null), 3000);
-        refreshToLatestPayments();
+        refreshToLatestPaymentsAfterPaint();
       } else {
         setShowCreate(false);
         if (isEmbed) closeEmbed();
-        refreshToLatestPayments();
+        refreshToLatestPaymentsAfterPaint();
       }
     } else { setError(r.error || "Failed"); }
     setSubmitting(false);

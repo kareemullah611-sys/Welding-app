@@ -398,23 +398,24 @@ export default function BankDepositsPage() {
           <p className="text-sm">{isPakistanCity ? "No inter funds transfers yet" : "No deposit slips yet"}</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {deposits.map((d: any) => {
             const chequeSum = (d.cheques || []).reduce((s: number, c: any) => s + Number(c.amount || 0), 0);
             const depTotal = Number(d.cashAmount || 0) + chequeSum;
             const isExpanded = expandedId === d.id;
             return (
-              <div key={d.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-3">
-              <div className="flex items-center gap-4">
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">{d.bankAccount?.bankName || "—"}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">{formatDate(d.depositDate)}{d.transferType !== "cheque_to_cash" && d.slipNumber ? ` · Slip #${d.slipNumber}` : ""}</p>
-                  <p className="text-[11px] text-gray-500 mt-0.5">{transferTypeLabels[d.transferType || "cheque_to_bank"] || "Cash/Cheque → Bank"}</p>
-                </div>
-              </div>
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
+              <div key={d.id} className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+                <div className="flex items-center justify-between gap-3 px-3 py-2">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <p className="truncate text-sm font-semibold text-gray-900">{d.bankAccount?.bankName || "—"}</p>
+                      <span className="text-[11px] text-gray-400">·</span>
+                      <p className="text-xs text-gray-500">{formatDate(d.depositDate)}{d.transferType !== "cheque_to_cash" && d.slipNumber ? ` · Slip #${d.slipNumber}` : ""}</p>
+                    </div>
+                    <p className="mt-0.5 truncate text-[11px] text-gray-500">{transferTypeLabels[d.transferType || "cheque_to_bank"] || "Cash/Cheque → Bank"}</p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <div className="text-right leading-tight">
                       {Number(d.cashAmount) > 0 && (
                         <p className="text-xs text-gray-500">Cash: <span className="font-medium">{d.currency?.symbol} {Number(d.cashAmount).toLocaleString("en-US")}</span></p>
                       )}
@@ -424,7 +425,7 @@ export default function BankDepositsPage() {
                       {d.cheques?.length > 0 && (
                         <p className="text-xs text-gray-500">{d.cheques.length} cheque{d.cheques.length !== 1 ? "s" : ""}: <span className="font-medium">{d.currency?.symbol} {chequeSum.toLocaleString("en-US")}</span></p>
                       )}
-                      <p className="text-sm font-bold text-blue-700 mt-0.5">Total: {d.currency?.symbol} {depTotal.toLocaleString("en-US")}</p>
+                      <p className="mt-0.5 text-sm font-bold text-blue-700">Total: {d.currency?.symbol} {depTotal.toLocaleString("en-US")}</p>
                     </div>
                     {d.cheques?.length > 0 && (
                       <button
@@ -436,15 +437,13 @@ export default function BankDepositsPage() {
                     )}
                   </div>
                 </div>
-                {d.notes && (
-                  <div className="px-4 pb-2 text-xs text-gray-500">{d.notes}</div>
-                )}
+                {d.notes && <div className="px-3 pb-2 text-xs text-gray-500">{d.notes}</div>}
                 {isExpanded && d.cheques?.length > 0 && (
-                  <div className="border-t border-blue-100 bg-blue-50 px-4 py-3">
-                    <p className="text-xs font-semibold text-blue-700 mb-2">Cheques included:</p>
+                  <div className="border-t border-blue-100 bg-blue-50 px-3 py-2">
+                    <p className="mb-1.5 text-xs font-semibold text-blue-700">Cheques included:</p>
                     <div className="space-y-1.5">
                       {d.cheques.map((c: any) => (
-                        <div key={c.id} className="flex justify-between items-center bg-white rounded-lg px-3 py-2 border border-blue-100 text-sm">
+                        <div key={c.id} className="flex items-center justify-between gap-3 rounded-md border border-blue-100 bg-white px-2.5 py-1.5 text-sm">
                           <div>
                             <span className="font-mono text-xs text-gray-600">#{c.chequeNumber || "—"}</span>
                             <span className="mx-2 text-gray-300">·</span>

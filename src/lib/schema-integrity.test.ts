@@ -178,6 +178,76 @@ test("city sale modal shows compact latest sale summary after save", () => {
   assert.match(salesPage, /latestCreatedSale\.meta\.join\(" · "\)/);
 });
 
+test("sale and payment creates send stable browser sync request ids", () => {
+  const apiHook = readFileSync("src/hooks/useApi.ts", "utf8");
+  const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+
+  assert.match(apiHook, /headers\?: Record<string, string>/);
+  assert.match(apiHook, /headers: \{ "Content-Type": "application\/json", \.\.\.\(options\.headers \|\| \{\}\) \}/);
+  assert.match(salesPage, /createRequestRef = useRef<\{ signature: string; requestId: string \} \| null>\(null\)/);
+  assert.match(salesPage, /const payloadSignature = JSON\.stringify\(payload\)/);
+  assert.match(salesPage, /"x-sync-request-id": createRequestRef\.current\.requestId/);
+  assert.match(salesPage, /apiCall\("\/api\/v1\/sales", \{ method: "POST", body: payload, headers: createRequestHeaders \}\)/);
+  assert.match(salesPage, /if \(result\.success\) \{\s+createRequestRef\.current = null/);
+  assert.match(paymentsPage, /createRequestRef = useRef<\{ signature: string; requestId: string \} \| null>\(null\)/);
+  assert.match(paymentsPage, /const payloadSignature = `\$\{endpoint\}:\$\{JSON\.stringify\(body\)\}`/);
+  assert.match(paymentsPage, /apiCall\(endpoint, \{ method: "POST", body, headers: createRequestHeaders \}\)/);
+  assert.match(paymentsPage, /if \(r\.success\) \{\s+createRequestRef\.current = null/);
+});
+
+test("sale and payment modals defer list refresh until after success UI paints", () => {
+  const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+  const saleCreateSubmit = salesPage.slice(salesPage.indexOf("const handleSubmit = async () => {"), salesPage.indexOf("useEffect(() => {", salesPage.indexOf("const handleSubmit = async () => {")));
+  const paymentCreateSubmit = paymentsPage.slice(paymentsPage.indexOf("const handleCreate = async"), paymentsPage.indexOf("// ── Add current form to batch queue"));
+
+  assert.match(salesPage, /const refreshSalesAfterPaint = useCallback\(\(\) => \{\s+window\.setTimeout\(\(\) => loadSales\(\), 0\);/);
+  assert.match(saleCreateSubmit, /setLatestCreatedSale\(buildLatestSaleSummary[\s\S]*?resetSaleCreateForm\(\);[\s\S]*?setSaleSavedNotice\("Sale recorded[\s\S]*?refreshSalesAfterPaint\(\);/);
+  assert.doesNotMatch(saleCreateSubmit, /setSaleSavedNotice\("Sale recorded[\s\S]*?loadSales\(\);/);
+  assert.match(paymentsPage, /const refreshToLatestPaymentsAfterPaint = useCallback\(\(\) => \{\s+window\.setTimeout\(\(\) => refreshToLatestPayments\(\), 0\);/);
+  assert.match(paymentCreateSubmit, /setLatestCreatedEntry\(buildLatestPaymentEntrySummary[\s\S]*?resetCurrentCreateFormAfterSave\(\);[\s\S]*?setPaymentSavedNotice\("Entry recorded\."\);[\s\S]*?refreshToLatestPaymentsAfterPaint\(\);/);
+  assert.doesNotMatch(paymentCreateSubmit, /setPaymentSavedNotice\("Entry recorded\."\);[\s\S]*?refreshToLatestPayments\(\);/);
+});
+
+test("sticky quickform and modal footers hide scrolled fields beneath actions", () => {
+  const globals = readFileSync("src/app/globals.css", "utf8");
+  const quickformFooter = globals.slice(globals.indexOf(".quickform-embed .quickform-footer"), globals.indexOf(".quickform-embed .btn-primary"));
+  const modalActionsFooter = globals.slice(globals.indexOf(".modal-actions-sticky"), globals.indexOf("@media (max-width: 639px)"));
+
+  assert.match(quickformFooter, /sticky bottom-0/);
+  assert.match(quickformFooter, /bg-\[#fff8ef\]/);
+  assert.doesNotMatch(quickformFooter, /bg-\[rgba/);
+  assert.match(modalActionsFooter, /sticky bottom-0/);
+  assert.match(modalActionsFooter, /bg-white/);
+  assert.doesNotMatch(modalActionsFooter, /bg-\[rgba/);
+});
+
+test("quickform and modal fields show focus highlight on every edge", () => {
+  const globals = readFileSync("src/app/globals.css", "utf8");
+  const focusRule = globals.slice(globals.indexOf(".quickform-embed .input-field:focus,"), globals.indexOf(".quickform-embed label {"));
+
+  assert.match(focusRule, /\.quickform-embed \.input-field:focus/);
+  assert.match(focusRule, /\.modal-sheet-body \.input-field:focus/);
+  assert.match(focusRule, /\[data-radix-dialog-content\] \.select-field:focus/);
+  assert.match(focusRule, /box-shadow: inset 0 0 0 2px #6b0f1a/);
+});
+
+test("payment create replays sync request before side-effect validation", () => {
+  const paymentsRoute = readFileSync("src/app/api/v1/payments/route.ts", "utf8");
+  const syncMetaIndex = paymentsRoute.indexOf("const syncMeta = getSyncRequestMeta(request);", paymentsRoute.indexOf("export const POST"));
+  const bodyParseIndex = paymentsRoute.indexOf("const body = await request.json();", syncMetaIndex);
+  const chequeDuplicateIndex = paymentsRoute.indexOf("city-payment-cheque", syncMetaIndex);
+  const replayBlock = paymentsRoute.slice(syncMetaIndex, bodyParseIndex);
+
+  assert.ok(syncMetaIndex > -1);
+  assert.ok(bodyParseIndex > syncMetaIndex);
+  assert.ok(chequeDuplicateIndex > bodyParseIndex);
+  assert.match(replayBlock, /unique_sync_request_per_city_module/);
+  assert.match(replayBlock, /module: PAYMENT_SYNC_MODULE/);
+  assert.match(replayBlock, /return successResponse\(formatPaymentCreateResponse\(existingPayment\), "Payment already synced"\)/);
+});
+
 test("city sales support per-item lot selection and locked completed sale item lots", () => {
   const sale = modelBlock("Sale");
   const saleItem = modelBlock("SaleItem");
@@ -205,6 +275,9 @@ test("city sales support per-item lot selection and locked completed sale item l
   assert.match(saleCorrectRoute, /lockedLot\.status === "completed"/);
   assert.match(salesPage, /updateItem\(idx, "lotId"/);
   assert.match(salesPage, /isSaleItemLotLocked\(item\)/);
+  assert.match(salesPage, /lotOptionsForItem = \(item: any, includeOwnCorrectQty = false\)/);
+  assert.match(salesPage, /filter\(\(lot: any\) => Number\(lot\.available \|\| 0\) \+ \(includeOwnCorrectQty \? ownCorrectItemQty\(item, Number\(lot\.lotId\)\) : 0\) > 0\)/);
+  assert.match(salesPage, /items: f\.items\.map\(\(item, i\) => \(i === idx \? \{ \.\.\.item, \[field\]: value, \.\.\.\(field === "productId" \? \{ lotId: 0 \} : \{\}\) \}/);
 });
 
 test("city sales auto lot selection expands sale items across FIFO lot availability", () => {
@@ -220,6 +293,11 @@ test("city sales auto lot selection expands sale items across FIFO lot availabil
   assert.match(salesRoute, /Lot is required for each product/);
   assert.match(salesRoute, /exceeds available stock/);
   assert.match(godownStockRoute, /lotBreakdown/);
+  assert.match(salesPage, /if \(sale\.godownId \|\| sale\.godown\?\.id\) await loadGodownStock\(Number\(sale\.godownId \|\| sale\.godown\.id\)\)/);
+  assert.match(salesPage, /const expandedItems = expandAutoLotItems\(validItems, true\)/);
+  assert.match(salesPage, /body: \{ items: expandedItems, reason: correctReason \}/);
+  assert.match(salesPage, /<option value=\{0\}>Auto<\/option>\{lotOptionsForItem\(item, true\)/);
+  assert.match(salesPage, /autoLotAllocationPreview\(item, true\)/);
 });
 
 test("city date filters default to all dates", () => {
@@ -423,6 +501,38 @@ test("dashboard bank balance only counts movements tied to city bank accounts", 
   assert.doesNotMatch(treasuryLedger, /hajiDirectPaymentsRaw/);
   assert.match(treasuryLedger, /where: \{ cityId, sourceType: "bank_transfer", bankAccountId: \{ not: null \} \}/);
   assert.match(treasuryLedger, /where: \{ cityId, paidFrom: "bank_account", bankAccountId: \{ not: null \}, deletedAt: null \}/);
+});
+
+test("dashboard cash in office customer receipts show customer and cash received", () => {
+  const cashLedgerRoute = readFileSync("src/app/api/v1/treasury/cash-ledger/route.ts", "utf8");
+  const cashPaymentBlock = cashLedgerRoute.slice(cashLedgerRoute.indexOf("prisma.payment.findMany"), cashLedgerRoute.indexOf("prisma.hajiTransfer.findMany"));
+  const paymentRowBlock = cashLedgerRoute.slice(cashLedgerRoute.indexOf("key: `pay-${p.id}`"), cashLedgerRoute.indexOf("for (const h of hajiOut)"));
+
+  assert.match(cashPaymentBlock, /customer: \{ select: \{ name: true \} \}/);
+  assert.match(paymentRowBlock, /type: p\.customer\?\.name \|\| "Customer"/);
+  assert.match(paymentRowBlock, /detail: "cash received"/);
+  assert.doesNotMatch(paymentRowBlock, /cash to office/i);
+});
+
+test("cheque register paginates server-side after cheque and status filters", () => {
+  const chequesPage = readFileSync("src/app/(dashboard)/cheques/page.tsx", "utf8");
+  const combinedRoute = readFileSync("src/app/api/v1/finance/combined/route.ts", "utf8");
+
+  assert.match(chequesPage, /type: "payment", page, limit: DEFAULT_LIST_PAGE_SIZE, payment_method: "cheque"/);
+  assert.match(chequesPage, /if \(tab !== "all"\) params\.cheque_status = tab/);
+  assert.match(chequesPage, /useEffect\(\(\) => \{ setPage\(1\); \}, \[tab\]\)/);
+  assert.match(combinedRoute, /const paymentMethodFilter = sp\.get\("payment_method"\)/);
+  assert.match(combinedRoute, /\.\.\.\(paymentMethodFilter \? \{ paymentMethod: paymentMethodFilter \} : \{\}\)/);
+  assert.match(combinedRoute, /\.\.\.\(chequeStatusFilter \? \{ chequeStatus: chequeStatusFilter \} : \{\}\)/);
+});
+
+test("pakistan inter funds transfer keeps compact rows with standard pagination", () => {
+  const bankDepositsPage = readFileSync("src/app/(dashboard)/bank-deposits/page.tsx", "utf8");
+
+  assert.match(bankDepositsPage, /const params: any = \{ page, limit: DEFAULT_LIST_PAGE_SIZE \}/);
+  assert.match(bankDepositsPage, /pageSize: DEFAULT_LIST_PAGE_SIZE/);
+  assert.match(bankDepositsPage, /className="space-y-2"/);
+  assert.match(bankDepositsPage, /px-3 py-2/);
 });
 
 test("haji party account destination feature remains removed", () => {

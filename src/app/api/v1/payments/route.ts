@@ -159,6 +159,35 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     }
 
     const syncMeta = getSyncRequestMeta(request);
+    const cityId = user.cityId!;
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId,
+            module: PAYMENT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingPayment = await prisma.payment.findFirst({
+          where: { id: existingSync.entityId, cityId },
+          include: {
+            customer: { select: { id: true, name: true } },
+            lot: { select: { id: true, lotNumber: true, status: true } },
+            currency: true,
+            bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+            superAdminBankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+            creator: { select: { id: true, fullName: true } },
+          },
+        });
+        if (existingPayment) {
+          return successResponse(formatPaymentCreateResponse(existingPayment), "Payment already synced");
+        }
+      }
+    }
+
     const body = await request.json();
     const parsed = createPaymentSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid payment data", parsed.error.errors);
@@ -168,7 +197,6 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       manualVoucherNo, paymentMethod, destination, notes, chequeNumber: chequeNumberInput,
       chequeBank, chequeDueDate, bankAccountId, superAdminBankAccountId,
     } = parsed.data;
-    const cityId = user.cityId!;
     const chequeNumber = paymentMethod === "cheque"
       ? (manualVoucherNo?.trim() || chequeNumberInput?.trim() || undefined)
       : chequeNumberInput?.trim() || undefined;
