@@ -5,6 +5,7 @@ import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { journalSaleCreated, journalSaleCOGS } from "@/lib/accounting";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { canAccessGodown } from "@/lib/godown-access";
 
 // PUT /api/v1/sales/:id/correct - Correct items on a sale (wrong product given)
 // Body: { items: [{ id?, productId, lotId, qty, ratePerCarton }], reason: string }
@@ -26,6 +27,16 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 
     if (user.role === "city_admin" && sale.cityId !== user.cityId) {
       return errorResponse("FORBIDDEN", "Not your city", 403);
+    }
+    const nextGodownId = Number(body.godownId || sale.godownId || 0);
+    const godown = await prisma.godown.findFirst({
+      where: { id: nextGodownId, isActive: true, city: { countryId: user.countryId! } },
+      include: { city: { select: { id: true, name: true } } },
+    });
+    if (!godown) return errorResponse("NOT_FOUND", "Godown not found or not in your country");
+    if (godown.cityId !== sale.cityId) {
+      const permitted = await canAccessGodown(sale.cityId, godown.id, godown.cityId);
+      if (!permitted) return errorResponse("FORBIDDEN", `This city does not have permission to use godowns from ${godown.city.name}`, 403);
     }
 
     // Fix P2: Validate all products exist and are active (same checks as sale creation)
@@ -70,6 +81,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     // so the correction is checked as a replacement, not as an extra sale.
     const stockKey = (lotId: number, productId: number) => `${lotId}:${productId}`;
     const oldQtyByProduct = sale.items.reduce((acc: Record<string, number>, item) => {
+      if (nextGodownId !== sale.godownId) return acc;
       const key = stockKey(item.lotId, item.productId);
       acc[key] = (acc[key] || 0) + Number(item.qty);
       return acc;
@@ -79,7 +91,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         SELECT lcd.lot_id, lcd.product_id, COALESCE(SUM(lcga.qty), 0) as qty
         FROM lot_city_godown_allocations lcga
         JOIN lot_city_distributions lcd ON lcd.id = lcga.lot_city_distribution_id
-        WHERE lcga.godown_id = ${sale.godownId}
+        WHERE lcga.godown_id = ${nextGodownId}
           AND lcd.product_id IN (${Prisma.join(productIds)})
           AND lcd.lot_id IN (${Prisma.join(lotIds)})
         GROUP BY lcd.lot_id, lcd.product_id
@@ -88,7 +100,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         SELECT si.lot_id, si.product_id, COALESCE(SUM(si.qty), 0) as qty
         FROM sale_items si
         JOIN sales s ON s.id = si.sale_id
-        WHERE s.godown_id = ${sale.godownId}
+        WHERE s.godown_id = ${nextGodownId}
           AND s.status IN ('active', 'marked_short')
           AND si.product_id IN (${Prisma.join(productIds)})
           AND si.lot_id IN (${Prisma.join(lotIds)})
@@ -97,7 +109,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       city_out AS (
         SELECT ct.lot_id, ct.product_id, COALESCE(SUM(ct.qty), 0) as qty
         FROM city_transfers ct
-        WHERE ct.from_godown_id = ${sale.godownId}
+        WHERE ct.from_godown_id = ${nextGodownId}
           AND ct.status = 'approved'
           AND ct.product_id IN (${Prisma.join(productIds)})
           AND ct.lot_id IN (${Prisma.join(lotIds)})
@@ -106,7 +118,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       city_in AS (
         SELECT ct.lot_id, ct.product_id, COALESCE(SUM(ct.qty), 0) as qty
         FROM city_transfers ct
-        WHERE ct.to_godown_id = ${sale.godownId}
+        WHERE ct.to_godown_id = ${nextGodownId}
           AND ct.status = 'approved'
           AND ct.product_id IN (${Prisma.join(productIds)})
           AND ct.lot_id IN (${Prisma.join(lotIds)})
@@ -137,7 +149,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         const productName = products.find((p) => p.id === productId)?.name || `Product ${productId}`;
         return errorResponse(
           "VALIDATION_ERROR",
-          `${productName}: corrected quantity ${requestedQty} exceeds available stock ${effectiveAvailable} in the selected godown`
+          `${productName}: corrected quantity ${requestedQty} exceeds available stock ${effectiveAvailable} in ${godown.name}`
         );
       }
     }
@@ -180,6 +192,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       await tx.sale.update({
         where: { id: saleId },
         data: {
+          godownId: nextGodownId,
           totalAmount,
           notes: `${sale.notes || ""}\n[CORRECTION: ${reason}]`.trim(),
         },
@@ -203,8 +216,8 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       }
 
       await createAuditLog(user.userId, sale.cityId, "sales", saleId, "update",
-        { items: oldItems, totalAmount: Number(sale.totalAmount) },
-        { items: newItemData.map(({ saleId: _s, ...rest }: any) => rest), totalAmount, reason, action: "correction" },
+        { items: oldItems, totalAmount: Number(sale.totalAmount), godownId: sale.godownId },
+        { items: newItemData.map(({ saleId: _s, ...rest }: any) => rest), totalAmount, godownId: nextGodownId, reason, action: "correction" },
         getClientIP(request),
         tx
       );

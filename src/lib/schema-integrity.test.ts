@@ -273,11 +273,18 @@ test("city sales support per-item lot selection and locked completed sale item l
   assert.match(saleDetailRoute, /lot: i\.lot/);
   assert.match(saleCorrectRoute, /lockedLotId/);
   assert.match(saleCorrectRoute, /lockedLot\.status === "completed"/);
+  assert.match(saleCorrectRoute, /const nextGodownId = Number\(body\.godownId \|\| sale\.godownId \|\| 0\)/);
+  assert.match(saleCorrectRoute, /await canAccessGodown\(sale\.cityId, godown\.id, godown\.cityId\)/);
+  assert.match(saleCorrectRoute, /godownId: nextGodownId/);
   assert.match(salesPage, /updateItem\(idx, "lotId"/);
   assert.match(salesPage, /isSaleItemLotLocked\(item\)/);
+  assert.match(salesPage, /const \[correctGodownId, setCorrectGodownId\] = useState\(0\)/);
+  assert.match(salesPage, /setCorrectGodownId\(saleGodownId\)/);
+  assert.match(salesPage, /body: \{ godownId: correctGodownId, items: expandedItems, reason: correctReason \}/);
   assert.match(salesPage, /lotOptionsForItem = \(item: any, includeOwnCorrectQty = false\)/);
   assert.match(salesPage, /filter\(\(lot: any\) => Number\(lot\.available \|\| 0\) \+ \(includeOwnCorrectQty \? ownCorrectItemQty\(item, Number\(lot\.lotId\)\) : 0\) > 0\)/);
-  assert.match(salesPage, /items: f\.items\.map\(\(item, i\) => \(i === idx \? \{ \.\.\.item, \[field\]: value, \.\.\.\(field === "productId" \? \{ lotId: 0 \} : \{\}\) \}/);
+  assert.match(salesPage, /\.\.\.\(field === "productId" \? \{ lotId: 0, remainingLotId: 0 \} : \{\}\)/);
+  assert.match(salesPage, /\.\.\.\(field === "lotId" \? \{ remainingLotId: 0 \} : \{\}\)/);
 });
 
 test("city sales auto lot selection expands sale items across FIFO lot availability", () => {
@@ -292,12 +299,17 @@ test("city sales auto lot selection expands sale items across FIFO lot availabil
   assert.match(salesRoute, /getAvailableLotsForProduct/);
   assert.match(salesRoute, /Lot is required for each product/);
   assert.match(salesRoute, /exceeds available stock/);
+  assert.match(salesRoute, /availableLots: await getAvailableLotsForProduct\(cityId, user\.countryId!, godownId, item\.productId\)/);
   assert.match(godownStockRoute, /lotBreakdown/);
-  assert.match(salesPage, /if \(sale\.godownId \|\| sale\.godown\?\.id\) await loadGodownStock\(Number\(sale\.godownId \|\| sale\.godown\.id\)\)/);
+  assert.match(salesPage, /const saleGodownId = Number\(sale\.godownId \|\| sale\.godown\?\.id \|\| 0\)/);
+  assert.match(salesPage, /if \(saleGodownId\) await loadGodownStock\(saleGodownId\)/);
   assert.match(salesPage, /const expandedItems = expandAutoLotItems\(validItems, true\)/);
-  assert.match(salesPage, /body: \{ items: expandedItems, reason: correctReason \}/);
+  assert.match(salesPage, /body: \{ godownId: correctGodownId, items: expandedItems, reason: correctReason \}/);
   assert.match(salesPage, /<option value=\{0\}>Auto<\/option>\{lotOptionsForItem\(item, true\)/);
   assert.match(salesPage, /autoLotAllocationPreview\(item, true\)/);
+  assert.match(salesPage, /selectedLotRemainderQty/);
+  assert.match(salesPage, /remainingLotOptionsForItem/);
+  assert.match(salesPage, /Auto oldest lot/);
 });
 
 test("city date filters default to all dates", () => {

@@ -442,13 +442,11 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       try {
         normalizedItems.push(...allocateSaleItemAcrossLots({
           item,
-          availableLots: item.lotId
-            ? []
-            : await getAvailableLotsForProduct(cityId, user.countryId!, godownId, item.productId),
+          availableLots: await getAvailableLotsForProduct(cityId, user.countryId!, godownId, item.productId),
           roundMoney,
         }));
       } catch {
-        return errorResponse("VALIDATION_ERROR", `${product.name}: auto lot allocation exceeds available stock`);
+        return errorResponse("VALIDATION_ERROR", `${product.name}: lot allocation exceeds available stock`);
       }
     }
 

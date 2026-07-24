@@ -22,17 +22,15 @@ export function allocateSaleItemAcrossLots(input: {
   roundMoney: (value: number) => number;
 }): SaleLotAllocationItem[] {
   const { item, availableLots, roundMoney } = input;
-  if (item.lotId) {
-    const amount = item.ratePerPieceLocal !== null
-      ? roundMoney(item.stockQty * item.ratePerPieceLocal)
-      : roundMoney(item.stockQty * item.ratePerCarton);
-    const amountUsd = item.ratePerPieceUsd !== null ? roundMoney(item.stockQty * item.ratePerPieceUsd) : null;
-    return [{ ...item, amount, amountUsd }];
-  }
-
   let remaining = item.stockQty;
   const allocated: SaleLotAllocationItem[] = [];
-  for (const lot of availableLots) {
+  const orderedLots = item.lotId
+    ? [
+        ...availableLots.filter((lot) => Number(lot.lotId) === Number(item.lotId)),
+        ...availableLots.filter((lot) => Number(lot.lotId) !== Number(item.lotId)),
+      ]
+    : availableLots;
+  for (const lot of orderedLots) {
     if (remaining <= 0) break;
     const available = Math.max(0, Number(lot.available || 0));
     if (available <= 0) continue;
@@ -47,7 +45,7 @@ export function allocateSaleItemAcrossLots(input: {
   }
 
   if (remaining > 0) {
-    throw new Error(`Auto lot allocation could not cover ${remaining} cartons/pieces`);
+    throw new Error(`Lot allocation could not cover ${remaining} cartons/pieces`);
   }
 
   return allocated;

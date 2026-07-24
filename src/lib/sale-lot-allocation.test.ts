@@ -44,6 +44,34 @@ test("allocateSaleItemAcrossLots rejects auto sale quantity when lots cannot cov
       availableLots: [{ lotId: 10, lotNumber: "A", available: 90 }],
       roundMoney: (value) => Math.round(value * 100) / 100,
     }),
-    /Auto lot allocation could not cover 10/,
+    /Lot allocation could not cover 10/,
+  );
+});
+
+test("allocateSaleItemAcrossLots uses selected lot first then oldest lots for remainder", () => {
+  const result = allocateSaleItemAcrossLots({
+    item: {
+      productId: 1,
+      lotId: 11,
+      stockQty: 100,
+      cartonQty: null,
+      ratePerCarton: 1200,
+      ratePerPieceLocal: null,
+      ratePerPieceUsd: null,
+    },
+    availableLots: [
+      { lotId: 10, lotNumber: "Oldest", available: 90 },
+      { lotId: 11, lotNumber: "Selected", available: 40 },
+      { lotId: 12, lotNumber: "Next", available: 90 },
+    ],
+    roundMoney: (value) => Math.round(value * 100) / 100,
+  });
+
+  assert.deepEqual(
+    result.map((item) => ({ lotId: item.lotId, stockQty: item.stockQty, amount: item.amount })),
+    [
+      { lotId: 11, stockQty: 40, amount: 48000 },
+      { lotId: 10, stockQty: 60, amount: 72000 },
+    ],
   );
 });

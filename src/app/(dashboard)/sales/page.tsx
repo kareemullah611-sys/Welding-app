@@ -42,7 +42,7 @@ type LatestSaleSummary = {
   meta: string[];
 };
 
-const emptySaleItem = () => ({ productId: 0, lotId: 0, qty: 0, ratePerCarton: 0, ratePerPieceLocal: 0, ratePerPieceUsd: 0 });
+const emptySaleItem = () => ({ productId: 0, lotId: 0, remainingLotId: 0, qty: 0, ratePerCarton: 0, ratePerPieceLocal: 0, ratePerPieceUsd: 0 });
 
 function buildLatestSaleSummary(
   sale: any,
@@ -209,6 +209,7 @@ export default function SalesPage() {
   const [showCorrect, setShowCorrect] = useState(false);
   const [correctItems, setCorrectItems] = useState<any[]>([]);
   const [correctReason, setCorrectReason] = useState("");
+  const [correctGodownId, setCorrectGodownId] = useState(0);
   const [selectedSale, setSelectedSale] = useState<any>(null);
   const [filters, setFilters] = useState({ status: "", lot_id: "", date_from: "", date_to: "", query: "" });
   const [dateRangePreset, setDateRangePreset] = useState<"today" | "last7" | "month" | "all" | "custom">("all");
@@ -526,7 +527,12 @@ export default function SalesPage() {
   const removeItem = (idx: number) => setForm((f) => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));
   const updateItem = (idx: number, field: string, value: number) => setForm((f) => ({
     ...f,
-    items: f.items.map((item, i) => (i === idx ? { ...item, [field]: value, ...(field === "productId" ? { lotId: 0 } : {}) } : item)),
+    items: f.items.map((item, i) => (i === idx ? {
+      ...item,
+      [field]: value,
+      ...(field === "productId" ? { lotId: 0, remainingLotId: 0 } : {}),
+      ...(field === "lotId" ? { remainingLotId: 0 } : {}),
+    } : item)),
   }));
   const ownCorrectItemQty = (item: any, lotId: number) => {
     if (!selectedSale || !item?.id) return 0;
@@ -562,6 +568,33 @@ export default function SalesPage() {
     const lot = getLotBreakdown(productId).find((row: any) => Number(row.lotId) === Number(lotId));
     return Number(lot?.available || 0) + (item ? ownCorrectItemQty(item, lotId) : 0);
   };
+  const selectedLotRemainderQty = (item: any, includeOwnCorrectQty = false) => {
+    const selectedLotId = Number(item.lotId || 0);
+    const requestedQty = Number(item.qty || 0);
+    if (!selectedLotId || requestedQty <= 0) return 0;
+    return Math.max(0, Math.round((requestedQty - getLotAvailable(item.productId, selectedLotId, includeOwnCorrectQty ? item : undefined)) * 100) / 100);
+  };
+  const remainingLotOptionsForItem = (item: any, includeOwnCorrectQty = false) =>
+    lotOptionsForItem(item, includeOwnCorrectQty).filter((lot: any) => Number(lot.id) !== Number(item.lotId || 0));
+  const allocationLotsForItem = (item: any, includeOwnCorrectQty = false) => {
+    const selectedLotId = Number(item.lotId || 0);
+    const remainingLotId = Number(item.remainingLotId || 0);
+    const breakdown = getLotBreakdown(item.productId);
+    const ids = [
+      selectedLotId,
+      selectedLotId ? remainingLotId : 0,
+      ...breakdown.map((lot: any) => Number(lot.lotId)),
+    ].filter((id, index, arr) => id > 0 && arr.indexOf(id) === index);
+    return ids.map((lotId) => {
+      const breakdownLot = breakdown.find((lot: any) => Number(lot.lotId) === Number(lotId));
+      const masterLot = lots.find((lot: any) => Number(lot.id) === Number(lotId));
+      return {
+        lotId,
+        lotNumber: breakdownLot?.lotNumber || masterLot?.lotNumber || String(lotId),
+        available: getLotAvailable(item.productId, lotId, includeOwnCorrectQty ? item : undefined),
+      };
+    });
+  };
 
   const selectedCurrency = currencies.find((c) => c.id === form.currencyId);
   const amountPrefix = selectedCurrency?.symbol ? `${selectedCurrency.symbol} ` : "";
@@ -581,14 +614,10 @@ export default function SalesPage() {
   const expandAutoLotItems = (items: any[], includeOwnCorrectQty = false) => {
     const expanded: any[] = [];
     for (const item of items) {
-      if (Number(item.lotId || 0) > 0) {
-        expanded.push(item);
-        continue;
-      }
       let remaining = Number(item.qty || 0);
-      for (const lot of getLotBreakdown(item.productId)) {
+      for (const lot of allocationLotsForItem(item, includeOwnCorrectQty)) {
         if (remaining <= 0) break;
-        const qty = Math.min(remaining, Number(lot.available || 0) + (includeOwnCorrectQty ? ownCorrectItemQty(item, Number(lot.lotId)) : 0));
+        const qty = Math.min(remaining, Number(lot.available || 0));
         if (qty <= 0) continue;
         expanded.push({ ...item, lotId: Number(lot.lotId), qty });
         remaining = Math.round((remaining - qty) * 100) / 100;
@@ -598,20 +627,21 @@ export default function SalesPage() {
     return expanded;
   };
   const autoLotAllocationPreview = (item: any, includeOwnCorrectQty = false) => {
-    if (!item.productId || Number(item.lotId || 0) > 0 || Number(item.qty || 0) <= 0) return "";
+    if (!item.productId || Number(item.qty || 0) <= 0) return "";
     let remaining = Number(item.qty || 0);
     const parts: string[] = [];
-    for (const lot of getLotBreakdown(item.productId)) {
+    for (const lot of allocationLotsForItem(item, includeOwnCorrectQty)) {
       if (remaining <= 0) break;
-      const qty = Math.min(remaining, Number(lot.available || 0) + (includeOwnCorrectQty ? ownCorrectItemQty(item, Number(lot.lotId)) : 0));
+      const qty = Math.min(remaining, Number(lot.available || 0));
       if (qty <= 0) continue;
       parts.push(`${lot.lotNumber} ${qty.toLocaleString("en-US")}`);
       remaining = Math.round((remaining - qty) * 100) / 100;
     }
-    if (!parts.length) return "Auto: no stock in ongoing lots";
+    if (!parts.length) return "Split: no stock in available lots";
+    const label = Number(item.lotId || 0) > 0 ? "Split" : "Auto";
     return remaining > 0
-      ? `Auto: ${parts.join(" + ")}; short ${remaining.toLocaleString("en-US")}`
-      : `Auto: ${parts.join(" + ")}`;
+      ? `${label}: ${parts.join(" + ")}; short ${remaining.toLocaleString("en-US")}`
+      : `${label}: ${parts.join(" + ")}`;
   };
 
   const handleSubmit = async () => {
@@ -838,12 +868,15 @@ export default function SalesPage() {
   const openCorrect = async (sale: any) => {
     // Load products if not already loaded (fixes empty dropdown on first use)
     if (!products.length) await loadDropdowns();
-    if (sale.godownId || sale.godown?.id) await loadGodownStock(Number(sale.godownId || sale.godown.id));
+    const saleGodownId = Number(sale.godownId || sale.godown?.id || 0);
+    setCorrectGodownId(saleGodownId);
+    if (saleGodownId) await loadGodownStock(saleGodownId);
     setSelectedSale(sale);
     setCorrectItems(sale.items?.map((i: any) => ({
       id: i.id,
       productId: i.productId || i.product?.id,
       lotId: i.lotId || i.lot?.id || sale.lot?.id || 0,
+      remainingLotId: 0,
       lot: i.lot || sale.lot || null,
       qty: i.qty,
       ratePerCarton: i.ratePerCarton || i.rate,
@@ -852,6 +885,7 @@ export default function SalesPage() {
   };
   const handleCorrect = async () => {
     if (!correctReason.trim()) { setFormError("Provide reason for correction"); return; }
+    if (!correctGodownId) { setFormError("Please select a godown"); return; }
     const validItems = correctItems.filter(i => i.productId && i.qty > 0 && i.ratePerCarton > 0);
     if (!validItems.length) { setFormError("Add at least one item"); return; }
     const expandedItems = expandAutoLotItems(validItems, true);
@@ -878,7 +912,7 @@ export default function SalesPage() {
           parsed = {};
         }
         const ok = await updateQueuedItem(queueId, {
-          body: JSON.stringify({ ...parsed, items: expandedItems }),
+          body: JSON.stringify({ ...parsed, godownId: correctGodownId, items: expandedItems }),
         });
         if (!ok) {
           setFormError("Pending queued sale not found. Retry from Activity.");
@@ -901,7 +935,7 @@ export default function SalesPage() {
         url: `/api/v1/sales/${selectedSale.id}/correct`,
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: expandedItems, reason: correctReason }),
+        body: JSON.stringify({ godownId: correctGodownId, items: expandedItems, reason: correctReason }),
         pathname: "/sales",
         auditMeta: {
           action: "correct",
@@ -924,7 +958,7 @@ export default function SalesPage() {
       return;
     }
     setSubmitting(true);
-    const r = await apiCall(`/api/v1/sales/${selectedSale.id}/correct`, { method: "PUT", body: { items: expandedItems, reason: correctReason } });
+    const r = await apiCall(`/api/v1/sales/${selectedSale.id}/correct`, { method: "PUT", body: { godownId: correctGodownId, items: expandedItems, reason: correctReason } });
     setSubmitting(false);
     if (r.success) { setShowCorrect(false); loadSales(); } else { setFormError(r.error || "Failed"); }
   };
@@ -1268,6 +1302,7 @@ export default function SalesPage() {
                   const avail = getAvailable(item.productId);
                   const pcsItem = isPcsItem(item);
                   const localPcsLabel = isAfghanistanSale ? "AFN/PCS" : "PKR/PCS";
+                  const remainderQty = selectedLotRemainderQty(item);
                   return (
                     <div key={idx} className="grid grid-cols-[minmax(0,1fr)_78px_68px_52px_80px_84px_24px] gap-2 items-center">
                       <select
@@ -1319,6 +1354,15 @@ export default function SalesPage() {
                         <button type="button" onClick={() => removeItem(idx)} className="text-red-500 hover:text-red-700 text-lg leading-none" aria-label="Remove item">×</button>
                       ) : (
                         <span />
+                      )}
+                      {remainderQty > 0 && (
+                        <div className="col-span-7 flex items-center gap-2 text-[11px] text-blue-700">
+                          <span className="shrink-0">Remaining {remainderQty.toLocaleString("en-US")} from</span>
+                          <select value={item.remainingLotId || 0} onChange={(e) => updateItem(idx, "remainingLotId", parseInt(e.target.value))} className="select-field h-7 max-w-[170px] text-xs">
+                            <option value={0}>Auto oldest lot</option>
+                            {remainingLotOptionsForItem(item).map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}{l.status === "completed" ? " ✓" : ""}</option>)}
+                          </select>
+                        </div>
                       )}
                       {autoLotAllocationPreview(item) && <p className="col-span-7 text-[11px] text-blue-700">{autoLotAllocationPreview(item)}</p>}
                     </div>
@@ -1447,8 +1491,9 @@ export default function SalesPage() {
               const avail = getAvailable(item.productId);
               const pcsItem = isPcsItem(item);
               const localPcsLabel = isAfghanistanSale ? "AFN/PCS" : "PKR/PCS";
+              const remainderQty = selectedLotRemainderQty(item);
               return (
-                <div key={idx} className="flex gap-2 items-end">
+                <div key={idx} className="flex flex-wrap gap-2 items-end">
                   <div className="flex-1">
                     {idx === 0 && <label className="block text-xs text-gray-500 mb-1">{t("product")}</label>}
                     <select value={item.productId} onChange={(e) => updateItem(idx, "productId", parseInt(e.target.value))} className="select-field text-sm">
@@ -1465,7 +1510,6 @@ export default function SalesPage() {
                       <option value={0}>Auto</option>
                       {lotOptionsForItem(item).map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}{l.status === "completed" ? " ✓" : ""}</option>)}
                     </select>
-                    {autoLotAllocationPreview(item) && <p className="mt-1 text-[11px] text-blue-700">{autoLotAllocationPreview(item)}</p>}
                   </div>
                   <div className="w-24">
                     {idx === 0 && <label className="block text-xs text-gray-500 mb-1">{pcsItem ? "Qty (CTN)" : t("qty")}</label>}
@@ -1491,6 +1535,16 @@ export default function SalesPage() {
                     <p className="py-2 text-sm font-medium">{amountPrefix}{itemLocalAmount(item).toLocaleString("en-US")}{pcsItem && isAfghanistanSale && Number(item.ratePerPieceUsd || 0) > 0 && <span className="block text-xs text-gray-500">${itemUsdAmount(item).toLocaleString("en-US")}</span>}</p>
                   </div>
                   {form.items.length > 1 && <button onClick={() => removeItem(idx)} className="text-red-500 hover:text-red-700 pb-2 text-lg">×</button>}
+                  {remainderQty > 0 && (
+                    <div className="basis-full flex items-center gap-2 text-[11px] text-blue-700">
+                      <span>Remaining {remainderQty.toLocaleString("en-US")} from</span>
+                      <select value={item.remainingLotId || 0} onChange={(e) => updateItem(idx, "remainingLotId", parseInt(e.target.value))} className="select-field h-7 max-w-[180px] text-xs">
+                        <option value={0}>Auto oldest lot</option>
+                        {remainingLotOptionsForItem(item).map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}{l.status === "completed" ? " ✓" : ""}</option>)}
+                      </select>
+                    </div>
+                  )}
+                  {autoLotAllocationPreview(item) && <p className="basis-full text-[11px] text-blue-700">{autoLotAllocationPreview(item)}</p>}
                 </div>
               );
             })}
@@ -1590,16 +1644,45 @@ export default function SalesPage() {
       {/* ========== CORRECT SALE ITEMS MODAL ========== */}
       <Modal open={showCorrect} onClose={() => setShowCorrect(false)} title={`${t("correct_sale")}: ${selectedSale?.voucherNo || ""}`} size="lg">
         {formError && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{formError}</div>}
+        <div className="mb-3 rounded-lg border border-gray-200 bg-gray-50/80 p-3">
+          <label className="block text-xs text-gray-500 mb-1">{t("godown")} *</label>
+          <select value={correctGodownId || 0} onChange={(e) => { const nextId = parseInt(e.target.value); setCorrectGodownId(nextId); void loadGodownStock(nextId); }} className="select-field text-sm">
+            <option value={0}>{t("select_godown")}</option>
+            {Array.from(new Set(godowns.map((g: any) => g.cityName))).map((cityName) => (
+              <optgroup key={String(cityName || "city")} label={String(cityName || "")}>
+                {godowns.filter((g: any) => g.cityName === cityName).map((g: any) => (
+                  <option key={g.id} value={g.id}>{g.name}{g.cityId !== user?.cityId ? ` (${g.cityName})` : ""}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+          {correctGodownId > 0 && godowns.find((g: any) => g.id === correctGodownId)?.cityId !== user?.cityId && (
+            <p className="mt-1 text-xs text-orange-600">Cross-city godown — stock from {godowns.find((g: any) => g.id === correctGodownId)?.cityName}</p>
+          )}
+        </div>
         <div className="space-y-2 mb-3">
-          {correctItems.map((item, i) => (
+          {correctItems.map((item, i) => {
+            const remainderQty = selectedLotRemainderQty(item, true);
+            return (
             <div key={i} className="grid grid-cols-2 sm:grid-cols-5 gap-2 items-end">
-              <div><label className="block text-xs text-gray-500 mb-1">{t("product")}</label><select value={item.productId} onChange={e => { const v = parseInt(e.target.value); setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, productId: v, lotId: 0 } : c)); }} className="select-field text-sm"><option value={0}>{t("select_product")}</option>{products.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
-              <div><label className="block text-xs text-gray-500 mb-1">{t("lot")}</label><select value={item.lotId || 0} disabled={isSaleItemLotLocked(item)} onChange={e => { const v = parseInt(e.target.value); setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, lotId: v } : c)); }} className="select-field text-sm disabled:bg-gray-100 disabled:text-gray-500"><option value={0}>Auto</option>{lotOptionsForItem(item, true).map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}{l.status === "completed" ? " ✓" : ""}</option>)}</select>{autoLotAllocationPreview(item, true) && <p className="mt-1 text-[11px] text-blue-700">{autoLotAllocationPreview(item, true)}</p>}</div>
+              <div><label className="block text-xs text-gray-500 mb-1">{t("product")}</label><select value={item.productId} onChange={e => { const v = parseInt(e.target.value); setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, productId: v, lotId: 0, remainingLotId: 0 } : c)); }} className="select-field text-sm"><option value={0}>{t("select_product")}</option>{products.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
+              <div><label className="block text-xs text-gray-500 mb-1">{t("lot")}</label><select value={item.lotId || 0} disabled={isSaleItemLotLocked(item)} onChange={e => { const v = parseInt(e.target.value); setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, lotId: v, remainingLotId: 0 } : c)); }} className="select-field text-sm disabled:bg-gray-100 disabled:text-gray-500"><option value={0}>Auto</option>{lotOptionsForItem(item, true).map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}{l.status === "completed" ? " ✓" : ""}</option>)}</select></div>
               <div><label className="block text-xs text-gray-500 mb-1">{t("cartons")}</label><input type="number" value={item.qty || ""} onChange={e => { const v = parseFloat(e.target.value) || 0; setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, qty: v } : c)); }} className="input-field text-sm" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">{t("rate_per_carton")}</label><input type="number" value={item.ratePerCarton || ""} onChange={e => { const v = parseFloat(e.target.value) || 0; setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, ratePerCarton: v } : c)); }} className="input-field text-sm" /></div>
               <div className="flex gap-1 items-center"><span className="text-sm text-gray-600">{((item.qty || 0) * (item.ratePerCarton || 0)).toLocaleString("en-US")}</span>{correctItems.length > 1 && <button onClick={() => setCorrectItems(ci => ci.filter((_, idx) => idx !== i))} className="text-red-500 text-lg">×</button>}</div>
+              {remainderQty > 0 && (
+                <div className="col-span-2 sm:col-span-5 flex items-center gap-2 text-[11px] text-blue-700">
+                  <span>Remaining {remainderQty.toLocaleString("en-US")} from</span>
+                  <select value={item.remainingLotId || 0} onChange={e => { const v = parseInt(e.target.value); setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, remainingLotId: v } : c)); }} className="select-field h-7 max-w-[180px] text-xs">
+                    <option value={0}>Auto oldest lot</option>
+                    {remainingLotOptionsForItem(item, true).map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}{l.status === "completed" ? " ✓" : ""}</option>)}
+                  </select>
+                </div>
+              )}
+              {autoLotAllocationPreview(item, true) && <p className="col-span-2 sm:col-span-5 text-[11px] text-blue-700">{autoLotAllocationPreview(item, true)}</p>}
             </div>
-          ))}
+            );
+          })}
           <button onClick={() => setCorrectItems(ci => [...ci, emptySaleItem()])} className="text-xs text-primary-600 hover:underline">+ {t("add_item")}</button>
         </div>
         <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("cancel_reason")} *</label><input value={correctReason} onChange={e => setCorrectReason(e.target.value)} className="input-field" /></div>
