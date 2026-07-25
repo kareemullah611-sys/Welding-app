@@ -379,6 +379,7 @@ export default function PaymentsPage() {
   const [paymentSavedNotice, setPaymentSavedNotice] = useState<string | null>(null);
   const [latestCreatedEntry, setLatestCreatedEntry] = useState<LatestPaymentEntrySummary | null>(null);
   const [createFormReady, setCreateFormReady] = useState(false);
+  const [createFormVersion, setCreateFormVersion] = useState(0);
   const prefillHandledRef = useRef(false);
   const createRequestRef = useRef<{ signature: string; requestId: string } | null>(null);
   const closeEmbed = useCallback(() => {
@@ -729,6 +730,7 @@ export default function PaymentsPage() {
       withdrawalDate: currentDate,
     };
     setForm(buildInitialFormForType(createType, currencies, preserveDatePreset));
+    setCreateFormVersion((version) => version + 1);
   }, [buildInitialFormForType, createType, currencies, form.expenseDate, form.paymentDate, form.transferDate, form.withdrawalDate]);
 
   const buildSubmissionForType = async (type: string, forceVoucher = false) => {
@@ -1979,7 +1981,7 @@ export default function PaymentsPage() {
           </div>
         )}
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
-        <div className="space-y-3">
+        <div key={`create-${createType}-${createFormVersion}`} className="space-y-3">
           {simplifyModals && createType === "payment" ? (
             <>
               <div className="grid grid-cols-2 gap-3">

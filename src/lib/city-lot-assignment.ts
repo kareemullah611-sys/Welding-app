@@ -1,6 +1,6 @@
 import prisma from "@/lib/prisma";
 import { Prisma, PrismaClient } from "@prisma/client";
-import { aggregateSingleLotSalesMetrics, fetchLotSalesForMetrics } from "@/lib/lot-sold-metrics";
+import { aggregateLotSalesMetrics, aggregateSingleLotSalesMetrics, fetchLotSalesForMetrics } from "@/lib/lot-sold-metrics";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -42,7 +42,14 @@ export async function getCitySoldQtyByProduct(
 
 export async function getCitySoldMetrics(lotId: number, cityId: number, db: DbClient = prisma) {
   const sales = await fetchLotSalesForMetrics([lotId], { cityId }, db);
-  return aggregateSingleLotSalesMetrics(sales);
+  return (
+    aggregateLotSalesMetrics(sales).get(lotId) || {
+      soldCartons: 0,
+      soldSalesByCurrency: {},
+      soldQtyByProduct: {},
+      soldAmountByProduct: {},
+    }
+  );
 }
 
 export async function buildCityLotAssignmentDetail(

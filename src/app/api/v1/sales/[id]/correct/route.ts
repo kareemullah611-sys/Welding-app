@@ -9,7 +9,7 @@ import { canAccessGodown } from "@/lib/godown-access";
 import { allocateSaleItemAcrossLots, AvailableSaleLot, SaleLotAllocationItem } from "@/lib/sale-lot-allocation";
 
 // PUT /api/v1/sales/:id/correct - Correct items on a sale (wrong product given)
-// Body: { items: [{ id?, productId, lotId, qty, ratePerCarton }], reason: string }
+// Body: { saleDate?, items: [{ id?, productId, lotId, qty, ratePerCarton }], reason: string }
 export const PUT = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
     const saleId = parseInt(context.params.id);
@@ -29,6 +29,8 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     if (user.role === "city_admin" && sale.cityId !== user.cityId) {
       return errorResponse("FORBIDDEN", "Not your city", 403);
     }
+    const nextSaleDate = body.saleDate ? new Date(body.saleDate) : sale.saleDate;
+    if (Number.isNaN(nextSaleDate.getTime())) return errorResponse("VALIDATION_ERROR", "Invalid sale date");
     const nextGodownId = Number(body.godownId || sale.godownId || 0);
     const godown = await prisma.godown.findFirst({
       where: { id: nextGodownId, isActive: true, city: { countryId: user.countryId! } },
@@ -230,6 +232,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       await tx.sale.update({
         where: { id: saleId },
         data: {
+          saleDate: nextSaleDate,
           godownId: nextGodownId,
           totalAmount,
           notes: `${sale.notes || ""}\n[CORRECTION: ${reason}]`.trim(),
@@ -239,7 +242,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       await journalSaleCreated({
         id: saleId, customerId: sale.customerId, cityId: sale.cityId,
         lotId: sale.lotId!, totalAmount, currencyCode: (sale as any).currency?.code || "PKR",
-        saleDate: sale.saleDate, createdBy: user.userId,
+        saleDate: nextSaleDate, createdBy: user.userId,
       }, tx);
 
       const qtyByLot = newItemData.reduce((acc: Record<number, number>, item: { lotId: number; qty: number }) => {
@@ -249,13 +252,13 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       for (const [itemLotId, totalQtySold] of Object.entries(qtyByLot) as Array<[string, number]>) {
         await journalSaleCOGS({
           saleId, lotId: Number(itemLotId), totalQtySold,
-          saleDate: sale.saleDate, cityId: sale.cityId, createdBy: user.userId,
+          saleDate: nextSaleDate, cityId: sale.cityId, createdBy: user.userId,
         }, tx);
       }
 
       await createAuditLog(user.userId, sale.cityId, "sales", saleId, "update",
-        { items: oldItems, totalAmount: Number(sale.totalAmount), godownId: sale.godownId },
-        { items: newItemData.map(({ saleId: _s, ...rest }: any) => rest), totalAmount, godownId: nextGodownId, reason, action: "correction" },
+        { items: oldItems, totalAmount: Number(sale.totalAmount), godownId: sale.godownId, saleDate: sale.saleDate },
+        { items: newItemData.map(({ saleId: _s, ...rest }: any) => rest), totalAmount, godownId: nextGodownId, saleDate: nextSaleDate, reason, action: "correction" },
         getClientIP(request),
         tx
       );

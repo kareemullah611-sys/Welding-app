@@ -210,6 +210,7 @@ export default function SalesPage() {
   const [correctItems, setCorrectItems] = useState<any[]>([]);
   const [correctReason, setCorrectReason] = useState("");
   const [correctGodownId, setCorrectGodownId] = useState(0);
+  const [correctSaleDate, setCorrectSaleDate] = useState("");
   const [selectedSale, setSelectedSale] = useState<any>(null);
   const [filters, setFilters] = useState({ status: "", lot_id: "", date_from: "", date_to: "", query: "" });
   const [dateRangePreset, setDateRangePreset] = useState<"today" | "last7" | "month" | "all" | "custom">("all");
@@ -872,6 +873,7 @@ export default function SalesPage() {
     setCorrectGodownId(saleGodownId);
     if (saleGodownId) await loadGodownStock(saleGodownId);
     setSelectedSale(sale);
+    setCorrectSaleDate(sale.saleDate || "");
     setCorrectItems(sale.items?.map((i: any) => ({
       id: i.id,
       productId: i.productId || i.product?.id,
@@ -884,6 +886,7 @@ export default function SalesPage() {
     setCorrectReason(""); setShowCorrect(true); setFormError("");
   };
   const handleCorrect = async () => {
+    if (!correctSaleDate) { setFormError("Please select a date"); return; }
     if (!correctReason.trim()) { setFormError("Provide reason for correction"); return; }
     if (!correctGodownId) { setFormError("Please select a godown"); return; }
     const validItems = correctItems.filter(i => i.productId && i.qty > 0 && i.ratePerCarton > 0);
@@ -912,7 +915,7 @@ export default function SalesPage() {
           parsed = {};
         }
         const ok = await updateQueuedItem(queueId, {
-          body: JSON.stringify({ ...parsed, godownId: correctGodownId, items: expandedItems }),
+          body: JSON.stringify({ ...parsed, saleDate: correctSaleDate, godownId: correctGodownId, items: expandedItems }),
         });
         if (!ok) {
           setFormError("Pending queued sale not found. Retry from Activity.");
@@ -922,7 +925,7 @@ export default function SalesPage() {
         setSales((prev) => {
           const next = prev.map((sale: any) =>
             String(sale.id) === pendingId
-              ? { ...sale, totalAmount: correctedTotal, _pending: true }
+              ? { ...sale, saleDate: correctSaleDate, totalAmount: correctedTotal, _pending: true }
               : sale
           );
           persistSalesSnapshot(next);
@@ -935,7 +938,7 @@ export default function SalesPage() {
         url: `/api/v1/sales/${selectedSale.id}/correct`,
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ godownId: correctGodownId, items: expandedItems, reason: correctReason }),
+        body: JSON.stringify({ saleDate: correctSaleDate, godownId: correctGodownId, items: expandedItems, reason: correctReason }),
         pathname: "/sales",
         auditMeta: {
           action: "correct",
@@ -948,7 +951,7 @@ export default function SalesPage() {
       setSales((prev) => {
         const next = prev.map((sale: any) =>
           sale.id === selectedSale.id
-            ? { ...sale, totalAmount: correctedTotal, _pending: true }
+            ? { ...sale, saleDate: correctSaleDate, totalAmount: correctedTotal, _pending: true }
             : sale
         );
         persistSalesSnapshot(next);
@@ -958,7 +961,7 @@ export default function SalesPage() {
       return;
     }
     setSubmitting(true);
-    const r = await apiCall(`/api/v1/sales/${selectedSale.id}/correct`, { method: "PUT", body: { godownId: correctGodownId, items: expandedItems, reason: correctReason } });
+    const r = await apiCall(`/api/v1/sales/${selectedSale.id}/correct`, { method: "PUT", body: { saleDate: correctSaleDate, godownId: correctGodownId, items: expandedItems, reason: correctReason } });
     setSubmitting(false);
     if (r.success) { setShowCorrect(false); loadSales(); } else { setFormError(r.error || "Failed"); }
   };
@@ -1644,6 +1647,16 @@ export default function SalesPage() {
       {/* ========== CORRECT SALE ITEMS MODAL ========== */}
       <Modal open={showCorrect} onClose={() => setShowCorrect(false)} title={`${t("correct_sale")}: ${selectedSale?.voucherNo || ""}`} size="lg">
         {formError && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{formError}</div>}
+        <div className="mb-3 rounded-lg border border-gray-200 bg-gray-50/80 p-3">
+          <label className="block text-xs text-gray-500 mb-1">{t("date")} *</label>
+          <MobileDateInput
+            variant="field"
+            value={correctSaleDate}
+            onChange={setCorrectSaleDate}
+            placeholder={t("date")}
+            aria-label={t("date")}
+          />
+        </div>
         <div className="mb-3 rounded-lg border border-gray-200 bg-gray-50/80 p-3">
           <label className="block text-xs text-gray-500 mb-1">{t("godown")} *</label>
           <select value={correctGodownId || 0} onChange={(e) => { const nextId = parseInt(e.target.value); setCorrectGodownId(nextId); void loadGodownStock(nextId); }} className="select-field text-sm">

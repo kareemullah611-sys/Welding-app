@@ -148,6 +148,9 @@ test("city payment modal owns haji expense and withdrawal creation", () => {
   assert.match(paymentsPage, /Withdrawn By \*/);
   assert.match(paymentsPage, /sourceType: "bank_account"/);
   assert.match(paymentsPage, /const keepCreateModalOpen = canCreateRecords/);
+  assert.match(paymentsPage, /const \[createFormVersion, setCreateFormVersion\] = useState\(0\)/);
+  assert.match(paymentsPage, /setCreateFormVersion\(\(version\) => version \+ 1\)/);
+  assert.match(paymentsPage, /<div key=\{`create-\$\{createType\}-\$\{createFormVersion\}`\} className="space-y-3">/);
   assert.match(paymentsPage, /if \(keepCreateModalOpen\) \{\s+setLatestCreatedEntry\(buildLatestPaymentEntrySummary\(createType, body, formSnapshot, currencies, lots/);
   assert.match(paymentsPage, /setLatestCreatedEntry\(buildLatestPaymentEntrySummary\(createType, body, formSnapshot, currencies, lots[\s\S]*?resetCurrentCreateFormAfterSave\(\);/);
   assert.match(paymentsPage, /setPaymentSavedNotice\("Entry recorded\."\)/);
@@ -274,6 +277,9 @@ test("city sales support per-item lot selection and locked completed sale item l
   assert.match(saleCorrectRoute, /lockedLotId/);
   assert.match(saleCorrectRoute, /lockedLot\.status === "completed"/);
   assert.match(saleCorrectRoute, /const nextGodownId = Number\(body\.godownId \|\| sale\.godownId \|\| 0\)/);
+  assert.match(saleCorrectRoute, /const nextSaleDate = body\.saleDate \? new Date\(body\.saleDate\) : sale\.saleDate/);
+  assert.match(saleCorrectRoute, /saleDate: nextSaleDate/);
+  assert.match(saleCorrectRoute, /saleDate: nextSaleDate, createdBy: user\.userId/);
   assert.match(saleCorrectRoute, /await canAccessGodown\(sale\.cityId, godown\.id, godown\.cityId\)/);
   assert.match(saleCorrectRoute, /godownId: nextGodownId/);
   assert.match(saleCorrectRoute, /const candidateLots = await prisma\.lot\.findMany/);
@@ -284,8 +290,11 @@ test("city sales support per-item lot selection and locked completed sale item l
   assert.match(salesPage, /updateItem\(idx, "lotId"/);
   assert.match(salesPage, /isSaleItemLotLocked\(item\)/);
   assert.match(salesPage, /const \[correctGodownId, setCorrectGodownId\] = useState\(0\)/);
+  assert.match(salesPage, /const \[correctSaleDate, setCorrectSaleDate\] = useState\(""\)/);
   assert.match(salesPage, /setCorrectGodownId\(saleGodownId\)/);
-  assert.match(salesPage, /body: \{ godownId: correctGodownId, items: expandedItems, reason: correctReason \}/);
+  assert.match(salesPage, /setCorrectSaleDate\(sale\.saleDate \|\| ""\)/);
+  assert.match(salesPage, /value=\{correctSaleDate\}/);
+  assert.match(salesPage, /body: \{ saleDate: correctSaleDate, godownId: correctGodownId, items: expandedItems, reason: correctReason \}/);
   assert.match(salesPage, /lotOptionsForItem = \(item: any, includeOwnCorrectQty = false\)/);
   assert.match(salesPage, /filter\(\(lot: any\) => Number\(lot\.available \|\| 0\) \+ \(includeOwnCorrectQty \? ownCorrectItemQty\(item, Number\(lot\.lotId\)\) : 0\) > 0\)/);
   assert.match(salesPage, /\.\.\.\(field === "productId" \? \{ lotId: 0, remainingLotId: 0 \} : \{\}\)/);
@@ -309,12 +318,24 @@ test("city sales auto lot selection expands sale items across FIFO lot availabil
   assert.match(salesPage, /const saleGodownId = Number\(sale\.godownId \|\| sale\.godown\?\.id \|\| 0\)/);
   assert.match(salesPage, /if \(saleGodownId\) await loadGodownStock\(saleGodownId\)/);
   assert.match(salesPage, /const expandedItems = expandAutoLotItems\(validItems, true\)/);
-  assert.match(salesPage, /body: \{ godownId: correctGodownId, items: expandedItems, reason: correctReason \}/);
+  assert.match(salesPage, /body: \{ saleDate: correctSaleDate, godownId: correctGodownId, items: expandedItems, reason: correctReason \}/);
   assert.match(salesPage, /<option value=\{0\}>Auto<\/option>\{lotOptionsForItem\(item, true\)/);
   assert.match(salesPage, /autoLotAllocationPreview\(item, true\)/);
   assert.match(salesPage, /selectedLotRemainderQty/);
   assert.match(salesPage, /remainingLotOptionsForItem/);
   assert.match(salesPage, /Auto oldest lot/);
+});
+
+test("city lot detail sold metrics use real sale item lot ids", () => {
+  const cityLotAssignment = readFileSync("src/lib/city-lot-assignment.ts", "utf8");
+  const getMetricsStart = cityLotAssignment.indexOf("export async function getCitySoldMetrics");
+  const getMetricsEnd = cityLotAssignment.indexOf("export async function buildCityLotAssignmentDetail", getMetricsStart);
+  const getMetricsBlock = cityLotAssignment.slice(getMetricsStart, getMetricsEnd);
+
+  assert.ok(getMetricsStart >= 0, "city sold metrics helper should exist");
+  assert.match(cityLotAssignment, /import \{ aggregateLotSalesMetrics, aggregateSingleLotSalesMetrics, fetchLotSalesForMetrics \}/);
+  assert.match(getMetricsBlock, /aggregateLotSalesMetrics\(sales\)\.get\(lotId\)/);
+  assert.doesNotMatch(getMetricsBlock, /aggregateSingleLotSalesMetrics\(sales\)/);
 });
 
 test("city date filters default to all dates", () => {
