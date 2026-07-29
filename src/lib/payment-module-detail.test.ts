@@ -119,6 +119,8 @@ test("payment submit payload omits placeholder zero bank account ids", () => {
       amount: 100,
       bankAccountId: 0,
       superAdminBankAccountId: 0,
+      intermediaryId: 0,
+      superAdminCashAccountId: 0,
     }),
     { customerId: 1, amount: 100 },
   );
@@ -131,11 +133,15 @@ test("payment submit payload omits placeholder zero bank account ids", () => {
       destination: "our_account",
       bankAccountId: 0,
       superAdminBankAccountId: 0,
+      intermediaryId: 0,
+      superAdminCashAccountId: 0,
     },
     { currencyId: 1 },
   );
   assert.equal("bankAccountId" in payload, false);
   assert.equal("superAdminBankAccountId" in payload, false);
+  assert.equal("intermediaryId" in payload, false);
+  assert.equal("superAdminCashAccountId" in payload, false);
 });
 
 test("Pakistan receive payment validation allows signed return amounts but rejects zero", () => {

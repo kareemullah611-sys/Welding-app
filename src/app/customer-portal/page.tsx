@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { printCustomerLedgerStatement } from "@/lib/ledger-export";
 
 function formatAmount(symbol: string, amount: number) {
   return `${symbol || ""} ${Math.abs(Number(amount || 0)).toLocaleString("en-US")}`;
@@ -13,30 +14,43 @@ export default function CustomerPortalPage() {
   const [ledgerData, setLedgerData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [printLoading, setPrintLoading] = useState(false);
   const [error, setError] = useState("");
   const [type, setType] = useState("all");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
 
-  const loadLedger = async () => {
-    setLedgerLoading(true);
-    setError("");
+  const buildLedgerParams = () => {
     const params = new URLSearchParams();
     if (type !== "all") params.set("ledger_type", type);
     if (fromDate) params.set("date_from", fromDate);
     if (toDate) params.set("date_to", toDate);
+    return params;
+  };
+
+  const fetchLedgerData = async () => {
+    const params = buildLedgerParams();
     const res = await fetch(`/api/v1/customer-portal/ledger?${params.toString()}`, { credentials: "include", cache: "no-store" });
     const data = await res.json().catch(() => null);
-    setLedgerLoading(false);
     if (res.status === 401) {
       router.replace("/customer-portal/login");
-      return;
+      return null;
     }
-    if (data?.success) {
-      setLedgerData(data.data);
-      return;
+    if (data?.success) return data.data;
+    throw new Error(data?.error?.message || "Unable to load ledger");
+  };
+
+  const loadLedger = async () => {
+    setLedgerLoading(true);
+    setError("");
+    try {
+      const data = await fetchLedgerData();
+      if (data) setLedgerData(data);
+    } catch (err: any) {
+      setError(err?.message || "Unable to load ledger");
+    } finally {
+      setLedgerLoading(false);
     }
-    setError(data?.error?.message || "Unable to load ledger");
   };
 
   useEffect(() => {
@@ -55,6 +69,30 @@ export default function CustomerPortalPage() {
   }, [router]);
 
   const balances = useMemo(() => Object.entries(ledgerData?.balanceByCurrency || {}), [ledgerData]);
+
+  const printPdf = async () => {
+    setPrintLoading(true);
+    setError("");
+    try {
+      const data = await fetchLedgerData();
+      if (!data) return;
+      setLedgerData(data);
+      const balanceSummary = Object.entries(data.balanceByCurrency || {})
+        .map(([code, value]) => `${code}: ${Number(value || 0).toLocaleString("en-US")}`)
+        .join(" · ");
+      printCustomerLedgerStatement({
+        customerName: customer?.name || "Customer Ledger",
+        ledger: data.ledger || [],
+        balanceSummary: balanceSummary || undefined,
+        dateFrom: fromDate || undefined,
+        dateTo: toDate || undefined,
+      });
+    } catch (err: any) {
+      setError(err?.message || "Unable to prepare PDF");
+    } finally {
+      setPrintLoading(false);
+    }
+  };
 
   const logout = async () => {
     await fetch("/api/v1/customer-portal/logout", { method: "POST", credentials: "include" }).catch(() => null);
@@ -101,7 +139,7 @@ export default function CustomerPortalPage() {
         </div>
 
         <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-[1fr_9rem_9rem_9rem_auto]">
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-[1fr_9rem_9rem_7rem_auto_auto]">
             <select value={type} onChange={(e) => setType(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm">
               <option value="all">All</option>
               <option value="sale">Sales</option>
@@ -113,6 +151,9 @@ export default function CustomerPortalPage() {
             <button onClick={() => { setFromDate(""); setToDate(""); setType("all"); }} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold">Reset</button>
             <button onClick={loadLedger} className="col-span-2 rounded-xl bg-[#6B0F1A] px-4 py-2 text-sm font-bold text-white md:col-span-1">
               {ledgerLoading ? "Loading…" : "Generate"}
+            </button>
+            <button onClick={printPdf} disabled={printLoading || ledgerLoading} className="col-span-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm disabled:opacity-60 md:col-span-1">
+              {printLoading ? "Preparing…" : "Print / PDF"}
             </button>
           </div>
         </div>

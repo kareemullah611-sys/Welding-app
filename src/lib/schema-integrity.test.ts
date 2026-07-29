@@ -754,6 +754,21 @@ test("customer portal access is isolated from admin auth and ledger scoped", () 
   assert.match(customersPage, /credentials are not stored offline/);
 });
 
+test("customer portal can print scoped ledger PDF", () => {
+  const portalPage = readFileSync("src/app/customer-portal/page.tsx", "utf8");
+  const portalLedger = readFileSync("src/app/api/v1/customer-portal/ledger/route.ts", "utf8");
+
+  assert.match(portalPage, /printCustomerLedgerStatement/);
+  assert.match(portalPage, /const printPdf = async \(\) =>/);
+  assert.match(portalPage, /fetchLedgerData\(\)/);
+  assert.match(portalPage, /Print \/ PDF/);
+  assert.match(portalPage, /dateFrom: fromDate \|\| undefined/);
+  assert.match(portalPage, /dateTo: toDate \|\| undefined/);
+  assert.match(portalLedger, /getCustomerPortalCustomer/);
+  assert.match(portalLedger, /customerId: customer\.id/);
+  assert.doesNotMatch(portalPage, /\/api\/v1\/customers\/\$\{/);
+});
+
 test("GLM critical audit fixes remain wired", () => {
   const sale = modelBlock("Sale");
   const unresolved = modelBlock("LotSettlementUnresolvedOverflow");
