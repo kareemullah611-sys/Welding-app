@@ -11,6 +11,8 @@ import {
 import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 import { formatSuperAdminBankLabel } from "@/lib/haji-transfer-detail";
+import { resolveAfghanistanSettlement, type ResolvedAfghanistanSettlement } from "@/lib/afghanistan-haji-settlement";
+import { formatAfghanistanCityPaymentDetail } from "@/lib/payment-module-detail";
 
 const PAYMENT_SYNC_MODULE = "payments.create";
 
@@ -196,6 +198,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       customerId, lotId, paymentDate, detail, amount, currencyId, exchangeRate, usdEquivalent,
       manualVoucherNo, paymentMethod, destination, notes, chequeNumber: chequeNumberInput,
       chequeBank, chequeDueDate, bankAccountId, superAdminBankAccountId,
+      settlementDestination, intermediaryId, superAdminCashAccountId,
     } = parsed.data;
     const chequeNumber = paymentMethod === "cheque"
       ? (manualVoucherNo?.trim() || chequeNumberInput?.trim() || undefined)
@@ -229,6 +232,30 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const isAfghanistanCity = city?.country?.name === "Afghanistan";
     if (isAfghanistanCity && paymentMethod !== "cash") {
       return errorResponse("VALIDATION_ERROR", "Afghanistan cities can record cash payments only");
+    }
+    let afghanistanSettlement: ResolvedAfghanistanSettlement | null = null;
+    if (isAfghanistanCity) {
+      destination = "our_account";
+      bankAccountId = undefined;
+      superAdminBankAccountId = undefined;
+      const wantsSettlement = Boolean(settlementDestination || intermediaryId || superAdminCashAccountId);
+      if (wantsSettlement) {
+        const resolved = await resolveAfghanistanSettlement(prisma, {
+          settlementDestination,
+          intermediaryId,
+          superAdminCashAccountId,
+          currencyId: resolvedCurrencyId,
+        });
+        if (!resolved.ok) return errorResponse("VALIDATION_ERROR", resolved.message);
+        afghanistanSettlement = resolved.data;
+      }
+      detail = formatAfghanistanCityPaymentDetail({
+        customerName: customer.name,
+        targetName: afghanistanSettlement?.transferredTo,
+        manualVoucherNo,
+      });
+    } else if (!detail.trim()) {
+      return errorResponse("VALIDATION_ERROR", "Detail is required");
     }
 
     const isBankLikePayment = paymentMethod === "bank_transfer" || paymentMethod === "online";
@@ -361,7 +388,13 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         paymentMethod: createdPayment.paymentMethod,
       }, tx);
 
-      if (createdPayment.destination === "haji") {
+      if (createdPayment.destination === "haji" || afghanistanSettlement) {
+        const linkedSettlementDestination = afghanistanSettlement?.settlementDestination || "standard";
+        const linkedTransferredTo = afghanistanSettlement?.transferredTo || (
+          createdPayment.superAdminBankAccount
+            ? formatSuperAdminBankLabel(createdPayment.superAdminBankAccount)
+            : "Haji Account"
+        );
         const linkedTransfer = await tx.hajiTransfer.create({
           data: {
             cityId: createdPayment.cityId,
@@ -369,19 +402,19 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
             transferDate: createdPayment.paymentDate,
             amount: Number(createdPayment.amount),
             currencyId: createdPayment.currencyId,
-            detail: linkedHajiTransferDetail(createdPayment),
+            detail: afghanistanSettlement?.transferredTo || linkedHajiTransferDetail(createdPayment),
             referenceNo: createdPayment.manualVoucherNo,
             transferType: "direct",
-            transferredTo: createdPayment.superAdminBankAccount
-              ? formatSuperAdminBankLabel(createdPayment.superAdminBankAccount)
-              : "Haji Account",
+            transferredTo: linkedTransferredTo,
             notes: createdPayment.notes,
             sourceType: createdPayment.paymentMethod === "cheque"
               ? "cheque"
               : createdPayment.paymentMethod === "bank_transfer" || createdPayment.paymentMethod === "online"
                 ? "bank_transfer"
                 : "cash_office",
-            settlementDestination: "standard",
+            settlementDestination: linkedSettlementDestination,
+            intermediaryId: afghanistanSettlement?.intermediaryId ?? null,
+            superAdminCashAccountId: afghanistanSettlement?.superAdminCashAccountId ?? null,
             superAdminBankAccountId: (createdPayment as any).superAdminBankAccountId ?? null,
             paymentId: createdPayment.id,
             createdBy: user.userId,
@@ -399,6 +432,8 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           sourceType: linkedTransfer.sourceType,
           bankAccountId: linkedTransfer.bankAccountId,
           settlementDestination: linkedTransfer.settlementDestination,
+          intermediaryId: linkedTransfer.intermediaryId,
+          superAdminCashAccountId: linkedTransfer.superAdminCashAccountId,
           superAdminBankAccountId: linkedTransfer.superAdminBankAccountId,
         }, tx);
       }

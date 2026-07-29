@@ -91,6 +91,9 @@ export const createCustomerSchema = z.object({
   name: z.string().min(1).max(200),
   phone: z.string().max(50).optional(),
   address: z.string().optional(),
+  portalAccessEnabled: z.boolean().optional(),
+  portalUsername: z.string().trim().min(3).max(100).optional().nullable(),
+  portalPassword: z.string().min(8).max(100).optional().nullable(),
 });
 
 export const updateCustomerSchema = z.object({
@@ -98,6 +101,9 @@ export const updateCustomerSchema = z.object({
   phone: z.string().max(50).optional().nullable(),
   address: z.string().optional().nullable(),
   isActive: z.boolean().optional(),
+  portalAccessEnabled: z.boolean().optional(),
+  portalUsername: z.string().trim().min(3).max(100).optional().nullable(),
+  portalPassword: z.string().min(8).max(100).optional().nullable(),
 });
 
 // ============================================================
@@ -185,7 +191,7 @@ export const createPaymentSchema = z.object({
   customerId: z.number().int().refine((v) => v === -1 || v > 0, "Invalid customer"),
   lotId: z.number().int().optional().nullable(),
   paymentDate: z.string(),
-  detail: z.string().min(1).max(500),
+  detail: z.string().trim().max(500).optional().default(""),
   amount: nonZeroAmount,
   currencyId: z.number().int().optional().nullable(),
   exchangeRate: z.number().positive().optional().nullable(),  // AFN/USD rate on payment day
@@ -198,6 +204,9 @@ export const createPaymentSchema = z.object({
   chequeDueDate: z.string().optional().nullable(),
   bankAccountId: optionalPositiveInt,
   superAdminBankAccountId: optionalPositiveInt,
+  settlementDestination: z.enum(["intermediary", "super_admin_cash"]).optional().nullable(),
+  intermediaryId: optionalPositiveInt,
+  superAdminCashAccountId: optionalPositiveInt,
   notes: z.string().optional(),
 });
 
@@ -215,6 +224,9 @@ export const updatePaymentSchema = z.object({
   chequeDueDate: z.string().optional().nullable(),
   bankAccountId: optionalPositiveInt,
   superAdminBankAccountId: optionalPositiveInt,
+  settlementDestination: z.enum(["intermediary", "super_admin_cash"]).optional().nullable(),
+  intermediaryId: optionalPositiveInt,
+  superAdminCashAccountId: optionalPositiveInt,
   notes: z.string().optional().nullable(),
 });
 

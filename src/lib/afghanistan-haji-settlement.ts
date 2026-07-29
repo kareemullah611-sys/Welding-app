@@ -1,7 +1,7 @@
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 
 type Db = Pick<
-  PrismaClient,
+  PrismaClient | Prisma.TransactionClient,
   "intermediary" | "superAdminBankAccount" | "cityCurrency"
 >;
 

@@ -201,17 +201,18 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       ratePerCarton: Number(i.ratePerCarton), amount: Number(i.amount),
     }));
 
-    const newItemData = normalizedItems.map((item: any) => ({
-      saleId,
-      productId: Number(item.productId),
-      lotId: Number(item.lotId),
-      qty: Number(item.stockQty),
-      ratePerCarton: Number(item.ratePerCarton),
-      amount: roundMoney(Number(item.stockQty) * Number(item.ratePerCarton)),
-    }));
-    const totalAmount = roundMoney(newItemData.reduce((sum: number, i: { amount: number }) => sum + i.amount, 0));
+	    const newItemData = normalizedItems.map((item: any) => ({
+	      saleId,
+	      productId: Number(item.productId),
+	      lotId: Number(item.lotId),
+	      qty: Number(item.stockQty),
+	      ratePerCarton: Number(item.ratePerCarton),
+	      amount: roundMoney(Number(item.stockQty) * Number(item.ratePerCarton)),
+	    }));
+	    const totalAmount = roundMoney(newItemData.reduce((sum: number, i: { amount: number }) => sum + i.amount, 0));
+	    const nextSaleLotId = Number(newItemData[0]?.lotId || sale.lotId || 0);
 
-    await prisma.$transaction(async (tx) => {
+	    await prisma.$transaction(async (tx) => {
       // Deterministically replace sale journals on correction to avoid cumulative
       // reverse/repost drift when a sale is corrected multiple times.
       await tx.journalEntry.deleteMany({
@@ -229,21 +230,22 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 
       await tx.saleItem.deleteMany({ where: { saleId } });
       await tx.saleItem.createMany({ data: newItemData });
-      await tx.sale.update({
-        where: { id: saleId },
-        data: {
-          saleDate: nextSaleDate,
-          godownId: nextGodownId,
-          totalAmount,
-          notes: `${sale.notes || ""}\n[CORRECTION: ${reason}]`.trim(),
-        },
-      });
+	      await tx.sale.update({
+	        where: { id: saleId },
+	        data: {
+	          saleDate: nextSaleDate,
+	          godownId: nextGodownId,
+	          lotId: nextSaleLotId,
+	          totalAmount,
+	          notes: `${sale.notes || ""}\n[CORRECTION: ${reason}]`.trim(),
+	        },
+	      });
 
-      await journalSaleCreated({
-        id: saleId, customerId: sale.customerId, cityId: sale.cityId,
-        lotId: sale.lotId!, totalAmount, currencyCode: (sale as any).currency?.code || "PKR",
-        saleDate: nextSaleDate, createdBy: user.userId,
-      }, tx);
+	      await journalSaleCreated({
+	        id: saleId, customerId: sale.customerId, cityId: sale.cityId,
+	        lotId: nextSaleLotId, totalAmount, currencyCode: (sale as any).currency?.code || "PKR",
+	        saleDate: nextSaleDate, createdBy: user.userId,
+	      }, tx);
 
       const qtyByLot = newItemData.reduce((acc: Record<number, number>, item: { lotId: number; qty: number }) => {
         acc[item.lotId] = (acc[item.lotId] || 0) + item.qty;
@@ -256,15 +258,15 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         }, tx);
       }
 
-      await createAuditLog(user.userId, sale.cityId, "sales", saleId, "update",
-        { items: oldItems, totalAmount: Number(sale.totalAmount), godownId: sale.godownId, saleDate: sale.saleDate },
-        { items: newItemData.map(({ saleId: _s, ...rest }: any) => rest), totalAmount, godownId: nextGodownId, saleDate: nextSaleDate, reason, action: "correction" },
-        getClientIP(request),
-        tx
-      );
-    });
+	      await createAuditLog(user.userId, sale.cityId, "sales", saleId, "update",
+	        { items: oldItems, totalAmount: Number(sale.totalAmount), godownId: sale.godownId, lotId: sale.lotId, saleDate: sale.saleDate },
+	        { items: newItemData.map(({ saleId: _s, ...rest }: any) => rest), totalAmount, godownId: nextGodownId, lotId: nextSaleLotId, saleDate: nextSaleDate, reason, action: "correction" },
+	        getClientIP(request),
+	        tx
+	      );
+	    });
 
-    return successResponse({ saleId, totalAmount }, "Sale corrected successfully");
+	    return successResponse({ saleId, lotId: nextSaleLotId, totalAmount }, "Sale corrected successfully");
   } catch (error) {
     console.error("Sale correction error:", error);
     return serverError();

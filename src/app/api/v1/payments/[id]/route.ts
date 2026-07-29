@@ -7,6 +7,8 @@ import { reverseJournalEntries, journalPaymentReceived, journalChequeReceived, j
 import { getPaymentHajiAuditStateMap, isHajiAuditEligible } from "@/lib/payment-audit";
 import { paymentActionSchema, updatePaymentSchema } from "@/lib/validations";
 import { formatSuperAdminBankLabel } from "@/lib/haji-transfer-detail";
+import { resolveAfghanistanSettlement, type ResolvedAfghanistanSettlement } from "@/lib/afghanistan-haji-settlement";
+import { formatAfghanistanCityPaymentDetail } from "@/lib/payment-module-detail";
 
 function linkedHajiTransferDetail(payment: { paymentMethod?: string | null; superAdminBankAccount?: any }) {
   const accountLabel = payment.superAdminBankAccount
@@ -28,6 +30,17 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         creator: { select: { id: true, fullName: true } },
         bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
         superAdminBankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+        hajiTransferPayment: {
+          select: {
+            id: true,
+            settlementDestination: true,
+            intermediaryId: true,
+            superAdminCashAccountId: true,
+            transferredTo: true,
+            detail: true,
+            referenceNo: true,
+          },
+        },
       },
     } as any) as any;
     if (!payment) return errorResponse("NOT_FOUND", "Payment not found", 404);
@@ -43,6 +56,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       bankAccount: (payment as any).bankAccount ?? null,
       superAdminBankAccountId: (payment as any).superAdminBankAccountId ?? null,
       superAdminBankAccount: (payment as any).superAdminBankAccount ?? null,
+      hajiTransferPayment: (payment as any).hajiTransferPayment ?? null,
       hajiAudit: isHajiAuditEligible(payment) ? (hajiAuditStateById[payment.id] || null) : null,
       customer: { id: payment.customer.id, name: payment.customer.name },
       lot: payment.lot, currency: { id: payment.currency.id, code: payment.currency.code, symbol: payment.currency.symbol },
@@ -180,8 +194,18 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     const nextPaymentDate = data.paymentDate ? new Date(data.paymentDate) : payment.paymentDate;
     if (Number.isNaN(nextPaymentDate.getTime())) return errorResponse("VALIDATION_ERROR", "Invalid payment date");
 
+    const isAfghanistanCity = payment.city.country?.name === "Afghanistan";
+    const existingLinkedHajiTransfer = await prisma.hajiTransfer.findUnique({
+      where: { paymentId: id },
+      select: {
+        id: true,
+        settlementDestination: true,
+        intermediaryId: true,
+        superAdminCashAccountId: true,
+      },
+    } as any) as any;
     const nextPaymentMethod = data.paymentMethod ?? (payment as any).paymentMethod;
-    const nextDestination = data.destination ?? (payment as any).destination;
+    let nextDestination = data.destination ?? (payment as any).destination;
     const nextAmount = data.amount ?? Number(payment.amount);
     const nextManualVoucherNo = data.manualVoucherNo !== undefined ? data.manualVoucherNo?.trim() || null : payment.manualVoucherNo;
     const nextChequeNumber = nextPaymentMethod === "cheque"
@@ -192,10 +216,34 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         ? (data.chequeDueDate ? new Date(data.chequeDueDate) : null)
         : ((payment as any).chequeDueDate ?? null))
       : null;
-    const nextBankAccountId = ["bank_transfer", "online"].includes(nextPaymentMethod) && nextDestination === "our_account"
+    let afghanistanSettlement: ResolvedAfghanistanSettlement | null = null;
+    if (isAfghanistanCity) {
+      nextDestination = "our_account";
+      const settlementSubmitted = data.settlementDestination !== undefined
+        || data.intermediaryId !== undefined
+        || data.superAdminCashAccountId !== undefined;
+      const existingSettlementDestination = ["intermediary", "super_admin_cash"].includes(String(existingLinkedHajiTransfer?.settlementDestination || ""))
+        ? existingLinkedHajiTransfer.settlementDestination
+        : null;
+      const nextSettlementDestination = settlementSubmitted
+        ? data.settlementDestination
+        : existingSettlementDestination;
+      if (nextSettlementDestination) {
+        const resolved = await resolveAfghanistanSettlement(prisma, {
+          settlementDestination: nextSettlementDestination,
+          intermediaryId: settlementSubmitted ? data.intermediaryId : existingLinkedHajiTransfer?.intermediaryId,
+          superAdminCashAccountId: settlementSubmitted ? data.superAdminCashAccountId : existingLinkedHajiTransfer?.superAdminCashAccountId,
+          currencyId: nextCurrencyId,
+        });
+        if (!resolved.ok) return errorResponse("VALIDATION_ERROR", resolved.message);
+        afghanistanSettlement = resolved.data;
+      }
+    }
+
+    const nextBankAccountId = !isAfghanistanCity && ["bank_transfer", "online"].includes(nextPaymentMethod) && nextDestination === "our_account"
       ? (data.bankAccountId ?? (payment as any).bankAccountId ?? null)
       : null;
-    const nextSuperAdminBankAccountId = ["bank_transfer", "online"].includes(nextPaymentMethod) && nextDestination === "haji"
+    const nextSuperAdminBankAccountId = !isAfghanistanCity && ["bank_transfer", "online"].includes(nextPaymentMethod) && nextDestination === "haji"
       ? (data.superAdminBankAccountId ?? (payment as any).superAdminBankAccountId ?? null)
       : null;
     const nextChequeStatus = nextPaymentMethod === "cheque" && nextDestination === "our_account" ? "in_hand" : null;
@@ -212,7 +260,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     });
     if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported in your city");
 
-    if (payment.city.country?.name === "Afghanistan" && nextPaymentMethod !== "cash") {
+    if (isAfghanistanCity && nextPaymentMethod !== "cash") {
       return errorResponse("VALIDATION_ERROR", "Afghanistan cities can record cash payments only");
     }
 
@@ -277,6 +325,13 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       ...(payment.manualVoucherNo ? { reference: payment.manualVoucherNo } : {}),
       ...(payment.notes ? { notes: payment.notes } : {}),
     };
+    const nextDetail = isAfghanistanCity
+      ? formatAfghanistanCityPaymentDetail({
+          customerName: customer.name,
+          targetName: afghanistanSettlement?.transferredTo,
+          manualVoucherNo: nextManualVoucherNo,
+        })
+      : (data.detail || payment.detail);
 
     const updated = await prisma.$transaction(async (tx) => {
       if (nextPaymentMethod === "cheque" && nextChequeNumber) {
@@ -297,7 +352,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         data: {
           customerId: nextCustomerId,
           paymentDate: nextPaymentDate,
-          detail: data.detail || payment.detail,
+          detail: nextDetail,
           amount: nextAmount,
           currencyId: nextCurrencyId,
           manualVoucherNo: nextManualVoucherNo,
@@ -347,29 +402,35 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         include: { currency: true },
       } as any) as any;
 
-      if (nextDestination === "haji") {
+      if (nextDestination === "haji" || afghanistanSettlement) {
+        const linkedSettlementDestination = afghanistanSettlement?.settlementDestination || "standard";
+        const linkedTransferredTo = afghanistanSettlement?.transferredTo || (
+          nextSuperAdminBankAccount
+            ? formatSuperAdminBankLabel(nextSuperAdminBankAccount)
+            : "Haji Account"
+        );
         const hajiTransferData = {
           cityId: payment.cityId,
           lotId: payment.lotId,
           transferDate: nextPaymentDate,
           amount: Number(nextAmount),
           currencyId: nextCurrencyId,
-          detail: linkedHajiTransferDetail({
+          detail: afghanistanSettlement?.transferredTo || linkedHajiTransferDetail({
             paymentMethod: nextPaymentMethod,
             superAdminBankAccount: nextSuperAdminBankAccount,
           }),
           referenceNo: nextManualVoucherNo,
           transferType: "direct",
-          transferredTo: nextSuperAdminBankAccount
-            ? formatSuperAdminBankLabel(nextSuperAdminBankAccount)
-            : "Haji Account",
+          transferredTo: linkedTransferredTo,
           notes: data.notes !== undefined ? data.notes : payment.notes,
           sourceType: nextPaymentMethod === "cheque"
             ? "cheque"
             : nextPaymentMethod === "bank_transfer" || nextPaymentMethod === "online"
               ? "bank_transfer"
               : "cash_office",
-          settlementDestination: "standard",
+          settlementDestination: linkedSettlementDestination,
+          intermediaryId: afghanistanSettlement?.intermediaryId ?? null,
+          superAdminCashAccountId: afghanistanSettlement?.superAdminCashAccountId ?? null,
           superAdminBankAccountId: nextSuperAdminBankAccountId,
           bankAccountId: null,
           chequePaymentId: null,

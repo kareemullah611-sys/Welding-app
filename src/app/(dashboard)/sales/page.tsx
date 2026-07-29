@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
@@ -219,7 +219,7 @@ export default function SalesPage() {
   const [hardDeletePassword, setHardDeletePassword] = useState("");
   const [hardDeleteError, setHardDeleteError] = useState("");
   const [hardDeleteSubmitting, setHardDeleteSubmitting] = useState(false);
-  const [openActionId, setOpenActionId] = useState<number | null>(null);
+  const [openActionId, setOpenActionId] = useState<string | number | null>(null);
 
   // Dropdowns
   const [customers, setCustomers] = useState<any[]>([]);
@@ -1031,6 +1031,24 @@ export default function SalesPage() {
       </div>
     ),
   };
+  const displaySales = useMemo(() => {
+    return sales.flatMap((sale: any) => {
+      const items = Array.isArray(sale.items) && sale.items.length > 0 ? sale.items : [null];
+      return items.map((item: any, index: number) => {
+        if (!item) return { ...sale, rowActionId: `${sale.id}:sale`, sourceSale: sale };
+        const qty = Number(item.qty || item.cartonQty || 0);
+        const rate = Number(item.ratePerCarton || item.rate || item.ratePerPieceLocal || 0);
+        return {
+          ...sale,
+          rowActionId: `${sale.id}:item:${item.id || index}`,
+          sourceSale: sale,
+          items: [item],
+          lot: item.lot || sale.lot,
+          totalAmount: Number(item.amount ?? qty * rate),
+        };
+      });
+    });
+  }, [sales]);
   const salesProductColumn = {
     key: "items",
     label: t("product"),
@@ -1109,18 +1127,18 @@ export default function SalesPage() {
       label: "",
       render: (s: any) => (
         <RowActionMenu
-          open={openActionId === s.id}
-          onOpenChange={(open) => setOpenActionId(open ? s.id : null)}
+          open={openActionId === (s.rowActionId || s.id)}
+          onOpenChange={(open) => setOpenActionId(open ? (s.rowActionId || s.id) : null)}
         >
           {s.status === "active" && (
             <>
-              <button onClick={() => { setOpenActionId(null); openCorrect(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("correct_sale")}</button>
-              <button onClick={() => { setOpenActionId(null); openDiscount(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-yellow-700 hover:bg-yellow-50 sm:py-2 sm:text-xs">{t("discount")}</button>
-              <button onClick={() => { setOpenActionId(null); openCancel(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("cancel")}</button>
+              <button onClick={() => { setOpenActionId(null); openCorrect(s.sourceSale || s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">{t("correct_sale")}</button>
+              <button onClick={() => { setOpenActionId(null); openDiscount(s.sourceSale || s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-yellow-700 hover:bg-yellow-50 sm:py-2 sm:text-xs">{t("discount")}</button>
+              <button onClick={() => { setOpenActionId(null); openCancel(s.sourceSale || s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("cancel")}</button>
             </>
           )}
           {user?.role === "super_admin" && !String(s.id || "").startsWith("pending-") && (
-            <button onClick={() => { setOpenActionId(null); openHardDelete(s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-red-800 hover:bg-red-50 sm:py-2 sm:text-xs">{t("hard_delete")}</button>
+            <button onClick={() => { setOpenActionId(null); openHardDelete(s.sourceSale || s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-red-800 hover:bg-red-50 sm:py-2 sm:text-xs">{t("hard_delete")}</button>
           )}
         </RowActionMenu>
       ),
@@ -1151,7 +1169,7 @@ export default function SalesPage() {
       )}
 
       <div className="mb-3 flex min-w-0 flex-col items-start gap-2 md:flex-row md:flex-nowrap md:items-center md:overflow-x-auto">
-        <div className="flex min-w-0 w-full flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain pb-0.5 [-webkit-overflow-scrolling:touch] md:w-auto">
+        <div className={`flex min-w-0 w-full items-center gap-2 pb-0.5 md:w-auto ${dateRangePreset === "custom" ? "flex-wrap overflow-visible" : "flex-nowrap overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]"}`}>
           <input
             type="text"
             value={filters.query}
@@ -1189,8 +1207,8 @@ export default function SalesPage() {
           </select>
           {dateRangePreset === "custom" && (
             <>
-              <input type="date" value={filters.date_from} onChange={(e) => { setFilters((f) => ({ ...f, date_from: e.target.value })); setPage(1); }} className="input-field h-9 min-h-9 min-w-[8.75rem] shrink-0 py-1.5 text-sm" aria-label="From date" />
-              <input type="date" value={filters.date_to} onChange={(e) => { setFilters((f) => ({ ...f, date_to: e.target.value })); setPage(1); }} className="input-field h-9 min-h-9 min-w-[8.75rem] shrink-0 py-1.5 text-sm" aria-label="To date" />
+              <input type="date" value={filters.date_from} onChange={(e) => { setFilters((f) => ({ ...f, date_from: e.target.value })); setPage(1); }} className="input-field h-9 min-h-9 min-w-[7rem] flex-[1_1_7rem] max-w-[8.75rem] py-1.5 text-sm" aria-label="From date" />
+              <input type="date" value={filters.date_to} onChange={(e) => { setFilters((f) => ({ ...f, date_to: e.target.value })); setPage(1); }} className="input-field h-9 min-h-9 min-w-[7rem] flex-[1_1_7rem] max-w-[8.75rem] py-1.5 text-sm" aria-label="To date" />
             </>
           )}
         </div>
@@ -1206,7 +1224,7 @@ export default function SalesPage() {
         />
       </div>
 
-      <DataTable searchable={false} compact columns={salesColumns} data={sales} loading={loading} emptyMessage={t("no_data")} pagination={{ page, totalPages, total, onPageChange: setPage }} />
+      <DataTable searchable={false} compact columns={salesColumns} data={displaySales} loading={loading} emptyMessage={t("no_data")} pagination={{ page, totalPages, total, onPageChange: setPage }} />
 
       </>
       )}
@@ -1698,7 +1716,7 @@ export default function SalesPage() {
           })}
           <button onClick={() => setCorrectItems(ci => [...ci, emptySaleItem()])} className="text-xs text-primary-600 hover:underline">+ {t("add_item")}</button>
         </div>
-        <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("cancel_reason")} *</label><input value={correctReason} onChange={e => setCorrectReason(e.target.value)} className="input-field" /></div>
+        <div><label className="block text-sm font-medium text-gray-700 mb-1">Edit reason *</label><input value={correctReason} onChange={e => setCorrectReason(e.target.value)} className="input-field" /></div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
           <button onClick={handleCorrect} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("correct_sale")}</button>
         </div>

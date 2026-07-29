@@ -3,10 +3,12 @@ import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { hashPassword } from "@/lib/auth";
+import { updateCustomerSchema } from "@/lib/validations";
 import {
   formatCustomerLedgerPaymentDetail,
-  formatCustomerLedgerSaleDetail,
-  formatCustomerLedgerSaleRate,
+  formatCustomerLedgerSaleItemDetail,
+  formatCustomerLedgerSaleItemRate,
 } from "@/lib/customer-ledger-detail";
 
 export const GET = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
@@ -38,7 +40,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           isOpeningImport: false,
           ...(Object.keys(saleDateFilter).length ? { saleDate: saleDateFilter } : {}),
         },
-        include: { currency: true, items: { include: { product: true } }, lot: { select: { lotNumber: true } } },
+        include: { currency: true, items: { include: { product: true, lot: { select: { lotNumber: true } } } }, lot: { select: { lotNumber: true } } },
         orderBy: { saleDate: "asc" },
       }),
       prisma.payment.findMany({
@@ -67,19 +69,19 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         currencySymbol: o.currency.symbol || o.currency.code,
         lotNumber: "-",
       })),
-      ...sales.map((s) => ({
+      ...sales.flatMap((s) => (s.items || []).map((item) => ({
         type: "sale" as const,
         date: s.saleDate.toISOString().split("T")[0],
         voucherNo: s.voucherNo,
-        detail: formatCustomerLedgerSaleDetail(s.items || []),
-        perCartonPrice: formatCustomerLedgerSaleRate(s.items || []),
-        debit: ["active", "marked_short"].includes(s.status) ? Number(s.totalAmount) : 0,
+        detail: formatCustomerLedgerSaleItemDetail(item),
+        perCartonPrice: formatCustomerLedgerSaleItemRate(item),
+        debit: ["active", "marked_short"].includes(s.status) ? Number(item.amount) : 0,
         credit: 0,
         status: s.status,
         currency: s.currency.code,
         currencySymbol: s.currency.symbol || s.currency.code,
-        lotNumber: s.lot.lotNumber,
-      })),
+        lotNumber: item.lot?.lotNumber || s.lot.lotNumber,
+      }))),
       ...payments.map((p) => {
         const amount = p.status === "active" ? Number(p.amount) : 0;
         return {
@@ -117,6 +119,9 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
 
     return successResponse({
       id: customer.id, name: customer.name, phone: customer.phone, address: customer.address,
+      portalAccessEnabled: customer.portalAccessEnabled,
+      portalUsername: customer.portalUsername,
+      portalLastLoginAt: customer.portalLastLoginAt,
       isActive: customer.isActive, city: customer.city.name, country: customer.city.country.name, countryCode: customer.city.country.code,
       balance, balanceByCurrency, ledger: [...ledger].reverse(),
     });
@@ -129,17 +134,54 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
   try {
     const id = parseInt(context.params.id);
     const body = await request.json();
+    const parsed = updateCustomerSchema.safeParse(body);
+    if (!parsed.success) return errorResponse("VALIDATION_ERROR", "Invalid customer data", 400, parsed.error.errors);
+    const data = parsed.data;
     const customer = await prisma.customer.findUnique({ where: { id } });
     if (!customer) return errorResponse("NOT_FOUND", "Customer not found", 404);
     if (user.role === "city_admin" && customer.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
 
+    const nextPortalAccessEnabled = data.portalAccessEnabled !== undefined ? data.portalAccessEnabled : customer.portalAccessEnabled;
+    const nextPortalUsername = data.portalUsername !== undefined
+      ? data.portalUsername?.trim().toLowerCase() || null
+      : customer.portalUsername;
+    if (nextPortalAccessEnabled) {
+      if (!nextPortalUsername) return errorResponse("VALIDATION_ERROR", "Portal username is required");
+      if (!data.portalPassword && !customer.portalPasswordHash) {
+        return errorResponse("VALIDATION_ERROR", "Portal password is required when enabling portal access");
+      }
+      const duplicate = await prisma.customer.findFirst({
+        where: { portalUsername: nextPortalUsername, id: { not: id } },
+        select: { id: true },
+      });
+      if (duplicate) return errorResponse("CONFLICT", "Portal username already exists", 409);
+    }
+    const nextPortalPasswordHash = data.portalPassword
+      ? await hashPassword(data.portalPassword)
+      : customer.portalPasswordHash;
+
     const updated = await prisma.customer.update({
       where: { id },
-      data: { name: body.name || customer.name, phone: body.phone !== undefined ? body.phone : customer.phone, address: body.address !== undefined ? body.address : customer.address, isActive: body.isActive !== undefined ? body.isActive : customer.isActive, updatedAt: new Date() },
+      data: {
+        name: data.name || customer.name,
+        phone: data.phone !== undefined ? data.phone : customer.phone,
+        address: data.address !== undefined ? data.address : customer.address,
+        isActive: data.isActive !== undefined ? data.isActive : customer.isActive,
+        portalAccessEnabled: nextPortalAccessEnabled,
+        portalUsername: nextPortalAccessEnabled ? nextPortalUsername : null,
+        portalPasswordHash: nextPortalAccessEnabled ? nextPortalPasswordHash : null,
+        updatedAt: new Date(),
+      },
     });
 
     await createAuditLog(user.userId, customer.cityId, "customers", id, "update", { name: customer.name }, { name: updated.name }, getClientIP(request));
-    return successResponse({ id: updated.id, name: updated.name }, "Customer updated");
+    return successResponse({
+      id: updated.id,
+      name: updated.name,
+      portalAccessEnabled: updated.portalAccessEnabled,
+      portalUsername: updated.portalUsername,
+      portalLastLoginAt: updated.portalLastLoginAt,
+    }, "Customer updated");
   } catch (error) {
     return serverError();
   }

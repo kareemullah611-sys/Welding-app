@@ -486,6 +486,10 @@ model Customer {
   phone     String?  @db.VarChar(50)
   address   String?  @db.Text
   isActive  Boolean  @default(true) @map("is_active")
+  portalAccessEnabled Boolean @default(false) @map("portal_access_enabled")
+  portalUsername String? @map("portal_username") @db.VarChar(100)
+  portalPasswordHash String? @map("portal_password_hash") @db.VarChar(255)
+  portalLastLoginAt DateTime? @map("portal_last_login_at")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -496,6 +500,7 @@ model Customer {
 
   @@index([cityId])
   @@index([name])
+  @@index([portalAccessEnabled])
   @@map("customers")
 }
 

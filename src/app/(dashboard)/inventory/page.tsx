@@ -340,19 +340,6 @@ export default function InventoryPage() {
   useEffect(() => { loadInventory(); }, [loadInventory]);
   useEffect(() => { loadLots(); }, [loadLots]);
   useEffect(() => {
-    if (user?.role !== "city_admin") return;
-    const refresh = () => {
-      void loadInventory();
-      void loadLedger();
-    };
-    window.addEventListener("focus", refresh);
-    window.addEventListener("pageshow", refresh);
-    return () => {
-      window.removeEventListener("focus", refresh);
-      window.removeEventListener("pageshow", refresh);
-    };
-  }, [loadInventory, loadLedger, user?.role]);
-  useEffect(() => {
     setLedgerPage(1);
   }, [ledgerGodownId, ledgerProductId, ledgerDateFrom, ledgerDateTo]);
 
@@ -917,28 +904,44 @@ export default function InventoryPage() {
             <p className="text-xs text-gray-500">Receipts, issues, transfers, and sales by godown.</p>
           </div>
         </div>
-        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div>
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Godown</label>
-            <select value={ledgerGodownId} onChange={e => setLedgerGodownId(parseInt(e.target.value))} className="select-field text-sm">
-              <option value={0}>All Godowns</option>
-              {godownList.map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Product</label>
-            <select value={ledgerProductId} onChange={e => setLedgerProductId(parseInt(e.target.value))} className="select-field text-sm">
-              <option value={0}>All Products</option>
-              {productList.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">From</label>
-            <input type="date" value={ledgerDateFrom} onChange={e => setLedgerDateFrom(e.target.value)} className="input-field text-sm" />
-          </div>
-          <div>
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">To</label>
-            <input type="date" value={ledgerDateTo} onChange={e => setLedgerDateTo(e.target.value)} className="input-field text-sm" />
+        <div className="mb-4 rounded-xl border border-gray-200 bg-white/95 px-3 py-2 shadow-[0_14px_32px_-28px_rgba(15,23,42,0.35)]">
+          <div className="grid grid-cols-2 items-end gap-2 lg:grid-cols-[minmax(10rem,1fr)_minmax(10rem,1fr)_8rem_8rem]">
+            <div className="col-span-2 min-w-0 sm:col-span-1">
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Godown</label>
+              <select value={ledgerGodownId} onChange={e => setLedgerGodownId(parseInt(e.target.value))} className="select-field h-8 min-h-8 w-full py-1.5 text-sm">
+                <option value={0}>All Godowns</option>
+                {godownList.map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+            </div>
+            <div className="col-span-2 min-w-0 sm:col-span-1">
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Product</label>
+              <select value={ledgerProductId} onChange={e => setLedgerProductId(parseInt(e.target.value))} className="select-field h-8 min-h-8 w-full py-1.5 text-sm">
+                <option value={0}>All Products</option>
+                {productList.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            <div className="min-w-0">
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">From</label>
+              <MobileDateInput
+                variant="filter"
+                value={ledgerDateFrom}
+                onChange={setLedgerDateFrom}
+                placeholder="From"
+                aria-label="From"
+                className="h-8 w-full px-2 text-sm"
+              />
+            </div>
+            <div className="min-w-0">
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">To</label>
+              <MobileDateInput
+                variant="filter"
+                value={ledgerDateTo}
+                onChange={setLedgerDateTo}
+                placeholder="To"
+                aria-label="To"
+                className="h-8 w-full px-2 text-sm"
+              />
+            </div>
           </div>
         </div>
         {ledgerLoading ? (

@@ -97,7 +97,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     } catch (e) {}
 
     let sales: any[] = [], payments: any[] = [], expenses: any[] = [], hajiTransfers: any[] = [];
-    try { sales = await prisma.sale.findMany({ where: { lotId: id, status: { in: ["active", "marked_short"] } }, select: { id: true, voucherNo: true, totalAmount: true, saleDate: true, customer: { select: { name: true } }, items: { select: { qty: true, amount: true, product: { select: { id: true, name: true } } } } }, orderBy: { saleDate: "desc" }, take: 100 }); } catch (e) {}
+    try { sales = await prisma.sale.findMany({ where: { OR: [{ lotId: id }, { items: { some: { lotId: id } } }], status: { in: ["active", "marked_short"] } }, select: { id: true, voucherNo: true, totalAmount: true, saleDate: true, customer: { select: { name: true } }, items: { where: { lotId: id }, select: { lotId: true, qty: true, amount: true, product: { select: { id: true, name: true } } } } }, orderBy: { saleDate: "desc" }, take: 100 }); } catch (e) {}
     try { payments = await prisma.payment.findMany({ where: { lotId: id, status: "active" }, select: { id: true, amount: true, paymentDate: true, detail: true, customer: { select: { name: true } } }, orderBy: { paymentDate: "desc" }, take: 100 }); } catch (e) {}
     try { expenses = await prisma.expense.findMany({ where: { lotId: id, deletedAt: null }, select: { id: true, amount: true, detail: true, expenseDate: true, currency: { select: { code: true } } }, orderBy: { expenseDate: "desc" } }); } catch (e) {}
     try { hajiTransfers = await prisma.hajiTransfer.findMany({ where: { lotId: id }, select: { id: true, amount: true, detail: true, transferDate: true, transferType: true }, orderBy: { transferDate: "desc" } }); } catch (e) {}
@@ -181,7 +181,9 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       }),
     ]);
 
-    const totalSales = sales.reduce((s: number, x: any) => s + Number(x.totalAmount), 0);
+    const totalSales = sales.reduce((sum: number, sale: any) => (
+      sum + (sale.items || []).reduce((itemSum: number, item: any) => itemSum + Number(item.amount || 0), 0)
+    ), 0);
     const totalPayments = payments.reduce((s: number, x: any) => s + Number(x.amount), 0);
     const totalExpenses = expenses.reduce((s: number, x: any) => s + Number(x.amount), 0);
     const totalHaji = hajiTransfers.reduce((s: number, x: any) => s + Number(x.amount), 0);
@@ -405,7 +407,11 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       costLedger: ledgerBuilt.rows,
       stockSummary: { totalCartons, soldCartons, remainingCartons, byProduct: stockByProduct },
       summary: { totalSales, totalPayments, totalExpenses, totalHaji, outstanding: totalSales - totalPayments },
-      recentSales: sales.map((s: any) => ({ ...s, totalAmount: Number(s.totalAmount), saleDate: s.saleDate.toISOString().split("T")[0] })),
+      recentSales: sales.map((s: any) => ({
+        ...s,
+        totalAmount: (s.items || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0),
+        saleDate: s.saleDate.toISOString().split("T")[0],
+      })),
       recentPayments: payments.map((p: any) => ({ ...p, amount: Number(p.amount), paymentDate: p.paymentDate.toISOString().split("T")[0] })),
       expenses: expenses.map((e: any) => ({ ...e, amount: Number(e.amount), expenseDate: e.expenseDate.toISOString().split("T")[0] })),
       hajiTransfers: hajiTransfers.map((h: any) => ({ ...h, amount: Number(h.amount), transferDate: h.transferDate.toISOString().split("T")[0] })),

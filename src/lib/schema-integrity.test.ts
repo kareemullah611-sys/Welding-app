@@ -103,10 +103,10 @@ test("Haji openings stay historical and customer-to-Haji payments get linked tra
   assert.match(migration, /DELETE FROM "haji_transfers"\s+WHERE "detail" LIKE 'Opening Haji balance%'/);
   assert.match(migration, /INSERT INTO "haji_transfers"/);
   assert.match(migration, /p\."destination" = 'haji'/);
-  assert.match(paymentsRoute, /detail: linkedHajiTransferDetail\(createdPayment\)/);
+  assert.match(paymentsRoute, /detail: afghanistanSettlement\?\.transferredTo \|\| linkedHajiTransferDetail\(createdPayment\)/);
   assert.match(paymentsRoute, /referenceNo: createdPayment\.manualVoucherNo/);
   assert.match(paymentUpdateRoute, /const linkedHajiTransfer = await tx\.hajiTransfer\.findUnique/);
-  assert.match(paymentUpdateRoute, /if \(nextDestination === "haji"\)/);
+  assert.match(paymentUpdateRoute, /if \(nextDestination === "haji" \|\| afghanistanSettlement\)/);
   assert.match(paymentUpdateRoute, /referenceNo: nextManualVoucherNo/);
   assert.match(paymentUpdateRoute, /linkedHajiTransfer\s+\?\s+await tx\.hajiTransfer\.update/);
   assert.match(paymentUpdateRoute, /:\s+await tx\.hajiTransfer\.create/);
@@ -181,6 +181,19 @@ test("city sale modal shows compact latest sale summary after save", () => {
   assert.match(salesPage, /latestCreatedSale\.meta\.join\(" · "\)/);
 });
 
+test("city sales list expands multi-item sales into separate display rows", () => {
+  const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
+
+  assert.match(salesPage, /const displaySales = useMemo\(\(\) => \{/);
+  assert.match(salesPage, /return sales\.flatMap\(\(sale: any\) => \{/);
+  assert.match(salesPage, /items: \[item\]/);
+  assert.match(salesPage, /sourceSale: sale/);
+  assert.match(salesPage, /data=\{displaySales\}/);
+  assert.match(salesPage, /openCorrect\(s\.sourceSale \|\| s\)/);
+  assert.match(salesPage, /openDiscount\(s\.sourceSale \|\| s\)/);
+  assert.match(salesPage, /openCancel\(s\.sourceSale \|\| s\)/);
+});
+
 test("sale and payment creates send stable browser sync request ids", () => {
   const apiHook = readFileSync("src/hooks/useApi.ts", "utf8");
   const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
@@ -233,7 +246,9 @@ test("quickform and modal fields show focus highlight on every edge", () => {
   assert.match(focusRule, /\.quickform-embed \.input-field:focus/);
   assert.match(focusRule, /\.modal-sheet-body \.input-field:focus/);
   assert.match(focusRule, /\[data-radix-dialog-content\] \.select-field:focus/);
-  assert.match(focusRule, /box-shadow: inset 0 0 0 2px #6b0f1a/);
+  assert.match(focusRule, /border-color: #6b0f1a/);
+  assert.match(focusRule, /outline: 2px solid #6b0f1a/);
+  assert.match(focusRule, /outline-offset: -2px/);
 });
 
 test("payment create replays sync request before side-effect validation", () => {
@@ -294,7 +309,12 @@ test("city sales support per-item lot selection and locked completed sale item l
   assert.match(salesPage, /setCorrectGodownId\(saleGodownId\)/);
   assert.match(salesPage, /setCorrectSaleDate\(sale\.saleDate \|\| ""\)/);
   assert.match(salesPage, /value=\{correctSaleDate\}/);
+  assert.match(salesPage, /Edit reason \*/);
+  assert.doesNotMatch(salesPage.slice(salesPage.indexOf("CORRECT SALE ITEMS MODAL"), salesPage.indexOf("HARD DELETE 2FA MODAL")), /\{t\("cancel_reason"\)\}/);
   assert.match(salesPage, /body: \{ saleDate: correctSaleDate, godownId: correctGodownId, items: expandedItems, reason: correctReason \}/);
+  assert.match(saleCorrectRoute, /const nextSaleLotId = Number\(newItemData\[0\]\?\.lotId \|\| sale\.lotId \|\| 0\)/);
+  assert.match(saleCorrectRoute, /lotId: nextSaleLotId/);
+  assert.match(saleCorrectRoute, /journalSaleCreated\(\{[\s\S]*lotId: nextSaleLotId/);
   assert.match(salesPage, /lotOptionsForItem = \(item: any, includeOwnCorrectQty = false\)/);
   assert.match(salesPage, /filter\(\(lot: any\) => Number\(lot\.available \|\| 0\) \+ \(includeOwnCorrectQty \? ownCorrectItemQty\(item, Number\(lot\.lotId\)\) : 0\) > 0\)/);
   assert.match(salesPage, /\.\.\.\(field === "productId" \? \{ lotId: 0, remainingLotId: 0 \} : \{\}\)/);
@@ -328,6 +348,7 @@ test("city sales auto lot selection expands sale items across FIFO lot availabil
 
 test("city lot detail sold metrics use real sale item lot ids", () => {
   const cityLotAssignment = readFileSync("src/lib/city-lot-assignment.ts", "utf8");
+  const lotDetailRoute = readFileSync("src/app/api/v1/lots/[id]/route.ts", "utf8");
   const getMetricsStart = cityLotAssignment.indexOf("export async function getCitySoldMetrics");
   const getMetricsEnd = cityLotAssignment.indexOf("export async function buildCityLotAssignmentDetail", getMetricsStart);
   const getMetricsBlock = cityLotAssignment.slice(getMetricsStart, getMetricsEnd);
@@ -336,6 +357,10 @@ test("city lot detail sold metrics use real sale item lot ids", () => {
   assert.match(cityLotAssignment, /import \{ aggregateLotSalesMetrics, aggregateSingleLotSalesMetrics, fetchLotSalesForMetrics \}/);
   assert.match(getMetricsBlock, /aggregateLotSalesMetrics\(sales\)\.get\(lotId\)/);
   assert.doesNotMatch(getMetricsBlock, /aggregateSingleLotSalesMetrics\(sales\)/);
+  assert.match(lotDetailRoute, /OR: \[\{ lotId: id \}, \{ items: \{ some: \{ lotId: id \} \} \}\]/);
+  assert.match(lotDetailRoute, /items: \{ where: \{ lotId: id \}/);
+  assert.match(lotDetailRoute, /totalSales = sales\.reduce\(\(sum: number, sale: any\) => \(/);
+  assert.match(lotDetailRoute, /totalAmount: \(s\.items \|\| \[\]\)\.reduce/);
 });
 
 test("city date filters default to all dates", () => {
@@ -350,22 +375,63 @@ test("city date filters default to all dates", () => {
   assert.match(paymentsPage, /const \[dateRangePreset, setDateRangePreset\] = useState<"today" \| "last7" \| "month" \| "all" \| "custom">\("all"\)/);
 });
 
+test("sales custom date filters fit without forced horizontal scrolling", () => {
+  const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
+  const fromDateInput = salesPage.slice(salesPage.indexOf('aria-label="From date"') - 220, salesPage.indexOf('aria-label="From date"') + 60);
+  const toDateInput = salesPage.slice(salesPage.indexOf('aria-label="To date"') - 220, salesPage.indexOf('aria-label="To date"') + 60);
+
+  assert.match(salesPage, /dateRangePreset === "custom" \? "flex-wrap overflow-visible"/);
+  assert.match(fromDateInput, /flex-\[1_1_7rem\]/);
+  assert.match(toDateInput, /flex-\[1_1_7rem\]/);
+  assert.doesNotMatch(fromDateInput, /shrink-0/);
+  assert.doesNotMatch(toDateInput, /shrink-0/);
+});
+
 test("customer ledger sale details stay complete with at-rate display across table and PDF", () => {
   const customerRoute = readFileSync("src/app/api/v1/customers/[id]/route.ts", "utf8");
   const exportRoute = readFileSync("src/app/api/v1/reports/export/route.ts", "utf8");
   const customersPage = readFileSync("src/app/(dashboard)/customers/page.tsx", "utf8");
   const ledgerExport = readFileSync("src/lib/ledger-export.ts", "utf8");
 
-  assert.match(customerRoute, /formatCustomerLedgerSaleDetail/);
-  assert.match(customerRoute, /formatCustomerLedgerSaleRate/);
-  assert.match(exportRoute, /formatCustomerLedgerSaleDetail/);
-  assert.match(exportRoute, /formatCustomerLedgerSaleRate/);
+  assert.match(customerRoute, /formatCustomerLedgerSaleItemDetail/);
+  assert.match(customerRoute, /formatCustomerLedgerSaleItemRate/);
+  assert.match(customerRoute, /\.\.\.sales\.flatMap\(\(s\) => \(s\.items \|\| \[\]\)\.map\(\(item\) =>/);
+  assert.match(customerRoute, /debit: \["active", "marked_short"\]\.includes\(s\.status\) \? Number\(item\.amount\) : 0/);
+  assert.match(exportRoute, /formatCustomerLedgerSaleItemDetail/);
+  assert.match(exportRoute, /formatCustomerLedgerSaleItemRate/);
+  assert.match(exportRoute, /\.\.\.sales\.flatMap\(\(s\) => \(s\.items \|\| \[\]\)\.map\(\(item\) =>/);
+  assert.match(exportRoute, /debit: s\.status === "active" \? Number\(item\.amount\) : 0/);
   assert.match(customersPage, /function compactCustomerLedgerDetail\(entry/);
   assert.doesNotMatch(customersPage, /slice\(0,\s*40\)/);
   assert.match(customersPage, /whitespace-normal/);
   assert.match(customersPage, /break-words/);
   assert.match(ledgerExport, /overflow-wrap: anywhere/);
   assert.match(ledgerExport, /white-space: normal/);
+});
+
+test("customer ledger filters stay compact in city modal", () => {
+  const customersPage = readFileSync("src/app/(dashboard)/customers/page.tsx", "utf8");
+  const filterPanel = customersPage.slice(customersPage.indexOf("Search entries…") - 500, customersPage.indexOf("<GlassButton", customersPage.indexOf("Search entries…")) + 500);
+
+  assert.match(filterPanel, /grid grid-cols-2 items-end gap-2/);
+  assert.match(filterPanel, /sm:grid-cols-\[minmax\(10rem,1fr\)_7rem_7\.5rem_7\.5rem_auto\]/);
+  assert.match(filterPanel, /h-8 min-h-8 w-full py-1\.5 text-sm/);
+  assert.match(filterPanel, /className="h-8 w-full px-2 text-sm"/);
+  assert.match(filterPanel, /className="col-span-2 h-8 px-3 text-sm sm:col-span-1"/);
+  assert.doesNotMatch(filterPanel, /flex flex-col gap-3/);
+});
+
+test("city inventory avoids focus auto-refresh and keeps stock movement filters compact", () => {
+  const inventoryPage = readFileSync("src/app/(dashboard)/inventory/page.tsx", "utf8");
+  const movementFilters = inventoryPage.slice(inventoryPage.indexOf("Stock Movements"), inventoryPage.indexOf("{ledgerLoading", inventoryPage.indexOf("Stock Movements")));
+
+  assert.doesNotMatch(inventoryPage, /addEventListener\("focus"/);
+  assert.doesNotMatch(inventoryPage, /addEventListener\("pageshow"/);
+  assert.doesNotMatch(movementFilters, />\s*Refresh\s*</);
+  assert.match(movementFilters, /grid grid-cols-2 items-end gap-2/);
+  assert.match(movementFilters, /lg:grid-cols-\[minmax\(10rem,1fr\)_minmax\(10rem,1fr\)_8rem_8rem\]/);
+  assert.match(movementFilters, /h-8 min-h-8 w-full py-1\.5 text-sm/);
+  assert.match(movementFilters, /MobileDateInput/);
 });
 
 test("payment modal haji quickform matches standalone haji creation flow", () => {
@@ -383,7 +449,7 @@ test("payment modal haji quickform matches standalone haji creation flow", () =>
   assert.match(paymentsPage, /formatCurrencySelectLabel/);
   assert.match(paymentsPage, /\{t\("lot"\)\}[\s\S]*\{t\("notes"\)\}/);
   assert.doesNotMatch(paymentsPage, /\{t\("lot"\)\}[\s\S]{0,700}\{!isEmbed && \(/);
-  assert.match(hajiQuickform![0], /\{isAfghanistanCity && \([\s\S]*\{t\("detail"\)\} \*/);
+  assert.match(paymentsPage, /const hajiDetail = isAfghanistanCity[\s\S]*String\(form\.detail \|\| ""\)\.trim\(\)/);
 });
 
 test("payment modal haji edit keeps source and date fields aligned", () => {
@@ -444,6 +510,32 @@ test("receive payment amount appears after method and account fields", () => {
   const editAmount = paymentsPage.indexOf('{t("amount")} *', editMethod);
   assert.ok(editMethod > editStart, "edit payment method fields should exist");
   assert.ok(editAmount > editMethod, "edit payment amount should appear after method fields");
+});
+
+test("afghanistan receive payment uses target selector instead of manual detail", () => {
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+  const createRoute = readFileSync("src/app/api/v1/payments/route.ts", "utf8");
+  const updateRoute = readFileSync("src/app/api/v1/payments/[id]/route.ts", "utf8");
+  const combinedRoute = readFileSync("src/app/api/v1/finance/combined/route.ts", "utf8");
+
+  assert.match(paymentsPage, /renderAfghanistanPaymentMethodSelect/);
+  assert.match(paymentsPage, /<option value="cash">Cash<\/option>/);
+  assert.match(paymentsPage, /<optgroup label="Intermediaries">/);
+  assert.match(paymentsPage, /<optgroup label="Superadmin cash pots">/);
+  assert.match(paymentsPage, /buildAfghanistanPaymentPayload/);
+  assert.match(paymentsPage, /formatAfghanistanCityPaymentDetail/);
+  assert.match(paymentsPage, /const linkedHajiTransfer = raw\.hajiTransferPayment \|\| null/);
+  assert.match(paymentsPage, /createType !== "haji_transfer" && !\(createType === "payment" && isAfghanistanCity\)/);
+
+  assert.match(createRoute, /resolveAfghanistanSettlement/);
+  assert.match(createRoute, /destination = "our_account"/);
+  assert.match(createRoute, /createdPayment\.destination === "haji" \|\| afghanistanSettlement/);
+  assert.match(updateRoute, /existingLinkedHajiTransfer/);
+  assert.match(updateRoute, /nextDestination = "our_account"/);
+  assert.match(updateRoute, /nextDestination === "haji" \|\| afghanistanSettlement/);
+  assert.match(updateRoute, /hajiTransfer\.delete/);
+  assert.match(combinedRoute, /hajiTransferPayment: \{/);
+  assert.match(combinedRoute, /\? p\.detail/);
 });
 
 test("payments date range defaults to all dates", () => {
@@ -541,6 +633,22 @@ test("dashboard bank balance only counts movements tied to city bank accounts", 
   assert.match(treasuryLedger, /where: \{ cityId, paidFrom: "bank_account", bankAccountId: \{ not: null \}, deletedAt: null \}/);
 });
 
+test("dashboard cheque balance only counts active in-hand payment cheques", () => {
+  const treasuryRoute = readFileSync("src/app/api/v1/treasury/route.ts", "utf8");
+  const cashPositionRoute = readFileSync("src/app/api/v1/cash-position/route.ts", "utf8");
+  const chequesInHandBlock = treasuryRoute.match(/const chequesInHandRaw = await prisma\.payment\.groupBy\(\{[\s\S]*?\n    \}\);/);
+  assert.ok(chequesInHandBlock, "treasury cheques in hand block should exist");
+
+  assert.match(chequesInHandBlock![0], /paymentMethod: "cheque"/);
+  assert.match(chequesInHandBlock![0], /destination: "our_account"/);
+  assert.match(chequesInHandBlock![0], /status: "active"/);
+  assert.match(chequesInHandBlock![0], /chequeStatus: "in_hand"/);
+  assert.doesNotMatch(treasuryRoute, /openingChequesRaw/);
+  assert.doesNotMatch(treasuryRoute, /\[\.\.\.chequesInHandRaw,\s*\.\.\.openingChequesRaw\]/);
+  assert.match(cashPositionRoute, /paymentMethod: "cheque", chequeStatus: "in_hand" as any/);
+  assert.doesNotMatch(cashPositionRoute, /openingChequeTotal/);
+});
+
 test("dashboard cash in office customer receipts show customer and cash received", () => {
   const cashLedgerRoute = readFileSync("src/app/api/v1/treasury/cash-ledger/route.ts", "utf8");
   const cashPaymentBlock = cashLedgerRoute.slice(cashLedgerRoute.indexOf("prisma.payment.findMany"), cashLedgerRoute.indexOf("prisma.hajiTransfer.findMany"));
@@ -607,6 +715,43 @@ test("customer ledger supports transaction type filtering", () => {
   assert.match(exportRoute, /searchParams\.get\("ledger_type"\)/);
   assert.match(ledgerExport, /ledgerType\?: string/);
   assert.match(ledgerExport, /searchParams\.ledger_type = params\.ledgerType/);
+});
+
+test("customer portal access is isolated from admin auth and ledger scoped", () => {
+  const schema = readFileSync("prisma/schema.prisma", "utf8");
+  const customerModel = modelBlock("Customer");
+  const customerRoute = readFileSync("src/app/api/v1/customers/route.ts", "utf8");
+  const customerUpdateRoute = readFileSync("src/app/api/v1/customers/[id]/route.ts", "utf8");
+  const portalAuth = readFileSync("src/lib/customer-portal-auth.ts", "utf8");
+  const portalLogin = readFileSync("src/app/api/v1/customer-portal/login/route.ts", "utf8");
+  const portalLedger = readFileSync("src/app/api/v1/customer-portal/ledger/route.ts", "utf8");
+  const customersPage = readFileSync("src/app/(dashboard)/customers/page.tsx", "utf8");
+  const migration = readFileSync("prisma/migrations/20260729100000_customer_portal_access/migration.sql", "utf8");
+
+  assert.match(customerModel, /portalAccessEnabled\s+Boolean\s+@default\(false\)/);
+  assert.match(customerModel, /portalUsername\s+String\?/);
+  assert.match(customerModel, /portalPasswordHash\s+String\?/);
+  assert.match(migration, /portal_access_enabled/);
+  assert.match(migration, /portal_username/);
+  assert.match(migration, /WHERE "portal_username" IS NOT NULL/);
+  assert.doesNotMatch(schema, /role:\s+"customer"/);
+
+  assert.match(portalAuth, /CUSTOMER_PORTAL_COOKIE = "customer_portal_token"/);
+  assert.match(portalAuth, /type: "customer_portal"/);
+  assert.match(portalAuth, /portalAccessEnabled: true/);
+  assert.match(portalLogin, /comparePassword/);
+  assert.match(portalLogin, /setCustomerPortalCookie/);
+  assert.match(portalLedger, /getCustomerPortalCustomer/);
+  assert.match(portalLedger, /customerId: customer\.id/);
+  assert.doesNotMatch(portalLedger, /context\.params\.id/);
+
+  assert.match(customerRoute, /hashPassword\(portalPassword\)/);
+  assert.match(customerUpdateRoute, /hashPassword\(data\.portalPassword\)/);
+  assert.match(customersPage, /Portal Access/);
+  assert.match(customersPage, /portalAccessEnabled/);
+  assert.match(customersPage, /Portal Username \*/);
+  assert.match(customersPage, /Portal Password \*/);
+  assert.match(customersPage, /credentials are not stored offline/);
 });
 
 test("GLM critical audit fixes remain wired", () => {

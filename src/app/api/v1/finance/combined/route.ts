@@ -117,9 +117,20 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         include: {
           customer: { select: { id: true, name: true } },
           currency: { select: { id: true, code: true, symbol: true } },
-          city: { select: { id: true, name: true } },
+          city: { select: { id: true, name: true, country: { select: { name: true } } } },
           bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
           superAdminBankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+          hajiTransferPayment: {
+            select: {
+              id: true,
+              settlementDestination: true,
+              intermediaryId: true,
+              superAdminCashAccountId: true,
+              transferredTo: true,
+              detail: true,
+              referenceNo: true,
+            },
+          },
         },
         orderBy: [{ paymentDate: "desc" }, { id: "desc" }],
       } as any);
@@ -129,7 +140,9 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           id: p.id,
           type: "payment",
           date: p.paymentDate.toISOString().split("T")[0],
-          detail: isSuperAdminHajiView && p.destination === "haji"
+          detail: (p as any).city?.country?.name === "Afghanistan"
+            ? p.detail
+            : isSuperAdminHajiView && p.destination === "haji"
             ? formatSuperAdminPaymentDetail({
                 paymentMethod: p.paymentMethod,
                 superAdminBankAccount: (p as any).superAdminBankAccount,

@@ -18,8 +18,8 @@ import {
 } from "@/lib/report-export-helpers";
 import {
   formatCustomerLedgerPaymentDetail,
-  formatCustomerLedgerSaleDetail,
-  formatCustomerLedgerSaleRate,
+  formatCustomerLedgerSaleItemDetail,
+  formatCustomerLedgerSaleItemRate,
 } from "@/lib/customer-ledger-detail";
 
 const fmtAmount = (value: number | string) => {
@@ -258,7 +258,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       const [sales, payments] = await Promise.all([
         prisma.sale.findMany({
           where: { customerId, ...(saleDate ? { saleDate } : {}) },
-          include: { currency: true, items: { include: { product: true } }, lot: { select: { lotNumber: true } } },
+          include: { currency: true, items: { include: { product: true, lot: { select: { lotNumber: true } } } }, lot: { select: { lotNumber: true } } },
           orderBy: { saleDate: "asc" },
         }),
         prisma.payment.findMany({
@@ -269,19 +269,19 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       ]);
 
       let transactions = [
-        ...sales.map((s) => ({
+        ...sales.flatMap((s) => (s.items || []).map((item) => ({
           type: "sale",
           date: s.saleDate,
           voucherNo: s.voucherNo,
-          detail: formatCustomerLedgerSaleDetail(s.items || []),
-          perCartonPrice: formatCustomerLedgerSaleRate(s.items || []),
-          debit: s.status === "active" ? Number(s.totalAmount) : 0,
+          detail: formatCustomerLedgerSaleItemDetail(item),
+          perCartonPrice: formatCustomerLedgerSaleItemRate(item),
+          debit: s.status === "active" ? Number(item.amount) : 0,
           credit: 0,
           status: s.status,
           currency: s.currency.code,
           currencySymbol: s.currency.symbol || s.currency.code,
-          lotNumber: s.lot?.lotNumber || "",
-        })),
+          lotNumber: item.lot?.lotNumber || s.lot?.lotNumber || "",
+        }))),
         ...payments.map((p) => ({
           type: "payment",
           date: p.paymentDate,

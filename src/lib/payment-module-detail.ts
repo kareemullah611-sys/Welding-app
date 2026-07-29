@@ -157,6 +157,18 @@ export function formatPaymentModuleDetail(payment: {
   return ref ? `${core} (${ref})` : core;
 }
 
+export function formatAfghanistanCityPaymentDetail(input: {
+  customerName?: string | null;
+  targetName?: string | null;
+  manualVoucherNo?: string | null;
+}): string {
+  const targetName = String(input.targetName || "").trim();
+  const customerName = String(input.customerName || "Customer").trim() || "Customer";
+  const ref = String(input.manualVoucherNo || "").trim();
+  const core = targetName || `cash-${customerName}`;
+  return ref ? `${core} Ref ${ref}` : core;
+}
+
 /** Super-admin haji payments list: meezan (4002)-bank transfer */
 export function formatSuperAdminPaymentDetail(payment: {
   paymentMethod?: string | null;

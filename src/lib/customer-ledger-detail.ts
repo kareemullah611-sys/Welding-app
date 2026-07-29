@@ -53,6 +53,10 @@ export function formatCustomerLedgerSaleDetail(items: CustomerLedgerSaleItem[]):
     .join(", ");
 }
 
+export function formatCustomerLedgerSaleItemDetail(item: CustomerLedgerSaleItem): string {
+  return formatCustomerLedgerSaleDetail([item]);
+}
+
 export function formatCustomerLedgerSaleRate(items: CustomerLedgerSaleItem[]): string {
   const rates = items
     .map(saleItemRate)
@@ -62,4 +66,8 @@ export function formatCustomerLedgerSaleRate(items: CustomerLedgerSaleItem[]): s
   const uniqueRates = Array.from(new Set(rates)).sort((a, b) => a - b);
   if (uniqueRates.length === 1) return `@ ${formatSaleNumber(uniqueRates[0])}`;
   return `@ ${formatSaleNumber(uniqueRates[0])} - ${formatSaleNumber(uniqueRates[uniqueRates.length - 1])}`;
+}
+
+export function formatCustomerLedgerSaleItemRate(item: CustomerLedgerSaleItem): string {
+  return formatCustomerLedgerSaleRate([item]);
 }

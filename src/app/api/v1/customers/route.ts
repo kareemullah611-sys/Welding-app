@@ -7,6 +7,7 @@ import {
   getPaginationParams,
 } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { hashPassword } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 
 const CUSTOMER_SYNC_MODULE = "customers.create";
@@ -108,6 +109,9 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         return {
           id: c.id, cityId: c.cityId, cityName: c.city.name,
           name: c.name, phone: c.phone, address: c.address, isActive: c.isActive,
+          portalAccessEnabled: c.portalAccessEnabled,
+          portalUsername: c.portalUsername,
+          portalLastLoginAt: c.portalLastLoginAt,
           balanceByCurrency,
           balance: Math.round(Object.values(raw).reduce((s, v) => s + v, 0) * 100) / 100,
         };
@@ -129,7 +133,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     // Fix C6: activate the Zod schema.
     const parsed = createCustomerSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid customer data", parsed.error.errors);
-    const { name, phone, address } = parsed.data;
+    const { name, phone, address, portalAccessEnabled, portalUsername, portalPassword } = parsed.data;
 
     // Fix C6: validate cityId type explicitly.
     let cityId: number | null = null;
@@ -164,14 +168,37 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           return successResponse({
             id: existingCustomer.id, cityId: existingCustomer.cityId, cityName: existingCustomer.city.name,
             name: existingCustomer.name, phone: existingCustomer.phone, address: existingCustomer.address, isActive: existingCustomer.isActive,
+            portalAccessEnabled: existingCustomer.portalAccessEnabled,
+            portalUsername: existingCustomer.portalUsername,
+            portalLastLoginAt: existingCustomer.portalLastLoginAt,
           }, "Customer already synced");
         }
       }
     }
 
+    const normalizedPortalUsername = portalUsername?.trim().toLowerCase() || null;
+    if (portalAccessEnabled) {
+      if (!normalizedPortalUsername || !portalPassword) {
+        return validationError("Portal username and password are required when portal access is enabled");
+      }
+      const existingPortalUser = await prisma.customer.findFirst({ where: { portalUsername: normalizedPortalUsername } });
+      if (existingPortalUser) return errorResponse("CONFLICT", "Portal username already exists", 409);
+    }
+    const portalPasswordHash = portalAccessEnabled && portalPassword
+      ? await hashPassword(portalPassword)
+      : null;
+
     const customer = await prisma.$transaction(async (tx) => {
       const createdCustomer = await tx.customer.create({
-        data: { cityId, name: name.trim(), phone: phone || null, address: address || null },
+        data: {
+          cityId,
+          name: name.trim(),
+          phone: phone || null,
+          address: address || null,
+          portalAccessEnabled: Boolean(portalAccessEnabled),
+          portalUsername: portalAccessEnabled ? normalizedPortalUsername : null,
+          portalPasswordHash,
+        },
         include: { city: { select: { id: true, name: true } } },
       });
 
@@ -198,6 +225,9 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     return successResponse({
       id: customer.id, cityId: customer.cityId, cityName: customer.city.name,
       name: customer.name, phone: customer.phone, address: customer.address, isActive: customer.isActive,
+      portalAccessEnabled: customer.portalAccessEnabled,
+      portalUsername: customer.portalUsername,
+      portalLastLoginAt: customer.portalLastLoginAt,
     }, "Customer created successfully", 201);
   } catch (error: any) {
     const syncMeta = getSyncRequestMeta(request);
@@ -221,6 +251,9 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           return successResponse({
             id: existingCustomer.id, cityId: existingCustomer.cityId, cityName: existingCustomer.city.name,
             name: existingCustomer.name, phone: existingCustomer.phone, address: existingCustomer.address, isActive: existingCustomer.isActive,
+            portalAccessEnabled: existingCustomer.portalAccessEnabled,
+            portalUsername: existingCustomer.portalUsername,
+            portalLastLoginAt: existingCustomer.portalLastLoginAt,
           }, "Customer already synced");
         }
       }

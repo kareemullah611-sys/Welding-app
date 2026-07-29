@@ -104,7 +104,15 @@ export default function CustomersPage() {
   const [ledgerSearchQuery, setLedgerSearchQuery] = useState("");
   const [ledgerTypeFilter, setLedgerTypeFilter] = useState("all");
   const [ledgerLoading, setLedgerLoading] = useState(false);
-  const [form, setForm] = useState({ name: "", phone: "", address: "", cityId: 0 });
+  const [form, setForm] = useState({
+    name: "",
+    phone: "",
+    address: "",
+    cityId: 0,
+    portalAccessEnabled: false,
+    portalUsername: "",
+    portalPassword: "",
+  });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [showHardDelete, setShowHardDelete] = useState(false);
@@ -213,12 +221,16 @@ export default function CustomersPage() {
   }, [openActionId]);
 
   const openCreate = (preset?: Partial<typeof form>) => {
-    setForm({ name: "", phone: "", address: "", cityId: user?.cityId || 0, ...preset });
+    setForm({ name: "", phone: "", address: "", cityId: user?.cityId || 0, portalAccessEnabled: false, portalUsername: "", portalPassword: "", ...preset });
     setShowCreate(true);
     setFormError("");
   };
   const handleCreate = async () => {
     if (!form.name.trim()) { setFormError("Name required"); return; }
+    if (!isOnline && (form.portalAccessEnabled || form.portalPassword || form.portalUsername)) {
+      setFormError("Portal access settings require internet so credentials are not stored offline.");
+      return;
+    }
     const payload = { ...form, name: form.name.trim() };
 
     if (resolvingQueueId) {
@@ -285,8 +297,12 @@ export default function CustomersPage() {
     if (result.success) { setShowCreate(false); setResolvingQueueId(null); if (isEmbed) closeEmbed(); load(); } else { setFormError(result.error || "Failed"); }
   };
 
-  const openEdit = (c: any) => { setSelected(c); setForm({ name: c.name, phone: c.phone || "", address: c.address || "", cityId: c.cityId }); setShowEdit(true); setFormError(""); };
+  const openEdit = (c: any) => { setSelected(c); setForm({ name: c.name, phone: c.phone || "", address: c.address || "", cityId: c.cityId, portalAccessEnabled: Boolean(c.portalAccessEnabled), portalUsername: c.portalUsername || "", portalPassword: "" }); setShowEdit(true); setFormError(""); };
   const handleEdit = async () => {
+    if (!isOnline && (form.portalAccessEnabled !== Boolean(selected?.portalAccessEnabled) || form.portalUsername !== (selected?.portalUsername || "") || form.portalPassword)) {
+      setFormError("Portal access settings require internet so credentials are not stored offline.");
+      return;
+    }
     if (selected?._pending && selected?._queueId) {
       const updatedForm = { ...form, name: form.name.trim() };
       const ok = await updateQueuedItem(selected._queueId, {
@@ -338,6 +354,55 @@ export default function CustomersPage() {
     setSubmitting(false);
     if (result.success) { setShowEdit(false); load(); } else { setFormError(result.error || "Failed"); }
   };
+
+  const renderPortalAccessFields = (isEdit = false) => (
+    <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">Portal Access</p>
+          <p className="text-xs text-slate-500">Allow this customer to login to the customer portal.</p>
+        </div>
+        <label className="inline-flex cursor-pointer items-center">
+          <input
+            type="checkbox"
+            className="sr-only"
+            checked={form.portalAccessEnabled}
+            onChange={(e) => setForm((f) => ({ ...f, portalAccessEnabled: e.target.checked }))}
+          />
+          <span className={`relative h-7 w-12 rounded-full transition-colors ${form.portalAccessEnabled ? "bg-primary-600" : "bg-slate-300"}`}>
+            <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-transform ${form.portalAccessEnabled ? "translate-x-6" : "translate-x-1"}`} />
+          </span>
+        </label>
+      </div>
+      {form.portalAccessEnabled && (
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Portal Username *</label>
+            <input
+              value={form.portalUsername}
+              onChange={(e) => setForm((f) => ({ ...f, portalUsername: e.target.value }))}
+              className="input-field"
+              placeholder="e.g. adil_customer"
+              autoCapitalize="none"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{isEdit ? "New Portal Password" : "Portal Password *"}</label>
+            <input
+              type="password"
+              value={form.portalPassword}
+              onChange={(e) => setForm((f) => ({ ...f, portalPassword: e.target.value }))}
+              className="input-field"
+              placeholder={isEdit ? "Leave blank to keep current" : "Minimum 8 characters"}
+            />
+          </div>
+        </div>
+      )}
+      {isEdit && selected?.portalLastLoginAt && (
+        <p className="mt-2 text-xs text-slate-500">Last login: {formatDate(String(selected.portalLastLoginAt).slice(0, 10))}</p>
+      )}
+    </div>
+  );
 
   const handleDelete = async (c: any) => {
     if (!confirm(`${c.name}: ${t("confirm_deactivate_customer")}`)) return;
@@ -618,6 +683,7 @@ export default function CustomersPage() {
         <div className="space-y-3">
           <div><label className="block mb-1">{t("name")} *</label><input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="input-field" placeholder="Customer name" autoFocus /></div>
           <div><label className="block mb-1">{t("phone")}</label><input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} className="input-field" placeholder="Phone (optional)" /></div>
+          {renderPortalAccessFields(false)}
         </div>
         <div className={isEmbed ? "quickform-footer" : "flex justify-end gap-3 pt-4 mt-4 border-t"}>
           <button onClick={handleCreate} disabled={submitting} className={isEmbed ? "glass-btn glass-btn-primary w-full min-h-11 disabled:opacity-60" : "btn-primary text-sm"}>
@@ -633,6 +699,7 @@ export default function CustomersPage() {
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("name")} *</label><input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="input-field" /></div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("phone")}</label><input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} className="input-field" /></div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("address")}</label><input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} className="input-field" /></div>
+          {renderPortalAccessFields(true)}
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={handleEdit} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button></div>
       </Modal>
@@ -694,19 +761,19 @@ export default function CustomersPage() {
             />
           </div>
 
-          <div className="rounded-xl border border-[#ececee] bg-white px-4 py-3">
-            <div className="flex flex-col gap-3 md:flex-row md:items-end md:gap-2">
-              <div className="min-w-0 flex-1">
+          <div className="rounded-xl border border-[#ececee] bg-white/95 px-3 py-2">
+            <div className="grid grid-cols-2 items-end gap-2 sm:grid-cols-[minmax(10rem,1fr)_7rem_7.5rem_7.5rem_auto]">
+              <div className="col-span-2 min-w-0 sm:col-span-1">
                 <label className={LEDGER_FIELD_LABEL}>Search</label>
                 <input
                   type="text"
                   value={ledgerSearchQuery}
                   onChange={(e) => setLedgerSearchQuery(e.target.value)}
                   placeholder="Search entries…"
-                  className="input-field h-9 w-full text-sm"
+                  className="input-field h-8 min-h-8 w-full py-1.5 text-sm"
                 />
               </div>
-              <div className="shrink-0">
+              <div className="min-w-0">
                 <label className={LEDGER_FIELD_LABEL}>Type</label>
                 <select
                   value={ledgerTypeFilter}
@@ -721,7 +788,7 @@ export default function CustomersPage() {
                       });
                     }
                   }}
-                  className="select-field h-9 w-full text-sm sm:w-[9rem]"
+                  className="select-field h-8 min-h-8 w-full py-1.5 text-sm"
                 >
                   <option value="all">All</option>
                   <option value="sale">Sale</option>
@@ -729,7 +796,7 @@ export default function CustomersPage() {
                   <option value="opening">Opening</option>
                 </select>
               </div>
-              <div className="shrink-0">
+              <div className="min-w-0">
                 <label className={LEDGER_FIELD_LABEL}>{t("from")}</label>
                 <MobileDateInput
                   variant="filter"
@@ -737,10 +804,10 @@ export default function CustomersPage() {
                   onChange={setLedgerDateFrom}
                   placeholder={t("from")}
                   aria-label={t("from")}
-                  className="w-full sm:w-[9rem]"
+                  className="h-8 w-full px-2 text-sm"
                 />
               </div>
-              <div className="shrink-0">
+              <div className="min-w-0">
                 <label className={LEDGER_FIELD_LABEL}>{t("to")}</label>
                 <MobileDateInput
                   variant="filter"
@@ -748,14 +815,14 @@ export default function CustomersPage() {
                   onChange={setLedgerDateTo}
                   placeholder={t("to")}
                   aria-label={t("to")}
-                  className="w-full sm:w-[9rem]"
+                  className="h-8 w-full px-2 text-sm"
                 />
               </div>
               <GlassButton
                 type="button"
                 onClick={applyLedgerDateFilter}
                 disabled={ledgerLoading || !selected}
-                className="h-9 shrink-0 px-4 text-sm md:self-end"
+                className="col-span-2 h-8 px-3 text-sm sm:col-span-1"
               >
                 <Play className="h-4 w-4" strokeWidth={2} />
                 {ledgerLoading ? t("loading") : t("generate")}
