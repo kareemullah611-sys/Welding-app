@@ -15,6 +15,7 @@ import { resolveAfghanistanSettlement, type ResolvedAfghanistanSettlement } from
 import { formatAfghanistanCityPaymentDetail } from "@/lib/payment-module-detail";
 
 const PAYMENT_SYNC_MODULE = "payments.create";
+const PAYMENT_CREATE_TRANSACTION_OPTIONS = { maxWait: 15_000, timeout: 30_000 };
 
 function linkedHajiTransferDetail(payment: any) {
   const accountLabel = payment.superAdminBankAccount
@@ -453,7 +454,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       }
 
       return createdPayment;
-    });
+    }, PAYMENT_CREATE_TRANSACTION_OPTIONS);
 
     const responsePayData = formatPaymentCreateResponse(payment, exchangeRate ?? null, usdEquivalent ?? null);
 
