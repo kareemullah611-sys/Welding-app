@@ -15,6 +15,7 @@ type Props = {
   required?: boolean;
   /** City for the new customer — defaults to city admin scope or selected context city */
   cityId?: number | null;
+  showWalkInShortcut?: boolean;
 };
 
 export default function CustomerFieldWithNew({
@@ -24,6 +25,7 @@ export default function CustomerFieldWithNew({
   label,
   required = true,
   cityId: cityIdProp,
+  showWalkInShortcut = true,
 }: Props) {
   const { user } = useAuth();
   const { isOnline, enqueue } = useOffline();
@@ -178,6 +180,7 @@ export default function CustomerFieldWithNew({
         onChange={handleCustomerChange}
         selectedLabel={selectedLabel}
         placeholder={placeholder ?? t("search_customer")}
+        showWalkInShortcut={showWalkInShortcut}
       />
     </div>
   );

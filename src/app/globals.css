@@ -1199,7 +1199,8 @@ input[type="number"] { -moz-appearance: textfield; }
 
 .quickform-embed .quickform-footer {
   @apply sticky bottom-0 z-10 -mx-4 mt-3 border-t border-[#eadfce] bg-[#fff8ef] px-4 py-3 shadow-[0_-16px_28px_-24px_rgba(51,42,33,0.35)] sm:-mx-6 sm:px-6;
-  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  overflow: hidden;
+  padding-bottom: max(1.25rem, calc(env(safe-area-inset-bottom) + 1rem));
 }
 
 .quickform-embed .btn-primary,

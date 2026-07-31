@@ -11,9 +11,10 @@ interface Props {
   className?: string;
   /** When parent sets value programmatically (e.g. after quick-create) */
   selectedLabel?: string;
+  showWalkInShortcut?: boolean;
 }
 
-export default function CustomerSearch({ value, onChange, placeholder = "Search customer…", className = "", selectedLabel }: Props) {
+export default function CustomerSearch({ value, onChange, placeholder = "Search customer…", className = "", selectedLabel, showWalkInShortcut = true }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
@@ -71,9 +72,9 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
     if (r.success) {
       const list = r.data as any[];
       setResults(list);
-      setActiveIndex(list.length > 0 ? 1 : 0);
+      setActiveIndex(showWalkInShortcut && list.length > 0 ? 1 : 0);
     }
-  }, []);
+  }, [showWalkInShortcut]);
 
   const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const q = e.target.value;
@@ -94,7 +95,7 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
   };
 
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    const optionsCount = 1 + results.length; // walk-in + search results
+    const optionsCount = (showWalkInShortcut ? 1 : 0) + results.length;
     const hasSelection = value !== 0;
     const dropdownOpen = open && (focused || value === 0 || query.length > 0);
 
@@ -136,12 +137,14 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
 
     if (e.key === "ArrowDown") {
       e.preventDefault();
+      if (optionsCount === 0) return;
       setOpen(true);
       setActiveIndex((prev) => (prev + 1 + optionsCount) % optionsCount);
       return;
     }
     if (e.key === "ArrowUp") {
       e.preventDefault();
+      if (optionsCount === 0) return;
       setOpen(true);
       setActiveIndex((prev) => (prev - 1 + optionsCount) % optionsCount);
       return;
@@ -154,10 +157,10 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
         setActiveIndex(0);
         return;
       }
-      if (activeIndex <= 0) {
+      if (showWalkInShortcut && activeIndex <= 0) {
         selectWalkin();
       } else {
-        const picked = results[activeIndex - 1];
+        const picked = results[showWalkInShortcut ? activeIndex - 1 : activeIndex];
         if (picked) select(picked);
       }
       return;
@@ -249,15 +252,17 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
 
       {showDropdown && (
         <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-52 overflow-y-auto">
-          <button
-            type="button"
-            ref={(node) => { optionRefs.current[0] = node; }}
-            onMouseDown={(e) => { e.preventDefault(); selectWalkin(); }}
-            className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 border-b border-gray-100 ${activeIndex === 0 ? "bg-orange-100 ring-1 ring-inset ring-orange-300" : "hover:bg-orange-50"}`}
-          >
-            <span className="text-orange-500">🚶</span>
-            <span className="font-medium text-orange-700">{WALKIN_NAME}</span>
-          </button>
+          {showWalkInShortcut && (
+            <button
+              type="button"
+              ref={(node) => { optionRefs.current[0] = node; }}
+              onMouseDown={(e) => { e.preventDefault(); selectWalkin(); }}
+              className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 border-b border-gray-100 ${activeIndex === 0 ? "bg-orange-100 ring-1 ring-inset ring-orange-300" : "hover:bg-orange-50"}`}
+            >
+              <span className="text-orange-500">🚶</span>
+              <span className="font-medium text-orange-700">{WALKIN_NAME}</span>
+            </button>
+          )}
           {loading && <div className="px-3 py-2 text-sm text-gray-400">Searching…</div>}
           {!loading && query && results.length === 0 && (
             <div className="px-3 py-2 text-sm text-gray-400">No customers found</div>
@@ -271,9 +276,9 @@ export default function CustomerSearch({ value, onChange, placeholder = "Search 
             <button
               key={c.id}
               type="button"
-              ref={(node) => { optionRefs.current[idx + 1] = node; }}
+              ref={(node) => { optionRefs.current[showWalkInShortcut ? idx + 1 : idx] = node; }}
               onMouseDown={(e) => { e.preventDefault(); select(c); }}
-              className={`w-full text-left px-3 py-2 text-sm flex flex-col ${activeIndex === idx + 1 ? "bg-primary-100 ring-1 ring-inset ring-primary-300" : "hover:bg-primary-50"}`}
+              className={`w-full text-left px-3 py-2 text-sm flex flex-col ${activeIndex === (showWalkInShortcut ? idx + 1 : idx) ? "bg-primary-100 ring-1 ring-inset ring-primary-300" : "hover:bg-primary-50"}`}
             >
               <span className="font-medium text-gray-800">{c.name}</span>
               {c.phone && <span className="text-xs text-gray-400">{c.phone}</span>}

@@ -2132,6 +2132,7 @@ export default function PaymentsPage() {
                 onChange={(id, name) => setForm((f: any) => ({ ...f, customerId: id, customerName: name }))}
                 placeholder={t("search_customer")}
                 label={t("customer")}
+                showWalkInShortcut={false}
                 cityId={user?.cityId ?? undefined}
               />
 
@@ -2354,6 +2355,7 @@ export default function PaymentsPage() {
               value={form.customerId || 0}
               onChange={(id, name) => setForm((f: any) => ({ ...f, customerId: id, customerName: name }))}
               placeholder={t("search_customer")}
+              showWalkInShortcut={false}
               cityId={user?.cityId ?? undefined}
             />
           )}
@@ -2942,6 +2944,7 @@ export default function PaymentsPage() {
                 value={form.customerId || 0}
                 onChange={(id, name) => setForm((f: any) => ({ ...f, customerId: id, customerName: name }))}
                 placeholder={t("search_customer")}
+                showWalkInShortcut={false}
                 cityId={user?.cityId ?? undefined}
               />
 

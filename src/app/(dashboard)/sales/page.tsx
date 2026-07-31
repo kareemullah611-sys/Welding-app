@@ -1287,6 +1287,7 @@ export default function SalesPage() {
             onChange={(id, name) => { setSelectedCustomerName(name); setForm((f) => ({ ...f, customerId: id })); }}
             placeholder={t("search_customer")}
             label={t("customer")}
+            showWalkInShortcut={false}
             cityId={
               form.godownId > 0
                 ? godowns.find((g: any) => g.id === form.godownId)?.cityId
@@ -1422,6 +1423,7 @@ export default function SalesPage() {
               value={form.customerId}
               onChange={(id, name) => { setSelectedCustomerName(name); setForm((f) => ({ ...f, customerId: id })); }}
               placeholder={t("search_customer")}
+              showWalkInShortcut={false}
               cityId={
                 form.godownId > 0
                   ? godowns.find((g: any) => g.id === form.godownId)?.cityId

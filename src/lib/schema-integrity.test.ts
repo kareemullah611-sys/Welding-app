@@ -233,10 +233,25 @@ test("sticky quickform and modal footers hide scrolled fields beneath actions", 
 
   assert.match(quickformFooter, /sticky bottom-0/);
   assert.match(quickformFooter, /bg-\[#fff8ef\]/);
+  assert.match(quickformFooter, /overflow: hidden/);
+  assert.match(quickformFooter, /calc\(env\(safe-area-inset-bottom\) \+ 1rem\)/);
   assert.doesNotMatch(quickformFooter, /bg-\[rgba/);
   assert.match(modalActionsFooter, /sticky bottom-0/);
   assert.match(modalActionsFooter, /bg-white/);
   assert.doesNotMatch(modalActionsFooter, /bg-\[rgba/);
+});
+
+test("city sale and payment customer search does not auto-show walk-in shortcut", () => {
+  const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+  const customerField = readFileSync("src/components/CustomerFieldWithNew.tsx", "utf8");
+  const customerSearch = readFileSync("src/components/CustomerSearch.tsx", "utf8");
+
+  assert.match(customerSearch, /showWalkInShortcut = true/);
+  assert.match(customerSearch, /\{showWalkInShortcut && \(/);
+  assert.match(customerField, /showWalkInShortcut=\{showWalkInShortcut\}/);
+  assert.match(salesPage, /showWalkInShortcut=\{false\}/);
+  assert.match(paymentsPage, /showWalkInShortcut=\{false\}/);
 });
 
 test("quickform and modal fields show focus highlight on every edge", () => {
