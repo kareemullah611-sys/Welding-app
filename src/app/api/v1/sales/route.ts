@@ -12,6 +12,7 @@ import { JWTPayload } from "@/lib/auth";
 import { canAccessGodown } from "@/lib/godown-access";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 import { allocateSaleItemAcrossLots, AvailableSaleLot, SaleLotAllocationItem } from "@/lib/sale-lot-allocation";
+import { createApiTiming } from "@/lib/api-timing";
 
 const SALE_SYNC_MODULE = "sales.create";
 
@@ -146,6 +147,8 @@ function formatSaleCreateResponse(
 
 // GET /api/v1/sales - List sales
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
+  const timing = createApiTiming("sales.GET", { role: user.role, cityId: user.cityId ?? null });
+  let timingStatus: "ok" | "error" = "ok";
   try {
     const searchParams = request.nextUrl.searchParams;
     const { page, limit, skip } = getPaginationParams(searchParams);
@@ -244,6 +247,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         }),
         prisma.sale.count({ where: baseWhere }),
       ]);
+      timing.mark("sale.findMany+count", { path: "paginated", rows: sales.length, total });
       return paginatedResponse(sales.map(formatSale), total, page, limit);
     }
 
@@ -261,6 +265,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       },
       orderBy: [{ saleDate: "desc" }, { id: "desc" }],
     });
+    timing.mark("sale.search-candidates", { rows: candidates.length });
 
     const includesQuery = (value: unknown) => String(value ?? "").toLowerCase().includes(normalizedQuery);
     const digitsOnly = (value: unknown) => String(value ?? "").replace(/[^\d]/g, "");
@@ -298,15 +303,21 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     const total = filtered.length;
     const pageItems = filtered.slice(skip, skip + limit);
+    timing.mark("sale.search-filter", { matched: total, rows: pageItems.length });
     return paginatedResponse(pageItems.map(formatSale), total, page, limit);
   } catch (error) {
+    timingStatus = "error";
     console.error("List sales error:", error);
     return serverError();
+  } finally {
+    timing.end(timingStatus);
   }
 });
 
 // POST /api/v1/sales - Create sale
 export const POST = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
+  const timing = createApiTiming("sales.POST", { role: user.role, cityId: user.cityId ?? null });
+  let timingStatus: "ok" | "error" = "ok";
   try {
     if (user.role !== "city_admin") {
       return errorResponse("FORBIDDEN", "Only city admins can create sales", 403);
@@ -347,10 +358,12 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         }
       }
     }
+    timing.mark("sync-replay-check", { hasSyncMeta: Boolean(syncMeta) });
 
     const body = await request.json();
     const parsed = createSaleSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid sale data", parsed.error.errors);
+    timing.mark("parse+validate");
 
     const { godownId, saleDate, currencyId, notes, items } = parsed.data;
     let { customerId } = parsed.data;
@@ -368,6 +381,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       where: { id: customerId, cityId, isActive: true },
     });
     if (!customer) return errorResponse("NOT_FOUND", "Customer not found in your city");
+    timing.mark("customer-validation");
 
     // Validate godown is active and in the same country
     const godown = await prisma.godown.findFirst({
@@ -389,6 +403,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     });
     if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported in your city");
     const resolvedCurrencyId = currencyId ?? cityCurrency.currencyId;
+    timing.mark("godown+currency-validation", { crossCity: isCrossCity });
 
     // Validate products exist
     const productIds: number[] = Array.from(new Set<number>(items.map((i) => i.productId)));
@@ -398,6 +413,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     if (products.length !== productIds.length) {
       return errorResponse("NOT_FOUND", "One or more products not found or inactive");
     }
+    timing.mark("product-validation", { items: items.length, products: products.length });
 
     const productById = new Map(products.map((p) => [p.id, p]));
     const requestedItems: SaleLotAllocationItem[] = [];
@@ -449,6 +465,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         return errorResponse("VALIDATION_ERROR", `${product.name}: lot allocation exceeds available stock`);
       }
     }
+    timing.mark("lot-allocation", { requestedItems: requestedItems.length, normalizedItems: normalizedItems.length });
 
     if (!normalizedItems.length) return errorResponse("VALIDATION_ERROR", "Lot is required for each product");
     const itemLotIds: number[] = Array.from(new Set<number>(normalizedItems.map((i) => Number(i.lotId || 0))));
@@ -467,6 +484,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
     // Calculate total using integer-rounded arithmetic to avoid floating-point errors
     const totalAmount = roundMoney(normalizedItems.reduce((sum, i) => sum + Number(i.amount || 0), 0));
+    timing.mark("lot-validation", { lotCount: itemLotIds.length });
 
     const sale = await prisma.$transaction(async (tx) => {
       const productIdsToLock: number[] = Array.from(new Set<number>(normalizedItems.map((item) => item.productId)));
@@ -610,11 +628,14 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
       return createdSale;
     });
+    timing.mark("transaction", { normalizedItems: normalizedItems.length });
 
     const responseData = formatSaleCreateResponse(sale, isCrossCity, godown.city.name);
+    timing.mark("response-format");
 
     return successResponse(responseData, "Sale created successfully", 201);
   } catch (error) {
+    timingStatus = "error";
     if (error instanceof Error && error.message.startsWith("STOCK_SHORT:")) {
       return errorResponse("VALIDATION_ERROR", error.message.replace("STOCK_SHORT:", ""));
     }
@@ -654,5 +675,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     }
     console.error("Create sale error:", error);
     return serverError();
+  } finally {
+    timing.end(timingStatus);
   }
 });
