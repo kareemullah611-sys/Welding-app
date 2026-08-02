@@ -44,3 +44,8 @@ export async function getSaCheckAuditStateMap(entityType: SaCheckEntityType, ent
 
   return saCheckAuditStateMapFromLogs(logs);
 }
+
+export async function isSaCheckConfirmed(entityType: SaCheckEntityType, entityId: number): Promise<boolean> {
+  const stateById = await getSaCheckAuditStateMap(entityType, [entityId]);
+  return !!stateById[entityId]?.confirmed;
+}

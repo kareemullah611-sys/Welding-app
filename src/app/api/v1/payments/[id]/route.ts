@@ -5,7 +5,7 @@ import { successResponse, errorResponse, serverError } from "@/lib/api-response"
 import { JWTPayload } from "@/lib/auth";
 import { reverseJournalEntries, journalPaymentReceived, journalChequeReceived, journalHajiTransfer } from "@/lib/accounting";
 import { getPaymentHajiAuditStateMap, isHajiAuditEligible } from "@/lib/payment-audit";
-import { getSaCheckAuditStateMap } from "@/lib/sa-check-audit";
+import { getSaCheckAuditStateMap, isSaCheckConfirmed } from "@/lib/sa-check-audit";
 import { paymentActionSchema, updatePaymentSchema } from "@/lib/validations";
 import { formatSuperAdminBankLabel } from "@/lib/haji-transfer-detail";
 import { resolveAfghanistanSettlement, type ResolvedAfghanistanSettlement } from "@/lib/afghanistan-haji-settlement";
@@ -231,6 +231,10 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     if (!payment) return errorResponse("NOT_FOUND", "Payment not found", 404);
     if (payment.status !== "active") return errorResponse("VALIDATION_ERROR", "Cannot edit cancelled payment");
     if (user.role === "city_admin" && payment.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
+    const hajiAuditStateById = await getPaymentHajiAuditStateMap([payment.id]);
+    if (hajiAuditStateById[payment.id]?.confirmed || await isSaCheckConfirmed("payments", payment.id)) {
+      return errorResponse("FORBIDDEN", "Cannot edit a payment after super admin verification", 403);
+    }
 
     const nextCustomerId = data.customerId ?? payment.customerId;
     const nextCurrencyId = data.currencyId ?? payment.currencyId;

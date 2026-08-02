@@ -5,7 +5,7 @@ import { successResponse, errorResponse, serverError } from "@/lib/api-response"
 import { reverseJournalEntries, journalExpenseCreated } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { updateExpenseSchema } from "@/lib/validations";
-import { getSaCheckAuditStateMap } from "@/lib/sa-check-audit";
+import { getSaCheckAuditStateMap, isSaCheckConfirmed } from "@/lib/sa-check-audit";
 
 export const GET = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -84,6 +84,9 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     const expense = await prisma.expense.findUnique({ where: { id }, include: { currency: true } });
     if (!expense || expense.deletedAt !== null) return errorResponse("NOT_FOUND", "Expense not found", 404);
     if (user.role === "city_admin" && expense.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
+    if (await isSaCheckConfirmed("expenses", expense.id)) {
+      return errorResponse("FORBIDDEN", "Cannot edit an expense after super admin verification", 403);
+    }
 
     const nextPaidFrom = data.paidFrom ?? ((expense as any).paidFrom ?? "cash_office");
     const nextBankAccountId = nextPaidFrom === "bank_account"

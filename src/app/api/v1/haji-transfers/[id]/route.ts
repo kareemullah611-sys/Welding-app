@@ -14,7 +14,7 @@ import {
   resolvePakistanDestinationAccount,
   transferredToLabelForPakistanDestination,
 } from "@/lib/pakistan-haji-destination";
-import { getSaCheckAuditStateMap } from "@/lib/sa-check-audit";
+import { getSaCheckAuditStateMap, isSaCheckConfirmed } from "@/lib/sa-check-audit";
 
 function journalInputFromTransfer(transfer: any, createdBy: number) {
   return {
@@ -125,7 +125,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       }, confirmed ? "Settlement audit confirmed" : "Settlement audit unconfirmed");
     }
 
-    if (await isHajiTransferAuditConfirmed(id)) {
+    if (await isHajiTransferAuditConfirmed(id) || await isSaCheckConfirmed("haji_transfers", id)) {
       return errorResponse("FORBIDDEN", "Cannot edit a settlement after audit confirmation", 403);
     }
 

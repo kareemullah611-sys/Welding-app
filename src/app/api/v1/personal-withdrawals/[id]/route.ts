@@ -5,7 +5,7 @@ import { successResponse, errorResponse, serverError } from "@/lib/api-response"
 import { reverseJournalEntries } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { updateWithdrawalSchema } from "@/lib/validations";
-import { getSaCheckAuditStateMap } from "@/lib/sa-check-audit";
+import { getSaCheckAuditStateMap, isSaCheckConfirmed } from "@/lib/sa-check-audit";
 
 export const PATCH = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -67,6 +67,9 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     });
     if (!w) return errorResponse("NOT_FOUND", "Not found", 404);
     if (user.role === "city_admin" && w.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
+    if (await isSaCheckConfirmed("personal_withdrawals", w.id)) {
+      return errorResponse("FORBIDDEN", "Cannot edit a withdrawal after super admin verification", 403);
+    }
     // Fix C8: refuse to edit an approved withdrawal.
     if (w.approvedAt) {
       return errorResponse(

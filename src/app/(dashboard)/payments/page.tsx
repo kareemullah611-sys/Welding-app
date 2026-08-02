@@ -1542,6 +1542,26 @@ export default function PaymentsPage() {
     if (!url) return;
     const method = saCheckMethod(item);
     const action = isHajiAuditPayment(item) ? "set_haji_audit" : "set_sa_check";
+    const applySaCheckState = (pending: boolean) => {
+      setItems((prev) => {
+        const next = prev.map((row: any) =>
+          row.id === item.id && row.type === item.type
+            ? {
+                ...row,
+                _pending: pending ? true : row._pending,
+                raw: {
+                  ...(row.raw || {}),
+                  ...(action === "set_haji_audit"
+                    ? { hajiAudit: { ...(row.raw?.hajiAudit || {}), confirmed } }
+                    : { saCheck: { ...(row.raw?.saCheck || {}), confirmed } }),
+                },
+              }
+            : row
+        );
+        persistPaymentsSnapshot(next);
+        return next;
+      });
+    };
     if (!isOnline) {
       if (getPendingQueueId(item?.id)) {
         setError("Sync this pending entry first, then update verification.");
@@ -1560,31 +1580,14 @@ export default function PaymentsPage() {
           entityDetail: `${item.detail || "Payment"} — ${confirmed ? "verified" : "unverified"}`,
         },
       });
-      setItems((prev) => {
-        const next = prev.map((row: any) =>
-          row.id === item.id && row.type === item.type
-            ? {
-                ...row,
-                _pending: true,
-                raw: {
-                  ...(row.raw || {}),
-                  ...(action === "set_haji_audit"
-                    ? { hajiAudit: { ...(row.raw?.hajiAudit || {}), confirmed } }
-                    : { saCheck: { ...(row.raw?.saCheck || {}), confirmed } }),
-                },
-              }
-            : row
-        );
-        persistPaymentsSnapshot(next);
-        return next;
-      });
+      applySaCheckState(true);
       return;
     }
     const r = await apiCall(url, {
       method,
       body: { action, confirmed },
     });
-    if (r.success) load();
+    if (r.success) applySaCheckState(false);
     else setError(r.error || "Failed to update verification");
   };
 
@@ -1890,7 +1893,8 @@ export default function PaymentsPage() {
         const canEdit =
           ["payment", "expense", "haji_transfer", "withdrawal"].includes(item.type) &&
           !(item.type === "payment" && item.status === "cancelled") &&
-          !(item.type === "withdrawal" && item.status === "approved");
+          !(item.type === "withdrawal" && item.status === "approved") &&
+          !isSaChecked(item);
         return (
           <RowActionMenu
             open={openActionId === actionKey}
