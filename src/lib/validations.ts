@@ -236,6 +236,10 @@ export const paymentActionSchema = z.discriminatedUnion("action", [
     confirmed: z.boolean().optional().default(false),
   }),
   z.object({
+    action: z.literal("set_sa_check"),
+    confirmed: z.boolean().optional().default(false),
+  }),
+  z.object({
     action: z.literal("bounce_cheque"),
   }),
 ]);

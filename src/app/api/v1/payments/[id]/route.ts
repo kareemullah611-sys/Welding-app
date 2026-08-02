@@ -5,6 +5,7 @@ import { successResponse, errorResponse, serverError } from "@/lib/api-response"
 import { JWTPayload } from "@/lib/auth";
 import { reverseJournalEntries, journalPaymentReceived, journalChequeReceived, journalHajiTransfer } from "@/lib/accounting";
 import { getPaymentHajiAuditStateMap, isHajiAuditEligible } from "@/lib/payment-audit";
+import { getSaCheckAuditStateMap } from "@/lib/sa-check-audit";
 import { paymentActionSchema, updatePaymentSchema } from "@/lib/validations";
 import { formatSuperAdminBankLabel } from "@/lib/haji-transfer-detail";
 import { resolveAfghanistanSettlement, type ResolvedAfghanistanSettlement } from "@/lib/afghanistan-haji-settlement";
@@ -118,6 +119,48 @@ export const PATCH = withAuth(async (request: NextRequest, context: any, user: J
         confirmedAt: new Date().toISOString(),
         confirmedBy: { id: user.userId, fullName: user.username, username: user.username },
       }, confirmed ? "Haji payment confirmed" : "Haji payment confirmation removed");
+    }
+
+    if (actionBody.action === "set_sa_check") {
+      const payment = await prisma.payment.findUnique({ where: { id } });
+      if (!payment) return errorResponse("NOT_FOUND", "Payment not found", 404);
+      if (user.role !== "super_admin") return errorResponse("FORBIDDEN", "Only super admin can verify payments", 403);
+      if (payment.status !== "active") return errorResponse("VALIDATION_ERROR", "Only active payments can be verified");
+
+      const confirmed = actionBody.confirmed;
+      const stateById = await getSaCheckAuditStateMap("payments", [payment.id]);
+      const current = stateById[payment.id] || null;
+      if ((current?.confirmed || false) === confirmed) {
+        return successResponse({
+          confirmed,
+          confirmedAt: current?.confirmedAt || null,
+          confirmedBy: current?.confirmedBy || null,
+        }, confirmed ? "Payment was already verified" : "Payment was already unverified");
+      }
+
+      await createAuditLog(
+        user.userId,
+        payment.cityId,
+        "payments",
+        payment.id,
+        "update",
+        {
+          saCheckConfirmed: current?.confirmed || false,
+          saCheckConfirmedAt: current?.confirmedAt || null,
+          saCheckConfirmedBy: current?.confirmedBy?.fullName || current?.confirmedBy?.username || null,
+        },
+        {
+          saCheckConfirmed: confirmed,
+          saCheckNote: confirmed ? "Super admin verified payment" : "Super admin removed payment verification",
+        },
+        getClientIP(request)
+      );
+
+      return successResponse({
+        confirmed,
+        confirmedAt: new Date().toISOString(),
+        confirmedBy: { id: user.userId, fullName: user.username, username: user.username },
+      }, confirmed ? "Payment verified" : "Payment verification removed");
     }
 
     if (actionBody.action === "bounce_cheque") {

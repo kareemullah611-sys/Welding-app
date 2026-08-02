@@ -14,6 +14,7 @@ import {
   resolvePakistanDestinationAccount,
   transferredToLabelForPakistanDestination,
 } from "@/lib/pakistan-haji-destination";
+import { getSaCheckAuditStateMap } from "@/lib/sa-check-audit";
 
 function journalInputFromTransfer(transfer: any, createdBy: number) {
   return {
@@ -49,6 +50,41 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     const isAfghanistan = h.city.country?.name === "Afghanistan";
     const isPakistan = h.city.country?.name === "Pakistan";
     const auditEligible = isAfghanistanHajiSettlementEligible(h);
+
+    if (body.action === "set_sa_check") {
+      if (user.role !== "super_admin") {
+        return errorResponse("FORBIDDEN", "Only super admin can verify Haji transfers", 403);
+      }
+
+      const confirmed = !!body.confirmed;
+      const auditMap = await getSaCheckAuditStateMap("haji_transfers", [id]);
+      const current = auditMap[id];
+      await createAuditLog(
+        user.userId,
+        h.cityId,
+        "haji_transfers",
+        id,
+        "update",
+        {
+          saCheckConfirmed: current?.confirmed || false,
+          saCheckConfirmedAt: current?.confirmedAt || null,
+          saCheckConfirmedBy: current?.confirmedBy?.fullName || current?.confirmedBy?.username || null,
+        },
+        {
+          saCheckConfirmed: confirmed,
+          saCheckNote: confirmed ? "Super admin verified Haji transfer" : "Super admin removed Haji transfer verification",
+        },
+        getClientIP(request)
+      );
+      return successResponse({
+        id,
+        saCheck: {
+          confirmed,
+          confirmedAt: new Date().toISOString(),
+          confirmedBy: { id: user.userId, fullName: user.username, username: user.username },
+        },
+      }, confirmed ? "Haji transfer verified" : "Haji transfer verification removed");
+    }
 
     if (body.action === "set_haji_audit") {
       if (user.role !== "super_admin") {

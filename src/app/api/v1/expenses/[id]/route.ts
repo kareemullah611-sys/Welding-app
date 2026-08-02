@@ -5,6 +5,7 @@ import { successResponse, errorResponse, serverError } from "@/lib/api-response"
 import { reverseJournalEntries, journalExpenseCreated } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { updateExpenseSchema } from "@/lib/validations";
+import { getSaCheckAuditStateMap } from "@/lib/sa-check-audit";
 
 export const GET = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -23,6 +24,53 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       chequePaymentId: (expense as any).chequePaymentId ?? null,
       lotNumber: expense.lot.lotNumber, currency: expense.currency.code,
     });
+  } catch (error) { return serverError(); }
+});
+
+export const PATCH = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
+  try {
+    const id = parseInt(context.params.id);
+    const body = await request.json();
+    if (body?.action !== "set_sa_check") return errorResponse("VALIDATION_ERROR", "Invalid expense action", 400);
+
+    const expense = await prisma.expense.findUnique({ where: { id } });
+    if (!expense || expense.deletedAt !== null) return errorResponse("NOT_FOUND", "Expense not found", 404);
+    if (user.role !== "super_admin") return errorResponse("FORBIDDEN", "Only super admin can verify expenses", 403);
+
+    const confirmed = !!body.confirmed;
+    const stateById = await getSaCheckAuditStateMap("expenses", [expense.id]);
+    const current = stateById[expense.id] || null;
+    if ((current?.confirmed || false) === confirmed) {
+      return successResponse({
+        confirmed,
+        confirmedAt: current?.confirmedAt || null,
+        confirmedBy: current?.confirmedBy || null,
+      }, confirmed ? "Expense was already verified" : "Expense was already unverified");
+    }
+
+    await createAuditLog(
+      user.userId,
+      expense.cityId,
+      "expenses",
+      expense.id,
+      "update",
+      {
+        saCheckConfirmed: current?.confirmed || false,
+        saCheckConfirmedAt: current?.confirmedAt || null,
+        saCheckConfirmedBy: current?.confirmedBy?.fullName || current?.confirmedBy?.username || null,
+      },
+      {
+        saCheckConfirmed: confirmed,
+        saCheckNote: confirmed ? "Super admin verified expense" : "Super admin removed expense verification",
+      },
+      getClientIP(request)
+    );
+
+    return successResponse({
+      confirmed,
+      confirmedAt: new Date().toISOString(),
+      confirmedBy: { id: user.userId, fullName: user.username, username: user.username },
+    }, confirmed ? "Expense verified" : "Expense verification removed");
   } catch (error) { return serverError(); }
 });
 

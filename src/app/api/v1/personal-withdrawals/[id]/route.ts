@@ -5,6 +5,54 @@ import { successResponse, errorResponse, serverError } from "@/lib/api-response"
 import { reverseJournalEntries } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { updateWithdrawalSchema } from "@/lib/validations";
+import { getSaCheckAuditStateMap } from "@/lib/sa-check-audit";
+
+export const PATCH = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
+  try {
+    const id = parseInt(context.params.id);
+    const body = await request.json();
+    if (body?.action !== "set_sa_check") return errorResponse("VALIDATION_ERROR", "Invalid withdrawal action", 400);
+
+    const withdrawal = await prisma.personalWithdrawal.findUnique({ where: { id } });
+    if (!withdrawal) return errorResponse("NOT_FOUND", "Not found", 404);
+    if (user.role !== "super_admin") return errorResponse("FORBIDDEN", "Only super admin can verify withdrawals", 403);
+
+    const confirmed = !!body.confirmed;
+    const stateById = await getSaCheckAuditStateMap("personal_withdrawals", [withdrawal.id]);
+    const current = stateById[withdrawal.id] || null;
+    if ((current?.confirmed || false) === confirmed) {
+      return successResponse({
+        confirmed,
+        confirmedAt: current?.confirmedAt || null,
+        confirmedBy: current?.confirmedBy || null,
+      }, confirmed ? "Withdrawal was already verified" : "Withdrawal was already unverified");
+    }
+
+    await createAuditLog(
+      user.userId,
+      withdrawal.cityId,
+      "personal_withdrawals",
+      withdrawal.id,
+      "update",
+      {
+        saCheckConfirmed: current?.confirmed || false,
+        saCheckConfirmedAt: current?.confirmedAt || null,
+        saCheckConfirmedBy: current?.confirmedBy?.fullName || current?.confirmedBy?.username || null,
+      },
+      {
+        saCheckConfirmed: confirmed,
+        saCheckNote: confirmed ? "Super admin verified withdrawal" : "Super admin removed withdrawal verification",
+      },
+      getClientIP(request)
+    );
+
+    return successResponse({
+      confirmed,
+      confirmedAt: new Date().toISOString(),
+      confirmedBy: { id: user.userId, fullName: user.username, username: user.username },
+    }, confirmed ? "Withdrawal verified" : "Withdrawal verification removed");
+  } catch (error) { return serverError(); }
+});
 
 export const PUT = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {

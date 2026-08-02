@@ -1513,34 +1513,64 @@ export default function PaymentsPage() {
     else { setError(r.error || "Failed to mark cheque as bounced"); }
   };
 
-  const handleToggleHajiAudit = async (item: any, confirmed: boolean) => {
+  const isHajiAuditPayment = (item: any) => (
+    item.type === "payment"
+    && item.status === "active"
+    && item.raw?.destination === "haji"
+    && ["cash", "bank_transfer", "online"].includes(item.raw?.paymentMethod)
+  );
+
+  const canSaCheck = (item: any) => (
+    ["payment", "haji_transfer", "expense", "withdrawal"].includes(item.type)
+    && !(item.type === "payment" && item.status !== "active")
+  );
+
+  const isSaChecked = (item: any) => !!(item.raw?.hajiAudit?.confirmed || item.raw?.saCheck?.confirmed);
+
+  const saCheckEndpoint = (item: any) => {
+    if (item.type === "payment") return `/api/v1/payments/${item.id}`;
+    if (item.type === "haji_transfer") return `/api/v1/haji-transfers/${item.id}`;
+    if (item.type === "expense") return `/api/v1/expenses/${item.id}`;
+    if (item.type === "withdrawal") return `/api/v1/personal-withdrawals/${item.id}`;
+    return "";
+  };
+
+  const saCheckMethod = (item: any) => item.type === "haji_transfer" ? "PUT" : "PATCH";
+
+  const handleToggleSaCheck = async (item: any, confirmed: boolean) => {
+    const url = saCheckEndpoint(item);
+    if (!url) return;
+    const method = saCheckMethod(item);
+    const action = isHajiAuditPayment(item) ? "set_haji_audit" : "set_sa_check";
     if (!isOnline) {
       if (getPendingQueueId(item?.id)) {
-        setError("Sync this pending payment first, then update haji audit confirmation.");
+        setError("Sync this pending entry first, then update verification.");
         return;
       }
       await enqueue({
-        url: `/api/v1/payments/${item.id}`,
-        method: "PATCH",
+        url,
+        method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "set_haji_audit", confirmed }),
+        body: JSON.stringify({ action, confirmed }),
         pathname: "/payments",
         auditMeta: {
           action: "audit_toggle",
-          entityType: "payment",
-          entityLabel: "Haji audit toggle (Pending)",
-          entityDetail: `${item.detail || "Payment"} — ${confirmed ? "confirmed" : "unconfirmed"}`,
+          entityType: item.type,
+          entityLabel: "SA check toggle (Pending)",
+          entityDetail: `${item.detail || "Payment"} — ${confirmed ? "verified" : "unverified"}`,
         },
       });
       setItems((prev) => {
         const next = prev.map((row: any) =>
-          row.id === item.id
+          row.id === item.id && row.type === item.type
             ? {
                 ...row,
                 _pending: true,
                 raw: {
                   ...(row.raw || {}),
-                  hajiAudit: { ...(row.raw?.hajiAudit || {}), confirmed },
+                  ...(action === "set_haji_audit"
+                    ? { hajiAudit: { ...(row.raw?.hajiAudit || {}), confirmed } }
+                    : { saCheck: { ...(row.raw?.saCheck || {}), confirmed } }),
                 },
               }
             : row
@@ -1550,12 +1580,12 @@ export default function PaymentsPage() {
       });
       return;
     }
-    const r = await apiCall(`/api/v1/payments/${item.id}`, {
-      method: "PATCH",
-      body: { action: "set_haji_audit", confirmed },
+    const r = await apiCall(url, {
+      method,
+      body: { action, confirmed },
     });
     if (r.success) load();
-    else setError(r.error || "Failed to update audit confirmation");
+    else setError(r.error || "Failed to update verification");
   };
 
   const columns = isSuperAdmin ? [
@@ -1635,15 +1665,15 @@ export default function PaymentsPage() {
     {
       key: "sa_check", label: "SA Check",
       render: (item: any) => (
-        item.type === "payment" && item.status === "active" && item.raw?.destination === "haji" && ["cash", "bank_transfer", "online"].includes(item.raw?.paymentMethod) ? (
-          item.raw?.hajiAudit?.confirmed ? (
+        canSaCheck(item) ? (
+          isSaChecked(item) ? (
             <span className="text-xs font-semibold text-emerald-700">Verified</span>
           ) : (
             <label className="inline-flex items-center gap-2 text-xs text-gray-700">
               <input
                 type="checkbox"
                 checked={false}
-                onChange={() => handleToggleHajiAudit(item, true)}
+                onChange={() => handleToggleSaCheck(item, true)}
                 className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
               />
               Verify
@@ -1657,11 +1687,7 @@ export default function PaymentsPage() {
       render: (item: any) => {
         if (item.type === "payment_reversal") return <span className="text-gray-300">—</span>;
         const actionKey = getActionKey(item);
-        const canAuditUnverify = item.type === "payment"
-          && item.status === "active"
-          && item.raw?.destination === "haji"
-          && item.raw?.hajiAudit?.confirmed
-          && ["cash", "bank_transfer", "online"].includes(item.raw?.paymentMethod);
+        const canAuditUnverify = canSaCheck(item) && isSaChecked(item);
         return (
           <RowActionMenu
             open={openActionId === actionKey}
@@ -1670,7 +1696,7 @@ export default function PaymentsPage() {
             {canAuditUnverify && (
               <button
                 type="button"
-                onClick={() => { setOpenActionId(null); handleToggleHajiAudit(item, false); }}
+                onClick={() => { setOpenActionId(null); handleToggleSaCheck(item, false); }}
                 className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-amber-700 hover:bg-amber-50 sm:py-2 sm:text-xs"
               >
                 Unverify
@@ -1815,9 +1841,9 @@ export default function PaymentsPage() {
                   🧾 {chequeStatusLabels[item.raw.chequeStatus] || item.raw.chequeStatus}
                 </span>
               )}
-              {item.raw?.hajiAudit?.confirmed && (
+              {isSaChecked(item) && (
                 <span className="text-xs px-1.5 py-0.5 rounded font-medium mt-1 inline-block bg-emerald-50 text-emerald-700">
-                  ✓ Haji audit confirmed
+                  ✓ SA checked
                 </span>
               )}
             </div>
@@ -1834,15 +1860,15 @@ export default function PaymentsPage() {
     ...(isSuperAdmin ? [{
       key: "sa_check", label: "SA Check",
       render: (item: any) => (
-        item.type === "payment" && item.status === "active" && item.raw?.destination === "haji" && ["cash", "bank_transfer", "online"].includes(item.raw?.paymentMethod) ? (
+        canSaCheck(item) ? (
           <label className="inline-flex items-center gap-2 text-xs text-gray-700">
             <input
               type="checkbox"
-              checked={!!item.raw?.hajiAudit?.confirmed}
-              onChange={(e) => handleToggleHajiAudit(item, e.target.checked)}
+              checked={isSaChecked(item)}
+              onChange={(e) => handleToggleSaCheck(item, e.target.checked)}
               className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
             />
-            Confirm
+            {isSaChecked(item) ? "Verified" : "Verify"}
           </label>
         ) : <span className="text-gray-300">—</span>
       ),

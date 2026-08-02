@@ -4,6 +4,7 @@ import { withAuth, getCityScope } from "@/lib/middleware";
 import { successResponse, paginatedResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { getPaymentHajiAuditStateMap, isHajiAuditEligible } from "@/lib/payment-audit";
+import { getSaCheckAuditStateMap } from "@/lib/sa-check-audit";
 import { computeCityTreasuryNet, computeRunningBalances, computeSuperAdminRunningBalances, buildPaymentCancellationReversalRow } from "@/lib/treasury-ledger";
 import { formatPaymentModuleDetail, formatSuperAdminPaymentDetail } from "@/lib/payment-module-detail";
 
@@ -135,6 +136,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         orderBy: [{ paymentDate: "desc" }, { id: "desc" }],
       } as any);
       const hajiAuditStateById = await getPaymentHajiAuditStateMap(payments.map((p) => p.id));
+      const saCheckStateById = await getSaCheckAuditStateMap("payments", payments.map((p) => p.id));
       for (const p of payments as any[]) {
         combined.push({
           id: p.id,
@@ -171,6 +173,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
             superAdminBankAccount: (p as any).superAdminBankAccount ?? null,
             superAdminBankAccountId: (p as any).superAdminBankAccountId ?? null,
             hajiAudit: isHajiAuditEligible(p) ? (hajiAuditStateById[p.id] || null) : null,
+            saCheck: saCheckStateById[p.id] || null,
             attachments: (p as any).attachments ?? [],
           },
         });
@@ -223,6 +226,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         },
         orderBy: [{ expenseDate: "desc" }, { id: "desc" }],
       });
+      const saCheckStateById = await getSaCheckAuditStateMap("expenses", expenses.map((e) => e.id));
       combined.push(...expenses.map((e) => ({
         id: e.id,
         type: "expense",
@@ -240,6 +244,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           bankAccount: (e as any).bankAccount ?? null,
           bankAccountId: (e as any).bankAccountId ?? null,
           chequePayment: (e as any).chequePayment ?? null,
+          saCheck: saCheckStateById[e.id] || null,
           attachments: (e as any).attachments ?? [],
         },
       })));
@@ -303,6 +308,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         },
         orderBy: [{ transferDate: "desc" }, { id: "desc" }],
       });
+      const saCheckStateById = await getSaCheckAuditStateMap("haji_transfers", hajis.map((h) => h.id));
       combined.push(...hajis.map((h) => ({
         id: h.id,
         type: "haji_transfer",
@@ -321,6 +327,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           referenceNo: h.referenceNo ?? null,
           bankAccount: (h as any).bankAccount ?? null,
           bankAccountId: (h as any).bankAccountId ?? null,
+          saCheck: saCheckStateById[h.id] || null,
           attachments: (h as any).attachments ?? [],
         },
       })));
@@ -370,6 +377,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         },
         orderBy: [{ withdrawalDate: "desc" }, { id: "desc" }],
       });
+      const saCheckStateById = await getSaCheckAuditStateMap("personal_withdrawals", withdrawals.map((w) => w.id));
       combined.push(...withdrawals.map((w) => ({
         id: w.id,
         type: "withdrawal",
@@ -386,6 +394,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           bankAccount: (w as any).bankAccount ?? null,
           bankAccountId: (w as any).bankAccountId ?? null,
           chequePayment: (w as any).chequePayment ?? null,
+          saCheck: saCheckStateById[w.id] || null,
         },
       })));
     }
@@ -517,6 +526,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           item.raw?.payment?.chequeNumber,
           item.raw?.payment?.customer?.name,
           item.raw?.hajiAudit?.confirmed ? "confirmed" : "",
+          item.raw?.saCheck?.confirmed ? "verified" : "",
         ];
         if (searchableFields.some(includesQuery)) return true;
         const numericFields = [
