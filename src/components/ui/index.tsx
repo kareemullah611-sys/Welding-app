@@ -34,7 +34,7 @@ import {
   openNativePicker,
   focusFirstModalField,
 } from "@/lib/modal-keyboard";
-import { X, ChevronLeft, ChevronRight, Inbox } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Inbox, CheckCircle2, AlertTriangle } from "lucide-react";
 
 function usesNativeFieldKeyboard(el: HTMLElement) {
   if (el instanceof HTMLSelectElement) return true;
@@ -815,6 +815,38 @@ export function Modal({
 
 export { default as SelectField } from "@/components/ModalOptionSelect";
 export type { ModalOptionSelectOption } from "@/components/ModalOptionSelect";
+
+export function ModalStatusNotice({
+  type,
+  message,
+}: {
+  type: "success" | "error";
+  message: string;
+}) {
+  const isSuccess = type === "success";
+  const Icon = isSuccess ? CheckCircle2 : AlertTriangle;
+  return (
+    <div className="pointer-events-none fixed inset-0 z-[130] flex items-center justify-center px-4">
+      <div
+        className={cn(
+          "flex max-w-sm flex-col items-center rounded-3xl border bg-white/95 px-8 py-7 text-center shadow-[0_24px_80px_-38px_rgba(15,23,42,0.45)] backdrop-blur-xl",
+          isSuccess ? "border-emerald-200 text-emerald-800" : "border-red-200 text-red-800"
+        )}
+      >
+        <div
+          className={cn(
+            "mb-4 flex h-16 w-16 items-center justify-center rounded-full border shadow-inner",
+            isSuccess ? "border-emerald-200 bg-emerald-50 text-emerald-600" : "border-red-200 bg-red-50 text-red-600"
+          )}
+        >
+          <Icon className="h-9 w-9" strokeWidth={1.8} />
+        </div>
+        <div className="text-lg font-semibold">{isSuccess ? "Saved" : "Not saved"}</div>
+        <div className={cn("mt-1 text-sm", isSuccess ? "text-emerald-700" : "text-red-700")}>{message}</div>
+      </div>
+    </div>
+  );
+}
 
 // ============================================================
 // STATUS BADGE

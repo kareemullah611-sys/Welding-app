@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, DataTable, Modal, StatusBadge, formatDate, RowActionMenu, MobileDateInput, FormattedNumberInput } from "@/components/ui";
+import { PageHeader, DataTable, Modal, StatusBadge, ModalStatusNotice, formatDate, RowActionMenu, MobileDateInput, FormattedNumberInput } from "@/components/ui";
 import CustomerFieldWithNew from "@/components/CustomerFieldWithNew";
 import { useLang } from "@/lib/lang";
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
@@ -2112,9 +2112,7 @@ export default function PaymentsPage() {
 
       {/* ── CREATE MODAL ───────────────────────────────────────────────────── */}
       <Modal open={showCreate} onClose={() => { setShowCreate(false); setCreateFormReady(false); setPaymentSavedNotice(null); setLatestCreatedEntry(null); if (isEmbed) closeEmbed(); }} title={createTitle} size="md" inline={isEmbed} hideHeader={isEmbed}>
-        {paymentSavedNotice && (
-          <div className="mb-3 p-2 bg-green-50 border border-green-200 rounded text-green-700 text-sm">{paymentSavedNotice}</div>
-        )}
+        {paymentSavedNotice && <ModalStatusNotice type="success" message={paymentSavedNotice} />}
         {latestCreatedEntry && (
           <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
             <div className="flex items-center justify-between gap-3">
@@ -2130,7 +2128,7 @@ export default function PaymentsPage() {
             )}
           </div>
         )}
-        {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
+        {error && <ModalStatusNotice type="error" message={error} />}
         <div key={`create-${createType}-${createFormVersion}`} className="space-y-3">
           {simplifyModals && createType === "payment" ? (
             <>

@@ -1111,6 +1111,12 @@ input[type="number"] { -moz-appearance: textfield; }
   color: #2f241b;
 }
 
+.quickform-embed [data-modal-form-root] {
+  isolation: isolate;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
 /* Keyboard-tab focus in modals / quickforms (programmatic focus skips :focus-visible) */
 .modal-kbd-focus.input-field,
 .modal-kbd-focus.select-field,

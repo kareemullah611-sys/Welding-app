@@ -340,6 +340,8 @@ test("city sales support per-item lot selection and locked completed sale item l
   assert.match(saleCorrectRoute, /journalSaleCreated\(\{[\s\S]*lotId: nextSaleLotId/);
   assert.match(salesPage, /lotOptionsForItem = \(item: any, includeOwnCorrectQty = false\)/);
   assert.match(salesPage, /filter\(\(lot: any\) => Number\(lot\.available \|\| 0\) \+ \(includeOwnCorrectQty \? ownCorrectItemQty\(item, Number\(lot\.lotId\)\) : 0\) > 0\)/);
+  assert.match(salesPage, /includeOwnCorrectQty && item\?\.id/);
+  assert.match(salesPage, /oldLotId > 0 && !ids\.includes\(oldLotId\)/);
   assert.match(salesPage, /\.\.\.\(field === "productId" \? \{ lotId: 0, remainingLotId: 0 \} : \{\}\)/);
   assert.match(salesPage, /\.\.\.\(field === "lotId" \? \{ remainingLotId: 0 \} : \{\}\)/);
 });

@@ -21,6 +21,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         WHERE (${cityId}::int IS NULL OR g.city_id = ${cityId})
         GROUP BY lcga.godown_id, lcd.product_id
       ),
+      assigned AS (
+        SELECT lcga.lot_city_distribution_id, COALESCE(SUM(lcga.qty), 0) as qty
+        FROM lot_city_godown_allocations lcga
+        GROUP BY lcga.lot_city_distribution_id
+      ),
       sold AS (
         SELECT s.godown_id, si.product_id, COALESCE(SUM(si.qty), 0) as qty
         FROM sale_items si
@@ -58,7 +63,22 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       LEFT JOIN transferred_in tin ON tin.godown_id = g.id AND tin.product_id = p.id
       WHERE g.is_active = true AND p.is_active = true
         AND (${cityId}::int IS NULL OR g.city_id = ${cityId})
-      ORDER BY g.name, p.name
+      UNION ALL
+      SELECT
+        NULL::int as godown_id, 'Unassigned' as godown_name, c.id as city_id, c.name as city_name,
+        co.id as country_id, co.name as country_name,
+        p.id as product_id, p.name as product_name,
+        p.unit_of_measure, p.pieces_per_carton,
+        (lcd.allocated_qty - COALESCE(a.qty, 0)) as qty
+      FROM lot_city_distributions lcd
+      JOIN cities c ON c.id = lcd.city_id
+      JOIN countries co ON co.id = c.country_id
+      JOIN products p ON p.id = lcd.product_id
+      LEFT JOIN assigned a ON a.lot_city_distribution_id = lcd.id
+      WHERE p.is_active = true
+        AND (${cityId}::int IS NULL OR lcd.city_id = ${cityId})
+        AND (lcd.allocated_qty - COALESCE(a.qty, 0)) > 0
+      ORDER BY godown_name, product_name
     `;
     timing.mark("inventory-raw-query", { rows: inventory.length });
 
@@ -86,12 +106,13 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       if (!cityTotals[row.city_id]) cityTotals[row.city_id] = { cityId: row.city_id, cityName: row.city_name, countryName: row.country_name, totalQty: 0 };
       cityTotals[row.city_id].totalQty += qty;
 
-      if (!godownTotals[row.godown_id]) godownTotals[row.godown_id] = { godownId: row.godown_id, godownName: row.godown_name, cityName: row.city_name, totalQty: 0 };
-      godownTotals[row.godown_id].totalQty += qty;
+      const godownKey = row.godown_id === null ? `unassigned:${row.city_id}` : String(row.godown_id);
+      if (!godownTotals[godownKey]) godownTotals[godownKey] = { godownId: row.godown_id, godownName: row.godown_name, cityName: row.city_name, totalQty: 0 };
+      godownTotals[godownKey].totalQty += qty;
 
-      if (!detailed[row.godown_id]) detailed[row.godown_id] = { godownId: row.godown_id, godownName: row.godown_name, cityId: row.city_id, cityName: row.city_name, countryId: row.country_id, countryName: row.country_name, totalQty: 0, products: [] };
-      detailed[row.godown_id].totalQty += qty;
-      detailed[row.godown_id].products.push({ productId: row.product_id, productName: row.product_name, unitOfMeasure: row.unit_of_measure, piecesPerCarton: row.pieces_per_carton, qty: Math.round(qty * 100) / 100 });
+      if (!detailed[godownKey]) detailed[godownKey] = { godownId: row.godown_id, godownName: row.godown_name, cityId: row.city_id, cityName: row.city_name, countryId: row.country_id, countryName: row.country_name, totalQty: 0, products: [] };
+      detailed[godownKey].totalQty += qty;
+      detailed[godownKey].products.push({ productId: row.product_id, productName: row.product_name, unitOfMeasure: row.unit_of_measure, piecesPerCarton: row.pieces_per_carton, qty: Math.round(qty * 100) / 100 });
     }
     timing.mark("inventory-format", { detailed: Object.keys(detailed).length });
 

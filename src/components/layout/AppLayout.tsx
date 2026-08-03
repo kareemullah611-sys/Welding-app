@@ -19,7 +19,7 @@ function AppInner({ children, isCityAdmin }: { children: React.ReactNode; isCity
   if (isEmbed) {
     return (
       <div className={cn("quickform-embed h-[100dvh] min-h-0 overflow-hidden", isCityAdmin && "city-admin-ui")} dir={dir}>
-        <main className="flex h-full min-h-0 flex-col overflow-y-auto overscroll-y-contain">
+        <main className="flex h-full min-h-0 flex-col overflow-hidden overscroll-y-contain">
           <div className="module-page flex min-h-0 flex-1 flex-col px-0 py-0">{children}</div>
         </main>
       </div>

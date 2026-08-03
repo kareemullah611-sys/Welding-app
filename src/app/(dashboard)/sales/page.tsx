@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, DataTable, Modal, StatusBadge, formatCurrency, formatDate, RowActionMenu, MobileDateInput } from "@/components/ui";
+import { PageHeader, DataTable, Modal, StatusBadge, ModalStatusNotice, formatCurrency, formatDate, RowActionMenu, MobileDateInput } from "@/components/ui";
 import CustomerFieldWithNew from "@/components/CustomerFieldWithNew";
 import { useLang } from "@/lib/lang";
 import { safeParseQueuedBody } from "@/lib/queue-resolve";
@@ -581,11 +581,21 @@ export default function SalesPage() {
     const selectedLotId = Number(item.lotId || 0);
     const remainingLotId = Number(item.remainingLotId || 0);
     const breakdown = getLotBreakdown(item.productId);
+    const oldItem = includeOwnCorrectQty && item?.id
+      ? selectedSale?.items?.find((row: any) => Number(row.id) === Number(item.id))
+      : null;
+    const oldLotId = oldItem && Number(oldItem.productId || oldItem.product?.id) === Number(item.productId)
+      ? Number(oldItem.lotId || oldItem.lot?.id || 0)
+      : 0;
     const ids = [
       selectedLotId,
       selectedLotId ? remainingLotId : 0,
       ...breakdown.map((lot: any) => Number(lot.lotId)),
     ].filter((id, index, arr) => id > 0 && arr.indexOf(id) === index);
+    if (oldLotId > 0 && !ids.includes(oldLotId)) {
+      if (selectedLotId > 0) ids.splice(1, 0, oldLotId);
+      else ids.unshift(oldLotId);
+    }
     return ids.map((lotId) => {
       const breakdownLot = breakdown.find((lot: any) => Number(lot.lotId) === Number(lotId));
       const masterLot = lots.find((lot: any) => Number(lot.id) === Number(lotId));
@@ -1230,9 +1240,7 @@ export default function SalesPage() {
       )}
       {/* ========== CREATE SALE MODAL ========== */}
       <Modal open={showCreate} onClose={() => { setShowCreate(false); setShortConfirmed(false); setFormError(""); setSaleSavedNotice(null); setLatestCreatedSale(null); if (isEmbed) closeEmbed(); }} title={t("new_sale")} size={isEmbed ? "lg" : "xl"} inline={isEmbed} hideHeader={isEmbed}>
-        {saleSavedNotice && (
-          <div className="mb-3 p-2 bg-green-50 border border-green-200 rounded text-green-700 text-sm">{saleSavedNotice}</div>
-        )}
+        {saleSavedNotice && <ModalStatusNotice type="success" message={saleSavedNotice} />}
         {latestCreatedSale && (
           <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
             <div className="flex items-center gap-2">
@@ -1246,7 +1254,8 @@ export default function SalesPage() {
             )}
           </div>
         )}
-        {formError && (
+        {formError && !shortConfirmed && <ModalStatusNotice type="error" message={formError} />}
+        {formError && shortConfirmed && (
           <div className={`mb-4 p-3 rounded-lg text-sm border ${shortConfirmed ? "bg-amber-50 border-amber-300 text-amber-800" : "bg-red-50 border-red-200 text-red-700"}`}>
             {formError}
           </div>
