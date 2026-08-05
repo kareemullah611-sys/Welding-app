@@ -501,6 +501,24 @@ export default function SalesPage() {
     setSelectedCustomerName("");
   }, [currencies]);
 
+  const loadLatestSaleSummary = useCallback(async () => {
+    if (isOnline) {
+      const result = await apiCall("/api/v1/sales", { params: { page: 1, limit: 1 } });
+      if (result.success) {
+        const latest = buildLatestSaleSummaryFromRow(((result.data as any[]) || [])[0], products, godowns, lots, currencies);
+        if (latest) return latest;
+      }
+    }
+
+    if (sales[0]) return buildLatestSaleSummaryFromRow(sales[0], products, godowns, lots, currencies);
+
+    const snapshot = readOfflineReadSnapshot<SalesReadSnapshot>(SALES_READ_CACHE_KEY)?.data;
+    if (snapshot?.sales?.[0]) {
+      return buildLatestSaleSummaryFromRow(snapshot.sales[0], products, godowns, lots, currencies);
+    }
+    return null;
+  }, [currencies, godowns, isOnline, lots, products, sales]);
+
   const openCreate = async (preset?: Partial<typeof form>) => {
     const loaded = await loadDropdowns();
     if (!loaded) return;
@@ -513,7 +531,7 @@ export default function SalesPage() {
     }));
     setGodownStock([]);
     setSaleSavedNotice(null);
-    setLatestCreatedSale(buildLatestSaleSummaryFromRow(sales[0], products, godowns, lots, currencies));
+    setLatestCreatedSale(await loadLatestSaleSummary());
     setSelectedCustomerName("");
     setShowCreate(true); setFormError("");
   };
@@ -1706,14 +1724,14 @@ export default function SalesPage() {
           {correctItems.map((item, i) => {
             const remainderQty = selectedLotRemainderQty(item, true);
             return (
-            <div key={i} className="grid grid-cols-2 sm:grid-cols-5 gap-2 items-end">
+            <div key={i} className="grid grid-cols-1 gap-2 items-end sm:grid-cols-2 lg:grid-cols-5">
               <div><label className="block text-xs text-gray-500 mb-1">{t("product")}</label><select value={item.productId} onChange={e => { const v = parseInt(e.target.value); setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, productId: v, lotId: 0, remainingLotId: 0 } : c)); }} className="select-field text-sm"><option value={0}>{t("select_product")}</option>{products.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
               <div><label className="block text-xs text-gray-500 mb-1">{t("lot")}</label><select value={item.lotId || 0} disabled={isSaleItemLotLocked(item)} onChange={e => { const v = parseInt(e.target.value); setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, lotId: v, remainingLotId: 0 } : c)); }} className="select-field text-sm disabled:bg-gray-100 disabled:text-gray-500"><option value={0}>Auto</option>{lotOptionsForItem(item, true).map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}{l.status === "completed" ? " ✓" : ""}</option>)}</select></div>
               <div><label className="block text-xs text-gray-500 mb-1">{t("cartons")}</label><input type="number" value={item.qty || ""} onChange={e => { const v = parseFloat(e.target.value) || 0; setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, qty: v } : c)); }} className="input-field text-sm" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">{t("rate_per_carton")}</label><input type="number" value={item.ratePerCarton || ""} onChange={e => { const v = parseFloat(e.target.value) || 0; setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, ratePerCarton: v } : c)); }} className="input-field text-sm" /></div>
               <div className="flex gap-1 items-center"><span className="text-sm text-gray-600">{((item.qty || 0) * (item.ratePerCarton || 0)).toLocaleString("en-US")}</span>{correctItems.length > 1 && <button onClick={() => setCorrectItems(ci => ci.filter((_, idx) => idx !== i))} className="text-red-500 text-lg">×</button>}</div>
               {remainderQty > 0 && (
-                <div className="col-span-2 sm:col-span-5 flex items-center gap-2 text-[11px] text-blue-700">
+                <div className="col-span-1 flex items-center gap-2 text-[11px] text-blue-700 sm:col-span-2 lg:col-span-5">
                   <span>Remaining {remainderQty.toLocaleString("en-US")} from</span>
                   <select value={item.remainingLotId || 0} onChange={e => { const v = parseInt(e.target.value); setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, remainingLotId: v } : c)); }} className="select-field h-7 max-w-[180px] text-xs">
                     <option value={0}>Auto oldest lot</option>
@@ -1721,7 +1739,7 @@ export default function SalesPage() {
                   </select>
                 </div>
               )}
-              {autoLotAllocationPreview(item, true) && <p className="col-span-2 sm:col-span-5 text-[11px] text-blue-700">{autoLotAllocationPreview(item, true)}</p>}
+              {autoLotAllocationPreview(item, true) && <p className="col-span-1 text-[11px] text-blue-700 sm:col-span-2 lg:col-span-5">{autoLotAllocationPreview(item, true)}</p>}
             </div>
             );
           })}

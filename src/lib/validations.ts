@@ -22,6 +22,16 @@ export const changePasswordSchema = z.object({
   newPassword: strongPassword,
 });
 
+export const changeUsernameSchema = z.object({
+  currentPassword: z.string().min(1),
+  newUsername: z.string().min(3).max(100),
+});
+
+export const deleteAccountSchema = z.object({
+  currentPassword: z.string().min(1),
+  confirmation: z.string().min(1, "Confirmation text is required"),
+});
+
 // ============================================================
 // USERS
 // ============================================================
@@ -48,6 +58,12 @@ export const createCitySchema = z.object({
   countryId: z.number().int().positive(),
   name: z.string().min(1).max(200),
   currencyIds: z.array(z.number().int().positive()).min(1),
+});
+
+export const updateCitySchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  isActive: z.boolean().optional(),
+  currencyIds: z.array(z.number().int().positive()).min(1).optional(),
 });
 
 

@@ -30,8 +30,11 @@ function round2(n: number) {
   return Math.round(n * 100) / 100;
 }
 
-async function getSuperAdminBankBalance(accountId: number): Promise<{ balance: number; currencyCode: string } | null> {
-  const account = await prisma.superAdminBankAccount.findUnique({
+export async function getSuperAdminBankBalance(
+  accountId: number,
+  db: typeof prisma = prisma
+): Promise<{ balance: number; currencyCode: string } | null> {
+  const account = await db.superAdminBankAccount.findUnique({
     where: { id: accountId },
     include: { currency: true },
   });
@@ -40,8 +43,8 @@ async function getSuperAdminBankBalance(accountId: number): Promise<{ balance: n
   const currencyId = account.currencyId;
   const currencyCode = String(account.currency.code || "PKR").toUpperCase();
 
-  const [incomingHaji, expenses, intermediaryDeposits, lotCosts] = await Promise.all([
-    prisma.payment.groupBy({
+  const [incomingHaji, hajiTransfers, expenses, intermediaryDeposits, lotCosts] = await Promise.all([
+    db.payment.groupBy({
       by: ["superAdminBankAccountId"],
       where: {
         superAdminBankAccountId: accountId,
@@ -51,26 +54,30 @@ async function getSuperAdminBankBalance(accountId: number): Promise<{ balance: n
       },
       _sum: { amount: true },
     }),
-    prisma.superAdminPersonalExpense.aggregate({
-      where: { bankAccountId: accountId, deletedAt: null },
-      _sum: { amount: true },
-    }),
-    prisma.intermediaryDeposit.aggregate({
+    db.hajiTransfer.aggregate({
       where: { superAdminBankAccountId: accountId, currencyId },
       _sum: { amount: true },
     }),
-    prisma.lotCost.findMany({
+    db.superAdminPersonalExpense.aggregate({
+      where: { bankAccountId: accountId, deletedAt: null },
+      _sum: { amount: true },
+    }),
+    db.intermediaryDeposit.aggregate({
+      where: { superAdminBankAccountId: accountId, currencyId },
+      _sum: { amount: true },
+    }),
+    db.lotCost.findMany({
       where: { superAdminBankAccountId: accountId, currencyCode },
       select: { amount: true },
     }),
   ]);
 
-  const supplierPayments = await prisma.supplierPayment.findMany({
+  const supplierPayments = await db.supplierPayment.findMany({
     where: { superAdminBankAccountId: accountId },
     select: { amountLocal: true, amountUsd: true, exchangeRate: true },
   });
 
-  const incoming = Number(incomingHaji[0]?._sum.amount || 0);
+  const incoming = Number(incomingHaji[0]?._sum.amount || 0) + Number(hajiTransfers._sum.amount || 0);
   const expenseOut = Number(expenses._sum.amount || 0);
   const intermediaryOut = Number(intermediaryDeposits._sum.amount || 0);
   const lotCostOut = lotCosts.reduce((s, r) => s + Number(r.amount || 0), 0);

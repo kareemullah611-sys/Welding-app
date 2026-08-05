@@ -157,6 +157,17 @@ function CityAdminSettingsCard() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  const [showChangeUsername, setShowChangeUsername] = useState(false);
+  const [usernamePassword, setUsernamePassword] = useState("");
+  const [newUsername, setNewUsername] = useState("");
+  const [showUsernamePassword, setShowUsernamePassword] = useState(false);
+
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
+  const [deleteStep, setDeleteStep] = useState<"password" | "confirm">("password");
+  const [deletePassword, setDeletePassword] = useState("");
+  const [showDeletePassword, setShowDeletePassword] = useState(false);
+  const [confirmation, setConfirmation] = useState("");
+
   const resetPasswordForm = () => {
     setCurrentPassword("");
     setNewPassword("");
@@ -170,6 +181,31 @@ function CityAdminSettingsCard() {
   const closeChangePassword = () => {
     setShowChangePassword(false);
     resetPasswordForm();
+  };
+
+  const resetUsernameForm = () => {
+    setUsernamePassword("");
+    setNewUsername("");
+    setShowUsernamePassword(false);
+    setError("");
+  };
+
+  const closeChangeUsername = () => {
+    setShowChangeUsername(false);
+    resetUsernameForm();
+  };
+
+  const resetDeleteAccount = () => {
+    setDeleteStep("password");
+    setDeletePassword("");
+    setShowDeletePassword(false);
+    setConfirmation("");
+    setError("");
+  };
+
+  const closeDeleteAccount = () => {
+    setShowDeleteAccount(false);
+    resetDeleteAccount();
   };
 
   const handleChangePassword = async () => {
@@ -208,6 +244,74 @@ function CityAdminSettingsCard() {
     setSuccess("Password changed successfully.");
   };
 
+  const handleChangeUsername = async () => {
+    setError("");
+
+    if (!usernamePassword || !newUsername) {
+      setError("Current password and new username are required.");
+      return;
+    }
+    if (newUsername.length < 3 || newUsername.length > 100) {
+      setError("Username must be between 3 and 100 characters.");
+      return;
+    }
+
+    setSubmitting(true);
+    const result = await apiCall("/api/v1/auth/change-username", {
+      method: "PUT",
+      body: { currentPassword: usernamePassword, newUsername: newUsername.trim() },
+    });
+    setSubmitting(false);
+
+    if (!result.success) {
+      setError(result.error || "Failed to update username.");
+      return;
+    }
+
+    closeChangeUsername();
+    setSuccess("Username changed successfully.");
+  };
+
+  const handleDeleteRequest = async () => {
+    setError("");
+
+    if (!deletePassword) {
+      setError("Enter your current password to continue.");
+      return;
+    }
+
+    setDeleteStep("confirm");
+    setConfirmation("");
+    setError("");
+  };
+
+  const handleDeleteConfirm = async () => {
+    setError("");
+
+    if (!confirmation) {
+      setError("Enter the confirmation text to delete your account.");
+      return;
+    }
+
+    setSubmitting(true);
+    const result = await apiCall("/api/v1/auth/delete-account", {
+      method: "POST",
+      body: { currentPassword: deletePassword, confirmation },
+    });
+    setSubmitting(false);
+
+    if (!result.success) {
+      setError(result.error || "Verification failed.");
+      return;
+    }
+
+    setSuccess("Your account has been deleted. You will be logged out.");
+    closeDeleteAccount();
+    setTimeout(() => {
+      window.location.href = "/login";
+    }, 1200);
+  };
+
   return (
     <div>
       <PageHeader title={t("settings")} />
@@ -233,12 +337,62 @@ function CityAdminSettingsCard() {
             </div>
           )}
         </dl>
-        <div className="mt-4 border-t pt-4">
+        <div className="mt-4 flex flex-wrap gap-3 border-t pt-4">
+          <button type="button" onClick={() => { resetUsernameForm(); setShowChangeUsername(true); }} className="btn-primary text-sm">
+            Change Username
+          </button>
           <button type="button" onClick={() => { resetPasswordForm(); setShowChangePassword(true); }} className="btn-primary text-sm">
             Change Password
           </button>
+          <button type="button" onClick={() => { resetDeleteAccount(); setShowDeleteAccount(true); }} className="text-sm font-medium text-red-600 hover:text-red-700">
+            Delete Account
+          </button>
         </div>
       </div>
+
+      <Modal open={showChangeUsername} onClose={closeChangeUsername} title="Change Username" size="sm">
+        <p className="mb-4 text-sm text-gray-500">Update the username used to sign in to this city admin account. Your current password is required to make this change.</p>
+        {error && <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{error}</div>}
+
+        <div className="space-y-3">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Current Password *</label>
+            <div className="relative">
+              <input
+                type={showUsernamePassword ? "text" : "password"}
+                value={usernamePassword}
+                onChange={(e) => setUsernamePassword(e.target.value)}
+                className="input-field pr-20"
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={() => setShowUsernamePassword((v) => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100"
+              >
+                {showUsernamePassword ? "Hide" : "Show"}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">New Username *</label>
+            <input
+              value={newUsername}
+              onChange={(e) => setNewUsername(e.target.value)}
+              className="input-field"
+              placeholder="e.g. quetta_admin_2"
+            />
+          </div>
+        </div>
+
+        <div className="mt-4 flex justify-end gap-3 border-t pt-4">
+          <button type="button" onClick={closeChangeUsername} className="btn-secondary text-sm">Cancel</button>
+          <button type="button" onClick={handleChangeUsername} disabled={submitting} className="btn-primary text-sm">
+            {submitting ? "..." : "Update Username"}
+          </button>
+        </div>
+      </Modal>
 
       <Modal open={showChangePassword} onClose={closeChangePassword} title="Change Password" size="sm">
         <p className="mb-4 text-sm text-gray-500">Update your login password for this city admin account.</p>
@@ -311,6 +465,67 @@ function CityAdminSettingsCard() {
             {submitting ? "..." : "Update Password"}
           </button>
         </div>
+      </Modal>
+
+      <Modal open={showDeleteAccount} onClose={closeDeleteAccount} title="Delete Account" size="sm">
+        {error && <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{error}</div>}
+
+        {deleteStep === "password" ? (
+          <>
+            <div className="mb-4 rounded-lg border border-red-100 bg-red-50 p-3 text-sm text-red-800">
+              <p className="font-semibold mb-1">Deleting your account cannot be undone.</p>
+              <p>Your sign-in will be disabled and all your sessions will be ended. This requires two-step verification.</p>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Current Password *</label>
+              <div className="relative">
+                <input
+                  type={showDeletePassword ? "text" : "password"}
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  className="input-field pr-20"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowDeletePassword((v) => !v)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100"
+                >
+                  {showDeletePassword ? "Hide" : "Show"}
+                </button>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-3 border-t pt-4">
+              <button type="button" onClick={closeDeleteAccount} className="btn-secondary text-sm">Cancel</button>
+              <button type="button" onClick={handleDeleteRequest} disabled={submitting} className="btn-primary text-sm">
+                {submitting ? "..." : "Continue"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="mb-4 rounded-lg border border-red-100 bg-red-50 p-3 text-sm text-red-800">
+              <p className="font-semibold mb-1">Final confirmation</p>
+              <p>Type your username <strong className="font-mono">{user?.username}</strong> below to confirm permanent deletion of this account.</p>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Confirmation *</label>
+              <input
+                value={confirmation}
+                onChange={(e) => setConfirmation(e.target.value)}
+                className="input-field font-mono"
+                placeholder="Type your username"
+                autoFocus
+              />
+            </div>
+            <div className="mt-4 flex justify-end gap-3 border-t pt-4">
+              <button type="button" onClick={() => { setDeleteStep("password"); setDeletePassword(""); setConfirmation(""); setError(""); }} className="btn-secondary text-sm">Back</button>
+              <button type="button" onClick={handleDeleteConfirm} disabled={submitting} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-semibold">
+                {submitting ? "..." : "Confirm Delete"}
+              </button>
+            </div>
+          </>
+        )}
       </Modal>
     </div>
   );
@@ -410,7 +625,9 @@ function UsersTab() {
   };
   const handleEdit = async () => {
     setSubmitting(true);
-    const r = await apiCall(`/api/v1/users/${selected.id}`, { method: "PUT", body: { fullName: form.fullName, isActive: true } });
+    const body: any = { fullName: form.fullName, isActive: true };
+    if (form.username && form.username !== selected.username) body.username = form.username;
+    const r = await apiCall(`/api/v1/users/${selected.id}`, { method: "PUT", body });
     setSubmitting(false);
     if (r.success) { setShowEdit(false); load(); } else { setError(r.error || "Failed"); }
   };
@@ -513,7 +730,10 @@ function UsersTab() {
 
       <Modal open={showEdit} onClose={() => setShowEdit(false)} title={`${t("edit")}: ${selected?.fullName || ""}`} size="md">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
-        <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("full_name")}</label><input value={form.fullName} onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))} className="input-field" /></div>
+        <div className="space-y-3">
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("username")}</label><input value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} className="input-field" /></div>
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("full_name")}</label><input value={form.fullName} onChange={(e) => setForm((f) => ({ ...f, fullName: e.target.value }))} className="input-field" /></div>
+        </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={handleEdit} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button></div>
       </Modal>
 
@@ -729,42 +949,189 @@ function CitiesTab() {
   const [cities, setCities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
+  const [countries, setCountries] = useState<any[]>([]);
+  const [currencies, setCurrencies] = useState<any[]>([]);
+  const [showCreate, setShowCreate] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [selected, setSelected] = useState<any>(null);
+  const [form, setForm] = useState({ name: "", countryId: 0, currencyIds: [] as number[] });
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
-  useEffect(() => {
-    const l = async () => {
-      setLoading(true);
-      const r = await apiCall("/api/v1/cities");
-      if (r.success) {
-        setCities(r.data as any[]);
-        writeOfflineReadSnapshot<SettingsCitiesReadSnapshot>(SETTINGS_CITIES_READ_CACHE_KEY, {
-          cities: r.data as any[],
-        });
-        setShowOfflineSnapshot(false);
-      } else if (!isOnline) {
-        const snapshot = readOfflineReadSnapshot<SettingsCitiesReadSnapshot>(SETTINGS_CITIES_READ_CACHE_KEY)?.data;
-        if (snapshot?.cities?.length) {
-          setCities(snapshot.cities);
-          setShowOfflineSnapshot(true);
-        }
+  const load = useCallback(async () => {
+    setLoading(true);
+    const r = await apiCall("/api/v1/cities");
+    if (r.success) {
+      setCities(r.data as any[]);
+      writeOfflineReadSnapshot<SettingsCitiesReadSnapshot>(SETTINGS_CITIES_READ_CACHE_KEY, {
+        cities: r.data as any[],
+      });
+      setShowOfflineSnapshot(false);
+    } else if (!isOnline) {
+      const snapshot = readOfflineReadSnapshot<SettingsCitiesReadSnapshot>(SETTINGS_CITIES_READ_CACHE_KEY)?.data;
+      if (snapshot?.cities?.length) {
+        setCities(snapshot.cities);
+        setShowOfflineSnapshot(true);
       }
-      setLoading(false);
-    };
-    l();
+    }
+    setLoading(false);
   }, [isOnline]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const loadRefs = useCallback(async () => {
+    const [countryRes, currencyRes] = await Promise.all([
+      apiCall("/api/v1/countries"),
+      apiCall("/api/v1/currencies"),
+    ]);
+    if (countryRes.success) setCountries(countryRes.data as any[] || []);
+    if (currencyRes.success) setCurrencies(currencyRes.data as any[] || []);
+  }, []);
+
+  const openCreate = async () => {
+    await loadRefs();
+    setForm({ name: "", countryId: 0, currencyIds: [] });
+    setError("");
+    setShowCreate(true);
+  };
+
+  const openEdit = async (c: any) => {
+    await loadRefs();
+    setSelected(c);
+    setForm({ name: c.name, countryId: c.countryId, currencyIds: c.currencies?.map((cur: any) => cur.id) || [] });
+    setError("");
+    setShowEdit(true);
+  };
+
+  const toggleCurrency = (id: number) => {
+    setForm((f) => ({
+      ...f,
+      currencyIds: f.currencyIds.includes(id)
+        ? f.currencyIds.filter((x) => x !== id)
+        : [...f.currencyIds, id],
+    }));
+  };
+
+  const handleCreate = async () => {
+    if (!form.name.trim()) { setError("City name is required"); return; }
+    if (!form.countryId) { setError("Select a country"); return; }
+    if (form.currencyIds.length === 0) { setError("Select at least one currency"); return; }
+    setSubmitting(true);
+    const r = await apiCall("/api/v1/cities", {
+      method: "POST",
+      body: { name: form.name.trim(), countryId: form.countryId, currencyIds: form.currencyIds },
+    });
+    setSubmitting(false);
+    if (r.success) { setShowCreate(false); load(); } else { setError(r.error || "Failed"); }
+  };
+
+  const handleEdit = async () => {
+    if (!form.name.trim()) { setError("City name is required"); return; }
+    if (form.currencyIds.length === 0) { setError("Select at least one currency"); return; }
+    setSubmitting(true);
+    const r = await apiCall(`/api/v1/cities/${selected.id}`, {
+      method: "PATCH",
+      body: { name: form.name.trim(), currencyIds: form.currencyIds },
+    });
+    setSubmitting(false);
+    if (r.success) { setShowEdit(false); load(); } else { setError(r.error || "Failed"); }
+  };
+
+  const toggleActive = async (c: any) => {
+    if (!confirm(`${c.isActive ? "Deactivate" : "Reactivate"} "${c.name}"?`)) return;
+    setSubmitting(true);
+    const r = await apiCall(`/api/v1/cities/${c.id}`, {
+      method: "PATCH",
+      body: { isActive: !c.isActive },
+    });
+    setSubmitting(false);
+    if (!r.success) setError(r.error || "Failed");
+    load();
+  };
+
+  const selectedCountry = countries.find((c: any) => c.id === form.countryId);
+
   return <>
     {showOfflineSnapshot && (
       <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
         Offline snapshot mode: showing last cached cities data for this device.
       </div>
     )}
+    <div className="flex justify-end mb-4"><button onClick={openCreate} className="btn-primary text-sm">+ {t("new_city")}</button></div>
     <DataTable columns={[
     { key: "name", label: t("city"), render: (c: any) => <span className="font-medium">{c.name}</span> },
-    { key: "countryName", label: t("country") },
+    { key: "countryName", label: t("country"), render: (c: any) => <span>{c.countryName} <span className="text-xs text-gray-400">({c.countryCode})</span></span> },
     { key: "currencies", label: t("currencies"), render: (c: any) => c.currencies?.map((cur: any) => cur.code).join(", ") },
     { key: "godownsCount", label: t("godowns") },
     { key: "customersCount", label: t("customers") },
     { key: "usersCount", label: t("users") },
+    { key: "isActive", label: t("status"), render: (c: any) => <span className={c.isActive ? "badge-active" : "badge-cancelled"}>{c.isActive ? t("active") : t("inactive")}</span> },
+    { key: "actions", label: "", render: (c: any) => (
+      <div className="flex gap-2">
+        <button onClick={() => openEdit(c)} className="text-xs text-primary-600 hover:underline">{t("edit")}</button>
+        <button onClick={() => toggleActive(c)} className="text-xs text-yellow-600 hover:underline">{c.isActive ? t("deactivate") : t("activate")}</button>
+      </div>
+    )},
   ]} data={cities} loading={loading} />
+
+    <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t("new_city")} size="md">
+      {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
+      <div className="space-y-3">
+        <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("city")} *</label><input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="input-field" /></div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Country *</label>
+          <select value={form.countryId} onChange={(e) => setForm((f) => ({ ...f, countryId: parseInt(e.target.value) }))} className="select-field">
+            <option value={0}>Select country</option>
+            {countries.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          {selectedCountry && (
+            <p className="mt-1 text-xs text-gray-500">
+              {selectedCountry.name === "Pakistan"
+                ? "Pakistan city: PKR transactions, haji transfers settle to super admin bank/cash accounts."
+                : selectedCountry.name === "Afghanistan"
+                ? "Afghanistan city: AFN transactions, haji transfers settle via intermediaries."
+                : `${selectedCountry.name} city rules will apply.`}
+            </p>
+          )}
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">{t("currencies")} *</label>
+          <div className="grid grid-cols-2 gap-2">
+            {currencies.map((cur: any) => (
+              <label key={cur.id} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer transition-colors ${form.currencyIds.includes(cur.id) ? "bg-primary-50 border-primary-300" : "border-gray-200 hover:bg-gray-50"}`}>
+                <input type="checkbox" checked={form.currencyIds.includes(cur.id)} onChange={() => toggleCurrency(cur.id)} className="w-4 h-4 text-primary-600" />
+                <span className="font-medium">{cur.code}</span>
+                <span className="text-xs text-gray-400">{cur.symbol}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("create")}</button></div>
+    </Modal>
+
+    <Modal open={showEdit} onClose={() => setShowEdit(false)} title={`${t("edit")}: ${selected?.name || ""}`} size="md">
+      {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
+      <div className="space-y-3">
+        <div className="text-sm text-gray-500 bg-gray-50 rounded px-3 py-2">
+          Country: <strong className="text-gray-700">{selectedCountry?.name || selected?.countryName}</strong>
+        </div>
+        <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("city")} *</label><input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="input-field" /></div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">{t("currencies")} *</label>
+          <div className="grid grid-cols-2 gap-2">
+            {currencies.map((cur: any) => (
+              <label key={cur.id} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer transition-colors ${form.currencyIds.includes(cur.id) ? "bg-primary-50 border-primary-300" : "border-gray-200 hover:bg-gray-50"}`}>
+                <input type="checkbox" checked={form.currencyIds.includes(cur.id)} onChange={() => toggleCurrency(cur.id)} className="w-4 h-4 text-primary-600" />
+                <span className="font-medium">{cur.code}</span>
+                <span className="text-xs text-gray-400">{cur.symbol}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={handleEdit} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button></div>
+    </Modal>
   </>;
 }
 

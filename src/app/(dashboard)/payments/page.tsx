@@ -240,7 +240,7 @@ function buildLatestPaymentEntrySummary(
   const currencyId = Number(body?.currencyId || formSnapshot?.currencyId || 0);
   const currency = currencies.find((row: any) => row.id === currencyId);
   const currencyLabel = currency?.symbol || currency?.code || "";
-  const amount = Number(body?.amount || formSnapshot?.amount || 0);
+  const amount = Number(body?.amount || body?.cashAmount || formSnapshot?.amount || formSnapshot?.cashAmount || 0);
   const date = body?.paymentDate || body?.transferDate || body?.expenseDate || body?.withdrawalDate || formSnapshot?.paymentDate || formSnapshot?.transferDate || formSnapshot?.expenseDate || formSnapshot?.withdrawalDate || "";
   const lotId = Number(body?.lotId || formSnapshot?.lotId || 0);
   const lot = lots.find((row: any) => row.id === lotId);
@@ -769,12 +769,30 @@ export default function PaymentsPage() {
     };
   }, [currencies]);
 
+  const loadLatestCreateEntrySummary = useCallback(async (type: string) => {
+    if (isOnline) {
+      const result = await apiCall("/api/v1/finance/combined", { params: { page: 1, limit: 1, type } });
+      if (result.success) {
+        const latest = buildLatestPaymentEntrySummaryFromRow(((result.data as any[]) || [])[0]);
+        if (latest) return latest;
+      }
+    }
+
+    const localEntry = items.find((item: any) => item.type === type) || items[0];
+    if (localEntry) return buildLatestPaymentEntrySummaryFromRow(localEntry);
+
+    const snapshot = readOfflineReadSnapshot<PaymentsReadSnapshot>(PAYMENTS_READ_CACHE_KEY)?.data;
+    const snapshotEntry = snapshot?.items?.find((item: any) => item.type === type) || snapshot?.items?.[0];
+    if (snapshotEntry) return buildLatestPaymentEntrySummaryFromRow(snapshotEntry);
+    return null;
+  }, [isOnline, items]);
+
   const openCreate = async (type: string, preset?: Record<string, any>) => {
     setCreateFormReady(false);
     setCreateType(type);
     setResolvingQueueId(null);
     setPaymentSavedNotice(null);
-    setLatestCreatedEntry(buildLatestPaymentEntrySummaryFromRow(items.find((item: any) => item.type === type) || items[0]));
+    setLatestCreatedEntry(await loadLatestCreateEntrySummary(type));
     const { loadedCurrencies } = await loadHelpers();
     const offlineReadinessError = getOfflineFormReadinessError({
       isOnline,
@@ -891,7 +909,7 @@ export default function PaymentsPage() {
         body: {
           lotId: form.lotId || null,
           transferDate: form.transferDate || form.paymentDate || new Date().toISOString().split("T")[0],
-          amount: Number(form.amount || 0),
+          amount: form.sourceType === "cheque" ? selectedHajiChequeTotal : Number(form.amount || 0),
           cashAmount: form.sourceType === "mixed_cash_cheque" ? Number(form.cashAmount || 0) : undefined,
           currencyId: resolvedCurrencyId,
           detail: hajiDetail,
@@ -901,7 +919,7 @@ export default function PaymentsPage() {
           sourceType: isAfghanistanCity
             ? "cash_office"
             : isChequeSource
-              ? "mixed_cash_cheque"
+              ? form.sourceType
               : form.sourceType || "cash_office",
           bankAccountId: form.sourceType === "bank_transfer" ? form.bankAccountId || undefined : undefined,
           chequePaymentIds: isChequeSource ? chequePaymentIds : undefined,
@@ -2028,19 +2046,19 @@ export default function PaymentsPage() {
     <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
       {!isEmbed && <PageHeader title={isSuperAdmin ? "Haji Payments" : t("payments")} />}
       {!isEmbed && (
-        <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="mb-3 grid grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap">
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search…"
-            className="input-field h-8 min-w-[7rem] flex-1 text-xs sm:max-w-xs"
+            className="input-field col-span-2 h-8 min-w-0 text-xs sm:col-span-1 sm:min-w-[7rem] sm:flex-1 sm:max-w-xs"
           />
           {!isSuperAdmin && (
             <select
               value={typeFilter}
               onChange={e => setTypeFilter(e.target.value)}
-              className="select-field h-8 w-auto text-xs"
+              className="select-field h-8 min-w-0 w-full text-xs sm:w-auto"
             >
               <option value="all">All types</option>
               <option value="payment">Payments</option>
@@ -2052,7 +2070,7 @@ export default function PaymentsPage() {
           <select
             value={dateRangePreset}
             onChange={(e) => applyDatePreset(e.target.value as "today" | "last7" | "month" | "all" | "custom")}
-            className="select-field h-8 w-auto text-xs"
+            className="select-field h-8 min-w-0 w-full text-xs sm:w-auto"
             aria-label="Date range preset"
           >
             <option value="month">This month</option>
@@ -2067,13 +2085,13 @@ export default function PaymentsPage() {
                 type="date"
                 value={fromDate}
                 onChange={(e) => setFromDate(e.target.value)}
-                className="input-field h-8 w-[8.5rem] text-xs"
+                className="input-field h-8 min-w-0 w-full text-xs sm:w-[8.5rem]"
               />
               <input
                 type="date"
                 value={toDate}
                 onChange={(e) => setToDate(e.target.value)}
-                className="input-field h-8 w-[8.5rem] text-xs"
+                className="input-field h-8 min-w-0 w-full text-xs sm:w-[8.5rem]"
               />
             </>
           )}
@@ -2084,7 +2102,7 @@ export default function PaymentsPage() {
             cityId={user?.cityId ?? undefined}
             query={searchQuery}
             disabled={!isOnline}
-            className="ml-auto"
+            className="col-span-2 justify-end sm:ml-auto"
           />
         </div>
       )}
@@ -2132,7 +2150,7 @@ export default function PaymentsPage() {
         <div key={`create-${createType}-${createFormVersion}`} className="space-y-3">
           {simplifyModals && createType === "payment" ? (
             <>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="min-w-0">
                   <label className="mb-1 block text-sm font-medium text-gray-700">{t("date")} *</label>
                   <MobileDateInput
@@ -2262,7 +2280,7 @@ export default function PaymentsPage() {
               )}
 
               {currencies.length > 1 ? (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="min-w-0">
                     <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
                     <FormattedNumberInput
@@ -2306,7 +2324,7 @@ export default function PaymentsPage() {
               )}
 
               {!isAfghanistanCity ? (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="min-w-0">
                     <label className="mb-1 block text-sm font-medium text-gray-700">
                       {form.paymentMethod === "cheque" ? t("cheque_number") : t("reference")}
@@ -2345,27 +2363,17 @@ export default function PaymentsPage() {
           ) : (
             <>
           {/* ── DATE — always first ── */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="min-w-0">
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
-              {createType === "haji_transfer" ? (
-                <MobileDateInput
-                  value={form.transferDate || ""}
-                  onChange={(transferDate) => setForm((f: any) => ({ ...f, transferDate, paymentDate: transferDate, expenseDate: transferDate, withdrawalDate: transferDate }))}
-                  placeholder={t("date")}
-                  closeOnSelect
-                />
-              ) : (
-                <input type="date"
-                  value={form.paymentDate || form.expenseDate || form.transferDate || form.withdrawalDate || ""}
-                  onChange={e => {
-                    const d = e.target.value;
-                    setForm((f: any) => ({ ...f, paymentDate: d, expenseDate: d, transferDate: d, withdrawalDate: d }));
-                    e.currentTarget.blur();
-                  }}
-                  className="input-field"
-                />
-              )}
+              <MobileDateInput
+                variant="field"
+                value={form.paymentDate || form.expenseDate || form.transferDate || form.withdrawalDate || ""}
+                onChange={(d) => setForm((f: any) => ({ ...f, paymentDate: d, expenseDate: d, transferDate: d, withdrawalDate: d }))}
+                placeholder={t("date")}
+                aria-label={t("date")}
+                closeOnSelect
+              />
             </div>
             <div className="min-w-0">
               <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
@@ -2607,7 +2615,7 @@ export default function PaymentsPage() {
 
           {createType === "payment" && (
             currencies.length > 1 ? (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="min-w-0">
                   <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
                   <FormattedNumberInput
@@ -2653,7 +2661,7 @@ export default function PaymentsPage() {
 
           {createType === "payment" && form.paymentMethod === "cheque" && !simplifyModals && (
             <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">{t("drawn_on_bank")}</label>
                   <input value={form.chequeBank || ""} onChange={e => setForm((f: any) => ({ ...f, chequeBank: e.target.value }))} className="input-field" placeholder="e.g. HBL" />
@@ -2800,7 +2808,7 @@ export default function PaymentsPage() {
                   </select>
                 </div>
               )}
-              <div className={`grid grid-cols-2 gap-3 ${currencies.length > 1 ? "sm:grid-cols-5" : "sm:grid-cols-4"}`}>
+              <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${currencies.length > 1 ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
                 <div className="min-w-0">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     {form.sourceType === "mixed_cash_cheque" ? "Cash Amount" : t("amount")}{" "}
@@ -2855,15 +2863,6 @@ export default function PaymentsPage() {
                     </select>
                   </div>
                 )}
-                <div className="min-w-0">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("lot")}</label>
-                  <select value={form.lotId || 0} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value, 10) || 0 }))} className="select-field">
-                    <option value={0}>{t("auto_fifo")}</option>
-                    {lots.filter((lot: any) => lot.status === "ongoing" || !lot.status).map((lot: any) => (
-                      <option key={lot.id} value={lot.id}>{lot.lotNumber}</option>
-                    ))}
-                  </select>
-                </div>
                 <div className="min-w-0">
                   <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
                   <input value={form.notes || ""} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" />
@@ -2942,17 +2941,16 @@ export default function PaymentsPage() {
         <div className="space-y-3">
           {createType === "payment" ? (
             <>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="min-w-0">
                   <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
-                  <input
-                    type="date"
+                  <MobileDateInput
+                    variant="field"
                     value={form.paymentDate || ""}
-                    onChange={e => {
-                      const d = e.target.value;
-                      setForm((f: any) => ({ ...f, paymentDate: d, expenseDate: d, transferDate: d, withdrawalDate: d }));
-                    }}
-                    className="input-field"
+                    onChange={(d) => setForm((f: any) => ({ ...f, paymentDate: d, expenseDate: d, transferDate: d, withdrawalDate: d }))}
+                    placeholder={t("date")}
+                    aria-label={t("date")}
+                    closeOnSelect
                   />
                 </div>
                 {canCreateRecords && (
@@ -3065,7 +3063,7 @@ export default function PaymentsPage() {
               )}
 
               {currencies.length > 1 ? (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="min-w-0">
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
                     <FormattedNumberInput min={createType === "payment" ? undefined : "0.01"} allowNegative={createType === "payment"} value={form.amount || ""} onValueChange={(value, rawValue) => setForm((f: any) => ({ ...f, amount: preserveSignedPaymentAmount(value, rawValue) }))} className="input-field" />
@@ -3084,7 +3082,7 @@ export default function PaymentsPage() {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="min-w-0">
                   <label className="mb-1 block text-sm font-medium text-gray-700">
                     {form.paymentMethod === "cheque" ? t("cheque_number") : t("reference")}
@@ -3104,16 +3102,16 @@ export default function PaymentsPage() {
             </>
           ) : (
             <>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="min-w-0">
                   <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
-                  <input type="date"
+                  <MobileDateInput
+                    variant="field"
                     value={form.expenseDate || form.withdrawalDate || form.transferDate || form.paymentDate || ""}
-                    onChange={e => {
-                      const d = e.target.value;
-                      setForm((f: any) => ({ ...f, expenseDate: d, withdrawalDate: d, transferDate: d, paymentDate: d }));
-                    }}
-                    className="input-field"
+                    onChange={(d) => setForm((f: any) => ({ ...f, expenseDate: d, withdrawalDate: d, transferDate: d, paymentDate: d }))}
+                    placeholder={t("date")}
+                    aria-label={t("date")}
+                    closeOnSelect
                   />
                 </div>
                 {canCreateRecords && (
@@ -3134,7 +3132,7 @@ export default function PaymentsPage() {
               )}
 
               {createType !== "haji_transfer" && currencies.length > 1 ? (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="min-w-0">
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
                     <FormattedNumberInput min={createType === "payment" ? undefined : "0.01"} allowNegative={createType === "payment"} value={form.amount || ""} onValueChange={(value, rawValue) => setForm((f: any) => ({ ...f, amount: preserveSignedPaymentAmount(value, rawValue) }))} className="input-field" />
@@ -3362,7 +3360,7 @@ export default function PaymentsPage() {
                       </select>
                     </div>
                   )}
-                  <div className={`grid grid-cols-2 gap-3 ${currencies.length > 1 ? "sm:grid-cols-5" : "sm:grid-cols-4"}`}>
+                  <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${currencies.length > 1 ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
                     <div className="min-w-0">
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         {form.sourceType === "mixed_cash_cheque" ? "Cash Amount" : t("amount")}{" "}
@@ -3417,15 +3415,6 @@ export default function PaymentsPage() {
                         </select>
                       </div>
                     )}
-                    <div className="min-w-0">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">{t("lot")}</label>
-                      <select value={form.lotId || 0} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value, 10) || 0 }))} className="select-field">
-                        <option value={0}>{t("auto_fifo")}</option>
-                        {lots.filter((lot: any) => lot.status === "ongoing" || !lot.status).map((lot: any) => (
-                          <option key={lot.id} value={lot.id}>{lot.lotNumber}</option>
-                        ))}
-                      </select>
-                    </div>
                     <div className="min-w-0">
                       <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
                       <input value={form.notes || ""} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" />

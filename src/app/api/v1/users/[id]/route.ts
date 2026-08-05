@@ -37,8 +37,20 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     if (body.fullName) data.fullName = body.fullName;
     if (body.isActive !== undefined) data.isActive = body.isActive;
 
+    if (body.username !== undefined) {
+      const username = String(body.username).trim();
+      if (username.length < 3 || username.length > 100) {
+        return errorResponse("VALIDATION_ERROR", "Username must be between 3 and 100 characters");
+      }
+      const existingUsername = await prisma.user.findUnique({ where: { username } });
+      if (existingUsername && existingUsername.id !== id) {
+        return errorResponse("DUPLICATE", "Username already exists", 409);
+      }
+      data.username = username;
+    }
+
     const updated = await prisma.user.update({ where: { id }, data });
-    await createAuditLog(user.userId, null, "users", id, "update", { fullName: existing.fullName, isActive: existing.isActive }, { fullName: updated.fullName, isActive: updated.isActive }, getClientIP(request));
-    return successResponse({ id: updated.id, fullName: updated.fullName, isActive: updated.isActive }, "User updated");
+    await createAuditLog(user.userId, null, "users", id, "update", { fullName: existing.fullName, username: existing.username, isActive: existing.isActive }, { fullName: updated.fullName, username: updated.username, isActive: updated.isActive }, getClientIP(request));
+    return successResponse({ id: updated.id, fullName: updated.fullName, username: updated.username, isActive: updated.isActive }, "User updated");
   } catch (error) { return serverError(); }
 });

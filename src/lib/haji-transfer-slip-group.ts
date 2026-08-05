@@ -44,7 +44,7 @@ function mergeSlipGroup(group: HajiTransferListRow[]): HajiTransferListRow {
   const sourceTypes = new Set(sorted.map((row) => row.sourceType));
 
   let sourceType = primary.sourceType;
-  if (sourceTypes.has("cheque") && (sourceTypes.has("cash_office") || sorted.length > 1)) {
+  if (sourceTypes.has("cheque") && sourceTypes.has("cash_office")) {
     sourceType = "mixed_cash_cheque";
   }
 

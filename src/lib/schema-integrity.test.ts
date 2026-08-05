@@ -157,8 +157,10 @@ test("city payment modal owns haji expense and withdrawal creation", () => {
   assert.match(paymentsPage, /type LatestPaymentEntrySummary = \{/);
   assert.match(paymentsPage, /function buildLatestPaymentEntrySummary\(/);
   assert.match(paymentsPage, /function buildLatestPaymentEntrySummaryFromRow\(/);
+  assert.match(paymentsPage, /const loadLatestCreateEntrySummary = useCallback/);
+  assert.match(paymentsPage, /apiCall\("\/api\/v1\/finance\/combined", \{ params: \{ page: 1, limit: 1, type \} \}\)/);
   assert.match(paymentsPage, /setLatestCreatedEntry\(buildLatestPaymentEntrySummary\(createType, body, formSnapshot, currencies, lots/);
-  assert.match(paymentsPage, /setLatestCreatedEntry\(buildLatestPaymentEntrySummaryFromRow\(items\.find\(\(item: any\) => item\.type === type\) \|\| items\[0\]/);
+  assert.match(paymentsPage, /setLatestCreatedEntry\(await loadLatestCreateEntrySummary\(type\)\)/);
   assert.match(paymentsPage, /\{latestCreatedEntry && \(/);
   assert.match(paymentsPage, /latestCreatedEntry\.meta\.join\(" · "\)/);
   assert.match(paymentsPage, /key: "actions", label: t\("actions"\)/);
@@ -174,9 +176,11 @@ test("city sale modal shows compact latest sale summary after save", () => {
   assert.match(salesPage, /type LatestSaleSummary = \{/);
   assert.match(salesPage, /function buildLatestSaleSummary\(/);
   assert.match(salesPage, /function buildLatestSaleSummaryFromRow\(/);
+  assert.match(salesPage, /const loadLatestSaleSummary = useCallback/);
+  assert.match(salesPage, /apiCall\("\/api\/v1\/sales", \{ params: \{ page: 1, limit: 1 \} \}\)/);
   assert.match(salesPage, /const \[latestCreatedSale, setLatestCreatedSale\] = useState<LatestSaleSummary \| null>\(null\)/);
   assert.match(salesPage, /setLatestCreatedSale\(buildLatestSaleSummary\(/);
-  assert.match(salesPage, /setLatestCreatedSale\(buildLatestSaleSummaryFromRow\(sales\[0\]/);
+  assert.match(salesPage, /setLatestCreatedSale\(await loadLatestSaleSummary\(\)\)/);
   assert.match(salesPage, /\{latestCreatedSale && \(/);
   assert.match(salesPage, /latestCreatedSale\.meta\.join\(" · "\)/);
 });
@@ -344,6 +348,8 @@ test("city sales support per-item lot selection and locked completed sale item l
   assert.match(salesPage, /oldLotId > 0 && !ids\.includes\(oldLotId\)/);
   assert.match(salesPage, /\.\.\.\(field === "productId" \? \{ lotId: 0, remainingLotId: 0 \} : \{\}\)/);
   assert.match(salesPage, /\.\.\.\(field === "lotId" \? \{ remainingLotId: 0 \} : \{\}\)/);
+  assert.match(salesPage, /grid grid-cols-1 gap-2 items-end sm:grid-cols-2 lg:grid-cols-5/);
+  assert.match(salesPage, /col-span-1 flex items-center gap-2 text-\[11px\] text-blue-700 sm:col-span-2 lg:col-span-5/);
 });
 
 test("city sales auto lot selection expands sale items across FIFO lot availability", () => {
@@ -439,10 +445,10 @@ test("customer ledger filters stay compact in city modal", () => {
   const filterPanel = customersPage.slice(customersPage.indexOf("Search entries…") - 500, customersPage.indexOf("<GlassButton", customersPage.indexOf("Search entries…")) + 500);
 
   assert.match(filterPanel, /grid grid-cols-2 items-end gap-2/);
-  assert.match(filterPanel, /sm:grid-cols-\[minmax\(10rem,1fr\)_7rem_7\.5rem_7\.5rem_auto\]/);
+  assert.match(filterPanel, /lg:grid-cols-\[minmax\(10rem,1fr\)_7rem_7\.5rem_7\.5rem_auto\]/);
   assert.match(filterPanel, /h-8 min-h-8 w-full py-1\.5 text-sm/);
   assert.match(filterPanel, /className="h-8 w-full px-2 text-sm"/);
-  assert.match(filterPanel, /className="col-span-2 h-8 px-3 text-sm sm:col-span-1"/);
+  assert.match(filterPanel, /className="col-span-2 h-8 px-3 text-sm lg:col-span-1"/);
   assert.doesNotMatch(filterPanel, /flex flex-col gap-3/);
 });
 
@@ -472,8 +478,9 @@ test("payment modal haji quickform matches standalone haji creation flow", () =>
   assert.match(hajiQuickform![0], /Cash Amount/);
   assert.match(paymentsPage, /Slip total:/);
   assert.match(paymentsPage, /formatCurrencySelectLabel/);
-  assert.match(paymentsPage, /\{t\("lot"\)\}[\s\S]*\{t\("notes"\)\}/);
-  assert.doesNotMatch(paymentsPage, /\{t\("lot"\)\}[\s\S]{0,700}\{!isEmbed && \(/);
+  assert.doesNotMatch(hajiQuickform![0], /\{t\("lot"\)\}/);
+  assert.match(paymentsPage, /sourceType: isAfghanistanCity[\s\S]*\? form\.sourceType/);
+  assert.match(paymentsPage, /amount: form\.sourceType === "cheque" \? selectedHajiChequeTotal : Number\(form\.amount \|\| 0\)/);
   assert.match(paymentsPage, /const hajiDetail = isAfghanistanCity[\s\S]*String\(form\.detail \|\| ""\)\.trim\(\)/);
 });
 
@@ -511,6 +518,9 @@ test("payment modal edit reuses create validation and supports type switching", 
   assert.match(paymentsPage, /const cleanupEndpoint = originalType === "payment" \? `\/api\/v1\/payments\/\$\{id\}\/cancel`/);
   assert.match(paymentsPage, /const cleanupMethod = originalType === "payment" \? "PUT" : "DELETE"/);
   assert.match(paymentsPage, /const submission = await buildSubmissionForType\(createType, originalType === createType\)/);
+  const editModalSource = paymentsPage.slice(paymentsPage.indexOf("<Modal open={showEdit}"), paymentsPage.indexOf("{/* ── VOUCHER DUPLICATE WARNING"));
+  assert.match(editModalSource, /grid grid-cols-1 gap-3 sm:grid-cols-2/);
+  assert.match(editModalSource, /grid grid-cols-1 gap-3 sm:grid-cols-2 \$\{currencies\.length > 1 \? "lg:grid-cols-4" : "lg:grid-cols-3"\}/);
 });
 
 test("receive payment amount appears after method and account fields", () => {
@@ -587,7 +597,7 @@ test("payment creation date pickers close after selecting a day", () => {
   assert.match(mobileDateInput, /closeOnSelect\?: boolean/);
   assert.match(mobileDateInput, /if \(closeOnSelect\) e\.currentTarget\.blur\(\)/);
   assert.match(paymentsPage, /<MobileDateInput[\s\S]*?closeOnSelect/);
-  assert.match(paymentsPage, /e\.currentTarget\.blur\(\)/);
+  assert.doesNotMatch(paymentsPage, /type="date"[\s\S]*?e\.currentTarget\.blur\(\)/);
 });
 
 test("city payment ref column shows linked haji transfer reference numbers", () => {

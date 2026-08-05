@@ -762,8 +762,8 @@ export default function CustomersPage() {
           </div>
 
           <div className="rounded-xl border border-[#ececee] bg-white/95 px-3 py-2">
-            <div className="grid grid-cols-2 items-end gap-2 sm:grid-cols-[minmax(10rem,1fr)_7rem_7.5rem_7.5rem_auto]">
-              <div className="col-span-2 min-w-0 sm:col-span-1">
+            <div className="grid grid-cols-2 items-end gap-2 lg:grid-cols-[minmax(10rem,1fr)_7rem_7.5rem_7.5rem_auto]">
+              <div className="col-span-2 min-w-0 lg:col-span-1">
                 <label className={LEDGER_FIELD_LABEL}>Search</label>
                 <input
                   type="text"
@@ -822,7 +822,7 @@ export default function CustomersPage() {
                 type="button"
                 onClick={applyLedgerDateFilter}
                 disabled={ledgerLoading || !selected}
-                className="col-span-2 h-8 px-3 text-sm sm:col-span-1"
+                className="col-span-2 h-8 px-3 text-sm lg:col-span-1"
               >
                 <Play className="h-4 w-4" strokeWidth={2} />
                 {ledgerLoading ? t("loading") : t("generate")}
@@ -837,13 +837,13 @@ export default function CustomersPage() {
           ) : ledgerData ? (
             <div className="overflow-hidden rounded-xl border border-gray-200">
               <div className="overflow-x-auto">
-                <table className="w-full table-fixed text-sm">
+                <table className="min-w-[640px] table-fixed text-xs sm:w-full sm:text-sm">
                   <colgroup>
-                    <col className="w-[88px]" />
+                    <col className="w-[78px] sm:w-[88px]" />
                     <col />
-                    <col className="w-[88px]" />
-                    <col className="w-[88px]" />
-                    <col className="w-[96px]" />
+                    <col className="w-[82px] sm:w-[88px]" />
+                    <col className="w-[82px] sm:w-[88px]" />
+                    <col className="w-[92px] sm:w-[96px]" />
                   </colgroup>
                   <thead>
                     <tr className="bg-[#f4f4f5] text-[11px] uppercase tracking-wider text-gray-500">
@@ -859,7 +859,14 @@ export default function CustomersPage() {
                       const rows = (ledgerData.ledger || []).filter((e: any) => {
                         const needle = ledgerSearchQuery.trim().toLowerCase();
                         if (needle.length < 2) return true;
-                        return [e.date, e.type, e.currency, e.currencySymbol, e.detail, e.voucherNo, e.status]
+                        const sym = ledgerEntrySymbol(e);
+                        return [
+                          e.date, e.type, e.currency, e.currencySymbol, e.detail, e.voucherNo, e.status,
+                          e.debit, e.credit, e.balance,
+                          formatLedgerMoneyAmount(e.debit || 0, sym, e.currency),
+                          formatLedgerMoneyAmount(e.credit || 0, sym, e.currency),
+                          formatLedgerMoneyAmount(e.balance || 0, sym, e.currency),
+                        ]
                           .some((value) => String(value ?? "").toLowerCase().includes(needle));
                       });
                       if (rows.length === 0) {
@@ -878,17 +885,17 @@ export default function CustomersPage() {
                             key={i}
                             className={`border-t border-[#e4e4e7] transition-colors hover:bg-[#fafafa] ${e.status === "cancelled" ? "opacity-40 line-through" : ""}`}
                           >
-                            <td className="whitespace-nowrap px-3 py-2 tabular-nums text-gray-600">{formatDate(e.date)}</td>
-                            <td className="whitespace-normal break-words px-3 py-2 text-gray-800" title={String(e.detail || e.voucherNo || "")}>
+                            <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-gray-600 sm:px-3 sm:py-2">{formatDate(e.date)}</td>
+                            <td className="whitespace-normal break-words px-2 py-1.5 text-gray-800 sm:px-3 sm:py-2" title={String(e.detail || e.voucherNo || "")}>
                               {compactCustomerLedgerDetail(e)}
                             </td>
-                            <td className="px-3 py-2 text-right tabular-nums text-red-700">
+                            <td className="px-2 py-1.5 text-right tabular-nums text-red-700 sm:px-3 sm:py-2">
                               {e.debit > 0 ? formatLedgerMoneyAmount(e.debit, sym, e.currency) : "—"}
                             </td>
-                            <td className="px-3 py-2 text-right tabular-nums text-emerald-700">
+                            <td className="px-2 py-1.5 text-right tabular-nums text-emerald-700 sm:px-3 sm:py-2">
                               {e.credit > 0 ? formatLedgerMoneyAmount(e.credit, sym, e.currency) : "—"}
                             </td>
-                            <td className="px-3 py-2 text-right tabular-nums font-medium text-gray-900">
+                            <td className="px-2 py-1.5 text-right tabular-nums font-medium text-gray-900 sm:px-3 sm:py-2">
                               {(typeof e.balance === "number" && !Number.isNaN(e.balance))
                                 ? formatLedgerMoneyAmount(e.balance, sym, e.currency)
                                 : "—"}

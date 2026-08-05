@@ -31,14 +31,14 @@ test("groupHajiTransferSlipRows merges cash and cheque parts of one slip", () =>
   assert.deepEqual(rows[0].slipTransferIds, [101, 102]);
 });
 
-test("groupHajiTransferSlipRows merges multiple cheques on one slip", () => {
+test("groupHajiTransferSlipRows keeps multiple cheque-only slips labelled cheque", () => {
   const rows = groupHajiTransferSlipRows([
     { ...baseSlip, id: 201, sourceType: "cheque", amount: 3000 },
     { ...baseSlip, id: 202, sourceType: "cheque", amount: 7000 },
   ]);
 
   assert.equal(rows.length, 1);
-  assert.equal(rows[0].sourceType, "mixed_cash_cheque");
+  assert.equal(rows[0].sourceType, "cheque");
   assert.equal(rows[0].amount, 10000);
 });
 

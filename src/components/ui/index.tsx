@@ -631,25 +631,32 @@ export function Modal({
 
   useEffect(() => setMounted(true), []);
 
-  // Keep focused fields visible when the mobile keyboard opens (iOS / Android).
+  // Keep the focused field visible inside the scrollable modal body when the
+  // user moves between fields with Tab / arrow keys (or the mobile keyboard
+  // opens). Scrolls the modal body container directly rather than relying on
+  // native scrollIntoView, which can scroll the wrong ancestor and misses
+  // non-input focus targets (buttons, custom nav elements).
   useEffect(() => {
-    if (!open || inlineMode) return;
+    if (!open) return;
     const root = modalBodyRef.current;
     if (!root) return;
 
-    const onFocusIn = (event: FocusEvent) => {
-      const target = event.target as HTMLElement;
-      if (!root.contains(target)) return;
-      if (
-        !(target instanceof HTMLInputElement) &&
-        !(target instanceof HTMLSelectElement) &&
-        !(target instanceof HTMLTextAreaElement)
-      ) {
-        return;
+    const scrollFocusedFieldIntoView = () => {
+      const target = document.activeElement as HTMLElement | null;
+      if (!target || target === document.body || !root.contains(target)) return;
+      const body = root.getBoundingClientRect();
+      const el = target.getBoundingClientRect();
+      const pad = 8;
+      if (el.top < body.top + pad) {
+        root.scrollTop -= body.top + pad - el.top;
+      } else if (el.bottom > body.bottom - pad) {
+        root.scrollTop += el.bottom - (body.bottom - pad);
       }
-      window.setTimeout(() => {
-        target.scrollIntoView({ block: "center", behavior: "smooth" });
-      }, 320);
+    };
+
+    const onFocusIn = () => {
+      // Wait a tick so focus/layout settles before scrolling.
+      window.setTimeout(scrollFocusedFieldIntoView, 50);
     };
 
     root.addEventListener("focusin", onFocusIn);
