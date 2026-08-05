@@ -378,6 +378,7 @@ export default function PaymentsPage() {
   const [queueSaved, setQueueSaved] = useState(false);
   const [paymentSavedNotice, setPaymentSavedNotice] = useState<string | null>(null);
   const [latestCreatedEntry, setLatestCreatedEntry] = useState<LatestPaymentEntrySummary | null>(null);
+  const [showLatestEntry, setShowLatestEntry] = useState(false);
   const [createFormReady, setCreateFormReady] = useState(false);
   const [createFormVersion, setCreateFormVersion] = useState(0);
   const prefillHandledRef = useRef(false);
@@ -792,6 +793,7 @@ export default function PaymentsPage() {
     setCreateType(type);
     setResolvingQueueId(null);
     setPaymentSavedNotice(null);
+    setShowLatestEntry(false);
     setLatestCreatedEntry(await loadLatestCreateEntrySummary());
     const { loadedCurrencies } = await loadHelpers();
     const offlineReadinessError = getOfflineFormReadinessError({
@@ -2129,20 +2131,30 @@ export default function PaymentsPage() {
       />}
 
       {/* ── CREATE MODAL ───────────────────────────────────────────────────── */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); setCreateFormReady(false); setPaymentSavedNotice(null); setLatestCreatedEntry(null); if (isEmbed) closeEmbed(); }} title={createTitle} size="md" inline={isEmbed} hideHeader={isEmbed}>
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); setCreateFormReady(false); setPaymentSavedNotice(null); setLatestCreatedEntry(null); setShowLatestEntry(false); if (isEmbed) closeEmbed(); }} title={createTitle} size="md" inline={isEmbed} hideHeader={isEmbed}>
+        <div onClick={() => setShowLatestEntry(false)}>
         {paymentSavedNotice && <ModalStatusNotice type="success" message={paymentSavedNotice} />}
         {latestCreatedEntry && (
-          <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-            <div className="flex items-center justify-between gap-3">
-              <span className="shrink-0 font-semibold">{latestCreatedEntry.pending ? "Queued" : "Latest"} {latestCreatedEntry.title}</span>
+          <div className="mb-3">
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setShowLatestEntry((v) => !v); }}
+              className="flex w-full items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 transition-colors hover:bg-emerald-100/70"
+            >
+              <span className="shrink-0 font-semibold">Last Entry {showLatestEntry ? "▲" : "▼"}</span>
               <span className="shrink-0 tabular-nums text-emerald-700">{latestCreatedEntry.date ? formatDate(latestCreatedEntry.date) : "—"}</span>
-            </div>
-            <div className="mt-1 flex items-center justify-between gap-3">
-              <span className="min-w-0 truncate text-emerald-900">{latestCreatedEntry.primary}</span>
-              <span className="shrink-0 font-semibold tabular-nums">{latestCreatedEntry.amount}</span>
-            </div>
-            {latestCreatedEntry.meta.length > 0 && (
-              <div className="mt-1 truncate text-[11px] text-emerald-700">{latestCreatedEntry.meta.join(" · ")}</div>
+            </button>
+            {showLatestEntry && (
+              <div onClick={(e) => e.stopPropagation()} className="mt-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="min-w-0 truncate text-emerald-900">{latestCreatedEntry.pending ? "Queued" : ""} {latestCreatedEntry.title}</span>
+                  <span className="shrink-0 font-semibold tabular-nums">{latestCreatedEntry.amount}</span>
+                </div>
+                <div className="mt-1 truncate text-emerald-900">{latestCreatedEntry.primary}</div>
+                {latestCreatedEntry.meta.length > 0 && (
+                  <div className="mt-1 truncate text-[11px] text-emerald-700">{latestCreatedEntry.meta.join(" · ")}</div>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -2932,6 +2944,7 @@ export default function PaymentsPage() {
           ) : (
             <button onClick={() => handleCreate()} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button>
           )}
+        </div>
         </div>
       </Modal>
 
