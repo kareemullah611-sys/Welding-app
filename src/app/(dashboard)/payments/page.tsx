@@ -769,20 +769,20 @@ export default function PaymentsPage() {
     };
   }, [currencies]);
 
-  const loadLatestCreateEntrySummary = useCallback(async (type: string) => {
+  const loadLatestCreateEntrySummary = useCallback(async () => {
     if (isOnline) {
-      const result = await apiCall("/api/v1/finance/combined", { params: { page: 1, limit: 1, type } });
+      const result = await apiCall("/api/v1/finance/combined", { params: { page: 1, limit: 1, type: "all" } });
       if (result.success) {
         const latest = buildLatestPaymentEntrySummaryFromRow(((result.data as any[]) || [])[0]);
         if (latest) return latest;
       }
     }
 
-    const localEntry = items.find((item: any) => item.type === type) || items[0];
+    const localEntry = items[0];
     if (localEntry) return buildLatestPaymentEntrySummaryFromRow(localEntry);
 
     const snapshot = readOfflineReadSnapshot<PaymentsReadSnapshot>(PAYMENTS_READ_CACHE_KEY)?.data;
-    const snapshotEntry = snapshot?.items?.find((item: any) => item.type === type) || snapshot?.items?.[0];
+    const snapshotEntry = snapshot?.items?.[0];
     if (snapshotEntry) return buildLatestPaymentEntrySummaryFromRow(snapshotEntry);
     return null;
   }, [isOnline, items]);
@@ -792,7 +792,7 @@ export default function PaymentsPage() {
     setCreateType(type);
     setResolvingQueueId(null);
     setPaymentSavedNotice(null);
-    setLatestCreatedEntry(await loadLatestCreateEntrySummary(type));
+    setLatestCreatedEntry(await loadLatestCreateEntrySummary());
     const { loadedCurrencies } = await loadHelpers();
     const offlineReadinessError = getOfflineFormReadinessError({
       isOnline,

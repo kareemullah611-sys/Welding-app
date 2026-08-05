@@ -158,9 +158,9 @@ test("city payment modal owns haji expense and withdrawal creation", () => {
   assert.match(paymentsPage, /function buildLatestPaymentEntrySummary\(/);
   assert.match(paymentsPage, /function buildLatestPaymentEntrySummaryFromRow\(/);
   assert.match(paymentsPage, /const loadLatestCreateEntrySummary = useCallback/);
-  assert.match(paymentsPage, /apiCall\("\/api\/v1\/finance\/combined", \{ params: \{ page: 1, limit: 1, type \} \}\)/);
+  assert.match(paymentsPage, /apiCall\("\/api\/v1\/finance\/combined", \{ params: \{ page: 1, limit: 1, type: "all" \} \}\)/);
   assert.match(paymentsPage, /setLatestCreatedEntry\(buildLatestPaymentEntrySummary\(createType, body, formSnapshot, currencies, lots/);
-  assert.match(paymentsPage, /setLatestCreatedEntry\(await loadLatestCreateEntrySummary\(type\)\)/);
+  assert.match(paymentsPage, /setLatestCreatedEntry\(await loadLatestCreateEntrySummary\(\)\)/);
   assert.match(paymentsPage, /\{latestCreatedEntry && \(/);
   assert.match(paymentsPage, /latestCreatedEntry\.meta\.join\(" · "\)/);
   assert.match(paymentsPage, /key: "actions", label: t\("actions"\)/);
