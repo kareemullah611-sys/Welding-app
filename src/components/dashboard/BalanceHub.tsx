@@ -125,7 +125,7 @@ const BranchRow = ({
   </div>
 );
 
-export default function BalanceHub({ user, treasury, glass = true }: { user: any; treasury: Treasury | null; glass?: boolean }) {
+export default function BalanceHub({ user, treasury, glass = true, netRevealed = true, onNetReveal }: { user: any; treasury: Treasury | null; glass?: boolean; netRevealed?: boolean; onNetReveal?: () => void }) {
   const isAfghanistan = user?.countryName === "Afghanistan";
   const cash = treasury?.cashInOffice;
   const cheques = treasury?.chequesInHand;
@@ -224,15 +224,17 @@ export default function BalanceHub({ user, treasury, glass = true }: { user: any
     >
       <button
         type="button"
-        onClick={() =>
+        onClick={(e) => {
+          e.stopPropagation();
+          onNetReveal?.();
           setExpanded((v) => {
             if (v) {
               setOpenBranch(null);
               setOpenAccountId(null);
             }
             return !v;
-          })
-        }
+          });
+        }}
         className="flex w-full items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-gray-50/80"
         aria-expanded={expanded}
       >
@@ -241,7 +243,7 @@ export default function BalanceHub({ user, treasury, glass = true }: { user: any
         </div>
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Net Balance</p>
-          <p className="text-xl font-bold tabular-nums text-emerald-700">{formatCityPot(user, net)}</p>
+          <p className="text-xl font-bold tabular-nums text-emerald-700">{netRevealed ? formatCityPot(user, net) : "•••"}</p>
         </div>
         <ChevronDown
           className={`ml-auto h-5 w-5 text-gray-400 transition-transform ${expanded ? "" : "-rotate-90"}`}

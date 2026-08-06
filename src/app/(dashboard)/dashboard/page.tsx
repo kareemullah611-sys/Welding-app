@@ -176,6 +176,7 @@ export default function DashboardPage() {
   const [quickFrameLoading, setQuickFrameLoading] = useState(false);
   const [quickFrameKey, setQuickFrameKey] = useState(0);
   const [quickformPortalReady, setQuickformPortalReady] = useState(false);
+  const [revealedMetric, setRevealedMetric] = useState<string | null>(null);
 
   useEffect(() => setQuickformPortalReady(true), []);
 
@@ -315,7 +316,7 @@ export default function DashboardPage() {
     const singleCurrency = isSingleCurrencyCityAdmin(user);
 
     return (
-      <div className="space-y-6">
+      <div className="space-y-6" onClick={() => setRevealedMetric(null)}>
         <PageHeader title={t("dashboard")} />
         {showOfflineSnapshot && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
@@ -342,43 +343,49 @@ export default function DashboardPage() {
           />
           </div>
         </div>
-        <BalanceHub user={user} treasury={treasury} glass />
+        <div onClick={(e) => e.stopPropagation()}>
+          <BalanceHub user={user} treasury={treasury} glass netRevealed={revealedMetric === "net"} onNetReveal={() => setRevealedMetric("net")} />
+        </div>
 
         {/* Key Metrics */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Outstanding */}
           {Object.entries(data?.outstandingByCurrency || {}).length > 0
             ? Object.entries(data.outstandingByCurrency).map(([cc, amt]: [string, any]) => (
-                <MetricCard 
-                  key={`out-${cc}`} 
-                  title={singleCurrency ? "Outstanding" : `Outstanding (${cc})`} 
-                  value={formatCityAmount(user, amt || 0, cc)}
-                  icon={AlertCircle}
-                  color="red"
-                />
+                <div key={`out-${cc}`} onClick={(e) => { e.stopPropagation(); setRevealedMetric("outstanding"); }}>
+                  <MetricCard 
+                    title={singleCurrency ? "Outstanding" : `Outstanding (${cc})`} 
+                    value={revealedMetric === "outstanding" ? formatCityAmount(user, amt || 0, cc) : "•••"}
+                    icon={AlertCircle}
+                    color="red"
+                  />
+                </div>
               ))
-            : <MetricCard title="Outstanding" value="0" icon={CheckCircle2} color="green" />
+            : <div onClick={(e) => { e.stopPropagation(); setRevealedMetric("outstanding"); }}><MetricCard title="Outstanding" value={revealedMetric === "outstanding" ? "0" : "•••"} icon={CheckCircle2} color="green" /></div>
           }
           
-          <MetricCard 
-            title="Cartons Sold" 
-            value={formatNumber(data?.totalCartonsSold || 0)} 
-            icon={Package} 
-            color="blue" 
-          />
+          <div onClick={(e) => { e.stopPropagation(); setRevealedMetric("cartons"); }}>
+            <MetricCard 
+              title="Cartons Sold" 
+              value={revealedMetric === "cartons" ? formatNumber(data?.totalCartonsSold || 0) : "•••"} 
+              icon={Package} 
+              color="blue" 
+            />
+          </div>
           
           {/* Owed to Haji */}
           {Object.entries(data?.hajiByCurrency || {}).length > 0
             ? Object.entries(data.hajiByCurrency).map(([cc, amt]: [string, any]) => (
-                <MetricCard 
-                  key={`haji-${cc}`} 
-                  title={singleCurrency ? "Owed to Haji" : `Owed to Haji (${cc})`} 
-                  value={formatCityAmount(user, amt || 0, cc)}
-                  icon={ArrowRightLeft}
-                  color="orange"
-                />
+                <div key={`haji-${cc}`} onClick={(e) => { e.stopPropagation(); setRevealedMetric("haji"); }}>
+                  <MetricCard 
+                    title={singleCurrency ? "Owed to Haji" : `Owed to Haji (${cc})`} 
+                    value={revealedMetric === "haji" ? formatCityAmount(user, amt || 0, cc) : "•••"}
+                    icon={ArrowRightLeft}
+                    color="orange"
+                  />
+                </div>
               ))
-            : <MetricCard title="Owed to Haji" value="0" icon={ArrowRightLeft} color="green" />
+            : <div onClick={(e) => { e.stopPropagation(); setRevealedMetric("haji"); }}><MetricCard title="Owed to Haji" value={revealedMetric === "haji" ? "0" : "•••"} icon={ArrowRightLeft} color="green" /></div>
           }
         </div>
 
