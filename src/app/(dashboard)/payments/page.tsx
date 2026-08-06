@@ -2007,7 +2007,7 @@ export default function PaymentsPage() {
         : "payments";
   const renderAfghanistanPaymentMethodSelect = () => (
     <div className={isEmbed ? "quickform-panel space-y-2" : "space-y-2 rounded-xl border border-gray-200 bg-gray-50/70 p-4"}>
-      <label className="mb-1 block text-sm font-medium text-gray-700">Payment Method *</label>
+      <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Payment Method *</label>
       <select
         value={getAfghanistanPaymentTargetValue(form)}
         onChange={(e) => handleAfghanistanPaymentTargetChange(e.target.value)}
@@ -2131,7 +2131,7 @@ export default function PaymentsPage() {
       />}
 
       {/* ── CREATE MODAL ───────────────────────────────────────────────────── */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); setCreateFormReady(false); setPaymentSavedNotice(null); setLatestCreatedEntry(null); setShowLatestEntry(false); if (isEmbed) closeEmbed(); }} title={createTitle} size="md" inline={isEmbed} hideHeader={isEmbed}>
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); setCreateFormReady(false); setPaymentSavedNotice(null); setLatestCreatedEntry(null); setShowLatestEntry(false); if (isEmbed) closeEmbed(); }} title={createTitle} size="md" inline={isEmbed} hideHeader={isEmbed} headerAccent={createType === "payment" ? "bg-emerald-500" : createType === "haji_transfer" ? "bg-indigo-500" : createType === "expense" ? "bg-rose-500" : "bg-amber-500"}>
         <div onClick={() => setShowLatestEntry(false)}>
         {paymentSavedNotice && <ModalStatusNotice type="success" message={paymentSavedNotice} />}
         {latestCreatedEntry && (
@@ -2162,9 +2162,9 @@ export default function PaymentsPage() {
         <div key={`create-${createType}-${createFormVersion}`} className="space-y-3">
           {simplifyModals && createType === "payment" ? (
             <>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-2 gap-3">
                 <div className="min-w-0">
-                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("date")} *</label>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("date")} *</label>
                   <MobileDateInput
                     variant="field"
                     value={form.paymentDate || ""}
@@ -2175,7 +2175,7 @@ export default function PaymentsPage() {
                   />
                 </div>
                 <div className="min-w-0">
-                  <label className="mb-1 block text-sm font-medium text-gray-700">Type</label>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Type</label>
                   <select value={createType} onChange={(e) => switchCreateType(e.target.value)} className="select-field">
                     <option value="payment">Receive Payment</option>
                     <option value="haji_transfer">Haji Transfer</option>
@@ -2199,7 +2199,7 @@ export default function PaymentsPage() {
               {!isAfghanistanCity && createFormReady && (
                 <div className={isEmbed ? "quickform-panel space-y-3" : "space-y-3 rounded-xl border border-gray-200 bg-gray-50/70 p-4"}>
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">{t("payment_method")}</label>
+                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("payment_method")}</label>
                     <select
                       value={effectivePaymentMethod}
                       onChange={e => {
@@ -2222,7 +2222,7 @@ export default function PaymentsPage() {
                   </div>
                   {!isOfficeOnlyPaymentMethod && isPakistanSimplified && (
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">Account *</label>
+                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Account *</label>
                     <select
                       value={getPakistanPaymentAccountSelectValue(form)}
                       onChange={e => {
@@ -2242,7 +2242,7 @@ export default function PaymentsPage() {
                   )}
                   {showDestinationField && !isPakistanSimplified && (
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">{t("destination")}</label>
+                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("destination")}</label>
                     <select
                       value={form.destination || "our_account"}
                       onChange={e => setForm((f: any) => ({ ...f, destination: e.target.value, bankAccountId: 0, superAdminBankAccountId: 0 }))}
@@ -2256,7 +2256,7 @@ export default function PaymentsPage() {
                   )}
                   {showCityBankAccountSelect && (
                     <div>
-                      <label className="mb-1 block text-sm font-medium text-gray-700">Bank Account *</label>
+                      <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Bank Account *</label>
                       <select
                         value={form.bankAccountId || 0}
                         onChange={e => setForm((f: any) => ({ ...f, bankAccountId: parseInt(e.target.value, 10), superAdminBankAccountId: 0 }))}
@@ -2273,7 +2273,7 @@ export default function PaymentsPage() {
                   )}
                   {showSuperAdminBankAccountSelect && (
                     <div>
-                      <label className="mb-1 block text-sm font-medium text-gray-700">Bank Account *</label>
+                      <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Bank Account *</label>
                       <select
                         value={form.superAdminBankAccountId || 0}
                         onChange={e => setForm((f: any) => ({ ...f, superAdminBankAccountId: parseInt(e.target.value, 10), bankAccountId: 0 }))}
@@ -2294,7 +2294,7 @@ export default function PaymentsPage() {
               {currencies.length > 1 ? (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="min-w-0">
-                    <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
+                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("amount")} *</label>
                     <FormattedNumberInput
                       allowNegative
                       value={form.amount || ""}
@@ -2303,7 +2303,7 @@ export default function PaymentsPage() {
                     />
                   </div>
                   <div className="min-w-0">
-                    <label className="mb-1 block text-sm font-medium text-gray-700">{t("currency")}</label>
+                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("currency")}</label>
                     <select
                       value={form.currencyId || currencies[0]?.id || 0}
                       onChange={e => setForm((f: any) => ({
@@ -2325,7 +2325,7 @@ export default function PaymentsPage() {
                 </div>
               ) : (
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("amount")} *</label>
                   <FormattedNumberInput
                     allowNegative
                     value={form.amount || ""}
@@ -2338,7 +2338,7 @@ export default function PaymentsPage() {
               {!isAfghanistanCity ? (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="min-w-0">
-                    <label className="mb-1 block text-sm font-medium text-gray-700">
+                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">
                       {form.paymentMethod === "cheque" ? t("cheque_number") : t("reference")}
                     </label>
                     <input
@@ -2349,7 +2349,7 @@ export default function PaymentsPage() {
                     />
                   </div>
                   <div className="min-w-0">
-                    <label className="mb-1 block text-sm font-medium text-gray-700">{t("notes")}</label>
+                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("notes")}</label>
                     <input
                       value={form.notes || ""}
                       onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))}
@@ -2360,7 +2360,7 @@ export default function PaymentsPage() {
                 </div>
               ) : (
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">
                     {form.paymentMethod === "cheque" ? t("cheque_number") : t("reference")}
                   </label>
                   <input
@@ -2375,9 +2375,9 @@ export default function PaymentsPage() {
           ) : (
             <>
           {/* ── DATE — always first ── */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-3">
             <div className="min-w-0">
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("date")} *</label>
               <MobileDateInput
                 variant="field"
                 value={form.paymentDate || form.expenseDate || form.transferDate || form.withdrawalDate || ""}
@@ -2388,7 +2388,7 @@ export default function PaymentsPage() {
               />
             </div>
             <div className="min-w-0">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Type</label>
               <select value={createType} onChange={(e) => switchCreateType(e.target.value)} className="select-field">
                 <option value="payment">Receive Payment</option>
                 <option value="haji_transfer">Haji Transfer</option>
@@ -2410,7 +2410,7 @@ export default function PaymentsPage() {
 
           {createType === "withdrawal" && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Withdrawn By *</label>
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Withdrawn By *</label>
               <input
                 value={form.withdrawnBy || ""}
                 onChange={e => setForm((f: any) => ({ ...f, withdrawnBy: e.target.value }))}
@@ -2422,14 +2422,14 @@ export default function PaymentsPage() {
 
           {createType !== "haji_transfer" && !(createType === "payment" && isAfghanistanCity) && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("detail")} *</label>
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("detail")} *</label>
               <input value={form.detail || ""} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" />
             </div>
           )}
 
           {createType !== "haji_transfer" && createType !== "payment" && currencies.length > 1 && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("currency")}</label>
               <select value={form.currencyId || 0} onChange={e => setForm((f: any) => ({ ...f, currencyId: parseInt(e.target.value) }))} className="select-field">
                 {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code} ({c.symbol})</option>)}
               </select>
@@ -2438,7 +2438,7 @@ export default function PaymentsPage() {
 
           {createType !== "haji_transfer" && createType !== "payment" && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("amount")} *</label>
               <FormattedNumberInput
                 min="0.01"
                 value={form.amount || ""}
@@ -2452,7 +2452,7 @@ export default function PaymentsPage() {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {!isAfghanistanCity && (
                 <div className="min-w-0">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("from")} *</label>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("from")} *</label>
                   <select
                     value={form.paidFrom === "bank_account" && form.bankAccountId ? `bank:${form.bankAccountId}` : "cash_office"}
                     onChange={e => {
@@ -2475,7 +2475,7 @@ export default function PaymentsPage() {
                 </div>
               )}
               <div className="min-w-0">
-                <label className="block text-sm font-medium text-gray-700 mb-1">{t("lot")}</label>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("lot")}</label>
                 <select value={form.lotId || 0} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value, 10) || 0 }))} className="select-field">
                   <option value={0}>{t("auto_fifo")}</option>
                   {lots.filter((lot: any) => lot.status === "ongoing" || !lot.status).map((lot: any) => (
@@ -2488,7 +2488,7 @@ export default function PaymentsPage() {
 
           {createType === "withdrawal" && !isAfghanistanCity && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("source_of_funds")}</label>
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("source_of_funds")}</label>
               <select
                 value={withdrawalSourceValue}
                 onChange={e => {
@@ -2514,7 +2514,7 @@ export default function PaymentsPage() {
           {createType === "payment" && !isAfghanistanCity && createFormReady && (
             <div className={isEmbed ? "quickform-panel space-y-3" : "space-y-3 rounded-xl border border-gray-200 bg-gray-50/70 p-4"}>
               <div>
-                <label className="block mb-1">{simplifyModals ? t("payment_method") : "How was the payment received?"}</label>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{simplifyModals ? t("payment_method") : "How was the payment received?"}</label>
                 {simplifyModals ? (
                   <select
                     value={form.paymentMethod || "cash"}
@@ -2547,7 +2547,7 @@ export default function PaymentsPage() {
               </div>
 
               <div>
-                <label className="block mb-1">{simplifyModals ? t("destination") : "Where should this payment go?"}</label>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{simplifyModals ? t("destination") : "Where should this payment go?"}</label>
                 {simplifyModals ? (
                   <select
                     value={form.destination || "our_account"}
@@ -2589,7 +2589,7 @@ export default function PaymentsPage() {
 
               {showCityBankAccountSelect && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">City Bank Account *</label>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">City Bank Account *</label>
                   <select
                     value={form.bankAccountId || 0}
                     onChange={e => setForm((f: any) => ({ ...f, bankAccountId: parseInt(e.target.value), superAdminBankAccountId: 0 }))}
@@ -2607,7 +2607,7 @@ export default function PaymentsPage() {
 
               {showSuperAdminBankAccountSelect && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Super Admin Bank Account *</label>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Super Admin Bank Account *</label>
                   <select
                     value={form.superAdminBankAccountId || 0}
                     onChange={e => setForm((f: any) => ({ ...f, superAdminBankAccountId: parseInt(e.target.value), bankAccountId: 0 }))}
@@ -2629,7 +2629,7 @@ export default function PaymentsPage() {
             currencies.length > 1 ? (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="min-w-0">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("amount")} *</label>
                   <FormattedNumberInput
                     allowNegative
                     value={form.amount || ""}
@@ -2638,7 +2638,7 @@ export default function PaymentsPage() {
                   />
                 </div>
                 <div className="min-w-0">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("currency")}</label>
                   <select value={form.currencyId || 0} onChange={e => setForm((f: any) => ({ ...f, currencyId: parseInt(e.target.value) }))} className="select-field">
                     {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code} ({c.symbol})</option>)}
                   </select>
@@ -2646,7 +2646,7 @@ export default function PaymentsPage() {
               </div>
             ) : (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("amount")} *</label>
                 <FormattedNumberInput
                   allowNegative
                   value={form.amount || ""}
@@ -2659,7 +2659,7 @@ export default function PaymentsPage() {
 
           {createType === "payment" && !simplifyModals && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">
                 {form.paymentMethod === "cheque" ? t("cheque_number") : t("reference")}
               </label>
               <input
@@ -2675,12 +2675,12 @@ export default function PaymentsPage() {
             <div className="space-y-3">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("drawn_on_bank")}</label>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("drawn_on_bank")}</label>
                   <input value={form.chequeBank || ""} onChange={e => setForm((f: any) => ({ ...f, chequeBank: e.target.value }))} className="input-field" placeholder="e.g. HBL" />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">{t("due_date")}</label>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("due_date")}</label>
                 <input type="date" value={form.chequeDueDate || ""} onChange={e => setForm((f: any) => ({ ...f, chequeDueDate: e.target.value }))} className="input-field" />
               </div>
             </div>
@@ -2690,7 +2690,7 @@ export default function PaymentsPage() {
             <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50/70 p-4">
               {!isAfghanistanCity && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">From *</label>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">From *</label>
                   <select
                     value={form.sourceType || "cash_office"}
                     onChange={e => setForm((f: any) => ({
@@ -2712,7 +2712,7 @@ export default function PaymentsPage() {
               )}
               {isAfghanistanCity && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Going to *</label>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Going to *</label>
                   {settlementOptionsLoading ? (
                     <div className="select-field text-sm text-gray-500">Loading…</div>
                   ) : settlementOptionsError ? (
@@ -2752,7 +2752,7 @@ export default function PaymentsPage() {
               {isAfghanistanCity && renderAfghanistanPaymentMethodSelect()}
               {(form.sourceType === "cheque" || form.sourceType === "mixed_cash_cheque") && !isAfghanistanCity && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("select_cheques")} {form.sourceType === "cheque" ? "*" : ""}</label>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("select_cheques")} {form.sourceType === "cheque" ? "*" : ""}</label>
                   {hajiChequeOptions.length === 0 ? (
                     <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-700">No cheques in hand. Record a cheque payment first.</div>
                   ) : (
@@ -2790,7 +2790,7 @@ export default function PaymentsPage() {
               )}
               {form.sourceType === "bank_transfer" && !isAfghanistanCity && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Bank Account *</label>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Bank Account *</label>
                   <select
                     value={form.bankAccountId || 0}
                     onChange={e => setForm((f: any) => ({ ...f, bankAccountId: parseInt(e.target.value, 10) || 0 }))}
@@ -2807,7 +2807,7 @@ export default function PaymentsPage() {
               )}
               {!isAfghanistanCity && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Superadmin Account *</label>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Superadmin Account *</label>
                   <select
                     value={form.superAdminDestinationAccountId || 0}
                     onChange={e => setForm((f: any) => ({ ...f, superAdminDestinationAccountId: parseInt(e.target.value, 10) || 0 }))}
@@ -2822,7 +2822,7 @@ export default function PaymentsPage() {
               )}
               <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${currencies.length > 1 ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
                 <div className="min-w-0">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">
                     {form.sourceType === "mixed_cash_cheque" ? "Cash Amount" : t("amount")}{" "}
                     {form.sourceType === "cheque" ? <span className="font-normal text-gray-400">(auto)</span> : "*"}
                   </label>
@@ -2842,7 +2842,7 @@ export default function PaymentsPage() {
                   )}
                 </div>
                 <div className="min-w-0">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Ref. No.</label>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Ref. No.</label>
                   <input
                     value={form.referenceNo || ""}
                     onChange={e => setForm((f: any) => ({ ...f, referenceNo: e.target.value }))}
@@ -2851,7 +2851,7 @@ export default function PaymentsPage() {
                 </div>
                 {currencies.length > 1 && (
                   <div className="min-w-0">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")} *</label>
+                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("currency")} *</label>
                     <select
                       value={form.currencyId || 0}
                       onChange={e => {
@@ -2876,7 +2876,7 @@ export default function PaymentsPage() {
                   </div>
                 )}
                 <div className="min-w-0">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("notes")}</label>
                   <input value={form.notes || ""} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" />
                 </div>
               </div>
@@ -2898,10 +2898,10 @@ export default function PaymentsPage() {
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Queued ({paymentQueue.length})</p>
             {/* Header row */}
             <div className="grid grid-cols-[70px_1fr_80px_70px_24px] gap-1 px-3 py-1">
-              <span className="text-[9px] font-bold text-gray-400 uppercase">Date</span>
-              <span className="text-[9px] font-bold text-gray-400 uppercase">Name</span>
-              <span className="text-[9px] font-bold text-gray-400 uppercase">Voucher</span>
-              <span className="text-[9px] font-bold text-gray-400 uppercase text-right">Amount</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Date</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Name</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Voucher</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 text-right">Amount</span>
               <span />
             </div>
             <div className="space-y-1 max-h-40 overflow-y-auto">

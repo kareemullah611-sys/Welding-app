@@ -1257,7 +1257,7 @@ export default function SalesPage() {
       </>
       )}
       {/* ========== CREATE SALE MODAL ========== */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); setShortConfirmed(false); setFormError(""); setSaleSavedNotice(null); setLatestCreatedSale(null); if (isEmbed) closeEmbed(); }} title={t("new_sale")} size={isEmbed ? "lg" : "xl"} inline={isEmbed} hideHeader={isEmbed}>
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); setShortConfirmed(false); setFormError(""); setSaleSavedNotice(null); setLatestCreatedSale(null); if (isEmbed) closeEmbed(); }} title={t("new_sale")} size={isEmbed ? "lg" : "xl"} inline={isEmbed} hideHeader={isEmbed} headerAccent="bg-blue-500">
         {saleSavedNotice && <ModalStatusNotice type="success" message={saleSavedNotice} />}
         {latestCreatedSale && (
           <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
@@ -1434,7 +1434,7 @@ export default function SalesPage() {
         <>
         {/* Date — always first */}
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
+          <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("date")} *</label>
           <input type="date" value={form.saleDate} onChange={(e) => setForm((f) => ({ ...f, saleDate: e.target.value }))} className="input-field" autoFocus />
         </div>
         <div className={isEmbed ? "quickform-panel mb-3 space-y-3" : "mb-4 rounded-xl border border-gray-200 bg-gray-50/80 p-4"}>
@@ -1459,7 +1459,7 @@ export default function SalesPage() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("godown")} *</label>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("godown")} *</label>
             <select value={form.godownId} onChange={(e) => onGodownChange(parseInt(e.target.value))} className="select-field">
               <option value={0}>{t("select_godown")}</option>
               {/* Group godowns by city */}
@@ -1483,7 +1483,7 @@ export default function SalesPage() {
 
         {currencies.length > 1 && (
           <div className={isEmbed ? "mb-3" : "mb-4"}>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("currency")}</label>
             <select value={form.currencyId} onChange={(e) => setForm((f) => ({ ...f, currencyId: parseInt(e.target.value) }))} className="select-field">
               {currencies.map((c: any) => <option key={c.id} value={c.id}>{c.code} ({c.symbol})</option>)}
             </select>
@@ -1491,7 +1491,7 @@ export default function SalesPage() {
         )}
 
         <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("notes")}</label>
             <input type="text" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" />
         </div>
 
@@ -1533,7 +1533,7 @@ export default function SalesPage() {
           </div>
           )}
           <div className="flex items-center justify-between mb-2">
-            <label className="text-sm font-medium text-gray-700">{t("product")} *</label>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("product")} *</label>
             <button onClick={addItem} className="text-primary-600 text-sm font-medium hover:text-primary-700">+ {t("add_item")}</button>
           </div>
           <div className="space-y-2">
@@ -1545,7 +1545,7 @@ export default function SalesPage() {
               return (
                 <div key={idx} className="flex flex-wrap gap-2 items-end">
                   <div className="flex-1">
-                    {idx === 0 && <label className="block text-xs text-gray-500 mb-1">{t("product")}</label>}
+                    {idx === 0 && <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("product")}</label>}
                     <select value={item.productId} onChange={(e) => updateItem(idx, "productId", parseInt(e.target.value))} className="select-field text-sm">
                       <option value={0}>{t("select_product")}</option>
                       {products.map((p: any) => {
@@ -1555,22 +1555,22 @@ export default function SalesPage() {
                     </select>
                   </div>
                   <div className="w-24">
-                    {idx === 0 && <label className="block text-xs text-gray-500 mb-1">{t("lot")}</label>}
+                    {idx === 0 && <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("lot")}</label>}
                     <select value={item.lotId || 0} onChange={(e) => updateItem(idx, "lotId", parseInt(e.target.value))} className="select-field text-sm">
                       <option value={0}>Auto</option>
                       {lotOptionsForItem(item).map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}{l.status === "completed" ? " ✓" : ""}</option>)}
                     </select>
                   </div>
                   <div className="w-24">
-                    {idx === 0 && <label className="block text-xs text-gray-500 mb-1">{pcsItem ? "Qty (CTN)" : t("qty")}</label>}
+                    {idx === 0 && <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{pcsItem ? "Qty (CTN)" : t("qty")}</label>}
                     <input type="number" value={item.qty || ""} onChange={(e) => updateItem(idx, "qty", parseFloat(e.target.value) || 0)} className={`input-field text-sm ${item.productId && item.qty > avail ? "border-red-400 bg-red-50" : ""}`} placeholder="0" max={avail || undefined} />
                   </div>
                   <div className="w-14 text-center">
-                    {idx === 0 && <label className="block text-xs text-gray-500 mb-1">{t("available")}</label>}
+                    {idx === 0 && <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("available")}</label>}
                     <span className={`text-xs font-medium ${item.productId ? (avail > 0 ? "text-green-600" : "text-red-500") : "text-gray-300"}`}>{item.productId ? avail : "-"}</span>
                   </div>
                   <div className="w-32">
-                    {idx === 0 && <label className="block text-xs text-gray-500 mb-1">{pcsItem ? localPcsLabel : t("rate_per_carton")}</label>}
+                    {idx === 0 && <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{pcsItem ? localPcsLabel : t("rate_per_carton")}</label>}
                     {pcsItem ? (
                       <div className="space-y-1">
                         <input type="number" value={item.ratePerPieceLocal || ""} onChange={(e) => updateItem(idx, "ratePerPieceLocal", parseFloat(e.target.value) || 0)} className="input-field text-sm" placeholder={localPcsLabel} />
@@ -1581,7 +1581,7 @@ export default function SalesPage() {
                     )}
                   </div>
                   <div className="w-28 text-right">
-                    {idx === 0 && <label className="block text-xs text-gray-500 mb-1">{t("amount")}</label>}
+                    {idx === 0 && <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("amount")}</label>}
                     <p className="py-2 text-sm font-medium">{amountPrefix}{itemLocalAmount(item).toLocaleString("en-US")}{pcsItem && isAfghanistanSale && Number(item.ratePerPieceUsd || 0) > 0 && <span className="block text-xs text-gray-500">${itemUsdAmount(item).toLocaleString("en-US")}</span>}</p>
                   </div>
                   {form.items.length > 1 && <button onClick={() => removeItem(idx)} className="text-red-500 hover:text-red-700 pb-2 text-lg">×</button>}

@@ -613,6 +613,7 @@ export function Modal({
   inline = false,
   hideHeader = false,
   bodyClassName,
+  headerAccent,
 }: {
   open: boolean;
   onClose: () => void;
@@ -622,6 +623,7 @@ export function Modal({
   inline?: boolean;
   hideHeader?: boolean;
   bodyClassName?: string;
+  headerAccent?: string;
 }) {
   const [mounted, setMounted] = useState(false);
   const modalBodyRef = useRef<HTMLDivElement>(null);
@@ -785,7 +787,10 @@ export function Modal({
         )}
       >
         {!suppressHeader && (
-          <DialogHeader className="sticky top-0 z-10 flex flex-row items-center gap-3 border-b border-[#e4e4e7] bg-[rgba(255,255,255,0.98)] px-4 py-3 backdrop-blur-sm sm:px-6 sm:py-4">
+          <DialogHeader className="relative sticky top-0 z-10 flex flex-row items-center gap-3 border-b border-[#e4e4e7] bg-[rgba(255,255,255,0.98)] px-4 py-3 backdrop-blur-sm sm:px-6 sm:py-4">
+            {headerAccent && (
+              <span aria-hidden className={cn("pointer-events-none absolute inset-x-0 top-0 h-[3px]", headerAccent)} />
+            )}
             <DialogTitle asChild>
               <div className="min-w-0 flex-1 text-base font-semibold tracking-[0.01em] text-[#2A0608] sm:text-[1rem]">{title}</div>
             </DialogTitle>
