@@ -13,33 +13,35 @@ function mutationRequest(headers: Record<string, string> = {}) {
 test("production rejects cookie mutation without Origin or Referer", () => {
   const prevNodeEnv = process.env.NODE_ENV;
   const prevAppUrl = process.env.NEXT_PUBLIC_APP_URL;
-  process.env.NODE_ENV = "production";
+  Object.assign(process.env, { NODE_ENV: "production" });
   process.env.NEXT_PUBLIC_APP_URL = "https://app.example.com";
   try {
     assert.equal(isCsrfSafe(mutationRequest()), false);
   } finally {
-    process.env.NODE_ENV = prevNodeEnv;
+    if (prevNodeEnv) Object.assign(process.env, { NODE_ENV: prevNodeEnv });
+    else delete (process.env as Record<string, string | undefined>).NODE_ENV;
     process.env.NEXT_PUBLIC_APP_URL = prevAppUrl;
   }
 });
 
 test("production allows Bearer token without Origin", () => {
   const prevNodeEnv = process.env.NODE_ENV;
-  process.env.NODE_ENV = "production";
+  Object.assign(process.env, { NODE_ENV: "production" });
   try {
     assert.equal(
       isCsrfSafe(mutationRequest({ authorization: "Bearer test-token" })),
       true
     );
   } finally {
-    process.env.NODE_ENV = prevNodeEnv;
+    if (prevNodeEnv) Object.assign(process.env, { NODE_ENV: prevNodeEnv });
+    else delete (process.env as Record<string, string | undefined>).NODE_ENV;
   }
 });
 
 test("production allows mutation when Origin matches app URL", () => {
   const prevNodeEnv = process.env.NODE_ENV;
   const prevAppUrl = process.env.NEXT_PUBLIC_APP_URL;
-  process.env.NODE_ENV = "production";
+  Object.assign(process.env, { NODE_ENV: "production" });
   process.env.NEXT_PUBLIC_APP_URL = "https://app.example.com";
   try {
     assert.equal(
@@ -47,7 +49,8 @@ test("production allows mutation when Origin matches app URL", () => {
       true
     );
   } finally {
-    process.env.NODE_ENV = prevNodeEnv;
+    if (prevNodeEnv) Object.assign(process.env, { NODE_ENV: prevNodeEnv });
+    else delete (process.env as Record<string, string | undefined>).NODE_ENV;
     process.env.NEXT_PUBLIC_APP_URL = prevAppUrl;
   }
 });
@@ -56,7 +59,7 @@ test("production rejects Host-header-only CSRF fallback unless explicitly truste
   const prevNodeEnv = process.env.NODE_ENV;
   const prevAppUrl = process.env.NEXT_PUBLIC_APP_URL;
   const prevTrustHost = process.env.TRUST_HOST_HEADER_CSRF;
-  process.env.NODE_ENV = "production";
+  Object.assign(process.env, { NODE_ENV: "production" });
   delete process.env.NEXT_PUBLIC_APP_URL;
   delete process.env.TRUST_HOST_HEADER_CSRF;
   try {
@@ -76,7 +79,8 @@ test("production rejects Host-header-only CSRF fallback unless explicitly truste
       true
     );
   } finally {
-    process.env.NODE_ENV = prevNodeEnv;
+    if (prevNodeEnv) Object.assign(process.env, { NODE_ENV: prevNodeEnv });
+    else delete (process.env as Record<string, string | undefined>).NODE_ENV;
     if (prevAppUrl) process.env.NEXT_PUBLIC_APP_URL = prevAppUrl;
     else delete process.env.NEXT_PUBLIC_APP_URL;
     if (prevTrustHost) process.env.TRUST_HOST_HEADER_CSRF = prevTrustHost;
@@ -93,11 +97,12 @@ test("CSP report endpoint is public", async () => {
 
 test("development allows mutation without Origin", () => {
   const prevNodeEnv = process.env.NODE_ENV;
-  process.env.NODE_ENV = "development";
+  Object.assign(process.env, { NODE_ENV: "development" });
   try {
     assert.equal(isCsrfSafe(mutationRequest()), true);
   } finally {
-    process.env.NODE_ENV = prevNodeEnv;
+    if (prevNodeEnv) Object.assign(process.env, { NODE_ENV: prevNodeEnv });
+    else delete (process.env as Record<string, string | undefined>).NODE_ENV;
   }
 });
 

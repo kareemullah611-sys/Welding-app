@@ -41,7 +41,7 @@ test("production requires Redis-backed rate limiting unless explicitly overridde
   const prevAllowMemory = process.env.ALLOW_MEMORY_RATE_LIMIT_IN_PRODUCTION;
   delete process.env.REDIS_URL;
   delete process.env.ALLOW_MEMORY_RATE_LIMIT_IN_PRODUCTION;
-  process.env.NODE_ENV = "production";
+  Object.assign(process.env, { NODE_ENV: "production" });
   try {
     await assert.rejects(
       () => rateLimit(`prod:${Date.now()}`, 1, 60_000),
@@ -50,7 +50,8 @@ test("production requires Redis-backed rate limiting unless explicitly overridde
   } finally {
     if (prevRedisUrl) process.env.REDIS_URL = prevRedisUrl;
     else delete process.env.REDIS_URL;
-    process.env.NODE_ENV = prevNodeEnv;
+    if (prevNodeEnv) Object.assign(process.env, { NODE_ENV: prevNodeEnv });
+    else delete (process.env as Record<string, string | undefined>).NODE_ENV;
     if (prevAllowMemory) process.env.ALLOW_MEMORY_RATE_LIMIT_IN_PRODUCTION = prevAllowMemory;
     else delete process.env.ALLOW_MEMORY_RATE_LIMIT_IN_PRODUCTION;
   }

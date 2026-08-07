@@ -43,7 +43,7 @@ test("health endpoint omits db error details in production", async () => {
   (prisma as any).$queryRaw = async () => {
     throw new Error("connection refused host=10.0.0.5");
   };
-  process.env.NODE_ENV = "production";
+  Object.assign(process.env, { NODE_ENV: "production" });
 
   try {
     const response = await GET();
@@ -52,6 +52,7 @@ test("health endpoint omits db error details in production", async () => {
     assert.equal(payload.error, undefined);
   } finally {
     (prisma as any).$queryRaw = originalQueryRaw;
-    process.env.NODE_ENV = originalEnv;
+    if (originalEnv === undefined) delete (process.env as Record<string, string | undefined>).NODE_ENV;
+    else Object.assign(process.env, { NODE_ENV: originalEnv });
   }
 });

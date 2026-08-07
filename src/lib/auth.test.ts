@@ -25,7 +25,7 @@ test("verifyToken rejects malformed JWT payloads", async () => {
 test("secure auth cookies are enabled for HTTPS deployments outside production", async () => {
   const previousNodeEnv = process.env.NODE_ENV;
   const previousAppUrl = process.env.NEXT_PUBLIC_APP_URL;
-  process.env.NODE_ENV = "development";
+  Object.assign(process.env, { NODE_ENV: "development" });
   process.env.NEXT_PUBLIC_APP_URL = "https://app.example.com";
 
   try {
@@ -35,7 +35,8 @@ test("secure auth cookies are enabled for HTTPS deployments outside production",
       true
     );
   } finally {
-    process.env.NODE_ENV = previousNodeEnv;
+    if (previousNodeEnv) Object.assign(process.env, { NODE_ENV: previousNodeEnv });
+    else delete (process.env as Record<string, string | undefined>).NODE_ENV;
     process.env.NEXT_PUBLIC_APP_URL = previousAppUrl;
   }
 });

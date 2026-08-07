@@ -79,7 +79,7 @@ test("search by amount-column numeric text matches payments and sales", async ()
       status: "active",
       createdBy: user.id,
       items: {
-        create: [{ productId: product.id, qty: 2, ratePerCarton: 617.28, amount: 1234.56 }],
+        create: [{ productId: product.id, lotId: lot.id, qty: 2, ratePerCarton: 617.28, amount: 1234.56 }],
       },
     },
   });

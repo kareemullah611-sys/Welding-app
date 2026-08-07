@@ -44,7 +44,12 @@ test("hydrateFormCachesFromSyncData seeds expense form cache for city admin", ()
     godowns: [{ id: 2, cityId: 5, name: "Main" }],
   });
 
-  const cached = readOfflineFormCache<{ lots: unknown[]; currencies: unknown[] }>(
+  const cached = readOfflineFormCache<{
+    lots: unknown[];
+    currencies: unknown[];
+    bankAccounts: unknown[];
+    inHandCheques: unknown[];
+  }>(
     "mrf-expenses-form-cache-v1",
     ["lots", "currencies", "bankAccounts", "inHandCheques"]
   );
@@ -89,7 +94,12 @@ test("hydrateFormCachesFromSyncData seeds expense form cache for super admin wit
     godowns: [{ id: 2, cityId: 5, name: "Main" }],
   });
 
-  const cached = readOfflineFormCache<{ currencies: unknown[]; bankAccounts: unknown[] }>(
+  const cached = readOfflineFormCache<{
+    currencies: unknown[];
+    bankAccounts: unknown[];
+    lots: unknown[];
+    inHandCheques: unknown[];
+  }>(
     "mrf-expenses-form-cache-v1",
     ["lots", "currencies", "bankAccounts", "inHandCheques"]
   );

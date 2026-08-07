@@ -35,8 +35,8 @@ test("applies queued opening entries to opening summaries", () => {
   assert.equal(merged.openingCustomerBalances.length, 1);
   assert.equal(merged.openingStocks.length, 1);
   assert.equal(merged.openingLiabilities.length, 1);
-  assert.equal(merged.openingHajiBalances.length, 1);
+  assert.equal(merged.openingHajiBalances!.length, 1);
   assert.equal(merged.openingCash[0]._pending, true);
   assert.equal(merged.openingLiabilities[0].partyName, "Supplier A");
-  assert.equal(merged.openingHajiBalances[0].currencyCode, "PKR");
+  assert.equal(merged.openingHajiBalances![0].currencyCode, "PKR");
 });

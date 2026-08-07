@@ -9,7 +9,7 @@ test("sortLedgerNewestFirst orders by date then createdAt descending", () => {
     { key: "c", date: "2026-06-01", createdAt: "2026-06-01T12:00:00Z", currencyCode: "PKR", credit: 0, debit: 0 },
   ] as any);
 
-  assert.deepEqual(rows.map((r) => r.key), ["c", "b", "a"]);
+  assert.deepEqual(rows.map((r: any) => r.key), ["c", "b", "a"]);
 });
 
 test("finalizeLedgerForDisplay returns newest-first rows with running balances", () => {
@@ -38,7 +38,7 @@ test("finalizeLedgerForDisplay returns newest-first rows with running balances",
     },
   ] as any);
 
-  assert.deepEqual(ledger.map((r) => r.key), ["pay", "open"]);
+  assert.deepEqual(ledger.map((r: any) => r.key), ["pay", "open"]);
   assert.equal(ledger[0].runningBalance, 1500);
   assert.equal(ledger[1].runningBalance, 1000);
   assert.equal(balanceByCurrency.PKR, 1500);

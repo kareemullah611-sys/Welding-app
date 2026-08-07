@@ -15,7 +15,7 @@ test("setPackagedServerReachable updates getter", () => {
 });
 
 test("probeServerReachable returns true when health responds ok", async () => {
-  const g = globalThis as typeof globalThis & { window?: object; fetch?: typeof fetch };
+  const g = globalThis as typeof globalThis & { window?: any; fetch?: typeof fetch };
   const prevFetch = g.fetch;
   const prevWindow = g.window;
   g.window = {};
@@ -33,7 +33,7 @@ test("probeServerReachable returns true when health responds ok", async () => {
 });
 
 test("probeServerReachable returns false on network failure", async () => {
-  const g = globalThis as typeof globalThis & { window?: object; fetch?: typeof fetch };
+  const g = globalThis as typeof globalThis & { window?: any; fetch?: typeof fetch };
   const prevFetch = g.fetch;
   const prevWindow = g.window;
   g.window = {};

@@ -134,7 +134,7 @@ test("buildOfflineAuditMeta falls back to generic metadata for unknown routes", 
 });
 
 test("shouldQueueOfflineWriteNow is disabled in browser even when server unreachable", () => {
-  const g = globalThis as typeof globalThis & { window?: Window };
+  const g = globalThis as typeof globalThis & { window?: any };
   const prev = g.window;
   g.window = { platformInfo: undefined, Capacitor: undefined } as Window;
   setPackagedServerReachable(false);
@@ -148,7 +148,7 @@ test("shouldQueueOfflineWriteNow is disabled in browser even when server unreach
 });
 
 test("shouldQueueOfflineWriteNow requires packaged app, unreachable server, allowlisted route, and offline enabled", () => {
-  const g = globalThis as typeof globalThis & { window?: Window };
+  const g = globalThis as typeof globalThis & { window?: any };
   const prev = g.window;
   const prevEnv = process.env.NEXT_PUBLIC_OFFLINE_ENABLED;
   process.env.NEXT_PUBLIC_OFFLINE_ENABLED = "true";
@@ -173,7 +173,7 @@ test("shouldQueueOfflineWriteNow requires packaged app, unreachable server, allo
 });
 
 test("shouldQueueOfflineWriteNow stays disabled when NEXT_PUBLIC_OFFLINE_ENABLED is not true", () => {
-  const g = globalThis as typeof globalThis & { window?: Window };
+  const g = globalThis as typeof globalThis & { window?: any };
   const prev = g.window;
   const prevEnv = process.env.NEXT_PUBLIC_OFFLINE_ENABLED;
   delete process.env.NEXT_PUBLIC_OFFLINE_ENABLED;
@@ -191,7 +191,7 @@ test("shouldQueueOfflineWriteNow stays disabled when NEXT_PUBLIC_OFFLINE_ENABLED
 });
 
 test("shouldUseOfflineApiCache is true for packaged runtimes when offline is enabled", () => {
-  const g = globalThis as typeof globalThis & { window?: Window };
+  const g = globalThis as typeof globalThis & { window?: any };
   const prev = g.window;
   const prevEnv = process.env.NEXT_PUBLIC_OFFLINE_ENABLED;
   process.env.NEXT_PUBLIC_OFFLINE_ENABLED = "true";
