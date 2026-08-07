@@ -6,6 +6,7 @@ import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, StatusBadge, ModalStatusNotice, formatDate, RowActionMenu, MobileDateInput, FormattedNumberInput } from "@/components/ui";
 import CustomerFieldWithNew from "@/components/CustomerFieldWithNew";
+import WithdraweeFieldWithNew from "@/components/WithdraweeFieldWithNew";
 import { useLang } from "@/lib/lang";
 import { getOfflineFormReadinessError } from "@/lib/offline-readiness";
 import { readOfflineFormCache, writeOfflineFormCache } from "@/lib/offline-form-cache";
@@ -2409,15 +2410,12 @@ export default function PaymentsPage() {
           )}
 
           {createType === "withdrawal" && (
-            <div>
-              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Withdrawn By *</label>
-              <input
-                value={form.withdrawnBy || ""}
-                onChange={e => setForm((f: any) => ({ ...f, withdrawnBy: e.target.value }))}
-                className="input-field"
-                placeholder="e.g. Ali, Rehman"
-              />
-            </div>
+            <WithdraweeFieldWithNew
+              value={form.withdrawnBy || ""}
+              onChange={(name) => setForm((f: any) => ({ ...f, withdrawnBy: name }))}
+              placeholder="e.g. Ali, Rehman"
+              labelClassName="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500"
+            />
           )}
 
           {createType !== "haji_transfer" && !(createType === "payment" && isAfghanistanCity) && (
@@ -3201,10 +3199,12 @@ export default function PaymentsPage() {
 
               {createType === "withdrawal" && (
                 <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Withdrawn By</label>
-                    <input value={form.withdrawnBy || ""} onChange={e => setForm((f: any) => ({ ...f, withdrawnBy: e.target.value }))} className="input-field" />
-                  </div>
+                  <WithdraweeFieldWithNew
+                    value={form.withdrawnBy || ""}
+                    onChange={(name) => setForm((f: any) => ({ ...f, withdrawnBy: name }))}
+                    labelClassName="block text-sm font-medium text-gray-700 mb-1"
+                    required={false}
+                  />
                   {!isAfghanistanCity && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">{t("source_of_funds")}</label>
