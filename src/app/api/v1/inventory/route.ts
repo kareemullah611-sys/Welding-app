@@ -3,11 +3,8 @@ import prisma from "@/lib/prisma";
 import { withAuth, getCityScope } from "@/lib/middleware";
 import { successResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
-import { createApiTiming } from "@/lib/api-timing";
 
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
-  const timing = createApiTiming("inventory.GET", { role: user.role, cityId: user.cityId ?? null });
-  let timingStatus: "ok" | "error" = "ok";
   try {
     const searchParams = request.nextUrl.searchParams;
     const cityId = getCityScope(user, searchParams.get("city_id") ? parseInt(searchParams.get("city_id")!) : undefined);
@@ -80,7 +77,6 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         AND (lcd.allocated_qty - COALESCE(a.qty, 0)) > 0
       ORDER BY godown_name, product_name
     `;
-    timing.mark("inventory-raw-query", { rows: inventory.length });
 
     const productTotals: Record<string, any> = {};
     const countryTotals: Record<string, any> = {};
@@ -114,7 +110,6 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       detailed[godownKey].totalQty += qty;
       detailed[godownKey].products.push({ productId: row.product_id, productName: row.product_name, unitOfMeasure: row.unit_of_measure, piecesPerCarton: row.pieces_per_carton, qty: Math.round(qty * 100) / 100 });
     }
-    timing.mark("inventory-format", { detailed: Object.keys(detailed).length });
 
     return successResponse({
       grandTotalQty: Math.round(grandTotal * 100) / 100,
@@ -125,10 +120,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       detailed: Object.values(detailed),
     });
   } catch (error) {
-    timingStatus = "error";
     console.error("Inventory error:", error);
     return serverError();
-  } finally {
-    timing.end(timingStatus);
   }
 });

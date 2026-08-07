@@ -13,7 +13,6 @@ import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idem
 import { formatSuperAdminBankLabel } from "@/lib/haji-transfer-detail";
 import { resolveAfghanistanSettlement, type ResolvedAfghanistanSettlement } from "@/lib/afghanistan-haji-settlement";
 import { formatAfghanistanCityPaymentDetail } from "@/lib/payment-module-detail";
-import { createApiTiming } from "@/lib/api-timing";
 
 const PAYMENT_SYNC_MODULE = "payments.create";
 const PAYMENT_CREATE_TRANSACTION_OPTIONS = { maxWait: 15_000, timeout: 30_000 };
@@ -65,8 +64,6 @@ function formatPaymentCreateResponse(payment: any, exchangeRate?: number | null,
 
 // GET /api/v1/payments
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
-  const timing = createApiTiming("payments.GET", { role: user.role, cityId: user.cityId ?? null });
-  let timingStatus: "ok" | "error" = "ok";
   try {
     const searchParams = request.nextUrl.searchParams;
     const { page, limit, skip } = getPaginationParams(searchParams);
@@ -113,9 +110,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       } as any),
       prisma.payment.count({ where }),
     ]);
-    timing.mark("payment.findMany+count", { rows: payments.length, total, fetchAll });
     const hajiAuditStateById = await getPaymentHajiAuditStateMap(payments.map((p) => p.id));
-    timing.mark("haji-audit-map");
 
     const formatted = (payments as any[]).map((p: any) => ({
       id: p.id,
@@ -154,18 +149,13 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     return paginatedResponse(formatted, total, page, limit);
   } catch (error) {
-    timingStatus = "error";
     console.error("List payments error:", error);
     return serverError();
-  } finally {
-    timing.end(timingStatus);
   }
 });
 
 // POST /api/v1/payments
 export const POST = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
-  const timing = createApiTiming("payments.POST", { role: user.role, cityId: user.cityId ?? null });
-  let timingStatus: "ok" | "error" = "ok";
   try {
     if (user.role !== "city_admin") {
       return errorResponse("FORBIDDEN", "Only city admins can create payments", 403);
@@ -200,12 +190,10 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         }
       }
     }
-    timing.mark("sync-replay-check", { hasSyncMeta: Boolean(syncMeta) });
 
     const body = await request.json();
     const parsed = createPaymentSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid payment data", parsed.error.errors);
-    timing.mark("parse+validate");
 
     let {
       customerId, lotId, paymentDate, detail, amount, currencyId, exchangeRate, usdEquivalent,
@@ -229,7 +217,6 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       where: { id: customerId, cityId, isActive: true },
     });
     if (!customer) return errorResponse("NOT_FOUND", "Customer not found in your city");
-    timing.mark("customer-validation");
 
     // Validate currency (fall back to city's first currency if none specified)
     const cityCurrency = await prisma.cityCurrency.findFirst({
@@ -271,7 +258,6 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     } else if (!detail.trim()) {
       return errorResponse("VALIDATION_ERROR", "Detail is required");
     }
-    timing.mark("currency+city-validation", { afghanistan: isAfghanistanCity });
 
     const isBankLikePayment = paymentMethod === "bank_transfer" || paymentMethod === "online";
     if (isBankLikePayment && destination === "our_account") {
@@ -322,7 +308,6 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       },
     });
     if (!lot) return errorResponse("VALIDATION_ERROR", "Lot not found or not distributed to your city");
-    timing.mark("bank+lot-validation", { method: paymentMethod, destination });
 
     // Determine chequeStatus for cheque payments destined to our_account
     const chequeStatus = (paymentMethod === "cheque" && destination === "our_account") ? "in_hand" : undefined;
@@ -470,14 +455,11 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
       return createdPayment;
     }, PAYMENT_CREATE_TRANSACTION_OPTIONS);
-    timing.mark("transaction", { hajiLinked: payment.destination === "haji" || Boolean(afghanistanSettlement) });
 
     const responsePayData = formatPaymentCreateResponse(payment, exchangeRate ?? null, usdEquivalent ?? null);
-    timing.mark("response-format");
 
     return successResponse(responsePayData, "Payment recorded successfully", 201);
   } catch (error: any) {
-    timingStatus = "error";
     if (error?.code === "CHEQUE_DUPLICATE") {
       return errorResponse("CONFLICT", error.message, 409);
     }
@@ -512,7 +494,5 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     }
     console.error("Create payment error:", error);
     return serverError();
-  } finally {
-    timing.end(timingStatus);
   }
 });

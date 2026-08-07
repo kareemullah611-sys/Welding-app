@@ -6,11 +6,8 @@ import { JWTPayload } from "@/lib/auth";
 import { SaleStatus } from "@prisma/client";
 import { computeOngoingLotHajiOwedByCity, computeOngoingLotHajiOwedForCity } from "@/lib/ongoing-lot-haji-owed";
 import { REVENUE_SALE_STATUSES } from "@/lib/sale-status";
-import { createApiTiming } from "@/lib/api-timing";
 
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
-  const timing = createApiTiming("dashboard.GET", { role: user.role, cityId: user.cityId ?? null });
-  let timingStatus: "ok" | "error" = "ok";
   try {
     const cityId = user.role === "city_admin" ? user.cityId! : undefined;
     const cityFilter = cityId ? { cityId } : {};
@@ -20,7 +17,6 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     // Build a currency-id → code lookup once (tiny table, very fast)
     const currencies = await prisma.currency.findMany({ select: { id: true, code: true } });
     const currCode: Record<number, string> = Object.fromEntries(currencies.map((c) => [c.id, c.code]));
-    timing.mark("currencies", { rows: currencies.length });
 
     // ── Core aggregates (all DB-side, no row scanning in JS) ──────────────────
     const [salesByC, paymentsByC, hajiByC, wdByC, expByC, openingCashByC, openingCustomerByC, cartonsSold] = await Promise.all([
@@ -65,8 +61,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         _sum: { qty: true },
       }),
     ]);
-    timing.mark("core-aggregates");
-
+    
     // Build currency-keyed maps
     const salesByCurrency: Record<string, number> = {};
     for (const s of salesByC) {
@@ -109,7 +104,6 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const hajiByCurrency = cityId
       ? await computeOngoingLotHajiOwedForCity(cityId)
       : {};
-    timing.mark("ongoing-haji-owed");
 
     const result: any = {
       outstandingByCurrency,
@@ -179,7 +173,6 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         status: l.status,
         lotDate: l.lotDate.toISOString().split("T")[0],
       }));
-      timing.mark("city-cash+ongoing-lots", { ongoingLots: ongoingLots.length });
     }
 
     // ── Cities overview (super admin) ─────────────────────────────────────────
@@ -226,7 +219,6 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         }),
         computeOngoingLotHajiOwedByCity(),
       ]);
-      timing.mark("super-overview-aggregates", { cities: cities.length });
       const activeLotsByCity: Record<number, number> = {};
       for (const row of ongoingLotRows) {
         activeLotsByCity[row.cityId] = (activeLotsByCity[row.cityId] || 0) + 1;
@@ -239,7 +231,6 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           })
         ).map((c) => [c.id, c.cityId])
       );
-      timing.mark("super-customer-map", { customers: Object.keys(customerCityById).length });
 
       // Cartons per city via raw SQL (SaleItem has no direct cityId column)
       const cityCartonsRaw = await prisma.$queryRaw<{ city_id: number; total_qty: bigint }[]>`
@@ -251,7 +242,6 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       `;
       const cartonsMap: Record<number, number> = {};
       for (const r of cityCartonsRaw) { cartonsMap[r.city_id] = Number(r.total_qty); }
-      timing.mark("super-cartons-raw", { rows: cityCartonsRaw.length });
 
       // Aggregate per city in JS (O(cities × rows) but no extra DB round-trips)
       result.citiesOverview = cities.map((city) => {
@@ -315,16 +305,12 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           activeLots: activeLotsByCity[cid] || 0,
         };
       });
-      timing.mark("super-overview-format");
     }
 
     return successResponse(result);
   } catch (error) {
-    timingStatus = "error";
     console.error("Dashboard error:", error);
     return serverError();
-  } finally {
-    timing.end(timingStatus);
   }
 });
 
