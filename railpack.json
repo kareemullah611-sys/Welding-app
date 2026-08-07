@@ -1,0 +1,9 @@
+{
+  "steps": {
+    "install": {
+      "variables": {
+        "ELECTRON_SKIP_BINARY_DOWNLOAD": "1"
+      }
+    }
+  }
+}
