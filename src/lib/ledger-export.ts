@@ -59,6 +59,21 @@ const escapeHtml = (value: unknown) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 
+// Browsers print the page URL (and page numbers) in a header/footer strip only
+// when the printed page reserves margin space for them. Setting @page margin to
+// zero (after the template's own @page rule, so it wins the cascade) suppresses
+// that strip, so customers no longer see the app's deployed URL on printed ledgers.
+const PRINT_URL_SUPPRESSION_CSS = `
+<style>
+  @page { margin: 0; }
+</style>
+`;
+
+export function injectPrintUrlSuppression(html: string): string {
+  if (!html.includes("</head>")) return html;
+  return html.replace("</head>", `${PRINT_URL_SUPPRESSION_CSS}</head>`);
+}
+
 function printHtmlDocument(html: string, title: string) {
   const iframe = document.createElement("iframe");
   iframe.style.position = "fixed";
@@ -72,7 +87,7 @@ function printHtmlDocument(html: string, title: string) {
     return;
   }
   doc.open();
-  doc.write(html);
+  doc.write(injectPrintUrlSuppression(html));
   doc.close();
   setTimeout(() => {
     iframe.contentWindow?.focus();
