@@ -276,11 +276,75 @@
       0 0 0 1px rgba(255, 255, 255, 0.45),
       0 28px 70px -42px rgba(107, 15, 26, 0.18);
   }
+
+  .skeleton-line {
+    position: relative;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #eef0f3;
+    transform-origin: left center;
+    animation: skeleton-line-fill 0.78s ease-out both;
+  }
+
+  .skeleton-line::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-110%);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.72), transparent);
+    animation: skeleton-shimmer 1.35s ease-in-out infinite;
+  }
+
+  .skeleton-table {
+    min-width: 42rem;
+  }
+
+  .skeleton-table-row {
+    display: grid;
+    grid-template-columns: repeat(var(--skeleton-cols, 5), minmax(5.5rem, 1fr));
+    gap: 1rem;
+    padding-inline: 1rem;
+    border-bottom: 1px solid #e4e4e7;
+    opacity: 0;
+    animation: skeleton-row-fade 0.45s ease-out both;
+  }
+
+  .skeleton-table-row:last-child {
+    border-bottom: 0;
+  }
 }
 
 @keyframes fadeSlideIn {
   from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes skeleton-line-fill {
+  from {
+    transform: scaleX(0);
+    background-color: #f3f4f6;
+  }
+  to {
+    transform: scaleX(1);
+    background-color: #e5e7eb;
+  }
+}
+
+@keyframes skeleton-shimmer {
+  100% {
+    transform: translateX(110%);
+  }
+}
+
+@keyframes skeleton-row-fade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Focus ring for native inputs inside shadcn components */

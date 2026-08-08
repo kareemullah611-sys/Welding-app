@@ -762,7 +762,7 @@ export default function CustomersPage() {
           </div>
 
           <div className="rounded-xl border border-[#ececee] bg-white/95 px-3 py-2">
-            <div className="grid grid-cols-2 items-end gap-2 lg:grid-cols-[minmax(10rem,1fr)_7rem_7.5rem_7.5rem_auto]">
+            <div className="grid grid-cols-2 items-end gap-2 lg:grid-cols-[minmax(10rem,1fr)_7rem_7.5rem_7.5rem]">
               <div className="col-span-2 min-w-0 lg:col-span-1">
                 <label className={LEDGER_FIELD_LABEL}>Search</label>
                 <input
@@ -822,7 +822,7 @@ export default function CustomersPage() {
                 type="button"
                 onClick={applyLedgerDateFilter}
                 disabled={ledgerLoading || !selected}
-                className="col-span-2 h-8 px-3 text-sm lg:col-span-1"
+                className="col-span-2 h-8 justify-self-end px-3 text-sm lg:col-span-4"
               >
                 <Play className="h-4 w-4" strokeWidth={2} />
                 {ledgerLoading ? t("loading") : t("generate")}

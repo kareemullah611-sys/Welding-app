@@ -245,6 +245,24 @@ test("sticky quickform and modal footers hide scrolled fields beneath actions", 
   assert.doesNotMatch(modalActionsFooter, /bg-\[rgba/);
 });
 
+test("dashboard modules use shimmer table skeletons while loading", () => {
+  const skeleton = readFileSync("src/components/ui/skeleton.tsx", "utf8");
+  const uiIndex = readFileSync("src/components/ui/index.tsx", "utf8");
+  const globals = readFileSync("src/app/globals.css", "utf8");
+  const routeLoading = readFileSync("src/app/(dashboard)/loading.tsx", "utf8");
+
+  assert.match(skeleton, /function TableSkeleton/);
+  assert.match(skeleton, /function PageSkeleton/);
+  assert.match(skeleton, /className=\{cn\("skeleton-line"/);
+  assert.match(uiIndex, /<TableSkeleton columns=\{Math\.max\(columns\.length, 3\)\} compact=\{compact\} \/>/);
+  assert.doesNotMatch(uiIndex, /<ProcessingSpinner size="md" label="Loading" \/>/);
+  assert.match(routeLoading, /<PageSkeleton \/>/);
+  assert.match(globals, /\.skeleton-line::after/);
+  assert.match(globals, /@keyframes skeleton-line-fill/);
+  assert.match(globals, /@keyframes skeleton-shimmer/);
+  assert.match(globals, /@keyframes skeleton-row-fade/);
+});
+
 test("city sale and payment customer search does not auto-show walk-in shortcut", () => {
   const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
   const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
@@ -445,10 +463,10 @@ test("customer ledger filters stay compact in city modal", () => {
   const filterPanel = customersPage.slice(customersPage.indexOf("Search entries…") - 500, customersPage.indexOf("<GlassButton", customersPage.indexOf("Search entries…")) + 500);
 
   assert.match(filterPanel, /grid grid-cols-2 items-end gap-2/);
-  assert.match(filterPanel, /lg:grid-cols-\[minmax\(10rem,1fr\)_7rem_7\.5rem_7\.5rem_auto\]/);
+  assert.match(filterPanel, /lg:grid-cols-\[minmax\(10rem,1fr\)_7rem_7\.5rem_7\.5rem\]/);
   assert.match(filterPanel, /h-8 min-h-8 w-full py-1\.5 text-sm/);
   assert.match(filterPanel, /className="h-8 w-full px-2 text-sm"/);
-  assert.match(filterPanel, /className="col-span-2 h-8 px-3 text-sm lg:col-span-1"/);
+  assert.match(filterPanel, /className="col-span-2 h-8 justify-self-end px-3 text-sm lg:col-span-4"/);
   assert.doesNotMatch(filterPanel, /flex flex-col gap-3/);
 });
 

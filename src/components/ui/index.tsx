@@ -21,7 +21,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { ProcessingSpinner } from "@/components/ui/ProcessingLoader";
 import { cn } from "@/lib/utils";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/format-helpers";
 import { buildPaginationItems, getPaginationRange, DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
@@ -35,6 +34,7 @@ import {
   focusFirstModalField,
 } from "@/lib/modal-keyboard";
 import { X, ChevronLeft, ChevronRight, Inbox, CheckCircle2, AlertTriangle } from "lucide-react";
+import { TableSkeleton } from "@/components/ui/skeleton";
 
 function usesNativeFieldKeyboard(el: HTMLElement) {
   if (el instanceof HTMLSelectElement) return true;
@@ -467,10 +467,8 @@ export function DataTable<T extends Record<string, any>>({
           <TableBody>
             {loading ? (
               <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={columns.length} className="py-14">
-                  <div className="flex justify-center">
-                    <ProcessingSpinner size="md" label="Loading" />
-                  </div>
+                <TableCell colSpan={columns.length} className="p-0">
+                  <TableSkeleton columns={Math.max(columns.length, 3)} compact={compact} />
                 </TableCell>
               </TableRow>
             ) : filteredData.length === 0 ? (
@@ -897,3 +895,4 @@ export { FormattedNumberInput, FormattedNumberEditable } from "@/components/ui/F
 export { ProcessingSpinner } from "@/components/ui/ProcessingLoader";
 export { default as ProcessingLoader } from "@/components/ui/ProcessingLoader";
 export { default as CuttingDiscSpinner, DEFAULT_CUTTING_DISC_SRC } from "@/components/ui/CuttingDiscSpinner";
+export { Skeleton, SkeletonLine, TableSkeleton, PageSkeleton } from "@/components/ui/skeleton";

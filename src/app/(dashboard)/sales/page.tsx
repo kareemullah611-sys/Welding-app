@@ -245,6 +245,7 @@ export default function SalesPage() {
   const [shortConfirmed, setShortConfirmed] = useState(false);
   const [saleSavedNotice, setSaleSavedNotice] = useState<string | null>(null);
   const [latestCreatedSale, setLatestCreatedSale] = useState<LatestSaleSummary | null>(null);
+  const [showLatestSale, setShowLatestSale] = useState(false);
   const [selectedCustomerName, setSelectedCustomerName] = useState("");
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
@@ -531,6 +532,7 @@ export default function SalesPage() {
     }));
     setGodownStock([]);
     setSaleSavedNotice(null);
+    setShowLatestSale(false);
     setLatestCreatedSale(await loadLatestSaleSummary());
     setSelectedCustomerName("");
     setShowCreate(true); setFormError("");
@@ -1257,18 +1259,30 @@ export default function SalesPage() {
       </>
       )}
       {/* ========== CREATE SALE MODAL ========== */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); setShortConfirmed(false); setFormError(""); setSaleSavedNotice(null); setLatestCreatedSale(null); if (isEmbed) closeEmbed(); }} title={t("new_sale")} size={isEmbed ? "lg" : "xl"} inline={isEmbed} hideHeader={isEmbed} headerAccent="bg-blue-500">
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); setShortConfirmed(false); setFormError(""); setSaleSavedNotice(null); setLatestCreatedSale(null); setShowLatestSale(false); if (isEmbed) closeEmbed(); }} title={t("new_sale")} size={isEmbed ? "lg" : "xl"} inline={isEmbed} hideHeader={isEmbed} headerAccent="bg-blue-500">
+        <div onClick={() => setShowLatestSale(false)}>
         {saleSavedNotice && <ModalStatusNotice type="success" message={saleSavedNotice} />}
         {latestCreatedSale && (
-          <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-            <div className="flex items-center gap-2">
-              <span className="shrink-0 font-semibold">{latestCreatedSale.pending ? "Queued" : "Latest"} Sale</span>
+          <div className="mb-3">
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setShowLatestSale((v) => !v); }}
+              className="flex w-full items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 transition-colors hover:bg-emerald-100/70"
+            >
+              <span className="shrink-0 font-semibold">Last Sale {showLatestSale ? "▲" : "▼"}</span>
               <span className="shrink-0 tabular-nums text-emerald-700">{latestCreatedSale.date ? formatDate(latestCreatedSale.date) : "—"}</span>
-              <span className="min-w-0 truncate text-emerald-900">{latestCreatedSale.customer}</span>
-              <span className="ml-auto shrink-0 font-semibold tabular-nums">{latestCreatedSale.amount}</span>
-            </div>
-            {latestCreatedSale.meta.length > 0 && (
-              <div className="mt-1 truncate text-[11px] text-emerald-700">{latestCreatedSale.meta.join(" · ")}</div>
+            </button>
+            {showLatestSale && (
+              <div onClick={(e) => e.stopPropagation()} className="mt-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="min-w-0 truncate text-emerald-900">{latestCreatedSale.pending ? "Queued" : ""} {latestCreatedSale.voucher}</span>
+                  <span className="shrink-0 font-semibold tabular-nums">{latestCreatedSale.amount}</span>
+                </div>
+                <div className="mt-1 truncate text-emerald-900">{latestCreatedSale.customer}</div>
+                {latestCreatedSale.meta.length > 0 && (
+                  <div className="mt-1 truncate text-[11px] text-emerald-700">{latestCreatedSale.meta.join(" · ")}</div>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -1654,6 +1668,7 @@ export default function SalesPage() {
           >
             {submitting ? "Saving…" : shortConfirmed ? "Confirm short sale" : isEmbed ? "Save sale" : t("new_sale")}
           </button>
+        </div>
         </div>
       </Modal>
 
