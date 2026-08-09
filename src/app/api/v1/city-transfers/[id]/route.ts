@@ -44,29 +44,92 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           throw new Error("TRANSFER_NOT_PENDING");
         }
 
-        const senderLcd = await tx.lotCityDistribution.findUnique({
+        let effectiveLotId = transfer.lotId;
+        let senderLcd = await tx.lotCityDistribution.findUnique({
           where: { lotId_cityId_productId: { lotId: transfer.lotId, cityId: transfer.fromCityId, productId: transfer.productId } },
           include: { godownAllocations: { where: { godownId: transfer.fromGodownId }, select: { id: true, qty: true } } },
         });
-        if (!senderLcd || senderLcd.godownAllocations.length === 0) {
+        let senderAllocRow = senderLcd?.godownAllocations[0];
+
+        if (!senderAllocRow || Number(senderAllocRow.qty) < transferQty) {
+          const fallbackRows: any[] = await tx.$queryRaw`
+            SELECT
+              lcd.id as lcd_id,
+              lcd.lot_id,
+              lcga.id as allocation_id,
+              lcga.qty,
+              COALESCE(lcga.qty, 0) - COALESCE((
+                SELECT SUM(si.qty) FROM sale_items si
+                JOIN sales s ON s.id = si.sale_id AND s.status IN ('active','marked_short')
+                WHERE s.godown_id = ${transfer.fromGodownId} AND si.product_id = ${transfer.productId} AND si.lot_id = lcd.lot_id
+              ), 0) - COALESCE((
+                SELECT SUM(ct.qty) FROM city_transfers ct
+                WHERE ct.from_godown_id = ${transfer.fromGodownId}
+                  AND ct.product_id = ${transfer.productId}
+                  AND ct.lot_id = lcd.lot_id
+                  AND ct.status = 'approved'
+              ), 0) - COALESCE((
+                SELECT SUM(ct.qty) FROM city_transfers ct
+                WHERE ct.from_godown_id = ${transfer.fromGodownId}
+                  AND ct.product_id = ${transfer.productId}
+                  AND ct.lot_id = lcd.lot_id
+                  AND ct.status = 'pending'
+                  AND ct.id <> ${id}
+              ), 0) as available
+            FROM lot_city_godown_allocations lcga
+            JOIN lot_city_distributions lcd ON lcd.id = lcga.lot_city_distribution_id
+            JOIN lots l ON l.id = lcd.lot_id
+            WHERE lcga.godown_id = ${transfer.fromGodownId}
+              AND lcd.city_id = ${transfer.fromCityId}
+              AND lcd.product_id = ${transfer.productId}
+              AND l.status = 'ongoing'
+              AND COALESCE(lcga.qty, 0) - COALESCE((
+                SELECT SUM(si.qty) FROM sale_items si
+                JOIN sales s ON s.id = si.sale_id AND s.status IN ('active','marked_short')
+                WHERE s.godown_id = ${transfer.fromGodownId} AND si.product_id = ${transfer.productId} AND si.lot_id = lcd.lot_id
+              ), 0) - COALESCE((
+                SELECT SUM(ct.qty) FROM city_transfers ct
+                WHERE ct.from_godown_id = ${transfer.fromGodownId}
+                  AND ct.product_id = ${transfer.productId}
+                  AND ct.lot_id = lcd.lot_id
+                  AND ct.status = 'approved'
+              ), 0) - COALESCE((
+                SELECT SUM(ct.qty) FROM city_transfers ct
+                WHERE ct.from_godown_id = ${transfer.fromGodownId}
+                  AND ct.product_id = ${transfer.productId}
+                  AND ct.lot_id = lcd.lot_id
+                  AND ct.status = 'pending'
+                  AND ct.id <> ${id}
+              ), 0) >= ${transferQty}
+            ORDER BY l.lot_date ASC, l.id ASC
+            LIMIT 1
+          `;
+          const fallback = fallbackRows[0];
+          if (fallback) {
+            effectiveLotId = Number(fallback.lot_id);
+            senderLcd = { id: Number(fallback.lcd_id), godownAllocations: [{ id: Number(fallback.allocation_id), qty: fallback.qty }] } as any;
+            senderAllocRow = { id: Number(fallback.allocation_id), qty: fallback.qty };
+          }
+        }
+
+        if (!senderLcd || !senderAllocRow) {
           throw new Error("SENDER_NO_STOCK");
         }
-        const senderAllocRow = senderLcd.godownAllocations[0];
         if (Number(senderAllocRow.qty) < transferQty) {
           throw new Error("SENDER_INSUFFICIENT_STOCK");
         }
 
         await tx.cityTransfer.update({
           where: { id },
-          data: { status: "approved", toGodownId, approvalNotes, approvedBy: user.userId, approvedAt: new Date() },
+          data: { status: "approved", lotId: effectiveLotId, toGodownId, approvalNotes, approvedBy: user.userId, approvedAt: new Date() },
         });
 
         let lcd = await tx.lotCityDistribution.findUnique({
-          where: { lotId_cityId_productId: { lotId: transfer.lotId, cityId: transfer.toCityId, productId: transfer.productId } },
+          where: { lotId_cityId_productId: { lotId: effectiveLotId, cityId: transfer.toCityId, productId: transfer.productId } },
         });
         if (!lcd) {
           lcd = await tx.lotCityDistribution.create({
-            data: { lotId: transfer.lotId, cityId: transfer.toCityId, productId: transfer.productId, allocatedQty: transferQty },
+            data: { lotId: effectiveLotId, cityId: transfer.toCityId, productId: transfer.productId, allocatedQty: transferQty },
           });
         } else {
           await tx.lotCityDistribution.update({ where: { id: lcd.id }, data: { allocatedQty: { increment: transferQty } } });

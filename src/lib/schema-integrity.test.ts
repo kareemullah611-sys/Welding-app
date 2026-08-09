@@ -934,9 +934,13 @@ test("GLM critical audit fixes remain wired", () => {
   assert.match(unresolved, /@@map\("lot_settlement_unresolved_overflows"\)/);
   assert.match(cityTransferCreate, /INSUFFICIENT_STOCK/);
   assert.match(cityTransferCreate, /pg_advisory_xact_lock\(31001, \$\{parsedFromGodownId \* 100000 \+ parsedProductId\}::int\)/);
+  assert.match(cityTransferCreate, /si\.lot_id = lcd\.lot_id/);
+  assert.match(cityTransferCreate, /ORDER BY l\.lot_date ASC, l\.id ASC/);
   assert.doesNotMatch(cityTransferCreate, /pg_advisory_xact_lock\(\$\{31001\},/);
   assert.match(cityTransferApprove, /pg_advisory_xact_lock/);
   assert.match(cityTransferApprove, /pg_advisory_xact_lock\(31001, \$\{transfer\.fromGodownId \* 100000 \+ transfer\.productId\}::int\)/);
+  assert.match(cityTransferApprove, /ct\.id <> \$\{id\}/);
+  assert.match(cityTransferApprove, /lotId: effectiveLotId/);
   assert.doesNotMatch(cityTransferApprove, /pg_advisory_xact_lock\(\$\{31001\},/);
   assert.match(cityTransferApprove, /SENDER_INSUFFICIENT_STOCK/);
   assert.doesNotMatch(withdrawalsCreate, /journalWithdrawal\(/);
