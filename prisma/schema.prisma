@@ -422,6 +422,20 @@ model UserSession {
 }
 
 // ============================================================
+// APP BRANDING
+// ============================================================
+
+model AppBranding {
+  id         Int      @id
+  systemName String   @default("MRF Hardware") @map("system_name") @db.VarChar(120)
+  logoUrl    String?  @map("logo_url") @db.Text
+  updatedBy  Int?     @map("updated_by")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("app_branding")
+}
+
+// ============================================================
 // PRODUCTS
 // ============================================================
 

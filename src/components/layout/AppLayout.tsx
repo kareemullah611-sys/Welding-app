@@ -9,10 +9,12 @@ import { BrandLoader } from "@/components/ui/BrandLoader";
 import { EmbedAuthRecovery } from "@/components/quickform/EmbedAuthRecovery";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { getEmbedFromLocation } from "@/lib/quickform-embed";
+import { useAppBranding } from "@/hooks/useAppBranding";
 
 function AppInner({ children, isCityAdmin }: { children: React.ReactNode; isCityAdmin: boolean }) {
   const { dir } = useLang();
   const { collapsed } = useSidebar();
+  const branding = useAppBranding();
   const isRTL = dir === "rtl";
   const isEmbed = useQuickformEmbed() || getEmbedFromLocation();
 
@@ -51,7 +53,7 @@ function AppInner({ children, isCityAdmin }: { children: React.ReactNode; isCity
         </div>
         <div className="pointer-events-none absolute inset-x-4 top-4 z-10 lg:hidden">
           <div className="rounded-2xl border border-white/60 bg-white/70 px-14 py-3 backdrop-blur-xl shadow-[0_18px_48px_-30px_rgba(107,15,26,0.25)]">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#6B0F1A]">MRF Hardware</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#6B0F1A]">{branding.systemName}</p>
           </div>
         </div>
       </main>

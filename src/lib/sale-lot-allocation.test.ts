@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { allocateSaleItemAcrossLots } from "@/lib/sale-lot-allocation";
+import { allocateSaleItemAcrossLots, consolidateSaleLotAllocationItems } from "@/lib/sale-lot-allocation";
 
 test("allocateSaleItemAcrossLots splits auto sale quantity across oldest available lots", () => {
   const result = allocateSaleItemAcrossLots({
@@ -97,5 +97,37 @@ test("allocateSaleItemAcrossLots skips selected lot when it has no available sto
   assert.deepEqual(
     result.map((item) => ({ lotId: item.lotId, stockQty: item.stockQty, amount: item.amount })),
     [{ lotId: 12, stockQty: 25, amount: 30000 }],
+  );
+});
+
+test("consolidateSaleLotAllocationItems merges duplicate product lot rate rows without changing totals", () => {
+  const result = consolidateSaleLotAllocationItems([
+    {
+      productId: 1,
+      lotId: 109,
+      stockQty: 25,
+      cartonQty: null,
+      ratePerCarton: 9800,
+      ratePerPieceLocal: null,
+      ratePerPieceUsd: null,
+      amount: 245000,
+      amountUsd: null,
+    },
+    {
+      productId: 1,
+      lotId: 109,
+      stockQty: 5,
+      cartonQty: null,
+      ratePerCarton: 9800,
+      ratePerPieceLocal: null,
+      ratePerPieceUsd: null,
+      amount: 49000,
+      amountUsd: null,
+    },
+  ], (value) => Math.round(value * 100) / 100);
+
+  assert.deepEqual(
+    result.map((item) => ({ lotId: item.lotId, stockQty: item.stockQty, ratePerCarton: item.ratePerCarton, amount: item.amount })),
+    [{ lotId: 109, stockQty: 30, ratePerCarton: 9800, amount: 294000 }],
   );
 });

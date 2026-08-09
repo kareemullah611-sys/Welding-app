@@ -11,7 +11,7 @@ import {
 import { JWTPayload } from "@/lib/auth";
 import { canAccessGodown } from "@/lib/godown-access";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
-import { allocateSaleItemAcrossLots, AvailableSaleLot, SaleLotAllocationItem } from "@/lib/sale-lot-allocation";
+import { allocateSaleItemAcrossLots, consolidateSaleLotAllocationItems, AvailableSaleLot, SaleLotAllocationItem } from "@/lib/sale-lot-allocation";
 
 const SALE_SYNC_MODULE = "sales.create";
 
@@ -436,11 +436,11 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       });
     }
 
-    const normalizedItems: SaleLotAllocationItem[] = [];
+    const allocatedItems: SaleLotAllocationItem[] = [];
     for (const item of requestedItems) {
       const product = productById.get(item.productId)!;
       try {
-        normalizedItems.push(...allocateSaleItemAcrossLots({
+        allocatedItems.push(...allocateSaleItemAcrossLots({
           item,
           availableLots: await getAvailableLotsForProduct(cityId, user.countryId!, godownId, item.productId),
           roundMoney,
@@ -449,6 +449,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         return errorResponse("VALIDATION_ERROR", `${product.name}: lot allocation exceeds available stock`);
       }
     }
+    const normalizedItems = consolidateSaleLotAllocationItems(allocatedItems, roundMoney);
 
     if (!normalizedItems.length) return errorResponse("VALIDATION_ERROR", "Lot is required for each product");
     const itemLotIds: number[] = Array.from(new Set<number>(normalizedItems.map((i) => Number(i.lotId || 0))));

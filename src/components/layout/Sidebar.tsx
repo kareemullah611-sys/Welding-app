@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { LangSwitcher, useLang } from "@/lib/lang";
 import { apiCall } from "@/hooks/useApi";
 import BrandLogo from "@/components/brand/BrandLogo";
+import { useAppBranding } from "@/hooks/useAppBranding";
 import {
   LayoutDashboard, Package, Factory, Banknote, Handshake,
   BookOpen, Receipt, Wallet, Users, ClipboardList,
@@ -187,6 +188,7 @@ export default function Sidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
   const { t, dir } = useLang();
+  const branding = useAppBranding();
   const { collapsed, setCollapsed } = useSidebar();
   const isRTL = dir === "rtl";
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -452,11 +454,11 @@ export default function Sidebar() {
         )}
       >
         <div className="flex-shrink-0 rounded-2xl bg-gradient-to-br from-white/90 to-white/55 p-1 ring-1 ring-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_6px_14px_-8px_rgba(42,6,8,0.3)]">
-          <BrandLogo size={collapsed ? "sm" : "md"} />
+          <BrandLogo size={collapsed ? "sm" : "md"} logoUrl={branding.logoUrl} alt={branding.systemName} />
         </div>
         {!collapsed && (
           <div className="min-w-0">
-            <p className="text-[#2A0608] font-bold text-sm leading-tight tracking-tight">MRF Hardware</p>
+            <p className="text-[#2A0608] font-bold text-sm leading-tight tracking-tight">{branding.systemName}</p>
           </div>
         )}
       </div>

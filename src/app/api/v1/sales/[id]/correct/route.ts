@@ -6,7 +6,7 @@ import { journalSaleCreated, journalSaleCOGS } from "@/lib/accounting";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { canAccessGodown } from "@/lib/godown-access";
-import { allocateSaleItemAcrossLots, AvailableSaleLot, SaleLotAllocationItem } from "@/lib/sale-lot-allocation";
+import { allocateSaleItemAcrossLots, consolidateSaleLotAllocationItems, AvailableSaleLot, SaleLotAllocationItem } from "@/lib/sale-lot-allocation";
 
 // PUT /api/v1/sales/:id/correct - Correct items on a sale (wrong product given)
 // Body: { saleDate?, items: [{ id?, productId, lotId, qty, ratePerCarton }], reason: string }
@@ -166,7 +166,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     }
 
     const roundMoney = (n: number) => Math.round(n * 100) / 100;
-    const normalizedItems: SaleLotAllocationItem[] = [];
+    const allocatedItemsForSave: SaleLotAllocationItem[] = [];
     for (const item of items) {
       const productId = Number(item.productId);
       const productName = products.find((p) => p.id === productId)?.name || `Product ${productId}`;
@@ -185,7 +185,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       };
       try {
         const allocatedItems = allocateSaleItemAcrossLots({ item: requestedItem, availableLots, roundMoney });
-        normalizedItems.push(...allocatedItems);
+        allocatedItemsForSave.push(...allocatedItems);
         for (const allocatedItem of allocatedItems) {
           const productLots = availableLotsByProduct.get(productId) || [];
           const lot = productLots.find((row) => Number(row.lotId) === Number(allocatedItem.lotId));
@@ -195,6 +195,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         return errorResponse("VALIDATION_ERROR", `${productName}: corrected quantity ${Number(item.qty)} exceeds available stock in ${godown.name}`);
       }
     }
+    const normalizedItems = consolidateSaleLotAllocationItems(allocatedItemsForSave, roundMoney);
 
     const oldItems = sale.items.map((i) => ({
       id: i.id, productId: i.productId, lotId: i.lotId, qty: Number(i.qty),

@@ -7,6 +7,7 @@ interface BrandLogoProps {
   size?: "sm" | "md" | "lg";
   className?: string;
   alt?: string;
+  logoUrl?: string | null;
 }
 
 const sizeMap = {
@@ -20,8 +21,20 @@ export default function BrandLogo({
   size = "md",
   className,
   alt = "MRF Hardware",
+  logoUrl,
 }: BrandLogoProps) {
   const gradId = useId().replace(/:/g, "");
+
+  if (logoUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={logoUrl}
+        alt={alt}
+        className={cn("flex-shrink-0 rounded-xl object-cover", sizeMap[size], className)}
+      />
+    );
+  }
 
   return (
     <svg

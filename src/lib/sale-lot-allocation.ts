@@ -50,3 +50,41 @@ export function allocateSaleItemAcrossLots(input: {
 
   return allocated;
 }
+
+export function consolidateSaleLotAllocationItems(
+  items: SaleLotAllocationItem[],
+  roundMoney: (value: number) => number,
+): SaleLotAllocationItem[] {
+  const byKey = new Map<string, SaleLotAllocationItem>();
+
+  for (const item of items) {
+    const key = [
+      item.productId,
+      item.lotId,
+      item.ratePerCarton,
+      item.ratePerPieceLocal ?? "",
+      item.ratePerPieceUsd ?? "",
+    ].join(":");
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, { ...item });
+      continue;
+    }
+
+    const stockQty = roundMoney(Number(existing.stockQty || 0) + Number(item.stockQty || 0));
+    const cartonQty = existing.cartonQty === null && item.cartonQty === null
+      ? null
+      : roundMoney(Number(existing.cartonQty || 0) + Number(item.cartonQty || 0));
+    byKey.set(key, {
+      ...existing,
+      stockQty,
+      cartonQty,
+      amount: roundMoney(Number(existing.amount || 0) + Number(item.amount || 0)),
+      amountUsd: existing.amountUsd === null && item.amountUsd === null
+        ? null
+        : roundMoney(Number(existing.amountUsd || 0) + Number(item.amountUsd || 0)),
+    });
+  }
+
+  return Array.from(byKey.values());
+}

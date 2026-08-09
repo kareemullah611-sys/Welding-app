@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, DataTable, Modal, StatusBadge, ModalStatusNotice, formatDate, RowActionMenu, MobileDateInput, FormattedNumberInput } from "@/components/ui";
+import { PageHeader, DataTable, Modal, StatusBadge, ModalStatusNotice, formatDate, RowActionMenu, MobileDateInput, FormattedNumberInput, ModalFormSkeleton } from "@/components/ui";
 import CustomerFieldWithNew from "@/components/CustomerFieldWithNew";
 import WithdraweeFieldWithNew from "@/components/WithdraweeFieldWithNew";
 import { useLang } from "@/lib/lang";
@@ -794,6 +794,8 @@ export default function PaymentsPage() {
   const openCreate = async (type: string, preset?: Record<string, any>) => {
     setCreateFormReady(false);
     setCreateType(type);
+    setShowCreate(true);
+    setError("");
     setResolvingQueueId(null);
     setPaymentSavedNotice(null);
     setShowLatestEntry(false);
@@ -806,14 +808,14 @@ export default function PaymentsPage() {
     });
     if (offlineReadinessError) {
       setError(offlineReadinessError);
-      setShowCreate(true);
+      setCreateFormReady(true);
       return;
     }
     setForm(buildInitialFormForType(type, loadedCurrencies, preset));
     setPaymentQueue([]);
     setQueueSaved(false);
     setCreateFormReady(true);
-    setShowCreate(true); setError("");
+    setError("");
   };
 
   const resetCurrentCreateFormAfterSave = useCallback(() => {
@@ -1180,6 +1182,8 @@ export default function PaymentsPage() {
     setCreateFormReady(false);
     setCreateType(item.type);
     setSelected(item);
+    setShowEdit(true);
+    setError("");
     const { loadedCurrencies } = await loadHelpers();
     const raw = item.raw;
     if (item.type === "payment") {
@@ -1251,7 +1255,7 @@ export default function PaymentsPage() {
       });
     }
     setCreateFormReady(true);
-    setShowEdit(true); setError("");
+    setError("");
   };
 
   const handleEdit = async () => {
@@ -2166,6 +2170,9 @@ export default function PaymentsPage() {
           </div>
         )}
         {error && <ModalStatusNotice type="error" message={error} />}
+        {!createFormReady ? (
+          <ModalFormSkeleton />
+        ) : (
         <div key={`create-${createType}-${createFormVersion}`} className="space-y-3">
           {simplifyModals && createType === "payment" ? (
             <>
@@ -2908,8 +2915,9 @@ export default function PaymentsPage() {
           )}
 
         </div>
+        )}
         {/* ── Batch queue (payment only) ── */}
-        {!isEmbed && createType === "payment" && paymentQueue.length > 0 && (
+        {createFormReady && !isEmbed && createType === "payment" && paymentQueue.length > 0 && (
           <div className="mt-4 border-t pt-3 space-y-2">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Queued ({paymentQueue.length})</p>
             {/* Header row */}
@@ -2935,7 +2943,7 @@ export default function PaymentsPage() {
           </div>
         )}
 
-        <div className={isEmbed ? "quickform-footer" : "flex justify-end gap-2 pt-4 mt-4 border-t"}>
+        {createFormReady && <div className={isEmbed ? "quickform-footer" : "flex justify-end gap-2 pt-4 mt-4 border-t"}>
           {isEmbed ? (
             <button
               onClick={() => handleCreate()}
@@ -2960,13 +2968,16 @@ export default function PaymentsPage() {
           ) : (
             <button onClick={() => handleCreate()} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button>
           )}
-        </div>
+        </div>}
         </div>
       </Modal>
 
       {/* ── EDIT MODAL ──────────────────────────────────────────────────────── */}
-      <Modal open={showEdit} onClose={() => setShowEdit(false)} title={t("edit")} size="md">
+      <Modal open={showEdit} onClose={() => { setShowEdit(false); setCreateFormReady(false); }} title={t("edit")} size="md">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
+        {!createFormReady ? (
+          <ModalFormSkeleton />
+        ) : (
         <div className="space-y-3">
           {createType === "payment" ? (
             <>
@@ -3477,9 +3488,10 @@ export default function PaymentsPage() {
             </>
           )}
         </div>
-        <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
+        )}
+        {createFormReady && <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
           <button onClick={handleEdit} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button>
-        </div>
+        </div>}
       </Modal>
 
       {/* ── VOUCHER DUPLICATE WARNING ────────────────────────────────────────── */}

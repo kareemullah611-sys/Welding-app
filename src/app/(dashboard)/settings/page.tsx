@@ -8,8 +8,16 @@ import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingProducts, getPendingUsers } from "@/lib/offline-queue-overlays";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
+import BrandLogo from "@/components/brand/BrandLogo";
+import {
+  APP_BRANDING_CACHE_KEY,
+  APP_BRANDING_UPDATED_EVENT,
+  AppBranding,
+  DEFAULT_APP_BRANDING,
+  normalizeAppBranding,
+} from "@/lib/app-branding";
 
-type Tab = "users" | "products" | "cities" | "exchange_rates" | "sessions" | "godown_access";
+type Tab = "branding" | "users" | "products" | "cities" | "exchange_rates" | "sessions" | "godown_access";
 
 const SETTINGS_USERS_READ_CACHE_KEY = "mrf-settings-users-read-cache-v1";
 const SETTINGS_PRODUCTS_READ_CACHE_KEY = "mrf-settings-products-read-cache-v1";
@@ -119,6 +127,7 @@ export default function SettingsPage() {
   if (user?.role !== "super_admin") return <div><PageHeader title={t("settings")} /><div className="card text-center py-12 text-gray-400">{t("super_admin_only")}</div></div>;
 
   const tabLabels: Record<Tab, string> = {
+    branding: "Branding",
     users: t("users"),
     products: t("products"),
     cities: t("cities"),
@@ -131,16 +140,134 @@ export default function SettingsPage() {
     <div>
       <PageHeader title={t("settings")} />
       <div className="flex flex-wrap gap-1 mb-6 bg-gray-100 rounded-lg p-1 w-fit">
-        {(["users", "products", "cities", "exchange_rates", "sessions", "godown_access"] as Tab[]).map((tb) => (
+        {(["branding", "users", "products", "cities", "exchange_rates", "sessions", "godown_access"] as Tab[]).map((tb) => (
           <button key={tb} onClick={() => setTab(tb)} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === tb ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>{tabLabels[tb]}</button>
         ))}
       </div>
+      {tab === "branding" && <BrandingTab />}
       {tab === "users" && <UsersTab />}
       {tab === "products" && <ProductsTab />}
       {tab === "cities" && <CitiesTab />}
       {tab === "exchange_rates" && <CountryFallbackRatesTab />}
       {tab === "sessions" && <SessionsTab />}
       {tab === "godown_access" && <GodownAccessTab />}
+    </div>
+  );
+}
+
+function BrandingTab() {
+  const [form, setForm] = useState<AppBranding>(DEFAULT_APP_BRANDING);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const result = await apiCall<AppBranding>("/api/v1/app-branding");
+    if (result.success && result.data) {
+      setForm(normalizeAppBranding(result.data));
+      setError("");
+    } else {
+      setError(result.error || "Failed to load branding");
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const publishBranding = (branding: AppBranding) => {
+    window.localStorage.setItem(APP_BRANDING_CACHE_KEY, JSON.stringify(branding));
+    window.dispatchEvent(new CustomEvent(APP_BRANDING_UPDATED_EVENT, { detail: branding }));
+  };
+
+  const handleLogoFile = (file: File | null) => {
+    setError("");
+    setSuccess("");
+    if (!file) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      setError("Upload a PNG, JPG, or WEBP logo.");
+      return;
+    }
+    if (file.size > 550_000) {
+      setError("Logo must be smaller than 550 KB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setForm((current) => ({ ...current, logoUrl: String(reader.result || "") || null }));
+    };
+    reader.onerror = () => setError("Could not read logo file.");
+    reader.readAsDataURL(file);
+  };
+
+  const handleSave = async () => {
+    setError("");
+    setSuccess("");
+    const next = normalizeAppBranding(form);
+    if (!next.systemName) {
+      setError("System name is required.");
+      return;
+    }
+    setSubmitting(true);
+    const result = await apiCall<AppBranding>("/api/v1/app-branding", { method: "PUT", body: next });
+    setSubmitting(false);
+    if (!result.success || !result.data) {
+      setError(result.error || "Failed to save branding");
+      return;
+    }
+    const saved = normalizeAppBranding(result.data);
+    setForm(saved);
+    publishBranding(saved);
+    setSuccess("Branding updated.");
+  };
+
+  return (
+    <div className="card max-w-3xl">
+      <h2 className="text-lg font-semibold text-gray-900">System name and logo</h2>
+      <p className="mt-1 text-sm text-gray-500">This controls the visible name and logo across login and dashboard branding.</p>
+      {error && <div className="mt-4 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+      {success && <div className="mt-4 rounded border border-green-200 bg-green-50 p-3 text-sm text-green-700">{success}</div>}
+
+      <div className="mt-5 grid gap-5 md:grid-cols-[auto,1fr]">
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
+          <BrandLogo size="lg" logoUrl={form.logoUrl} alt={form.systemName} />
+          {form.logoUrl && (
+            <button type="button" onClick={() => setForm((current) => ({ ...current, logoUrl: null }))} className="text-sm font-medium text-red-700 hover:underline">
+              Remove logo
+            </button>
+          )}
+        </div>
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">System name *</label>
+            <input
+              value={form.systemName}
+              onChange={(event) => setForm((current) => ({ ...current, systemName: event.target.value }))}
+              className="input-field"
+              maxLength={120}
+              disabled={loading}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Logo</label>
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              onChange={(event) => handleLogoFile(event.target.files?.[0] || null)}
+              className="block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700"
+              disabled={loading}
+            />
+            <p className="mt-1 text-xs text-gray-400">PNG, JPG, or WEBP. Keep it under 550 KB.</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-5 flex justify-end border-t pt-4">
+        <button type="button" onClick={handleSave} disabled={loading || submitting} className="btn-primary text-sm">
+          {submitting ? "Saving..." : "Save branding"}
+        </button>
+      </div>
     </div>
   );
 }

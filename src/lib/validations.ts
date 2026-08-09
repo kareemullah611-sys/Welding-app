@@ -32,6 +32,25 @@ export const deleteAccountSchema = z.object({
   confirmation: z.string().min(1, "Confirmation text is required"),
 });
 
+const appLogoUrlSchema = z
+  .string()
+  .trim()
+  .max(800_000, "Logo image is too large")
+  .refine(
+    (value) =>
+      value === "" ||
+      value.startsWith("https://") ||
+      value.startsWith("data:image/png;base64,") ||
+      value.startsWith("data:image/jpeg;base64,") ||
+      value.startsWith("data:image/webp;base64,"),
+    "Logo must be a PNG, JPG, WEBP upload, or an HTTPS image URL"
+  );
+
+export const updateAppBrandingSchema = z.object({
+  systemName: z.string().trim().min(1, "System name is required").max(120, "System name is too long"),
+  logoUrl: appLogoUrlSchema.optional().nullable(),
+});
+
 // ============================================================
 // USERS
 // ============================================================

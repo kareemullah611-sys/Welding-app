@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, DataTable, Modal, StatusBadge, ModalStatusNotice, formatCurrency, formatDate, RowActionMenu, MobileDateInput } from "@/components/ui";
+import { PageHeader, DataTable, Modal, StatusBadge, ModalStatusNotice, formatCurrency, formatDate, RowActionMenu, MobileDateInput, ModalFormSkeleton } from "@/components/ui";
 import CustomerFieldWithNew from "@/components/CustomerFieldWithNew";
 import { useLang } from "@/lib/lang";
 import { safeParseQueuedBody } from "@/lib/queue-resolve";
@@ -207,6 +207,8 @@ export default function SalesPage() {
   const [showCancel, setShowCancel] = useState(false);
   const [showDiscount, setShowDiscount] = useState(false);
   const [showCorrect, setShowCorrect] = useState(false);
+  const [saleCreateFormReady, setSaleCreateFormReady] = useState(false);
+  const [saleCorrectFormReady, setSaleCorrectFormReady] = useState(false);
   const [correctItems, setCorrectItems] = useState<any[]>([]);
   const [correctReason, setCorrectReason] = useState("");
   const [correctGodownId, setCorrectGodownId] = useState(0);
@@ -521,8 +523,17 @@ export default function SalesPage() {
   }, [currencies, godowns, isOnline, lots, products, sales]);
 
   const openCreate = async (preset?: Partial<typeof form>) => {
+    setSaleCreateFormReady(false);
+    setSaleSavedNotice(null);
+    setShowLatestSale(false);
+    setFormError("");
+    setShowCreate(true);
     const loaded = await loadDropdowns();
-    if (!loaded) return;
+    if (!loaded) {
+      setFormError("Unable to load sale form data.");
+      setSaleCreateFormReady(true);
+      return;
+    }
     const nextItems = preset?.items?.length ? preset.items : [emptySaleItem()];
     setForm((prev) => ({
       customerId: 0, godownId: 0, lotId: 0, saleDate: new Date().toISOString().split("T")[0],
@@ -531,11 +542,10 @@ export default function SalesPage() {
       items: nextItems,
     }));
     setGodownStock([]);
-    setSaleSavedNotice(null);
-    setShowLatestSale(false);
     setLatestCreatedSale(await loadLatestSaleSummary());
     setSelectedCustomerName("");
-    setShowCreate(true); setFormError("");
+    setSaleCreateFormReady(true);
+    setFormError("");
   };
 
   const onGodownChange = (godownId: number) => {
@@ -897,23 +907,41 @@ export default function SalesPage() {
   const openDiscount = (sale: any) => { setSelectedSale(sale); setDiscountForm({ discountAmount: 0, notes: "", discountDate: new Date().toISOString().split("T")[0] }); setShowDiscount(true); setFormError(""); };
 
   const openCorrect = async (sale: any) => {
+    setSelectedSale(sale);
+    setSaleCorrectFormReady(false);
+    setShowCorrect(true);
+    setFormError("");
     // Load products if not already loaded (fixes empty dropdown on first use)
     if (!products.length) await loadDropdowns();
     const saleGodownId = Number(sale.godownId || sale.godown?.id || 0);
     setCorrectGodownId(saleGodownId);
     if (saleGodownId) await loadGodownStock(saleGodownId);
-    setSelectedSale(sale);
     setCorrectSaleDate(sale.saleDate || "");
-    setCorrectItems(sale.items?.map((i: any) => ({
-      id: i.id,
-      productId: i.productId || i.product?.id,
-      lotId: i.lotId || i.lot?.id || sale.lot?.id || 0,
-      remainingLotId: 0,
-      lot: i.lot || sale.lot || null,
-      qty: i.qty,
-      ratePerCarton: i.ratePerCarton || i.rate,
-    })) || []);
-    setCorrectReason(""); setShowCorrect(true); setFormError("");
+    const itemMap = new Map<string, any>();
+    for (const i of sale.items || []) {
+      const productId = i.productId || i.product?.id;
+      const lotId = i.lotId || i.lot?.id || sale.lot?.id || 0;
+      const ratePerCarton = i.ratePerCarton || i.rate;
+      const key = [productId, lotId, ratePerCarton].join(":");
+      const current = itemMap.get(key);
+      if (current) {
+        current.qty = Math.round((Number(current.qty || 0) + Number(i.qty || 0)) * 100) / 100;
+      } else {
+        itemMap.set(key, {
+          id: i.id,
+          productId,
+          lotId,
+          remainingLotId: 0,
+          lot: i.lot || sale.lot || null,
+          qty: i.qty,
+          ratePerCarton,
+        });
+      }
+    }
+    setCorrectItems(Array.from(itemMap.values()));
+    setCorrectReason("");
+    setSaleCorrectFormReady(true);
+    setFormError("");
   };
   const handleCorrect = async () => {
     if (!correctSaleDate) { setFormError("Please select a date"); return; }
@@ -1062,8 +1090,41 @@ export default function SalesPage() {
     ),
   };
   const displaySales = useMemo(() => {
+    const mergeDisplayItems = (items: any[]) => {
+      const itemMap = new Map<string, any>();
+      for (const item of items) {
+        if (!item) continue;
+        const lotId = Number(item.lotId || item.lot?.id || 0);
+        const key = [
+          item.productId || item.product?.id,
+          lotId,
+          item.ratePerCarton || item.rate || 0,
+          item.ratePerPieceLocal || 0,
+          item.ratePerPieceUsd || 0,
+        ].join(":");
+        const current = itemMap.get(key);
+        if (current) {
+          current.qty = Math.round((Number(current.qty || 0) + Number(item.qty || 0)) * 100) / 100;
+          current.cartonQty = item.cartonQty == null && current.cartonQty == null
+            ? current.cartonQty
+            : Math.round((Number(current.cartonQty || 0) + Number(item.cartonQty || 0)) * 100) / 100;
+          current.amount = Math.round((Number(current.amount || 0) + Number(item.amount || 0)) * 100) / 100;
+          current.amountUsd = item.amountUsd == null && current.amountUsd == null
+            ? current.amountUsd
+            : Math.round((Number(current.amountUsd || 0) + Number(item.amountUsd || 0)) * 100) / 100;
+        } else {
+          itemMap.set(key, { ...item });
+        }
+      }
+      return Array.from(itemMap.values());
+    };
     return sales.flatMap((sale: any) => {
-      const items = Array.isArray(sale.items) && sale.items.length > 0 ? sale.items : [null];
+      const selectedLotId = Number(filters.lot_id || 0);
+      const sourceItems = Array.isArray(sale.items) && sale.items.length > 0 ? sale.items : [null];
+      const filteredItems = selectedLotId > 0
+        ? sourceItems.filter((item: any) => item && Number(item.lotId || item.lot?.id || sale.lot?.id || 0) === selectedLotId)
+        : sourceItems;
+      const items = filteredItems[0] ? mergeDisplayItems(filteredItems) : filteredItems;
       return items.map((item: any, index: number) => {
         if (!item) return { ...sale, rowActionId: `${sale.id}:sale`, sourceSale: sale };
         const qty = Number(item.qty || item.cartonQty || 0);
@@ -1078,7 +1139,7 @@ export default function SalesPage() {
         };
       });
     });
-  }, [sales]);
+  }, [filters.lot_id, sales]);
   const salesProductColumn = {
     key: "items",
     label: t("product"),
@@ -1259,7 +1320,7 @@ export default function SalesPage() {
       </>
       )}
       {/* ========== CREATE SALE MODAL ========== */}
-      <Modal open={showCreate} onClose={() => { setShowCreate(false); setShortConfirmed(false); setFormError(""); setSaleSavedNotice(null); setLatestCreatedSale(null); setShowLatestSale(false); if (isEmbed) closeEmbed(); }} title={t("new_sale")} size={isEmbed ? "lg" : "xl"} inline={isEmbed} hideHeader={isEmbed} headerAccent="bg-blue-500">
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); setSaleCreateFormReady(false); setShortConfirmed(false); setFormError(""); setSaleSavedNotice(null); setLatestCreatedSale(null); setShowLatestSale(false); if (isEmbed) closeEmbed(); }} title={t("new_sale")} size={isEmbed ? "lg" : "xl"} inline={isEmbed} hideHeader={isEmbed} headerAccent="bg-blue-500">
         <div onClick={() => setShowLatestSale(false)}>
         {saleSavedNotice && <ModalStatusNotice type="success" message={saleSavedNotice} />}
         {latestCreatedSale && (
@@ -1293,6 +1354,10 @@ export default function SalesPage() {
           </div>
         )}
 
+        {!saleCreateFormReady ? (
+          <ModalFormSkeleton />
+        ) : (
+        <>
         {simplifyModals ? (
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
@@ -1669,6 +1734,8 @@ export default function SalesPage() {
             {submitting ? "Saving…" : shortConfirmed ? "Confirm short sale" : isEmbed ? "Save sale" : t("new_sale")}
           </button>
         </div>
+        </>
+        )}
         </div>
       </Modal>
 
@@ -1707,8 +1774,12 @@ export default function SalesPage() {
       </Modal>
 
       {/* ========== CORRECT SALE ITEMS MODAL ========== */}
-      <Modal open={showCorrect} onClose={() => setShowCorrect(false)} title={`${t("correct_sale")}: ${selectedSale?.voucherNo || ""}`} size="lg">
+      <Modal open={showCorrect} onClose={() => { setShowCorrect(false); setSaleCorrectFormReady(false); }} title={`${t("correct_sale")}: ${selectedSale?.voucherNo || ""}`} size="lg">
         {formError && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{formError}</div>}
+        {!saleCorrectFormReady ? (
+          <ModalFormSkeleton />
+        ) : (
+        <>
         <div className="mb-3 rounded-lg border border-gray-200 bg-gray-50/80 p-3">
           <label className="block text-xs text-gray-500 mb-1">{t("date")} *</label>
           <MobileDateInput
@@ -1764,6 +1835,8 @@ export default function SalesPage() {
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
           <button onClick={handleCorrect} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("correct_sale")}</button>
         </div>
+        </>
+        )}
       </Modal>
 
       {/* HARD DELETE 2FA MODAL */}

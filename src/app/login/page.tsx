@@ -8,12 +8,14 @@ import BrandLogo from "@/components/brand/BrandLogo";
 import { LOGIN_PHOTOS } from "@/config/loginPhotos";
 import { EmbedAuthRecovery } from "@/components/quickform/EmbedAuthRecovery";
 import { clearAuthLogoutPending, isAuthLogoutPending } from "@/lib/auth-logout-client";
+import { useAppBranding } from "@/hooks/useAppBranding";
 
 const SLIDE_INTERVAL = 5000;
 
 export default function LoginPage() {
   const { login, user, loading } = useAuth();
   const { t, dir } = useLang();
+  const branding = useAppBranding();
   const [isElectron, setIsElectron] = useState(false);
   const [inIframe, setInIframe] = useState(false);
 
@@ -89,10 +91,10 @@ export default function LoginPage() {
         <div className="text-center mb-8">
           <div className="mx-auto mb-4 flex justify-center">
             <div className="rounded-2xl bg-white p-2 shadow-2xl">
-              <BrandLogo size="lg" />
+              <BrandLogo size="lg" logoUrl={branding.logoUrl} alt={branding.systemName} />
             </div>
           </div>
-          <h1 className="text-2xl font-bold text-white tracking-wide">MRF Hardware</h1>
+          <h1 className="text-2xl font-bold text-white tracking-wide">{branding.systemName}</h1>
           <p className="text-slate-300 text-sm mt-1 tracking-widest uppercase" style={{ fontSize: "10px", letterSpacing: "3px", color: "#93C5FD" }}>
             Management System
           </p>

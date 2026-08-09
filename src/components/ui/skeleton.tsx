@@ -78,4 +78,31 @@ function PageSkeleton({ className }: { className?: string }) {
   );
 }
 
-export { Skeleton, SkeletonLine, TableSkeleton, PageSkeleton }
+function ModalFormSkeleton({ className }: { className?: string }) {
+  return (
+    <div className={cn("space-y-3", className)} aria-label="Loading form">
+      <SkeletonLine className="h-14 w-full rounded-xl" />
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <SkeletonLine delay={80} className="h-16 rounded-xl" />
+        <SkeletonLine delay={120} className="h-16 rounded-xl" />
+      </div>
+      <SkeletonLine delay={160} className="h-16 w-full rounded-xl" />
+      <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4">
+        <div className="space-y-3">
+          <SkeletonLine delay={220} className="h-14 w-full rounded-xl" />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <SkeletonLine delay={280} className="h-14 rounded-xl" />
+            <SkeletonLine delay={340} className="h-14 rounded-xl" />
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <SkeletonLine delay={400} className="h-14 rounded-xl" />
+        <SkeletonLine delay={460} className="h-14 rounded-xl" />
+      </div>
+      <SkeletonLine delay={520} className="h-12 w-full rounded-xl" />
+    </div>
+  );
+}
+
+export { Skeleton, SkeletonLine, TableSkeleton, PageSkeleton, ModalFormSkeleton }

@@ -21,6 +21,30 @@ test("SyncRequest has database-backed city and creator relations", () => {
   assert.match(syncRequest, /creator\s+User\?\s+@relation\("SyncRequestCreatedBy", fields: \[createdBy\], references: \[id\], onDelete: SetNull\)/);
 });
 
+test("superadmin app branding settings are persisted and visible", () => {
+  const migration = readFileSync("prisma/migrations/20260809120000_app_branding_settings/migration.sql", "utf8");
+  const route = readFileSync("src/app/api/v1/app-branding/route.ts", "utf8");
+  const settingsPage = readFileSync("src/app/(dashboard)/settings/page.tsx", "utf8");
+  const brandLogo = readFileSync("src/components/brand/BrandLogo.tsx", "utf8");
+  const loginPage = readFileSync("src/app/login/page.tsx", "utf8");
+  const sidebar = readFileSync("src/components/layout/Sidebar.tsx", "utf8");
+
+  assert.match(schema, /model AppBranding/);
+  assert.match(schema, /systemName\s+String[\s\S]*@map\("system_name"\)/);
+  assert.match(schema, /logoUrl\s+String\?/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS "app_branding"/);
+  assert.match(route, /export async function GET/);
+  assert.match(route, /withAuth/);
+  assert.match(route, /user\.role !== "super_admin"/);
+  assert.match(route, /appBranding\.upsert/);
+  assert.match(settingsPage, /type Tab = "branding"/);
+  assert.match(settingsPage, /function BrandingTab/);
+  assert.match(settingsPage, /APP_BRANDING_UPDATED_EVENT/);
+  assert.match(brandLogo, /logoUrl\?: string \| null/);
+  assert.match(loginPage, /useAppBranding/);
+  assert.match(sidebar, /useAppBranding/);
+});
+
 test("OpeningLiability uses type-scoped uniqueness and party check constraints", () => {
   const openingLiability = modelBlock("OpeningLiability");
 
@@ -150,7 +174,8 @@ test("city payment modal owns haji expense and withdrawal creation", () => {
   assert.match(paymentsPage, /chequePaymentIds/);
   assert.match(paymentsPage, /superAdminDestinationAccountId/);
   assert.match(paymentsPage, /paidFrom: "bank_account"/);
-  assert.match(paymentsPage, /Withdrawn By \*/);
+  assert.match(paymentsPage, /import WithdraweeFieldWithNew from "@\/components\/WithdraweeFieldWithNew"/);
+  assert.match(paymentsPage, /<WithdraweeFieldWithNew[\s\S]*?value=\{form\.withdrawnBy \|\| ""\}/);
   assert.match(paymentsPage, /sourceType: "bank_account"/);
   assert.match(paymentsPage, /const keepCreateModalOpen = canCreateRecords/);
   assert.match(paymentsPage, /const \[createFormVersion, setCreateFormVersion\] = useState\(0\)/);
@@ -195,6 +220,9 @@ test("city sales list expands multi-item sales into separate display rows", () =
 
   assert.match(salesPage, /const displaySales = useMemo\(\(\) => \{/);
   assert.match(salesPage, /return sales\.flatMap\(\(sale: any\) => \{/);
+  assert.match(salesPage, /const mergeDisplayItems = \(items: any\[\]\) => \{/);
+  assert.match(salesPage, /Number\(filters\.lot_id \|\| 0\)/);
+  assert.match(salesPage, /Number\(item\.lotId \|\| item\.lot\?\.id \|\| sale\.lot\?\.id \|\| 0\) === selectedLotId/);
   assert.match(salesPage, /items: \[item\]/);
   assert.match(salesPage, /sourceSale: sale/);
   assert.match(salesPage, /data=\{displaySales\}/);
@@ -257,6 +285,8 @@ test("dashboard modules use shimmer table skeletons while loading", () => {
   const routeLoading = readFileSync("src/app/(dashboard)/loading.tsx", "utf8");
   const dashboardPage = readFileSync("src/app/(dashboard)/dashboard/page.tsx", "utf8");
   const inventoryPage = readFileSync("src/app/(dashboard)/inventory/page.tsx", "utf8");
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+  const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
 
   assert.match(skeleton, /function TableSkeleton/);
   assert.match(skeleton, /function PageSkeleton/);
@@ -270,6 +300,15 @@ test("dashboard modules use shimmer table skeletons while loading", () => {
   assert.doesNotMatch(dashboardPage, /Loading dashboard\.\.\./);
   assert.match(inventoryPage, /PageSkeleton/);
   assert.doesNotMatch(inventoryPage.slice(inventoryPage.indexOf("if (loading || !data)"), inventoryPage.indexOf("const isCityAdmin")), /animate-spin/);
+  assert.match(skeleton, /function ModalFormSkeleton/);
+  assert.match(uiIndex, /ModalFormSkeleton/);
+  assert.match(paymentsPage, /setShowCreate\(true\);[\s\S]*?const \{ loadedCurrencies \} = await loadHelpers\(\)/);
+  assert.match(paymentsPage, /setShowEdit\(true\);[\s\S]*?const \{ loadedCurrencies \} = await loadHelpers\(\)/);
+  assert.match(paymentsPage, /!createFormReady \? \(\s*<ModalFormSkeleton \/>/);
+  assert.match(salesPage, /setShowCreate\(true\);[\s\S]*?const loaded = await loadDropdowns\(\)/);
+  assert.match(salesPage, /setShowCorrect\(true\);[\s\S]*?if \(!products\.length\) await loadDropdowns\(\)/);
+  assert.match(salesPage, /!saleCreateFormReady \? \(\s*<ModalFormSkeleton \/>/);
+  assert.match(salesPage, /!saleCorrectFormReady \? \(\s*<ModalFormSkeleton \/>/);
   assert.match(globals, /\.skeleton-line::after/);
   assert.match(globals, /@keyframes skeleton-line-fill/);
   assert.match(globals, /@keyframes skeleton-shimmer/);
@@ -358,8 +397,11 @@ test("city sales support per-item lot selection and locked completed sale item l
   assert.match(saleCorrectRoute, /const candidateLots = await prisma\.lot\.findMany/);
   assert.match(saleCorrectRoute, /OR: \[\{ status: "ongoing" \}, \{ id: \{ in: lotIds \} \}\]/);
   assert.match(saleCorrectRoute, /const oldQtyByLotProduct = sale\.items\.reduce/);
-  assert.match(saleCorrectRoute, /normalizedItems\.push\(\.\.\.allocatedItems\)/);
+  assert.match(saleCorrectRoute, /allocatedItemsForSave\.push\(\.\.\.allocatedItems\)/);
+  assert.match(saleCorrectRoute, /consolidateSaleLotAllocationItems\(allocatedItemsForSave, roundMoney\)/);
   assert.match(saleCorrectRoute, /const newItemData = normalizedItems\.map/);
+  assert.match(salesRoute, /consolidateSaleLotAllocationItems\(allocatedItems, roundMoney\)/);
+  assert.match(salesPage, /const itemMap = new Map<string, any>\(\)/);
   assert.match(salesPage, /updateItem\(idx, "lotId"/);
   assert.match(salesPage, /isSaleItemLotLocked\(item\)/);
   assert.match(salesPage, /const \[correctGodownId, setCorrectGodownId\] = useState\(0\)/);
@@ -958,4 +1000,15 @@ test("GLM critical audit fixes remain wired", () => {
   assert.match(adminCleanupRoute, /timingSafeEqual/);
   assert.match(saleRoute, /CASE WHEN current_number >= 9999 THEN 1 ELSE current_number \+ 1 END/);
   assert.match(stockActivation, /journalSaleCOGS/);
+});
+
+test("city transfer send modal uses available source godowns", () => {
+  const cityTransfersPage = readFileSync("src/app/(dashboard)/city-transfers/page.tsx", "utf8");
+
+  assert.match(cityTransfersPage, /apiCall\("\/api\/v1\/inventory\/godown-stock"\)/);
+  assert.match(cityTransfersPage, /const sourceGodownOptions = useMemo/);
+  assert.match(cityTransfersPage, /Number\(row\.available \|\| 0\)/);
+  assert.match(cityTransfersPage, /Source Godown \*/);
+  assert.match(cityTransfersPage, /getSourceGodownAvailable\(g\.id\)/);
+  assert.match(cityTransfersPage, /No source godown has available stock for this product\./);
 });

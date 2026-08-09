@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
@@ -92,6 +92,8 @@ export default function CityTransfersPage() {
   const [myGodowns, setMyGodowns] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [lots, setLots] = useState<any[]>([]);
+  const [sourceStockRows, setSourceStockRows] = useState<any[]>([]);
+  const [sourceStockLoading, setSourceStockLoading] = useState(false);
   const [form, setForm] = useState({ toCityId: 0, fromGodownId: 0, productId: 0, lotId: 0, qty: 0, notes: "", transferDate: new Date().toISOString().split("T")[0] });
   const [approveForm, setApproveForm] = useState({ toGodownId: 0, approvalNotes: "" });
   const [submitting, setSubmitting] = useState(false);
@@ -159,6 +161,8 @@ export default function CityTransfersPage() {
       setGodowns(cached.godowns);
       setProducts(cached.products);
       setLots(cached.lots);
+      setSourceStockRows([]);
+      setSourceStockLoading(false);
       setForm({
         toCityId: 0,
         fromGodownId: 0,
@@ -174,15 +178,19 @@ export default function CityTransfersPage() {
       return;
     }
 
-    const [cR, gR, pR, lR] = await Promise.all([apiCall("/api/v1/cities", { params: { all: "true" } }), apiCall("/api/v1/godowns", { params: { limit: 100 } }), apiCall("/api/v1/products", { params: { limit: 100 } }), apiCall("/api/v1/lots", { params: { limit: 100 } })]);
+    setSourceStockLoading(true);
+    const [cR, gR, pR, lR, stockR] = await Promise.all([apiCall("/api/v1/cities", { params: { all: "true" } }), apiCall("/api/v1/godowns", { params: { limit: 100 } }), apiCall("/api/v1/products", { params: { limit: 100 } }), apiCall("/api/v1/lots", { params: { limit: 100 } }), apiCall("/api/v1/inventory/godown-stock")]);
     const nextCities = cR.success ? (cR.data as any[]).filter((c: any) => c.id !== user?.cityId && c.countryName === user?.countryName) : [];
     const nextGodowns = gR.success ? (gR.data as any[]).filter((g: any) => g.cityId === user?.cityId) : [];
     const nextProducts = pR.success ? (pR.data as any[]) : [];
     const nextLots = lR.success ? (lR.data as any[]) : [];
+    const nextSourceStockRows = stockR.success ? (stockR.data as any[]) : [];
     if (cR.success) setCities(nextCities);
     if (gR.success) setGodowns(nextGodowns);
     if (pR.success) setProducts(nextProducts);
     if (lR.success) setLots(nextLots);
+    setSourceStockRows(nextSourceStockRows);
+    setSourceStockLoading(false);
     if (nextCities.length > 0 && nextGodowns.length > 0 && nextProducts.length > 0) {
       writeOfflineFormCache<CityTransfersFormCache>(CITY_TRANSFERS_FORM_CACHE_KEY, {
         cities: nextCities,
@@ -378,6 +386,42 @@ export default function CityTransfersPage() {
     load();
   };
 
+  const sourceGodownOptions = useMemo(() => {
+    if (!sourceStockRows.length) return godowns;
+
+    const eligibleGodownIds = new Set<number>();
+    for (const row of sourceStockRows) {
+      const available = Number(row.available || 0);
+      if (available <= 0) continue;
+      if (form.productId && Number(row.productId) !== Number(form.productId)) continue;
+      if (form.lotId) {
+        const lotRows = Array.isArray(row.lotBreakdown) ? row.lotBreakdown : [];
+        const hasSelectedLot = lotRows.some((lotRow: any) => Number(lotRow.lotId) === Number(form.lotId) && Number(lotRow.available || 0) > 0);
+        if (!hasSelectedLot) continue;
+      }
+      eligibleGodownIds.add(Number(row.godownId));
+    }
+
+    return godowns.filter((godown: any) => eligibleGodownIds.has(Number(godown.id)));
+  }, [form.lotId, form.productId, godowns, sourceStockRows]);
+
+  const getSourceGodownAvailable = (godownId: number) => {
+    if (!form.productId) return null;
+    const stockRow = sourceStockRows.find((row: any) => Number(row.godownId) === Number(godownId) && Number(row.productId) === Number(form.productId));
+    if (!stockRow) return 0;
+    if (!form.lotId) return Number(stockRow.available || 0);
+    const lotRow = Array.isArray(stockRow.lotBreakdown)
+      ? stockRow.lotBreakdown.find((row: any) => Number(row.lotId) === Number(form.lotId))
+      : null;
+    return Number(lotRow?.available || 0);
+  };
+
+  useEffect(() => {
+    if (!form.fromGodownId) return;
+    const stillAvailable = sourceGodownOptions.some((godown: any) => Number(godown.id) === Number(form.fromGodownId));
+    if (!stillAvailable) setForm((current) => ({ ...current, fromGodownId: 0 }));
+  }, [form.fromGodownId, sourceGodownOptions]);
+
   const pendingIncoming = transfers.filter(tr => tr.status === "pending" && tr.toCity?.id === user?.cityId);
 
   return (
@@ -428,7 +472,7 @@ export default function CityTransfersPage() {
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("to_city_label")} *</label><select value={form.toCityId} onChange={e => setForm(f => ({ ...f, toCityId: parseInt(e.target.value) }))} className="select-field"><option value={0}>{t("select_city")}</option>{cities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("from_godown")} *</label><select value={form.fromGodownId} onChange={e => setForm(f => ({ ...f, fromGodownId: parseInt(e.target.value) }))} className="select-field"><option value={0}>{t("select")}</option>{godowns.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}</select></div>
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">Source Godown *</label><select value={form.fromGodownId} onChange={e => setForm(f => ({ ...f, fromGodownId: parseInt(e.target.value) }))} className="select-field"><option value={0}>{sourceStockLoading ? "Loading source godowns..." : t("select_godown")}</option>{sourceGodownOptions.map(g => { const available = getSourceGodownAvailable(g.id); return <option key={g.id} value={g.id}>{g.name}{available !== null ? ` — ${formatNumber(available)} available` : ""}</option>; })}</select>{!sourceStockLoading && form.productId > 0 && sourceGodownOptions.length === 0 && <p className="mt-1 text-xs text-red-600">No source godown has available stock for this product.</p>}</div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("product")} *</label><select value={form.productId} onChange={e => setForm(f => ({ ...f, productId: parseInt(e.target.value) }))} className="select-field"><option value={0}>{t("select")}</option>{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
           <div className="grid grid-cols-2 gap-3">
             <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("cartons")} *</label><input type="number" value={form.qty || ""} onChange={e => setForm(f => ({ ...f, qty: parseFloat(e.target.value) || 0 }))} className="input-field" /></div>

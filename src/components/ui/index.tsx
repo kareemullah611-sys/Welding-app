@@ -895,4 +895,4 @@ export { FormattedNumberInput, FormattedNumberEditable } from "@/components/ui/F
 export { ProcessingSpinner } from "@/components/ui/ProcessingLoader";
 export { default as ProcessingLoader } from "@/components/ui/ProcessingLoader";
 export { default as CuttingDiscSpinner, DEFAULT_CUTTING_DISC_SRC } from "@/components/ui/CuttingDiscSpinner";
-export { Skeleton, SkeletonLine, TableSkeleton, PageSkeleton } from "@/components/ui/skeleton";
+export { Skeleton, SkeletonLine, TableSkeleton, PageSkeleton, ModalFormSkeleton } from "@/components/ui/skeleton";

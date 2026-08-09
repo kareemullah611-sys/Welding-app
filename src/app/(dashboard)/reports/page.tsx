@@ -9,6 +9,7 @@ import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline
 import { openLedgerExport } from "@/lib/ledger-export";
 import { GlassButton } from "@/components/ui/GlassButton";
 import { CalendarRange, FileSpreadsheet, Printer, Play } from "lucide-react";
+import { useAppBranding } from "@/hooks/useAppBranding";
 
 type ReportType = "haji_settlement" | "city_ledger" | "discount_history";
 type DatePreset = "month" | "last7" | "all" | "custom";
@@ -46,6 +47,7 @@ export default function ReportsPage() {
   const { user } = useAuth();
   const { t } = useLang();
   const { isOnline, queuedItems } = useOffline();
+  const branding = useAppBranding();
   const [reportType, setReportType] = useState<ReportType>("city_ledger");
   const [filters, setFilters] = useState({
     date_from: "",
@@ -427,7 +429,7 @@ export default function ReportsPage() {
           </style>
         </head>
         <body>
-          <h1>MRF Hardware</h1>
+          <h1>${escapeHtml(branding.systemName)}</h1>
           <div class="meta">${escapeHtml(reportTitle)} · ${escapeHtml(dateRangeLabel)}${tableSearch.trim() ? ` · Search: ${escapeHtml(tableSearch.trim())}` : ""} · Generated ${escapeHtml(new Date().toLocaleString())}</div>
           <table>
             <thead><tr>${headers.map((header) => `<th>${escapeHtml(header.label)}</th>`).join("")}</tr></thead>
@@ -463,7 +465,7 @@ export default function ReportsPage() {
     <div className="space-y-6">
       {data.length > 0 && (
         <div className="print-only mb-4 border-b border-gray-300 pb-3">
-          <h1 className="text-lg font-bold text-gray-900">MRF Hardware</h1>
+          <h1 className="text-lg font-bold text-gray-900">{branding.systemName}</h1>
           <p className="text-sm font-semibold text-gray-700">{reportLabels[reportType]}</p>
           <p className="mt-0.5 text-xs text-gray-500">
             {dateRangeLabel} · Generated {new Date().toLocaleString()}

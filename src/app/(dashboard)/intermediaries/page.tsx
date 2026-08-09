@@ -10,6 +10,7 @@ import { getPendingIntermediaries } from "@/lib/offline-queue-overlays";
 import { applyPendingIntermediaryLedger } from "@/lib/offline-intermediary-ledger";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import { useAppBranding } from "@/hooks/useAppBranding";
 
 const INTERMEDIARIES_READ_CACHE_KEY = "mrf-intermediaries-read-cache-v1";
 
@@ -127,6 +128,7 @@ function compactLedgerDescription(entry: { description?: string; type?: string }
 export default function IntermediariesPage() {
   const { user } = useAuth();
   const { isOnline, queuedItems, updateQueuedItem, discardQueuedItem } = useOffline();
+  const branding = useAppBranding();
   const [intermediaries, setIntermediaries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
@@ -640,7 +642,7 @@ export default function IntermediariesPage() {
           <div class="brand">
             <svg class="shield" viewBox="0 0 50 55" fill="none"><path d="M25 2L45 9V33C45 48 25 54 25 54S5 48 5 33V9L25 2Z" fill="#6B0F1A"/><path d="M25 2L45 9V33C45 48 25 54 25 54S5 48 5 33V9L25 2Z" stroke="#D4AF37" stroke-width="1.5"/></svg>
             <div class="brand-text">
-              <h1>MRF HARDWARE</h1>
+              <h1>${escHtml(branding.systemName.toUpperCase())}</h1>
               <span>Management System</span>
             </div>
           </div>
@@ -677,7 +679,7 @@ export default function IntermediariesPage() {
         </div>
         
         <div class="footer">
-          <span>MRF Hardware Management System</span>
+          <span>${escHtml(branding.systemName)} Management System</span>
           <span>Page 1 of 1</span>
         </div>
       </body></html>
