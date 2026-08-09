@@ -622,10 +622,6 @@ export default function SalesPage() {
       selectedLotId ? remainingLotId : 0,
       ...breakdown.map((lot: any) => Number(lot.lotId)),
     ].filter((id, index, arr) => id > 0 && arr.indexOf(id) === index);
-    if (oldLotId > 0 && !ids.includes(oldLotId)) {
-      if (selectedLotId > 0) ids.splice(1, 0, oldLotId);
-      else ids.unshift(oldLotId);
-    }
     return ids.map((lotId) => {
       const breakdownLot = breakdown.find((lot: any) => Number(lot.lotId) === Number(lotId));
       const masterLot = lots.find((lot: any) => Number(lot.id) === Number(lotId));
@@ -920,9 +916,11 @@ export default function SalesPage() {
     const itemMap = new Map<string, any>();
     for (const i of sale.items || []) {
       const productId = i.productId || i.product?.id;
-      const lotId = i.lotId || i.lot?.id || sale.lot?.id || 0;
+      const sourceLotId = i.lotId || i.lot?.id || sale.lot?.id || 0;
+      const sourceLot = i.lot || sale.lot || null;
+      const lotId = sourceLot?.status === "completed" ? sourceLotId : 0;
       const ratePerCarton = i.ratePerCarton || i.rate;
-      const key = [productId, lotId, ratePerCarton].join(":");
+      const key = [productId, sourceLotId, ratePerCarton].join(":");
       const current = itemMap.get(key);
       if (current) {
         current.qty = Math.round((Number(current.qty || 0) + Number(i.qty || 0)) * 100) / 100;
@@ -932,7 +930,7 @@ export default function SalesPage() {
           productId,
           lotId,
           remainingLotId: 0,
-          lot: i.lot || sale.lot || null,
+          lot: sourceLot,
           qty: i.qty,
           ratePerCarton,
         });
@@ -1310,6 +1308,7 @@ export default function SalesPage() {
           cityId={user?.cityId ?? undefined}
           query={filters.query}
           status={filters.status || undefined}
+          lotId={filters.lot_id || undefined}
           disabled={!isOnline}
           className="shrink-0 justify-end self-end w-full md:w-auto md:ml-auto"
         />

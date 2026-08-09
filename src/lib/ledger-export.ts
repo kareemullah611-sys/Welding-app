@@ -24,6 +24,7 @@ export type LedgerExportParams = {
   ledgerType?: string;
   query?: string;
   status?: string;
+  lotId?: string | number;
   format?: "xlsx" | "json";
 };
 
@@ -39,6 +40,7 @@ export function buildLedgerExportParams(params: LedgerExportParams): Record<stri
   if (params.ledgerType && params.ledgerType !== "all") searchParams.ledger_type = params.ledgerType;
   if (params.query && params.query.trim().length >= 2) searchParams.q = params.query.trim();
   if (params.status) searchParams.status = params.status;
+  if (params.lotId) searchParams.lot_id = String(params.lotId);
   return searchParams;
 }
 

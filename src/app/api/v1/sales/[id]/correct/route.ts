@@ -122,7 +122,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         SELECT ct.lot_id, ct.product_id, COALESCE(SUM(ct.qty), 0) as qty
         FROM city_transfers ct
         WHERE ct.from_godown_id = ${nextGodownId}
-          AND ct.status = 'approved'
+          AND ct.status IN ('approved', 'pending')
           AND ct.product_id IN (${Prisma.join(productIds)})
           AND ct.lot_id IN (${Prisma.join(candidateLotIds)})
         GROUP BY ct.lot_id, ct.product_id

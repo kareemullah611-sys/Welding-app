@@ -69,18 +69,31 @@ async function getGodownStock(
     _sum: { qty: true },
   });
 
+  // City transfers out reserve stock while pending and consume it once approved.
+  const cityTransferredOut = await db.cityTransfer.aggregate({
+    where: { fromGodownId: godownId, productId, status: { in: ["approved", "pending"] }, ...(lotId ? { lotId } : {}) },
+    _sum: { qty: true },
+  });
+
   // Transferred in
   const transferredIn = await db.godownTransfer.aggregate({
     where: { toGodownId: godownId, productId, ...(lotId ? { lotId } : {}) },
     _sum: { qty: true },
   });
 
+  const cityTransferredIn = await db.cityTransfer.aggregate({
+    where: { toGodownId: godownId, productId, status: "approved", ...(lotId ? { lotId } : {}) },
+    _sum: { qty: true },
+  });
+
   const rcv = Number(received._sum.qty || 0);
   const sld = Number(sold._sum.qty || 0);
   const out = Number(transferredOut._sum.qty || 0);
+  const cityOut = Number(cityTransferredOut._sum.qty || 0);
   const inn = Number(transferredIn._sum.qty || 0);
+  const cityIn = Number(cityTransferredIn._sum.qty || 0);
 
-  return rcv - sld - out + inn;
+  return rcv - sld - out - cityOut + inn + cityIn;
 }
 
 async function getAvailableLotsForProduct(

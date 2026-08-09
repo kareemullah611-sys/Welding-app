@@ -14,6 +14,7 @@ type Props = {
   ledgerType?: string;
   query?: string;
   status?: string;
+  lotId?: string | number;
   disabled?: boolean;
   className?: string;
   onPrintPdf?: () => void | Promise<void>;
@@ -28,13 +29,14 @@ export function LedgerExportButtons({
   ledgerType,
   query,
   status,
+  lotId,
   disabled,
   className = "",
   onPrintPdf,
 }: Props) {
   const [printing, setPrinting] = useState(false);
 
-  const exportParams = { type, dateFrom, dateTo, cityId, customerId, ledgerType, query, status };
+  const exportParams = { type, dateFrom, dateTo, cityId, customerId, ledgerType, query, status, lotId };
 
   const handlePrint = async () => {
     setPrinting(true);

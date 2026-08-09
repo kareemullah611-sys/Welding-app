@@ -65,6 +65,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const cityFilter = cityId ? { cityId } : {};
     const search = parseExportSearchQuery(searchParams.get("q"));
     const statusFilter = parseStatusFilter(searchParams.get("status"));
+    const lotId = searchParams.get("lot_id") ? parseInt(searchParams.get("lot_id")!) : undefined;
     const city = cityId
       ? await prisma.city.findUnique({ where: { id: cityId }, select: { name: true } })
       : null;
@@ -79,6 +80,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           ...cityFilter,
           ...(statusFilter ? { status: statusFilter as any } : {}),
           ...(saleDate ? { saleDate } : {}),
+          ...(lotId ? { OR: [{ lotId }, { items: { some: { lotId } } }] } : {}),
         },
         include: {
           customer: { select: { name: true } },

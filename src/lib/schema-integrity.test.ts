@@ -418,7 +418,11 @@ test("city sales support per-item lot selection and locked completed sale item l
   assert.match(salesPage, /lotOptionsForItem = \(item: any, includeOwnCorrectQty = false\)/);
   assert.match(salesPage, /filter\(\(lot: any\) => Number\(lot\.available \|\| 0\) \+ \(includeOwnCorrectQty \? ownCorrectItemQty\(item, Number\(lot\.lotId\)\) : 0\) > 0\)/);
   assert.match(salesPage, /includeOwnCorrectQty && item\?\.id/);
-  assert.match(salesPage, /oldLotId > 0 && !ids\.includes\(oldLotId\)/);
+  assert.match(salesPage, /const sourceLotId = i\.lotId \|\| i\.lot\?\.id \|\| sale\.lot\?\.id \|\| 0/);
+  assert.match(salesPage, /const lotId = sourceLot\?\.status === "completed" \? sourceLotId : 0/);
+  assert.match(salesPage, /const key = \[productId, sourceLotId, ratePerCarton\]\.join\(":"\)/);
+  assert.doesNotMatch(salesPage, /ids\.unshift\(oldLotId\)/);
+  assert.doesNotMatch(salesPage, /ids\.splice\(1, 0, oldLotId\)/);
   assert.match(salesPage, /\.\.\.\(field === "productId" \? \{ lotId: 0, remainingLotId: 0 \} : \{\}\)/);
   assert.match(salesPage, /\.\.\.\(field === "lotId" \? \{ remainingLotId: 0 \} : \{\}\)/);
   assert.match(salesPage, /grid grid-cols-1 gap-2 items-end sm:grid-cols-2 lg:grid-cols-5/);
@@ -437,8 +441,16 @@ test("city sales auto lot selection expands sale items across FIFO lot availabil
   assert.match(salesRoute, /getAvailableLotsForProduct/);
   assert.match(salesRoute, /Lot is required for each product/);
   assert.match(salesRoute, /exceeds available stock/);
+  assert.match(salesRoute, /db\.cityTransfer\.aggregate/);
+  assert.match(salesRoute, /status: \{ in: \["approved", "pending"\] \}/);
   assert.match(salesRoute, /availableLots: await getAvailableLotsForProduct\(cityId, user\.countryId!, godownId, item\.productId\)/);
   assert.match(godownStockRoute, /lotBreakdown/);
+  assert.match(godownStockRoute, /city_transferred_out/);
+  assert.match(godownStockRoute, /ct\.status IN \('approved', 'pending'\)/);
+  assert.match(godownStockRoute, /city_transferred_in/);
+  assert.match(godownStockRoute, /ct\.status = 'approved'/);
+  const saleCorrectRoute = readFileSync("src/app/api/v1/sales/[id]/correct/route.ts", "utf8");
+  assert.match(saleCorrectRoute, /ct\.status IN \('approved', 'pending'\)/);
   assert.match(salesPage, /const saleGodownId = Number\(sale\.godownId \|\| sale\.godown\?\.id \|\| 0\)/);
   assert.match(salesPage, /if \(saleGodownId\) await loadGodownStock\(saleGodownId\)/);
   assert.match(salesPage, /const expandedItems = expandAutoLotItems\(validItems, true\)/);
@@ -489,6 +501,28 @@ test("sales custom date filters fit without forced horizontal scrolling", () => 
   assert.match(toDateInput, /flex-\[1_1_7rem\]/);
   assert.doesNotMatch(fromDateInput, /shrink-0/);
   assert.doesNotMatch(toDateInput, /shrink-0/);
+});
+
+test("sales exports follow active filters without pagination", () => {
+  const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
+  const exportButtons = readFileSync("src/components/LedgerExportButtons.tsx", "utf8");
+  const ledgerExport = readFileSync("src/lib/ledger-export.ts", "utf8");
+  const exportRoute = readFileSync("src/app/api/v1/reports/export/route.ts", "utf8");
+  const exportParamsType = ledgerExport.slice(ledgerExport.indexOf("export type LedgerExportParams"), ledgerExport.indexOf("export function buildLedgerExportParams"));
+  const buildParamsBlock = ledgerExport.slice(ledgerExport.indexOf("export function buildLedgerExportParams"), ledgerExport.indexOf("export function buildLedgerExportUrl"));
+
+  assert.match(salesPage, /dateFrom=\{filters\.date_from \|\| undefined\}/);
+  assert.match(salesPage, /dateTo=\{filters\.date_to \|\| undefined\}/);
+  assert.match(salesPage, /query=\{filters\.query\}/);
+  assert.match(salesPage, /status=\{filters\.status \|\| undefined\}/);
+  assert.match(salesPage, /lotId=\{filters\.lot_id \|\| undefined\}/);
+  assert.match(exportButtons, /lotId\?: string \| number/);
+  assert.match(ledgerExport, /searchParams\.lot_id = String\(params\.lotId\)/);
+  assert.match(exportRoute, /const lotId = searchParams\.get\("lot_id"\)/);
+  assert.match(exportRoute, /OR: \[\{ lotId \}, \{ items: \{ some: \{ lotId \} \} \}\]/);
+  assert.doesNotMatch(exportParamsType, /page|limit/);
+  assert.doesNotMatch(buildParamsBlock, /page|limit/);
+  assert.doesNotMatch(exportButtons, /page|limit/);
 });
 
 test("customer ledger sale details stay complete with at-rate display across table and PDF", () => {
