@@ -220,7 +220,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
             paymentDate: new Date(expenseDate),
             amount: resolvedAmount,
             currencyId: (resolvedCurrencyId ?? cityCurrency.currencyId) as number,
-            detail,
+            detail: "cash- expense",
             paymentMethod: "cash",
             destination: "our_account",
             notes,

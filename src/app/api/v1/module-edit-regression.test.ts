@@ -38,6 +38,7 @@ test("customer-paid expenses create and sync linked customer payments", () => {
   const validations = readFileSync("src/lib/validations.ts", "utf8");
   const expenseCreateRoute = readFileSync("src/app/api/v1/expenses/route.ts", "utf8");
   const expenseEditRoute = readFileSync("src/app/api/v1/expenses/[id]/route.ts", "utf8");
+  const customerRoute = readFileSync("src/app/api/v1/customers/[id]/route.ts", "utf8");
   const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
 
   assert.match(schema, /customerPaymentId Int\?\s+@unique @map\("customer_payment_id"\)/);
@@ -46,13 +47,17 @@ test("customer-paid expenses create and sync linked customer payments", () => {
 
   assert.match(expenseCreateRoute, /paidFrom === "customer" && !customerId/);
   assert.match(expenseCreateRoute, /tx\.payment\.create\(\{/);
+  assert.match(expenseCreateRoute, /detail:\s*"cash- expense"/);
   assert.match(expenseCreateRoute, /journalPaymentReceived\(\{/);
   assert.match(expenseCreateRoute, /customerPaymentId/);
 
   assert.match(expenseEditRoute, /nextPaidFrom === "customer"/);
   assert.match(expenseEditRoute, /tx\.payment\.update\(/);
   assert.match(expenseEditRoute, /tx\.payment\.create\(/);
+  assert.match(expenseEditRoute, /detail:\s*"cash- expense"/);
   assert.match(expenseEditRoute, /tx\.payment\.delete\(\{ where: \{ id: linkedCustomerPayment\.id \} \}\)/);
+  assert.match(customerRoute, /customerPaidExpense: \{ select: \{ id: true \} \}/);
+  assert.match(customerRoute, /\? "cash- expense"/);
 
   assert.match(paymentsPage, /form\.paidFrom === "customer"/);
   assert.match(paymentsPage, /CustomerFieldWithNew/);

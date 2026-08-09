@@ -54,3 +54,35 @@ For any change touching payments, haji transfers, customer/supplier ledger, bank
 5. Attach or paste the verifier **Trace table** (PASS/FAIL per flow) before commit/PR.
 
 Display-only fields (`detail`, `transferredTo`) are not proof of correct persistence — confirm FK/ID columns match ledger queries.
+
+## RULE 6: FINANCE-CHANGE CONTRACT
+For any accounting, payment, expense, sale, inventory, transfer, opening balance, dashboard balance, running balance, profit/report, or ledger change, first list every affected path before coding.
+
+Do not mark work done until these are explicitly verified:
+1. Form payload
+2. API validation
+3. DB rows created/updated/deleted
+4. Journal entries
+5. Customer/supplier/haji/liability ledger effect
+6. Payments module running balance
+7. Dashboard/treasury balance
+8. Edit behavior
+9. Delete/cancel behavior
+10. Existing historical entries behavior
+
+In this app, finance changes often have separate paths. Check all relevant paths:
+- API create/edit/delete route
+- Journal helpers
+- `finance/combined` running balance
+- Treasury/dashboard summaries
+- Cash-ledger/bank-ledger views
+- Customer ledger
+- PDF/XLSX exports
+- Edit modal prefill
+
+Add regression tests for the exact bug and the related paired-entry case. If any path is not verified, say **NOT VERIFIED** clearly. Do not rely on display text as proof of persistence.
+
+Every finance final report must include this trace table:
+
+| Flow | Form | API | DB | Journal | Ledger | Running Balance | Dashboard | Edit | Delete | Result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |

@@ -189,7 +189,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           paymentDate: nextExpenseDate,
           amount: data.amount ?? expense.amount,
           currencyId: expense.currencyId,
-          detail: data.detail || expense.detail,
+          detail: "cash- expense",
           paymentMethod: "cash",
           destination: "our_account",
           chequeNumber: null,

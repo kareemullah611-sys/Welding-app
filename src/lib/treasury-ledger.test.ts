@@ -54,6 +54,16 @@ describe("getCombinedItemNetDelta", () => {
     });
     assert.equal(delta, -9000);
   });
+
+  it("deducts customer-paid expenses as the paired cash outflow", () => {
+    const delta = getCombinedItemNetDelta({
+      type: "expense",
+      amount: 2500,
+      currencyCode: "PKR",
+      raw: { paidFrom: "customer" },
+    });
+    assert.equal(delta, -2500);
+  });
 });
 
 describe("buildPaymentCancellationReversalRow", () => {
@@ -162,6 +172,41 @@ describe("computeRunningBalances", () => {
     assert.equal(byKey.get("payment:1"), 6463767);
     assert.equal(byKey.get("haji_transfer:1"), 6363767);
     assert.equal(byKey.get("payment:2"), 7363767);
+  });
+
+  it("nets customer-paid expense against its auto receive payment", () => {
+    const { itemsWithBalance } = computeRunningBalances(
+      [
+        {
+          id: 10,
+          type: "payment",
+          date: "2026-08-09",
+          amount: 2500,
+          currencyCode: "PKR",
+          status: "active",
+          raw: {
+            ...cashReceiptRaw,
+            createdAt: "2026-08-09T10:00:00.000Z",
+          },
+        },
+        {
+          id: 20,
+          type: "expense",
+          date: "2026-08-09",
+          amount: 2500,
+          currencyCode: "PKR",
+          raw: {
+            paidFrom: "customer",
+            createdAt: "2026-08-09T10:00:01.000Z",
+          },
+        },
+      ],
+      { PKR: 10000 }
+    );
+
+    const byKey = new Map(itemsWithBalance.map((row) => [`${row.type}:${row.id}`, row.runningBalance]));
+    assert.equal(byKey.get("payment:10"), 12500);
+    assert.equal(byKey.get("expense:20"), 10000);
   });
 
   it("nets cancelled payment plus reversal to match hand bookkeeping", () => {

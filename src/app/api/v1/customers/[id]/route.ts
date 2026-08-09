@@ -45,7 +45,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       }),
       prisma.payment.findMany({
         where: { customerId: id, ...(Object.keys(paymentDateFilter).length ? { paymentDate: paymentDateFilter } : {}) },
-        include: { currency: true, lot: { select: { lotNumber: true } } },
+        include: { currency: true, lot: { select: { lotNumber: true } }, customerPaidExpense: { select: { id: true } } },
         orderBy: { paymentDate: "asc" },
       }),
       prisma.openingCustomerBalance.findMany({
@@ -88,7 +88,9 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           type: "payment" as const,
           date: p.paymentDate.toISOString().split("T")[0],
           voucherNo: p.manualVoucherNo || "-",
-          detail: amount < 0 ? `Returned — ${formatCustomerLedgerPaymentDetail(p)}` : formatCustomerLedgerPaymentDetail(p),
+          detail: (p as any).customerPaidExpense
+            ? "cash- expense"
+            : amount < 0 ? `Returned — ${formatCustomerLedgerPaymentDetail(p)}` : formatCustomerLedgerPaymentDetail(p),
           perCartonPrice: "-",
           debit: amount < 0 ? Math.abs(amount) : 0,
           credit: amount > 0 ? amount : 0,

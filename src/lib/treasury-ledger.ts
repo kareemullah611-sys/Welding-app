@@ -98,7 +98,7 @@ export function getCombinedItemNetDelta(item: CombinedItem): number {
 
   if (item.type === "expense") {
     const paidFrom = item.raw?.paidFrom || "cash_office";
-    if (paidFrom === "cash_office" || paidFrom === "bank_account" || paidFrom === "cheque") {
+    if (paidFrom === "cash_office" || paidFrom === "bank_account" || paidFrom === "cheque" || paidFrom === "customer") {
       return -amount;
     }
     return 0;
