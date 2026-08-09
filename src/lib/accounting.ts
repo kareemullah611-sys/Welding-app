@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { AccountType, Prisma, PrismaClient } from "@prisma/client";
 import { computeLotLandedCostPkr, groupExpensesByCurrency } from "@/lib/landed-cost-pkr";
+import { getCountryFallbackRateToPkr } from "@/lib/intermediary-usd-fifo";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -297,21 +298,21 @@ export async function journalLotCost(c: {
 
 // AGENT PAID
 // Source priority: intermediary → specific bank → city cash
-export async function journalAgentPaid(p: { id: number; agentId: number; cityId: number; amount: number; currencyCode: string; paymentDate: Date; createdBy: number; bankAccountId?: number | null; intermediaryId?: number | null; superAdminCashAccountId?: number | null; }) {
+export async function journalAgentPaid(p: { id: number; agentId: number; cityId: number; amount: number; currencyCode: string; paymentDate: Date; createdBy: number; bankAccountId?: number | null; intermediaryId?: number | null; superAdminCashAccountId?: number | null; }, db: DbClient = prisma) {
   let creditAccId: number;
   if (p.intermediaryId) {
-    creditAccId = await getIntermediaryAccountId(p.intermediaryId);
+    creditAccId = await getIntermediaryAccountId(p.intermediaryId, db);
   } else if (p.superAdminCashAccountId) {
-    creditAccId = await getSuperAdminCashGLAccountId(p.superAdminCashAccountId);
+    creditAccId = await getSuperAdminCashGLAccountId(p.superAdminCashAccountId, db);
   } else if (p.bankAccountId) {
-    creditAccId = await getBankGLAccountId(p.bankAccountId);
+    creditAccId = await getBankGLAccountId(p.bankAccountId, db);
   } else {
-    creditAccId = await getCashAccountId(p.cityId);
+    creditAccId = await getCashAccountId(p.cityId, db);
   }
   await createJournalEntries(`AGENTPAY-${p.id}`, [
-    { accountId: await getAgentAccountId(p.agentId), debit: p.amount, credit: 0, description: `Payment to agent` },
+    { accountId: await getAgentAccountId(p.agentId, db), debit: p.amount, credit: 0, description: `Payment to agent` },
     { accountId: creditAccId, debit: 0, credit: p.amount, description: p.intermediaryId ? `Via intermediary` : p.bankAccountId ? `Bank to agent` : `Cash to agent` },
-  ], { currencyCode: p.currencyCode, entityType: "agent_payment", entityId: p.id, cityId: p.cityId, entryDate: p.paymentDate, createdBy: p.createdBy });
+  ], { currencyCode: p.currencyCode, entityType: "agent_payment", entityId: p.id, cityId: p.cityId, entryDate: p.paymentDate, createdBy: p.createdBy }, db);
 }
 
 // EXPENSE
@@ -478,23 +479,23 @@ export async function journalIntermediaryDeposit(d: {
   depositDate: Date; createdBy: number;
   sourceType: string; cityId?: number | null; bankAccountId?: number | null;
   superAdminBankAccountId?: number | null; superAdminCashAccountId?: number | null;
-}) {
+}, db: DbClient = prisma) {
   let creditAccId: number;
   if (d.sourceType === "super_admin_cash" && d.superAdminCashAccountId) {
-    creditAccId = await getSuperAdminCashGLAccountId(d.superAdminCashAccountId);
+    creditAccId = await getSuperAdminCashGLAccountId(d.superAdminCashAccountId, db);
   } else if (d.sourceType === "super_admin_bank_account" && d.superAdminBankAccountId) {
-    creditAccId = await getSuperAdminBankGLAccountId(d.superAdminBankAccountId);
+    creditAccId = await getSuperAdminBankGLAccountId(d.superAdminBankAccountId, db);
   } else if (d.sourceType === "bank_account" && d.bankAccountId) {
-    creditAccId = await getBankGLAccountId(d.bankAccountId);
+    creditAccId = await getBankGLAccountId(d.bankAccountId, db);
   } else if (d.cityId) {
-    creditAccId = await getCashAccountId(d.cityId);
+    creditAccId = await getCashAccountId(d.cityId, db);
   } else {
-    creditAccId = await getOrCreateAccount("1050", "Bank Account (USD)", "asset");
+    creditAccId = await getOrCreateAccount("1050", "Bank Account (USD)", "asset", undefined, db);
   }
   await createJournalEntries(`INTDEP-${d.id}`, [
-    { accountId: await getIntermediaryAccountId(d.intermediaryId), debit: d.amount, credit: 0, description: `Deposit to intermediary #${d.intermediaryId}` },
+    { accountId: await getIntermediaryAccountId(d.intermediaryId, db), debit: d.amount, credit: 0, description: `Deposit to intermediary #${d.intermediaryId}` },
     { accountId: creditAccId, debit: 0, credit: d.amount, description: `Deposit to intermediary #${d.intermediaryId}` },
-  ], { currencyCode: d.currencyCode, entityType: "intermediary_deposit", entityId: d.id, cityId: d.cityId, entryDate: d.depositDate, createdBy: d.createdBy });
+  ], { currencyCode: d.currencyCode, entityType: "intermediary_deposit", entityId: d.id, cityId: d.cityId, entryDate: d.depositDate, createdBy: d.createdBy }, db);
 }
 
 export async function journalHajiCashReceipt(r: {
@@ -530,9 +531,9 @@ export async function journalIntermediaryExchange(e: {
   toCurrencyCode: string;
   toAmount: number;
   createdBy: number;
-}) {
-  const intermediaryAccountId = await getIntermediaryAccountId(e.intermediaryId);
-  const fxClearingAccountId = await getIntermediaryFxClearingAccountId(e.intermediaryId);
+}, db: DbClient = prisma) {
+  const intermediaryAccountId = await getIntermediaryAccountId(e.intermediaryId, db);
+  const fxClearingAccountId = await getIntermediaryFxClearingAccountId(e.intermediaryId, db);
 
   await createJournalEntries(`INTFX-OUT-${e.id}`, [
     { accountId: fxClearingAccountId, debit: e.fromAmount, credit: 0, description: `FX OUT #${e.id}` },
@@ -543,7 +544,7 @@ export async function journalIntermediaryExchange(e: {
     entityId: e.id,
     entryDate: e.exchangeDate,
     createdBy: e.createdBy,
-  });
+  }, db);
 
   await createJournalEntries(`INTFX-IN-${e.id}`, [
     { accountId: intermediaryAccountId, debit: e.toAmount, credit: 0, description: `FX IN #${e.id}` },
@@ -554,7 +555,7 @@ export async function journalIntermediaryExchange(e: {
     entityId: e.id,
     entryDate: e.exchangeDate,
     createdBy: e.createdBy,
-  });
+  }, db);
 }
 
 // OPENING LIABILITY — pre-go-live payables flow into party GL accounts
@@ -664,23 +665,23 @@ export async function journalSuperAdminPersonalExpense(
 
 // SHIPPING LINE PAID
 // Source priority: intermediary → specific bank → generic bank
-export async function journalShippingLinePayment(p: { id: number; shippingLineId: number; amountUsd: number; paymentDate: Date; createdBy: number; bankAccountId?: number | null; intermediaryId?: number | null; superAdminCashAccountId?: number | null; amountLocal?: number | null; settlementCurrencyCode?: string | null; }) {
+export async function journalShippingLinePayment(p: { id: number; shippingLineId: number; amountUsd: number; paymentDate: Date; createdBy: number; bankAccountId?: number | null; intermediaryId?: number | null; superAdminCashAccountId?: number | null; amountLocal?: number | null; settlementCurrencyCode?: string | null; }, db: DbClient = prisma) {
   let creditAccId: number;
   if (p.intermediaryId) {
-    creditAccId = await getIntermediaryAccountId(p.intermediaryId);
+    creditAccId = await getIntermediaryAccountId(p.intermediaryId, db);
   } else if (p.superAdminCashAccountId) {
-    creditAccId = await getSuperAdminCashGLAccountId(p.superAdminCashAccountId);
+    creditAccId = await getSuperAdminCashGLAccountId(p.superAdminCashAccountId, db);
   } else if (p.bankAccountId) {
-    creditAccId = await getBankGLAccountId(p.bankAccountId);
+    creditAccId = await getBankGLAccountId(p.bankAccountId, db);
   } else {
-    creditAccId = await getBankAccountId();
+    creditAccId = await getBankAccountId(db);
   }
   const creditAmount = p.amountLocal && Number(p.amountLocal) > 0 ? Number(p.amountLocal) : p.amountUsd;
   const creditCurrency = p.amountLocal && Number(p.amountLocal) > 0 ? (p.settlementCurrencyCode || "PKR") : "USD";
   await createJournalEntries(`SLPAY-${p.id}`, [
-    { accountId: await getShippingLineAccountId(p.shippingLineId), debit: p.amountUsd, credit: 0, description: `Payment to shipping line` },
+    { accountId: await getShippingLineAccountId(p.shippingLineId, db), debit: p.amountUsd, credit: 0, description: `Payment to shipping line` },
     { accountId: creditAccId, debit: 0, credit: creditAmount, description: p.intermediaryId ? `Via intermediary` : `Payment to shipping line`, currencyCode: creditCurrency },
-  ], { currencyCode: "USD", entityType: "shipping_line_payment", entityId: p.id, entryDate: p.paymentDate, createdBy: p.createdBy });
+  ], { currencyCode: "USD", entityType: "shipping_line_payment", entityId: p.id, entryDate: p.paymentDate, createdBy: p.createdBy }, db);
 }
 
 // COGS AT POINT OF SALE
@@ -693,7 +694,7 @@ export async function journalSaleCOGS(params: {
   const { saleId, lotId, totalQtySold, saleDate, cityId, createdBy } = params;
 
   const [lot, costs, lotProducts, lotExpenses, saleItems] = await Promise.all([
-    db.lot.findUnique({ where: { id: lotId }, select: { pkrExchangeRate: true } }),
+    db.lot.findUnique({ where: { id: lotId }, select: { pkrExchangeRate: true, countryId: true, lotDate: true } }),
     db.lotCost.findMany({
       where: { lotId },
       select: { amount: true, currencyCode: true, exchangeRate: true, costType: true },
@@ -712,7 +713,9 @@ export async function journalSaleCOGS(params: {
     }),
   ]);
 
-  const usdPkrRate = Number(lot?.pkrExchangeRate || 0);
+  const usdPkrRate = Number(lot?.pkrExchangeRate || 0) > 0
+    ? Number(lot?.pkrExchangeRate || 0)
+    : Number(lot ? await getCountryFallbackRateToPkr({ countryId: lot.countryId, fromCurrencyCode: "USD", asOf: lot.lotDate }, db) : 0);
   if (totalQtySold === 0 || usdPkrRate <= 0) return;
 
   const mtProductIds = lotProducts

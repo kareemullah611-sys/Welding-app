@@ -4,6 +4,7 @@ import { withSuperAdmin } from "@/lib/middleware";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { journalIntermediaryExchange } from "@/lib/accounting";
 import { getIntermediaryBalances } from "@/lib/intermediary-balance";
+import { createIntermediaryUsdLayerFromExchange } from "@/lib/intermediary-usd-fifo";
 import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 
@@ -114,18 +115,26 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
           },
         });
       }
+      await journalIntermediaryExchange({
+        id: created.id,
+        intermediaryId,
+        exchangeDate: created.exchangeDate,
+        fromCurrencyCode: fromCurrency.code,
+        fromAmount: Number(created.fromAmount),
+        toCurrencyCode: toCurrency.code,
+        toAmount: Number(created.toAmount),
+        createdBy: user.userId,
+      }, tx);
+      await createIntermediaryUsdLayerFromExchange({
+        exchangeId: created.id,
+        intermediaryId,
+        exchangeDate: created.exchangeDate,
+        fromCurrencyCode: fromCurrency.code,
+        fromAmount: Number(created.fromAmount),
+        toCurrencyCode: toCurrency.code,
+        toAmount: Number(created.toAmount),
+      }, tx);
       return created;
-    });
-
-    await journalIntermediaryExchange({
-      id: exchange.id,
-      intermediaryId,
-      exchangeDate: exchange.exchangeDate,
-      fromCurrencyCode: fromCurrency.code,
-      fromAmount: Number(exchange.fromAmount),
-      toCurrencyCode: toCurrency.code,
-      toAmount: Number(exchange.toAmount),
-      createdBy: user.userId,
     });
 
     return successResponse(exchange, "Exchange executed", 201);

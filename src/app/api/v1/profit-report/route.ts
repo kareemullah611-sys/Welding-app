@@ -8,6 +8,7 @@ import {
   groupExpensesByCurrency,
   type LotCostLike,
 } from "@/lib/landed-cost-pkr";
+import { getCountryFallbackRateToPkr } from "@/lib/intermediary-usd-fifo";
 
 const REPORTING_CURRENCY = "PKR";
 
@@ -20,22 +21,58 @@ function num(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function cartonsFromPurchase(p: { qty: unknown; weightPerCartonKg: unknown }): number {
+function cartonsFromPurchase(p: {
+  qty: unknown;
+  weightPerCartonKg: unknown;
+  product?: { unitOfMeasure?: string | null; piecesPerCarton?: number | null };
+}): number {
+  if (p.product?.unitOfMeasure === "PCS") {
+    const piecesPerCarton = num(p.product.piecesPerCarton);
+    return piecesPerCarton > 0 ? num(p.qty) / piecesPerCarton : 0;
+  }
   const wtPerCrt = num(p.weightPerCartonKg);
   const qtyMt = num(p.qty);
   return wtPerCrt > 0 ? Math.round((qtyMt * 1000) / wtPerCrt) : 0;
 }
 
+function stockQtyToReportCartons(qty: unknown, product?: { unitOfMeasure?: string | null; piecesPerCarton?: number | null }): number {
+  if (product?.unitOfMeasure === "PCS") {
+    const piecesPerCarton = num(product.piecesPerCarton);
+    return piecesPerCarton > 0 ? num(qty) / piecesPerCarton : 0;
+  }
+  return num(qty);
+}
+
+function supplierPaymentPkrAmount(payment: { amountUsd: unknown; amountLocal?: unknown; exchangeRate?: unknown }): number {
+  const local = num(payment.amountLocal);
+  if (local > 0) return local;
+  const rate = num(payment.exchangeRate);
+  return rate > 0 ? num(payment.amountUsd) * rate : 0;
+}
+
+function purchasePkrFromLinkedSupplierPayments(
+  totalPurchaseUsd: number,
+  fallbackUsdPkrRate: number,
+  supplierPayments: Array<{ amountUsd: unknown; amountLocal?: unknown; exchangeRate?: unknown }>
+): number | null {
+  const actualUsd = supplierPayments.reduce((sum, payment) => sum + num(payment.amountUsd), 0);
+  const actualPkr = supplierPayments.reduce((sum, payment) => sum + supplierPaymentPkrAmount(payment), 0);
+  if (actualUsd <= 0 || actualPkr <= 0 || totalPurchaseUsd <= 0) return null;
+  if (actualUsd >= totalPurchaseUsd) return actualPkr;
+  return actualPkr + ((totalPurchaseUsd - actualUsd) * fallbackUsdPkrRate);
+}
+
 type LotProfitInputs = {
   lotId: number;
   pkrExchangeRate: number | null;
+  purchasePkrOverride?: number | null;
   purchases: Array<{
     productId: number;
     qty: unknown;
     weightPerCartonKg: unknown;
     unitPriceUsd: unknown;
     totalPriceUsd: unknown;
-    product: { name: string };
+    product: { name: string; unitOfMeasure?: string | null; piecesPerCarton?: number | null };
     supplier: { name: string };
   }>;
   lotCosts: LotCostLike[];
@@ -49,13 +86,22 @@ function buildLotProfitMetrics(input: LotProfitInputs) {
   const totalLotCostsNative = input.lotCosts.reduce((s, c) => s + num(c.amount), 0);
   const totalLotExpensesNative = Object.values(input.lotExpensesByCurrency).reduce((s, v) => s + v, 0);
 
-  const landed = computeLotLandedCostPkr({
+  const baseLanded = computeLotLandedCostPkr({
     totalPurchaseUsd,
     totalCartons: input.totalCartonsBought,
     lotCosts: input.lotCosts,
     lotExpensesByCurrency: input.lotExpensesByCurrency,
     usdPkrRate,
   });
+  const purchasePkr = num(input.purchasePkrOverride) > 0 ? num(input.purchasePkrOverride) : baseLanded.purchasePkr;
+  const purchaseDelta = purchasePkr - baseLanded.purchasePkr;
+  const totalLandedCostPkr = baseLanded.totalLandedCostPkr + purchaseDelta;
+  const landed = {
+    ...baseLanded,
+    purchasePkr: round2(purchasePkr),
+    totalLandedCostPkr: round2(totalLandedCostPkr),
+    landedCostPerCartonPkr: input.totalCartonsBought > 0 ? round2(totalLandedCostPkr / input.totalCartonsBought) : 0,
+  };
 
   const additionalCostPkr =
     landed.freightPkr + landed.nonFreightCostsPkr + landed.lotExpensesPkr;
@@ -68,7 +114,9 @@ function buildLotProfitMetrics(input: LotProfitInputs) {
 
   const productCosts = input.purchases.map((p) => {
     const cartons = cartonsFromPurchase(p);
-    const purchaseCostPkr = num(p.totalPriceUsd) * usdPkrRate;
+    const purchaseCostPkr = totalPurchaseUsd > 0
+      ? (num(p.totalPriceUsd) / totalPurchaseUsd) * purchasePkr
+      : num(p.totalPriceUsd) * usdPkrRate;
     const additionalCostShare =
       input.totalCartonsBought > 0 ? (cartons / input.totalCartonsBought) * additionalCostPkr : 0;
     const totalLandedCostPkr = purchaseCostPkr + additionalCostShare;
@@ -126,21 +174,33 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
     include: { country: true, lotProducts: { include: { product: true } } },
   });
   if (!lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
+  const usdPkrRate = lot.pkrExchangeRate
+    ? num(lot.pkrExchangeRate)
+    : num(await getCountryFallbackRateToPkr({ countryId: lot.countryId, fromCurrencyCode: "USD", asOf: lot.lotDate }));
 
-  const [purchases, costs, lotExpenses] = await Promise.all([
+  const [purchases, costs, lotExpenses, supplierPayments] = await Promise.all([
     prisma.lotPurchase.findMany({ where: { lotId }, include: { product: true, supplier: true } }),
     prisma.lotCost.findMany({ where: { lotId } }),
     prisma.expense.findMany({
       where: { lotId, deletedAt: null },
       include: { currency: true },
     }),
+    prisma.supplierPayment.findMany({
+      where: { lotId },
+      select: { amountUsd: true, amountLocal: true, exchangeRate: true },
+    }),
   ]);
 
   const lotExpensesByCurrency = groupExpensesByCurrency(lotExpenses);
-  const totalCartonsBought = lot.lotProducts.reduce((s, lp) => s + num(lp.totalQty), 0);
+  const totalCartonsBought = lot.lotProducts.reduce((s, lp) => s + stockQtyToReportCartons(lp.totalQty, lp.product), 0);
   const metrics = buildLotProfitMetrics({
     lotId,
-    pkrExchangeRate: lot.pkrExchangeRate ? num(lot.pkrExchangeRate) : null,
+    pkrExchangeRate: usdPkrRate,
+    purchasePkrOverride: purchasePkrFromLinkedSupplierPayments(
+      purchases.reduce((sum, purchase) => sum + num(purchase.totalPriceUsd), 0),
+      usdPkrRate,
+      supplierPayments
+    ),
     purchases,
     lotCosts: costs.map((c) => ({
       amount: c.amount,
@@ -224,6 +284,7 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
       country: lot.country.name,
       status: lot.status,
       pkrExchangeRate: metrics.usdPkrRate || null,
+      exchangeRateSource: lot.pkrExchangeRate ? "lot" : "country_fallback",
     },
     costSummary: {
       totalPurchaseUsd: round2(metrics.totalPurchaseUsd),
@@ -282,9 +343,10 @@ async function periodProfitReport(
 
   const lots = await prisma.lot.findMany({
     include: {
-      lotPurchases: true,
-      lotProducts: true,
+      lotPurchases: { include: { product: true, supplier: true } },
+      lotProducts: { include: { product: true } },
       lotCosts: true,
+      supplierPayments: { select: { amountUsd: true, amountLocal: true, exchangeRate: true } },
       country: true,
       sales: { where: saleWhere, include: { items: true } },
       expenses: {
@@ -311,16 +373,20 @@ async function periodProfitReport(
   for (const lot of lots) {
     if (!lot.sales.length && !lot.lotPurchases.length) continue;
 
-    const totalCartons = lot.lotProducts.reduce((s, lp) => s + num(lp.totalQty), 0);
+    const totalCartons = lot.lotProducts.reduce((s, lp) => s + stockQtyToReportCartons(lp.totalQty, lp.product), 0);
     const lotExpensesByCurrency = groupExpensesByCurrency(lot.expenses);
+    const usdPkrRate = lot.pkrExchangeRate
+      ? num(lot.pkrExchangeRate)
+      : num(await getCountryFallbackRateToPkr({ countryId: lot.countryId, fromCurrencyCode: "USD", asOf: lot.lotDate }));
     const metrics = buildLotProfitMetrics({
       lotId: lot.id,
-      pkrExchangeRate: lot.pkrExchangeRate ? num(lot.pkrExchangeRate) : null,
-      purchases: lot.lotPurchases.map((p) => ({
-        ...p,
-        product: { name: "" },
-        supplier: { name: "" },
-      })),
+      pkrExchangeRate: usdPkrRate,
+      purchasePkrOverride: purchasePkrFromLinkedSupplierPayments(
+        lot.lotPurchases.reduce((sum, purchase) => sum + num(purchase.totalPriceUsd), 0),
+        usdPkrRate,
+        lot.supplierPayments
+      ),
+      purchases: lot.lotPurchases,
       lotCosts: lot.lotCosts.map((c) => ({
         amount: c.amount,
         currencyCode: c.currencyCode,

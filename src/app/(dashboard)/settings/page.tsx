@@ -9,7 +9,7 @@ import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline
 import { getPendingProducts, getPendingUsers } from "@/lib/offline-queue-overlays";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 
-type Tab = "users" | "products" | "cities" | "sessions" | "godown_access";
+type Tab = "users" | "products" | "cities" | "exchange_rates" | "sessions" | "godown_access";
 
 const SETTINGS_USERS_READ_CACHE_KEY = "mrf-settings-users-read-cache-v1";
 const SETTINGS_PRODUCTS_READ_CACHE_KEY = "mrf-settings-products-read-cache-v1";
@@ -122,6 +122,7 @@ export default function SettingsPage() {
     users: t("users"),
     products: t("products"),
     cities: t("cities"),
+    exchange_rates: "Exchange Rates",
     sessions: t("sessions"),
     godown_access: `🏭 ${t("godown_access")}`,
   };
@@ -130,13 +131,14 @@ export default function SettingsPage() {
     <div>
       <PageHeader title={t("settings")} />
       <div className="flex flex-wrap gap-1 mb-6 bg-gray-100 rounded-lg p-1 w-fit">
-        {(["users", "products", "cities", "sessions", "godown_access"] as Tab[]).map((tb) => (
+        {(["users", "products", "cities", "exchange_rates", "sessions", "godown_access"] as Tab[]).map((tb) => (
           <button key={tb} onClick={() => setTab(tb)} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === tb ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>{tabLabels[tb]}</button>
         ))}
       </div>
       {tab === "users" && <UsersTab />}
       {tab === "products" && <ProductsTab />}
       {tab === "cities" && <CitiesTab />}
+      {tab === "exchange_rates" && <CountryFallbackRatesTab />}
       {tab === "sessions" && <SessionsTab />}
       {tab === "godown_access" && <GodownAccessTab />}
     </div>
@@ -1133,6 +1135,120 @@ function CitiesTab() {
       <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={handleEdit} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button></div>
     </Modal>
   </>;
+}
+
+function CountryFallbackRatesTab() {
+  const [countries, setCountries] = useState<any[]>([]);
+  const [rates, setRates] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState({
+    countryId: 0,
+    fromCurrencyCode: "USD",
+    rate: "",
+    effectiveFrom: new Date().toISOString().split("T")[0],
+    notes: "",
+  });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const [countriesRes, ratesRes] = await Promise.all([
+      apiCall("/api/v1/countries"),
+      apiCall("/api/v1/country-fallback-rates"),
+    ]);
+    if (countriesRes.success) setCountries((countriesRes.data as any[]) || []);
+    if (ratesRes.success) setRates((ratesRes.data as any[]) || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleSave = async () => {
+    setError("");
+    if (!form.countryId) { setError("Select a country"); return; }
+    const rate = Number(String(form.rate).replace(/,/g, ""));
+    if (!Number.isFinite(rate) || rate <= 0) { setError("Rate must be greater than 0"); return; }
+
+    setSubmitting(true);
+    const response = await apiCall("/api/v1/country-fallback-rates", {
+      method: "POST",
+      body: {
+        countryId: form.countryId,
+        fromCurrencyCode: form.fromCurrencyCode,
+        toCurrencyCode: "PKR",
+        rate,
+        effectiveFrom: form.effectiveFrom,
+        notes: form.notes,
+      },
+    });
+    setSubmitting(false);
+    if (response.success) {
+      setForm((current) => ({ ...current, rate: "", notes: "" }));
+      load();
+    } else {
+      setError(response.error || "Failed to save fallback rate");
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="card">
+        <h2 className="text-lg font-semibold text-gray-900">Country fallback rates</h2>
+        <p className="mt-1 text-sm text-gray-500">
+          Used for provisional PKR COGS/profit when a lot or payment does not yet have an actual settlement rate.
+        </p>
+        {error && <div className="mt-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{error}</div>}
+        <div className="mt-4 grid gap-3 md:grid-cols-5">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Country *</label>
+            <select value={form.countryId} onChange={(e) => setForm((f) => ({ ...f, countryId: Number(e.target.value) }))} className="select-field">
+              <option value={0}>Select</option>
+              {countries.map((country: any) => <option key={country.id} value={country.id}>{country.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">From *</label>
+            <select value={form.fromCurrencyCode} onChange={(e) => setForm((f) => ({ ...f, fromCurrencyCode: e.target.value }))} className="select-field">
+              <option value="USD">USD</option>
+              <option value="AFN">AFN</option>
+              <option value="CNY">CNY</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">To</label>
+            <input value="PKR" className="input-field bg-gray-50" disabled />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Rate *</label>
+            <input value={form.rate} onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))} className="input-field" placeholder="e.g. 280" inputMode="decimal" />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Effective from *</label>
+            <input type="date" value={form.effectiveFrom} onChange={(e) => setForm((f) => ({ ...f, effectiveFrom: e.target.value }))} className="input-field" />
+          </div>
+        </div>
+        <div className="mt-3">
+          <label className="mb-1 block text-sm font-medium text-gray-700">Notes</label>
+          <input value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} className="input-field" placeholder="Optional reason/source" />
+        </div>
+        <div className="mt-4 flex justify-end">
+          <button type="button" onClick={handleSave} disabled={submitting} className="btn-primary text-sm">
+            {submitting ? "..." : "Save fallback rate"}
+          </button>
+        </div>
+      </div>
+
+      <DataTable columns={[
+        { key: "countryName", label: "Country" },
+        { key: "fromCurrencyCode", label: "From" },
+        { key: "toCurrencyCode", label: "To" },
+        { key: "rate", label: "Rate", render: (rate: any) => Number(rate.rate || 0).toLocaleString("en-US", { maximumFractionDigits: 6 }) },
+        { key: "effectiveFrom", label: "Effective From" },
+        { key: "isActive", label: "Status", render: (rate: any) => <span className={rate.isActive ? "badge-active" : "badge-cancelled"}>{rate.isActive ? "Active" : "Inactive"}</span> },
+      ]} data={rates} loading={loading} />
+    </div>
+  );
 }
 
 function GodownAccessTab() {

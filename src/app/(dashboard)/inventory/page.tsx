@@ -4,7 +4,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, Modal, formatNumber, MobileDateInput, RowActionMenu, PaginationBar } from "@/components/ui";
+import { PageHeader, Modal, formatNumber, MobileDateInput, RowActionMenu, PaginationBar, PageSkeleton } from "@/components/ui";
 import { DEFAULT_LIST_PAGE_SIZE, paginateList } from "@/lib/pagination";
 import { GlassButton } from "@/components/ui/GlassButton";
 import { useLang } from "@/lib/lang";
@@ -675,9 +675,7 @@ export default function InventoryPage() {
     return (
       <div>
         <PageHeader title={t("inventory")} />
-        <div className="flex items-center justify-center h-64">
-          <div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
-        </div>
+        <PageSkeleton />
       </div>
     );
   }

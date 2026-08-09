@@ -141,7 +141,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     if (!effectiveLot) return errorResponse("VALIDATION_ERROR", "Selected lot is not ongoing or not distributed to your city");
 
     const transfer = await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${31001}, ${parsedFromGodownId * 100000 + parsedProductId})`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(31001, ${parsedFromGodownId * 100000 + parsedProductId}::int)`;
 
       const stockRows: any[] = await tx.$queryRaw`
         SELECT

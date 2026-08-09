@@ -5,6 +5,12 @@ import { successResponse, errorResponse, serverError } from "@/lib/api-response"
 import { reverseJournalEntries, journalShippingLinePayment } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { validatePaymentSource } from "@/lib/payment-source-validation";
+import { getIntermediaryBalances } from "@/lib/intermediary-balance";
+import {
+  consumeIntermediaryUsdFifo,
+  getLotFallbackUsdToPkrRate,
+  reverseIntermediaryUsdCostUsages,
+} from "@/lib/intermediary-usd-fifo";
 
 export const PUT = withSuperAdmin(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -30,36 +36,68 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     if (exchangeRate !== null && (!Number.isFinite(exchangeRate) || exchangeRate <= 0)) {
       return errorResponse("VALIDATION_ERROR", "Exchange rate must be greater than 0");
     }
+    if (source.intermediaryId) {
+      const balances = await getIntermediaryBalances(source.intermediaryId, { excludeShippingLinePaymentId: id });
+      const availableUsd = Number(balances.USD || 0);
+      if (amountUsd > availableUsd + 0.001) {
+        return errorResponse("INSUFFICIENT_FUNDS", `Insufficient intermediary USD balance. Available: $${availableUsd.toLocaleString("en-US")}`, 400);
+      }
+    }
 
-    try { await reverseJournalEntries(`SLPAY-${id}`, user.userId); } catch (je) { console.error("Reverse journal (SL payment):", je); }
+    const fallbackUsdToPkrRate = source.intermediaryId
+      ? await getLotFallbackUsdToPkrRate(existing.lotId || null)
+      : null;
 
-    const updated = await prisma.shippingLinePayment.update({
-      where: { id },
-      data: {
-        amountUsd,
-        exchangeRate,
-        amountPkr: exchangeRate ? Math.round(amountUsd * exchangeRate * 100) / 100 : null,
-        bankAccountId: source.bankAccountId,
-        intermediaryId: source.intermediaryId,
-        reference: body.reference !== undefined ? body.reference || null : existing.reference,
-        notes: body.notes !== undefined ? body.notes || null : existing.notes,
-      },
-    });
-
-    try {
+    await prisma.$transaction(async (tx) => {
+      await reverseJournalEntries(`SLPAY-${id}`, user.userId, tx);
+      await reverseIntermediaryUsdCostUsages({ shippingLinePaymentId: id }, tx);
+      const updated = await tx.shippingLinePayment.update({
+        where: { id },
+        data: {
+          amountUsd,
+          exchangeRate,
+          amountPkr: exchangeRate ? Math.round(amountUsd * exchangeRate * 100) / 100 : null,
+          bankAccountId: source.bankAccountId,
+          intermediaryId: source.intermediaryId,
+          reference: body.reference !== undefined ? body.reference || null : existing.reference,
+          notes: body.notes !== undefined ? body.notes || null : existing.notes,
+        },
+      });
+      let journalPayment = updated;
+      let amountLocal = updated.amountPkr ? Number(updated.amountPkr) : null;
+      let settlementCurrencyCode = updated.amountPkr ? "PKR" : null;
+      if (source.intermediaryId) {
+        const fifo = await consumeIntermediaryUsdFifo({
+          intermediaryId: source.intermediaryId,
+          amountUsd: Number(updated.amountUsd),
+          paymentDate: updated.paymentDate,
+          shippingLinePaymentId: id,
+          fallbackRatePkr: fallbackUsdToPkrRate,
+        }, tx);
+        journalPayment = await tx.shippingLinePayment.update({
+          where: { id },
+          data: {
+            amountPkr: fifo.amountPkr,
+            exchangeRate: fifo.effectiveRatePkr,
+          },
+        });
+        amountLocal = fifo.amountPkr;
+        settlementCurrencyCode = "PKR";
+      }
       await journalShippingLinePayment({
         id,
         shippingLineId: existing.shippingLineId,
-        amountUsd: Number(updated.amountUsd),
-        paymentDate: updated.paymentDate,
+        amountUsd: Number(journalPayment.amountUsd),
+        paymentDate: journalPayment.paymentDate,
         createdBy: user.userId,
         bankAccountId: source.bankAccountId,
         intermediaryId: source.intermediaryId,
-      });
-    } catch (je) { console.error("Re-journal (SL payment):", je); }
-
-    await createAuditLog(user.userId, null, "shipping_line_payments", id, "update",
-      { amountUsd: Number(existing.amountUsd) }, { amountUsd: Number(updated.amountUsd) }, getClientIP(request));
+        amountLocal,
+        settlementCurrencyCode,
+      }, tx);
+      await createAuditLog(user.userId, null, "shipping_line_payments", id, "update",
+        { amountUsd: Number(existing.amountUsd) }, { amountUsd: Number(updated.amountUsd) }, getClientIP(request), tx);
+    });
 
     return successResponse({ id }, "Payment updated");
   } catch (error) { return serverError(); }
@@ -71,12 +109,13 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
     const existing = await prisma.shippingLinePayment.findUnique({ where: { id } });
     if (!existing) return errorResponse("NOT_FOUND", "Payment not found", 404);
 
-    try { await reverseJournalEntries(`SLPAY-${id}`, user.userId); } catch (je) { console.error("Reverse journal (SL payment delete):", je); }
-
-    await prisma.shippingLinePayment.delete({ where: { id } });
-
-    await createAuditLog(user.userId, null, "shipping_line_payments", id, "delete",
-      { amountUsd: Number(existing.amountUsd), shippingLineId: existing.shippingLineId }, undefined, getClientIP(request as any));
+    await prisma.$transaction(async (tx) => {
+      await reverseJournalEntries(`SLPAY-${id}`, user.userId, tx);
+      await reverseIntermediaryUsdCostUsages({ shippingLinePaymentId: id }, tx);
+      await tx.shippingLinePayment.delete({ where: { id } });
+      await createAuditLog(user.userId, null, "shipping_line_payments", id, "delete",
+        { amountUsd: Number(existing.amountUsd), shippingLineId: existing.shippingLineId }, undefined, getClientIP(request as any), tx);
+    });
 
     return successResponse({ id }, "Payment deleted");
   } catch (error) { return serverError(); }

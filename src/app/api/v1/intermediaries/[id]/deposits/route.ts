@@ -119,16 +119,15 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
           },
         });
       }
+      await journalIntermediaryDeposit({
+        id: created.id, intermediaryId,
+        amount: Number(created.amount), currencyCode: currency.code,
+        depositDate: created.depositDate, createdBy: user.userId,
+        sourceType, cityId, bankAccountId,
+        superAdminBankAccountId: superAdminCashAccountId ? null : superAdminBankAccountId,
+        superAdminCashAccountId: superAdminCashAccountId || null,
+      }, tx);
       return created;
-    });
-
-    await journalIntermediaryDeposit({
-      id: deposit.id, intermediaryId,
-      amount: Number(deposit.amount), currencyCode: currency.code,
-      depositDate: deposit.depositDate, createdBy: user.userId,
-      sourceType, cityId, bankAccountId,
-      superAdminBankAccountId: superAdminCashAccountId ? null : superAdminBankAccountId,
-      superAdminCashAccountId: superAdminCashAccountId || null,
     });
 
     return successResponse(deposit, "Deposit recorded", 201);

@@ -37,7 +37,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 
       // Fix C2: wrap the entire approval in a single transaction with an advisory lock.
       const approvedResult = await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${31001}, ${transfer.fromGodownId * 100000 + transfer.productId})`;
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(31001, ${transfer.fromGodownId * 100000 + transfer.productId}::int)`;
 
         const fresh = await tx.cityTransfer.findUnique({ where: { id }, select: { status: true } });
         if (!fresh || fresh.status !== "pending") {

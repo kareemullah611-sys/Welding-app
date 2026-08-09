@@ -8,6 +8,8 @@ import { validatePaymentSource } from "@/lib/payment-source-validation";
 import { assertSuperAdminCashHasFunds } from "@/lib/haji-cash-balance";
 import { settlementAmountToPkr } from "@/lib/payment-currencies";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import { getIntermediaryBalances } from "@/lib/intermediary-balance";
+import { consumeIntermediaryUsdFifo, getLotFallbackUsdToPkrRate } from "@/lib/intermediary-usd-fifo";
 
 const SHIPPING_LINE_PAYMENT_SYNC_MODULE = "shipping_line_payments";
 const SUPERADMIN_SYNC_CITY_ID = 0;
@@ -61,6 +63,13 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
       if (!source.ok) return errorResponse(source.code, source.message, source.status);
       resolvedBankAccountId = source.bankAccountId;
       resolvedIntermediaryId = source.intermediaryId;
+      if (resolvedIntermediaryId) {
+        const balances = await getIntermediaryBalances(resolvedIntermediaryId);
+        const availableUsd = Number(balances.USD || 0);
+        if (Number(amountUsd) > availableUsd + 0.001) {
+          return errorResponse("INSUFFICIENT_FUNDS", `Insufficient intermediary USD balance. Available: $${availableUsd.toLocaleString("en-US")}`, 400);
+        }
+      }
     }
 
     const amountPkrValue = settlementAmountToPkr(
@@ -91,6 +100,10 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
         }
       }
     }
+
+    const fallbackUsdToPkrRate = resolvedIntermediaryId
+      ? await getLotFallbackUsdToPkrRate(parsedLotId)
+      : null;
 
     const payment = await prisma.$transaction(async (tx) => {
       const created = await tx.shippingLinePayment.create({
@@ -126,23 +139,39 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
           },
         });
       }
-      return created;
-    });
-
-    try {
+      let paymentForJournal = created;
+      if (resolvedIntermediaryId) {
+        const fifo = await consumeIntermediaryUsdFifo({
+          intermediaryId: resolvedIntermediaryId,
+          amountUsd: Number(amountUsd),
+          paymentDate: created.paymentDate,
+          shippingLinePaymentId: created.id,
+          fallbackRatePkr: fallbackUsdToPkrRate,
+        }, tx);
+        paymentForJournal = await tx.shippingLinePayment.update({
+          where: { id: created.id },
+          data: {
+            amountPkr: fifo.amountPkr,
+            exchangeRate: fifo.effectiveRatePkr,
+          },
+        });
+        amountLocal = fifo.amountPkr;
+        settlementCurrencyCode = "PKR";
+      }
       await journalShippingLinePayment({
-        id: payment.id,
+        id: paymentForJournal.id,
         shippingLineId: parsedShippingLineId,
-        amountUsd: Number(amountUsd),
-        paymentDate: new Date(paymentDate),
+        amountUsd: Number(paymentForJournal.amountUsd),
+        paymentDate: paymentForJournal.paymentDate,
         createdBy: user.userId,
         bankAccountId: resolvedBankAccountId,
         intermediaryId: resolvedIntermediaryId,
         superAdminCashAccountId: parsedCashAccountId,
         amountLocal,
         settlementCurrencyCode,
-      });
-    } catch (je) { console.error("Journal (shipping line payment):", je); }
+      }, tx);
+      return paymentForJournal;
+    });
 
     return successResponse({ id: payment.id, amountUsd: Number(payment.amountUsd), amountPkr }, "Payment recorded", 201);
   } catch (error) {

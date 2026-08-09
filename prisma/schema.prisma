@@ -187,6 +187,7 @@ model Country {
 
   cities City[]
   lots   Lot[]
+  fallbackExchangeRates CountryFallbackExchangeRate[]
 
   @@map("countries")
 }
@@ -223,8 +224,34 @@ model Currency {
   openingCheques        OpeningCheque[]
   openingHajiBalances   OpeningHajiBalance[]
   hajiCashReceipts      HajiCashReceipt[]
+  countryFallbackFromRates CountryFallbackExchangeRate[] @relation("CountryFallbackFromCurrency")
+  countryFallbackToRates   CountryFallbackExchangeRate[] @relation("CountryFallbackToCurrency")
+  intermediaryUsdCostLayers IntermediaryUsdCostLayer[]
 
   @@map("currencies")
+}
+
+model CountryFallbackExchangeRate {
+  id             Int      @id @default(autoincrement())
+  countryId      Int      @map("country_id")
+  fromCurrencyId Int      @map("from_currency_id")
+  toCurrencyId   Int      @map("to_currency_id")
+  rate           Decimal  @db.Decimal(18, 6)
+  effectiveFrom  DateTime @map("effective_from") @db.Date
+  isActive       Boolean  @default(true) @map("is_active")
+  notes          String?  @db.Text
+  createdBy      Int?     @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  country      Country  @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  fromCurrency Currency @relation("CountryFallbackFromCurrency", fields: [fromCurrencyId], references: [id], onDelete: Restrict)
+  toCurrency   Currency @relation("CountryFallbackToCurrency", fields: [toCurrencyId], references: [id], onDelete: Restrict)
+  creator      User?    @relation("CountryFallbackRateCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@unique([countryId, fromCurrencyId, toCurrencyId, effectiveFrom], map: "country_fallback_rates_country_currency_date_key")
+  @@index([countryId, fromCurrencyId, toCurrencyId, isActive], map: "country_fallback_rates_active_idx")
+  @@map("country_fallback_exchange_rates")
 }
 
 model City {
@@ -243,6 +270,7 @@ model City {
   payments           Payment[]
   expenses           Expense[]
   personalWithdrawals PersonalWithdrawal[]
+  withdraweeNames     WithdraweeName[]
   hajiTransfers      HajiTransfer[]
   lotCityDistributions LotCityDistribution[]
   inventoryThresholds InventoryThreshold[]
@@ -322,6 +350,7 @@ model User {
   expensesCreated       Expense[]
   personalWithdrawals   PersonalWithdrawal[]  @relation("WithdrawalCreator")
   withdrawalsApproved   PersonalWithdrawal[]  @relation("WithdrawalApprover")
+  withdraweeNamesCreated WithdraweeName[]     @relation("WithdraweeNameCreator")
   hajiTransfers         HajiTransfer[]
   godownTransfers    GodownTransfer[]
   attachments        Attachment[]
@@ -360,6 +389,7 @@ model User {
   intermediaryExchangesDeleted IntermediaryExchange[] @relation("IntermediaryExchangeDeletedBy")
   superAdminBankAccountsCreated SuperAdminBankAccount[]
   superAdminPersonalExpensesCreated SuperAdminPersonalExpense[]
+  countryFallbackRatesCreated CountryFallbackExchangeRate[] @relation("CountryFallbackRateCreatedBy")
   syncRequestsCreated SyncRequest[] @relation("SyncRequestCreatedBy")
 
   @@index([cityId])
@@ -1004,11 +1034,31 @@ model PersonalWithdrawal {
   chequePayment Payment?     @relation("WithdrawalCheque", fields: [chequePaymentId], references: [id])
   bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id])
 
+   @@index([cityId])
+   @@index([bankAccountId])
+   @@index([withdrawalDate])
+   @@index([approvedBy])
+   @@map("personal_withdrawals")
+}
+
+// ============================================================
+// WITHDRAWEE NAMES (standalone reference, like customers)
+// ============================================================
+
+model WithdraweeName {
+  id        Int      @id @default(autoincrement())
+  cityId    Int      @map("city_id")
+  name      String   @db.VarChar(100)
+  createdBy Int?     @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  city     City @relation(fields: [cityId], references: [id])
+  creator  User? @relation("WithdraweeNameCreator", fields: [createdBy], references: [id])
+
+  @@unique([cityId, name])
   @@index([cityId])
-  @@index([bankAccountId])
-  @@index([withdrawalDate])
-  @@index([approvedBy])
-  @@map("personal_withdrawals")
+  @@map("withdrawee_names")
 }
 
 // ============================================================
@@ -1508,6 +1558,7 @@ model SupplierPayment {
   superAdminCashAccount SuperAdminBankAccount? @relation("SupplierPaymentSuperAdminCash", fields: [superAdminCashAccountId], references: [id])
   intermediary  Intermediary? @relation(fields: [intermediaryId], references: [id])
   creator       User          @relation("SupplierPaymentCreatedBy", fields: [createdBy], references: [id])
+  intermediaryUsdCostUsages IntermediaryUsdCostUsage[]
 
   @@index([supplierId])
   @@index([lotId])
@@ -1563,6 +1614,7 @@ model ShippingLinePayment {
   intermediary Intermediary? @relation("ShippingLinePaymentIntermediary", fields: [intermediaryId], references: [id])
   superAdminCashAccount SuperAdminBankAccount? @relation("ShippingLinePaymentSuperAdminCash", fields: [superAdminCashAccountId], references: [id])
   creator      User         @relation("ShippingLinePaymentCreatedBy", fields: [createdBy], references: [id])
+  intermediaryUsdCostUsages IntermediaryUsdCostUsage[]
 
   @@index([shippingLineId])
   @@index([lotId])
@@ -1770,6 +1822,8 @@ model Intermediary {
   openingLiabilities   OpeningLiability[]
   hajiTransfers        HajiTransfer[]
   hajiCashReceipts     HajiCashReceipt[]
+  usdCostLayers        IntermediaryUsdCostLayer[]
+  usdCostUsages        IntermediaryUsdCostUsage[]
 
   @@map("intermediaries")
 }
@@ -1862,6 +1916,57 @@ model IntermediaryExchange {
   @@index([fromCurrencyId])
   @@index([toCurrencyId])
   @@map("intermediary_exchanges")
+}
+
+model IntermediaryUsdCostLayer {
+  id                 Int      @id @default(autoincrement())
+  intermediaryId     Int      @map("intermediary_id")
+  currencyId         Int      @map("currency_id")
+  sourceType         String   @map("source_type") @db.VarChar(50)
+  sourceId           Int      @map("source_id")
+  acquiredDate       DateTime @map("acquired_date") @db.Date
+  originalAmountUsd  Decimal  @map("original_amount_usd") @db.Decimal(15, 2)
+  remainingAmountUsd Decimal  @map("remaining_amount_usd") @db.Decimal(15, 2)
+  originalCostPkr    Decimal  @map("original_cost_pkr") @db.Decimal(15, 2)
+  remainingCostPkr   Decimal  @map("remaining_cost_pkr") @db.Decimal(15, 2)
+  ratePkr            Decimal  @map("rate_pkr") @db.Decimal(18, 6)
+  isFallbackRate     Boolean  @default(false) @map("is_fallback_rate")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  intermediary Intermediary @relation(fields: [intermediaryId], references: [id], onDelete: Restrict)
+  currency     Currency     @relation(fields: [currencyId], references: [id], onDelete: Restrict)
+  usages       IntermediaryUsdCostUsage[]
+
+  @@unique([sourceType, sourceId], map: "intermediary_usd_layers_source_key")
+  @@index([intermediaryId, remainingAmountUsd], map: "intermediary_usd_layers_balance_idx")
+  @@index([acquiredDate], map: "intermediary_usd_layers_date_idx")
+  @@map("intermediary_usd_cost_layers")
+}
+
+model IntermediaryUsdCostUsage {
+  id                   Int      @id @default(autoincrement())
+  layerId              Int?     @map("layer_id")
+  intermediaryId       Int      @map("intermediary_id")
+  supplierPaymentId    Int?     @map("supplier_payment_id")
+  shippingLinePaymentId Int?    @map("shipping_line_payment_id")
+  amountUsd            Decimal  @map("amount_usd") @db.Decimal(15, 2)
+  costPkr              Decimal  @map("cost_pkr") @db.Decimal(15, 2)
+  ratePkr              Decimal  @map("rate_pkr") @db.Decimal(18, 6)
+  isFallbackRate       Boolean  @default(false) @map("is_fallback_rate")
+  notes                String?  @db.Text
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  layer               IntermediaryUsdCostLayer? @relation(fields: [layerId], references: [id], onDelete: Restrict)
+  intermediary        Intermediary              @relation(fields: [intermediaryId], references: [id], onDelete: Restrict)
+  supplierPayment     SupplierPayment?          @relation(fields: [supplierPaymentId], references: [id], onDelete: Cascade)
+  shippingLinePayment ShippingLinePayment?      @relation(fields: [shippingLinePaymentId], references: [id], onDelete: Cascade)
+
+  @@index([layerId], map: "intermediary_usd_usages_layer_idx")
+  @@index([intermediaryId], map: "intermediary_usd_usages_intermediary_idx")
+  @@index([supplierPaymentId], map: "intermediary_usd_usages_supplier_idx")
+  @@index([shippingLinePaymentId], map: "intermediary_usd_usages_shipping_idx")
+  @@map("intermediary_usd_cost_usages")
 }
 
 model OpeningLiability {

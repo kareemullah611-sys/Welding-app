@@ -122,22 +122,20 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
           },
         });
       }
-      return createdPayment;
-    });
-    try {
       await journalAgentPaid({
-        id: payment.id,
+        id: createdPayment.id,
         agentId,
         cityId,
         amount,
         currencyCode: body.currencyCode || "PKR",
-        paymentDate: new Date(body.paymentDate || new Date()),
+        paymentDate: createdPayment.paymentDate,
         createdBy: user.userId,
         bankAccountId,
         intermediaryId,
         superAdminCashAccountId,
-      });
-    } catch (e) { console.error("Journal entry error:", e); }
+      }, tx);
+      return createdPayment;
+    });
     return successResponse({ id: payment.id }, "Payment recorded", 201);
   } catch (error) {
     if (syncMeta && isSyncRequestDuplicateError(error)) {

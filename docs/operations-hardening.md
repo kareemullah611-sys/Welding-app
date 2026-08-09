@@ -64,6 +64,14 @@ Daily backup command:
 DATABASE_URL=... npm run db:backup
 ```
 
+Daily macOS scheduler:
+
+```bash
+npm run db:backup:install-daily
+```
+
+Detailed setup: `docs/database-backups.md`.
+
 Restore command:
 
 ```bash

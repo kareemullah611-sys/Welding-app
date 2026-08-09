@@ -160,7 +160,7 @@ async function cashPosition(cityId?: number) {
 
   const groups = await prisma.journalEntry.groupBy({
     by: ["accountId", "currencyCode"],
-    where: { accountId: { in: accountIds } },
+    where: { accountId: { in: accountIds }, ...(cityId ? { cityId } : {}) },
     _sum: { debit: true, credit: true },
   });
 

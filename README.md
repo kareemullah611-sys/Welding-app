@@ -70,9 +70,17 @@ npm run test:critical-db
 # Create backup
 DATABASE_URL=... npm run db:backup
 
+# Create backup from a local secret file
+BACKUP_ENV_FILE=.env.backup npm run db:backup
+
+# Install daily macOS pg_dump backup
+npm run db:backup:install-daily
+
 # Restore backup
 DATABASE_URL=... npm run db:restore -- ./backups/<file>.dump
 ```
+
+Detailed setup: `docs/database-backups.md`.
 
 ### Seeded Login Credentials
 

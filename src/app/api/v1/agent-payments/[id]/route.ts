@@ -29,20 +29,18 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     });
     if (!source.ok) return errorResponse(source.code, source.message, source.status);
 
-    try { await reverseJournalEntries(`AGENTPAY-${id}`, user.userId); } catch (je) { console.error("Reverse journal (agent payment):", je); }
-
-    const updated = await prisma.agentPayment.update({
-      where: { id },
-      data: {
-        amount,
-        bankAccountId: source.bankAccountId,
-        intermediaryId: source.intermediaryId,
-        reference: body.reference !== undefined ? body.reference || null : undefined,
-        notes: body.notes !== undefined ? body.notes || null : undefined,
-      },
-    });
-
-    try {
+    await prisma.$transaction(async (tx) => {
+      await reverseJournalEntries(`AGENTPAY-${id}`, user.userId, tx);
+      const updated = await tx.agentPayment.update({
+        where: { id },
+        data: {
+          amount,
+          bankAccountId: source.bankAccountId,
+          intermediaryId: source.intermediaryId,
+          reference: body.reference !== undefined ? body.reference || null : undefined,
+          notes: body.notes !== undefined ? body.notes || null : undefined,
+        },
+      });
       await journalAgentPaid({
         id,
         agentId: existing.agentId,
@@ -53,11 +51,10 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
         createdBy: user.userId,
         bankAccountId: source.bankAccountId,
         intermediaryId: source.intermediaryId,
-      });
-    } catch (je) { console.error("Re-journal (agent payment):", je); }
-
-    await createAuditLog(user.userId, existing.cityId, "agent_payments", id, "update",
-      { amount: Number(existing.amount) }, { amount: Number(updated.amount) }, getClientIP(request));
+      }, tx);
+      await createAuditLog(user.userId, existing.cityId, "agent_payments", id, "update",
+        { amount: Number(existing.amount) }, { amount: Number(updated.amount) }, getClientIP(request), tx);
+    });
 
     return successResponse({ id }, "Payment updated");
   } catch (error) { return serverError(); }
@@ -69,12 +66,12 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
     const existing = await prisma.agentPayment.findUnique({ where: { id } });
     if (!existing) return errorResponse("NOT_FOUND", "Payment not found", 404);
 
-    try { await reverseJournalEntries(`AGENTPAY-${id}`, user.userId); } catch (je) { console.error("Reverse journal (agent payment delete):", je); }
-
-    await prisma.agentPayment.delete({ where: { id } });
-
-    await createAuditLog(user.userId, existing.cityId, "agent_payments", id, "delete",
-      { amount: Number(existing.amount), agentId: existing.agentId }, undefined, getClientIP(request as any));
+    await prisma.$transaction(async (tx) => {
+      await reverseJournalEntries(`AGENTPAY-${id}`, user.userId, tx);
+      await tx.agentPayment.delete({ where: { id } });
+      await createAuditLog(user.userId, existing.cityId, "agent_payments", id, "delete",
+        { amount: Number(existing.amount), agentId: existing.agentId }, undefined, getClientIP(request as any), tx);
+    });
 
     return successResponse({ id }, "Payment deleted");
   } catch (error) { return serverError(); }

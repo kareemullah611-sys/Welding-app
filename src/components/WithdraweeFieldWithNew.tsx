@@ -26,6 +26,7 @@ export default function WithdraweeFieldWithNew({
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState("");
   const [formError, setFormError] = useState("");
+  const [creating, setCreating] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -61,14 +62,31 @@ export default function WithdraweeFieldWithNew({
     setOpen(false);
   };
 
-  const handleNew = () => {
+  const handleNew = async () => {
     const name = normalizeName(newName);
     if (!name) { setFormError("Name required"); return; }
-    onChange(name);
-    setNewName("");
+    setCreating(true);
     setFormError("");
-    setShowNew(false);
-    setOpen(false);
+    try {
+      const res = await apiCall("/api/v1/personal-withdrawals/names", {
+        method: "POST",
+        body: { name },
+      });
+      if (res.success) {
+        setOptions((prev) => (prev.includes(name) ? prev : [...prev, name].sort((a, b) => a.localeCompare(b))));
+        onChange(name);
+        setNewName("");
+        setFormError("");
+        setShowNew(false);
+        setOpen(false);
+      } else {
+        setFormError(res.error || "Failed to save withdrawee name");
+      }
+    } catch {
+      setFormError("Failed to save withdrawee name");
+    } finally {
+      setCreating(false);
+    }
   };
 
   const resetNew = () => { setNewName(""); setFormError(""); setShowNew(false); };
@@ -102,8 +120,8 @@ export default function WithdraweeFieldWithNew({
             onKeyDown={(e) => { if (e.key === "Escape") resetNew(); }}
           />
           <div className="flex gap-2">
-            <button type="button" onClick={handleNew} className="btn-primary flex-1 text-sm" data-form-submit="true">Create</button>
-            <button type="button" onClick={resetNew} className="btn-secondary text-sm">Cancel</button>
+            <button type="button" onClick={() => void handleNew()} disabled={creating} className="btn-primary flex-1 text-sm" data-form-submit="true">{creating ? "Saving..." : "Create"}</button>
+            <button type="button" onClick={resetNew} disabled={creating} className="btn-secondary text-sm">Cancel</button>
           </div>
         </div>
       )}

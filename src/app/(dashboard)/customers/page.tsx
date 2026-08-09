@@ -3,7 +3,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, DataTable, Modal, RowActionMenu, formatDate, formatNumber, MobileDateInput } from "@/components/ui";
+import { PageHeader, DataTable, Modal, RowActionMenu, formatDate, formatNumber, MobileDateInput, TableSkeleton } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { isEditableCustomerQueuedPayload, safeParseQueuedBody } from "@/lib/queue-resolve";
 import { applyPendingCustomerLedger } from "@/lib/offline-customer-ledger";
@@ -831,8 +831,10 @@ export default function CustomersPage() {
           </div>
 
           {ledgerLoading ? (
-            <div className="flex justify-center py-12">
-              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-200 border-t-primary-600" />
+            <div className="overflow-hidden rounded-xl border border-gray-200">
+              <div className="overflow-x-auto">
+                <TableSkeleton columns={5} rows={7} compact />
+              </div>
             </div>
           ) : ledgerData ? (
             <div className="overflow-hidden rounded-xl border border-gray-200">

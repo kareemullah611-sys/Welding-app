@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, StatsCard, formatNumber, DataTable } from "@/components/ui";
+import { PageHeader, StatsCard, formatNumber, DataTable, SkeletonLine, TableSkeleton } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { applyPendingDashboardMetrics } from "@/lib/offline-dashboard";
@@ -162,6 +162,49 @@ const SectionCard = ({
   </div>
 );
 
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6 page-enter">
+      <div className="module-page rounded-[1.6rem] border border-white/60 bg-white/50 px-5 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_24px_60px_-36px_rgba(42,6,8,0.3)] backdrop-blur-2xl">
+        <SkeletonLine className="h-8 max-w-[14rem]" />
+      </div>
+
+      <div className="quick-action-panel relative overflow-hidden rounded-[1.75rem] border border-white/55 p-3">
+        <div className="relative grid grid-cols-2 gap-2.5 sm:gap-3">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="quick-action-tile">
+              <SkeletonLine delay={index * 80} className="h-12 w-12" />
+              <SkeletonLine delay={index * 110} className="h-3 w-20" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="rounded-[1.5rem] border border-white/60 bg-white/40 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_24px_60px_-24px_rgba(42,6,8,0.28)] backdrop-blur-2xl">
+            <div className="mb-3 flex items-start justify-between">
+              <SkeletonLine delay={index * 90} className="h-10 w-10" />
+              <SkeletonLine delay={index * 110} className="h-3 w-8" />
+            </div>
+            <SkeletonLine delay={index * 130} className="mb-2 h-3 w-24" />
+            <SkeletonLine delay={index * 150} className="h-6 w-28" />
+          </div>
+        ))}
+      </div>
+
+      <div className="overflow-hidden rounded-[1.5rem] border border-white/60 bg-white/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_24px_60px_-30px_rgba(42,6,8,0.28)] backdrop-blur-2xl">
+        <div className="border-b border-white/50 px-5 py-4">
+          <SkeletonLine className="h-4 max-w-[12rem]" />
+        </div>
+        <div className="overflow-x-auto">
+          <TableSkeleton columns={4} rows={5} compact />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const { t } = useLang();
@@ -300,14 +343,7 @@ export default function DashboardPage() {
   }, [closeQuickForm, quickAction]);
 
   if (loading) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-amber-200 border-t-amber-600 rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-sm text-gray-500">Loading dashboard...</p>
-        </div>
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   // ─── CITY ADMIN DASHBOARD ─────────────────────────────────────────────────

@@ -175,6 +175,7 @@ export async function validateSupplierPaymentSettlement(input: {
   bankAccountId?: number | null;
   intermediaryId?: number | null;
   exchangeRate?: number | null;
+  excludeSupplierPaymentId?: number | null;
 }): Promise<SettlementValidationResult> {
   const amountUsd = Number(input.amountUsd);
   const superAdminBankId = input.superAdminBankAccountId ? Number(input.superAdminBankAccountId) : null;
@@ -193,7 +194,9 @@ export async function validateSupplierPaymentSettlement(input: {
     if (Number.isFinite(rate) && rate > 0) {
       // acquisition rate for PKR reporting — allowed but not used for balance check
     }
-    const balances = await getIntermediaryBalances(intermediaryId);
+    const balances = await getIntermediaryBalances(intermediaryId, {
+      excludeSupplierPaymentId: input.excludeSupplierPaymentId || undefined,
+    });
     const available = Number(balances.USD || 0);
     if (amountUsd > available + 0.001) {
       return {

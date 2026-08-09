@@ -4,6 +4,11 @@ import { withSuperAdmin } from "@/lib/middleware";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { journalIntermediaryExchange, reverseJournalEntries } from "@/lib/accounting";
 import { getIntermediaryBalances } from "@/lib/intermediary-balance";
+import {
+  assertIntermediaryUsdLayerUnused,
+  createIntermediaryUsdLayerFromExchange,
+  removeUnusedIntermediaryUsdLayer,
+} from "@/lib/intermediary-usd-fifo";
 import { JWTPayload } from "@/lib/auth";
 
 function parsePositive(value: unknown): number | null {
@@ -21,6 +26,11 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     include: { fromCurrency: true, toCurrency: true },
   });
   if (!existing || !existing.isActive) return errorResponse("NOT_FOUND", "Exchange not found", 404);
+  try {
+    await assertIntermediaryUsdLayerUnused("intermediary_exchange", id);
+  } catch (error) {
+    return errorResponse("VALIDATION", error instanceof Error ? error.message : "This exchange cannot be changed", 400);
+  }
 
   const body = await request.json();
 
@@ -66,6 +76,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
   const updated = await prisma.$transaction(async (tx) => {
     await reverseJournalEntries(`INTFX-OUT-${id}`, user.userId, tx);
     await reverseJournalEntries(`INTFX-IN-${id}`, user.userId, tx);
+    await removeUnusedIntermediaryUsdLayer("intermediary_exchange", id, tx);
 
     const next = await tx.intermediaryExchange.update({
       where: { id },
@@ -91,7 +102,16 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
       toCurrencyCode: toCurrency.code,
       toAmount: Number(next.toAmount),
       createdBy: user.userId,
-    });
+    }, tx);
+    await createIntermediaryUsdLayerFromExchange({
+      exchangeId: next.id,
+      intermediaryId: next.intermediaryId,
+      exchangeDate: next.exchangeDate,
+      fromCurrencyCode: fromCurrency.code,
+      fromAmount: Number(next.fromAmount),
+      toCurrencyCode: toCurrency.code,
+      toAmount: Number(next.toAmount),
+    }, tx);
     return next;
   });
 
@@ -104,10 +124,16 @@ export const DELETE = withSuperAdmin(async (_request: NextRequest, context: any,
 
   const existing = await prisma.intermediaryExchange.findUnique({ where: { id } });
   if (!existing || !existing.isActive) return errorResponse("NOT_FOUND", "Exchange not found", 404);
+  try {
+    await assertIntermediaryUsdLayerUnused("intermediary_exchange", id);
+  } catch (error) {
+    return errorResponse("VALIDATION", error instanceof Error ? error.message : "This exchange cannot be deleted", 400);
+  }
 
   await prisma.$transaction(async (tx) => {
     await reverseJournalEntries(`INTFX-OUT-${id}`, user.userId, tx);
     await reverseJournalEntries(`INTFX-IN-${id}`, user.userId, tx);
+    await removeUnusedIntermediaryUsdLayer("intermediary_exchange", id, tx);
 
     await tx.intermediaryExchange.update({
       where: { id },

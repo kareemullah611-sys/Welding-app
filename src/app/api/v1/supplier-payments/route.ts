@@ -8,6 +8,7 @@ import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 import { validateSupplierPaymentSettlement } from "@/lib/settlement-validation";
 import { assertSuperAdminCashHasFunds } from "@/lib/haji-cash-balance";
+import { consumeIntermediaryUsdFifo, getLotFallbackUsdToPkrRate } from "@/lib/intermediary-usd-fifo";
 
 const SUPPLIER_PAYMENT_SYNC_MODULE = "supplier_payments";
 const SUPERADMIN_SYNC_CITY_ID = 0;
@@ -91,6 +92,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     }
 
     const exchangeRate = parsed.data.exchangeRate ? Number(parsed.data.exchangeRate) : null;
+    const amountUsd = Number(parsed.data.amountUsd);
 
     let computedLocal = parsed.data.amountLocal ? Number(parsed.data.amountLocal) : null;
     let settlementCurrencyCode: string | null = null;
@@ -107,7 +109,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       settlementCurrencyCode = String(cashAcct?.currency?.code || "USD").toUpperCase();
     } else {
       const settlement = await validateSupplierPaymentSettlement({
-        amountUsd: Number(parsed.data.amountUsd),
+        amountUsd,
         superAdminBankAccountId,
         bankAccountId,
         intermediaryId,
@@ -121,6 +123,10 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         : (parsed.data.amountLocal ? Number(parsed.data.amountLocal) : null);
       settlementCurrencyCode = settlement.settlementCurrency === "PKR" ? "PKR" : null;
     }
+
+    const fallbackUsdToPkrRate = intermediaryId
+      ? await getLotFallbackUsdToPkrRate(parsed.data.lotId || null)
+      : null;
 
     const payment = await prisma.$transaction(async (tx) => {
       const created = await tx.supplierPayment.create({
@@ -153,17 +159,37 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         });
       }
 
+      let paymentForJournal = created;
+      if (intermediaryId) {
+        const fifo = await consumeIntermediaryUsdFifo({
+          intermediaryId,
+          amountUsd,
+          paymentDate: created.paymentDate,
+          supplierPaymentId: created.id,
+          fallbackRatePkr: fallbackUsdToPkrRate,
+        }, tx);
+        paymentForJournal = await tx.supplierPayment.update({
+          where: { id: created.id },
+          data: {
+            amountLocal: fifo.amountPkr,
+            exchangeRate: fifo.effectiveRatePkr,
+          },
+        });
+        computedLocal = fifo.amountPkr;
+        settlementCurrencyCode = "PKR";
+      }
+
       await journalSupplierPaid({
-        id: created.id, supplierId: parsed.data.supplierId, amountUsd: parsed.data.amountUsd,
+        id: created.id, supplierId: parsed.data.supplierId, amountUsd: amountUsd,
         amountLocal: computedLocal,
-        paymentDate: created.paymentDate, createdBy: user.userId,
+        paymentDate: paymentForJournal.paymentDate, createdBy: user.userId,
         bankAccountId: superAdminBankAccountId || superAdminCashAccountId ? null : bankAccountId,
         superAdminBankAccountId,
         superAdminCashAccountId,
         intermediaryId,
         settlementCurrencyCode,
       }, tx);
-      return created;
+      return paymentForJournal;
     });
 
     return successResponse({ id: payment.id }, "Payment recorded", 201);

@@ -30,6 +30,7 @@
     "setup:offline": "bash scripts/setup-offline.sh",
     "setup": "bash setup.sh",
     "db:backup": "bash scripts/backup-db.sh",
+    "db:backup:install-daily": "bash scripts/install-daily-backup-launchd.sh",
     "db:restore": "bash scripts/restore-db.sh",
     "db:purge-legacy-stock": "tsx scripts/purge-legacy-stock.ts",
     "package:android:init": "npx cap add android",

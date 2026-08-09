@@ -250,6 +250,8 @@ test("dashboard modules use shimmer table skeletons while loading", () => {
   const uiIndex = readFileSync("src/components/ui/index.tsx", "utf8");
   const globals = readFileSync("src/app/globals.css", "utf8");
   const routeLoading = readFileSync("src/app/(dashboard)/loading.tsx", "utf8");
+  const dashboardPage = readFileSync("src/app/(dashboard)/dashboard/page.tsx", "utf8");
+  const inventoryPage = readFileSync("src/app/(dashboard)/inventory/page.tsx", "utf8");
 
   assert.match(skeleton, /function TableSkeleton/);
   assert.match(skeleton, /function PageSkeleton/);
@@ -257,6 +259,12 @@ test("dashboard modules use shimmer table skeletons while loading", () => {
   assert.match(uiIndex, /<TableSkeleton columns=\{Math\.max\(columns\.length, 3\)\} compact=\{compact\} \/>/);
   assert.doesNotMatch(uiIndex, /<ProcessingSpinner size="md" label="Loading" \/>/);
   assert.match(routeLoading, /<PageSkeleton \/>/);
+  assert.match(dashboardPage, /function DashboardSkeleton/);
+  assert.match(dashboardPage, /return <DashboardSkeleton \/>/);
+  assert.match(dashboardPage, /<TableSkeleton columns=\{4\} rows=\{5\} compact \/>/);
+  assert.doesNotMatch(dashboardPage, /Loading dashboard\.\.\./);
+  assert.match(inventoryPage, /PageSkeleton/);
+  assert.doesNotMatch(inventoryPage.slice(inventoryPage.indexOf("if (loading || !data)"), inventoryPage.indexOf("const isCityAdmin")), /animate-spin/);
   assert.match(globals, /\.skeleton-line::after/);
   assert.match(globals, /@keyframes skeleton-line-fill/);
   assert.match(globals, /@keyframes skeleton-shimmer/);
@@ -461,12 +469,15 @@ test("customer ledger sale details stay complete with at-rate display across tab
 test("customer ledger filters stay compact in city modal", () => {
   const customersPage = readFileSync("src/app/(dashboard)/customers/page.tsx", "utf8");
   const filterPanel = customersPage.slice(customersPage.indexOf("Search entries…") - 500, customersPage.indexOf("<GlassButton", customersPage.indexOf("Search entries…")) + 500);
+  const loadingBlock = customersPage.slice(customersPage.indexOf("{ledgerLoading ? ("), customersPage.indexOf(") : ledgerData ? ("));
 
   assert.match(filterPanel, /grid grid-cols-2 items-end gap-2/);
   assert.match(filterPanel, /lg:grid-cols-\[minmax\(10rem,1fr\)_7rem_7\.5rem_7\.5rem\]/);
   assert.match(filterPanel, /h-8 min-h-8 w-full py-1\.5 text-sm/);
   assert.match(filterPanel, /className="h-8 w-full px-2 text-sm"/);
   assert.match(filterPanel, /className="col-span-2 h-8 justify-self-end px-3 text-sm lg:col-span-4"/);
+  assert.match(loadingBlock, /<TableSkeleton columns=\{5\} rows=\{7\} compact \/>/);
+  assert.doesNotMatch(loadingBlock, /animate-spin/);
   assert.doesNotMatch(filterPanel, /flex flex-col gap-3/);
 });
 
@@ -713,6 +724,89 @@ test("dashboard cash in office customer receipts show customer and cash received
   assert.doesNotMatch(paymentRowBlock, /cash to office/i);
 });
 
+test("superadmin profit reports handle PCS cartons and scoped financial cash", () => {
+  const profitRoute = readFileSync("src/app/api/v1/profit-report/route.ts", "utf8");
+  const financialRoute = readFileSync("src/app/api/v1/financial-reports/route.ts", "utf8");
+
+  assert.match(profitRoute, /function stockQtyToReportCartons/);
+  assert.match(profitRoute, /p\.product\?\.unitOfMeasure === "PCS"/);
+  assert.match(profitRoute, /num\(p\.qty\) \/ piecesPerCarton/);
+  assert.match(profitRoute, /stockQtyToReportCartons\(lp\.totalQty, lp\.product\)/);
+  assert.match(profitRoute, /lotPurchases: \{ include: \{ product: true, supplier: true \} \}/);
+  assert.match(financialRoute, /where: \{ accountId: \{ in: accountIds \}, \.\.\.\(cityId \? \{ cityId \} : \{\}\) \}/);
+});
+
+test("superadmin liability and exchange journals are atomic", () => {
+  const accounting = readFileSync("src/lib/accounting.ts", "utf8");
+  const agentCreate = readFileSync("src/app/api/v1/agent-payments/route.ts", "utf8");
+  const agentUpdate = readFileSync("src/app/api/v1/agent-payments/[id]/route.ts", "utf8");
+  const shippingCreate = readFileSync("src/app/api/v1/shipping-line-payments/route.ts", "utf8");
+  const shippingUpdate = readFileSync("src/app/api/v1/shipping-line-payments/[id]/route.ts", "utf8");
+  const intermediaryDepositCreate = readFileSync("src/app/api/v1/intermediaries/[id]/deposits/route.ts", "utf8");
+  const exchangeCreate = readFileSync("src/app/api/v1/intermediaries/[id]/exchanges/route.ts", "utf8");
+  const exchangeUpdate = readFileSync("src/app/api/v1/intermediary-exchanges/[id]/route.ts", "utf8");
+
+  assert.match(accounting, /journalAgentPaid\([\s\S]*db: DbClient = prisma/);
+  assert.match(accounting, /journalShippingLinePayment\([\s\S]*db: DbClient = prisma/);
+  assert.match(accounting, /journalIntermediaryExchange\([\s\S]*db: DbClient = prisma/);
+  assert.match(accounting, /journalIntermediaryDeposit\([\s\S]*db: DbClient = prisma/);
+  assert.match(agentCreate, /await journalAgentPaid\([\s\S]*,\s*tx\);/);
+  assert.match(agentUpdate, /await reverseJournalEntries\(`AGENTPAY-\$\{id\}`, user\.userId, tx\)/);
+  assert.match(agentUpdate, /await journalAgentPaid\([\s\S]*,\s*tx\);/);
+  assert.match(shippingCreate, /await journalShippingLinePayment\([\s\S]*,\s*tx\);/);
+  assert.match(shippingUpdate, /await reverseJournalEntries\(`SLPAY-\$\{id\}`, user\.userId, tx\)/);
+  assert.match(shippingUpdate, /await journalShippingLinePayment\([\s\S]*,\s*tx\);/);
+  assert.match(intermediaryDepositCreate, /await journalIntermediaryDeposit\([\s\S]*,\s*tx\);/);
+  assert.match(exchangeCreate, /await journalIntermediaryExchange\([\s\S]*,\s*tx\);/);
+  assert.match(exchangeUpdate, /await journalIntermediaryExchange\([\s\S]*,\s*tx\);/);
+  assert.doesNotMatch(agentCreate, /catch \(e\) \{ console\.error\("Journal entry error:/);
+  assert.doesNotMatch(shippingCreate, /catch \(je\) \{ console\.error\("Journal \(shipping line payment\):/);
+});
+
+test("country fallback rates and intermediary FIFO costing are wired", () => {
+  const schema = readFileSync("prisma/schema.prisma", "utf8");
+  const migration = readFileSync("prisma/migrations/20260808090000_country_fallback_fifo_rates/migration.sql", "utf8");
+  const fallbackRoute = readFileSync("src/app/api/v1/country-fallback-rates/route.ts", "utf8");
+  const fifo = readFileSync("src/lib/intermediary-usd-fifo.ts", "utf8");
+  const settlementValidation = readFileSync("src/lib/settlement-validation.ts", "utf8");
+  const supplierCreate = readFileSync("src/app/api/v1/supplier-payments/route.ts", "utf8");
+  const supplierUpdate = readFileSync("src/app/api/v1/supplier-payments/[id]/route.ts", "utf8");
+  const shippingCreate = readFileSync("src/app/api/v1/shipping-line-payments/route.ts", "utf8");
+  const shippingUpdate = readFileSync("src/app/api/v1/shipping-line-payments/[id]/route.ts", "utf8");
+  const exchangeCreate = readFileSync("src/app/api/v1/intermediaries/[id]/exchanges/route.ts", "utf8");
+  const exchangeUpdate = readFileSync("src/app/api/v1/intermediary-exchanges/[id]/route.ts", "utf8");
+  const profitRoute = readFileSync("src/app/api/v1/profit-report/route.ts", "utf8");
+  const settingsPage = readFileSync("src/app/(dashboard)/settings/page.tsx", "utf8");
+
+  assert.match(schema, /model CountryFallbackExchangeRate/);
+  assert.match(schema, /model IntermediaryUsdCostLayer/);
+  assert.match(schema, /model IntermediaryUsdCostUsage/);
+  assert.match(migration, /CREATE TABLE "country_fallback_exchange_rates"/);
+  assert.match(migration, /country_fallback_rates_country_currency_date_key/);
+  assert.match(migration, /country_fallback_rates_active_idx/);
+  assert.doesNotMatch(migration, /country_fallback_exchange_rates_country_id_from_currency_id_to_currency_id/);
+  assert.match(migration, /CREATE TABLE "intermediary_usd_cost_layers"/);
+  assert.match(migration, /CREATE TABLE "intermediary_usd_cost_usages"/);
+  assert.match(fallbackRoute, /countryFallbackExchangeRate\.upsert/);
+  assert.match(settingsPage, /exchange_rates/);
+  assert.match(settingsPage, /CountryFallbackRatesTab/);
+  assert.match(fifo, /consumeIntermediaryUsdFifo/);
+  assert.match(fifo, /orderBy: \[\{ acquiredDate: "asc" \}, \{ id: "asc" \}\]/);
+  assert.match(fifo, /reverseIntermediaryUsdCostUsages/);
+  assert.match(fifo, /isFallbackRate: true/);
+  assert.match(settlementValidation, /excludeSupplierPaymentId/);
+  assert.match(supplierCreate, /consumeIntermediaryUsdFifo\(/);
+  assert.match(supplierUpdate, /reverseIntermediaryUsdCostUsages\(\{ supplierPaymentId: id \}/);
+  assert.match(shippingCreate, /getIntermediaryBalances\(resolvedIntermediaryId\)/);
+  assert.match(shippingCreate, /consumeIntermediaryUsdFifo\(/);
+  assert.match(shippingUpdate, /excludeShippingLinePaymentId: id/);
+  assert.match(shippingUpdate, /reverseIntermediaryUsdCostUsages\(\{ shippingLinePaymentId: id \}/);
+  assert.match(exchangeCreate, /createIntermediaryUsdLayerFromExchange\(/);
+  assert.match(exchangeUpdate, /assertIntermediaryUsdLayerUnused\("intermediary_exchange", id\)/);
+  assert.match(profitRoute, /getCountryFallbackRateToPkr/);
+  assert.match(profitRoute, /purchasePkrFromLinkedSupplierPayments/);
+});
+
 test("cheque register paginates server-side after cheque and status filters", () => {
   const chequesPage = readFileSync("src/app/(dashboard)/cheques/page.tsx", "utf8");
   const combinedRoute = readFileSync("src/app/api/v1/finance/combined/route.ts", "utf8");
@@ -839,7 +933,11 @@ test("GLM critical audit fixes remain wired", () => {
   assert.match(sale, /@@unique\(\[cityId, voucherNo\], name: "unique_sale_city_voucher"\)/);
   assert.match(unresolved, /@@map\("lot_settlement_unresolved_overflows"\)/);
   assert.match(cityTransferCreate, /INSUFFICIENT_STOCK/);
+  assert.match(cityTransferCreate, /pg_advisory_xact_lock\(31001, \$\{parsedFromGodownId \* 100000 \+ parsedProductId\}::int\)/);
+  assert.doesNotMatch(cityTransferCreate, /pg_advisory_xact_lock\(\$\{31001\},/);
   assert.match(cityTransferApprove, /pg_advisory_xact_lock/);
+  assert.match(cityTransferApprove, /pg_advisory_xact_lock\(31001, \$\{transfer\.fromGodownId \* 100000 \+ transfer\.productId\}::int\)/);
+  assert.doesNotMatch(cityTransferApprove, /pg_advisory_xact_lock\(\$\{31001\},/);
   assert.match(cityTransferApprove, /SENDER_INSUFFICIENT_STOCK/);
   assert.doesNotMatch(withdrawalsCreate, /journalWithdrawal\(/);
   assert.match(withdrawalsApprove, /journalWithdrawal\(/);

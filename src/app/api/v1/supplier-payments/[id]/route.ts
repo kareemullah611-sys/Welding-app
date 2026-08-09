@@ -5,6 +5,11 @@ import { successResponse, errorResponse, serverError, validationError } from "@/
 import { reverseJournalEntries, journalSupplierPaid } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { validateSupplierPaymentSettlement } from "@/lib/settlement-validation";
+import {
+  consumeIntermediaryUsdFifo,
+  getLotFallbackUsdToPkrRate,
+  reverseIntermediaryUsdCostUsages,
+} from "@/lib/intermediary-usd-fifo";
 
 function round2(value: number) {
   return Math.round(value * 100) / 100;
@@ -42,6 +47,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
       bankAccountId,
       intermediaryId,
       exchangeRate: parsedExchangeRate,
+      excludeSupplierPaymentId: id,
     });
     if (!settlement.ok) {
       return errorResponse(settlement.code, settlement.message, settlement.status || 400);
@@ -54,8 +60,13 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
           ? (body.amountLocal ? Number(body.amountLocal) : null)
           : (existing.amountLocal ? Number(existing.amountLocal) : null);
 
+    const fallbackUsdToPkrRate = intermediaryId
+      ? await getLotFallbackUsdToPkrRate(existing.lotId || null)
+      : null;
+
     await prisma.$transaction(async (tx) => {
       await reverseJournalEntries(`SUPPPAY-${id}`, user.userId, tx);
+      await reverseIntermediaryUsdCostUsages({ supplierPaymentId: id }, tx);
 
       const payment = await tx.supplierPayment.update({
         where: { id },
@@ -68,17 +79,39 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
         },
       });
 
+      let journalAmountLocal = payment.amountLocal ? Number(payment.amountLocal) : null;
+      let settlementCurrencyCode = settlement.settlementCurrency === "PKR" ? "PKR" : null;
+      let journalPayment = payment;
+      if (intermediaryId) {
+        const fifo = await consumeIntermediaryUsdFifo({
+          intermediaryId,
+          amountUsd: Number(payment.amountUsd),
+          paymentDate: payment.paymentDate,
+          supplierPaymentId: id,
+          fallbackRatePkr: fallbackUsdToPkrRate,
+        }, tx);
+        journalPayment = await tx.supplierPayment.update({
+          where: { id },
+          data: {
+            amountLocal: fifo.amountPkr,
+            exchangeRate: fifo.effectiveRatePkr,
+          },
+        });
+        journalAmountLocal = fifo.amountPkr;
+        settlementCurrencyCode = "PKR";
+      }
+
       await journalSupplierPaid({
         id,
         supplierId: existing.supplierId,
-        amountUsd: Number(payment.amountUsd),
-        amountLocal: payment.amountLocal ? Number(payment.amountLocal) : null,
-        paymentDate: payment.paymentDate,
+        amountUsd: Number(journalPayment.amountUsd),
+        amountLocal: journalAmountLocal,
+        paymentDate: journalPayment.paymentDate,
         createdBy: user.userId,
         bankAccountId,
         superAdminBankAccountId,
         intermediaryId,
-        settlementCurrencyCode: settlement.settlementCurrency === "PKR" ? "PKR" : null,
+        settlementCurrencyCode,
       }, tx);
 
       await createAuditLog(user.userId, null, "supplier_payments", id, "update",
@@ -100,6 +133,7 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
 
     await prisma.$transaction(async (tx) => {
       await reverseJournalEntries(`SUPPPAY-${id}`, user.userId, tx);
+      await reverseIntermediaryUsdCostUsages({ supplierPaymentId: id }, tx);
       await tx.supplierPayment.delete({ where: { id } });
       await createAuditLog(user.userId, null, "supplier_payments", id, "delete",
         { amountUsd: Number(existing.amountUsd), supplierId: existing.supplierId }, undefined, getClientIP(request), tx);
