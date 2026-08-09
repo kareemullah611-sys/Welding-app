@@ -75,7 +75,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           select: { id: true, transferDate: true, createdAt: true, amount: true, currencyId: true, detail: true },
         }),
         prisma.expense.findMany({
-          where: { cityId, paidFrom: "cash_office", deletedAt: null },
+          where: { cityId, paidFrom: { in: ["cash_office", "customer"] }, deletedAt: null },
           select: { id: true, expenseDate: true, createdAt: true, amount: true, currencyId: true, detail: true },
         }),
         prisma.bankDeposit.findMany({

@@ -203,6 +203,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
                   { chequePayment: { manualVoucherNo: { contains: query, mode: "insensitive" } } },
                   { chequePayment: { chequeNumber: { contains: query, mode: "insensitive" } } },
                   { chequePayment: { customer: { name: { contains: query, mode: "insensitive" } } } },
+                  { customerPayment: { customer: { name: { contains: query, mode: "insensitive" } } } },
                   ...(hasNumericQuery ? [{ amount: { gte: numericQuery, lt: numericQueryUpper } }] : []),
                 ],
               }
@@ -221,6 +222,13 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
               chequeStatus: true,
               customer: { select: { id: true, name: true } },
               currency: { select: { id: true, code: true, symbol: true } },
+            },
+          },
+          customerPayment: {
+            select: {
+              id: true,
+              customerId: true,
+              customer: { select: { id: true, name: true } },
             },
           },
         },
@@ -244,6 +252,8 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           bankAccount: (e as any).bankAccount ?? null,
           bankAccountId: (e as any).bankAccountId ?? null,
           chequePayment: (e as any).chequePayment ?? null,
+          customerPayment: (e as any).customerPayment ?? null,
+          customerPaymentId: (e as any).customerPaymentId ?? null,
           saCheck: saCheckStateById[e.id] || null,
           attachments: (e as any).attachments ?? [],
         },
@@ -522,6 +532,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           item.raw?.chequePayment?.chequeNumber,
           item.raw?.chequePayment?.chequeStatus,
           item.raw?.chequePayment?.customer?.name,
+          item.raw?.customerPayment?.customer?.name,
           item.raw?.payment?.manualVoucherNo,
           item.raw?.payment?.chequeNumber,
           item.raw?.payment?.customer?.name,

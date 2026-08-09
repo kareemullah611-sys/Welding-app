@@ -15,6 +15,7 @@ import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { getPendingQueueId } from "@/lib/queue-resolve";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
 import { LedgerExportButtons } from "@/components/LedgerExportButtons";
+import CustomerFieldWithNew from "@/components/CustomerFieldWithNew";
 
 const EXPENSES_FORM_CACHE_KEY = "mrf-expenses-form-cache-v1";
 const EXPENSES_READ_CACHE_KEY = "mrf-expenses-read-cache-v1";
@@ -266,7 +267,7 @@ export default function ExpensesPage() {
     setForm((f: any) => ({
       ...f, expenseDate: new Date().toISOString().split("T")[0],
       amount: 0, detail: "", notes: "", lotId: 0,
-      paidFrom: "cash_office", bankAccountId: 0, chequePaymentId: 0,
+      paidFrom: "cash_office", customerId: 0, customerName: "", bankAccountId: 0, chequePaymentId: 0,
       ...preset,
     }));
     setShowCreate(true); setFormError("");
@@ -274,6 +275,7 @@ export default function ExpensesPage() {
 
   const handleCreate = async () => {
     if (!form.amount || !form.detail) { setFormError(t("amount") + " " + t("and") + " " + t("detail") + " required"); return; }
+    if (form.paidFrom === "customer" && !form.customerId) { setFormError(t("select") + " " + t("customer").toLowerCase()); return; }
     if (form.paidFrom === "bank_account" && !form.bankAccountId) { setFormError(t("select") + " " + t("bank_account").toLowerCase()); return; }
 
     const resolvedCurrencyId = form.currencyId || currencies[0]?.id || 0;
@@ -293,6 +295,7 @@ export default function ExpensesPage() {
     };
     if (form.paidFrom !== "bank_account") delete createBody.bankAccountId;
     if (form.paidFrom !== "cheque") delete createBody.chequePaymentId;
+    if (form.paidFrom !== "customer") delete createBody.customerId;
 
     if (resolvingQueueId) {
       const updateOk = await updateQueuedItem(resolvingQueueId, { body: JSON.stringify(createBody) });
@@ -397,11 +400,13 @@ export default function ExpensesPage() {
       expenseDate: e.expenseDate, amount: e.amount, detail: e.detail,
       notes: e.notes || "", lotId: e.lotId || 0, currencyId: e.currency?.id || 0,
       paidFrom: e.paidFrom || "cash_office", bankAccountId: e.bankAccountId || 0, chequePaymentId: e.chequePaymentId || 0,
+      customerId: e.customerPayment?.customerId || 0, customerName: e.customerPayment?.customer?.name || "",
     });
     setShowEdit(true); setFormError("");
   };
 
   const handleEdit = async () => {
+    if (form.paidFrom === "customer" && !form.customerId) { setFormError(t("select") + " " + t("customer").toLowerCase()); return; }
     if (form.paidFrom === "bank_account" && !form.bankAccountId) { setFormError(t("select") + " " + t("bank_account").toLowerCase()); return; }
     const body: any = {
       expenseDate: form.expenseDate,
@@ -413,6 +418,7 @@ export default function ExpensesPage() {
     };
     if (form.paidFrom === "bank_account") body.bankAccountId = form.bankAccountId;
     if (form.paidFrom === "cheque") body.chequePaymentId = form.chequePaymentId;
+    if (form.paidFrom === "customer") body.customerId = form.customerId;
     if (!isOnline) {
       const pendingQueueId = getPendingQueueId(selected?.id);
       if (pendingQueueId) {
@@ -529,6 +535,9 @@ export default function ExpensesPage() {
     if (e.paidFrom === "cheque") {
       return t("cheques_in_hand");
     }
+    if (e.paidFrom === "customer") {
+      return e.customerPayment?.customer?.name || t("customer");
+    }
     return t("cash_from_office");
   };
 
@@ -544,15 +553,21 @@ export default function ExpensesPage() {
   const expenseFromValue =
     form.paidFrom === "bank_account" && form.bankAccountId
       ? `bank:${form.bankAccountId}`
+      : form.paidFrom === "customer"
+        ? "customer"
       : "cash_office";
 
   const handleExpenseFromChange = (value: string) => {
     if (value.startsWith("bank:")) {
       const bankAccountId = parseInt(value.slice(5), 10) || 0;
-      setForm((f: any) => ({ ...f, paidFrom: "bank_account", bankAccountId, chequePaymentId: 0 }));
+      setForm((f: any) => ({ ...f, paidFrom: "bank_account", bankAccountId, chequePaymentId: 0, customerId: 0, customerName: "" }));
       return;
     }
-    setForm((f: any) => ({ ...f, paidFrom: "cash_office", bankAccountId: 0, chequePaymentId: 0 }));
+    if (value === "customer") {
+      setForm((f: any) => ({ ...f, paidFrom: "customer", bankAccountId: 0, chequePaymentId: 0 }));
+      return;
+    }
+    setForm((f: any) => ({ ...f, paidFrom: "cash_office", bankAccountId: 0, chequePaymentId: 0, customerId: 0, customerName: "" }));
   };
 
   return (
@@ -615,6 +630,7 @@ export default function ExpensesPage() {
                 className="select-field"
               >
                 <option value="cash_office">{t("cash_from_office")}</option>
+                <option value="customer">{t("customer")}</option>
                 {activeCityBankAccounts.map((b: any) => (
                   <option key={b.id} value={`bank:${b.id}`}>
                     {b.bankName}{b.accountNumber ? ` (${b.accountNumber})` : ""}
@@ -623,6 +639,15 @@ export default function ExpensesPage() {
               </select>
             </div>
           </div>
+          {form.paidFrom === "customer" && (
+            <CustomerFieldWithNew
+              value={form.customerId || 0}
+              onChange={(id, name) => setForm((f: any) => ({ ...f, customerId: id, customerName: name }))}
+              placeholder={t("search_customer")}
+              showWalkInShortcut={false}
+              cityId={user?.cityId ?? undefined}
+            />
+          )}
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">{t("detail")} *</label>
             <input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" />
@@ -690,6 +715,7 @@ export default function ExpensesPage() {
                   className="select-field"
                 >
                   <option value="cash_office">{t("cash_from_office")}</option>
+                  <option value="customer">{t("customer")}</option>
                   {activeCityBankAccounts.map((b: any) => (
                     <option key={b.id} value={`bank:${b.id}`}>
                       {b.bankName}{b.accountNumber ? ` (${b.accountNumber})` : ""}
@@ -699,6 +725,15 @@ export default function ExpensesPage() {
               </div>
             )}
           </div>
+          {form.paidFrom === "customer" && (
+            <CustomerFieldWithNew
+              value={form.customerId || 0}
+              onChange={(id, name) => setForm((f: any) => ({ ...f, customerId: id, customerName: name }))}
+              placeholder={t("search_customer")}
+              showWalkInShortcut={false}
+              cityId={user?.cityId ?? undefined}
+            />
+          )}
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("detail")}</label><input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" /></div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")}</label><input type="number" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} /></div>

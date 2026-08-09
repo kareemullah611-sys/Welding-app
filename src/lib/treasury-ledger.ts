@@ -240,7 +240,7 @@ export async function computeCityTreasuryNet(
     }),
     prisma.expense.groupBy({
       by: ["currencyId"],
-      where: { cityId, paidFrom: "cash_office", deletedAt: null },
+      where: { cityId, paidFrom: { in: ["cash_office", "customer"] }, deletedAt: null },
       _sum: { amount: true },
     }),
     prisma.bankDeposit.groupBy({ by: ["currencyId"], where: { cityId }, _sum: { cashAmount: true } }),

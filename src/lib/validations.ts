@@ -183,7 +183,7 @@ const saleItemSchema = z.object({
 });
 
 const optionalPositiveInt = z.preprocess(
-  (value) => (value === "" || value === undefined ? undefined : value),
+  (value) => (value === "" || value === undefined || value === 0 || value === "0" ? undefined : value),
   z.coerce.number().int().positive().optional().nullable()
 );
 const nonZeroAmount = z.number().refine((value) => value !== 0, "Amount must be non-zero");
@@ -270,7 +270,8 @@ export const createExpenseSchema = z.object({
   amount: z.number().positive(),
   currencyId: z.number().int().optional().nullable(),
   detail: z.string().min(1).max(500),
-  paidFrom: z.enum(["cash_office", "bank_account", "cheque"]).default("cash_office"),
+  paidFrom: z.enum(["cash_office", "bank_account", "cheque", "customer"]).default("cash_office"),
+  customerId: optionalPositiveInt,
   bankAccountId: optionalPositiveInt,
   chequePaymentId: optionalPositiveInt,
   notes: z.string().optional(),
@@ -281,7 +282,8 @@ export const updateExpenseSchema = z.object({
   expenseDate: z.string().optional(),
   amount: z.coerce.number().positive().optional(),
   detail: z.string().trim().min(1).max(500).optional(),
-  paidFrom: z.enum(["cash_office", "bank_account", "cheque"]).optional(),
+  paidFrom: z.enum(["cash_office", "bank_account", "cheque", "customer"]).optional(),
+  customerId: optionalPositiveInt,
   bankAccountId: optionalPositiveInt,
   chequePaymentId: optionalPositiveInt,
   notes: z.string().optional().nullable(),

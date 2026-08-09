@@ -92,7 +92,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       by: ["currencyId"],
       where: {
         cityId,
-        paidFrom: "cash_office",
+        paidFrom: { in: ["cash_office", "customer"] },
         deletedAt: null,
       },
       _sum: { amount: true },

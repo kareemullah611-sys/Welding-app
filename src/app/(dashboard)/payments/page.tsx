@@ -732,6 +732,8 @@ export default function PaymentsPage() {
         lotId: 0,
         currencyId,
         paidFrom: "cash_office",
+        customerId: 0,
+        customerName: "",
         bankAccountId: 0,
         ...preset,
       };
@@ -873,6 +875,7 @@ export default function PaymentsPage() {
     if (type === "expense") {
       if (!(form.amount > 0) || !form.detail) return { error: t("amount") + " (must be > 0) and " + t("detail") + " required" };
       if (form.paidFrom === "bank_account" && !form.bankAccountId) return { error: t("select") + " " + t("bank_account").toLowerCase() };
+      if (form.paidFrom === "customer" && !form.customerId) return { error: t("select") + " " + t("customer").toLowerCase() };
       return {
         endpoint: "/api/v1/expenses",
         body: {
@@ -880,6 +883,7 @@ export default function PaymentsPage() {
           lotId: form.lotId || null,
           currencyId: resolvedCurrencyId,
           bankAccountId: form.paidFrom === "bank_account" ? form.bankAccountId : undefined,
+          customerId: form.paidFrom === "customer" ? form.customerId : undefined,
         },
       };
     }
@@ -1230,6 +1234,8 @@ export default function PaymentsPage() {
         currencyId: raw.currencyId || loadedCurrencies[0]?.id || currencies[0]?.id || 0,
         paidFrom: raw.paidFrom || "cash_office",
         bankAccountId: raw.bankAccountId || 0,
+        customerId: raw.customerPayment?.customerId || 0,
+        customerName: raw.customerPayment?.customer?.name || "",
       });
     } else {
       // withdrawal
@@ -2448,30 +2454,33 @@ export default function PaymentsPage() {
 
           {createType === "expense" && (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {!isAfghanistanCity && (
-                <div className="min-w-0">
-                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("from")} *</label>
-                  <select
-                    value={form.paidFrom === "bank_account" && form.bankAccountId ? `bank:${form.bankAccountId}` : "cash_office"}
-                    onChange={e => {
-                      const value = e.target.value;
-                      if (value.startsWith("bank:")) {
-                        setForm((f: any) => ({ ...f, paidFrom: "bank_account", bankAccountId: parseInt(value.slice(5), 10) || 0 }));
-                        return;
-                      }
-                      setForm((f: any) => ({ ...f, paidFrom: "cash_office", bankAccountId: 0 }));
-                    }}
-                    className="select-field"
-                  >
-                    <option value="cash_office">{t("cash_from_office")}</option>
-                    {cityBankAccounts.filter((a: any) => a.isActive).map((account: any) => (
-                      <option key={account.id} value={`bank:${account.id}`}>
-                        {account.bankName}{account.accountNumber ? ` (${account.accountNumber})` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              <div className="min-w-0">
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("from")} *</label>
+                <select
+                  value={form.paidFrom === "bank_account" && form.bankAccountId ? `bank:${form.bankAccountId}` : form.paidFrom === "customer" ? "customer" : "cash_office"}
+                  onChange={e => {
+                    const value = e.target.value;
+                    if (value.startsWith("bank:")) {
+                      setForm((f: any) => ({ ...f, paidFrom: "bank_account", bankAccountId: parseInt(value.slice(5), 10) || 0, customerId: 0, customerName: "" }));
+                      return;
+                    }
+                    if (value === "customer") {
+                      setForm((f: any) => ({ ...f, paidFrom: "customer", bankAccountId: 0 }));
+                      return;
+                    }
+                    setForm((f: any) => ({ ...f, paidFrom: "cash_office", bankAccountId: 0, customerId: 0, customerName: "" }));
+                  }}
+                  className="select-field"
+                >
+                  <option value="cash_office">{t("cash_from_office")}</option>
+                  <option value="customer">{t("customer")}</option>
+                  {cityBankAccounts.filter((a: any) => a.isActive).map((account: any) => (
+                    <option key={account.id} value={`bank:${account.id}`}>
+                      {account.bankName}{account.accountNumber ? ` (${account.accountNumber})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="min-w-0">
                 <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("lot")}</label>
                 <select value={form.lotId || 0} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value, 10) || 0 }))} className="select-field">
@@ -2482,6 +2491,15 @@ export default function PaymentsPage() {
                 </select>
               </div>
             </div>
+          )}
+          {createType === "expense" && form.paidFrom === "customer" && (
+            <CustomerFieldWithNew
+              value={form.customerId || 0}
+              onChange={(id, name) => setForm((f: any) => ({ ...f, customerId: id, customerName: name }))}
+              placeholder={t("search_customer")}
+              showWalkInShortcut={false}
+              cityId={user?.cityId ?? undefined}
+            />
           )}
 
           {createType === "withdrawal" && !isAfghanistanCity && (
@@ -3161,30 +3179,33 @@ export default function PaymentsPage() {
 
               {createType === "expense" && (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  {!isAfghanistanCity && (
-                    <div className="min-w-0">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">{t("from")}</label>
-                      <select
-                        value={form.paidFrom === "bank_account" && form.bankAccountId ? `bank:${form.bankAccountId}` : form.paidFrom || "cash_office"}
-                        onChange={e => {
-                          const value = e.target.value;
-                          if (value.startsWith("bank:")) {
-                            setForm((f: any) => ({ ...f, paidFrom: "bank_account", bankAccountId: parseInt(value.slice(5), 10) || 0 }));
-                            return;
-                          }
-                          setForm((f: any) => ({ ...f, paidFrom: "cash_office", bankAccountId: 0 }));
-                        }}
-                        className="select-field"
-                      >
-                        <option value="cash_office">{t("cash_from_office")}</option>
-                        {cityBankAccounts.filter((a: any) => a.isActive).map((account: any) => (
-                          <option key={account.id} value={`bank:${account.id}`}>
-                            {account.bankName}{account.accountNumber ? ` (${account.accountNumber})` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
+                  <div className="min-w-0">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t("from")}</label>
+                    <select
+                      value={form.paidFrom === "bank_account" && form.bankAccountId ? `bank:${form.bankAccountId}` : form.paidFrom === "customer" ? "customer" : "cash_office"}
+                      onChange={e => {
+                        const value = e.target.value;
+                        if (value.startsWith("bank:")) {
+                          setForm((f: any) => ({ ...f, paidFrom: "bank_account", bankAccountId: parseInt(value.slice(5), 10) || 0, customerId: 0, customerName: "" }));
+                          return;
+                        }
+                        if (value === "customer") {
+                          setForm((f: any) => ({ ...f, paidFrom: "customer", bankAccountId: 0 }));
+                          return;
+                        }
+                        setForm((f: any) => ({ ...f, paidFrom: "cash_office", bankAccountId: 0, customerId: 0, customerName: "" }));
+                      }}
+                      className="select-field"
+                    >
+                      <option value="cash_office">{t("cash_from_office")}</option>
+                      <option value="customer">{t("customer")}</option>
+                      {cityBankAccounts.filter((a: any) => a.isActive).map((account: any) => (
+                        <option key={account.id} value={`bank:${account.id}`}>
+                          {account.bankName}{account.accountNumber ? ` (${account.accountNumber})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <div className="min-w-0">
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t("lot")}</label>
                     <select value={form.lotId || 0} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value, 10) || 0 }))} className="select-field">
@@ -3195,6 +3216,15 @@ export default function PaymentsPage() {
                     </select>
                   </div>
                 </div>
+              )}
+              {createType === "expense" && form.paidFrom === "customer" && (
+                <CustomerFieldWithNew
+                  value={form.customerId || 0}
+                  onChange={(id, name) => setForm((f: any) => ({ ...f, customerId: id, customerName: name }))}
+                  placeholder={t("search_customer")}
+                  showWalkInShortcut={false}
+                  cityId={user?.cityId ?? undefined}
+                />
               )}
 
               {createType === "withdrawal" && (

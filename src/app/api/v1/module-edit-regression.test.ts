@@ -12,7 +12,7 @@ test("expense withdrawal and haji edit forms preserve creation source fields", (
   const hajiPage = readFileSync("src/app/(dashboard)/haji-transfers/page.tsx", "utf8");
 
   assert.match(validations, /expenseDate:\s*z\.string\(\)\.optional\(\)/);
-  assert.match(validations, /paidFrom:\s*z\.enum\(\["cash_office", "bank_account", "cheque"\]\)\.optional\(\)/);
+  assert.match(validations, /paidFrom:\s*z\.enum\(\["cash_office", "bank_account", "cheque", "customer"\]\)\.optional\(\)/);
   assert.match(validations, /export const updateWithdrawalSchema/);
 
   assert.match(expenseRoute, /nextExpenseDate/);
@@ -31,4 +31,30 @@ test("expense withdrawal and haji edit forms preserve creation source fields", (
   assert.match(withdrawalsPage, /sourceType:\s*form\.sourceType/);
   assert.match(hajiPage, /transferDate:\s*form\.transferDate/);
   assert.match(hajiPage, /sourceType:\s*form\.sourceType/);
+});
+
+test("customer-paid expenses create and sync linked customer payments", () => {
+  const schema = readFileSync("prisma/schema.prisma", "utf8");
+  const validations = readFileSync("src/lib/validations.ts", "utf8");
+  const expenseCreateRoute = readFileSync("src/app/api/v1/expenses/route.ts", "utf8");
+  const expenseEditRoute = readFileSync("src/app/api/v1/expenses/[id]/route.ts", "utf8");
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+
+  assert.match(schema, /customerPaymentId Int\?\s+@unique @map\("customer_payment_id"\)/);
+  assert.match(schema, /customerPayment Payment\?\s+@relation\("ExpenseCustomerPayment"/);
+  assert.match(validations, /customerId:\s*optionalPositiveInt/);
+
+  assert.match(expenseCreateRoute, /paidFrom === "customer" && !customerId/);
+  assert.match(expenseCreateRoute, /tx\.payment\.create\(\{/);
+  assert.match(expenseCreateRoute, /journalPaymentReceived\(\{/);
+  assert.match(expenseCreateRoute, /customerPaymentId/);
+
+  assert.match(expenseEditRoute, /nextPaidFrom === "customer"/);
+  assert.match(expenseEditRoute, /tx\.payment\.update\(/);
+  assert.match(expenseEditRoute, /tx\.payment\.create\(/);
+  assert.match(expenseEditRoute, /tx\.payment\.delete\(\{ where: \{ id: linkedCustomerPayment\.id \} \}\)/);
+
+  assert.match(paymentsPage, /form\.paidFrom === "customer"/);
+  assert.match(paymentsPage, /CustomerFieldWithNew/);
+  assert.match(paymentsPage, /customerId:\s*form\.paidFrom === "customer" \? form\.customerId : undefined/);
 });

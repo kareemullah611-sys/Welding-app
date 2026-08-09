@@ -111,6 +111,7 @@ enum ExpensePaidFrom {
   cash_office
   bank_account
   cheque
+  customer
 }
 
 enum WithdrawalSourceType {
@@ -927,6 +928,7 @@ model Payment {
   hajiTransferCheque  HajiTransfer?        @relation("HajiCheque")
   hajiTransferPayment HajiTransfer?        @relation("HajiPayment")
   expenseCheques      Expense[]            @relation("ExpenseCheque")
+  customerPaidExpense Expense?             @relation("ExpenseCustomerPayment")
   withdrawalCheques   PersonalWithdrawal[] @relation("WithdrawalCheque")
   cityLiabilityChequeEntries CityLiabilityEntry[] @relation("CityLiabilityCheque")
 
@@ -983,6 +985,7 @@ model Expense {
   paidFrom      ExpensePaidFrom @default(cash_office) @map("paid_from")
   bankAccountId Int?            @map("bank_account_id")
   chequePaymentId Int?          @map("cheque_payment_id")
+  customerPaymentId Int?        @unique @map("customer_payment_id")
   createdBy   Int       @map("created_by")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
@@ -994,6 +997,7 @@ model Expense {
   creator     User         @relation(fields: [createdBy], references: [id])
   bankAccount BankAccount? @relation(fields: [bankAccountId], references: [id])
   chequePayment Payment?   @relation("ExpenseCheque", fields: [chequePaymentId], references: [id])
+  customerPayment Payment? @relation("ExpenseCustomerPayment", fields: [customerPaymentId], references: [id], onDelete: SetNull)
   attachments Attachment[]
 
   @@index([cityId])

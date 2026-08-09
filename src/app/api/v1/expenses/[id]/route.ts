@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
-import { reverseJournalEntries, journalExpenseCreated } from "@/lib/accounting";
+import { reverseJournalEntries, journalExpenseCreated, journalPaymentReceived } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { updateExpenseSchema } from "@/lib/validations";
 import { getSaCheckAuditStateMap, isSaCheckConfirmed } from "@/lib/sa-check-audit";
@@ -12,7 +12,11 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     const id = parseInt(context.params.id);
     const expense = await prisma.expense.findUnique({
       where: { id },
-      include: { lot: { select: { lotNumber: true } }, currency: true },
+      include: {
+        lot: { select: { lotNumber: true } },
+        currency: true,
+        customerPayment: { include: { customer: { select: { id: true, name: true } } } },
+      } as any,
     });
     if (!expense || expense.deletedAt !== null) return errorResponse("NOT_FOUND", "Expense not found", 404);
     if (user.role === "city_admin" && expense.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
@@ -22,7 +26,9 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       paidFrom: (expense as any).paidFrom ?? "cash_office",
       bankAccountId: (expense as any).bankAccountId ?? null,
       chequePaymentId: (expense as any).chequePaymentId ?? null,
-      lotNumber: expense.lot.lotNumber, currency: expense.currency.code,
+      customerPaymentId: (expense as any).customerPaymentId ?? null,
+      customerPayment: (expense as any).customerPayment ?? null,
+      lotNumber: (expense as any).lot.lotNumber, currency: (expense as any).currency.code,
     });
   } catch (error) { return serverError(); }
 });
@@ -81,7 +87,13 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     const parsed = updateExpenseSchema.safeParse(body);
     if (!parsed.success) return errorResponse("VALIDATION_ERROR", "Invalid expense update", 400, parsed.error.errors);
     const data = parsed.data;
-    const expense = await prisma.expense.findUnique({ where: { id }, include: { currency: true } });
+    const expense = await prisma.expense.findUnique({
+      where: { id },
+      include: {
+        currency: true,
+        customerPayment: { include: { customer: { select: { id: true, name: true } } } },
+      },
+    } as any);
     if (!expense || expense.deletedAt !== null) return errorResponse("NOT_FOUND", "Expense not found", 404);
     if (user.role === "city_admin" && expense.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
     if (await isSaCheckConfirmed("expenses", expense.id)) {
@@ -89,6 +101,9 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     }
 
     const nextPaidFrom = data.paidFrom ?? ((expense as any).paidFrom ?? "cash_office");
+    const nextCustomerId = nextPaidFrom === "customer"
+      ? (data.customerId ?? ((expense as any).customerPayment?.customerId ?? null))
+      : null;
     const nextBankAccountId = nextPaidFrom === "bank_account"
       ? (data.bankAccountId ?? ((expense as any).bankAccountId ?? null))
       : null;
@@ -105,6 +120,9 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         return errorResponse("VALIDATION_ERROR", "Cannot change amount or source for an expense that was paid from a cheque");
       }
     }
+    if (nextPaidFrom === "customer" && !nextCustomerId) {
+      return errorResponse("VALIDATION_ERROR", "Customer is required when source is customer");
+    }
     if (nextPaidFrom === "bank_account" && !nextBankAccountId) {
       return errorResponse("VALIDATION_ERROR", "Bank account is required when source is bank account");
     }
@@ -115,6 +133,10 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       const bankAccount = await prisma.bankAccount.findUnique({ where: { id: nextBankAccountId } });
       if (!bankAccount || !bankAccount.isActive) return errorResponse("NOT_FOUND", "Selected bank account not found", 404);
       if (bankAccount.cityId !== expense.cityId) return errorResponse("FORBIDDEN", "Selected bank account does not belong to your city", 403);
+    }
+    if (nextPaidFrom === "customer" && nextCustomerId) {
+      const customer = await prisma.customer.findFirst({ where: { id: nextCustomerId, cityId: expense.cityId, isActive: true } });
+      if (!customer) return errorResponse("NOT_FOUND", "Customer not found in your city", 404);
     }
     const nextLotId = data.lotId !== undefined && data.lotId ? data.lotId : expense.lotId;
     if (!nextLotId) return errorResponse("VALIDATION_ERROR", "Lot is required");
@@ -149,16 +171,67 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         },
       });
 
+      let nextCustomerPaymentId: number | null = null;
+      const linkedCustomerPayment = (expense as any).customerPayment;
+      if (linkedCustomerPayment) {
+        await tx.journalEntry.deleteMany({
+          where: { transactionId: { in: [`PAY-${linkedCustomerPayment.id}`, `REV-PAY-${linkedCustomerPayment.id}`] } },
+        });
+      }
+      if (nextPaidFrom === "customer" && nextCustomerId) {
+        if (linkedCustomerPayment && linkedCustomerPayment.status !== "active") {
+          throw new Error("CUSTOMER_PAYMENT_LOCKED");
+        }
+        const paymentData = {
+          cityId: expense.cityId,
+          customerId: nextCustomerId,
+          lotId: nextLot.id,
+          paymentDate: nextExpenseDate,
+          amount: data.amount ?? expense.amount,
+          currencyId: expense.currencyId,
+          detail: data.detail || expense.detail,
+          paymentMethod: "cash",
+          destination: "our_account",
+          chequeNumber: null,
+          chequeBank: null,
+          chequeDueDate: null,
+          chequeStatus: null,
+          bankAccountId: null,
+          superAdminBankAccountId: null,
+          notes: data.notes !== undefined ? data.notes : expense.notes,
+          updatedAt: new Date(),
+        } as any;
+        const payment = linkedCustomerPayment
+          ? await tx.payment.update({ where: { id: linkedCustomerPayment.id }, data: paymentData })
+          : await tx.payment.create({ data: { ...paymentData, createdBy: user.userId } });
+        nextCustomerPaymentId = payment.id;
+        await journalPaymentReceived({
+          id: payment.id,
+          customerId: nextCustomerId,
+          cityId: expense.cityId,
+          lotId: nextLot.id,
+          amount: Number(payment.amount),
+          currencyCode: (expense as any).currency.code,
+          paymentDate: payment.paymentDate,
+          createdBy: user.userId,
+          destination: "our_account",
+          paymentMethod: "cash",
+        }, tx);
+      } else if (linkedCustomerPayment) {
+        await tx.payment.delete({ where: { id: linkedCustomerPayment.id } });
+      }
+
       const next = await tx.expense.update({
         where: { id },
         data: {
           lotId: nextLot.id,
           expenseDate: nextExpenseDate,
-          amount: data.amount || expense.amount,
+          amount: data.amount ?? expense.amount,
           detail: data.detail || expense.detail,
           paidFrom: nextPaidFrom,
           bankAccountId: nextBankAccountId,
           chequePaymentId: nextChequePaymentId,
+          customerPaymentId: nextCustomerPaymentId,
           notes: data.notes !== undefined ? data.notes : expense.notes,
           updatedAt: new Date(),
         } as any,
@@ -169,7 +242,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         cityId: expense.cityId,
         lotId: nextLot.id,
         amount: Number(next.amount),
-        currencyCode: expense.currency.code,
+        currencyCode: (expense as any).currency.code,
         detail: next.detail,
         expenseDate: next.expenseDate,
         createdBy: user.userId,
@@ -199,18 +272,28 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     });
 
     return successResponse({ id }, "Expense updated");
-  } catch (error) { return serverError(); }
+  } catch (error: any) {
+    if (error?.message === "CUSTOMER_PAYMENT_LOCKED") return errorResponse("VALIDATION_ERROR", "Linked customer payment can no longer be edited");
+    return serverError();
+  }
 });
 
 export const DELETE = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
     const id = parseInt(context.params.id);
-    const expense = await prisma.expense.findUnique({ where: { id } });
+    const expense = await prisma.expense.findUnique({ where: { id }, include: { customerPayment: true } as any });
     if (!expense || expense.deletedAt !== null) return errorResponse("NOT_FOUND", "Expense not found", 404);
     if (user.role === "city_admin" && expense.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
 
     await prisma.$transaction(async (tx) => {
       await reverseJournalEntries(`EXP-${id}`, user.userId, tx);
+      const linkedCustomerPayment = (expense as any).customerPayment;
+      if (linkedCustomerPayment) {
+        await tx.journalEntry.deleteMany({
+          where: { transactionId: { in: [`PAY-${linkedCustomerPayment.id}`, `REV-PAY-${linkedCustomerPayment.id}`] } },
+        });
+        await tx.payment.delete({ where: { id: linkedCustomerPayment.id } });
+      }
 
       if ((expense as any).chequePaymentId) {
         await tx.payment.update({

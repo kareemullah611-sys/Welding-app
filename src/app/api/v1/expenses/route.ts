@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { journalExpenseCreated } from "@/lib/accounting";
+import { journalExpenseCreated, journalPaymentReceived } from "@/lib/accounting";
 import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middleware";
 import { createExpenseSchema } from "@/lib/validations";
 import { successResponse, paginatedResponse, validationError, errorResponse, serverError, getPaginationParams, getDateRange } from "@/lib/api-response";
@@ -17,6 +17,12 @@ function formatExpenseCreateResponse(expense: any) {
     paidFrom: expense.paidFrom ?? "cash_office",
     bankAccountId: expense.bankAccountId ?? null,
     chequePaymentId: (expense as any).chequePaymentId ?? null,
+    customerPaymentId: (expense as any).customerPaymentId ?? null,
+    customerPayment: (expense as any).customerPayment ? {
+      id: (expense as any).customerPayment.id,
+      customerId: (expense as any).customerPayment.customerId,
+      customer: (expense as any).customerPayment.customer,
+    } : null,
     currency: { id: expense.currency.id, code: expense.currency.code, symbol: expense.currency.symbol },
     createdBy: expense.creator,
   };
@@ -39,7 +45,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const numericQueryUpper = hasNumericQuery
       ? numericQuery + (decimalPlaces > 0 ? Math.pow(10, -decimalPlaces) : 1)
       : NaN;
-    const paidFromQuery = ["cash_office", "bank_account", "cheque"].includes(normalizedQuery)
+    const paidFromQuery = ["cash_office", "bank_account", "cheque", "customer"].includes(normalizedQuery)
       ? normalizedQuery
       : null;
 
@@ -81,6 +87,13 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           creator: { select: { id: true, fullName: true } },
           attachments: { select: { id: true, fileName: true, filePath: true, fileType: true } },
           bankAccount: { select: { id: true, bankName: true } },
+          customerPayment: {
+            select: {
+              id: true,
+              customerId: true,
+              customer: { select: { id: true, name: true } },
+            },
+          },
         } as any,
         orderBy: { expenseDate: "desc" },
         skip, take: limit,
@@ -98,6 +111,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         bankAccountId: e.bankAccountId ?? null,
         bankAccount: e.bankAccount ? { id: e.bankAccount.id, bankName: e.bankAccount.bankName } : null,
         chequePaymentId: (e as any).chequePaymentId ?? null,
+        customerPaymentId: (e as any).customerPaymentId ?? null,
+        customerPayment: (e as any).customerPayment ?? null,
         currency: { id: e.currency.id, code: e.currency.code, symbol: e.currency.symbol },
         createdBy: e.creator,
         attachments: (e.attachments || []).map((a: any) => ({
@@ -147,12 +162,15 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     }
 
     const city = await prisma.city.findUnique({ where: { id: cityId }, include: { country: true } });
-    const { lotId, expenseDate, amount, currencyId, detail, notes, paidFrom, bankAccountId, chequePaymentId } = parsed.data;
+    const { lotId, expenseDate, amount, currencyId, detail, notes, paidFrom, customerId, bankAccountId, chequePaymentId } = parsed.data;
 
-    if (city?.country?.name === "Afghanistan" && paidFrom !== "cash_office") {
+    if (city?.country?.name === "Afghanistan" && !["cash_office", "customer"].includes(paidFrom)) {
       return errorResponse("VALIDATION_ERROR", "Afghanistan city expenses can only be paid from office cash");
     }
 
+    if (paidFrom === "customer" && !customerId) {
+      return errorResponse("VALIDATION_ERROR", "Customer is required when expense is paid by customer");
+    }
     if (paidFrom === "bank_account" && !bankAccountId) {
       return errorResponse("VALIDATION_ERROR", "Bank account is required when paidFrom is bank_account");
     }
@@ -165,6 +183,10 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       const bankAccount = await prisma.bankAccount.findUnique({ where: { id: bankAccountId } });
       if (!bankAccount) return errorResponse("NOT_FOUND", "Bank account not found", 404);
       if ((bankAccount as any).cityId !== cityId) return errorResponse("FORBIDDEN", "Bank account does not belong to your city", 403);
+    }
+    if (paidFrom === "customer" && customerId) {
+      const customer = await prisma.customer.findFirst({ where: { id: customerId, cityId, isActive: true } });
+      if (!customer) return errorResponse("NOT_FOUND", "Customer not found in your city", 404);
     }
 
     const lot = await prisma.lot.findFirst({
@@ -188,6 +210,26 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       const cityCurrency = await tx.cityCurrency.findFirst({ where: { cityId, currencyId: resolvedCurrencyId ?? undefined } });
       if (!cityCurrency) throw new Error("CURRENCY_NOT_SUPPORTED");
 
+      let customerPaymentId: number | null = null;
+      if (paidFrom === "customer" && customerId) {
+        const customerPayment = await tx.payment.create({
+          data: {
+            cityId,
+            customerId,
+            lotId: lot.id,
+            paymentDate: new Date(expenseDate),
+            amount: resolvedAmount,
+            currencyId: (resolvedCurrencyId ?? cityCurrency.currencyId) as number,
+            detail,
+            paymentMethod: "cash",
+            destination: "our_account",
+            notes,
+            createdBy: user.userId,
+          } as any,
+        });
+        customerPaymentId = customerPayment.id;
+      }
+
       if (paidFrom === "cheque" && chequePaymentId) {
         const claimed = await tx.payment.updateMany({
           where: { id: chequePaymentId, chequeStatus: "in_hand" as any },
@@ -203,9 +245,30 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           ...(paidFrom !== "cash_office" ? { paidFrom } : {}),
           ...(bankAccountId != null ? { bankAccountId } : {}),
           ...(chequePaymentId != null ? { chequePaymentId } : {}),
+          ...(customerPaymentId != null ? { customerPaymentId } : {}),
         } as any,
-        include: { lot: { select: { id: true, lotNumber: true } }, currency: true, creator: { select: { id: true, fullName: true } } },
+        include: {
+          lot: { select: { id: true, lotNumber: true } },
+          currency: true,
+          creator: { select: { id: true, fullName: true } },
+          customerPayment: { include: { customer: { select: { id: true, name: true } } } },
+        },
       }) as any;
+
+      if (paidFrom === "customer" && customerId && customerPaymentId) {
+        await journalPaymentReceived({
+          id: customerPaymentId,
+          customerId,
+          cityId,
+          lotId: lot.id,
+          amount: Number(createdExpense.amount),
+          currencyCode: createdExpense.currency.code,
+          paymentDate: createdExpense.expenseDate,
+          createdBy: user.userId,
+          destination: "our_account",
+          paymentMethod: "cash",
+        }, tx);
+      }
 
       await createAuditLog(user.userId, cityId, "expenses", createdExpense.id, "create", undefined, {
         date: expenseDate,
