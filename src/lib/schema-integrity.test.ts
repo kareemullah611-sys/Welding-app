@@ -94,6 +94,8 @@ test("Haji openings stay historical and customer-to-Haji payments get linked tra
   const openingsRoute = readFileSync("src/app/api/v1/openings/route.ts", "utf8");
   const paymentsRoute = readFileSync("src/app/api/v1/payments/route.ts", "utf8");
   const paymentUpdateRoute = readFileSync("src/app/api/v1/payments/[id]/route.ts", "utf8");
+  const owedHelper = readFileSync("src/lib/ongoing-lot-haji-owed.ts", "utf8");
+  const cityLedgerRoute = readFileSync("src/app/api/v1/city-ledger/route.ts", "utf8");
   const migration = readFileSync("prisma/migrations/20260710103000_link_haji_payment_transfers/migration.sql", "utf8");
 
   assert.match(hajiTransfer, /paymentId\s+Int\?\s+@unique\s+@map\("payment_id"\)/);
@@ -113,6 +115,9 @@ test("Haji openings stay historical and customer-to-Haji payments get linked tra
   assert.match(paymentUpdateRoute, /journalHajiTransfer\(/);
   assert.match(paymentUpdateRoute, /else if \(linkedHajiTransfer\)/);
   assert.match(paymentUpdateRoute, /await tx\.hajiTransfer\.delete\(\{ where: \{ id: linkedHajiTransfer\.id \} \}\)/);
+  assert.match(owedHelper, /where: \{ \.\.\.cityFilter, \.\.\.lotFilter, paymentId: null \}/);
+  assert.match(cityLedgerRoute, /const isLinkedPaymentTransfer = Boolean\(\(h as any\)\.paymentId\)/);
+  assert.match(cityLedgerRoute, /hajiCredit: !isLinkedPaymentTransfer && h\.lot\?\.status === "ongoing"/);
   assert.match(migration, /NULLIF\(p\."manual_voucher_no", ''\)/);
   assert.match(migration, /p\."payment_method" = 'online' THEN ' online' ELSE ' transfer'/);
 

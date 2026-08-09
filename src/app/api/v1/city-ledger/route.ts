@@ -126,16 +126,18 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     }
 
     for (const h of hajiTransfers) {
+      const isLinkedPaymentTransfer = Boolean((h as any).paymentId);
       entries.push({
         date: h.transferDate.toISOString().split("T")[0],
         type: "haji_transfer", category: "Transfer to Haji",
         description: `${h.detail} (${h.transferType === "direct" ? "Direct" : "From In-Hand"})`,
         debit: Number(h.amount), credit: 0,
-        hajiCredit: h.lot?.status === "ongoing" ? Number(h.amount) : 0,
+        hajiCredit: !isLinkedPaymentTransfer && h.lot?.status === "ongoing" ? Number(h.amount) : 0,
         currency: h.currency.code, lot: h.lot?.lotNumber ?? null,
         lotStatus: h.lot?.status ?? null,
         account: "Haji Account", counterAccount: h.transferType === "from_in_hand" ? "Cash In Hand" : "Bank",
         transferType: h.transferType,
+        paymentId: (h as any).paymentId ?? null,
       });
     }
 

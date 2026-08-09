@@ -41,7 +41,7 @@ export async function computeOngoingLotHajiOwedByCity(
     }),
     db.hajiTransfer.groupBy({
       by: ["cityId", "currencyId"],
-      where: { ...cityFilter, ...lotFilter },
+      where: { ...cityFilter, ...lotFilter, paymentId: null },
       _sum: { amount: true },
     }),
     db.payment.groupBy({
