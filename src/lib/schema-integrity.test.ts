@@ -526,10 +526,22 @@ test("sales exports follow active filters without pagination", () => {
   assert.match(exportButtons, /lotId\?: string \| number/);
   assert.match(ledgerExport, /searchParams\.lot_id = String\(params\.lotId\)/);
   assert.match(exportRoute, /const lotId = searchParams\.get\("lot_id"\)/);
-  assert.match(exportRoute, /OR: \[\{ lotId \}, \{ items: \{ some: \{ lotId \} \} \}\]/);
+  assert.match(exportRoute, /\?\s+\{ items: \{ some: \{ lotId \} \} \}/);
+  assert.match(exportRoute, /const exportItems = lotId \? s\.items\.filter\(\(item\) => item\.lotId === lotId\) : s\.items/);
+  assert.doesNotMatch(exportRoute, /OR: \[\{ lotId \}, \{ items: \{ some: \{ lotId \} \} \}\]/);
   assert.doesNotMatch(exportParamsType, /page|limit/);
   assert.doesNotMatch(buildParamsBlock, /page|limit/);
   assert.doesNotMatch(exportButtons, /page|limit/);
+});
+
+test("sales lot filter uses sale item lots for pagination", () => {
+  const salesRoute = readFileSync("src/app/api/v1/sales/route.ts", "utf8");
+
+  assert.match(salesRoute, /const itemWhere: any = \{\}/);
+  assert.match(salesRoute, /if \(lotId\) itemWhere\.lotId = lotId/);
+  assert.match(salesRoute, /if \(productId\) itemWhere\.productId = productId/);
+  assert.match(salesRoute, /baseWhere\.items = \{ some: itemWhere \}/);
+  assert.doesNotMatch(salesRoute, /baseWhere\.OR = \[\{ lotId \}, \{ items: \{ some: \{ lotId \} \} \}\]/);
 });
 
 test("sales pagination footer uses visible expanded row count", () => {

@@ -80,14 +80,14 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           ...cityFilter,
           ...(statusFilter ? { status: statusFilter as any } : {}),
           ...(saleDate ? { saleDate } : {}),
-          ...(lotId ? { OR: [{ lotId }, { items: { some: { lotId } } }] } : {}),
+          ...(lotId ? { items: { some: { lotId } } } : {}),
         },
         include: {
           customer: { select: { name: true } },
           currency: true,
           lot: { select: { lotNumber: true } },
           godown: { select: { name: true } },
-          items: { include: { product: true } },
+          items: { include: { lot: { select: { lotNumber: true } }, product: true } },
           city: { select: { name: true } },
           creator: { select: { fullName: true } },
         },
@@ -119,7 +119,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       const headers = ["Date", "Customer", "Qty", "Size", "Price", "Amount", "Godown", "Lot", "Ref. No.", "Status"];
       const dataRows: string[][] = [];
       for (const s of filteredSales) {
-        for (const item of s.items) {
+        const exportItems = lotId ? s.items.filter((item) => item.lotId === lotId) : s.items;
+        for (const item of exportItems) {
           dataRows.push([
             formatDate(s.saleDate),
             cleanText(s.customer.name),
@@ -128,7 +129,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
             fmtReportMoney(Number(item.ratePerCarton), s.currency.symbol, s.currency.code),
             fmtReportMoney(Number(item.amount), s.currency.symbol, s.currency.code),
             cleanText(s.godown.name),
-            cleanText(s.lot.lotNumber),
+            cleanText(item.lot?.lotNumber || s.lot.lotNumber),
             s.voucherNo,
             formatStatus(s.status),
           ]);

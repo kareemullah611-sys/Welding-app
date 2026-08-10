@@ -192,11 +192,13 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const baseWhere: any = {};
     if (cityId) baseWhere.cityId = cityId;
     if (customerId) baseWhere.customerId = customerId;
-    if (lotId) baseWhere.OR = [{ lotId }, { items: { some: { lotId } } }];
     if (godownId) baseWhere.godownId = godownId;
     if (statusValues.length === 1) baseWhere.status = statusValues[0];
     else if (statusValues.length > 1) baseWhere.status = { in: statusValues };
-    if (productId) baseWhere.items = { some: { productId } };
+    const itemWhere: any = {};
+    if (lotId) itemWhere.lotId = lotId;
+    if (productId) itemWhere.productId = productId;
+    if (Object.keys(itemWhere).length > 0) baseWhere.items = { some: itemWhere };
     if (dateFrom || dateTo) {
       baseWhere.saleDate = {};
       if (dateFrom) baseWhere.saleDate.gte = dateFrom;
