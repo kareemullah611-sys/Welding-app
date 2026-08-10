@@ -45,6 +45,13 @@ test("superadmin app branding settings are persisted and visible", () => {
   assert.match(sidebar, /useAppBranding/);
 });
 
+test("superadmin dashboard country tabs do not show country flags", () => {
+  const dashboardPage = readFileSync("src/app/(dashboard)/dashboard/page.tsx", "utf8");
+
+  assert.match(dashboardPage, /\{c as string\}/);
+  assert.doesNotMatch(dashboardPage, /🇵🇰|🇦🇫/);
+});
+
 test("OpeningLiability uses type-scoped uniqueness and party check constraints", () => {
   const openingLiability = modelBlock("OpeningLiability");
 

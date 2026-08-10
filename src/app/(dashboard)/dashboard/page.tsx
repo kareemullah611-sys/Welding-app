@@ -552,7 +552,7 @@ export default function DashboardPage() {
                     : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
                 }`}
               >
-                {c === "Pakistan" ? '🇵🇰' : '🇦🇫'} {c as string}
+                {c as string}
               </button>
             ))}
           </div>
