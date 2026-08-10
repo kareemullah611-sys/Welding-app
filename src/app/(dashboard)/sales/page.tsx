@@ -1314,7 +1314,7 @@ export default function SalesPage() {
         />
       </div>
 
-      <DataTable searchable={false} compact columns={salesColumns} data={displaySales} loading={loading} emptyMessage={t("no_data")} pagination={{ page, totalPages, total, onPageChange: setPage }} />
+      <DataTable searchable={false} compact columns={salesColumns} data={displaySales} loading={loading} emptyMessage={t("no_data")} pagination={{ page, totalPages, total, visibleCount: displaySales.length, onPageChange: setPage }} />
 
       </>
       )}

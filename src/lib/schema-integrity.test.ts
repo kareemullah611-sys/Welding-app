@@ -532,6 +532,15 @@ test("sales exports follow active filters without pagination", () => {
   assert.doesNotMatch(exportButtons, /page|limit/);
 });
 
+test("sales pagination footer uses visible expanded row count", () => {
+  const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
+  const ui = readFileSync("src/components/ui/index.tsx", "utf8");
+
+  assert.match(salesPage, /visibleCount: displaySales\.length/);
+  assert.match(ui, /visibleCount\?: number/);
+  assert.match(ui, /Showing \$\{pagination\.visibleCount\} of \$\{pagination\.total\} transactions/);
+});
+
 test("customer ledger sale details stay complete with at-rate display across table and PDF", () => {
   const customerRoute = readFileSync("src/app/api/v1/customers/[id]/route.ts", "utf8");
   const exportRoute = readFileSync("src/app/api/v1/reports/export/route.ts", "utf8");

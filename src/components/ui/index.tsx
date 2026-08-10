@@ -525,6 +525,7 @@ export interface PaginationConfig {
   total: number;
   onPageChange: (page: number) => void;
   pageSize?: number;
+  visibleCount?: number;
 }
 
 export function PaginationBar({
@@ -549,7 +550,9 @@ export function PaginationBar({
       )}
     >
       <p className="text-xs italic text-[#6b7280]">
-        Showing {range.start}-{range.end} of {pagination.total} transactions
+        {typeof pagination.visibleCount === "number"
+          ? `Showing ${pagination.visibleCount} of ${pagination.total} transactions`
+          : `Showing ${range.start}-${range.end} of ${pagination.total} transactions`}
       </p>
       <div className="flex flex-wrap items-center gap-1.5">
         <Button
