@@ -19,6 +19,19 @@ function linkedHajiTransferDetail(payment: { paymentMethod?: string | null; supe
   return `${accountLabel} ${mode}`;
 }
 
+function parsePaymentEditDate(value: string | undefined, fallback: Date): Date {
+  const raw = String(value || "").trim();
+  if (!raw) return fallback;
+
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) return new Date(`${iso[1]}-${iso[2]}-${iso[3]}`);
+
+  const display = raw.match(/^(\d{2})-(\d{2})-(\d{2})$/);
+  if (display) return new Date(`20${display[3]}-${display[2]}-${display[1]}`);
+
+  return new Date(raw);
+}
+
 export const GET = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
     const id = parseInt(context.params.id);
@@ -238,7 +251,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 
     const nextCustomerId = data.customerId ?? payment.customerId;
     const nextCurrencyId = data.currencyId ?? payment.currencyId;
-    const nextPaymentDate = data.paymentDate ? new Date(data.paymentDate) : payment.paymentDate;
+    const nextPaymentDate = parsePaymentEditDate(data.paymentDate, payment.paymentDate);
     if (Number.isNaN(nextPaymentDate.getTime())) return errorResponse("VALIDATION_ERROR", "Invalid payment date");
 
     const isAfghanistanCity = payment.city.country?.name === "Afghanistan";

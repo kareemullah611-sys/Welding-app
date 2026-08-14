@@ -55,6 +55,7 @@ test("payment edit treats zero account ids as unselected", () => {
 
 test("payment edit prefill submits raw ISO dates instead of display dates", () => {
   const page = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+  const route = readFileSync("src/app/api/v1/payments/[id]/route.ts", "utf8");
 
   assert.match(page, /function normalizeEditDate/);
   assert.match(page, /paymentDate:\s*normalizeEditDate\(raw\.paymentDate, item\.date\)/);
@@ -62,4 +63,8 @@ test("payment edit prefill submits raw ISO dates instead of display dates", () =
   assert.match(page, /transferDate:\s*normalizeEditDate\(raw\.transferDate, item\.date\)/);
   assert.match(page, /expenseDate:\s*normalizeEditDate\(raw\.expenseDate, item\.date\)/);
   assert.match(page, /withdrawalDate:\s*normalizeEditDate\(raw\.withdrawalDate, item\.date\)/);
+  assert.match(route, /function parsePaymentEditDate/);
+  assert.ok(route.includes("const display = raw.match(/^(\\d{2})-(\\d{2})-(\\d{2})$/);"));
+  assert.match(route, /new Date\(`20\$\{display\[3\]\}-\$\{display\[2\]\}-\$\{display\[1\]\}`\)/);
+  assert.match(route, /const nextPaymentDate = parsePaymentEditDate\(data\.paymentDate, payment\.paymentDate\)/);
 });
