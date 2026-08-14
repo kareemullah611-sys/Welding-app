@@ -211,6 +211,7 @@ export function sanitizePaymentSubmitPayload<T extends Record<string, unknown>>(
   const next = { ...payload };
   if (!Number(next.bankAccountId || 0)) delete next.bankAccountId;
   if (!Number(next.superAdminBankAccountId || 0)) delete next.superAdminBankAccountId;
+  if (!["intermediary", "super_admin_cash"].includes(String(next.settlementDestination || ""))) delete next.settlementDestination;
   if (!Number(next.intermediaryId || 0)) delete next.intermediaryId;
   if (!Number(next.superAdminCashAccountId || 0)) delete next.superAdminCashAccountId;
   return next;

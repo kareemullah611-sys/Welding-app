@@ -53,6 +53,32 @@ test("payment edit treats zero account ids as unselected", () => {
   assert.equal(parsed.data.superAdminBankAccountId, undefined);
 });
 
+test("payment edit drops haji-only settlement metadata from normal payment updates", () => {
+  const payload = buildPaymentSubmitPayload({
+    customerId: 1,
+    paymentDate: "2026-08-14",
+    amount: 1000,
+    paymentMethod: "online",
+    destination: "haji",
+    superAdminBankAccountId: 99,
+    settlementDestination: "standard",
+    intermediaryId: 0,
+    superAdminCashAccountId: 0,
+  }, {
+    currencyId: 1,
+    cityBankAccounts: [{ id: 292, bankName: "City Bank", accountNumber: "123" }],
+    superAdminBankAccounts: [{ id: 99, bankName: "Super Bank", accountNumber: "999" }],
+  });
+
+  const parsed = updatePaymentSchema.safeParse(payload);
+
+  assert.equal(parsed.success, true);
+  assert.equal(payload.destination, "haji");
+  assert.equal("settlementDestination" in payload, false);
+  assert.equal("intermediaryId" in payload, false);
+  assert.equal("superAdminCashAccountId" in payload, false);
+});
+
 test("payment edit prefill submits raw ISO dates instead of display dates", () => {
   const page = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
   const route = readFileSync("src/app/api/v1/payments/[id]/route.ts", "utf8");
