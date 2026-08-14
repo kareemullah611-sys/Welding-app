@@ -52,3 +52,14 @@ test("payment edit treats zero account ids as unselected", () => {
   assert.equal(parsed.data.bankAccountId, 292);
   assert.equal(parsed.data.superAdminBankAccountId, undefined);
 });
+
+test("payment edit prefill submits raw ISO dates instead of display dates", () => {
+  const page = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+
+  assert.match(page, /function normalizeEditDate/);
+  assert.match(page, /paymentDate:\s*normalizeEditDate\(raw\.paymentDate, item\.date\)/);
+  assert.doesNotMatch(page, /paymentDate:\s*item\.date \|\| String\(raw\.paymentDate/);
+  assert.match(page, /transferDate:\s*normalizeEditDate\(raw\.transferDate, item\.date\)/);
+  assert.match(page, /expenseDate:\s*normalizeEditDate\(raw\.expenseDate, item\.date\)/);
+  assert.match(page, /withdrawalDate:\s*normalizeEditDate\(raw\.withdrawalDate, item\.date\)/);
+});

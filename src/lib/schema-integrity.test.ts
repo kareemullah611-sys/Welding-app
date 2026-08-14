@@ -575,6 +575,14 @@ test("customer ledger sale details stay complete with at-rate display across tab
   assert.match(ledgerExport, /white-space: normal/);
 });
 
+test("customer ledger rows use alternating colors", () => {
+  const customersPage = readFileSync("src/app/(dashboard)/customers/page.tsx", "utf8");
+
+  assert.match(customersPage, /i % 2 === 1 \? "bg-\[#fafafa\]" : "bg-white"/);
+  assert.match(customersPage, /hover:bg-\[#f5e8eb\]/);
+  assert.match(customersPage, /e\.status === "cancelled" \? "opacity-40 line-through" : ""/);
+});
+
 test("customer ledger filters stay compact in city modal", () => {
   const customersPage = readFileSync("src/app/(dashboard)/customers/page.tsx", "utf8");
   const filterPanel = customersPage.slice(customersPage.indexOf("Search entries…") - 500, customersPage.indexOf("<GlassButton", customersPage.indexOf("Search entries…")) + 500);
@@ -627,7 +635,7 @@ test("payment modal haji edit keeps source and date fields aligned", () => {
   const hajiUpdateRoute = readFileSync("src/app/api/v1/haji-transfers/[id]/route.ts", "utf8");
   const financeCombinedRoute = readFileSync("src/app/api/v1/finance/combined/route.ts", "utf8");
 
-  assert.match(paymentsPage, /transferDate: item\.date \|\| \(raw\.transferDate \? String\(raw\.transferDate\)\.slice\(0, 10\) : ""\)/);
+  assert.match(paymentsPage, /transferDate:\s*normalizeEditDate\(raw\.transferDate, item\.date\)/);
   assert.match(paymentsPage, /sourceType: raw\.sourceType \|\| \(raw\.transferType === "direct" \? "bank_transfer" : "cash_office"\)/);
   assert.match(financeCombinedRoute, /chequePayment: \{\s+select:/);
   assert.match(paymentsPage, /existingHajiCheques: raw\.chequePayment \? \[raw\.chequePayment\] : \[\]/);

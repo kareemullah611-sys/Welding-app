@@ -222,6 +222,13 @@ function formatInputDate(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
+function normalizeEditDate(rawDate?: string | Date | null, fallbackDate = ""): string {
+  const raw = String(rawDate || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}/.test(fallbackDate)) return fallbackDate.slice(0, 10);
+  return "";
+}
+
 function getCurrentMonthDateRange() {
   const today = new Date();
   return {
@@ -1191,7 +1198,7 @@ export default function PaymentsPage() {
       setForm({
         customerId: raw.customerId || raw.customer?.id || 0,
         customerName: raw.customer?.name || item.person || "",
-        paymentDate: item.date || String(raw.paymentDate || "").slice(0, 10),
+        paymentDate: normalizeEditDate(raw.paymentDate, item.date),
         amount: raw.amount,
         detail: raw.detail || "",
         currencyId: raw.currencyId || loadedCurrencies[0]?.id || currencies[0]?.id || 0,
@@ -1210,7 +1217,7 @@ export default function PaymentsPage() {
       });
     } else if (item.type === "haji_transfer") {
       setForm({
-        transferDate: item.date || (raw.transferDate ? String(raw.transferDate).slice(0, 10) : ""),
+        transferDate: normalizeEditDate(raw.transferDate, item.date),
         amount: raw.amount,
         cashAmount: raw.cashAmount || 0,
         detail: raw.detail || "",
@@ -1230,7 +1237,7 @@ export default function PaymentsPage() {
       });
     } else if (item.type === "expense") {
       setForm({
-        expenseDate: item.date || (raw.expenseDate ? String(raw.expenseDate).slice(0, 10) : ""),
+        expenseDate: normalizeEditDate(raw.expenseDate, item.date),
         amount: raw.amount,
         detail: raw.detail || "",
         notes: raw.notes || "",
@@ -1244,7 +1251,7 @@ export default function PaymentsPage() {
     } else {
       // withdrawal
       setForm({
-        withdrawalDate: item.date || (raw.withdrawalDate ? String(raw.withdrawalDate).slice(0, 10) : ""),
+        withdrawalDate: normalizeEditDate(raw.withdrawalDate, item.date),
         amount: raw.amount,
         detail: raw.detail || "",
         notes: raw.notes || "",

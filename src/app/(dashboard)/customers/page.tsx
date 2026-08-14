@@ -885,7 +885,7 @@ export default function CustomersPage() {
                         return (
                           <tr
                             key={i}
-                            className={`border-t border-[#e4e4e7] transition-colors hover:bg-[#fafafa] ${e.status === "cancelled" ? "opacity-40 line-through" : ""}`}
+                            className={`border-t border-[#e4e4e7] transition-colors ${i % 2 === 1 ? "bg-[#fafafa]" : "bg-white"} hover:bg-[#f5e8eb] ${e.status === "cancelled" ? "opacity-40 line-through" : ""}`}
                           >
                             <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-gray-600 sm:px-3 sm:py-2">{formatDate(e.date)}</td>
                             <td className="whitespace-normal break-words px-2 py-1.5 text-gray-800 sm:px-3 sm:py-2" title={String(e.detail || e.voucherNo || "")}>
