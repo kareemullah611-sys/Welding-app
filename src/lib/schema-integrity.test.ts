@@ -238,6 +238,91 @@ test("city sales list expands multi-item sales into separate display rows", () =
   assert.match(salesPage, /openCancel\(s\.sourceSale \|\| s\)/);
 });
 
+test("investor attribution phase 1.4 remains preview-only and collection-independent", () => {
+  const historicalPool = readFileSync("src/lib/historical-pool-attribution.ts", "utf8");
+  const investorRoute = readFileSync("src/app/api/v1/investor-attribution/route.ts", "utf8");
+  const investorTests = readFileSync("src/lib/investor-attribution.test.ts", "utf8");
+  const provider = readFileSync("src/lib/exchange-rate-provider.ts", "utf8");
+  const providerTests = readFileSync("src/lib/exchange-rate-provider.test.ts", "utf8");
+
+  assert.match(historicalPool, /buildHistoricalFxTransaction/);
+  assert.match(historicalPool, /price_increase/);
+  assert.match(historicalPool, /price_reduction/);
+  assert.match(historicalPool, /other_adjustment/);
+  assert.match(historicalPool, /aggregateReconciliation/);
+  assert.match(historicalPool, /managerAssumedAmountPkr/);
+  assert.match(historicalPool, /reconciliationDifferencePkr/);
+  assert.match(investorRoute, /loadLiveFxCoverage/);
+  assert.match(investorRoute, /intermediaryUsdCostLayer\.findMany/);
+  assert.match(investorRoute, /selectRateForPosition/);
+  assert.match(provider, /MANUAL_OPEN_MARKET/);
+  assert.match(provider, /SARAFI_AF/);
+  assert.match(provider, /sarafiAfIntegrationStatus/);
+  assert.match(provider, /No documented supported Sarafi\.af API\/feed has been approved/);
+  assert.match(investorTests, /recognized financial report profit is attributed regardless of customer collection/);
+  assert.match(investorTests, /phase 1\.4 missing FX rate blocks preview/);
+  assert.match(providerTests, /manual USD AFN and RMB rates normalize/);
+  assert.match(providerTests, /cross-rate calculation exposes AFN to USD to PKR path/);
+  assert.match(providerTests, /provider change not rewriting historical result|snapshotted and not rewritten/);
+  assert.doesNotMatch(historicalPool, /\.(create|update|delete|createMany|updateMany|deleteMany)\(/);
+  assert.doesNotMatch(investorRoute, /journalEntry\.(create|createMany|update|delete)/);
+  assert.doesNotMatch(investorRoute, /collectionEligibility|Distribution-Eligible|Pending\/Uncollected|unallocated receipt/i);
+  assert.doesNotMatch(provider, /from ["']cheerio|from ["']puppeteer|from ["']playwright|innerHTML/);
+});
+
+test("investor attribution phase 2 finalization remains dry-run only", () => {
+  const dryRun = readFileSync("src/lib/investor-finalization-dry-run.ts", "utf8");
+  const dryRunTests = readFileSync("src/lib/investor-finalization-dry-run.test.ts", "utf8");
+  const investorRoute = readFileSync("src/app/api/v1/investor-attribution/route.ts", "utf8");
+  const investorsPage = readFileSync("src/app/(dashboard)/investors/page.tsx", "utf8");
+
+  assert.match(dryRun, /export type AttributionFinalizationStatus = "DRAFT" \| "READY" \| "BLOCKED" \| "FINALIZED" \| "REVERSED"/);
+  assert.match(dryRun, /finalizationButtonEnabled: false/);
+  assert.match(dryRun, /Investor Capital Ledger/);
+  assert.match(dryRun, /Original Finalization → Reversal → Corrected Finalization/);
+  assert.match(dryRun, /BLOCKED_DUPLICATE_FINALIZATION/);
+  assert.match(dryRun, /POST_FINALIZATION_ADJUSTMENT_REQUIRED/);
+  assert.match(dryRunTests, /unsupported AFN and RMB positions/);
+  assert.match(dryRunTests, /blocks duplicate finalized period/);
+  assert.match(dryRunTests, /snapshot design is immutable/);
+  assert.match(investorRoute, /buildFinalizationDryRun/);
+  assert.match(investorsPage, /Finalize Preview \/ Dry Run/);
+  assert.doesNotMatch(dryRun, /\.(create|update|delete|createMany|updateMany|deleteMany)\(/);
+  assert.doesNotMatch(investorRoute, /finalization\.(create|update|delete|createMany|updateMany|deleteMany)/i);
+  assert.doesNotMatch(investorRoute, /journalEntry\.(create|createMany|update|delete)/);
+});
+
+test("investor attribution phase 2.1 FX coverage and posting simulation stay preview-only", () => {
+  const dryRun = readFileSync("src/lib/investor-finalization-dry-run.ts", "utf8");
+  const liveFx = readFileSync("src/lib/live-fx-position-tracing.ts", "utf8");
+  const liveFxTests = readFileSync("src/lib/live-fx-position-tracing.test.ts", "utf8");
+  const dryRunTests = readFileSync("src/lib/investor-finalization-dry-run.test.ts", "utf8");
+  const investorRoute = readFileSync("src/app/api/v1/investor-attribution/route.ts", "utf8");
+  const investorsPage = readFileSync("src/app/(dashboard)/investors/page.tsx", "utf8");
+
+  assert.match(liveFx, /buildLiveFxCoveragePreview/);
+  assert.match(liveFx, /foreign_cash/);
+  assert.match(liveFx, /customer_receivable/);
+  assert.match(liveFx, /supplier_payable/);
+  assert.match(liveFx, /intermediary_balance/);
+  assert.match(liveFx, /shipper_balance/);
+  assert.match(dryRun, /postingSimulation/);
+  assert.match(dryRun, /Financial Report → Historical Pool → Investor Attribution → Finalization Snapshot → Proposed Postings/);
+  assert.match(dryRun, /debitAccount/);
+  assert.match(dryRun, /creditAccount/);
+  assert.match(investorRoute, /liveFxCoverage/);
+  assert.match(investorsPage, /Proposed Postings — Simulation Only/);
+  assert.match(liveFxTests, /AFN asset and liability/);
+  assert.match(liveFxTests, /RMB asset and liability/);
+  assert.match(liveFxTests, /existing USD path/);
+  assert.match(dryRunTests, /debitCreditDifferencePkr, 0/);
+  assert.match(dryRunTests, /investor_capital_loss/);
+  assert.match(dryRunTests, /profit_reinvestment/);
+  assert.doesNotMatch(liveFx, /\.(create|update|delete|createMany|updateMany|deleteMany)\(/);
+  assert.doesNotMatch(dryRun, /\.(create|update|delete|createMany|updateMany|deleteMany)\(/);
+  assert.doesNotMatch(investorRoute, /journalEntry\.(create|createMany|update|delete)/);
+});
+
 test("sale and payment creates send stable browser sync request ids", () => {
   const apiHook = readFileSync("src/hooks/useApi.ts", "utf8");
   const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
@@ -471,12 +556,14 @@ test("city sales auto lot selection expands sale items across FIFO lot availabil
 
 test("city lot detail sold metrics use real sale item lot ids", () => {
   const cityLotAssignment = readFileSync("src/lib/city-lot-assignment.ts", "utf8");
+  const lotsRoute = readFileSync("src/app/api/v1/lots/route.ts", "utf8");
   const lotDetailRoute = readFileSync("src/app/api/v1/lots/[id]/route.ts", "utf8");
   const getMetricsStart = cityLotAssignment.indexOf("export async function getCitySoldMetrics");
   const getMetricsEnd = cityLotAssignment.indexOf("export async function buildCityLotAssignmentDetail", getMetricsStart);
   const getMetricsBlock = cityLotAssignment.slice(getMetricsStart, getMetricsEnd);
 
   assert.ok(getMetricsStart >= 0, "city sold metrics helper should exist");
+  assert.match(lotsRoute, /const where: any = \{ isLegacyStock: false \}/);
   assert.match(cityLotAssignment, /import \{ aggregateLotSalesMetrics, aggregateSingleLotSalesMetrics, fetchLotSalesForMetrics \}/);
   assert.match(getMetricsBlock, /aggregateLotSalesMetrics\(sales\)\.get\(lotId\)/);
   assert.doesNotMatch(getMetricsBlock, /aggregateSingleLotSalesMetrics\(sales\)/);
@@ -843,13 +930,15 @@ test("dashboard cash in office customer receipts show customer and cash received
 
 test("superadmin profit reports handle PCS cartons and scoped financial cash", () => {
   const profitRoute = readFileSync("src/app/api/v1/profit-report/route.ts", "utf8");
+  const periodProfitHelper = readFileSync("src/lib/period-profit-report-data.ts", "utf8");
   const financialRoute = readFileSync("src/app/api/v1/financial-reports/route.ts", "utf8");
 
   assert.match(profitRoute, /function stockQtyToReportCartons/);
   assert.match(profitRoute, /p\.product\?\.unitOfMeasure === "PCS"/);
   assert.match(profitRoute, /num\(p\.qty\) \/ piecesPerCarton/);
   assert.match(profitRoute, /stockQtyToReportCartons\(lp\.totalQty, lp\.product\)/);
-  assert.match(profitRoute, /lotPurchases: \{ include: \{ product: true, supplier: true \} \}/);
+  assert.match(periodProfitHelper, /lotPurchases: \{ include: \{ product: true, supplier: true \} \}/);
+  assert.match(periodProfitHelper, /stockQtyToReportCartons\(lotProduct\.totalQty, lotProduct\.product\)/);
   assert.match(financialRoute, /where: \{ accountId: \{ in: accountIds \}, \.\.\.\(cityId \? \{ cityId \} : \{\}\) \}/);
 });
 
@@ -1061,7 +1150,9 @@ test("GLM critical audit fixes remain wired", () => {
   assert.doesNotMatch(cityTransferApprove, /pg_advisory_xact_lock\(\$\{31001\},/);
   assert.match(cityTransferApprove, /SENDER_INSUFFICIENT_STOCK/);
   assert.doesNotMatch(withdrawalsCreate, /journalWithdrawal\(/);
-  assert.match(withdrawalsApprove, /journalWithdrawal\(/);
+  assert.doesNotMatch(withdrawalsApprove, /journalWithdrawal\(/);
+  assert.doesNotMatch(withdrawalsApprove, /hajiTransfer\.create\(/);
+  assert.match(withdrawalsApprove, /approvedAt:\s*now/);
   assert.match(withdrawalsEdit, /Cannot edit an approved withdrawal/);
   assert.match(withdrawalsEdit, /Cannot delete an approved withdrawal/);
   assert.match(withdrawalCleanupMigration, /pw\."approved_at" IS NULL/);
@@ -1081,4 +1172,217 @@ test("city transfer send modal uses available source godowns", () => {
   assert.match(cityTransfersPage, /Source Godown \*/);
   assert.match(cityTransfersPage, /getSourceGodownAvailable\(g\.id\)/);
   assert.match(cityTransfersPage, /No source godown has available stock for this product\./);
+});
+
+test("investor attribution phase 1 foundation reconciles to existing profit report", () => {
+  const schema = readFileSync("prisma/schema.prisma", "utf8");
+  const migration = readFileSync("prisma/migrations/20260811100000_investor_attribution_phase1/migration.sql", "utf8");
+  const attributionRoute = readFileSync("src/app/api/v1/investor-attribution/route.ts", "utf8");
+  const periodProfitHelper = readFileSync("src/lib/period-profit-report-data.ts", "utf8");
+  const investorsPage = readFileSync("src/app/(dashboard)/investors/page.tsx", "utf8");
+
+  assert.match(schema, /model InvestmentParticipant/);
+  assert.match(schema, /model InvestmentCapitalEvent/);
+  assert.match(schema, /model ProfitAttributionPeriod/);
+  assert.match(schema, /model ProfitAttributionLine/);
+  assert.match(schema, /model InvestorResidualAttribution/);
+  assert.match(schema, /model ExchangeRate/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS "profit_attribution_periods"/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS "exchange_rates"/);
+
+  assert.match(periodProfitHelper, /export async function buildPeriodProfitReportData/);
+  assert.match(attributionRoute, /buildPeriodProfitReportData/);
+  assert.match(attributionRoute, /buildInvestorAttributionPreview/);
+  assert.match(attributionRoute, /phase: "preview_only"/);
+  assert.doesNotMatch(attributionRoute, /journalEntry\.(create|createMany|update|delete)/);
+  assert.doesNotMatch(attributionRoute, /payment\.(create|createMany|update|delete)/);
+  assert.doesNotMatch(attributionRoute, /bankDeposit\.(create|createMany|update|delete)/);
+
+  assert.match(investorsPage, /Investor Profit\/Loss Attribution/);
+  assert.match(investorsPage, /Preview only/);
+  assert.match(investorsPage, /Finalize Preview \/ Dry Run/);
+});
+
+test("investor attribution phase 1.1 keeps participant management separate from accounting postings", () => {
+  const phaseOneOneMigration = readFileSync("prisma/migrations/20260811110000_investor_attribution_phase1_1/migration.sql", "utf8");
+  const participantsRoute = readFileSync("src/app/api/v1/investment-participants/route.ts", "utf8");
+  const capitalEventsRoute = readFileSync("src/app/api/v1/investment-participants/[id]/capital-events/route.ts", "utf8");
+  const shareEventsRoute = readFileSync("src/app/api/v1/investment-participants/[id]/profit-share-events/route.ts", "utf8");
+  const attributionRoute = readFileSync("src/app/api/v1/investor-attribution/route.ts", "utf8");
+  const attributionEngine = readFileSync("src/lib/investor-attribution.ts", "utf8");
+  const investorsPage = readFileSync("src/app/(dashboard)/investors/page.tsx", "utf8");
+  const participantsManagementCode = participantsRoute.replace(/journalTransactionId/g, "");
+
+  assert.match(schema, /model InvestmentProfitShareEvent/);
+  assert.match(schema, /full_exit/);
+  assert.match(schema, /managerProfitSharePercent\s+Decimal\s+@map\("manager_profit_share_percent"\) @db\.Decimal\(9, 6\)/);
+  assert.match(schema, /managerOwnCapitalProfitPkr\s+Decimal\s+@map\("manager_own_capital_profit_pkr"\)/);
+  assert.match(phaseOneOneMigration, /CREATE TABLE IF NOT EXISTS "investment_profit_share_events"/);
+  assert.match(phaseOneOneMigration, /ALTER COLUMN "investor_profit_share_percent" TYPE DECIMAL\(9, 6\)/);
+  assert.match(phaseOneOneMigration, /ADD COLUMN IF NOT EXISTS "manager_profit_share_percent"/);
+
+  assert.match(participantsRoute, /user\.role !== "super_admin"/);
+  assert.match(participantsRoute, /investmentParticipant\.create/);
+  assert.match(participantsRoute, /investmentProfitShareEvent\.create/);
+  assert.match(participantsRoute, /investmentCapitalEvent\.create/);
+  assert.match(capitalEventsRoute, /"opening", "capital_contribution", "capital_withdrawal", "profit_reinvestment", "full_exit"/);
+  assert.match(capitalEventsRoute, /hasFinalizedAttributionOnOrAfter/);
+  assert.match(capitalEventsRoute, /currentParticipantCapitalPkr/);
+  assert.match(capitalEventsRoute, /eventType === "full_exit"/);
+  assert.match(shareEventsRoute, /assertProfitShareTotal/);
+  assert.match(shareEventsRoute, /hasFinalizedAttributionOnOrAfter/);
+
+  assert.match(attributionRoute, /loadExplicitProfitShareEvents/);
+  assert.match(attributionRoute, /capitalSourceLabel/);
+  assert.match(attributionRoute, /Derived from legacy investor transactions/);
+  assert.match(attributionRoute, /findMissingRequiredRates/);
+  assert.match(attributionRoute, /customer collection/);
+  assert.match(attributionRoute, /supplier payment/);
+  assert.match(attributionRoute, /shipping payment/);
+  assert.match(attributionRoute, /intermediary deposit/);
+  assert.match(attributionEngine, /totalManagerOwnCapitalProfitPkr/);
+  assert.match(attributionEngine, /totalManagerSharePkr/);
+
+  assert.doesNotMatch(participantsManagementCode, /journal[A-Z]/);
+  assert.doesNotMatch(capitalEventsRoute, /journal[A-Z]/);
+  assert.doesNotMatch(shareEventsRoute, /journal[A-Z]/);
+  assert.doesNotMatch(participantsRoute, /journalEntry/);
+  assert.doesNotMatch(capitalEventsRoute, /journalEntry/);
+  assert.doesNotMatch(shareEventsRoute, /journalEntry/);
+
+  assert.match(investorsPage, /Participation Setup/);
+  assert.match(investorsPage, /New participant/);
+  assert.match(investorsPage, /Capital event/);
+  assert.match(investorsPage, /Profit-share change/);
+  assert.match(investorsPage, /Manager Own Capital/);
+  assert.match(investorsPage, /Manager Split Share/);
+  assert.match(investorsPage, /Missing FX rates/);
+  assert.match(investorsPage, /Participation segments/);
+});
+
+test("profit report helper does not query impossible null expense lot ids", () => {
+  const profitReportRoute = readFileSync("src/app/api/v1/profit-report/route.ts", "utf8");
+  const periodProfitHelper = readFileSync("src/lib/period-profit-report-data.ts", "utf8");
+
+  assert.doesNotMatch(profitReportRoute, /lotId:\s*null/);
+  assert.doesNotMatch(periodProfitHelper, /lotId:\s*null/);
+});
+
+test("investor attribution follows financial report recognition without collection eligibility", () => {
+  const attributionRoute = readFileSync("src/app/api/v1/investor-attribution/route.ts", "utf8");
+  const attributionEngine = readFileSync("src/lib/investor-attribution.ts", "utf8");
+  const investorsPage = readFileSync("src/app/(dashboard)/investors/page.tsx", "utf8");
+  const cleanupMigration = readFileSync("prisma/migrations/20260811120000_remove_collection_based_investor_eligibility/migration.sql", "utf8");
+
+  assert.match(attributionRoute, /buildReadiness/);
+  assert.match(attributionRoute, /BLOCKED_RECONCILIATION/);
+  assert.match(attributionRoute, /BLOCKED_MISSING_FX/);
+  assert.match(attributionRoute, /BLOCKED_DATA_INTEGRITY/);
+  assert.match(attributionRoute, /BLOCKED_UNRESOLVED_LEGACY_CAPITAL/);
+  assert.match(attributionRoute, /finalizationButtonEnabled: false/);
+  assert.match(investorsPage, /Readiness blockers/);
+  assert.match(cleanupMigration, /DROP COLUMN IF EXISTS "distribution_eligible_profit_pkr"/);
+  assert.match(cleanupMigration, /DROP COLUMN IF EXISTS "pending_collection_profit_pkr"/);
+
+  assert.doesNotMatch(attributionRoute, /journal[A-Z]/);
+  assert.doesNotMatch(attributionRoute, /journalEntry/);
+  assert.doesNotMatch(attributionRoute, /allocateCollectionEligibility/);
+  assert.doesNotMatch(attributionRoute, /collectionStrategy/);
+  assert.doesNotMatch(attributionRoute, /unallocatedCustomerReceipts/);
+  assert.doesNotMatch(attributionEngine, /distributionEligibleProfit/);
+  assert.doesNotMatch(attributionEngine, /pendingCollectionProfit/);
+  assert.doesNotMatch(investorsPage, /Eligible Profit/);
+  assert.doesNotMatch(investorsPage, /Pending Profit/);
+  assert.doesNotMatch(investorsPage, /Allocated Collections/);
+  assert.doesNotMatch(investorsPage, /Unallocated Receipts/);
+});
+
+test("investor attribution legacy capital review is read-only", () => {
+  const attributionRoute = readFileSync("src/app/api/v1/investor-attribution/route.ts", "utf8");
+  const legacyReview = readFileSync("src/lib/legacy-investor-capital-review.ts", "utf8");
+  const investorsPage = readFileSync("src/app/(dashboard)/investors/page.tsx", "utf8");
+
+  assert.match(attributionRoute, /loadLegacyCapitalReview/);
+  assert.match(attributionRoute, /buildLegacyInvestorCapitalReview/);
+  assert.match(attributionRoute, /legacyCapitalReview/);
+  assert.match(legacyReview, /Derived from legacy investor transactions/);
+  assert.match(legacyReview, /proposedOpeningCapitalPkr/);
+  assert.match(legacyReview, /capitalEventCandidates/);
+  assert.match(legacyReview, /ambiguities/);
+  assert.match(investorsPage, /Legacy capital review/);
+  assert.match(investorsPage, /Read-only backfill preview/);
+
+  assert.doesNotMatch(attributionRoute, /investmentCapitalEvent\.create/);
+  assert.doesNotMatch(attributionRoute, /investmentParticipant\.create/);
+  assert.doesNotMatch(attributionRoute, /journalEntry/);
+  assert.doesNotMatch(legacyReview, /\.create\(/);
+  assert.doesNotMatch(legacyReview, /\.update\(/);
+  assert.doesNotMatch(legacyReview, /\.delete\(/);
+});
+
+test("investor attribution phase 1.3 historical pool tracking is preview-only", () => {
+  const attributionRoute = readFileSync("src/app/api/v1/investor-attribution/route.ts", "utf8");
+  const poolPreview = readFileSync("src/lib/historical-pool-attribution.ts", "utf8");
+  const investorsPage = readFileSync("src/app/(dashboard)/investors/page.tsx", "utf8");
+
+  assert.match(attributionRoute, /buildHistoricalPoolPreview/);
+  assert.match(attributionRoute, /loadHistoricalPoolTransactions/);
+  assert.match(attributionRoute, /historicalPoolPreview/);
+  assert.match(poolPreview, /stablePoolId/);
+  assert.match(poolPreview, /originalPoolDate/);
+  assert.match(poolPreview, /fx_gain_loss/);
+  assert.match(poolPreview, /Exited investor residual gain\/loss assumed by manager/);
+  assert.match(investorsPage, /Historical pool tracking/);
+  assert.match(investorsPage, /transactions stay attached to their original participation pool/);
+  assert.match(investorsPage, /Residual manager assumptions/);
+
+  assert.doesNotMatch(attributionRoute, /journalEntry/);
+  assert.doesNotMatch(poolPreview, /\.create\(/);
+  assert.doesNotMatch(poolPreview, /\.update\(/);
+  assert.doesNotMatch(poolPreview, /\.delete\(/);
+});
+
+test("investor attribution phase 2.2 controlled finalization is atomic and attribution-only", () => {
+  const schema = readFileSync("prisma/schema.prisma", "utf8");
+  const migration = readFileSync("prisma/migrations/20260813100000_controlled_investor_finalization/migration.sql", "utf8");
+  const attributionRoute = readFileSync("src/app/api/v1/investor-attribution/route.ts", "utf8");
+  const investorsPage = readFileSync("src/app/(dashboard)/investors/page.tsx", "utf8");
+
+  assert.match(schema, /enum InvestorAttributionLedgerCategory/);
+  assert.match(schema, /investor_profit/);
+  assert.match(schema, /investor_capital_loss/);
+  assert.match(schema, /manager_own_capital/);
+  assert.match(schema, /manager_profit_share/);
+  assert.match(schema, /manager_residual/);
+  assert.match(schema, /model InvestorAttributionLedgerEntry/);
+  assert.match(schema, /snapshotJson\s+Json\?/);
+  assert.match(schema, /postingSimulationJson\s+Json\?/);
+  assert.match(migration, /ADD COLUMN IF NOT EXISTS "snapshot_json"/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS "investor_attribution_ledger_entries"/);
+  assert.match(migration, /investor_attr_ledger_period_ref_type_key/);
+
+  assert.match(attributionRoute, /action === "finalize"/);
+  assert.match(attributionRoute, /isInvestorFinalizationEnabled/);
+  assert.match(attributionRoute, /FEATURE_DISABLED/);
+  assert.match(attributionRoute, /confirmation !== "FINALIZE"/);
+  assert.match(attributionRoute, /assertFinalizationEligible/);
+  assert.match(attributionRoute, /prisma\.\$transaction/);
+  assert.match(attributionRoute, /pg_advisory_xact_lock/);
+  assert.match(attributionRoute, /ALREADY_FINALIZED/);
+  assert.match(attributionRoute, /profitAttributionPeriod\.create/);
+  assert.match(attributionRoute, /profitAttributionLine\.createMany/);
+  assert.match(attributionRoute, /investorResidualAttribution\.createMany/);
+  assert.match(attributionRoute, /investorAttributionLedgerEntry\.createMany/);
+  assert.match(attributionRoute, /entryType: "finalization"/);
+  assert.match(attributionRoute, /action === "reverse"/);
+  assert.match(attributionRoute, /entryType: "reversal"/);
+  assert.match(attributionRoute, /reverse_\$\{entry\.postingType\}/);
+  assert.match(attributionRoute, /Only finalized investor attribution periods can be reversed/);
+  assert.match(investorsPage, /Finalize Period/);
+  assert.match(investorsPage, /Type FINALIZE/);
+
+  assert.doesNotMatch(attributionRoute, /journalEntry\.(create|createMany|update|delete)/);
+  assert.doesNotMatch(attributionRoute, /bankDeposit\.(create|createMany|update|delete)/);
+  assert.doesNotMatch(attributionRoute, /payment\.(create|createMany|update|delete)/);
+  assert.doesNotMatch(attributionRoute, /cash|bank settlement/i);
 });
