@@ -125,7 +125,7 @@ const BranchRow = ({
   </div>
 );
 
-export default function BalanceHub({ user, treasury, glass = true, netRevealed = true, onNetReveal }: { user: any; treasury: Treasury | null; glass?: boolean; netRevealed?: boolean; onNetReveal?: () => void }) {
+export default function BalanceHub({ user, treasury, glass = true, netRevealed = true, onNetReveal, collapseSignal = 0 }: { user: any; treasury: Treasury | null; glass?: boolean; netRevealed?: boolean; onNetReveal?: () => void; collapseSignal?: number }) {
   const isAfghanistan = user?.countryName === "Afghanistan";
   const cash = treasury?.cashInOffice;
   const cheques = treasury?.chequesInHand;
@@ -148,6 +148,12 @@ export default function BalanceHub({ user, treasury, glass = true, netRevealed =
   const [bankPage, setBankPage] = useState(1);
   const [bankTotal, setBankTotal] = useState(0);
   const [bankTotalPages, setBankTotalPages] = useState(1);
+
+  useEffect(() => {
+    setExpanded(false);
+    setOpenBranch(null);
+    setOpenAccountId(null);
+  }, [collapseSignal]);
 
   const loadCashLedger = useCallback(async (page: number) => {
     setCashLoading(true);

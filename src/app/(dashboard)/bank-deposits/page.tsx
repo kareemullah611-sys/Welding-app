@@ -29,6 +29,20 @@ type BankDepositsReadSnapshot = {
   total: number;
 };
 
+function formatInterfundAmountInput(value: unknown) {
+  const raw = String(value ?? "").replace(/,/g, "");
+  if (!raw) return "";
+  const [whole = "", decimal] = raw.split(".");
+  const digits = whole.replace(/\D/g, "");
+  const formattedWhole = digits ? Number(digits).toLocaleString("en-US") : "";
+  return `${formattedWhole}${decimal !== undefined ? `.${decimal.replace(/\D/g, "")}` : ""}`;
+}
+
+function parseInterfundAmountInput(value: string) {
+  const parsed = Number(value.replace(/,/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function applyQueuedMutationsToBankDeposits(baseRows: any[], queueItems: any[], bankAccounts: any[], currencies: any[]) {
   if (!Array.isArray(baseRows) || !Array.isArray(queueItems) || queueItems.length === 0) return baseRows;
   let next = [...baseRows];
@@ -310,10 +324,11 @@ export default function BankDepositsPage() {
       const optimisticCheques = selectedCheques.map((ch: any) => ({
         id: ch.id,
         amount: Number(ch.amount || 0),
-        chequeNumber: ch.raw?.chequeNumber || null,
-        chequeBank: ch.raw?.chequeBank || null,
-        customer: { name: ch.person || "Customer" },
-        currency: selectedCurrency,
+        manualVoucherNo: ch.manualVoucherNo || ch.raw?.manualVoucherNo || null,
+        chequeNumber: ch.chequeNumber || ch.raw?.chequeNumber || null,
+        chequeBank: ch.chequeBank || ch.raw?.chequeBank || null,
+        customer: ch.customer || { name: "Customer" },
+        currency: ch.currency || selectedCurrency,
       }));
       setDeposits((prev) => [{
         id: `pending-${queueId}`,
@@ -550,10 +565,10 @@ export default function BankDepositsPage() {
               {form.transferType === "bank_to_cash" || form.transferType === "bank_to_bank" ? "Transfer Amount *" : `${t("cash_amount")} ${form.transferType === "cheque_to_bank" ? "(0 if cheques only)" : ""}`}
             </label>
             <input
-              type="number"
-              min="0"
-              value={form.transferType === "cheque_to_cash" ? chequesTotal || "" : form.cashAmount || ""}
-              onChange={e => setForm((f: any) => ({ ...f, cashAmount: parseFloat(e.target.value) || 0 }))}
+              type="text"
+              inputMode="decimal"
+              value={form.transferType === "cheque_to_cash" ? formatInterfundAmountInput(chequesTotal || "") : formatInterfundAmountInput(form.cashAmount || "")}
+              onChange={e => setForm((f: any) => ({ ...f, cashAmount: parseInterfundAmountInput(e.target.value) }))}
               className="input-field"
               placeholder="0"
               readOnly={form.transferType === "cheque_to_cash"}
@@ -578,12 +593,9 @@ export default function BankDepositsPage() {
                       className="w-4 h-4 text-primary-600"
                     />
                     <div className="flex-1 min-w-0">
-                      <span className="font-mono text-xs text-gray-600">#{ch.raw?.chequeNumber || "—"}</span>
-                      <span className="mx-2 text-gray-300">·</span>
-                      <span className="text-sm text-gray-700">{ch.person}</span>
-                      {ch.raw?.chequeBank && <span className="text-xs text-gray-400 ml-1">({ch.raw.chequeBank})</span>}
+                      <span className="font-mono text-xs text-gray-600">#{ch.manualVoucherNo || ch.chequeNumber || ch.raw?.manualVoucherNo || ch.raw?.chequeNumber || "—"}</span>
                     </div>
-                    <span className="font-medium text-sm text-blue-700 whitespace-nowrap">{ch.currencySymbol} {ch.amount?.toLocaleString("en-US")}</span>
+                    <span className="font-medium text-sm text-blue-700 whitespace-nowrap">{ch.currency?.symbol || ch.currencySymbol} {Number(ch.amount || 0).toLocaleString("en-US")}</span>
                   </label>
                 ))}
               </div>

@@ -928,6 +928,32 @@ test("dashboard cash in office customer receipts show customer and cash received
   assert.doesNotMatch(paymentRowBlock, /cash to office/i);
 });
 
+test("dashboard metric and quick action cards collapse the balance hub", () => {
+  const dashboardPage = readFileSync("src/app/(dashboard)/dashboard/page.tsx", "utf8");
+  const balanceHub = readFileSync("src/components/dashboard/BalanceHub.tsx", "utf8");
+
+  assert.match(balanceHub, /collapseSignal\?: number/);
+  assert.match(balanceHub, /useEffect\(\(\) => \{\s+setExpanded\(false\)/);
+  assert.match(dashboardPage, /const collapseBalanceHub = useCallback/);
+  assert.match(dashboardPage, /collapseSignal=\{balanceCollapseSignal\}/);
+  assert.match(dashboardPage, /collapseBalanceHub\(\); openQuickForm\("Sale", "\/sales\?create=1&embed=1"\)/);
+  assert.match(dashboardPage, /collapseBalanceHub\(\); openQuickForm\("Payment", "\/payments\?create=payment&embed=1"\)/);
+  assert.match(dashboardPage, /collapseBalanceHub\(\); setRevealedMetric\("outstanding"\)/);
+  assert.match(dashboardPage, /collapseBalanceHub\(\); setRevealedMetric\("cartons"\)/);
+  assert.match(dashboardPage, /collapseBalanceHub\(\); setRevealedMetric\("haji"\)/);
+});
+
+test("inter funds transfer cheque picker uses payment cheque fields and formatted cash input", () => {
+  const bankDepositsPage = readFileSync("src/app/(dashboard)/bank-deposits/page.tsx", "utf8");
+
+  assert.match(bankDepositsPage, /function formatInterfundAmountInput/);
+  assert.match(bankDepositsPage, /function parseInterfundAmountInput/);
+  assert.match(bankDepositsPage, /type="text"[\s\S]*inputMode="decimal"[\s\S]*formatInterfundAmountInput/);
+  assert.match(bankDepositsPage, /ch\.manualVoucherNo \|\| ch\.chequeNumber \|\| ch\.raw\?\.manualVoucherNo \|\| ch\.raw\?\.chequeNumber/);
+  assert.match(bankDepositsPage, /ch\.currency\?\.symbol \|\| ch\.currencySymbol/);
+  assert.doesNotMatch(bankDepositsPage, /ch\.person/);
+});
+
 test("superadmin profit reports handle PCS cartons and scoped financial cash", () => {
   const profitRoute = readFileSync("src/app/api/v1/profit-report/route.ts", "utf8");
   const periodProfitHelper = readFileSync("src/lib/period-profit-report-data.ts", "utf8");
