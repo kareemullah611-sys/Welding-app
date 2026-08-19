@@ -549,6 +549,17 @@ export default function PaymentsPage() {
     return () => document.removeEventListener("pointerdown", handleOutside, true);
   }, [openActionId]);
 
+  useEffect(() => {
+    if (!showLatestEntry) return;
+    const handleOutside = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-latest-entry-root='true']")) return;
+      setShowLatestEntry(false);
+    };
+    document.addEventListener("pointerdown", handleOutside, true);
+    return () => document.removeEventListener("pointerdown", handleOutside, true);
+  }, [showLatestEntry]);
+
   const loadHelpers = async () => {
     if (!isOnline) {
       const cached = readOfflineFormCache<PaymentsFormCache>(PAYMENTS_FORM_CACHE_KEY, [
@@ -565,7 +576,7 @@ export default function PaymentsPage() {
       setCurrencies(cached.currencies);
       setCityBankAccounts(cached.cityBankAccounts);
       setSuperAdminBankAccounts(cached.superAdminBankAccounts);
-      setInHandCheques(cached.inHandCheques || []);
+      setInHandCheques([...(cached.inHandCheques || [])].sort((a: any, b: any) => Number(b.id || 0) - Number(a.id || 0)));
       return { loadedCurrencies: cached.currencies };
     }
 
@@ -589,7 +600,7 @@ export default function PaymentsPage() {
     if (lR.success) setLots(lR.data as any[]);
     if (cityBanksR.success) setCityBankAccounts(cityBanksR.data as any[]);
     if (superAdminBanksR.success) setSuperAdminBankAccounts(superAdminBanksR.data as any[]);
-    if (chequesR.success) setInHandCheques(chequesR.data as any[]);
+    if (chequesR.success) setInHandCheques([...(chequesR.data as any[])].sort((a: any, b: any) => Number(b.id || 0) - Number(a.id || 0)));
     let loadedCurrencies: any[] = [];
     if (ciR.success && user?.cityId) {
       const city = (ciR.data as any[]).find((c: any) => c.id === user.cityId);
@@ -601,7 +612,7 @@ export default function PaymentsPage() {
         currencies: loadedCurrencies,
         cityBankAccounts: cityBanksR.success ? (cityBanksR.data as any[]) : [],
         superAdminBankAccounts: superAdminBanksR.success ? (superAdminBanksR.data as any[]) : [],
-        inHandCheques: chequesR.success ? (chequesR.data as any[]) : [],
+        inHandCheques: chequesR.success ? [...(chequesR.data as any[])].sort((a: any, b: any) => Number(b.id || 0) - Number(a.id || 0)) : [],
       });
     }
     return { loadedCurrencies };
@@ -2055,7 +2066,9 @@ export default function PaymentsPage() {
   const hajiChequeOptions = [
     ...(Array.isArray(form.existingHajiCheques) ? form.existingHajiCheques : []),
     ...inHandCheques,
-  ].filter((cheque: any, index: number, rows: any[]) => cheque?.id && rows.findIndex((row: any) => row?.id === cheque.id) === index);
+  ]
+    .filter((cheque: any, index: number, rows: any[]) => cheque?.id && rows.findIndex((row: any) => row?.id === cheque.id) === index)
+    .sort((a: any, b: any) => Number(b.id || 0) - Number(a.id || 0));
   const selectedHajiCheques = hajiChequeOptions.filter((cheque: any) => selectedHajiChequeIds.includes(cheque.id));
   const selectedHajiChequeTotal = selectedHajiCheques.reduce((sum: number, cheque: any) => sum + Number(cheque.amount || 0), 0);
   const withdrawalSourceValue = form.sourceType === "bank_account" && form.bankAccountId
@@ -2120,6 +2133,7 @@ export default function PaymentsPage() {
             dateFrom={fromDate || undefined}
             dateTo={toDate || undefined}
             cityId={user?.cityId ?? undefined}
+            ledgerType={!isSuperAdmin ? typeFilter : undefined}
             query={searchQuery}
             disabled={!isOnline}
             className="col-span-2 justify-end sm:ml-auto"
@@ -2153,7 +2167,7 @@ export default function PaymentsPage() {
         <div onClick={() => setShowLatestEntry(false)}>
         {paymentSavedNotice && <ModalStatusNotice type="success" message={paymentSavedNotice} />}
         {latestCreatedEntry && (
-          <div className="mb-3">
+          <div className="mb-3" data-latest-entry-root="true">
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); setShowLatestEntry((v) => !v); }}
@@ -3393,7 +3407,6 @@ export default function PaymentsPage() {
                                   className="shrink-0 rounded border-gray-300 text-primary-600 focus:ring-primary-500 disabled:opacity-60"
                                 />
                                 <span className="min-w-0 truncate font-medium text-gray-800">{ref}</span>
-                                {cheque.customer?.name && <span className="min-w-0 truncate text-gray-500">— {cheque.customer.name}</span>}
                                 <span className="ml-auto shrink-0 pl-4 text-right tabular-nums font-medium text-gray-700">
                                   {symbol} {Number(cheque.amount || 0).toLocaleString("en-US")}
                                 </span>

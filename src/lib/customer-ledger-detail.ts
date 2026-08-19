@@ -4,11 +4,15 @@ export function formatCustomerLedgerPaymentDetail(payment: {
   destination?: string | null;
   manualVoucherNo?: string | null;
   chequeNumber?: string | null;
+  bankAccount?: { bankName?: string | null; accountNumber?: string | null } | null;
+  superAdminBankAccount?: { bankName?: string | null; accountNumber?: string | null } | null;
 }): string {
   const method = String(payment.paymentMethod || "cash").replace(/_/g, "-");
-  const destination = payment.destination === "our_account"
+  const account = payment.destination === "haji" ? payment.superAdminBankAccount : payment.bankAccount;
+  const accountName = [account?.bankName, account?.accountNumber].map((part) => String(part || "").trim()).filter(Boolean).join("-");
+  const destination = accountName || (payment.destination === "our_account"
     ? "office"
-    : String(payment.destination || "").replace(/_/g, "-");
+    : String(payment.destination || "").replace(/_/g, "-"));
   const ref = String(payment.manualVoucherNo || payment.chequeNumber || "").trim();
   const core = `${method}-${destination}`;
   return ref ? `${core} (${ref})` : core;

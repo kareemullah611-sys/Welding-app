@@ -348,7 +348,7 @@ test("sale and payment modals defer list refresh until after success UI paints",
   const paymentCreateSubmit = paymentsPage.slice(paymentsPage.indexOf("const handleCreate = async"), paymentsPage.indexOf("// ── Add current form to batch queue"));
 
   assert.match(salesPage, /const refreshSalesAfterPaint = useCallback\(\(\) => \{\s+window\.setTimeout\(\(\) => loadSales\(\), 0\);/);
-  assert.match(saleCreateSubmit, /setLatestCreatedSale\(buildLatestSaleSummary[\s\S]*?resetSaleCreateForm\(\);[\s\S]*?setSaleSavedNotice\("Sale recorded[\s\S]*?refreshSalesAfterPaint\(\);/);
+  assert.match(saleCreateSubmit, /setLatestCreatedSale\(buildLatestSaleSummary[\s\S]*?resetSaleCreateForm\(form\.saleDate\);[\s\S]*?setSaleSavedNotice\("Sale recorded[\s\S]*?refreshSalesAfterPaint\(\);/);
   assert.doesNotMatch(saleCreateSubmit, /setSaleSavedNotice\("Sale recorded[\s\S]*?loadSales\(\);/);
   assert.match(paymentsPage, /const refreshToLatestPaymentsAfterPaint = useCallback\(\(\) => \{\s+window\.setTimeout\(\(\) => refreshToLatestPayments\(\), 0\);/);
   assert.match(paymentCreateSubmit, /setLatestCreatedEntry\(buildLatestPaymentEntrySummary[\s\S]*?resetCurrentCreateFormAfterSave\(\);[\s\S]*?setPaymentSavedNotice\("Entry recorded\."\);[\s\S]*?refreshToLatestPaymentsAfterPaint\(\);/);

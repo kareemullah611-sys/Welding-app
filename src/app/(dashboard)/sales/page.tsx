@@ -489,12 +489,12 @@ export default function SalesPage() {
     setStockLoading(false);
   };
 
-  const resetSaleCreateForm = useCallback(() => {
+  const resetSaleCreateForm = useCallback((preserveSaleDate?: string) => {
     setForm({
       customerId: 0,
       godownId: 0,
       lotId: 0,
-      saleDate: new Date().toISOString().split("T")[0],
+      saleDate: preserveSaleDate || new Date().toISOString().split("T")[0],
       currencyId: currencies[0]?.id || 0,
       notes: "",
       items: [emptySaleItem()],
@@ -788,7 +788,7 @@ export default function SalesPage() {
         return next;
       });
 
-      resetSaleCreateForm();
+      resetSaleCreateForm(form.saleDate);
       setResolvingQueueId(null);
       setSaleSavedNotice("Sale queued for sync.");
       setTimeout(() => setSaleSavedNotice(null), 5000);
@@ -803,7 +803,7 @@ export default function SalesPage() {
       createRequestRef.current = null;
       setResolvingQueueId(null);
       setLatestCreatedSale(buildLatestSaleSummary(result.data, formSnapshot, selectedCustomerName, products, godowns, lots, currencies));
-      resetSaleCreateForm();
+      resetSaleCreateForm(form.saleDate);
       setSaleSavedNotice("Sale recorded. Record payment if the customer paid on the spot.");
       setTimeout(() => setSaleSavedNotice(null), 5000);
       refreshSalesAfterPaint();
@@ -835,6 +835,17 @@ export default function SalesPage() {
       // ignore malformed queued payload
     }
   }, [isEmbed, queuedItems, searchParams, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!showLatestSale) return;
+    const handleOutside = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("[data-latest-sale-root='true']")) return;
+      setShowLatestSale(false);
+    };
+    document.addEventListener("pointerdown", handleOutside, true);
+    return () => document.removeEventListener("pointerdown", handleOutside, true);
+  }, [showLatestSale]);
 
   // Hard delete sale (super admin + 2FA)
   const openHardDelete = (sale: any) => { setHardDeleteTarget(sale); setHardDeletePassword(""); setHardDeleteError(""); setShowHardDelete(true); };
@@ -1323,7 +1334,7 @@ export default function SalesPage() {
         <div onClick={() => setShowLatestSale(false)}>
         {saleSavedNotice && <ModalStatusNotice type="success" message={saleSavedNotice} />}
         {latestCreatedSale && (
-          <div className="mb-3">
+          <div className="mb-3" data-latest-sale-root="true">
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); setShowLatestSale((v) => !v); }}

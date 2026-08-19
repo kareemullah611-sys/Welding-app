@@ -172,12 +172,12 @@ function printPaymentsReportPayload(payload: ExportPayload) {
   const rowsHtml = payload.rows.map((row, index) => `
     <tr class="${index % 2 === 1 ? "alt-row" : ""}">
       <td class="col-date">${escapeHtml(row[0])}</td>
-      <td class="col-customer">${escapeHtml(row[1])}</td>
-      <td class="col-particulars">${escapeHtml(row[2])}</td>
-      <td class="col-ref">${escapeHtml(row[3])}</td>
-      <td class="col-amount">${escapeHtml(row[4])}</td>
-      <td class="col-dest">${escapeHtml(row[5])}</td>
-      <td class="col-status">${escapeHtml(row[6])}</td>
+      <td class="col-type">${escapeHtml(row[1])}</td>
+      <td class="col-name">${escapeHtml(row[2])}</td>
+      <td class="col-particulars">${escapeHtml(row[3])}</td>
+      <td class="col-ref">${escapeHtml(row[4])}</td>
+      <td class="col-money">${escapeHtml(row[5])}</td>
+      <td class="col-money">${escapeHtml(row[6])}</td>
     </tr>
   `).join("");
 
@@ -194,12 +194,11 @@ function printPaymentsReportPayload(payload: ExportPayload) {
           th { background: #f8fafc; text-transform: uppercase; letter-spacing: .05em; font-size: 9px; color: #64748b; }
           .alt-row td { background: #f8fafc; }
           .col-date { width: 6.5em; white-space: nowrap; }
-          .col-customer { width: 11em; }
+          .col-type { width: 7em; }
+          .col-name { width: 11em; }
           .col-particulars { width: auto; }
-          .col-amount { width: 8.5em; text-align: right; white-space: nowrap; }
-          .col-dest { width: 8em; }
+          .col-money { width: 8.5em; text-align: right; white-space: nowrap; }
           .col-ref { width: 4.5em; white-space: nowrap; }
-          .col-status { width: 5.5em; }
           @page { margin: 10mm; size: A4 landscape; }
         </style>
       </head>
@@ -210,12 +209,12 @@ function printPaymentsReportPayload(payload: ExportPayload) {
           <thead>
             <tr>
               <th class="col-date">Date</th>
-              <th class="col-customer">Customer</th>
+              <th class="col-type">Type</th>
+              <th class="col-name">Name</th>
               <th class="col-particulars">Particulars</th>
               <th class="col-ref">Ref. No.</th>
-              <th class="col-amount">Amount</th>
-              <th class="col-dest">Destination</th>
-              <th class="col-status">Status</th>
+              <th class="col-money">Debit</th>
+              <th class="col-money">Credit</th>
             </tr>
           </thead>
           <tbody>${rowsHtml}</tbody>

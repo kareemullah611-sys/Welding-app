@@ -138,26 +138,164 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       payload = { title, meta, headers, rows: dataRows };
     } else if (type === "payments") {
       const { title, meta } = buildExportMeta("Payments Report", city?.name, dateFrom, dateTo, search.rawQuery);
-      const paymentDate = buildExportDateFilter(dateFrom, dateTo);
-      const searchWhere = buildPaymentExportSearchWhere(search);
-      const payments = await prisma.payment.findMany({
-        where: {
-          ...cityFilter,
-          ...(paymentDate ? { paymentDate } : {}),
-          ...(searchWhere || {}),
-        },
-        include: { customer: { select: { name: true } }, currency: true },
-        orderBy: { paymentDate: "asc" },
-      });
-      const headers = ["Date", "Customer Name", "Particulars", "Ref. No.", "Amount", "Destination", "Status"];
-      const dataRows = payments.map((p) => [
-        formatDate(p.paymentDate),
-        cleanText(p.customer.name),
-        cleanText(p.detail),
-        cleanText(p.manualVoucherNo || ""),
-        fmtReportMoney(Number(p.amount), p.currency.symbol, p.currency.code),
-        formatLabel(p.destination),
-        formatStatus(p.status),
+      const selectedType = (searchParams.get("ledger_type") || "all").trim().toLowerCase();
+      const dateWhere = (field: string) => {
+        const where: any = {};
+        if (dateFrom) where[field] = { ...(where[field] || {}), gte: new Date(dateFrom) };
+        if (dateTo) where[field] = { ...(where[field] || {}), lte: new Date(dateTo + "T23:59:59") };
+        return where;
+      };
+      const paymentRef = (row: { manualVoucherNo?: string | null; chequeNumber?: string | null }) => cleanText(row.manualVoucherNo || row.chequeNumber || "");
+      const bankLabel = (account?: { bankName?: string | null; accountNumber?: string | null } | null) =>
+        [account?.bankName, account?.accountNumber].map((part) => cleanText(part)).filter(Boolean).join("-");
+      const paymentDetail = (p: any) => {
+        const account = p.destination === "haji" ? p.superAdminBankAccount : p.bankAccount;
+        const accountText = bankLabel(account);
+        const method = formatLabel(p.paymentMethod).toLowerCase();
+        const ref = paymentRef(p);
+        const parts = [p.customer?.name, accountText || cleanText(p.detail), method, ref ? `Ref ${ref}` : ""].filter(Boolean);
+        return parts.join(" · ");
+      };
+      const expenseSource = (e: any) => {
+        if (e.paidFrom === "bank_account") return bankLabel(e.bankAccount) || "Bank";
+        if (e.paidFrom === "cheque") return ["Cheque", paymentRef(e.chequePayment || {})].filter(Boolean).join(" ");
+        if (e.paidFrom === "customer") return e.customerPayment?.customer?.name ? `Customer ${e.customerPayment.customer.name}` : "Customer";
+        return "Cash office";
+      };
+      const withdrawalSource = (w: any) => {
+        if (w.sourceType === "bank_account") return bankLabel(w.bankAccount) || "Bank";
+        if (w.sourceType === "cheque") return ["Cheque", paymentRef(w.chequePayment || {})].filter(Boolean).join(" ");
+        return formatLabel(w.sourceType || "cash_office");
+      };
+      const hajiAccount = (h: any) => cleanText(h.transferredTo || h.detail);
+      const entries: Array<{
+        date: Date;
+        type: string;
+        name: string;
+        particulars: string;
+        ref: string;
+        debit: number;
+        credit: number;
+        currencySymbol: string;
+        currencyCode: string;
+      }> = [];
+
+      if (selectedType === "all" || selectedType === "payment") {
+        const payments = await prisma.payment.findMany({
+          where: {
+            ...cityFilter,
+            status: "active",
+            ...dateWhere("paymentDate"),
+            ...(selectedType === "payment" ? (buildPaymentExportSearchWhere(search) || {}) : {}),
+          },
+          include: {
+            customer: { select: { name: true } },
+            currency: true,
+            bankAccount: { select: { bankName: true, accountNumber: true } },
+            superAdminBankAccount: { select: { bankName: true, accountNumber: true } },
+          },
+          orderBy: [{ paymentDate: "asc" }, { id: "asc" }],
+        });
+        entries.push(...payments.map((p: any) => {
+          const amount = Number(p.amount || 0);
+          return {
+            date: p.paymentDate,
+            type: "Payment",
+            name: cleanText(p.customer?.name || ""),
+            particulars: paymentDetail(p),
+            ref: paymentRef(p),
+            debit: amount < 0 ? Math.abs(amount) : 0,
+            credit: amount > 0 ? amount : 0,
+            currencySymbol: p.currency.symbol,
+            currencyCode: p.currency.code,
+          };
+        }));
+      }
+
+      if (selectedType === "all" || selectedType === "withdrawal") {
+        const withdrawals = await prisma.personalWithdrawal.findMany({
+          where: { ...cityFilter, ...dateWhere("withdrawalDate") },
+          include: {
+            currency: true,
+            bankAccount: { select: { bankName: true, accountNumber: true } },
+            chequePayment: { select: { manualVoucherNo: true, chequeNumber: true } },
+          },
+          orderBy: [{ withdrawalDate: "asc" }, { id: "asc" }],
+        });
+        entries.push(...withdrawals.map((w: any) => ({
+          date: w.withdrawalDate,
+          type: "Withdrawal",
+          name: cleanText(w.withdrawnBy || ""),
+          particulars: [w.withdrawnBy, w.detail, withdrawalSource(w), w.notes].map(cleanText).filter(Boolean).join(" · "),
+          ref: paymentRef(w.chequePayment || {}),
+          debit: Number(w.amount || 0),
+          credit: 0,
+          currencySymbol: w.currency.symbol,
+          currencyCode: w.currency.code,
+        })));
+      }
+
+      if (selectedType === "all" || selectedType === "expense") {
+        const expenses = await prisma.expense.findMany({
+          where: { ...cityFilter, deletedAt: null, ...dateWhere("expenseDate") },
+          include: {
+            currency: true,
+            bankAccount: { select: { bankName: true, accountNumber: true } },
+            chequePayment: { select: { manualVoucherNo: true, chequeNumber: true } },
+            customerPayment: { select: { customer: { select: { name: true } } } },
+          },
+          orderBy: [{ expenseDate: "asc" }, { id: "asc" }],
+        });
+        entries.push(...expenses.map((e: any) => ({
+          date: e.expenseDate,
+          type: "Expense",
+          name: "",
+          particulars: [e.detail, expenseSource(e)].map(cleanText).filter(Boolean).join(" · "),
+          ref: paymentRef(e.chequePayment || {}),
+          debit: Number(e.amount || 0),
+          credit: 0,
+          currencySymbol: e.currency.symbol,
+          currencyCode: e.currency.code,
+        })));
+      }
+
+      if (selectedType === "all" || selectedType === "haji_transfer") {
+        const transfers = await prisma.hajiTransfer.findMany({
+          where: { ...cityFilter, ...dateWhere("transferDate") },
+          include: { currency: true },
+          orderBy: [{ transferDate: "asc" }, { id: "asc" }],
+        });
+        entries.push(...transfers.map((h: any) => ({
+          date: h.transferDate,
+          type: "Haji Transfer",
+          name: hajiAccount(h),
+          particulars: [hajiAccount(h), h.referenceNo ? `Ref ${h.referenceNo}` : "", h.notes].map(cleanText).filter(Boolean).join(" · "),
+          ref: cleanText(h.referenceNo || ""),
+          debit: Number(h.amount || 0),
+          credit: 0,
+          currencySymbol: h.currency.symbol,
+          currencyCode: h.currency.code,
+        })));
+      }
+
+      let filteredEntries = entries;
+      if (search.normalizedQuery) {
+        filteredEntries = entries.filter((entry) => matchesExportTextSearch(
+          search,
+          [entry.type, entry.name, entry.particulars, entry.ref, entry.currencyCode, entry.currencySymbol],
+          [entry.debit, entry.credit],
+        ));
+      }
+      filteredEntries.sort((a, b) => a.date.getTime() - b.date.getTime());
+      const headers = ["Date", "Type", "Name", "Particulars", "Ref. No.", "Debit", "Credit"];
+      const dataRows = filteredEntries.map((entry) => [
+        formatDate(entry.date),
+        entry.type,
+        cleanText(entry.name),
+        cleanText(entry.particulars),
+        cleanText(entry.ref),
+        entry.debit ? fmtReportMoney(entry.debit, entry.currencySymbol, entry.currencyCode) : "",
+        entry.credit ? fmtReportMoney(entry.credit, entry.currencySymbol, entry.currencyCode) : "",
       ]);
       payload = { title, meta, headers, rows: dataRows, reportType: "payments" };
     } else if (type === "expenses") {
@@ -266,7 +404,12 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         }),
         prisma.payment.findMany({
           where: { customerId, ...(paymentDate ? { paymentDate } : {}) },
-          include: { currency: true, lot: { select: { lotNumber: true } } },
+          include: {
+            currency: true,
+            lot: { select: { lotNumber: true } },
+            bankAccount: { select: { bankName: true, accountNumber: true } },
+            superAdminBankAccount: { select: { bankName: true, accountNumber: true } },
+          },
           orderBy: { paymentDate: "asc" },
         }),
       ]);
