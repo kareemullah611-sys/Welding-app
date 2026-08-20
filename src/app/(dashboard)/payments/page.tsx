@@ -2080,13 +2080,25 @@ export default function PaymentsPage() {
       {!isEmbed && <PageHeader title={isSuperAdmin ? "Haji Payments" : t("payments")} />}
       {!isEmbed && (
         <div className="mb-3 grid grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap">
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search…"
-            className="input-field col-span-2 h-8 min-w-0 text-xs sm:col-span-1 sm:min-w-[7rem] sm:flex-1 sm:max-w-xs"
-          />
+          <div className="relative col-span-2 min-w-0 sm:col-span-1 sm:min-w-[7rem] sm:flex-1 sm:max-w-xs">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search…"
+              className="input-field h-8 w-full pr-8 text-xs"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full px-1 text-sm leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                aria-label="Clear search"
+              >
+                ×
+              </button>
+            )}
+          </div>
           {!isSuperAdmin && (
             <select
               value={typeFilter}
@@ -2805,6 +2817,8 @@ export default function PaymentsPage() {
                         const checked = selectedHajiChequeIds.includes(cheque.id);
                         const ref = cheque.chequeNumber || cheque.manualVoucherNo || String(cheque.id);
                         const symbol = cheque.currency?.symbol || cheque.currency?.code || "";
+                        const receivedDate = cheque.date || cheque.paymentDate || cheque.createdAt;
+                        const customerName = String(cheque.customer?.name || "").trim();
                         return (
                           <label key={cheque.id} className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-sm leading-tight hover:bg-gray-50">
                             <input
@@ -2821,9 +2835,13 @@ export default function PaymentsPage() {
                               })}
                               className="shrink-0 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                             />
-                            <span className="min-w-0 truncate font-medium text-gray-800">{ref}</span>
-                            <span className="ml-auto shrink-0 pl-4 text-right tabular-nums font-medium text-gray-700">
-                              {symbol} {Number(cheque.amount || 0).toLocaleString("en-US")}
+                            <span className="min-w-0">
+                              <span className="block truncate font-medium text-gray-800">{ref}</span>
+                              {customerName && <span className="block truncate text-[10px] text-gray-500">{customerName}</span>}
+                            </span>
+                            <span className="ml-auto flex shrink-0 flex-col items-end pl-4 text-right">
+                              <span className="tabular-nums font-medium text-gray-700">{symbol} {Number(cheque.amount || 0).toLocaleString("en-US")}</span>
+                              {receivedDate && <span className="text-[10px] tabular-nums text-gray-400">{formatDate(receivedDate)}</span>}
                             </span>
                           </label>
                         );
@@ -3389,6 +3407,8 @@ export default function PaymentsPage() {
                             const locked = cheque.chequeStatus && cheque.chequeStatus !== "in_hand";
                             const ref = cheque.chequeNumber || cheque.manualVoucherNo || String(cheque.id);
                             const symbol = cheque.currency?.symbol || cheque.currency?.code || "";
+                            const receivedDate = cheque.date || cheque.paymentDate || cheque.createdAt;
+                            const customerName = String(cheque.customer?.name || "").trim();
                             return (
                               <label key={cheque.id} className="flex w-full items-center gap-2 px-3 py-1.5 text-sm leading-tight">
                                 <input
@@ -3406,9 +3426,13 @@ export default function PaymentsPage() {
                                   })}
                                   className="shrink-0 rounded border-gray-300 text-primary-600 focus:ring-primary-500 disabled:opacity-60"
                                 />
-                                <span className="min-w-0 truncate font-medium text-gray-800">{ref}</span>
-                                <span className="ml-auto shrink-0 pl-4 text-right tabular-nums font-medium text-gray-700">
-                                  {symbol} {Number(cheque.amount || 0).toLocaleString("en-US")}
+                                <span className="min-w-0">
+                                  <span className="block truncate font-medium text-gray-800">{ref}</span>
+                                  {customerName && <span className="block truncate text-[10px] text-gray-500">{customerName}</span>}
+                                </span>
+                                <span className="ml-auto flex shrink-0 flex-col items-end pl-4 text-right">
+                                  <span className="tabular-nums font-medium text-gray-700">{symbol} {Number(cheque.amount || 0).toLocaleString("en-US")}</span>
+                                  {receivedDate && <span className="text-[10px] tabular-nums text-gray-400">{formatDate(receivedDate)}</span>}
                                 </span>
                               </label>
                             );

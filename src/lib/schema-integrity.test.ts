@@ -1412,3 +1412,27 @@ test("investor attribution phase 2.2 controlled finalization is atomic and attri
   assert.doesNotMatch(attributionRoute, /payment\.(create|createMany|update|delete)/);
   assert.doesNotMatch(attributionRoute, /cash|bank settlement/i);
 });
+
+test("module search inputs expose a clear button when text is present", () => {
+  const dataTable = readFileSync("src/components/ui/index.tsx", "utf8");
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+  const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
+
+  assert.match(dataTable, /aria-label="Clear search"/);
+  assert.match(dataTable, /onClick=\{clearSearch\}/);
+  assert.match(paymentsPage, /\{searchQuery && \(/);
+  assert.match(salesPage, /\{filters\.query && \(/);
+});
+
+test("payment exports use one ref column with debit credit and running balance", () => {
+  const exportRoute = readFileSync("src/app/api/v1/reports/export/route.ts", "utf8");
+  const ledgerExport = readFileSync("src/lib/ledger-export.ts", "utf8");
+
+  assert.match(exportRoute, /const headers = \["Date", "Type", "Name", "Particulars", "Ref\. No\.", "Debit", "Credit", "Running Balance"\]/);
+  assert.match(exportRoute, /entry\.runningBalance = runningByCurrency\[entry\.currencyCode\]/);
+  assert.doesNotMatch(exportRoute, /ref \? `Ref \$\{ref\}` : ""/);
+  assert.match(ledgerExport, /<th class="col-money">Running Balance<\/th>/);
+  assert.match(ledgerExport, /class="col-money debit"/);
+  assert.match(ledgerExport, /class="col-money credit"/);
+  assert.match(ledgerExport, /class="col-money balance"/);
+});

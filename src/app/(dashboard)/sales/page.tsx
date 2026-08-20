@@ -1270,13 +1270,25 @@ export default function SalesPage() {
 
       <div className="mb-3 flex min-w-0 flex-col items-start gap-2 md:flex-row md:flex-nowrap md:items-center md:overflow-x-auto">
         <div className={`flex min-w-0 w-full items-center gap-2 pb-0.5 md:w-auto ${dateRangePreset === "custom" ? "flex-wrap overflow-visible" : "flex-nowrap overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]"}`}>
-          <input
-            type="text"
-            value={filters.query}
-            onChange={(e) => { setFilters((f) => ({ ...f, query: e.target.value })); setPage(1); }}
-            placeholder="Search…"
-            className="input-field h-9 min-h-9 min-w-[7rem] flex-[1_1_7rem] max-w-[min(100%,14rem)] py-1.5 text-sm md:max-w-[20rem]"
-          />
+          <div className="relative min-w-[7rem] flex-[1_1_7rem] max-w-[min(100%,14rem)] md:max-w-[20rem]">
+            <input
+              type="text"
+              value={filters.query}
+              onChange={(e) => { setFilters((f) => ({ ...f, query: e.target.value })); setPage(1); }}
+              placeholder="Search…"
+              className="input-field h-9 min-h-9 w-full py-1.5 pr-8 text-sm"
+            />
+            {filters.query && (
+              <button
+                type="button"
+                onClick={() => { setFilters((f) => ({ ...f, query: "" })); setPage(1); }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full px-1 text-sm leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                aria-label="Clear search"
+              >
+                ×
+              </button>
+            )}
+          </div>
           <select value={filters.status} onChange={(e) => { setFilters((f) => ({ ...f, status: e.target.value })); setPage(1); }} className="select-field !w-auto h-9 min-h-9 min-w-[8.5rem] shrink-0 py-1.5 pl-2.5 pr-8 text-sm md:max-w-[8.75rem]">
             <option value="">{t("all_statuses")}</option><option value="active">{t("active")}</option><option value="cancelled">{t("cancelled")}</option><option value="marked_short">{t("marked_short")}</option>
           </select>

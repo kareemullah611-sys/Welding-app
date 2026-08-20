@@ -394,13 +394,25 @@ export default function BankDepositsPage() {
         </div>
       )}
       <div className="mb-4">
-        <input
-          type="search"
-          value={searchQuery}
-          onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
-          placeholder="Search…"
-          className="input-field h-9 w-full sm:max-w-md"
-        />
+        <div className="relative sm:max-w-md">
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+            placeholder="Search…"
+            className="input-field h-9 w-full pr-8"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => { setSearchQuery(""); setPage(1); }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full px-1 text-sm leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+              aria-label="Clear search"
+            >
+              ×
+            </button>
+          )}
+        </div>
       </div>
 
       {loading ? (

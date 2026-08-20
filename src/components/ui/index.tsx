@@ -339,6 +339,12 @@ export function DataTable<T extends Record<string, any>>({
   }, [activeMatchIndex]);
 
   const showSearchMeta = searchable && activeSearch.length > 0;
+  const currentSearchValue = searchValue ?? internalSearch;
+  const clearSearch = () => {
+    if (onSearchChange) onSearchChange("");
+    else setInternalSearch("");
+    setActiveMatchIndex(-1);
+  };
   const highlightSearchText = (value: unknown): React.ReactNode => {
     const text = value == null ? "" : String(value);
     if (!searchable || activeSearch.length < minChars || !text) return text;
@@ -385,29 +391,41 @@ export function DataTable<T extends Record<string, any>>({
       {searchable && (
         <div className="border-b border-[#e4e4e7] bg-[#f4f4f5]/90 px-3 py-2 sm:px-4">
           <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="search"
-              value={searchValue ?? internalSearch}
-              onChange={(e) => {
-                const next = e.target.value;
-                if (onSearchChange) onSearchChange(next);
-                else setInternalSearch(next);
-              }}
-              onKeyDown={(event) => {
-                if (!["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
-                if (activeSearch.length < minChars || filteredData.length === 0) return;
-                event.preventDefault();
-                setActiveMatchIndex((current) => {
-                  const start = current >= 0 ? current : 0;
-                  if (event.key === "ArrowDown" || event.key === "ArrowRight") {
-                    return (start + 1) % filteredData.length;
-                  }
-                  return (start - 1 + filteredData.length) % filteredData.length;
-                });
-              }}
-              placeholder={searchPlaceholder}
-              className="input-field h-8 min-w-[7rem] flex-1 text-sm sm:max-w-xs"
-            />
+            <div className="relative min-w-[7rem] flex-1 sm:max-w-xs">
+              <input
+                type="search"
+                value={currentSearchValue}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  if (onSearchChange) onSearchChange(next);
+                  else setInternalSearch(next);
+                }}
+                onKeyDown={(event) => {
+                  if (!["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
+                  if (activeSearch.length < minChars || filteredData.length === 0) return;
+                  event.preventDefault();
+                  setActiveMatchIndex((current) => {
+                    const start = current >= 0 ? current : 0;
+                    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+                      return (start + 1) % filteredData.length;
+                    }
+                    return (start - 1 + filteredData.length) % filteredData.length;
+                  });
+                }}
+                placeholder={searchPlaceholder}
+                className="input-field h-8 w-full pr-8 text-sm"
+              />
+              {currentSearchValue && (
+                <button
+                  type="button"
+                  onClick={clearSearch}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                  aria-label="Clear search"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
             {showColumnSelector && (
               <select
                 value={selectedSearchColumn}

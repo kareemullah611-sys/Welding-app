@@ -14,7 +14,7 @@ export function formatCustomerLedgerPaymentDetail(payment: {
     ? "office"
     : String(payment.destination || "").replace(/_/g, "-"));
   const ref = String(payment.manualVoucherNo || payment.chequeNumber || "").trim();
-  const core = `${method}-${destination}`;
+  const core = accountName ? `${destination}-${method}` : `${method}-${destination}`;
   return ref ? `${core} (${ref})` : core;
 }
 

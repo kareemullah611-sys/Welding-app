@@ -176,8 +176,9 @@ function printPaymentsReportPayload(payload: ExportPayload) {
       <td class="col-name">${escapeHtml(row[2])}</td>
       <td class="col-particulars">${escapeHtml(row[3])}</td>
       <td class="col-ref">${escapeHtml(row[4])}</td>
-      <td class="col-money">${escapeHtml(row[5])}</td>
-      <td class="col-money">${escapeHtml(row[6])}</td>
+      <td class="col-money debit">${escapeHtml(row[5])}</td>
+      <td class="col-money credit">${escapeHtml(row[6])}</td>
+      <td class="col-money balance">${escapeHtml(row[7])}</td>
     </tr>
   `).join("");
 
@@ -199,6 +200,9 @@ function printPaymentsReportPayload(payload: ExportPayload) {
           .col-particulars { width: auto; }
           .col-money { width: 8.5em; text-align: right; white-space: nowrap; }
           .col-ref { width: 4.5em; white-space: nowrap; }
+          .debit { color: #b91c1c; font-weight: 700; }
+          .credit { color: #15803d; font-weight: 700; }
+          .balance { color: #334155; font-weight: 700; }
           @page { margin: 10mm; size: A4 landscape; }
         </style>
       </head>
@@ -215,6 +219,7 @@ function printPaymentsReportPayload(payload: ExportPayload) {
               <th class="col-ref">Ref. No.</th>
               <th class="col-money">Debit</th>
               <th class="col-money">Credit</th>
+              <th class="col-money">Running Balance</th>
             </tr>
           </thead>
           <tbody>${rowsHtml}</tbody>

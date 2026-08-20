@@ -27,6 +27,18 @@ test("formatCustomerLedgerPaymentDetail omits empty ref", () => {
   );
 });
 
+test("formatCustomerLedgerPaymentDetail shows account before online transfer method", () => {
+  assert.equal(
+    formatCustomerLedgerPaymentDetail({
+      paymentMethod: "online",
+      destination: "our_account",
+      manualVoucherNo: "5521",
+      bankAccount: { bankName: "Malik Mzn", accountNumber: "8235" },
+    }),
+    "Malik Mzn-8235-online (5521)",
+  );
+});
+
 test("formatCustomerLedgerSaleDetail shows complete item quantities with @ carton rates", () => {
   assert.equal(
     formatCustomerLedgerSaleDetail([
