@@ -4,7 +4,7 @@ import { withSuperAdmin } from "@/lib/middleware";
 import { errorResponse, serverError, validationError } from "@/lib/api-response";
 import { getLotDocumentDownloadUrl } from "@/lib/railway-bucket";
 
-export const GET = withSuperAdmin(async (_request: NextRequest, context: any) => {
+export const GET = withSuperAdmin(async (request: NextRequest, context: any) => {
   try {
     const lotId = Number(context.params.id);
     const documentId = Number(context.params.documentId);
@@ -25,6 +25,21 @@ export const GET = withSuperAdmin(async (_request: NextRequest, context: any) =>
       originalFileName: document.originalFileName,
       contentType: document.mimeType,
     });
+
+    if (request.nextUrl.searchParams.get("preview") === "1") {
+      const upstream = await fetch(url, { cache: "no-store" });
+      if (!upstream.ok || !upstream.body) return serverError("Unable to load document preview");
+      const safeFileName = document.originalFileName.replace(/[\r\n"]/g, "").trim() || "lot-document";
+      return new NextResponse(upstream.body, {
+        status: 200,
+        headers: {
+          "Content-Type": document.mimeType || upstream.headers.get("content-type") || "application/octet-stream",
+          "Content-Disposition": `inline; filename="${safeFileName}"`,
+          "Cache-Control": "private, no-store",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    }
 
     return NextResponse.redirect(url, 302);
   } catch (error) {

@@ -1,7 +1,7 @@
 "use client";
 import React from "react";
-import { StatsCard, formatNumber, formatDate, StatusBadge } from "@/components/ui";
-import { Pencil, Trash2 } from "lucide-react";
+import { Modal, StatsCard, formatNumber, formatDate, StatusBadge } from "@/components/ui";
+import { Download, FileText, Pencil, Trash2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { formatCityAmount, formatCityPot } from "@/lib/city-money-format";
 import { lotShipmentStatusLabel } from "@/lib/lot-documents";
@@ -19,9 +19,25 @@ type Props = {
 };
 
 export function LotDetailSummary({ selectedLot, userRole, t, onAddCost, onEditPurchase, onDeletePurchase, onAddDocument, onChangeStatus, onArchiveDocument }: Props) {
+  const [previewDocument, setPreviewDocument] = React.useState<any>(null);
   const purchaseUsd = Number(selectedLot.costSummary?.totalPurchaseUsd || 0);
   const otherByCurrency = selectedLot.costSummary?.otherCostsByCurrency || selectedLot.costSummary?.costsByCurrency || {};
   const landedPkr = selectedLot.costSummary?.totalLandedCostPkr;
+  const canPreviewDocument = previewDocument && (
+    String(previewDocument.mimeType || "").startsWith("image/")
+    || previewDocument.mimeType === "application/pdf"
+    || previewDocument.mimeType === "text/csv"
+  );
+
+  const downloadDocument = (document: any) => {
+    const link = window.document.createElement("a");
+    link.href = document.downloadUrl;
+    link.download = document.originalFileName || "lot-document";
+    link.rel = "noreferrer";
+    window.document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
 
   return (
     <>
@@ -81,7 +97,7 @@ export function LotDetailSummary({ selectedLot, userRole, t, onAddCost, onEditPu
               {selectedLot.documents.map((doc: any) => (
                 <div key={doc.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#eadfce] bg-white px-3 py-2 text-sm">
                   <div>
-                    <a href={doc.downloadUrl} target="_blank" rel="noreferrer" className="font-semibold text-primary-700 hover:underline">{doc.originalFileName}</a>
+                    <button type="button" onClick={() => setPreviewDocument(doc)} className="font-semibold text-primary-700 hover:underline">{doc.originalFileName}</button>
                     <p className="text-xs text-gray-500">{doc.categoryLabel || doc.category}{doc.referenceNo ? ` · Ref ${doc.referenceNo}` : ""}{doc.documentDate ? ` · ${formatDate(doc.documentDate)}` : ""}</p>
                   </div>
                   {onArchiveDocument && <button onClick={() => onArchiveDocument(doc)} className="text-xs font-semibold text-red-600 hover:underline">Archive</button>}
@@ -108,6 +124,36 @@ export function LotDetailSummary({ selectedLot, userRole, t, onAddCost, onEditPu
           ) : <p className="text-sm text-gray-400">No status changes recorded yet.</p>}
         </div>
       )}
+
+      <Modal
+        open={!!previewDocument}
+        onClose={() => setPreviewDocument(null)}
+        title={previewDocument?.originalFileName || "Document preview"}
+        size="xl"
+        bodyClassName="p-0"
+      >
+        <div className="flex min-h-[60vh] flex-col bg-[#f5f1eb]">
+          <div className="flex items-center justify-between gap-3 border-b border-[#e7ded2] bg-white px-4 py-3">
+            <p className="truncate text-sm text-gray-600">{previewDocument?.categoryLabel || previewDocument?.category || "Document"}</p>
+            <button type="button" onClick={() => downloadDocument(previewDocument)} className="btn-secondary inline-flex shrink-0 items-center gap-2 text-sm">
+              <Download size={15} /> Download
+            </button>
+          </div>
+          {canPreviewDocument ? (
+            <iframe
+              src={`${previewDocument?.downloadUrl}?preview=1`}
+              title={previewDocument?.originalFileName || "Document preview"}
+              className="h-[70vh] w-full flex-1 border-0 bg-white"
+            />
+          ) : (
+            <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
+              <FileText size={42} className="mb-4 text-[#9a8068]" />
+              <p className="font-semibold text-gray-800">Preview is not available for this file format.</p>
+              <p className="mt-1 text-sm text-gray-500">Download the document to open it in its supported application.</p>
+            </div>
+          )}
+        </div>
+      </Modal>
 
       {(selectedLot.purchaseItems?.length > 0) && (
         <div className="card">
