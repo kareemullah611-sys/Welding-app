@@ -36,6 +36,7 @@ export async function getSuperAdminCashAccountBalance(cashAccountId: number): Pr
     supplierPayments,
     agentPayments,
     shippingPayments,
+    investorSettlementPayments,
   ] = await Promise.all([
     prisma.hajiTransfer.aggregate({
       where: {
@@ -74,6 +75,10 @@ export async function getSuperAdminCashAccountBalance(cashAccountId: number): Pr
       where: { superAdminCashAccountId: cashAccountId },
       select: { amountUsd: true, amountPkr: true, exchangeRate: true },
     }),
+    (prisma as any).investmentParticipantSettlementPayment.aggregate({
+      where: { superAdminBankAccountId: cashAccountId, currencyId, status: "settled" },
+      _sum: { paymentAmount: true },
+    }),
   ]);
 
   let out = Number(intermediaryOut._sum.amount || 0);
@@ -86,6 +91,7 @@ export async function getSuperAdminCashAccountBalance(cashAccountId: number): Pr
     const local = Number(p.amountPkr || 0);
     out += local > 0 ? local : Number(p.amountUsd || 0);
   }
+  out += Number(investorSettlementPayments._sum.paymentAmount || 0);
 
   const balance =
     Number(hajiIn._sum.amount || 0) +

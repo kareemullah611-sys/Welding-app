@@ -22,6 +22,36 @@ enum LotStatus {
   completed
 }
 
+enum LotShipmentStatus {
+  order_confirmed
+  production
+  at_tianjin_port
+  awaiting_departure
+  departed_tianjin
+  tianjin_to_karachi
+  arrived_karachi
+  customs_clearance
+  customs_cleared
+  karachi_to_lahore
+  arrived_warehouse
+  completed
+  delayed
+  on_hold
+  documents_pending
+  customs_hold
+  cancelled
+}
+
+enum LotDocumentCategory {
+  supplier_invoice
+  packing_list
+  bill_of_lading
+  gd_customs
+  freight_shipping
+  payment_proof
+  other
+}
+
 enum SaleStatus {
   active
   cancelled
@@ -188,6 +218,7 @@ model Country {
 
   cities City[]
   lots   Lot[]
+  consignees Consignee[]
   fallbackExchangeRates CountryFallbackExchangeRate[]
 
   @@map("countries")
@@ -228,8 +259,115 @@ model Currency {
   countryFallbackFromRates CountryFallbackExchangeRate[] @relation("CountryFallbackFromCurrency")
   countryFallbackToRates   CountryFallbackExchangeRate[] @relation("CountryFallbackToCurrency")
   intermediaryUsdCostLayers IntermediaryUsdCostLayer[]
+  exchangeRateFromRecords  ExchangeRate[] @relation("ExchangeRateFromCurrency")
+  exchangeRateToRecords    ExchangeRate[] @relation("ExchangeRateToCurrency")
+  sarafiAfSnapshotQuoteBaseRecords SarafiAfFxSnapshotQuote[] @relation("SarafiAfSnapshotQuoteBaseCurrency")
+  sarafiAfSnapshotQuoteQuoteRecords SarafiAfFxSnapshotQuote[] @relation("SarafiAfSnapshotQuoteQuoteCurrency")
+  sarafiAfDerivedFromRecords SarafiAfFxDerivedRate[] @relation("SarafiAfDerivedFromCurrency")
+  sarafiAfDerivedToRecords   SarafiAfFxDerivedRate[] @relation("SarafiAfDerivedToCurrency")
+  investmentParticipantSettlements InvestmentParticipantSettlement[]
+  investmentParticipantSettlementPayments InvestmentParticipantSettlementPayment[]
 
   @@map("currencies")
+}
+
+enum ExchangeRateEntryMethod {
+  manual
+  api
+}
+
+model ExchangeRate {
+  id             Int      @id @default(autoincrement())
+  rateDate       DateTime @map("rate_date") @db.Date
+  fromCurrencyId Int      @map("from_currency_id")
+  toCurrencyId   Int      @map("to_currency_id")
+  buyRate        Decimal? @map("buy_rate") @db.Decimal(18, 6)
+  sellRate       Decimal? @map("sell_rate") @db.Decimal(18, 6)
+  referenceRate  Decimal  @map("reference_rate") @db.Decimal(18, 6)
+  source         String   @default("manual_open_market") @db.VarChar(100)
+  entryMethod    ExchangeRateEntryMethod @default(manual) @map("entry_method")
+  correctionOfId Int?     @map("correction_of_id")
+  notes          String?  @db.Text
+  createdBy      Int?     @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  fromCurrency Currency      @relation("ExchangeRateFromCurrency", fields: [fromCurrencyId], references: [id], onDelete: Restrict)
+  toCurrency   Currency      @relation("ExchangeRateToCurrency", fields: [toCurrencyId], references: [id], onDelete: Restrict)
+  correctionOf ExchangeRate? @relation("ExchangeRateCorrection", fields: [correctionOfId], references: [id], onDelete: Restrict)
+  corrections  ExchangeRate[] @relation("ExchangeRateCorrection")
+
+  @@unique([rateDate, fromCurrencyId, toCurrencyId, source], map: "exchange_rates_date_currency_source_key")
+  @@index([fromCurrencyId, toCurrencyId, rateDate], map: "exchange_rates_currency_date_idx")
+  @@map("exchange_rates")
+}
+
+model SarafiAfFxSnapshot {
+  id                     Int      @id @default(autoincrement())
+  snapshotDate           DateTime @map("snapshot_date") @db.Date
+  scheduledTime          String   @default("08:30") @map("scheduled_time") @db.VarChar(20)
+  timezone               String   @default("Asia/Kabul") @db.VarChar(80)
+  provider               String   @default("SARAFI_AF") @db.VarChar(80)
+  market                 String   @default("sarai_shahzada") @db.VarChar(120)
+  providerMode           String   @default("FOUNDATION_ONLY") @map("provider_mode") @db.VarChar(80)
+  fetchedAt              DateTime @map("fetched_at")
+  sourceTimestamp        DateTime? @map("source_timestamp")
+  sourceAgeMinutes       Int?     @map("source_age_minutes")
+  status                 String   @db.VarChar(80)
+  rawReference           String?  @map("raw_reference") @db.VarChar(240)
+  rawPayloadHash         String?  @map("raw_payload_hash") @db.VarChar(120)
+  validationWarningsJson Json?    @map("validation_warnings_json")
+  idempotencyKey         String   @unique @map("idempotency_key") @db.VarChar(240)
+  createdBy              Int?     @map("created_by")
+  createdAt              DateTime @default(now()) @map("created_at")
+
+  quotes       SarafiAfFxSnapshotQuote[]
+  derivedRates SarafiAfFxDerivedRate[]
+
+  @@unique([snapshotDate, provider, market, scheduledTime], map: "sarafi_af_fx_snapshots_daily_key")
+  @@index([snapshotDate, status], map: "sarafi_af_fx_snapshots_date_status_idx")
+  @@map("sarafi_af_fx_snapshots")
+}
+
+model SarafiAfFxSnapshotQuote {
+  id                  Int      @id @default(autoincrement())
+  snapshotId          Int      @map("snapshot_id")
+  baseCurrencyId      Int      @map("base_currency_id")
+  quoteCurrencyId     Int      @map("quote_currency_id")
+  rawBuyRate          Decimal  @map("raw_buy_rate") @db.Decimal(18, 8)
+  rawSellRate         Decimal  @map("raw_sell_rate") @db.Decimal(18, 8)
+  rawUnit             String   @default("1") @map("raw_unit") @db.VarChar(40)
+  normalizationFactor Decimal  @default(1) @map("normalization_factor") @db.Decimal(18, 8)
+  normalizedBuyRate   Decimal  @map("normalized_buy_rate") @db.Decimal(18, 8)
+  normalizedSellRate  Decimal  @map("normalized_sell_rate") @db.Decimal(18, 8)
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  snapshot      SarafiAfFxSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  baseCurrency  Currency           @relation("SarafiAfSnapshotQuoteBaseCurrency", fields: [baseCurrencyId], references: [id], onDelete: Restrict)
+  quoteCurrency Currency           @relation("SarafiAfSnapshotQuoteQuoteCurrency", fields: [quoteCurrencyId], references: [id], onDelete: Restrict)
+
+  @@unique([snapshotId, baseCurrencyId, quoteCurrencyId], map: "sarafi_af_fx_snapshot_quotes_pair_key")
+  @@index([baseCurrencyId, quoteCurrencyId], map: "sarafi_af_fx_snapshot_quotes_currency_idx")
+  @@map("sarafi_af_fx_snapshot_quotes")
+}
+
+model SarafiAfFxDerivedRate {
+  id                 Int      @id @default(autoincrement())
+  snapshotId         Int      @map("snapshot_id")
+  fromCurrencyId     Int      @map("from_currency_id")
+  toCurrencyId       Int      @map("to_currency_id")
+  buyRate            Decimal  @map("buy_rate") @db.Decimal(18, 8)
+  sellRate           Decimal  @map("sell_rate") @db.Decimal(18, 8)
+  conversionPathJson Json     @map("conversion_path_json")
+  sourceRatesJson    Json     @map("source_rates_json")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  snapshot     SarafiAfFxSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  fromCurrency Currency           @relation("SarafiAfDerivedFromCurrency", fields: [fromCurrencyId], references: [id], onDelete: Restrict)
+  toCurrency   Currency           @relation("SarafiAfDerivedToCurrency", fields: [toCurrencyId], references: [id], onDelete: Restrict)
+
+  @@unique([snapshotId, fromCurrencyId, toCurrencyId], map: "sarafi_af_fx_derived_rates_pair_key")
+  @@index([fromCurrencyId, toCurrencyId], map: "sarafi_af_fx_derived_rates_currency_idx")
+  @@map("sarafi_af_fx_derived_rates")
 }
 
 model CountryFallbackExchangeRate {
@@ -298,6 +436,8 @@ model City {
   cityLiabilityEntries   CityLiabilityEntry[]
   openingCityLiabilities OpeningCityLiability[]
   syncRequests           SyncRequest[]
+  consignees             Consignee[]
+  destinationLots        Lot[] @relation("LotDestinationCity")
 
   @@unique([countryId, name])
   @@index([countryId])
@@ -355,6 +495,10 @@ model User {
   hajiTransfers         HajiTransfer[]
   godownTransfers    GodownTransfer[]
   attachments        Attachment[]
+  consigneesCreated  Consignee[] @relation("ConsigneeCreatedBy")
+  lotDocumentsUploaded LotDocument[] @relation("LotDocumentUploadedBy")
+  lotDocumentsArchived LotDocument[] @relation("LotDocumentArchivedBy")
+  lotStatusHistoryChanged LotStatusHistory[] @relation("LotStatusHistoryChangedBy")
   auditLogs          AuditLog[]
   inventoryThresholds InventoryThreshold[]
   saleDiscounts      SaleDiscount[]
@@ -686,11 +830,15 @@ model OpeningCheque {
 model Lot {
   id          Int       @id @default(autoincrement())
   countryId   Int       @map("country_id")
+  consigneeId Int?      @map("consignee_id")
+  destinationCityId Int? @map("destination_city_id")
   lotNumber   String    @map("lot_number") @db.VarChar(50)
   lotDate     DateTime  @map("lot_date") @db.Date
   notes           String?  @db.Text
   pkrExchangeRate Decimal? @map("pkr_exchange_rate") @db.Decimal(12, 4) // USD/PKR rate for profit calc
   status          LotStatus @default(ongoing)
+  shipmentStatus  LotShipmentStatus @default(order_confirmed) @map("shipment_status")
+  etaDate         DateTime? @map("eta_date") @db.Date
   isLegacyStock   Boolean   @default(false) @map("is_legacy_stock")
   createdBy   Int       @map("created_by")
   completedBy Int?      @map("completed_by")
@@ -699,8 +847,12 @@ model Lot {
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
   country            Country              @relation(fields: [countryId], references: [id])
+  consignee          Consignee?           @relation(fields: [consigneeId], references: [id], onDelete: SetNull)
+  destinationCity    City?                @relation("LotDestinationCity", fields: [destinationCityId], references: [id], onDelete: SetNull)
   creator            User                 @relation("LotCreatedBy", fields: [createdBy], references: [id])
   completer          User?                @relation("LotCompletedBy", fields: [completedBy], references: [id])
+  documents          LotDocument[]
+  shipmentHistory    LotStatusHistory[]
   lotProducts        LotProduct[]
   lotCityDistributions LotCityDistribution[]
   sales              Sale[]
@@ -724,9 +876,83 @@ model Lot {
 
   @@unique([countryId, lotNumber])
   @@index([countryId])
+  @@index([consigneeId])
+  @@index([destinationCityId])
+  @@index([shipmentStatus])
   @@index([status])
   @@index([lotDate])
   @@map("lots")
+}
+
+model Consignee {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique @db.VarChar(200)
+  countryId Int?     @map("country_id")
+  cityId    Int?     @map("city_id")
+  phone     String?  @db.VarChar(100)
+  address   String?  @db.Text
+  notes     String?  @db.Text
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy Int?     @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  country Country? @relation(fields: [countryId], references: [id], onDelete: SetNull)
+  city    City?    @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  creator User?    @relation("ConsigneeCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  lots    Lot[]
+
+  @@index([countryId])
+  @@index([cityId])
+  @@index([isActive])
+  @@map("consignees")
+}
+
+model LotDocument {
+  id               Int                 @id @default(autoincrement())
+  lotId            Int                 @map("lot_id")
+  category         LotDocumentCategory @default(other)
+  originalFileName String              @map("original_file_name") @db.VarChar(500)
+  storageKey       String              @map("storage_key") @db.VarChar(1000)
+  fileUrl          String              @map("file_url") @db.VarChar(1000)
+  mimeType         String              @map("mime_type") @db.VarChar(200)
+  extension        String              @db.VarChar(20)
+  fileSize         Int                 @map("file_size")
+  referenceNo      String?             @map("reference_no") @db.VarChar(100)
+  documentDate     DateTime?           @map("document_date") @db.Date
+  note             String?             @db.Text
+  uploadedBy       Int                 @map("uploaded_by")
+  uploadedAt       DateTime            @default(now()) @map("uploaded_at")
+  archivedAt       DateTime?           @map("archived_at")
+  archivedBy       Int?                @map("archived_by")
+
+  lot      Lot   @relation(fields: [lotId], references: [id], onDelete: Restrict)
+  uploader User  @relation("LotDocumentUploadedBy", fields: [uploadedBy], references: [id], onDelete: Restrict)
+  archiver User? @relation("LotDocumentArchivedBy", fields: [archivedBy], references: [id], onDelete: SetNull)
+
+  @@index([lotId, archivedAt])
+  @@index([category])
+  @@index([uploadedAt])
+  @@map("lot_documents")
+}
+
+model LotStatusHistory {
+  id             Int                @id @default(autoincrement())
+  lotId          Int                @map("lot_id")
+  previousStatus LotShipmentStatus? @map("previous_status")
+  newStatus      LotShipmentStatus  @map("new_status")
+  effectiveAt    DateTime           @map("effective_at")
+  location       String?            @db.VarChar(200)
+  note           String?            @db.Text
+  changedBy      Int                @map("changed_by")
+  createdAt      DateTime           @default(now()) @map("created_at")
+
+  lot     Lot  @relation(fields: [lotId], references: [id], onDelete: Restrict)
+  changer User @relation("LotStatusHistoryChangedBy", fields: [changedBy], references: [id], onDelete: Restrict)
+
+  @@index([lotId, effectiveAt])
+  @@index([newStatus])
+  @@map("lot_status_history")
 }
 
 model LotProduct {
@@ -809,6 +1035,15 @@ model Sale {
   saleDate          DateTime   @map("sale_date") @db.Date
   totalAmount       Decimal    @default(0) @map("total_amount") @db.Decimal(15, 2)
   currencyId        Int        @map("currency_id")
+  fxSnapshotId      Int?       @map("fx_snapshot_id")
+  fxOriginalCurrencyCode String? @map("fx_original_currency_code") @db.VarChar(10)
+  fxOriginalAmount  Decimal?   @map("fx_original_amount") @db.Decimal(15, 2)
+  fxSelectedRate    Decimal?   @map("fx_selected_rate") @db.Decimal(18, 6)
+  fxSelectedRateType String?   @map("fx_selected_rate_type") @db.VarChar(40)
+  fxProvider        String?    @map("fx_provider") @db.VarChar(120)
+  fxProviderReference String?  @map("fx_provider_reference") @db.VarChar(240)
+  fxPkrEquivalent   Decimal?   @map("fx_pkr_equivalent") @db.Decimal(15, 2)
+  fxConversionPathJson Json?   @map("fx_conversion_path_json")
   notes             String?    @db.Text
   status            SaleStatus @default(active)
   isOpeningImport   Boolean    @default(false) @map("is_opening_import")
@@ -1218,7 +1453,9 @@ model BankAccount {
 model BankDeposit {
   id            Int      @id @default(autoincrement())
   cityId        Int      @map("city_id")
-  bankAccountId Int      @map("bank_account_id")
+  bankAccountId Int?     @map("bank_account_id")
+  transferType String    @default("cheque_to_bank") @map("transfer_type") @db.VarChar(30)
+  transferPairId String?  @map("transfer_pair_id") @db.VarChar(50)
   depositDate   DateTime @map("deposit_date") @db.Date
   slipNumber    String?  @map("slip_number") @db.VarChar(50)
   cashAmount    Decimal  @default(0) @map("cash_amount") @db.Decimal(15, 2)
@@ -1228,13 +1465,14 @@ model BankDeposit {
   createdAt     DateTime @default(now()) @map("created_at")
 
   city        City        @relation(fields: [cityId], references: [id])
-  bankAccount BankAccount @relation(fields: [bankAccountId], references: [id])
+  bankAccount BankAccount? @relation(fields: [bankAccountId], references: [id])
   currency    Currency    @relation(fields: [currencyId], references: [id])
   cheques     Payment[]   @relation("DepositCheques")
 
   @@index([cityId])
   @@index([bankAccountId])
   @@index([depositDate])
+  @@index([transferPairId])
   @@map("bank_deposits")
 }
 
@@ -1263,6 +1501,7 @@ model SuperAdminBankAccount {
   hajiTransferReceipts HajiTransfer[] @relation("HajiSuperAdminCash")
   hajiTransferBankReceipts HajiTransfer[] @relation("HajiSuperAdminBank")
   hajiCashReceipts HajiCashReceipt[]
+  investmentParticipantSettlementPayments InvestmentParticipantSettlementPayment[]
 
   @@index([currencyId])
   @@index([createdBy])
@@ -1750,6 +1989,69 @@ enum InvestorProfitType {
   profit_share     // profit = total_business_profit × share%
 }
 
+enum InvestmentParticipantType {
+  manager
+  investor
+}
+
+enum InvestmentCapitalEventType {
+  opening
+  capital_contribution
+  capital_withdrawal
+  profit_reinvestment
+  full_exit
+}
+
+enum ProfitAttributionPeriodStatus {
+  preview
+  finalized
+  reversed
+  voided
+}
+
+enum InvestorAttributionLedgerCategory {
+  investor_profit
+  investor_capital_loss
+  manager_own_capital
+  manager_profit_share
+  manager_residual
+}
+
+enum InvestorAttributionLedgerEntryType {
+  finalization
+  reversal
+}
+
+enum InvestmentParticipantActionType {
+  profit_withdrawal
+  capital_withdrawal
+  mixed_withdrawal
+  profit_reinvestment
+  full_exit
+  reversal
+}
+
+enum InvestmentParticipantActionStatus {
+  active
+  reversed
+}
+
+enum InvestmentParticipantActionLedgerCategory {
+  finalized_profit_withdrawal
+  capital_withdrawal
+  profit_reinvestment
+  full_exit_profit
+  full_exit_capital
+  reversal
+}
+
+enum InvestmentParticipantSettlementStatus {
+  unsettled
+  partially_settled
+  settled
+  reversed
+}
+
 model Investor {
   id           Int      @id @default(autoincrement())
   name         String   @db.VarChar(200)
@@ -1763,6 +2065,7 @@ model Investor {
 
   creator      User               @relation(fields: [createdBy], references: [id])
   accounts     InvestorAccount[]
+  participants InvestmentParticipant[]
 
   @@map("investors")
 }
@@ -1818,6 +2121,350 @@ model InvestorWithdrawal {
   creator   User            @relation(fields: [createdBy], references: [id])
 
   @@map("investor_withdrawals")
+}
+
+model InvestmentParticipant {
+  id          Int                       @id @default(autoincrement())
+  investorId  Int?                      @map("investor_id")
+  name        String                    @db.VarChar(200)
+  type        InvestmentParticipantType @default(investor)
+  isActive    Boolean                   @default(true) @map("is_active")
+  exitedAt    DateTime?                 @map("exited_at") @db.Date
+  notes       String?                   @db.Text
+  createdBy   Int?                      @map("created_by")
+  createdAt   DateTime                  @default(now()) @map("created_at")
+  updatedAt   DateTime                  @updatedAt @map("updated_at")
+
+  investor Investor? @relation(fields: [investorId], references: [id], onDelete: SetNull)
+  capitalEvents InvestmentCapitalEvent[]
+  profitShareEvents InvestmentProfitShareEvent[]
+  attributionLines ProfitAttributionLine[]
+  residualAttributions InvestorResidualAttribution[] @relation("ResidualOriginalParticipant")
+  managerResidualAttributions InvestorResidualAttribution[] @relation("ResidualManagerParticipant")
+  ledgerEntries InvestorAttributionLedgerEntry[]
+  participantActions InvestmentParticipantAction[]
+  participantActionLedgerEntries InvestmentParticipantActionLedgerEntry[]
+  participantSettlements InvestmentParticipantSettlement[]
+  participantSettlementPayments InvestmentParticipantSettlementPayment[]
+
+  @@index([investorId])
+  @@index([type])
+  @@index([isActive])
+  @@map("investment_participants")
+}
+
+model InvestmentCapitalEvent {
+  id           Int                        @id @default(autoincrement())
+  participantId Int                       @map("participant_id")
+  eventType    InvestmentCapitalEventType @map("event_type")
+  amountPkr    Decimal                    @map("amount_pkr") @db.Decimal(15, 2)
+  effectiveDate DateTime                  @map("effective_date") @db.Date
+  investorProfitSharePercent Decimal?     @map("investor_profit_share_percent") @db.Decimal(9, 6)
+  managerProfitSharePercent  Decimal?     @map("manager_profit_share_percent") @db.Decimal(9, 6)
+  sourceType   String?                    @map("source_type") @db.VarChar(80)
+  sourceId     Int?                       @map("source_id")
+  reason       String?                    @db.Text
+  createdBy    Int?                       @map("created_by")
+  createdAt    DateTime                   @default(now()) @map("created_at")
+
+  participant InvestmentParticipant @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  participantAction InvestmentParticipantAction?
+
+  @@index([participantId, effectiveDate], map: "investment_capital_events_participant_date_idx")
+  @@index([effectiveDate], map: "investment_capital_events_effective_date_idx")
+  @@map("investment_capital_events")
+}
+
+model InvestmentProfitShareEvent {
+  id                         Int      @id @default(autoincrement())
+  participantId              Int      @map("participant_id")
+  effectiveDate              DateTime @map("effective_date") @db.Date
+  investorProfitSharePercent Decimal  @map("investor_profit_share_percent") @db.Decimal(9, 6)
+  managerProfitSharePercent  Decimal  @map("manager_profit_share_percent") @db.Decimal(9, 6)
+  reference                  String?  @db.VarChar(120)
+  remarks                    String?  @db.Text
+  createdBy                  Int?     @map("created_by")
+  createdAt                  DateTime @default(now()) @map("created_at")
+
+  participant InvestmentParticipant @relation(fields: [participantId], references: [id], onDelete: Restrict)
+
+  @@index([participantId, effectiveDate], map: "investment_profit_share_events_participant_date_idx")
+  @@index([effectiveDate], map: "investment_profit_share_events_effective_date_idx")
+  @@map("investment_profit_share_events")
+}
+
+model ProfitAttributionPeriod {
+  id                             Int      @id @default(autoincrement())
+  periodStart                    DateTime @map("period_start") @db.Date
+  periodEnd                      DateTime @map("period_end") @db.Date
+  status                         ProfitAttributionPeriodStatus @default(preview)
+  businessProfitPkr              Decimal  @map("business_profit_pkr") @db.Decimal(15, 2)
+  totalAttributedPkr             Decimal  @map("total_attributed_pkr") @db.Decimal(15, 2)
+  reconciliationDifferencePkr    Decimal  @map("reconciliation_difference_pkr") @db.Decimal(15, 2)
+  reconciliationStatus           String   @map("reconciliation_status") @db.VarChar(30)
+  finalizationDisabledReasons    Json?    @map("finalization_disabled_reasons")
+  sourceReportReference          String?  @map("source_report_reference") @db.VarChar(200)
+  snapshotJson                   Json?    @map("snapshot_json")
+  postingSimulationJson          Json?    @map("posting_simulation_json")
+  finalizedBy                    Int?     @map("finalized_by")
+  finalizedAt                    DateTime? @map("finalized_at")
+  reversedBy                     Int?     @map("reversed_by")
+  reversedAt                     DateTime? @map("reversed_at")
+  reversalReason                 String?  @map("reversal_reason") @db.Text
+  reversalOfPeriodId             Int?     @map("reversal_of_period_id")
+  reconciliationReference        String?  @map("reconciliation_reference") @db.VarChar(240)
+  idempotencyKey                 String?  @unique @map("idempotency_key") @db.VarChar(240)
+  createdBy                      Int?     @map("created_by")
+  createdAt                      DateTime @default(now()) @map("created_at")
+  updatedAt                      DateTime @updatedAt @map("updated_at")
+
+  lines ProfitAttributionLine[]
+  residualAttributions InvestorResidualAttribution[]
+  ledgerEntries InvestorAttributionLedgerEntry[]
+  reversalOf ProfitAttributionPeriod? @relation("ProfitAttributionReversal", fields: [reversalOfPeriodId], references: [id], onDelete: Restrict)
+  reversals ProfitAttributionPeriod[] @relation("ProfitAttributionReversal")
+
+  @@index([periodStart, periodEnd], map: "profit_attribution_periods_period_idx")
+  @@index([status], map: "profit_attribution_periods_status_idx")
+  @@index([reversalOfPeriodId], map: "profit_attribution_periods_reversal_of_idx")
+  @@map("profit_attribution_periods")
+}
+
+model ProfitAttributionLine {
+  id                         Int      @id @default(autoincrement())
+  periodId                   Int      @map("period_id")
+  participantId              Int      @map("participant_id")
+  segmentStart               DateTime @map("segment_start") @db.Date
+  segmentEnd                 DateTime @map("segment_end") @db.Date
+  capitalPkr                 Decimal  @map("capital_pkr") @db.Decimal(15, 2)
+  capitalPercent             Decimal  @map("capital_percent") @db.Decimal(9, 6)
+  poolProfitPkr              Decimal  @map("pool_profit_pkr") @db.Decimal(15, 2)
+  attributablePkr            Decimal  @map("attributable_pkr") @db.Decimal(15, 2)
+  investorProfitSharePercent Decimal  @map("investor_profit_share_percent") @db.Decimal(9, 6)
+  managerProfitSharePercent  Decimal  @map("manager_profit_share_percent") @db.Decimal(9, 6)
+  investorEntitlementPkr     Decimal  @map("investor_entitlement_pkr") @db.Decimal(15, 2)
+  managerOwnCapitalProfitPkr Decimal  @map("manager_own_capital_profit_pkr") @db.Decimal(15, 2)
+  managerSharePkr            Decimal  @map("manager_share_pkr") @db.Decimal(15, 2)
+  allocatedLossPkr           Decimal  @map("allocated_loss_pkr") @db.Decimal(15, 2)
+  totalAttributedPkr         Decimal  @map("total_attributed_pkr") @db.Decimal(15, 2)
+  createdAt                  DateTime @default(now()) @map("created_at")
+
+  period     ProfitAttributionPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  participant InvestmentParticipant  @relation(fields: [participantId], references: [id], onDelete: Restrict)
+
+  @@index([periodId], map: "profit_attribution_lines_period_idx")
+  @@index([participantId], map: "profit_attribution_lines_participant_idx")
+  @@map("profit_attribution_lines")
+}
+
+model InvestorResidualAttribution {
+  id                    Int      @id @default(autoincrement())
+  periodId              Int      @map("period_id")
+  originalParticipantId Int      @map("original_participant_id")
+  managerParticipantId  Int      @map("manager_participant_id")
+  sourceType            String   @map("source_type") @db.VarChar(80)
+  sourceId              Int?     @map("source_id")
+  originalCapitalPercent Decimal @map("original_capital_percent") @db.Decimal(9, 6)
+  originalAttributablePkr Decimal @map("original_attributable_pkr") @db.Decimal(15, 2)
+  managerAssumptionPkr  Decimal @map("manager_assumption_pkr") @db.Decimal(15, 2)
+  postingDate           DateTime @map("posting_date") @db.Date
+  notes                 String?  @db.Text
+  createdBy             Int?     @map("created_by")
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  period              ProfitAttributionPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  originalParticipant InvestmentParticipant @relation("ResidualOriginalParticipant", fields: [originalParticipantId], references: [id], onDelete: Restrict)
+  managerParticipant  InvestmentParticipant @relation("ResidualManagerParticipant", fields: [managerParticipantId], references: [id], onDelete: Restrict)
+
+  @@index([periodId], map: "investor_residual_attributions_period_idx")
+  @@index([originalParticipantId], map: "investor_residual_attributions_original_idx")
+  @@map("investor_residual_attributions")
+}
+
+model InvestorAttributionLedgerEntry {
+  id                      Int                               @id @default(autoincrement())
+  periodId                Int                               @map("period_id")
+  participantId           Int                               @map("participant_id")
+  category                InvestorAttributionLedgerCategory
+  entryType               InvestorAttributionLedgerEntryType @map("entry_type")
+  amountPkr               Decimal                           @map("amount_pkr") @db.Decimal(15, 2)
+  debitAccount            String                            @map("debit_account") @db.VarChar(160)
+  creditAccount           String                            @map("credit_account") @db.VarChar(160)
+  sourcePool              String?                           @map("source_pool") @db.VarChar(500)
+  sourceAttributionLine   String?                           @map("source_attribution_line") @db.VarChar(200)
+  postingType             String                            @map("posting_type") @db.VarChar(120)
+  reconciliationReference String                            @map("reconciliation_reference") @db.VarChar(240)
+  reversalOfEntryId       Int?                              @map("reversal_of_entry_id")
+  createdBy               Int?                              @map("created_by")
+  createdAt               DateTime                          @default(now()) @map("created_at")
+
+  period      ProfitAttributionPeriod @relation(fields: [periodId], references: [id], onDelete: Restrict)
+  participant InvestmentParticipant   @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  reversalOf  InvestorAttributionLedgerEntry? @relation("InvestorAttributionLedgerReversal", fields: [reversalOfEntryId], references: [id], onDelete: Restrict)
+  reversals   InvestorAttributionLedgerEntry[] @relation("InvestorAttributionLedgerReversal")
+
+  @@unique([periodId, reconciliationReference, entryType], map: "investor_attr_ledger_period_ref_type_key")
+  @@index([periodId], map: "investor_attr_ledger_period_idx")
+  @@index([participantId], map: "investor_attr_ledger_participant_idx")
+  @@index([category], map: "investor_attr_ledger_category_idx")
+  @@index([reversalOfEntryId], map: "investor_attr_ledger_reversal_idx")
+  @@map("investor_attribution_ledger_entries")
+}
+
+model InvestmentParticipantAction {
+  id                         Int                               @id @default(autoincrement())
+  participantId              Int                               @map("participant_id")
+  actionType                 InvestmentParticipantActionType   @map("action_type")
+  status                     InvestmentParticipantActionStatus @default(active)
+  profitAmountPkr            Decimal                           @default(0) @map("profit_amount_pkr") @db.Decimal(15, 2)
+  capitalAmountPkr           Decimal                           @default(0) @map("capital_amount_pkr") @db.Decimal(15, 2)
+  totalAmountPkr             Decimal                           @default(0) @map("total_amount_pkr") @db.Decimal(15, 2)
+  settledAmountPkr           Decimal                           @default(0) @map("settled_amount_pkr") @db.Decimal(15, 2)
+  remainingSettlementPkr     Decimal                           @default(0) @map("remaining_settlement_pkr") @db.Decimal(15, 2)
+  settlementStatus           InvestmentParticipantSettlementStatus @default(unsettled) @map("settlement_status")
+  effectiveDate              DateTime                          @map("effective_date") @db.Date
+  oldCapitalPkr              Decimal                           @map("old_capital_pkr") @db.Decimal(15, 2)
+  newCapitalPkr              Decimal                           @map("new_capital_pkr") @db.Decimal(15, 2)
+  oldAvailableProfitPkr      Decimal                           @map("old_available_profit_pkr") @db.Decimal(15, 2)
+  newAvailableProfitPkr      Decimal                           @map("new_available_profit_pkr") @db.Decimal(15, 2)
+  finalizedProfitSourcesJson Json?                             @map("finalized_profit_sources_json")
+  confirmationReference      String                            @map("confirmation_reference") @db.VarChar(240)
+  idempotencyKey             String                            @unique @map("idempotency_key") @db.VarChar(240)
+  remarks                    String?                           @db.Text
+  reversalOfActionId         Int?                              @map("reversal_of_action_id")
+  reversalReason             String?                           @map("reversal_reason") @db.Text
+  capitalEventId             Int?                              @unique @map("capital_event_id")
+  createdBy                  Int?                              @map("created_by")
+  createdAt                  DateTime                          @default(now()) @map("created_at")
+
+  participant  InvestmentParticipant @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  capitalEvent InvestmentCapitalEvent? @relation(fields: [capitalEventId], references: [id], onDelete: Restrict)
+  reversalOf   InvestmentParticipantAction? @relation("InvestmentParticipantActionReversal", fields: [reversalOfActionId], references: [id], onDelete: Restrict)
+  reversals    InvestmentParticipantAction[] @relation("InvestmentParticipantActionReversal")
+  ledgerEntries InvestmentParticipantActionLedgerEntry[]
+  settlements InvestmentParticipantSettlement[]
+  settlementPayments InvestmentParticipantSettlementPayment[]
+
+  @@index([participantId, effectiveDate], map: "investment_participant_actions_participant_date_idx")
+  @@index([actionType], map: "investment_participant_actions_type_idx")
+  @@index([status], map: "investment_participant_actions_status_idx")
+  @@index([settlementStatus], map: "investment_participant_actions_settlement_status_idx")
+  @@index([reversalOfActionId], map: "investment_participant_actions_reversal_of_idx")
+  @@map("investment_participant_actions")
+}
+
+model InvestmentParticipantActionLedgerEntry {
+  id                      Int                                       @id @default(autoincrement())
+  actionId                Int                                       @map("action_id")
+  participantId           Int                                       @map("participant_id")
+  category                InvestmentParticipantActionLedgerCategory
+  amountPkr               Decimal                                   @map("amount_pkr") @db.Decimal(15, 2)
+  debitAccount            String                                    @map("debit_account") @db.VarChar(160)
+  creditAccount           String                                    @map("credit_account") @db.VarChar(160)
+  sourceFinalizationIds   Json?                                     @map("source_finalization_ids")
+  reconciliationReference String                                    @map("reconciliation_reference") @db.VarChar(240)
+  reversalOfEntryId       Int?                                      @map("reversal_of_entry_id")
+  createdBy               Int?                                      @map("created_by")
+  createdAt               DateTime                                  @default(now()) @map("created_at")
+
+  action      InvestmentParticipantAction @relation(fields: [actionId], references: [id], onDelete: Restrict)
+  participant InvestmentParticipant       @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  reversalOf  InvestmentParticipantActionLedgerEntry? @relation("InvestmentParticipantActionLedgerReversal", fields: [reversalOfEntryId], references: [id], onDelete: Restrict)
+  reversals   InvestmentParticipantActionLedgerEntry[] @relation("InvestmentParticipantActionLedgerReversal")
+
+  @@unique([actionId, reconciliationReference], map: "investment_participant_action_ledger_action_ref_key")
+  @@index([participantId], map: "investment_participant_action_ledger_participant_idx")
+  @@index([category], map: "investment_participant_action_ledger_category_idx")
+  @@index([reversalOfEntryId], map: "investment_participant_action_ledger_reversal_idx")
+  @@map("investment_participant_action_ledger_entries")
+}
+
+model InvestmentParticipantSettlement {
+  id                      Int                                   @id @default(autoincrement())
+  actionId                Int                                   @map("action_id")
+  participantId           Int                                   @map("participant_id")
+  status                  InvestmentParticipantSettlementStatus @default(unsettled)
+  currencyId              Int                                   @map("currency_id")
+  settlementAmount        Decimal                               @map("settlement_amount") @db.Decimal(15, 2)
+  pkrEquivalent           Decimal                               @map("pkr_equivalent") @db.Decimal(15, 2)
+  profitComponentPkr      Decimal                               @default(0) @map("profit_component_pkr") @db.Decimal(15, 2)
+  capitalComponentPkr     Decimal                               @default(0) @map("capital_component_pkr") @db.Decimal(15, 2)
+  exchangeRate            Decimal?                              @map("exchange_rate") @db.Decimal(15, 6)
+  fxSnapshotId            Int?                                  @map("fx_snapshot_id")
+  rateSource              String?                               @map("rate_source") @db.VarChar(120)
+  rateDate                DateTime?                             @map("rate_date") @db.Date
+  selectedRateType        String?                               @map("selected_rate_type") @db.VarChar(40)
+  providerReference       String?                               @map("provider_reference") @db.VarChar(240)
+  conversionPathJson      Json?                                 @map("conversion_path_json")
+  paymentDate             DateTime                              @map("payment_date") @db.Date
+  paymentReference        String                                @map("payment_reference") @db.VarChar(240)
+  paymentMethod           String                                @map("payment_method") @db.VarChar(80)
+  bankCashAccount         String?                               @map("bank_cash_account") @db.VarChar(200)
+  idempotencyKey          String                                @unique @map("idempotency_key") @db.VarChar(240)
+  reversalOfSettlementId  Int?                                  @map("reversal_of_settlement_id")
+  reversalReason          String?                               @map("reversal_reason") @db.Text
+  createdBy               Int?                                  @map("created_by")
+  createdAt               DateTime                              @default(now()) @map("created_at")
+
+  action      InvestmentParticipantAction @relation(fields: [actionId], references: [id], onDelete: Restrict)
+  participant InvestmentParticipant       @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  currency    Currency                    @relation(fields: [currencyId], references: [id], onDelete: Restrict)
+  reversalOf  InvestmentParticipantSettlement? @relation("InvestmentParticipantSettlementReversal", fields: [reversalOfSettlementId], references: [id], onDelete: Restrict)
+  reversals   InvestmentParticipantSettlement[] @relation("InvestmentParticipantSettlementReversal")
+  payments    InvestmentParticipantSettlementPayment[]
+
+  @@index([actionId], map: "investment_participant_settlements_action_idx")
+  @@index([participantId], map: "investment_participant_settlements_participant_idx")
+  @@index([status], map: "investment_participant_settlements_status_idx")
+  @@index([paymentDate], map: "investment_participant_settlements_payment_date_idx")
+  @@index([reversalOfSettlementId], map: "investment_participant_settlements_reversal_idx")
+  @@map("investment_participant_settlements")
+}
+
+model InvestmentParticipantSettlementPayment {
+  id                      Int                                   @id @default(autoincrement())
+  settlementId            Int                                   @map("settlement_id")
+  actionId                Int                                   @map("action_id")
+  participantId           Int                                   @map("participant_id")
+  status                  InvestmentParticipantSettlementStatus @default(settled)
+  superAdminBankAccountId Int                                   @map("super_admin_bank_account_id")
+  currencyId              Int                                   @map("currency_id")
+  paymentAmount           Decimal                               @map("payment_amount") @db.Decimal(15, 2)
+  pkrEquivalent           Decimal                               @map("pkr_equivalent") @db.Decimal(15, 2)
+  exchangeRate            Decimal?                              @map("exchange_rate") @db.Decimal(15, 6)
+  rateSource              String?                               @map("rate_source") @db.VarChar(120)
+  rateDate                DateTime?                             @map("rate_date") @db.Date
+  selectedRateType        String?                               @map("selected_rate_type") @db.VarChar(40)
+  providerReference       String?                               @map("provider_reference") @db.VarChar(240)
+  conversionPathJson      Json?                                 @map("conversion_path_json")
+  paymentDate             DateTime                              @map("payment_date") @db.Date
+  paymentReference        String                                @map("payment_reference") @db.VarChar(240)
+  paymentMethod           String                                @map("payment_method") @db.VarChar(80)
+  remarks                 String?                               @db.Text
+  idempotencyKey          String                                @unique @map("idempotency_key") @db.VarChar(240)
+  journalTransactionId    String?                               @map("journal_transaction_id") @db.VarChar(80)
+  reversalOfPaymentId     Int?                                  @map("reversal_of_payment_id")
+  reversalReason          String?                               @map("reversal_reason") @db.Text
+  createdBy               Int?                                  @map("created_by")
+  createdAt               DateTime                              @default(now()) @map("created_at")
+
+  settlement        InvestmentParticipantSettlement @relation(fields: [settlementId], references: [id], onDelete: Restrict)
+  action            InvestmentParticipantAction     @relation(fields: [actionId], references: [id], onDelete: Restrict)
+  participant       InvestmentParticipant           @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  superAdminAccount SuperAdminBankAccount           @relation(fields: [superAdminBankAccountId], references: [id], onDelete: Restrict)
+  currency          Currency                        @relation(fields: [currencyId], references: [id], onDelete: Restrict)
+  reversalOf        InvestmentParticipantSettlementPayment? @relation("InvestmentParticipantSettlementPaymentReversal", fields: [reversalOfPaymentId], references: [id], onDelete: Restrict)
+  reversals         InvestmentParticipantSettlementPayment[] @relation("InvestmentParticipantSettlementPaymentReversal")
+
+  @@index([settlementId], map: "investment_participant_settlement_payments_settlement_idx")
+  @@index([actionId], map: "investment_participant_settlement_payments_action_idx")
+  @@index([participantId], map: "investment_participant_settlement_payments_participant_idx")
+  @@index([superAdminBankAccountId], map: "investment_participant_settlement_payments_account_idx")
+  @@index([status], map: "investment_participant_settlement_payments_status_idx")
+  @@index([paymentDate], map: "investment_participant_settlement_payments_payment_date_idx")
+  @@index([journalTransactionId], map: "investment_participant_settlement_payments_journal_txn_idx")
+  @@index([reversalOfPaymentId], map: "investment_participant_settlement_payments_reversal_idx")
+  @@map("investment_participant_settlement_payments")
 }
 
 // ============================================================

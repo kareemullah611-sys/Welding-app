@@ -1267,6 +1267,8 @@ function CitiesTab() {
 function CountryFallbackRatesTab() {
   const [countries, setCountries] = useState<any[]>([]);
   const [rates, setRates] = useState<any[]>([]);
+  const [sarafiSnapshots, setSarafiSnapshots] = useState<any[]>([]);
+  const [sarafiStatus, setSarafiStatus] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -1280,12 +1282,18 @@ function CountryFallbackRatesTab() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [countriesRes, ratesRes] = await Promise.all([
+    const [countriesRes, ratesRes, sarafiRes] = await Promise.all([
       apiCall("/api/v1/countries"),
       apiCall("/api/v1/country-fallback-rates"),
+      apiCall("/api/v1/fx-snapshots/sarafi-af"),
     ]);
     if (countriesRes.success) setCountries((countriesRes.data as any[]) || []);
     if (ratesRes.success) setRates((ratesRes.data as any[]) || []);
+    if (sarafiRes.success) {
+      const data = sarafiRes.data as any;
+      setSarafiSnapshots(data?.snapshots || []);
+      setSarafiStatus(data?.providerStatus || "");
+    }
     setLoading(false);
   }, []);
 
@@ -1374,6 +1382,34 @@ function CountryFallbackRatesTab() {
         { key: "effectiveFrom", label: "Effective From" },
         { key: "isActive", label: "Status", render: (rate: any) => <span className={rate.isActive ? "badge-active" : "badge-cancelled"}>{rate.isActive ? "Active" : "Inactive"}</span> },
       ]} data={rates} loading={loading} />
+
+      <div className="card">
+        <h2 className="text-lg font-semibold text-gray-900">Sarafi.af daily snapshots</h2>
+        <p className="mt-1 text-sm text-gray-500">
+          Afghanistan FX audit trail. Automatic Sarafi.af ingestion remains disabled until an approved provider feed is confirmed.
+        </p>
+        {sarafiStatus && <p className="mt-2 text-sm text-amber-700">{sarafiStatus}</p>}
+        <DataTable columns={[
+          { key: "snapshotDate", label: "Date" },
+          { key: "scheduledTime", label: "Time" },
+          { key: "status", label: "Status", render: (row: any) => <span className={row.status === "VALID_CURRENT" ? "badge-active" : "badge-cancelled"}>{row.status}</span> },
+          { key: "sourceTimestamp", label: "Source Time", render: (row: any) => row.sourceTimestamp ? new Date(row.sourceTimestamp).toLocaleString() : "—" },
+          { key: "rawReference", label: "Reference", render: (row: any) => row.rawReference || "—" },
+          {
+            key: "derivedRates",
+            label: "PKR Rates",
+            render: (row: any) => (
+              <div className="space-y-1 text-sm">
+                {(row.derivedRates || []).map((rate: any) => (
+                  <div key={rate.fromCurrencyCode}>
+                    {rate.fromCurrencyCode}: buy {Number(rate.buyRate || 0).toLocaleString("en-US", { maximumFractionDigits: 6 })}, sell {Number(rate.sellRate || 0).toLocaleString("en-US", { maximumFractionDigits: 6 })}
+                  </div>
+                ))}
+              </div>
+            ),
+          },
+        ]} data={sarafiSnapshots} loading={loading} />
+      </div>
     </div>
   );
 }

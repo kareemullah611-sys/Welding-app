@@ -25,6 +25,7 @@ const VALID_TRANSFER_TYPES: TreasuryTransferType[] = [
   "bank_to_bank",
 ];
 const BANK_DEPOSIT_SYNC_MODULE = "bank_deposits.create";
+const requiresSourceBankAccount = (transferType: TreasuryTransferType) => transferType !== "cheque_to_cash";
 
 const deriveTransferType = (row: { cashAmount: number; cheques: Array<{ id: number }>; notes?: string | null }): TreasuryTransferType => {
   const cashAmount = Number(row.cashAmount || 0);
@@ -56,6 +57,9 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     const where: any = {};
     if (cityId) where.cityId = cityId;
+    where.AND = [
+      { OR: [{ transferType: { not: "bank_to_bank" } }, { cashAmount: { lt: 0 } }] },
+    ];
     if (from || to) {
       where.depositDate = {};
       if (from) where.depositDate.gte = new Date(from);
@@ -98,6 +102,30 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       prisma.bankDeposit.count({ where }),
     ]);
 
+    const pairIds = deposits.map((d) => d.transferPairId).filter((id): id is string => !!id);
+    const pairDestinations = pairIds.length
+      ? await prisma.bankDeposit.findMany({
+          where: { transferPairId: { in: pairIds }, cashAmount: { gt: 0 } },
+          include: { bankAccount: { select: { id: true, bankName: true, accountNumber: true } } },
+        })
+      : [];
+    const destinationByPair = new Map(pairDestinations.map((row) => [row.transferPairId, row.bankAccount]));
+    const legacyDestinations = await Promise.all(
+      deposits.filter((row) => row.transferType === "bank_to_bank" && !row.transferPairId).map(async (row) => {
+        const matches = await prisma.bankDeposit.findMany({
+          where: {
+            id: { not: row.id }, cityId: row.cityId, currencyId: row.currencyId,
+            transferType: "bank_to_bank", depositDate: row.depositDate, slipNumber: row.slipNumber,
+            cashAmount: Math.abs(Number(row.cashAmount)), notes: { contains: "[B2B-IN]" },
+          },
+          include: { bankAccount: { select: { id: true, bankName: true, accountNumber: true } } },
+          take: 2,
+        });
+        return [row.id, matches.length === 1 ? matches[0].bankAccount : null] as const;
+      }),
+    );
+    const legacyDestinationBySource = new Map(legacyDestinations);
+
     // Batch-load creators
     const creatorIds = Array.from(new Set(deposits.map((d) => d.createdBy)));
     const creators =
@@ -124,6 +152,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           currencyId: d.currencyId,
           currency: d.currency,
           bankAccount: d.bankAccount,
+          destinationBankAccount: d.transferPairId ? destinationByPair.get(d.transferPairId) || null : legacyDestinationBySource.get(d.id) || null,
+          transferPairId: d.transferPairId,
           cheques: d.cheques.map((c: any) => ({
             id: c.id,
             amount: Number(c.amount),
@@ -132,7 +162,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
             customer: c.customer,
           })),
           totalAmount: Number(d.cashAmount) + chequeTotal,
-          transferType: deriveTransferType({ cashAmount: Number(d.cashAmount), cheques: d.cheques, notes: d.notes }),
+          transferType: d.transferType || deriveTransferType({ cashAmount: Number(d.cashAmount), cheques: d.cheques, notes: d.notes }),
           notes: d.notes || null,
           createdAt: d.createdAt.toISOString(),
           creator: { fullName: creatorById[d.createdBy] ?? null },
@@ -189,14 +219,14 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     // Required fields
     const { bankAccountId, depositDate, currencyId } = body;
 
-    if (!bankAccountId) return errorResponse("VALIDATION_ERROR", "bankAccountId is required");
+    if (requiresSourceBankAccount(transferType) && !bankAccountId) return errorResponse("VALIDATION_ERROR", "bankAccountId is required");
     if (!depositDate) return errorResponse("VALIDATION_ERROR", "depositDate is required");
     if (!currencyId) return errorResponse("VALIDATION_ERROR", "currencyId is required");
 
-    const parsedBankAccountId = parseInt(bankAccountId);
+    const parsedBankAccountId = bankAccountId ? parseInt(bankAccountId) : null;
     const parsedCurrencyId = parseInt(currencyId);
 
-    if (isNaN(parsedBankAccountId))
+    if (parsedBankAccountId !== null && isNaN(parsedBankAccountId))
       return errorResponse("VALIDATION_ERROR", "bankAccountId must be a valid number");
     if (isNaN(parsedCurrencyId))
       return errorResponse("VALIDATION_ERROR", "currencyId must be a valid number");
@@ -229,14 +259,10 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     }
 
     // Verify bankAccount belongs to user's city
-    const bankAccount = await prisma.bankAccount.findUnique({
-      where: { id: parsedBankAccountId },
-    });
-    if (!bankAccount) {
-      return errorResponse("VALIDATION_ERROR", "Bank account not found", 404);
-    }
-    if (bankAccount.cityId !== cityId) {
-      return errorResponse("FORBIDDEN", "Bank account does not belong to your city", 403);
+    if (parsedBankAccountId !== null) {
+      const bankAccount = await prisma.bankAccount.findUnique({ where: { id: parsedBankAccountId } });
+      if (!bankAccount) return errorResponse("VALIDATION_ERROR", "Bank account not found", 404);
+      if (bankAccount.cityId !== cityId) return errorResponse("FORBIDDEN", "Bank account does not belong to your city", 403);
     }
 
     // Validate cheque payments
@@ -323,7 +349,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     if (transferType === "bank_to_cash" || transferType === "bank_to_bank") {
       const available = await getCityBankAccountAvailableBalance(prisma, {
         cityId,
-        bankAccountId: parsedBankAccountId,
+        bankAccountId: parsedBankAccountId!,
         currencyId: parsedCurrencyId,
       });
       if (transferAmount > available + 0.001) {
@@ -349,10 +375,13 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     // Transactionally create deposit + cheque status + journal entries
     const newDeposit = await prisma.$transaction(async (tx) => {
       const depositNotesBase = body.notes ? String(body.notes).trim() : null;
+      const transferPairId = transferType === "bank_to_bank" ? crypto.randomUUID() : null;
       const sourceDeposit = await tx.bankDeposit.create({
         data: {
           cityId,
-          bankAccountId: parsedBankAccountId,
+          bankAccountId: transferType === "cheque_to_cash" ? null : parsedBankAccountId,
+          transferType,
+          transferPairId,
           depositDate: parsedDepositDate,
           slipNumber: body.slipNumber ? String(body.slipNumber).trim() : null,
           cashAmount: transferType === "bank_to_bank" ? -Math.abs(transferAmount) : signedCashAmount,
@@ -386,6 +415,8 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           data: {
             cityId,
             bankAccountId: destinationBankAccountId,
+            transferType,
+            transferPairId,
             depositDate: parsedDepositDate,
             slipNumber: body.slipNumber ? String(body.slipNumber).trim() : null,
             cashAmount: Math.abs(transferAmount),
@@ -420,6 +451,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           cheques: chequeAmounts,
           transactionKeySuffix:
             transferType === "bank_to_bank" ? "B2B-OUT" : undefined,
+          transferType,
         },
         tx
       );
@@ -523,7 +555,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           customer: c.customer,
         })),
         totalAmount: Number(fullDeposit.cashAmount) + createdChequeTotal,
-        transferType: deriveTransferType({
+        transferType: fullDeposit.transferType || deriveTransferType({
           cashAmount: Number(fullDeposit.cashAmount),
           cheques: fullDeposit.cheques,
           notes: fullDeposit.notes,

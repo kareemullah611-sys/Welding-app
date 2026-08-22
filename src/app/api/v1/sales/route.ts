@@ -12,6 +12,7 @@ import { JWTPayload } from "@/lib/auth";
 import { canAccessGodown } from "@/lib/godown-access";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 import { allocateSaleItemAcrossLots, consolidateSaleLotAllocationItems, AvailableSaleLot, SaleLotAllocationItem } from "@/lib/sale-lot-allocation";
+import { resolveAfghanistanFxRateFromDb } from "@/lib/sarafi-af-snapshot-db";
 
 const SALE_SYNC_MODULE = "sales.create";
 
@@ -401,9 +402,11 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const cityCurrency = await prisma.cityCurrency.findFirst({
       where: { cityId, currencyId: currencyId ?? undefined },
       orderBy: { currencyId: "asc" },
+      include: { currency: true },
     });
     if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported in your city");
     const resolvedCurrencyId = currencyId ?? cityCurrency.currencyId;
+    const resolvedCurrency = cityCurrency.currency;
 
     // Validate products exist
     const productIds: number[] = Array.from(new Set<number>(items.map((i) => i.productId)));
@@ -483,6 +486,16 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
     // Calculate total using integer-rounded arithmetic to avoid floating-point errors
     const totalAmount = roundMoney(normalizedItems.reduce((sum, i) => sum + Number(i.amount || 0), 0));
+    const country = await prisma.country.findUnique({ where: { id: user.countryId! }, select: { code: true, name: true } });
+    const isAfghanistan = String(country?.code || country?.name || "").toLowerCase().includes("af");
+    const saleFx = isAfghanistan && ["AFN", "USD", "CNY"].includes(String(resolvedCurrency.code || "").toUpperCase())
+      ? await resolveAfghanistanFxRateFromDb({
+          currencyCode: resolvedCurrency.code,
+          transactionDate: new Date(saleDate),
+          purpose: "sale_recognition",
+          positionKind: "asset",
+        })
+      : null;
 
     const sale = await prisma.$transaction(async (tx) => {
       const productIdsToLock: number[] = Array.from(new Set<number>(normalizedItems.map((item) => item.productId)));
@@ -516,6 +529,17 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           saleDate: new Date(saleDate),
           totalAmount,
           currencyId: resolvedCurrencyId,
+          ...(saleFx?.ok ? {
+            fxSnapshotId: saleFx.provider === "SARAFI_AF" ? saleFx.snapshotId || null : null,
+            fxOriginalCurrencyCode: resolvedCurrency.code,
+            fxOriginalAmount: totalAmount,
+            fxSelectedRate: saleFx.rate,
+            fxSelectedRateType: saleFx.selectedRateType,
+            fxProvider: saleFx.provider,
+            fxProviderReference: saleFx.providerReference,
+            fxPkrEquivalent: roundMoney(totalAmount * saleFx.rate),
+            fxConversionPathJson: saleFx.conversionPath,
+          } : {}),
           notes,
           status: "active",
           stockShortFlag: false,

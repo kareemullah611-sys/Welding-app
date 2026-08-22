@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth, getCityScope } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { buildAuthoritativeFinancialReportResult } from "@/lib/authoritative-financial-report";
 
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
@@ -26,69 +27,15 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 });
 
 async function profitAndLoss(year: number, cityId?: number) {
-  const dateFrom = new Date(`${year}-01-01`);
-  const dateTo = new Date(`${year}-12-31`);
-  const where: any = { entryDate: { gte: dateFrom, lte: dateTo } };
-  if (cityId) where.cityId = cityId;
-
-  // Single groupBy instead of findMany — returns one row per (account, currency)
-  const [groups, accounts] = await Promise.all([
-    prisma.journalEntry.groupBy({
-      by: ["accountId", "currencyCode"],
-      where,
-      _sum: { debit: true, credit: true },
-    }),
-    prisma.account.findMany({ select: { id: true, name: true, accountType: true } }),
-  ]);
-
-  const accountMap = Object.fromEntries(accounts.map((a) => [a.id, a]));
-
-  const byCurrency: Record<string, { revenue: number; cogs: number; expenses: Record<string, number>; expenseTotal: number }> = {};
-
-  for (const g of groups) {
-    const acc = accountMap[g.accountId];
-    if (!acc) continue;
-    const curr = g.currencyCode;
-    if (!byCurrency[curr]) byCurrency[curr] = { revenue: 0, cogs: 0, expenses: {}, expenseTotal: 0 };
-    const debit = Number(g._sum.debit || 0);
-    const credit = Number(g._sum.credit || 0);
-
-    if (acc.accountType === "revenue") { byCurrency[curr].revenue += credit - debit; }
-    else if (acc.accountType === "cogs") { byCurrency[curr].cogs += debit - credit; }
-    else if (acc.accountType === "expense") {
-      const name = acc.name;
-      byCurrency[curr].expenses[name] = (byCurrency[curr].expenses[name] || 0) + debit - credit;
-      byCurrency[curr].expenseTotal += debit - credit;
-    }
-  }
-
-  // If no COGS journal entries exist yet (legacy data), compute from purchases + costs
-  const hasCOGSJournals = Object.values(byCurrency).some(d => d.cogs > 0);
-  if (!hasCOGSJournals) {
-    const [purchases, costs] = await Promise.all([
-      prisma.lotPurchase.aggregate({ _sum: { totalPriceUsd: true } }),
-      prisma.lotCost.aggregate({ _sum: { amount: true } }),
-    ]);
-    const directCOGS = Number(purchases._sum.totalPriceUsd || 0) + Number(costs._sum.amount || 0);
-    if (directCOGS > 0) {
-      if (!byCurrency["USD"]) byCurrency["USD"] = { revenue: 0, cogs: 0, expenses: {}, expenseTotal: 0 };
-      byCurrency["USD"].cogs = directCOGS;
-    }
-  }
-
-  const result: any[] = [];
-  for (const [currency, data] of Object.entries(byCurrency)) {
-    const grossProfit = data.revenue - data.cogs;
-    const netProfit = grossProfit - data.expenseTotal;
-    result.push({
-      currency, revenue: r2(data.revenue), cogs: r2(data.cogs),
-      grossProfit: r2(grossProfit), grossMargin: data.revenue ? r2(grossProfit / data.revenue * 100) : 0,
-      expenses: data.expenses, expenseTotal: r2(data.expenseTotal),
-      netProfit: r2(netProfit), netMargin: data.revenue ? r2(netProfit / data.revenue * 100) : 0,
-    });
-  }
-
-  return successResponse({ year, cityId: cityId || "all", pnl: result });
+  const report = await buildAuthoritativeFinancialReportResult({ year, cityId: cityId || null });
+  return successResponse({
+    year,
+    cityId: cityId || "all",
+    pnl: report.byCurrency,
+    authoritativePkr: report.profitAndLoss,
+    fxWarnings: report.fxWarnings,
+    source: report.source,
+  });
 }
 
 async function balanceSheet(cityId?: number) {

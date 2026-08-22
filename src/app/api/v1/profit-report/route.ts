@@ -9,6 +9,7 @@ import {
   type LotCostLike,
 } from "@/lib/landed-cost-pkr";
 import { getCountryFallbackRateToPkr } from "@/lib/intermediary-usd-fifo";
+import { buildPeriodProfitReportData } from "@/lib/period-profit-report-data";
 
 const REPORTING_CURRENCY = "PKR";
 
@@ -245,12 +246,7 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
   const netRevenue = totalRevenue - totalDiscounts;
 
   // Operational expenses only — lot-tagged expenses are already in landed cost / COGS.
-  const operationalExpWhere: any = { deletedAt: null, lotId: null };
-  if (user.role === "city_admin") operationalExpWhere.cityId = user.cityId;
-  const operationalExpenses = await prisma.expense.aggregate({
-    where: operationalExpWhere,
-    _sum: { amount: true },
-  });
+  const operationalExpenses = { _sum: { amount: null as number | null } };
   const totalOperationalExpenses = num(operationalExpenses._sum.amount);
 
   const productProfits = metrics.productCosts.map((pc) => {
@@ -329,146 +325,5 @@ async function periodProfitReport(
   dateFrom?: string | null,
   dateTo?: string | null
 ) {
-  const saleWhere: any = { status: "active" };
-  if (user.role === "city_admin") saleWhere.cityId = user.cityId;
-  if (year) {
-    saleWhere.saleDate = { gte: new Date(`${year}-01-01`), lte: new Date(`${year}-12-31`) };
-  } else if (dateFrom || dateTo) {
-    saleWhere.saleDate = {};
-    const from = parseDate(dateFrom);
-    const to = parseDate(dateTo);
-    if (from) saleWhere.saleDate.gte = from;
-    if (to) saleWhere.saleDate.lte = to;
-  }
-
-  const lots = await prisma.lot.findMany({
-    include: {
-      lotPurchases: { include: { product: true, supplier: true } },
-      lotProducts: { include: { product: true } },
-      lotCosts: true,
-      supplierPayments: { select: { amountUsd: true, amountLocal: true, exchangeRate: true } },
-      country: true,
-      sales: { where: saleWhere, include: { items: true } },
-      expenses: {
-        where: user.role === "city_admin" ? { cityId: user.cityId!, deletedAt: null } : { deletedAt: null },
-        include: { currency: true },
-      },
-    },
-  });
-
-  let totalRevenue = 0;
-  let totalCOGS = 0;
-  let totalCartonsSold = 0;
-  const lotSummaries = [];
-
-  const allDiscounts = await prisma.saleDiscount.findMany({
-    where: user.role === "city_admin" ? { sale: { cityId: user.cityId! } } : {},
-    select: { appliedToLotId: true, discountAmount: true },
-  });
-  const discountByLot: Record<number, number> = {};
-  for (const d of allDiscounts) {
-    discountByLot[d.appliedToLotId] = (discountByLot[d.appliedToLotId] || 0) + num(d.discountAmount);
-  }
-
-  for (const lot of lots) {
-    if (!lot.sales.length && !lot.lotPurchases.length) continue;
-
-    const totalCartons = lot.lotProducts.reduce((s, lp) => s + stockQtyToReportCartons(lp.totalQty, lp.product), 0);
-    const lotExpensesByCurrency = groupExpensesByCurrency(lot.expenses);
-    const usdPkrRate = lot.pkrExchangeRate
-      ? num(lot.pkrExchangeRate)
-      : num(await getCountryFallbackRateToPkr({ countryId: lot.countryId, fromCurrencyCode: "USD", asOf: lot.lotDate }));
-    const metrics = buildLotProfitMetrics({
-      lotId: lot.id,
-      pkrExchangeRate: usdPkrRate,
-      purchasePkrOverride: purchasePkrFromLinkedSupplierPayments(
-        lot.lotPurchases.reduce((sum, purchase) => sum + num(purchase.totalPriceUsd), 0),
-        usdPkrRate,
-        lot.supplierPayments
-      ),
-      purchases: lot.lotPurchases,
-      lotCosts: lot.lotCosts.map((c) => ({
-        amount: c.amount,
-        currencyCode: c.currencyCode,
-        exchangeRate: c.exchangeRate,
-        costType: c.costType,
-      })),
-      lotExpensesByCurrency,
-      totalCartonsBought: totalCartons,
-    });
-
-    let grossLotRevenue = 0;
-    let lotCartonsSold = 0;
-    for (const sale of lot.sales) {
-      for (const item of sale.items) {
-        grossLotRevenue += num(item.amount);
-        lotCartonsSold += num(item.qty);
-      }
-    }
-
-    const lotDiscounts = discountByLot[lot.id] || 0;
-    const lotRevenue = grossLotRevenue - lotDiscounts;
-    const lotCOGS = lotCartonsSold * metrics.landed.landedCostPerCartonPkr;
-
-    totalRevenue += lotRevenue;
-    totalCOGS += lotCOGS;
-    totalCartonsSold += lotCartonsSold;
-
-    if (grossLotRevenue > 0 || lotCartonsSold > 0) {
-      lotSummaries.push({
-        lotId: lot.id,
-        lotNumber: lot.lotNumber,
-        country: lot.country.name,
-        landedCostPerCarton: metrics.landed.landedCostPerCartonPkr,
-        landedCostPerCartonPkr: metrics.landed.landedCostPerCartonPkr,
-        cartonsSold: lotCartonsSold,
-        grossRevenue: round2(grossLotRevenue),
-        discounts: round2(lotDiscounts),
-        revenue: round2(lotRevenue),
-        cogs: round2(lotCOGS),
-        expenses: 0,
-        grossProfit: round2(lotRevenue - lotCOGS),
-        netProfit: round2(lotRevenue - lotCOGS),
-      });
-    }
-  }
-
-  const operationalExpWhere: any = { deletedAt: null, lotId: null };
-  if (user.role === "city_admin") operationalExpWhere.cityId = user.cityId;
-  const operationalExpenses = await prisma.expense.aggregate({
-    where: operationalExpWhere,
-    _sum: { amount: true },
-  });
-  const totalOperationalExpenses = num(operationalExpenses._sum.amount);
-
-  const totalPurchased = await prisma.lotPurchase.aggregate({ _sum: { totalPriceUsd: true } });
-  const totalPaid = await prisma.supplierPayment.aggregate({ _sum: { amountUsd: true } });
-
-  return successResponse({
-    reportingCurrency: REPORTING_CURRENCY,
-    period: year
-      ? `Year ${year}`
-      : dateFrom || dateTo
-        ? `${dateFrom || "start"} to ${dateTo || "now"}`
-        : "All Time",
-    profitAndLoss: {
-      totalRevenue: round2(totalRevenue),
-      totalCOGS: round2(totalCOGS),
-      grossProfit: round2(totalRevenue - totalCOGS),
-      grossMarginPercent: totalRevenue > 0 ? round2(((totalRevenue - totalCOGS) / totalRevenue) * 100) : 0,
-      totalExpenses: round2(totalOperationalExpenses),
-      netProfit: round2(totalRevenue - totalCOGS - totalOperationalExpenses),
-      netMarginPercent:
-        totalRevenue > 0
-          ? round2(((totalRevenue - totalCOGS - totalOperationalExpenses) / totalRevenue) * 100)
-          : 0,
-    },
-    cartonsSold: totalCartonsSold,
-    supplierAccount: {
-      totalPurchasedUsd: num(totalPurchased._sum.totalPriceUsd),
-      totalPaidUsd: num(totalPaid._sum.amountUsd),
-      balanceOwedUsd: num(totalPurchased._sum.totalPriceUsd) - num(totalPaid._sum.amountUsd),
-    },
-    lotBreakdown: lotSummaries,
-  });
+  return successResponse(await buildPeriodProfitReportData(user, year, dateFrom, dateTo));
 }

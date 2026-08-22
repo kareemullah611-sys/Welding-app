@@ -52,6 +52,75 @@ test("superadmin dashboard country tabs do not show country flags", () => {
   assert.doesNotMatch(dashboardPage, /🇵🇰|🇦🇫/);
 });
 
+test("lots support consignees, documents, and separate shipment status without accounting changes", () => {
+  const lot = modelBlock("Lot");
+  const consignee = modelBlock("Consignee");
+  const lotDocument = modelBlock("LotDocument");
+  const lotStatusHistory = modelBlock("LotStatusHistory");
+  const lotsPage = readFileSync("src/app/(dashboard)/lots/page.tsx", "utf8");
+  const lotRoute = readFileSync("src/app/api/v1/lots/route.ts", "utf8");
+  const lotDetailRoute = readFileSync("src/app/api/v1/lots/[id]/route.ts", "utf8");
+  const documentRoute = readFileSync("src/app/api/v1/lots/[id]/documents/route.ts", "utf8");
+  const documentDownloadRoute = readFileSync("src/app/api/v1/lots/[id]/documents/[documentId]/download/route.ts", "utf8");
+  const statusRoute = readFileSync("src/app/api/v1/lots/[id]/shipment-status/route.ts", "utf8");
+  const railwayBucket = readFileSync("src/lib/railway-bucket.ts", "utf8");
+  const lotDocumentsHelper = readFileSync("src/lib/lot-documents.ts", "utf8");
+  const migration = readFileSync("prisma/migrations/20260822120000_lot_documents_shipment_consignee/migration.sql", "utf8");
+
+  assert.match(schema, /enum LotShipmentStatus/);
+  assert.match(schema, /enum LotDocumentCategory/);
+  assert.match(lot, /status\s+LotStatus\s+@default\(ongoing\)/);
+  assert.match(lot, /shipmentStatus\s+LotShipmentStatus\s+@default\(order_confirmed\)/);
+  assert.match(lot, /consigneeId\s+Int\?/);
+  assert.match(lot, /destinationCityId\s+Int\?/);
+  assert.match(lot, /documents\s+LotDocument\[\]/);
+  assert.match(lot, /shipmentHistory\s+LotStatusHistory\[\]/);
+  assert.match(consignee, /name\s+String\s+@unique/);
+  assert.match(consignee, /isActive\s+Boolean\s+@default\(true\)/);
+  assert.match(lotDocument, /category\s+LotDocumentCategory/);
+  assert.match(lotDocument, /storageKey\s+String/);
+  assert.match(lotDocument, /fileUrl\s+String/);
+  assert.match(lotDocument, /archivedAt\s+DateTime\?/);
+  assert.match(lotStatusHistory, /previousStatus\s+LotShipmentStatus\?/);
+  assert.match(lotStatusHistory, /newStatus\s+LotShipmentStatus/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS "consignees"/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS "lot_documents"/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS "lot_status_history"/);
+  assert.match(migration, /ADD COLUMN IF NOT EXISTS "shipment_status"/);
+  assert.doesNotMatch(migration, /\bDROP\b|\bTRUNCATE\b|DELETE FROM|ALTER TABLE .* DROP/i);
+
+  assert.match(lotRoute, /LOT_SHIPMENT_STATUS_VALUES/);
+  assert.match(lotRoute, /documents: \{ where: \{ archivedAt: null \} \}/);
+  assert.match(lotDetailRoute, /lotDocument\.findMany/);
+  assert.match(lotDetailRoute, /downloadUrl:/);
+  assert.doesNotMatch(lotDetailRoute, /fileUrl: d\.fileUrl/);
+  assert.match(lotDetailRoute, /lotStatusHistory\.findMany/);
+  assert.match(documentRoute, /uploadLotDocumentToBucket/);
+  assert.match(documentRoute, /downloadUrl:/);
+  assert.doesNotMatch(documentRoute, /uploadToCloudinary|fileUrl: row\.fileUrl/);
+  assert.match(documentDownloadRoute, /getLotDocumentDownloadUrl/);
+  assert.match(documentDownloadRoute, /withSuperAdmin/);
+  assert.match(documentDownloadRoute, /archivedAt: null/);
+  assert.match(railwayBucket, /PutObjectCommand/);
+  assert.match(railwayBucket, /getSignedUrl/);
+  assert.match(railwayBucket, /expiresIn: 5 \* 60/);
+  assert.match(documentRoute, /archivedAt: new Date\(\)/);
+  assert.doesNotMatch(documentRoute, /journal|COGS|inventory|Financial Report/i);
+  assert.match(statusRoute, /lotStatusHistory\.create/);
+  assert.doesNotMatch(statusRoute, /journal|COGS|inventory|Financial Report/i);
+
+  assert.match(lotsPage, /\+ New Consignee/);
+  assert.match(lotsPage, /formatConsigneeOption/);
+  assert.match(lotsPage, /currentConsignee/);
+  assert.match(lotsPage, /Add Document/);
+  assert.match(lotsPage, /Change Status/);
+  assert.match(lotsPage, /documentsCount/);
+  assert.doesNotMatch(lotsPage, /key: "utilization"/);
+  assert.doesNotMatch(lotsPage, /Copy items from previous lot/);
+  assert.match(lotDocumentsHelper, /Karachi → destination city/);
+  assert.doesNotMatch(lotDocumentsHelper, /Karachi → Lahore/);
+});
+
 test("OpeningLiability uses type-scoped uniqueness and party check constraints", () => {
   const openingLiability = modelBlock("OpeningLiability");
 
@@ -1060,6 +1129,44 @@ test("pakistan inter funds transfer keeps compact rows with standard pagination"
   assert.match(bankDepositsPage, /px-3 py-2/);
 });
 
+test("pakistan inter funds transfer account requirements follow the money source", () => {
+  const page = readFileSync("src/app/(dashboard)/bank-deposits/page.tsx", "utf8");
+  const route = readFileSync("src/app/api/v1/bank-deposits/route.ts", "utf8");
+
+  assert.match(page, /requiresSourceBankAccount\(form\.transferType\)/);
+  assert.match(route, /requiresSourceBankAccount\(transferType\)/);
+  assert.match(route, /bankAccountId: parsedBankAccountId/);
+  assert.match(route, /transferType === "cheque_to_cash" \? null : parsedBankAccountId/);
+});
+
+test("inter funds transfers persist type and support journal-safe edit and delete", () => {
+  const schema = readFileSync("prisma/schema.prisma", "utf8");
+  const itemRoute = readFileSync("src/app/api/v1/bank-deposits/[id]/route.ts", "utf8");
+  const page = readFileSync("src/app/(dashboard)/bank-deposits/page.tsx", "utf8");
+
+  assert.match(schema, /transferType\s+String\s+@default\("cheque_to_bank"\)/);
+  assert.match(itemRoute, /export const PUT = withAuth/);
+  assert.match(itemRoute, /export const DELETE = withAuth/);
+  assert.match(itemRoute, /journalEntry\.deleteMany/);
+  assert.match(itemRoute, /chequeStatus: "in_hand"/);
+  assert.match(page, /openEdit\(d\)/);
+  assert.match(page, /handleDelete\(d\)/);
+});
+
+test("bank-to-bank inter funds transfers edit and delete as one persisted pair", () => {
+  const schema = readFileSync("prisma/schema.prisma", "utf8");
+  const createRoute = readFileSync("src/app/api/v1/bank-deposits/route.ts", "utf8");
+  const itemRoute = readFileSync("src/app/api/v1/bank-deposits/[id]/route.ts", "utf8");
+
+  assert.match(schema, /transferPairId\s+String\?/);
+  assert.match(createRoute, /transferPairId/);
+  assert.match(itemRoute, /resolveBankToBankPair/);
+  assert.match(itemRoute, /destinationBankAccountId/);
+  assert.match(itemRoute, /bankDeposit\.update\(\{[\s\S]*cashAmount: -amount/);
+  assert.match(itemRoute, /bankDeposit\.update\(\{[\s\S]*cashAmount: amount/);
+  assert.match(itemRoute, /bankDeposit\.deleteMany/);
+});
+
 test("haji party account destination feature remains removed", () => {
   const schema = readFileSync("prisma/schema.prisma", "utf8");
   const accounting = readFileSync("src/lib/accounting.ts", "utf8");
@@ -1217,6 +1324,9 @@ test("investor attribution phase 1 foundation reconciles to existing profit repo
   assert.match(migration, /CREATE TABLE IF NOT EXISTS "exchange_rates"/);
 
   assert.match(periodProfitHelper, /export async function buildPeriodProfitReportData/);
+  assert.match(periodProfitHelper, /buildAuthoritativeFinancialReportResult/);
+  assert.match(periodProfitHelper, /authoritativeFinancialReport/);
+  assert.doesNotMatch(periodProfitHelper, /operationalExpenses\s*=\s*\{\s*_sum:\s*\{\s*amount:\s*null/);
   assert.match(attributionRoute, /buildPeriodProfitReportData/);
   assert.match(attributionRoute, /buildInvestorAttributionPreview/);
   assert.match(attributionRoute, /phase: "preview_only"/);
@@ -1413,6 +1523,57 @@ test("investor attribution phase 2.2 controlled finalization is atomic and attri
   assert.doesNotMatch(attributionRoute, /cash|bank settlement/i);
 });
 
+test("sarafi afghanistan daily FX snapshots are additive and audit-only", () => {
+  const schema = readFileSync("prisma/schema.prisma", "utf8");
+  const migration = readFileSync("prisma/migrations/20260816120000_sarafi_af_daily_fx_snapshots/migration.sql", "utf8");
+  const engine = readFileSync("src/lib/sarafi-af-snapshot.ts", "utf8");
+  const dbHelper = readFileSync("src/lib/sarafi-af-snapshot-db.ts", "utf8");
+  const route = readFileSync("src/app/api/v1/fx-snapshots/sarafi-af/route.ts", "utf8");
+  const saleRoute = readFileSync("src/app/api/v1/sales/route.ts", "utf8");
+  const settlementRoute = readFileSync("src/app/api/v1/investment-participants/[id]/actions/[actionId]/settlements/[settlementId]/payments/route.ts", "utf8");
+  const scheduler = readFileSync("scripts/sarafi-af-snapshot.ts", "utf8");
+  const settingsPage = readFileSync("src/app/(dashboard)/settings/page.tsx", "utf8");
+
+  assert.match(schema, /model SarafiAfFxSnapshot/);
+  assert.match(schema, /model SarafiAfFxSnapshotQuote/);
+  assert.match(schema, /model SarafiAfFxDerivedRate/);
+  assert.match(schema, /fxSnapshotId\s+Int\?\s+@map\("fx_snapshot_id"\)/);
+  assert.match(schema, /fxPkrEquivalent\s+Decimal\?/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS "sarafi_af_fx_snapshots"/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS "sarafi_af_fx_snapshot_quotes"/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS "sarafi_af_fx_derived_rates"/);
+  assert.doesNotMatch(migration, /\bDROP\s+(TABLE|COLUMN|INDEX)\b|\bTRUNCATE\b|\bDELETE\s+FROM\b/i);
+
+  assert.match(engine, /SARAFI_AF_AUTO_SNAPSHOT_ENABLED/);
+  assert.match(engine, /SARAFI_AF_MARKET = "sarai_shahzada"/);
+  assert.match(engine, /Asia\/Kabul/);
+  assert.match(engine, /08:30/);
+  assert.match(engine, /PKR\/AFN quote is required/);
+  assert.match(engine, /ACTUAL_DOCUMENTED_TRANSACTION_RATE/);
+  assert.match(engine, /MANUAL_OPEN_MARKET/);
+  assert.match(engine, /abnormalChangeThresholdPercent/);
+  assert.match(dbHelper, /resolveAfghanistanFxRateFromDb/);
+  assert.match(dbHelper, /market: SARAFI_AF_MARKET/);
+  assert.match(dbHelper, /sarafiAfFxDerivedRate\.findMany/);
+  assert.match(dbHelper, /exchangeRate\.findMany/);
+  assert.match(route, /withSuperAdmin/);
+  assert.match(route, /Sarafi\.af snapshots must be Sarai Shahzada market rates only/);
+  assert.match(route, /FEATURE_DISABLED/);
+  assert.match(route, /Sarafi\.af automatic snapshot fetching is disabled/);
+  assert.match(dbHelper, /idempotencyKey/);
+  assert.match(saleRoute, /resolveAfghanistanFxRateFromDb/);
+  assert.match(saleRoute, /purpose: "sale_recognition"/);
+  assert.match(saleRoute, /fxOriginalCurrencyCode/);
+  assert.match(saleRoute, /fxPkrEquivalent/);
+  assert.match(settlementRoute, /resolveAfghanistanFxRateFromDb/);
+  assert.match(settlementRoute, /purpose: "settlement"/);
+  assert.match(settlementRoute, /fxSnapshotId/);
+  assert.match(scheduler, /SARAFI_AF_AUTO_SNAPSHOT_ENABLED/);
+  assert.match(scheduler, /No provider fetch was attempted/);
+  assert.match(settingsPage, /Sarafi\.af daily snapshots/);
+  assert.match(settingsPage, /Automatic Sarafi\.af ingestion remains disabled/);
+});
+
 test("module search inputs expose a clear button when text is present", () => {
   const dataTable = readFileSync("src/components/ui/index.tsx", "utf8");
   const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
@@ -1424,15 +1585,36 @@ test("module search inputs expose a clear button when text is present", () => {
   assert.match(salesPage, /\{filters\.query && \(/);
 });
 
-test("payment exports use one ref column with debit credit and running balance", () => {
+test("payment exports use requested details with one ref column, debit credit, and running balance", () => {
   const exportRoute = readFileSync("src/app/api/v1/reports/export/route.ts", "utf8");
   const ledgerExport = readFileSync("src/lib/ledger-export.ts", "utf8");
 
-  assert.match(exportRoute, /const headers = \["Date", "Type", "Name", "Particulars", "Ref\. No\.", "Debit", "Credit", "Running Balance"\]/);
-  assert.match(exportRoute, /entry\.runningBalance = runningByCurrency\[entry\.currencyCode\]/);
+  assert.match(exportRoute, /const headers = \["Date", "Details", "Ref\. No\.", "Debit", "Credit", "Running Balance"\]/);
+  assert.match(exportRoute, /details: paymentDetail\(p\)/);
+  assert.match(exportRoute, /details: \[w\.withdrawnBy, w\.detail\]/);
+  assert.match(exportRoute, /details: \[e\.detail, expenseSource\(e\)\]/);
+  assert.match(exportRoute, /details: hajiAccount\(h\)/);
+  assert.doesNotMatch(exportRoute, /entry\.type,\s*cleanText\(entry\.name\),\s*cleanText\(entry\.particulars\)/);
+  assert.match(exportRoute, /entry\.runningBalance = runningBalanceByEntry\.get/);
   assert.doesNotMatch(exportRoute, /ref \? `Ref \$\{ref\}` : ""/);
   assert.match(ledgerExport, /<th class="col-money">Running Balance<\/th>/);
   assert.match(ledgerExport, /class="col-money debit"/);
   assert.match(ledgerExport, /class="col-money credit"/);
   assert.match(ledgerExport, /class="col-money balance"/);
+});
+
+test("city payments PDF uses the module treasury running-balance rules", () => {
+  const exportRoute = readFileSync("src/app/api/v1/reports/export/route.ts", "utf8");
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+
+  assert.match(exportRoute, /computeRunningBalances/);
+  assert.match(exportRoute, /openingCashByCurrency/);
+  assert.match(exportRoute, /getCombinedItemNetDelta/);
+  assert.match(exportRoute, /filteredEntries\.sort\(comparePaymentExportNewestFirst\)/);
+  assert.match(paymentsPage, /const paymentExportType: LedgerExportType = "payments"/);
+  const paymentsExportStart = exportRoute.indexOf('type === "payments"');
+  assert.ok(
+    exportRoute.indexOf("matchesExportTextSearch(", paymentsExportStart) < exportRoute.indexOf("computeRunningBalances", paymentsExportStart),
+    "payments export must apply active filters before calculating balances",
+  );
 });

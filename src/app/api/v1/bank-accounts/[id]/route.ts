@@ -70,6 +70,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           supplierPayments,
           agentPayments,
           shippingPayments,
+          investorSettlementPayments,
         ] = await Promise.all([
           prisma.hajiTransfer.findMany({
             where: {
@@ -115,6 +116,11 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           prisma.shippingLinePayment.findMany({
             where: { superAdminCashAccountId: id },
             include: { shippingLine: { select: { name: true } }, lot: { select: { lotNumber: true } } },
+            orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
+          }),
+          (prisma as any).investmentParticipantSettlementPayment.findMany({
+            where: { superAdminBankAccountId: id, status: "settled" },
+            include: { participant: { select: { name: true } }, currency: { select: { code: true } } },
             orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
           }),
         ]);
@@ -200,6 +206,19 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
             debit,
           });
         }
+        for (const p of investorSettlementPayments) {
+          rows.push({
+            key: `invsettle-pay-${p.id}`,
+            date: new Date(p.paymentDate),
+            createdAt: new Date(p.createdAt),
+            type: "Investor Settlement",
+            detail: `Paid to ${p.participant?.name || "participant"}`,
+            reference: p.paymentReference || null,
+            currencyCode: p.currency.code,
+            credit: 0,
+            debit: Number(p.paymentAmount),
+          });
+        }
 
         return respondLedgerView(request.nextUrl.searchParams, {
           id: account.id,
@@ -214,7 +233,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
 
       const accountLabel = formatSuperAdminBankLabel(account);
       const currencyCode = String(account.currency.code || "").toUpperCase();
-      const [incomingHajiPayments, hajiTransfersIn, expenses, intermediaryDeposits, lotCosts, supplierPayments] = await Promise.all([
+      const [incomingHajiPayments, hajiTransfersIn, expenses, intermediaryDeposits, lotCosts, supplierPayments, investorSettlementPayments] = await Promise.all([
         prisma.payment.findMany({
           where: {
             superAdminBankAccountId: id,
@@ -274,6 +293,11 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         prisma.supplierPayment.findMany({
           where: { superAdminBankAccountId: id },
           include: { supplier: { select: { name: true } }, lot: { select: { lotNumber: true } } },
+          orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
+        }),
+        (prisma as any).investmentParticipantSettlementPayment.findMany({
+          where: { superAdminBankAccountId: id, status: "settled" },
+          include: { participant: { select: { name: true } }, currency: { select: { code: true } } },
           orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
         }),
       ]);
@@ -357,6 +381,19 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           currencyCode,
           credit: 0,
           debit,
+        });
+      }
+      for (const p of investorSettlementPayments) {
+        rows.push({
+          key: `invsettle-pay-${p.id}`,
+          date: new Date(p.paymentDate),
+          createdAt: new Date(p.createdAt),
+          type: "Investor Settlement",
+          detail: `Paid to ${p.participant?.name || "participant"}`,
+          reference: p.paymentReference || null,
+          currencyCode: p.currency.code,
+          credit: 0,
+          debit: Number(p.paymentAmount),
         });
       }
 

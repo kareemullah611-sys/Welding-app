@@ -8,6 +8,7 @@ import { computeLotLandedCostPkr } from "@/lib/landed-cost-pkr";
 import { buildCityLotAssignmentDetail } from "@/lib/city-lot-assignment";
 import { updateLotSchema } from "@/lib/validations";
 import { journalLotPurchase, reverseJournalEntries } from "@/lib/accounting";
+import { LOT_SHIPMENT_STATUS_VALUES, lotDocumentCategoryLabel, lotShipmentStatusLabel } from "@/lib/lot-documents";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -68,7 +69,15 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       return successResponse(result.data);
     }
 
-    const lot = await prisma.lot.findUnique({ where: { id }, include: { country: true, creator: { select: { id: true, fullName: true } } } }) as any;
+    const lot = await prisma.lot.findUnique({
+      where: { id },
+      include: {
+        country: true,
+        consignee: { select: { id: true, name: true, phone: true, address: true, notes: true, isActive: true } },
+        destinationCity: { select: { id: true, name: true } },
+        creator: { select: { id: true, fullName: true } },
+      },
+    }) as any;
     if (!lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
 
     // Separate safe queries
@@ -101,6 +110,21 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     try { payments = await prisma.payment.findMany({ where: { lotId: id, status: "active" }, select: { id: true, amount: true, paymentDate: true, detail: true, customer: { select: { name: true } } }, orderBy: { paymentDate: "desc" }, take: 100 }); } catch (e) {}
     try { expenses = await prisma.expense.findMany({ where: { lotId: id, deletedAt: null }, select: { id: true, amount: true, detail: true, expenseDate: true, currency: { select: { code: true } } }, orderBy: { expenseDate: "desc" } }); } catch (e) {}
     try { hajiTransfers = await prisma.hajiTransfer.findMany({ where: { lotId: id }, select: { id: true, amount: true, detail: true, transferDate: true, transferType: true }, orderBy: { transferDate: "desc" } }); } catch (e) {}
+    let documents: any[] = [], statusHistory: any[] = [];
+    try {
+      documents = await prisma.lotDocument.findMany({
+        where: { lotId: id, archivedAt: null },
+        include: { uploader: { select: { id: true, fullName: true } } },
+        orderBy: [{ uploadedAt: "desc" }, { id: "desc" }],
+      });
+    } catch (e) {}
+    try {
+      statusHistory = await prisma.lotStatusHistory.findMany({
+        where: { lotId: id },
+        include: { changer: { select: { id: true, fullName: true } } },
+        orderBy: [{ effectiveAt: "desc" }, { id: "desc" }],
+      });
+    } catch (e) {}
 
     let lotCosts: any[] = [], lotPurchases: any[] = [];
     try {
@@ -373,8 +397,13 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     return successResponse({
       id: lot.id, lotNumber: lot.lotNumber, lotDate: lot.lotDate.toISOString().split("T")[0],
       status: lot.status, isLegacyStock: lot.isLegacyStock, notes: lot.notes,
+      shipmentStatus: lot.shipmentStatus,
+      shipmentStatusLabel: lotShipmentStatusLabel(lot.shipmentStatus),
+      etaDate: lot.etaDate ? lot.etaDate.toISOString().split("T")[0] : null,
       pkrExchangeRate: lot.pkrExchangeRate ? Number(lot.pkrExchangeRate) : null,
       country: { id: lot.country.id, name: lot.country.name, code: lot.country.code },
+      consignee: lot.consignee,
+      destinationCity: lot.destinationCity,
       createdBy: lot.creator,
       products: stockByProduct,
       distributions,
@@ -415,6 +444,34 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       recentPayments: payments.map((p: any) => ({ ...p, amount: Number(p.amount), paymentDate: p.paymentDate.toISOString().split("T")[0] })),
       expenses: expenses.map((e: any) => ({ ...e, amount: Number(e.amount), expenseDate: e.expenseDate.toISOString().split("T")[0] })),
       hajiTransfers: hajiTransfers.map((h: any) => ({ ...h, amount: Number(h.amount), transferDate: h.transferDate.toISOString().split("T")[0] })),
+      documents: documents.map((d: any) => ({
+        id: d.id,
+        category: d.category,
+        categoryLabel: lotDocumentCategoryLabel(d.category),
+        originalFileName: d.originalFileName,
+        downloadUrl: `/api/v1/lots/${id}/documents/${d.id}/download`,
+        mimeType: d.mimeType,
+        extension: d.extension,
+        fileSize: d.fileSize,
+        referenceNo: d.referenceNo,
+        documentDate: d.documentDate ? d.documentDate.toISOString().split("T")[0] : null,
+        note: d.note,
+        uploadedBy: d.uploader ? { id: d.uploader.id, fullName: d.uploader.fullName } : null,
+        uploadedAt: d.uploadedAt.toISOString(),
+      })),
+      documentsCount: documents.length,
+      statusHistory: statusHistory.map((h: any) => ({
+        id: h.id,
+        previousStatus: h.previousStatus,
+        previousStatusLabel: lotShipmentStatusLabel(h.previousStatus),
+        newStatus: h.newStatus,
+        newStatusLabel: lotShipmentStatusLabel(h.newStatus),
+        effectiveAt: h.effectiveAt.toISOString(),
+        location: h.location,
+        note: h.note,
+        changedBy: h.changer ? { id: h.changer.id, fullName: h.changer.fullName } : null,
+        createdAt: h.createdAt.toISOString(),
+      })),
       auditTimeline,
     });
   } catch (error: any) {
@@ -437,8 +494,23 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     }
 
     const data = parsed.data;
+    if (data.shipmentStatus && !LOT_SHIPMENT_STATUS_VALUES.includes(data.shipmentStatus as any)) {
+      return validationError("Invalid shipment status");
+    }
     const nextCountryId = data.countryId ?? lot.countryId;
     const nextLotNumber = data.lotNumber ?? lot.lotNumber;
+    const nextConsigneeId = data.consigneeId === undefined ? lot.consigneeId : data.consigneeId || null;
+    const nextDestinationCityId = data.destinationCityId === undefined ? lot.destinationCityId : data.destinationCityId || null;
+    const nextShipmentStatus = (data.shipmentStatus ?? lot.shipmentStatus) as any;
+    const nextEtaDate = data.etaDate === undefined ? lot.etaDate : data.etaDate ? new Date(data.etaDate) : null;
+    if (nextConsigneeId) {
+      const consignee = await prisma.consignee.findUnique({ where: { id: nextConsigneeId } });
+      if (!consignee) return errorResponse("NOT_FOUND", "Consignee not found", 404);
+    }
+    if (nextDestinationCityId) {
+      const destination = await prisma.city.findUnique({ where: { id: nextDestinationCityId } });
+      if (!destination || destination.countryId !== nextCountryId) return validationError("Destination city must belong to selected country");
+    }
 
     if (nextCountryId !== lot.countryId) {
       const distCount = await prisma.lotCityDistribution.count({ where: { lotId: id } });
@@ -505,12 +577,28 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
           where: { id },
           data: {
             countryId: nextCountryId,
+            consigneeId: nextConsigneeId,
+            destinationCityId: nextDestinationCityId,
             lotNumber: nextLotNumber,
             lotDate: data.lotDate ? new Date(data.lotDate) : lot.lotDate,
+            shipmentStatus: nextShipmentStatus,
+            etaDate: nextEtaDate,
             notes: data.notes !== undefined ? data.notes : lot.notes,
             updatedAt: new Date(),
           },
         });
+        if (nextShipmentStatus !== lot.shipmentStatus) {
+          await tx.lotStatusHistory.create({
+            data: {
+              lotId: id,
+              previousStatus: lot.shipmentStatus,
+              newStatus: nextShipmentStatus,
+              effectiveAt: new Date(),
+              note: "Shipment status updated from lot edit",
+              changedBy: user.userId,
+            },
+          });
+        }
 
         const existingPurchases = await tx.lotPurchase.findMany({ where: { lotId: id } });
         const incomingIds = new Set(
@@ -598,12 +686,28 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
         where: { id },
         data: {
           countryId: nextCountryId,
+          consigneeId: nextConsigneeId,
+          destinationCityId: nextDestinationCityId,
           lotNumber: nextLotNumber,
           lotDate: data.lotDate ? new Date(data.lotDate) : lot.lotDate,
+          shipmentStatus: nextShipmentStatus,
+          etaDate: nextEtaDate,
           notes: data.notes !== undefined ? data.notes : lot.notes,
           updatedAt: new Date(),
         },
       });
+      if (nextShipmentStatus !== lot.shipmentStatus) {
+        await prisma.lotStatusHistory.create({
+          data: {
+            lotId: id,
+            previousStatus: lot.shipmentStatus,
+            newStatus: nextShipmentStatus,
+            effectiveAt: new Date(),
+            note: "Shipment status updated from lot edit",
+            changedBy: user.userId,
+          },
+        });
+      }
     }
 
     const updated = await prisma.lot.findUnique({ where: { id }, select: { id: true, lotNumber: true } });
@@ -613,8 +717,8 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
       "lots",
       id,
       "update",
-      { lotNumber: lot.lotNumber, notes: lot.notes },
-      { lotNumber: updated?.lotNumber, purchaseItemsUpdated: Boolean(data.purchaseItems) },
+      { lotNumber: lot.lotNumber, notes: lot.notes, shipmentStatus: lot.shipmentStatus },
+      { lotNumber: updated?.lotNumber, shipmentStatus: nextShipmentStatus, purchaseItemsUpdated: Boolean(data.purchaseItems) },
       getClientIP(request),
     );
     return successResponse({ id: updated?.id, lotNumber: updated?.lotNumber }, "Lot updated");

@@ -15,6 +15,7 @@ import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { applyQueuedMutationsToLots } from "@/lib/offline-remaining-mutations";
 import { formatCityPot } from "@/lib/city-money-format";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import { LOT_DOCUMENT_CATEGORIES, LOT_SHIPMENT_STATUSES, lotShipmentStatusLabel } from "@/lib/lot-documents";
 
 const LOTS_READ_CACHE_KEY = "mrf-lots-read-cache-v1";
 
@@ -25,6 +26,8 @@ type LotsReadSnapshot = {
   countries: any[];
   products: any[];
   suppliers: any[];
+  consignees: any[];
+  cities: any[];
   lotDetailById: Record<string, any>;
 };
 
@@ -50,12 +53,17 @@ export default function LotsPage() {
   const [countries,   setCountries]   = useState<any[]>([]);
   const [products,    setProducts]    = useState<any[]>([]);
   const [suppliers,   setSuppliers]   = useState<any[]>([]);
+  const [consignees,  setConsignees]  = useState<any[]>([]);
 
   const emptyItem = () => ({ supplierId: 0, productId: 0, weightPerCartonKg: "", qtyMt: "", unitPriceUsdPerMt: "", qtyPcs: "", unitPriceUsdPerPcs: "" });
   type LotFormState = {
     countryId: number;
     lotNumber: string;
     lotDate: string;
+    consigneeId: number;
+    destinationCityId: number;
+    shipmentStatus: string;
+    etaDate: string;
     notes: string;
     purchaseItems: any[];
   };
@@ -63,6 +71,10 @@ export default function LotsPage() {
     countryId: 0,
     lotNumber: "",
     lotDate: new Date().toISOString().split("T")[0],
+    consigneeId: 0,
+    destinationCityId: 0,
+    shipmentStatus: "order_confirmed",
+    etaDate: "",
     notes: "",
     purchaseItems: [emptyItem()],
   });
@@ -73,6 +85,12 @@ export default function LotsPage() {
   const [selectedLot,   setSelectedLot]   = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [activeDetailTab, setActiveDetailTab] = useState<LotDetailTab>("summary");
+  const [showNewConsignee, setShowNewConsignee] = useState(false);
+  const [newConsigneeName, setNewConsigneeName] = useState("");
+  const [showAddDocument, setShowAddDocument] = useState(false);
+  const [documentForm, setDocumentForm] = useState({ category: "supplier_invoice", referenceNo: "", documentDate: "", note: "", file: null as File | null });
+  const [showChangeStatus, setShowChangeStatus] = useState(false);
+  const [statusForm, setStatusForm] = useState({ shipmentStatus: "order_confirmed", etaDate: "", location: "", note: "" });
 
   // Distribute
   const [showDistribute,    setShowDistribute]    = useState(false);
@@ -139,6 +157,8 @@ export default function LotsPage() {
       countries: [],
       products: [],
       suppliers: [],
+      consignees: [],
+      cities: [],
       lotDetailById: {},
     };
     writeOfflineReadSnapshot<LotsReadSnapshot>(LOTS_READ_CACHE_KEY, {
@@ -197,10 +217,12 @@ export default function LotsPage() {
   }, [openActionId]);
 
   const loadLotReferenceData = async () => {
-    const [cRes, pRes, sRes] = await Promise.all([
+    const [cRes, pRes, sRes, conRes, cityRes] = await Promise.all([
       apiCall("/api/v1/countries"),
       apiCall("/api/v1/products", { params: { limit: 100 } }),
       apiCall("/api/v1/suppliers", { params: { limit: 100 } }),
+      apiCall("/api/v1/consignees", { params: { limit: 100 } }),
+      apiCall("/api/v1/cities", { params: { all: "true" } }),
     ]);
     if (cRes.success) {
       setCountries(cRes.data as any[]);
@@ -235,6 +257,20 @@ export default function LotsPage() {
         setShowOfflineSnapshot(true);
       }
     }
+    if (conRes.success) {
+      setConsignees(conRes.data as any[]);
+      mergeSnapshot({ consignees: conRes.data as any[] });
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.consignees?.length) setConsignees(snapshot.consignees);
+    }
+    if (cityRes.success) {
+      setCities(cityRes.data as any[]);
+      mergeSnapshot({ cities: cityRes.data as any[] });
+    } else if (!isOnline) {
+      const snapshot = readSnapshot()?.data;
+      if (snapshot?.cities?.length) setCities(snapshot.cities);
+    }
   };
 
   const mapPurchaseItemsToForm = (items: any[]) =>
@@ -247,12 +283,98 @@ export default function LotsPage() {
       unitPriceUsdPerMt: p.unitPriceUsdPerMt ?? "",
     }));
 
+  const handleCreateConsignee = async (setForm: React.Dispatch<React.SetStateAction<LotFormState>>) => {
+    const name = newConsigneeName.trim();
+    if (!name) { setFormError("Consignee name is required"); return; }
+    const r = await apiCall("/api/v1/consignees", { method: "POST", body: { name } });
+    if (!r.success) { setFormError(r.error || "Failed to create consignee"); return; }
+    const created = r.data as any;
+    setConsignees((rows) => [created, ...rows.filter((row) => row.id !== created.id)]);
+    setForm((form) => ({ ...form, consigneeId: created.id }));
+    setNewConsigneeName("");
+    setShowNewConsignee(false);
+    setFormError("");
+  };
+
+  const reloadSelectedLot = async () => {
+    if (!selectedLot?.id) return;
+    const r = await apiCall(`/api/v1/lots/${selectedLot.id}`);
+    if (r.success) setSelectedLot(r.data as any);
+  };
+
+  const openAddDocument = () => {
+    setDocumentForm({ category: "supplier_invoice", referenceNo: "", documentDate: "", note: "", file: null });
+    setShowAddDocument(true);
+    setFormError("");
+  };
+
+  const handleUploadDocument = async () => {
+    if (!selectedLot?.id || !documentForm.file) { setFormError("Please select a file"); return; }
+    setSubmitting(true); setFormError("");
+    try {
+      const formData = new FormData();
+      formData.append("category", documentForm.category);
+      formData.append("file", documentForm.file);
+      if (documentForm.referenceNo) formData.append("referenceNo", documentForm.referenceNo);
+      if (documentForm.documentDate) formData.append("documentDate", documentForm.documentDate);
+      if (documentForm.note) formData.append("note", documentForm.note);
+      const response = await fetch(`/api/v1/lots/${selectedLot.id}/documents`, { method: "POST", body: formData });
+      const data = await response.json();
+      if (!data.success) { setFormError(data.error?.message || "Failed to upload document"); return; }
+      setShowAddDocument(false);
+      await reloadSelectedLot();
+      await loadLots();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleArchiveDocument = async (document: any) => {
+    if (!selectedLot?.id || !document?.id) return;
+    if (!confirm(`Archive document: ${document.originalFileName}?`)) return;
+    const r = await apiCall(`/api/v1/lots/${selectedLot.id}/documents`, { method: "DELETE", params: { documentId: document.id } });
+    if (r.success) { await reloadSelectedLot(); await loadLots(); } else alert(r.error || "Failed");
+  };
+
+  const openChangeStatus = () => {
+    setStatusForm({
+      shipmentStatus: selectedLot?.shipmentStatus || "order_confirmed",
+      etaDate: selectedLot?.etaDate || "",
+      location: "",
+      note: "",
+    });
+    setShowChangeStatus(true);
+    setFormError("");
+  };
+
+  const handleChangeStatus = async () => {
+    if (!selectedLot?.id) return;
+    setSubmitting(true); setFormError("");
+    const r = await apiCall(`/api/v1/lots/${selectedLot.id}/shipment-status`, { method: "PUT", body: statusForm });
+    setSubmitting(false);
+    if (!r.success) { setFormError(r.error || "Failed"); return; }
+    setShowChangeStatus(false);
+    await reloadSelectedLot();
+    await loadLots();
+  };
+
+  const formatConsigneeOption = (consignee: any) => {
+    const scope = [consignee.cityName || consignee.city?.name, consignee.countryName || consignee.country?.name].filter(Boolean).join(", ");
+    return `${consignee.name}${scope ? ` — ${scope}` : ""}${consignee.isActive === false ? " (archived)" : ""}`;
+  };
+
   const renderLotInvoiceForm = (
     form: LotFormState,
     setForm: React.Dispatch<React.SetStateAction<LotFormState>>,
-    opts?: { showCopyFromLot?: boolean; onCopyFromLot?: (lotId: number) => void },
-  ) => (
-    <>
+  ) => {
+    const currentConsignee = selectedLot?.consignee && Number(selectedLot.consignee.id) === Number(form.consigneeId)
+      ? selectedLot.consignee
+      : null;
+    const consigneeOptions = currentConsignee && !consignees.some((row) => Number(row.id) === Number(currentConsignee.id))
+      ? [currentConsignee, ...consignees]
+      : consignees;
+
+    return <>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
         <div>
           <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{t("date")} *</label>
@@ -277,18 +399,44 @@ export default function LotsPage() {
         </div>
       </div>
 
-      {opts?.showCopyFromLot && lots.length > 0 && (
-        <div className="flex items-center gap-2 mb-3 pb-3 border-b">
-          <span className="text-xs text-gray-400 shrink-0">Copy items from previous lot:</span>
-          <select className="select-field text-xs flex-1" defaultValue=""
-            onChange={e => { if (e.target.value && opts.onCopyFromLot) opts.onCopyFromLot(Number(e.target.value)); }}>
-            <option value="">— select —</option>
-            {lots.slice(0, 20).map(l => (
-              <option key={l.id} value={l.id}>{l.lotNumber} ({l.countryName})</option>
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-4">
+        <div>
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide">Consignee</label>
+            <button type="button" onClick={() => setShowNewConsignee((open) => !open)} className="text-xs font-semibold text-primary-700 hover:underline">+ New Consignee</button>
+          </div>
+          {showNewConsignee ? (
+            <div className="flex gap-2">
+              <input value={newConsigneeName} onChange={e => setNewConsigneeName(e.target.value)} className="input-field" placeholder="Name" />
+              <button type="button" onClick={() => handleCreateConsignee(setForm)} className="btn-primary px-3 text-xs">Add</button>
+            </div>
+          ) : (
+            <select value={form.consigneeId} onChange={e => setForm(f => ({ ...f, consigneeId: Number(e.target.value) }))} className="select-field">
+              <option value={0}>Select</option>
+              {consigneeOptions.map((c: any) => <option key={c.id} value={c.id}>{formatConsigneeOption(c)}</option>)}
+            </select>
+          )}
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Destination</label>
+          <select value={form.destinationCityId} onChange={e => setForm(f => ({ ...f, destinationCityId: Number(e.target.value) }))} className="select-field">
+            <option value={0}>Select</option>
+            {cities.filter((city: any) => !form.countryId || Number(city.countryId) === Number(form.countryId)).map((city: any) => (
+              <option key={city.id} value={city.id}>{city.name}</option>
             ))}
           </select>
         </div>
-      )}
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Status</label>
+          <select value={form.shipmentStatus} onChange={e => setForm(f => ({ ...f, shipmentStatus: e.target.value }))} className="select-field">
+            {LOT_SHIPMENT_STATUSES.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">ETA</label>
+          <input type="date" value={form.etaDate} onChange={e => setForm(f => ({ ...f, etaDate: e.target.value }))} className="input-field" />
+        </div>
+      </div>
 
       <div className="border border-gray-200 rounded-lg overflow-hidden mb-3">
         <div className="grid grid-cols-[1fr_1fr_90px_90px_110px_100px_32px] gap-0 bg-gray-50 border-b border-gray-200">
@@ -396,8 +544,8 @@ export default function LotsPage() {
           </span>
         </div>
       </div>
-    </>
-  );
+    </>;
+  };
 
   const buildLotPayload = (form: LotFormState) => {
     const validItems = form.purchaseItems.filter(
@@ -411,8 +559,12 @@ export default function LotsPage() {
       validItems,
       body: {
         countryId: form.countryId,
+        consigneeId: form.consigneeId || null,
+        destinationCityId: form.destinationCityId || null,
         lotNumber: form.lotNumber,
         lotDate: form.lotDate,
+        shipmentStatus: form.shipmentStatus,
+        etaDate: form.etaDate || null,
         notes: form.notes,
         purchaseItems: validItems.map((p: any) => ({
           ...(p.id ? { id: Number(p.id) } : {}),
@@ -796,8 +948,12 @@ export default function LotsPage() {
     setEditLotId(d.id);
     setEditForm({
       countryId: d.country?.id || 0,
+      consigneeId: d.consignee?.id || 0,
+      destinationCityId: d.destinationCity?.id || 0,
       lotNumber: d.lotNumber || "",
       lotDate: d.lotDate || new Date().toISOString().split("T")[0],
+      shipmentStatus: d.shipmentStatus || "order_confirmed",
+      etaDate: d.etaDate || "",
       notes: d.notes || "",
       purchaseItems: d.purchaseItems?.length
         ? mapPurchaseItemsToForm(d.purchaseItems)
@@ -862,13 +1018,28 @@ export default function LotsPage() {
   // TABLE COLUMNS
   // ════════════════════════════════════════════
   const columns = [
-    { key: "lotNumber", label: t("lot_num"), render: (l: any) => (
-      getPendingQueueId(l?.id)
-        ? <span className="font-mono font-semibold text-gray-500 text-sm">{l.lotNumber}</span>
-        : <button onClick={() => openDetail(l)} className="font-mono font-semibold text-primary-600 hover:underline text-sm">{l.lotNumber}</button>
-    )},
-    ...(user?.role !== "city_admin" ? [{ key: "country", label: t("country"), render: (l: any) => (
-      <span className="text-sm text-gray-700">{l.countryName || l.country?.name}</span>
+    { key: "lotNumber", label: t("lot_num"), render: (l: any) => {
+      const total = Number(l.totalCartons || 0);
+      const sold = Number(l.soldCartons || 0);
+      const pct = total > 0 ? Math.min(100, Math.round((sold / total) * 100)) : 0;
+      return (
+        <div className="min-w-[92px]">
+          {getPendingQueueId(l?.id)
+            ? <span className="font-mono font-semibold text-gray-500 text-sm">{l.lotNumber}</span>
+            : <button onClick={() => openDetail(l)} className="font-mono font-semibold text-primary-600 hover:underline text-sm">{l.lotNumber}</button>}
+          {user?.role !== "city_admin" && <div className="mt-0.5 text-[11px] font-semibold text-gray-500">{pct}%</div>}
+          {user?.role === "city_admin" && <div className="mt-0.5 text-[11px] text-gray-500">{formatDate(l.lotDate)}</div>}
+        </div>
+      );
+    }},
+    ...(user?.role !== "city_admin" ? [{ key: "suppliers", label: "Supplier", render: (l: any) => (
+      <span className="text-sm text-gray-700">{(l.suppliers || []).map((s: any) => s.name).join(", ") || "—"}</span>
+    )}] : []),
+    ...(user?.role !== "city_admin" ? [{ key: "consignee", label: "Consignee", render: (l: any) => (
+      <span className="text-sm text-gray-700">{l.consignee?.name || "—"}</span>
+    )}] : []),
+    ...(user?.role !== "city_admin" ? [{ key: "destination", label: "Destination", render: (l: any) => (
+      <span className="text-sm text-gray-700">{l.destinationCity?.name || l.countryName || "—"}</span>
     )}] : []),
     { key: "lotDate",  label: t("date"),     render: (l: any) => <span className="text-sm text-gray-500">{formatDate(l.lotDate)}</span> },
     { key: "products", label: t("product"),  render: (l: any) => {
@@ -888,35 +1059,34 @@ export default function LotsPage() {
       </div>
       );
     }},
-    { key: "distribution", label: user?.role === "city_admin" ? "Godowns" : t("distribute"), render: (l: any) => {
+    ...(user?.role === "city_admin" ? [{ key: "distribution", label: "Godowns", render: (l: any) => {
       if (user?.role === "city_admin") {
         const godownSlots = (l.distributions || []).reduce((s: number, d: any) => s + (d.godownAllocations?.length || 0), 0);
         if (!godownSlots) return <span className="inline-flex items-center px-2 py-0.5 bg-yellow-50 text-yellow-700 rounded-full text-xs font-medium border border-yellow-100">Not in godowns</span>;
         return <span className="inline-flex items-center px-2 py-0.5 bg-green-50 text-green-700 rounded-full text-xs font-medium border border-green-100">{godownSlots} allocation{godownSlots === 1 ? "" : "s"}</span>;
       }
-      const count = l.distributions?.length || 0;
-      if (!count) return <span className="inline-flex items-center px-2 py-0.5 bg-yellow-50 text-yellow-700 rounded-full text-xs font-medium border border-yellow-100">{t("no_data")}</span>;
-      const cityCount = Array.from(new Set(l.distributions.map((d: any) => d.cityName))).length;
-      return <span className="inline-flex items-center px-2 py-0.5 bg-green-50 text-green-700 rounded-full text-xs font-medium border border-green-100">{cityCount} {t("cities") || "cities"}</span>;
-    }},
-    { key: "utilization", label: user?.role === "city_admin" ? t("sold") : "Utilization", render: (l: any) => {
-      const total = Number(l.totalCartons || 0);
-      const sold = Number(l.soldCartons || 0);
-      const pct = total > 0 ? Math.min(100, Math.round((sold / total) * 100)) : 0;
-      const cls = pct >= 90 ? "bg-green-50 text-green-700 border-green-200" : pct >= 60 ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-amber-50 text-amber-700 border-amber-200";
+      return null;
+    }}] : []),
+    ...(user?.role === "city_admin" ? [{ key: "sold", label: t("sold"), render: (l: any) => {
       const soldAmountLabel = user?.role === "city_admin" ? formatCityPot(user, l.soldSalesByCurrency) : "";
       return (
         <div>
-          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${cls}`}>
-            {sold}/{total} ({pct}%)
-          </span>
           {soldAmountLabel && soldAmountLabel !== "0" && (
             <div className="mt-1 text-xs font-medium text-green-700">{soldAmountLabel}</div>
           )}
         </div>
       );
-    }},
-    { key: "status",  label: t("status"),  render: (l: any) => <StatusBadge status={l.status} /> },
+    }}] : []),
+    ...(user?.role !== "city_admin" ? [{ key: "shipmentStatus", label: "Status", render: (l: any) => (
+      <div className="space-y-1">
+        <span className="inline-flex rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">{l.shipmentStatusLabel || lotShipmentStatusLabel(l.shipmentStatus)}</span>
+        {l.etaDate && <div className="text-[11px] text-gray-500">ETA {formatDate(l.etaDate)}</div>}
+      </div>
+    )}] : []),
+    { key: "status",  label: user?.role === "city_admin" ? t("status") : "Business",  render: (l: any) => <StatusBadge status={l.status} /> },
+    ...(user?.role !== "city_admin" ? [{ key: "documents", label: "Documents", render: (l: any) => (
+      <button onClick={() => openDetail(l)} className="text-sm font-semibold text-primary-700 hover:underline">{Number(l.documentsCount || 0)}</button>
+    )}] : []),
     {
       key: "actions", label: t("actions"),
       render: (l: any) => (
@@ -976,10 +1146,7 @@ export default function LotsPage() {
       ══════════════════════════════════════ */}
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title={t("new_lot")} size="xl">
         {formError && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{formError}</div>}
-        {renderLotInvoiceForm(createForm, setCreateForm, {
-          showCopyFromLot: true,
-          onCopyFromLot: (lotId) => { void copyFromLot(lotId, "create"); },
-        })}
+        {renderLotInvoiceForm(createForm, setCreateForm)}
         <div className="flex justify-end gap-3 pt-4 mt-2 border-t">
           <button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">
             {submitting ? "Creating…" : t("create")}
@@ -1067,6 +1234,9 @@ export default function LotsPage() {
                 onAddCost={openAddCost}
                 onEditPurchase={openEditPurchase}
                 onDeletePurchase={handleDeletePurchase}
+                onAddDocument={openAddDocument}
+                onChangeStatus={openChangeStatus}
+                onArchiveDocument={handleArchiveDocument}
               />
             )}
 
@@ -1077,6 +1247,71 @@ export default function LotsPage() {
           </div>
           )
         ) : <p className="text-gray-400 py-4">{formError || t("no_data")}</p>}
+      </Modal>
+
+      <Modal open={showAddDocument} onClose={() => setShowAddDocument(false)} title="Add Document" size="md">
+        {formError && <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{formError}</div>}
+        <div className="space-y-3">
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Document Type</label>
+            <select value={documentForm.category} onChange={e => setDocumentForm(f => ({ ...f, category: e.target.value }))} className="select-field">
+              {LOT_DOCUMENT_CATEGORIES.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">File</label>
+            <input type="file" accept=".pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.numbers" onChange={e => setDocumentForm(f => ({ ...f, file: e.target.files?.[0] || null }))} className="input-field" />
+            <p className="mt-1 text-xs text-gray-400">PDF, XLSX, XLS, CSV, JPG, PNG, or Apple Numbers.</p>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Reference No.</label>
+              <input value={documentForm.referenceNo} onChange={e => setDocumentForm(f => ({ ...f, referenceNo: e.target.value }))} className="input-field" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Date</label>
+              <input type="date" value={documentForm.documentDate} onChange={e => setDocumentForm(f => ({ ...f, documentDate: e.target.value }))} className="input-field" />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Note</label>
+            <textarea value={documentForm.note} onChange={e => setDocumentForm(f => ({ ...f, note: e.target.value }))} className="input-field" rows={2} />
+          </div>
+          <div className="flex justify-end gap-2 border-t pt-3">
+            <button onClick={() => setShowAddDocument(false)} className="btn-secondary text-sm">Cancel</button>
+            <button onClick={handleUploadDocument} disabled={submitting} className="btn-primary text-sm">{submitting ? "Uploading…" : "Upload"}</button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={showChangeStatus} onClose={() => setShowChangeStatus(false)} title="Change Status" size="md">
+        {formError && <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{formError}</div>}
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Status</label>
+              <select value={statusForm.shipmentStatus} onChange={e => setStatusForm(f => ({ ...f, shipmentStatus: e.target.value }))} className="select-field">
+                {LOT_SHIPMENT_STATUSES.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">ETA</label>
+              <input type="date" value={statusForm.etaDate} onChange={e => setStatusForm(f => ({ ...f, etaDate: e.target.value }))} className="input-field" />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Current Location</label>
+            <input value={statusForm.location} onChange={e => setStatusForm(f => ({ ...f, location: e.target.value }))} className="input-field" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Note</label>
+            <textarea value={statusForm.note} onChange={e => setStatusForm(f => ({ ...f, note: e.target.value }))} className="input-field" rows={2} />
+          </div>
+          <div className="flex justify-end gap-2 border-t pt-3">
+            <button onClick={() => setShowChangeStatus(false)} className="btn-secondary text-sm">Cancel</button>
+            <button onClick={handleChangeStatus} disabled={submitting} className="btn-primary text-sm">{submitting ? "Saving…" : "Save"}</button>
+          </div>
+        </div>
       </Modal>
 
 
@@ -1443,10 +1678,7 @@ export default function LotsPage() {
             {editWarnings.map((w, i) => <p key={i} className="text-amber-700 text-xs">{w}</p>)}
           </div>
         )}
-        {renderLotInvoiceForm(editForm, setEditForm, {
-          showCopyFromLot: true,
-          onCopyFromLot: (lotId) => { void copyFromLot(lotId, "edit"); },
-        })}
+        {renderLotInvoiceForm(editForm, setEditForm)}
         <div className="flex justify-end gap-3 pt-4 mt-2 border-t">
           <button onClick={handleEditLot} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button>
         </div>

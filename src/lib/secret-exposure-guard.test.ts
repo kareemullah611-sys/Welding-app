@@ -12,13 +12,16 @@ const FORBIDDEN_LITERALS = [
   "DEEPSEEK_API_KEY",
   "CLOUDINARY_API_SECRET",
   "CLOUDINARY_API_KEY",
+  "RAILWAY_BUCKET_SECRET_ACCESS_KEY",
+  "BUCKET_SECRET_ACCESS_KEY",
+  "AWS_SECRET_ACCESS_KEY",
   "JWT_SECRET",
   "ADMIN_CLEANUP_SECRET",
   "REDIS_URL",
   "api.deepseek.com",
 ];
 
-const FORBIDDEN_IMPORTS = ["@/lib/cloudinary", "@/lib/prisma", "@/lib/auth"];
+const FORBIDDEN_IMPORTS = ["@/lib/cloudinary", "@/lib/prisma", "@/lib/auth", "@/lib/railway-bucket"];
 
 const ALLOWED_PROCESS_ENV = new Set(["NODE_ENV", "NEXT_PUBLIC_APP_URL", "NEXT_PUBLIC_OFFLINE_ENABLED"]);
 

@@ -620,15 +620,17 @@ export default function Sidebar() {
 
       {/* Mobile sidebar */}
       <aside
+        data-open={mobileOpen}
+        data-direction={isRTL ? "rtl" : "ltr"}
         onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX; }}
         onTouchEnd={(e) => {
           const dx = e.changedTouches[0].clientX - touchStartX.current;
           if ((isRTL && dx > 50) || (!isRTL && dx < -50)) setMobileOpen(false);
         }}
         className={cn(
-          cn("lg:hidden fixed top-0 z-50 h-full w-[86vw] max-w-[320px] border-r shadow-2xl transform transition-transform duration-300", SIDEBAR_SHELL_MOBILE),
+          cn("mobile-book-sidebar lg:hidden fixed top-0 z-50 h-full w-[86vw] max-w-[320px] border-r shadow-2xl", SIDEBAR_SHELL_MOBILE),
           isRTL ? "right-0" : "left-0",
-          mobileOpen ? "translate-x-0 pointer-events-auto" : isRTL ? "translate-x-full pointer-events-none" : "-translate-x-full pointer-events-none"
+          mobileOpen ? "pointer-events-auto" : "pointer-events-none"
         )}
       >
         <div className="relative flex h-full flex-col">
@@ -648,13 +650,15 @@ export default function Sidebar() {
 
       {/* Desktop sidebar — floating liquid-glass slab */}
       <aside
+        data-collapsed={collapsed}
+        data-direction={isRTL ? "rtl" : "ltr"}
         className={cn(
-          "hidden lg:block fixed top-3 bottom-3 z-30 transition-all duration-300 ease-out",
+          "desktop-book-sidebar hidden lg:block fixed top-3 bottom-3 z-30",
           isRTL ? "right-3" : "left-3",
           collapsed ? "w-16" : "w-64"
         )}
       >
-        <div className={cn("relative h-full overflow-hidden rounded-[1.75rem] border", SIDEBAR_SHELL)}>
+        <div className={cn("sidebar-book-cover relative h-full overflow-hidden rounded-[1.75rem] border", SIDEBAR_SHELL)}>
           {renderNavContent(desktopNavRef)}
         </div>
 

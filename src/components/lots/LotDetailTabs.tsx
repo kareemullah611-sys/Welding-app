@@ -4,6 +4,7 @@ import { StatsCard, formatNumber, formatDate, StatusBadge } from "@/components/u
 import { Pencil, Trash2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { formatCityAmount, formatCityPot } from "@/lib/city-money-format";
+import { lotShipmentStatusLabel } from "@/lib/lot-documents";
 
 type Props = {
   selectedLot: any;
@@ -12,9 +13,12 @@ type Props = {
   onAddCost: () => void;
   onEditPurchase: (item: any) => void;
   onDeletePurchase: (item: any) => void;
+  onAddDocument?: () => void;
+  onChangeStatus?: () => void;
+  onArchiveDocument?: (document: any) => void;
 };
 
-export function LotDetailSummary({ selectedLot, userRole, t, onAddCost, onEditPurchase, onDeletePurchase }: Props) {
+export function LotDetailSummary({ selectedLot, userRole, t, onAddCost, onEditPurchase, onDeletePurchase, onAddDocument, onChangeStatus, onArchiveDocument }: Props) {
   const purchaseUsd = Number(selectedLot.costSummary?.totalPurchaseUsd || 0);
   const otherByCurrency = selectedLot.costSummary?.otherCostsByCurrency || selectedLot.costSummary?.costsByCurrency || {};
   const landedPkr = selectedLot.costSummary?.totalLandedCostPkr;
@@ -40,7 +44,68 @@ export function LotDetailSummary({ selectedLot, userRole, t, onAddCost, onEditPu
       {userRole === "super_admin" && (
         <div className="flex flex-wrap items-center gap-2">
           <button onClick={onAddCost} className="btn-primary text-sm">+ Add Cost</button>
+          <button onClick={onAddDocument} className="btn-secondary text-sm">Add Document</button>
+          <button onClick={onChangeStatus} className="btn-secondary text-sm">Change Status</button>
           <a href={`/sales?lotId=${selectedLot.id}`} className="text-sm text-primary-600 hover:underline">View sales for this lot</a>
+        </div>
+      )}
+
+      {userRole === "super_admin" && (
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="card">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">Consignee</p>
+            <p className="mt-1 text-sm font-semibold text-gray-800">{selectedLot.consignee?.name || "—"}</p>
+            {selectedLot.consignee?.phone && <p className="mt-1 text-xs text-gray-500">{selectedLot.consignee.phone}</p>}
+          </div>
+          <div className="card">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">Status</p>
+            <p className="mt-1 text-sm font-semibold text-blue-700">{selectedLot.shipmentStatusLabel || lotShipmentStatusLabel(selectedLot.shipmentStatus)}</p>
+            {selectedLot.destinationCity?.name && <p className="mt-1 text-xs text-gray-500">Destination: {selectedLot.destinationCity.name}</p>}
+            {selectedLot.etaDate && <p className="mt-1 text-xs text-gray-500">ETA: {formatDate(selectedLot.etaDate)}</p>}
+          </div>
+          <div className="card">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">Documents</p>
+            <p className="mt-1 text-sm font-semibold text-gray-800">{Number(selectedLot.documentsCount || selectedLot.documents?.length || 0)} saved</p>
+          </div>
+        </div>
+      )}
+
+      {userRole === "super_admin" && (
+        <div className="card">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h4 className="text-sm font-semibold text-gray-700">Documents</h4>
+            <button onClick={onAddDocument} className="text-sm font-semibold text-primary-700 hover:underline">Add Document</button>
+          </div>
+          {(selectedLot.documents || []).length ? (
+            <div className="space-y-2">
+              {selectedLot.documents.map((doc: any) => (
+                <div key={doc.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#eadfce] bg-white px-3 py-2 text-sm">
+                  <div>
+                    <a href={doc.downloadUrl} target="_blank" rel="noreferrer" className="font-semibold text-primary-700 hover:underline">{doc.originalFileName}</a>
+                    <p className="text-xs text-gray-500">{doc.categoryLabel || doc.category}{doc.referenceNo ? ` · Ref ${doc.referenceNo}` : ""}{doc.documentDate ? ` · ${formatDate(doc.documentDate)}` : ""}</p>
+                  </div>
+                  {onArchiveDocument && <button onClick={() => onArchiveDocument(doc)} className="text-xs font-semibold text-red-600 hover:underline">Archive</button>}
+                </div>
+              ))}
+            </div>
+          ) : <p className="text-sm text-gray-400">No documents saved yet.</p>}
+        </div>
+      )}
+
+      {userRole === "super_admin" && (
+        <div className="card">
+          <h4 className="mb-3 text-sm font-semibold text-gray-700">Status Timeline</h4>
+          {(selectedLot.statusHistory || []).length ? (
+            <div className="space-y-2">
+              {selectedLot.statusHistory.map((row: any) => (
+                <div key={row.id} className="rounded-xl border border-[#eadfce] bg-white px-3 py-2 text-sm">
+                  <p className="font-semibold text-gray-800">{row.newStatusLabel || lotShipmentStatusLabel(row.newStatus)}</p>
+                  <p className="text-xs text-gray-500">{formatDate(row.effectiveAt)}{row.location ? ` · ${row.location}` : ""}{row.changedBy?.fullName ? ` · ${row.changedBy.fullName}` : ""}</p>
+                  {row.note && <p className="mt-1 text-xs text-gray-600">{row.note}</p>}
+                </div>
+              ))}
+            </div>
+          ) : <p className="text-sm text-gray-400">No status changes recorded yet.</p>}
         </div>
       )}
 

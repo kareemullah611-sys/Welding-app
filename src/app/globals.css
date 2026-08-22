@@ -438,6 +438,79 @@ input[type="number"] { -moz-appearance: textfield; }
   }
 }
 
+/* Desktop sidebar: keep the expensive glass surface on a stable compositor
+   layer and let it settle toward its outer edge like a closing book cover. */
+@media (min-width: 1024px) {
+  .desktop-book-sidebar {
+    perspective: 1200px;
+    transform: translateZ(0);
+    transition: width 420ms cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: width, transform;
+  }
+
+  .sidebar-book-cover {
+    backface-visibility: hidden;
+    contain: layout paint style;
+    transform: translateZ(0) rotateY(0deg);
+    transform-origin: left center;
+    transform-style: preserve-3d;
+    transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 420ms ease;
+    will-change: transform;
+  }
+
+  .desktop-book-sidebar[data-direction="rtl"] .sidebar-book-cover {
+    transform-origin: right center;
+  }
+
+  .desktop-book-sidebar[data-collapsed="true"] .sidebar-book-cover {
+    transform: translateZ(0) rotateY(-5deg);
+    box-shadow: inset -8px 0 18px -16px rgba(42, 6, 8, 0.55), 0 20px 44px -28px rgba(42, 6, 8, 0.5);
+  }
+
+  .desktop-book-sidebar[data-direction="rtl"][data-collapsed="true"] .sidebar-book-cover {
+    transform: translateZ(0) rotateY(5deg);
+    box-shadow: inset 8px 0 18px -16px rgba(42, 6, 8, 0.55), 0 20px 44px -28px rgba(42, 6, 8, 0.5);
+  }
+
+  .sidebar-layout-shift {
+    transition-property: padding-left, padding-right;
+    transition-duration: 420ms;
+    transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+@media (max-width: 1023px) {
+  .mobile-book-sidebar {
+    backface-visibility: hidden;
+    contain: layout paint style;
+    opacity: 0.45;
+    transform: perspective(1200px) translateZ(0) rotateY(-92deg);
+    transform-origin: left center;
+    transform-style: preserve-3d;
+    transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease-out;
+    will-change: transform, opacity;
+  }
+
+  .mobile-book-sidebar[data-direction="rtl"] {
+    transform: perspective(1200px) translateZ(0) rotateY(92deg);
+    transform-origin: right center;
+  }
+
+  .mobile-book-sidebar[data-open="true"] {
+    opacity: 1;
+    transform: perspective(1200px) translateZ(0) rotateY(0deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desktop-book-sidebar,
+  .sidebar-book-cover,
+  .mobile-book-sidebar,
+  .sidebar-layout-shift {
+    transition-duration: 1ms !important;
+  }
+}
+
 /* Reijo-inspired "Processing" orbital loader (https://dribbble.com/shots/25057641-Processing) */
 .processing-overlay {
   position: fixed;

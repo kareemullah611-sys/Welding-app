@@ -11,6 +11,7 @@ import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 import { cityAssignmentMetricsFromDistributions } from "@/lib/city-lot-assignment";
 import { aggregateLotSalesMetrics, fetchLotSalesForMetrics } from "@/lib/lot-sold-metrics";
+import { LOT_SHIPMENT_STATUS_VALUES, lotShipmentStatusLabel } from "@/lib/lot-documents";
 
 const LOT_SYNC_MODULE = "lots";
 const SUPERADMIN_SYNC_CITY_ID = 0;
@@ -59,7 +60,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const statusQuery = ["ongoing", "completed"].includes(normalizedQuery) ? normalizedQuery : null;
 
     // Build where clause
-    const where: any = {};
+    const where: any = { isLegacyStock: false };
 
     // City admin: show lots for their country that include their city
     if (user.role === "city_admin") {
@@ -78,6 +79,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         { country: { name: { contains: query, mode: "insensitive" } } },
         { creator: { fullName: { contains: query, mode: "insensitive" } } },
         { completer: { fullName: { contains: query, mode: "insensitive" } } },
+        { consignee: { name: { contains: query, mode: "insensitive" } } },
+        { destinationCity: { name: { contains: query, mode: "insensitive" } } },
         { lotProducts: { some: { product: { name: { contains: query, mode: "insensitive" } } } } },
         { lotPurchases: { some: { supplier: { name: { contains: query, mode: "insensitive" } } } } },
         { lotPurchases: { some: { product: { name: { contains: query, mode: "insensitive" } } } } },
@@ -95,14 +98,17 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         where,
         include: {
           country: true,
+          consignee: { select: { id: true, name: true, phone: true, address: true, notes: true, isActive: true } },
+          destinationCity: { select: { id: true, name: true } },
           creator: { select: { id: true, fullName: true } },
           completer: { select: { id: true, fullName: true } },
           lotProducts: { include: { product: true } },
+          lotPurchases: { include: { supplier: { select: { id: true, name: true } } } },
           lotCityDistributions: {
             include: { city: true, product: true, godownAllocations: true },
             ...(user.role === "city_admin" ? { where: { cityId: user.cityId! } } : {}),
           },
-          _count: { select: { sales: true, hajiTransfers: true } },
+          _count: { select: { sales: true, hajiTransfers: true, documents: { where: { archivedAt: null } } } },
         },
         orderBy: { lotDate: "desc" },
         skip,
@@ -213,6 +219,12 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         lotDate: lot.lotDate.toISOString().split("T")[0],
         notes: lot.notes,
         status: lot.status,
+        shipmentStatus: lot.shipmentStatus,
+        shipmentStatusLabel: lotShipmentStatusLabel(lot.shipmentStatus),
+        etaDate: lot.etaDate?.toISOString().split("T")[0] || null,
+        consignee: lot.consignee,
+        destinationCity: lot.destinationCity,
+        documentsCount: lot._count.documents,
         isLegacyStock: lot.isLegacyStock,
         createdBy: lot.creator,
         completedBy: lot.completer,
@@ -226,6 +238,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           totalQty: Number(lp.totalQty),
           displayTotalQty: toDisplayStockQty(Number(lp.totalQty), lp.product),
         })),
+        suppliers: Array.from(new Map(lot.lotPurchases.map((p) => [p.supplierId, { id: p.supplierId, name: p.supplier.name }])).values()),
         distributions: cityDists,
         salesCount: lot._count.sales,
         hajiTransfersCount: lot._count.hajiTransfers,
@@ -248,7 +261,10 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     const parsed = createLotSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid lot data", parsed.error.errors);
 
-    const { countryId, lotNumber, lotDate, notes, purchaseItems, distributions } = parsed.data;
+    const { countryId, consigneeId, destinationCityId, lotNumber, lotDate, shipmentStatus, etaDate, notes, purchaseItems, distributions } = parsed.data;
+    if (shipmentStatus && !LOT_SHIPMENT_STATUS_VALUES.includes(shipmentStatus as any)) {
+      return validationError("Invalid shipment status");
+    }
 
     if (syncMeta) {
       const existingSync = await prisma.syncRequest.findUnique({
@@ -269,6 +285,14 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     // Verify country exists
     const country = await prisma.country.findUnique({ where: { id: countryId } });
     if (!country) return errorResponse("NOT_FOUND", "Country not found", 404);
+    if (consigneeId) {
+      const consignee = await prisma.consignee.findUnique({ where: { id: consigneeId } });
+      if (!consignee) return errorResponse("NOT_FOUND", "Consignee not found", 404);
+    }
+    if (destinationCityId) {
+      const destination = await prisma.city.findUnique({ where: { id: destinationCityId } });
+      if (!destination || destination.countryId !== countryId) return errorResponse("VALIDATION_ERROR", "Destination city must belong to selected country", 400);
+    }
 
     // Check lot number unique within country
     const existing = await prisma.lot.findUnique({
@@ -337,7 +361,28 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
 
     const lotFull = await prisma.$transaction(async (tx) => {
       const lot = await tx.lot.create({
-        data: { countryId, lotNumber, lotDate: new Date(lotDate), notes, createdBy: user.userId },
+        data: {
+          countryId,
+          consigneeId: consigneeId || null,
+          destinationCityId: destinationCityId || null,
+          lotNumber,
+          lotDate: new Date(lotDate),
+          shipmentStatus: (shipmentStatus || "order_confirmed") as any,
+          etaDate: etaDate ? new Date(etaDate) : null,
+          notes,
+          createdBy: user.userId,
+        },
+      });
+
+      await tx.lotStatusHistory.create({
+        data: {
+          lotId: lot.id,
+          previousStatus: null,
+          newStatus: (shipmentStatus || "order_confirmed") as any,
+          effectiveAt: new Date(),
+          note: "Initial shipment status",
+          changedBy: user.userId,
+        },
       });
 
       for (const [productId, totalQty] of Object.entries(productCartons)) {
@@ -380,6 +425,8 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         where: { id: lot.id },
         include: {
           country: true,
+          consignee: { select: { id: true, name: true, phone: true, address: true, notes: true, isActive: true } },
+          destinationCity: { select: { id: true, name: true } },
           lotProducts: { include: { product: true } },
           lotPurchases: { include: { supplier: { select: { id: true, name: true } }, product: { select: { id: true, name: true, unitOfMeasure: true, defaultWeightPerCartonKg: true, piecesPerCarton: true } } } },
           lotCityDistributions: { include: { city: true, product: true } },
@@ -389,7 +436,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       if (!createdLot) throw new Error("LOT_CREATE_FETCH_FAILED");
 
       await createAuditLog(user.userId, null, "lots", createdLot.id, "create", undefined, {
-        lotNumber, countryId, purchaseItems, distributions,
+        lotNumber, countryId, consigneeId, destinationCityId, shipmentStatus, purchaseItems, distributions,
       }, getClientIP(request), tx);
 
       if (syncMeta) {
@@ -419,6 +466,12 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       lotDate: lotFull.lotDate.toISOString().split("T")[0],
       notes: lotFull.notes,
       status: lotFull.status,
+      shipmentStatus: lotFull.shipmentStatus,
+      shipmentStatusLabel: lotShipmentStatusLabel(lotFull.shipmentStatus),
+      etaDate: lotFull.etaDate?.toISOString().split("T")[0] || null,
+      consignee: lotFull.consignee,
+      destinationCity: lotFull.destinationCity,
+      documentsCount: 0,
       totalPurchaseUsd: round2(totalUsd),
       products: lotFull.lotProducts.map((lp) => ({
         productId: lp.productId,

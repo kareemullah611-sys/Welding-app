@@ -40,7 +40,7 @@ function AppInner({ children, isCityAdmin }: { children: React.ReactNode; isCity
       <Sidebar />
       <main
         className={cn(
-          "relative z-10 min-h-[100dvh] min-w-0 transition-all duration-300",
+          "sidebar-layout-shift relative z-10 min-h-[100dvh] min-w-0",
           isRTL
             ? collapsed ? "lg:pr-[5.5rem]" : "lg:pr-[17.5rem]"
             : collapsed ? "lg:pl-[5.5rem]" : "lg:pl-[17.5rem]"

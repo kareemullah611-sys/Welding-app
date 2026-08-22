@@ -16,9 +16,9 @@ test("personal withdrawals support city bank account as a source of funds", () =
   assert.match(route, /Cheque is no longer a valid withdrawal source/);
   assert.match(route, /bankAccountId/);
   assert.match(route, /Bank account is required when source is bank account/);
-  // Fix C7: WDRAW journal posted at APPROVAL time, not create-time.
+  // Approved model: WDRAW journal is posted at creation time; approval is status-only.
   assert.doesNotMatch(route, /journalWithdrawal\(/);
-  assert.match(approveRoute, /journalWithdrawal\([\s\S]*bankAccountId/);
+  assert.doesNotMatch(approveRoute, /journalWithdrawal\(/);
   assert.match(accounting, /sourceType\?\:\s*string\s*\|\s*null;\s*bankAccountId\?\:\s*number\s*\|\s*null/);
   assert.match(accounting, /w\.sourceType === "bank_account" && w\.bankAccountId/);
   assert.match(validations, /sourceType:\s*z\.enum\(\["cash_office", "bank_account"\]\)/);

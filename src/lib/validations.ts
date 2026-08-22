@@ -168,8 +168,12 @@ const lotPurchaseItemSchema = z.object({
 
 export const createLotSchema = z.object({
   countryId:     z.number().int().positive(),
+  consigneeId:   z.number().int().positive().optional().nullable(),
+  destinationCityId: z.number().int().positive().optional().nullable(),
   lotNumber:     z.string().min(1).max(50),
   lotDate:       z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  shipmentStatus: z.string().optional(),
+  etaDate:       z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
   notes:         z.string().optional(),
   purchaseItems: z.array(lotPurchaseItemSchema).min(1),
   distributions: z.array(lotDistributionSchema).optional(),
@@ -181,8 +185,12 @@ export const updateLotPurchaseItemSchema = lotPurchaseItemSchema.extend({
 
 export const updateLotSchema = z.object({
   countryId: z.number().int().positive().optional(),
+  consigneeId: z.number().int().positive().optional().nullable(),
+  destinationCityId: z.number().int().positive().optional().nullable(),
   lotNumber: z.string().min(1).max(50).optional(),
   lotDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  shipmentStatus: z.string().optional(),
+  etaDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
   notes: z.string().optional().nullable(),
   purchaseItems: z.array(updateLotPurchaseItemSchema).min(1).optional(),
 });

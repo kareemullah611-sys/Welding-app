@@ -15,7 +15,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const scope = searchParams.get("scope");
 
     if (scope === "super_admin") {
-      const [incomingHajiPayments, expenses, intermediaryDeposits, lotCosts, supplierPayments, hajiCashReceipts] = await Promise.all([
+      const [incomingHajiPayments, expenses, intermediaryDeposits, lotCosts, supplierPayments, hajiCashReceipts, settlementPayments] = await Promise.all([
         prisma.payment.groupBy({
           by: ["superAdminBankAccountId", "currencyId"],
           where: {
@@ -60,6 +60,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           },
           _sum: { amount: true },
         }),
+        (prisma as any).investmentParticipantSettlementPayment.groupBy({
+          by: ["superAdminBankAccountId", "currencyId"],
+          where: { status: "settled" },
+          _sum: { paymentAmount: true },
+        }),
       ]);
       let incomingHajiBankRows: { superAdminBankAccountId: number; currencyId: number; amount: unknown }[] = [];
       try {
@@ -89,6 +94,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       for (const row of hajiCashReceipts) {
         if (!row.superAdminCashAccountId) continue;
         hajiCashMap.set(`${row.superAdminCashAccountId}:${row.currencyId}`, Number(row._sum.amount || 0));
+      }
+      const investorSettlementPaymentMap = new Map<string, number>();
+      for (const row of settlementPayments) {
+        investorSettlementPaymentMap.set(`${row.superAdminBankAccountId}:${row.currencyId}`, Number(row._sum.paymentAmount || 0));
       }
 
       const accounts = await prisma.superAdminBankAccount.findMany({
@@ -133,9 +142,9 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           const runningBalance = isCash
             ? await getSuperAdminCashAccountBalance(a.id).catch((err) => {
                 console.error(`Cash balance fallback for account ${a.id}:`, err);
-                return Math.round((hajiCashMap.get(`${a.id}:${a.currencyId}`) || 0) * 100) / 100;
+                return Math.round(((hajiCashMap.get(`${a.id}:${a.currencyId}`) || 0) - (investorSettlementPaymentMap.get(`${a.id}:${a.currencyId}`) || 0)) * 100) / 100;
               })
-            : Math.round((((incoming) - (expenseMap.get(a.id) || 0) - (intermediaryMap.get(`${a.id}:${a.currencyId}`) || 0) - (lotCostDebitMap.get(`${a.id}:${a.currencyId}`) || 0) - (supplierPaymentDebitMap.get(a.id) || 0)) * 100)) / 100;
+            : Math.round((((incoming) - (expenseMap.get(a.id) || 0) - (intermediaryMap.get(`${a.id}:${a.currencyId}`) || 0) - (lotCostDebitMap.get(`${a.id}:${a.currencyId}`) || 0) - (supplierPaymentDebitMap.get(a.id) || 0) - (investorSettlementPaymentMap.get(`${a.id}:${a.currencyId}`) || 0)) * 100)) / 100;
           return {
           id: a.id,
           cityId: null,

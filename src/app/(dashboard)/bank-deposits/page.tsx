@@ -43,6 +43,8 @@ function parseInterfundAmountInput(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+const requiresSourceBankAccount = (transferType: string) => transferType !== "cheque_to_cash";
+
 function applyQueuedMutationsToBankDeposits(baseRows: any[], queueItems: any[], bankAccounts: any[], currencies: any[]) {
   if (!Array.isArray(baseRows) || !Array.isArray(queueItems) || queueItems.length === 0) return baseRows;
   let next = [...baseRows];
@@ -115,6 +117,7 @@ export default function BankDepositsPage() {
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const transferTypeLabels: Record<string, string> = {
     cheque_to_bank: "Cash/Cheque → Bank",
     bank_to_cash: "Bank → Cash in Office",
@@ -268,7 +271,7 @@ export default function BankDepositsPage() {
     : Number(form.cashAmount || 0);
 
   const handleCreate = async () => {
-    if (!form.bankAccountId) { setError("Please select a bank account"); return; }
+    if (requiresSourceBankAccount(form.transferType) && !form.bankAccountId) { setError("Please select a bank account"); return; }
     if (!form.depositDate) { setError("Please select a deposit date"); return; }
     if (!form.currencyId) { setError("Please select a currency"); return; }
     if (form.transferType === "bank_to_cash" && !(Number(form.cashAmount || 0) > 0)) { setError("Please enter a transfer amount"); return; }
@@ -283,6 +286,7 @@ export default function BankDepositsPage() {
     if (form.transferType === "cheque_to_bank" && Number(form.cashAmount || 0) <= 0 && form.chequePaymentIds.length === 0) { setError("Please enter a cash amount or select at least one cheque"); return; }
     const body = {
       ...form,
+      bankAccountId: requiresSourceBankAccount(form.transferType) ? form.bankAccountId : null,
       cashAmount: form.transferType === "cheque_to_cash" ? chequesTotal : Number(form.cashAmount || 0),
       slipNumber: form.transferType === "cheque_to_cash" ? "" : form.slipNumber,
     };
@@ -351,9 +355,31 @@ export default function BankDepositsPage() {
     }
 
     setSubmitting(true);
-    const r = await apiCall("/api/v1/bank-deposits", { method: "POST", body });
+    const r = await apiCall(editingId ? `/api/v1/bank-deposits/${editingId}` : "/api/v1/bank-deposits", { method: editingId ? "PUT" : "POST", body });
     setSubmitting(false);
-    if (r.success) { setShowCreate(false); setResolvingQueueId(null); load(); } else { setError(r.error || "Failed"); }
+    if (r.success) { setShowCreate(false); setEditingId(null); setResolvingQueueId(null); load(); } else { setError(r.error || "Failed"); }
+  };
+
+  const openEdit = async (d: any) => {
+    await openCreate({
+      transferType: d.transferType,
+      bankAccountId: d.bankAccount?.id || 0,
+      destinationBankAccountId: d.destinationBankAccount?.id || 0,
+      depositDate: d.depositDate,
+      slipNumber: d.slipNumber || "",
+      cashAmount: Math.abs(Number(d.cashAmount || 0)),
+      currencyId: d.currencyId,
+      notes: d.notes || "",
+      chequePaymentIds: (d.cheques || []).map((c: any) => c.id),
+    });
+    setInHandCheques((rows) => [...rows, ...(d.cheques || []).filter((c: any) => !rows.some((r: any) => r.id === c.id))]);
+    setEditingId(Number(d.id));
+  };
+
+  const handleDelete = async (d: any) => {
+    if (!window.confirm("Delete this inter funds transfer? Its journal entries will be reversed.")) return;
+    const r = await apiCall(`/api/v1/bank-deposits/${d.id}`, { method: "DELETE" });
+    if (r.success) load(); else setError(r.error || "Failed to delete transfer");
   };
 
   useEffect(() => {
@@ -428,14 +454,22 @@ export default function BankDepositsPage() {
         <div className="space-y-2">
           {deposits.map((d: any) => {
             const chequeSum = (d.cheques || []).reduce((s: number, c: any) => s + Number(c.amount || 0), 0);
-            const depTotal = Number(d.cashAmount || 0) + chequeSum;
+            const depTotal = d.transferType === "cheque_to_cash"
+              ? chequeSum
+              : d.transferType === "bank_to_cash" || d.transferType === "bank_to_bank"
+              ? Math.abs(Number(d.cashAmount || 0))
+              : Number(d.cashAmount || 0) + chequeSum;
             const isExpanded = expandedId === d.id;
             return (
               <div key={d.id} className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
                 <div className="flex items-center justify-between gap-3 px-3 py-2">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                      <p className="truncate text-sm font-semibold text-gray-900">{d.bankAccount?.bankName || "—"}</p>
+                      <p className="truncate text-sm font-semibold text-gray-900">
+                        {d.transferType === "bank_to_bank"
+                          ? `${d.bankAccount?.bankName || "—"} → ${d.destinationBankAccount?.bankName || "—"}`
+                          : d.bankAccount?.bankName || (d.transferType === "cheque_to_cash" ? "Cash in Office" : "—")}
+                      </p>
                       <span className="text-[11px] text-gray-400">·</span>
                       <p className="text-xs text-gray-500">{formatDate(d.depositDate)}{d.transferType !== "cheque_to_cash" && d.slipNumber ? ` · Slip #${d.slipNumber}` : ""}</p>
                     </div>
@@ -447,13 +481,15 @@ export default function BankDepositsPage() {
                         <p className="text-xs text-gray-500">Cash: <span className="font-medium">{d.currency?.symbol} {Number(d.cashAmount).toLocaleString("en-US")}</span></p>
                       )}
                       {Number(d.cashAmount) < 0 && (
-                        <p className="text-xs text-gray-500">Bank Out: <span className="font-medium">{d.currency?.symbol} {Math.abs(Number(d.cashAmount)).toLocaleString("en-US")}</span></p>
+                        <p className="text-xs text-gray-500">{d.transferType === "cheque_to_cash" ? "Cheque Cashed" : "Bank Out"}: <span className="font-medium">{d.currency?.symbol} {Math.abs(Number(d.cashAmount)).toLocaleString("en-US")}</span></p>
                       )}
                       {d.cheques?.length > 0 && (
                         <p className="text-xs text-gray-500">{d.cheques.length} cheque{d.cheques.length !== 1 ? "s" : ""}: <span className="font-medium">{d.currency?.symbol} {chequeSum.toLocaleString("en-US")}</span></p>
                       )}
                       <p className="mt-0.5 text-sm font-bold text-blue-700">Total: {d.currency?.symbol} {depTotal.toLocaleString("en-US")}</p>
                     </div>
+                    {isPakistanCity && !d._pending && <button onClick={() => void openEdit(d)} className="text-xs text-primary-600 hover:underline">Edit</button>}
+                    {isPakistanCity && !d._pending && <button onClick={() => void handleDelete(d)} className="text-xs text-red-600 hover:underline">Delete</button>}
                     {d.cheques?.length > 0 && (
                       <button
                         onClick={() => setExpandedId(isExpanded ? null : d.id)}
@@ -500,7 +536,7 @@ export default function BankDepositsPage() {
       )}
 
       {/* CREATE MODAL */}
-      <Modal open={showCreate} onClose={() => setShowCreate(false)} title={isPakistanCity ? "New Inter Funds Transfer" : "New Bank Deposit Slip"} size="md">
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); setEditingId(null); }} title={editingId ? "Edit Inter Funds Transfer" : isPakistanCity ? "New Inter Funds Transfer" : "New Bank Deposit Slip"} size="md">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
@@ -524,7 +560,7 @@ export default function BankDepositsPage() {
                 <option value="bank_to_bank">Bank A → Bank B</option>
               </select>
             </div>
-            <div>
+            {requiresSourceBankAccount(form.transferType) && <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{form.transferType === "bank_to_bank" ? "Source Bank Account *" : `${t("bank_account")} *`}</label>
               {bankAccounts.length === 0 ? (
                 <div className="p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-700">{t("no_bank_accounts")}</div>
@@ -539,7 +575,7 @@ export default function BankDepositsPage() {
                   Available: {sourceAvailableBalance.toLocaleString("en-US")} {selectedCurrencyCode}
                 </p>
               )}
-            </div>
+            </div>}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t("date")} *</label>
               <input type="date" value={form.depositDate} onChange={e => setForm((f: any) => ({ ...f, depositDate: e.target.value }))} className="input-field" />
@@ -645,7 +681,7 @@ export default function BankDepositsPage() {
           )}
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">
-          <button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("save")}</button>
+          <button onClick={handleCreate} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : editingId ? "Update" : t("save")}</button>
         </div>
       </Modal>
     </div>

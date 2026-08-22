@@ -85,6 +85,9 @@ export async function getOwnerWithdrawalAccountId(db: DbClient = prisma): Promis
 export async function getHajiAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("6003", "Haji Account", "equity", undefined, db); }
 export async function getOpeningBalanceAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("3900", "Opening Balances", "equity", undefined, db); }
 export async function getBankAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("1050", "Bank Account (USD)", "asset", undefined, db); }
+export async function getInvestorSettlementPayableAccountId(db: DbClient = prisma): Promise<number> {
+  return getOrCreateAccount("2600-INVSETTLE", "Investor Settlement Payable", "liability", undefined, db);
+}
 
 export async function getExpenseAccountId(costType: string, db: DbClient = prisma): Promise<number> {
   const m: Record<string, { code: string; name: string }> = {
@@ -179,13 +182,24 @@ export async function journalChequeReceived(p: { id: number; customerId: number;
 // Each cheque:    DR Bank | CR Cheques in Hand
 // Cheques use separate transaction IDs so individual bounces can be reversed without affecting others.
 export async function journalBankDeposit(d: {
-  id: number; bankAccountId: number; cityId: number; cashAmount: number;
+  id: number; bankAccountId: number | null; cityId: number; cashAmount: number;
   currencyCode: string; depositDate: Date; createdBy: number;
   cheques: Array<{ paymentId: number; amount: number; }>;
   transactionKeySuffix?: string;
+  transferType?: string;
 }, db: DbClient = prisma) {
-  const bankAccId = await getBankGLAccountId(d.bankAccountId, db);
   const txKey = d.transactionKeySuffix ? `DEP-${d.id}-${d.transactionKeySuffix}` : `DEP-${d.id}`;
+  if (d.transferType === "cheque_to_cash") {
+    for (const cheque of d.cheques) {
+      await createJournalEntries(`${txKey}-PAY-${cheque.paymentId}`, [
+        { accountId: await getCashAccountId(d.cityId, db), debit: cheque.amount, credit: 0, description: `Cheque cashed #${cheque.paymentId}` },
+        { accountId: await getChequesInHandAccountId(d.cityId, db), debit: 0, credit: cheque.amount, description: `Cheque cashed #${cheque.paymentId}` },
+      ], { currencyCode: d.currencyCode, entityType: "bank_deposit", entityId: d.id, cityId: d.cityId, entryDate: d.depositDate, createdBy: d.createdBy }, db);
+    }
+    return;
+  }
+  if (!d.bankAccountId) throw new Error("Bank account is required for this transfer type");
+  const bankAccId = await getBankGLAccountId(d.bankAccountId, db);
   if (d.cashAmount > 0) {
     await createJournalEntries(`${txKey}-CASH`, [
       { accountId: bankAccId, debit: d.cashAmount, credit: 0, description: `Deposit #${d.id} — cash` },
