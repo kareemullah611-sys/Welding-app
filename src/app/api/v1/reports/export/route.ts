@@ -16,6 +16,16 @@ import {
   formatExportDateShort,
   type ExportPayload,
 } from "@/lib/report-export-helpers";
+import { computeRunningBalances, getCombinedItemNetDelta } from "@/lib/treasury-ledger";
+
+function comparePaymentExportNewestFirst(a: { date: Date; createdAt?: Date; id: number; ledgerType: string; raw?: any }, b: { date: Date; createdAt?: Date; id: number; ledgerType: string; raw?: any }) {
+  const dateDiff = b.date.getTime() - a.date.getTime();
+  if (dateDiff !== 0) return dateDiff;
+  if (a.ledgerType === "payment" && b.ledgerType === "haji_transfer" && b.raw?.paymentId === a.id) return 1;
+  if (b.ledgerType === "payment" && a.ledgerType === "haji_transfer" && a.raw?.paymentId === b.id) return -1;
+  const createdDiff = (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0);
+  return createdDiff !== 0 ? createdDiff : b.id - a.id;
+}
 import {
   formatCustomerLedgerPaymentDetail,
   formatCustomerLedgerSaleItemDetail,
@@ -151,34 +161,39 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       const paymentDetail = (p: any) => {
         const account = p.destination === "haji" ? p.superAdminBankAccount : p.bankAccount;
         const accountText = bankLabel(account);
-        const method = formatLabel(p.paymentMethod).toLowerCase();
-        const accountMethod = accountText ? `${accountText} ${method}` : method;
-        const parts = [p.customer?.name, accountMethod || cleanText(p.detail)].filter(Boolean);
+        const method = p.paymentMethod === "bank_transfer"
+          ? "Transfer"
+          : p.paymentMethod === "online"
+            ? "Online"
+            : formatLabel(p.paymentMethod);
+        const source = accountText || method;
+        const parts = [p.customer?.name, source, accountText && method !== "Cash" ? method : ""].filter(Boolean);
         return parts.join(" · ");
       };
       const expenseSource = (e: any) => {
         if (e.paidFrom === "bank_account") return bankLabel(e.bankAccount) || "Bank";
         if (e.paidFrom === "cheque") return "Cheque";
-        if (e.paidFrom === "customer") return e.customerPayment?.customer?.name ? `Customer ${e.customerPayment.customer.name}` : "Customer";
-        return "Cash office";
-      };
-      const withdrawalSource = (w: any) => {
-        if (w.sourceType === "bank_account") return bankLabel(w.bankAccount) || "Bank";
-        if (w.sourceType === "cheque") return "Cheque";
-        return formatLabel(w.sourceType || "cash_office");
+        if (e.paidFrom === "customer") return e.customerPayment?.customer?.name || "Customer";
+        return "Cash";
       };
       const hajiAccount = (h: any) => cleanText(h.transferredTo || h.detail);
       const entries: Array<{
+        id: number;
         date: Date;
+        createdAt?: Date;
+        ledgerType: string;
         type: string;
         name: string;
-        particulars: string;
+        details: string;
         ref: string;
+        amount: number;
         debit: number;
         credit: number;
         runningBalance?: number;
         currencySymbol: string;
         currencyCode: string;
+        status?: string | null;
+        raw?: any;
       }> = [];
 
       if (selectedType === "all" || selectedType === "payment") {
@@ -200,15 +215,21 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         entries.push(...payments.map((p: any) => {
           const amount = Number(p.amount || 0);
           return {
+            id: p.id,
             date: p.paymentDate,
+            createdAt: p.createdAt,
+            ledgerType: "payment",
             type: "Payment",
             name: cleanText(p.customer?.name || ""),
-            particulars: paymentDetail(p),
+            details: paymentDetail(p),
             ref: paymentRef(p),
+            amount,
             debit: amount < 0 ? Math.abs(amount) : 0,
             credit: amount > 0 ? amount : 0,
             currencySymbol: p.currency.symbol,
             currencyCode: p.currency.code,
+            status: p.status,
+            raw: { ...p, amount, bankAccountId: p.bankAccountId },
           };
         }));
       }
@@ -224,15 +245,21 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           orderBy: [{ withdrawalDate: "asc" }, { id: "asc" }],
         });
         entries.push(...withdrawals.map((w: any) => ({
+          id: w.id,
           date: w.withdrawalDate,
+          createdAt: w.createdAt,
+          ledgerType: "withdrawal",
           type: "Withdrawal",
           name: cleanText(w.withdrawnBy || ""),
-          particulars: [w.withdrawnBy, w.detail, withdrawalSource(w)].map(cleanText).filter(Boolean).join(" · "),
+          details: [w.withdrawnBy, w.detail].map(cleanText).filter(Boolean).join(" · "),
           ref: paymentRef(w.chequePayment || {}),
+          amount: Number(w.amount || 0),
           debit: Number(w.amount || 0),
           credit: 0,
           currencySymbol: w.currency.symbol,
           currencyCode: w.currency.code,
+          status: w.approvedBy ? "approved" : "pending",
+          raw: { ...w, amount: Number(w.amount || 0), sourceType: w.sourceType || "cash_office" },
         })));
       }
 
@@ -248,15 +275,20 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           orderBy: [{ expenseDate: "asc" }, { id: "asc" }],
         });
         entries.push(...expenses.map((e: any) => ({
+          id: e.id,
           date: e.expenseDate,
+          createdAt: e.createdAt,
+          ledgerType: "expense",
           type: "Expense",
           name: "",
-          particulars: [e.detail, expenseSource(e)].map(cleanText).filter(Boolean).join(" · "),
+          details: [e.detail, expenseSource(e)].map(cleanText).filter(Boolean).join(" · "),
           ref: paymentRef(e.chequePayment || {}),
+          amount: Number(e.amount || 0),
           debit: Number(e.amount || 0),
           credit: 0,
           currencySymbol: e.currency.symbol,
           currencyCode: e.currency.code,
+          raw: { ...e, amount: Number(e.amount || 0), paidFrom: e.paidFrom || "cash_office" },
         })));
       }
 
@@ -267,38 +299,68 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           orderBy: [{ transferDate: "asc" }, { id: "asc" }],
         });
         entries.push(...transfers.map((h: any) => ({
+          id: h.id,
           date: h.transferDate,
+          createdAt: h.createdAt,
+          ledgerType: "haji_transfer",
           type: "Haji Transfer",
           name: hajiAccount(h),
-          particulars: [hajiAccount(h), h.notes].map(cleanText).filter(Boolean).join(" · "),
+          details: hajiAccount(h),
           ref: cleanText(h.referenceNo || ""),
+          amount: Number(h.amount || 0),
           debit: Number(h.amount || 0),
           credit: 0,
           currencySymbol: h.currency.symbol,
           currencyCode: h.currency.code,
+          raw: { ...h, amount: Number(h.amount || 0), sourceType: h.sourceType || "cash_office" },
         })));
       }
 
+      const [openingCashRows, openingBankRows] = await Promise.all([
+        prisma.openingCash.findMany({ where: cityFilter, include: { currency: { select: { code: true } } } }),
+        prisma.openingBankBalance.findMany({ where: cityId ? { bankAccount: { cityId } } : {}, include: { currency: { select: { code: true } } } }),
+      ]);
+      const openingCashByCurrency: Record<string, number> = {};
+      for (const row of [...openingCashRows, ...openingBankRows]) {
+        openingCashByCurrency[row.currency.code] = (openingCashByCurrency[row.currency.code] || 0) + Number(row.amount || 0);
+      }
       let filteredEntries = entries;
       if (search.normalizedQuery) {
         filteredEntries = entries.filter((entry) => matchesExportTextSearch(
           search,
-          [entry.type, entry.name, entry.particulars, entry.ref, entry.currencyCode, entry.currencySymbol],
+          [entry.type, entry.name, entry.details, entry.ref, entry.currencyCode, entry.currencySymbol],
           [entry.debit, entry.credit],
         ));
       }
-      filteredEntries.sort((a, b) => a.date.getTime() - b.date.getTime());
-      const runningByCurrency: Record<string, number> = {};
+      const { itemsWithBalance } = computeRunningBalances(
+        filteredEntries.map((entry) => ({
+          id: entry.id,
+          type: entry.ledgerType,
+          date: entry.date.toISOString().split("T")[0],
+          amount: entry.amount,
+          currencyCode: entry.currencyCode,
+          status: entry.status,
+          raw: { ...(entry.raw || {}), createdAt: entry.createdAt },
+        })),
+        openingCashByCurrency,
+      );
+      const runningBalanceByEntry = new Map(itemsWithBalance.map((item) => [`${item.type}:${item.id}`, item.runningBalance]));
       for (const entry of filteredEntries) {
-        runningByCurrency[entry.currencyCode] = (runningByCurrency[entry.currencyCode] || 0) + entry.credit - entry.debit;
-        entry.runningBalance = runningByCurrency[entry.currencyCode];
+        const delta = getCombinedItemNetDelta({
+          type: entry.ledgerType,
+          amount: entry.amount,
+          status: entry.status,
+          raw: entry.raw,
+        });
+        entry.debit = delta < 0 ? Math.abs(delta) : 0;
+        entry.credit = delta > 0 ? delta : 0;
+        entry.runningBalance = runningBalanceByEntry.get(`${entry.ledgerType}:${entry.id}`) || 0;
       }
-      const headers = ["Date", "Type", "Name", "Particulars", "Ref. No.", "Debit", "Credit", "Running Balance"];
+      filteredEntries.sort(comparePaymentExportNewestFirst);
+      const headers = ["Date", "Details", "Ref. No.", "Debit", "Credit", "Running Balance"];
       const dataRows = filteredEntries.map((entry) => [
         formatDate(entry.date),
-        entry.type,
-        cleanText(entry.name),
-        cleanText(entry.particulars),
+        cleanText(entry.details),
         cleanText(entry.ref),
         entry.debit ? fmtReportMoney(entry.debit, entry.currencySymbol, entry.currencyCode) : "",
         entry.credit ? fmtReportMoney(entry.credit, entry.currencySymbol, entry.currencyCode) : "",

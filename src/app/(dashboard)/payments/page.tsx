@@ -2027,13 +2027,7 @@ export default function PaymentsPage() {
         superAdminBankAccounts,
       })
     : [];
-  const paymentExportType: LedgerExportType = typeFilter === "expense"
-    ? "expenses"
-    : typeFilter === "haji_transfer"
-      ? "haji_transfers"
-      : typeFilter === "withdrawal"
-        ? "withdrawals"
-        : "payments";
+  const paymentExportType: LedgerExportType = "payments";
   const renderAfghanistanPaymentMethodSelect = () => (
     <div className={isEmbed ? "quickform-panel space-y-2" : "space-y-2 rounded-xl border border-gray-200 bg-gray-50/70 p-4"}>
       <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Payment Method *</label>
