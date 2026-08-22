@@ -1,4 +1,5 @@
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { injectPrintUrlSuppression } from "./ledger-export";
@@ -35,4 +36,19 @@ test("injectPrintUrlSuppression adds a zero-margin @page rule after the template
 test("injectPrintUrlSuppression leaves HTML without a closing head untouched", () => {
   const raw = "<body></body>";
   assert.equal(injectPrintUrlSuppression(raw), raw);
+});
+
+test("payments PDF maps the six export columns into the current report layout", () => {
+  const source = readFileSync("src/lib/ledger-export.ts", "utf8");
+  const start = source.indexOf("function printPaymentsReportPayload");
+  const end = source.indexOf("export async function fetchLedgerExportPayload", start);
+  const paymentTemplate = source.slice(start, end);
+
+  assert.match(paymentTemplate, /<td class="col-details">\$\{escapeHtml\(row\[1\]\)\}<\/td>/);
+  assert.match(paymentTemplate, /<td class="col-ref">\$\{escapeHtml\(row\[2\]\)\}<\/td>/);
+  assert.match(paymentTemplate, /<td class="col-money debit">\$\{escapeHtml\(row\[3\]\)\}<\/td>/);
+  assert.match(paymentTemplate, /<td class="col-money credit">\$\{escapeHtml\(row\[4\]\)\}<\/td>/);
+  assert.match(paymentTemplate, /<td class="col-money balance">\$\{escapeHtml\(row\[5\]\)\}<\/td>/);
+  assert.match(paymentTemplate, /<th class="col-details">Details<\/th>/);
+  assert.doesNotMatch(paymentTemplate, /col-type|col-name|col-particulars|row\[6\]|row\[7\]/);
 });

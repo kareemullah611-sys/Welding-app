@@ -172,13 +172,11 @@ function printPaymentsReportPayload(payload: ExportPayload) {
   const rowsHtml = payload.rows.map((row, index) => `
     <tr class="${index % 2 === 1 ? "alt-row" : ""}">
       <td class="col-date">${escapeHtml(row[0])}</td>
-      <td class="col-type">${escapeHtml(row[1])}</td>
-      <td class="col-name">${escapeHtml(row[2])}</td>
-      <td class="col-particulars">${escapeHtml(row[3])}</td>
-      <td class="col-ref">${escapeHtml(row[4])}</td>
-      <td class="col-money debit">${escapeHtml(row[5])}</td>
-      <td class="col-money credit">${escapeHtml(row[6])}</td>
-      <td class="col-money balance">${escapeHtml(row[7])}</td>
+      <td class="col-details">${escapeHtml(row[1])}</td>
+      <td class="col-ref">${escapeHtml(row[2])}</td>
+      <td class="col-money debit">${escapeHtml(row[3])}</td>
+      <td class="col-money credit">${escapeHtml(row[4])}</td>
+      <td class="col-money balance">${escapeHtml(row[5])}</td>
     </tr>
   `).join("");
 
@@ -191,15 +189,15 @@ function printPaymentsReportPayload(payload: ExportPayload) {
           h1 { margin: 0; font-size: 17px; font-weight: 700; }
           .meta { margin-top: 5px; color: #666; font-size: 11px; }
           table { width: 100%; border-collapse: collapse; margin-top: 12px; table-layout: fixed; }
-          th, td { border: 1px solid #e5e7eb; padding: 5px 6px; text-align: left; font-size: 11px; vertical-align: top; overflow-wrap: anywhere; }
+          thead { display: table-header-group; }
+          tr { break-inside: avoid; page-break-inside: avoid; }
+          th, td { border: 1px solid #e5e7eb; padding: 6px 7px; text-align: left; font-size: 11px; line-height: 1.35; vertical-align: middle; overflow-wrap: anywhere; }
           th { background: #f8fafc; text-transform: uppercase; letter-spacing: .05em; font-size: 9px; color: #64748b; }
           .alt-row td { background: #f8fafc; }
-          .col-date { width: 6.5em; white-space: nowrap; }
-          .col-type { width: 7em; }
-          .col-name { width: 11em; }
-          .col-particulars { width: auto; }
-          .col-money { width: 8.5em; text-align: right; white-space: nowrap; }
-          .col-ref { width: 4.5em; white-space: nowrap; }
+          .col-date { width: 7em; white-space: nowrap; }
+          .col-details { width: auto; }
+          .col-ref { width: 6.5em; white-space: nowrap; }
+          .col-money { width: 10em; text-align: right; white-space: nowrap; }
           .debit { color: #b91c1c; font-weight: 700; }
           .credit { color: #15803d; font-weight: 700; }
           .balance { color: #334155; font-weight: 700; }
@@ -213,9 +211,7 @@ function printPaymentsReportPayload(payload: ExportPayload) {
           <thead>
             <tr>
               <th class="col-date">Date</th>
-              <th class="col-type">Type</th>
-              <th class="col-name">Name</th>
-              <th class="col-particulars">Particulars</th>
+              <th class="col-details">Details</th>
               <th class="col-ref">Ref. No.</th>
               <th class="col-money">Debit</th>
               <th class="col-money">Credit</th>
