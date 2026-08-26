@@ -101,6 +101,7 @@ test("production historical correction requires exact target acknowledgement and
   assert.match(runner, /HISTORICAL_CORRECTION_EXPECTED_DATABASE/);
   assert.match(runner, /HISTORICAL_CORRECTION_BACKUP_FILE/);
   assert.match(runner, /pg_restore/);
+  assert.match(runner, /productionMode\s*\?\s*600_000\s*:\s*120_000/);
 });
 
 test("historical COGS preview separates opening equity adjustments from operating COGS", () => {

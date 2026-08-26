@@ -227,6 +227,7 @@ async function main() {
     const actor = await prisma.user.findFirst({ where: { username: actorUsername, role: "super_admin", isActive: true }, select: { id: true } });
     if (!actor) throw new Error(`Active superadmin ${actorUsername} not found.`);
 
+    const transactionTimeoutMs = productionMode ? 600_000 : 120_000;
     const applied = await prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)", "historical-opening-accounting-correction");
       let rateUpdates = 0;
@@ -316,7 +317,7 @@ async function main() {
         },
       });
       return { rateUpdates, reversals, openingAdjustments, operatingCogs };
-    }, { maxWait: 10_000, timeout: 120_000 });
+    }, { maxWait: 10_000, timeout: transactionTimeoutMs });
 
     console.log(JSON.stringify({
       safety: database,
