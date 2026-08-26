@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { buildMissingCogsWarnings, summarizeJournalPnl } from "./authoritative-financial-report";
 
 const accounts = [
@@ -118,4 +119,14 @@ test("active sale lot rows without COGS journals are blocked from clean finaliza
   assert.match(warnings[0], /Missing COGS journal for 2 active sale\/lot rows/);
   assert.match(warnings[0], /sale 0058 lot 649/);
   assert.match(warnings[0], /sale 0059 lot 649/);
+});
+
+test("historical opening imports are excluded from operating COGS completeness warnings", () => {
+  const source = readFileSync("src/lib/authoritative-financial-report.ts", "utf8");
+  const saleItemsQuery = source.slice(
+    source.indexOf("prisma.saleItem.findMany"),
+    source.indexOf("prisma.journalEntry.findMany", source.indexOf("prisma.saleItem.findMany")),
+  );
+
+  assert.match(saleItemsQuery, /isOpeningImport:\s*false/);
 });

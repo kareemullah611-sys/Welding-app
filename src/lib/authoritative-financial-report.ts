@@ -236,6 +236,7 @@ export async function buildAuthoritativeFinancialReportResult(input: {
         sale: {
           saleDate: { gte: dateFrom, lt: dateToExclusive },
           status: "active",
+          isOpeningImport: false,
           ...(input.cityId ? { cityId: input.cityId } : {}),
         },
       },
