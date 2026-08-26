@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { buildDateRange } from "@/lib/date-range";
 
 // GET /api/v1/city-ledger?city_id=1
 // Returns a chronological ledger of all financial transactions for a city
@@ -15,20 +16,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const dateFromStr = searchParams.get("date_from");
     const dateToStr = searchParams.get("date_to");
 
-    // Validate date strings — ignore invalid inputs rather than passing Invalid Date to Prisma
-    const parseDate = (s: string | null): Date | undefined => {
-      if (!s) return undefined;
-      const d = new Date(s);
-      return isNaN(d.getTime()) ? undefined : d;
-    };
-    const dateFrom = parseDate(dateFromStr);
-    const dateTo = parseDate(dateToStr);
+    const range = buildDateRange(dateFromStr, dateToStr);
 
     const dateFilter = (field: string) => {
-      const f: any = {};
-      if (dateFrom) f.gte = dateFrom;
-      if (dateTo) f.lte = dateTo;
-      return Object.keys(f).length ? { [field]: f } : {};
+      return Object.keys(range).length ? { [field]: range } : {};
     };
 
     // Fetch all financial transactions for this city

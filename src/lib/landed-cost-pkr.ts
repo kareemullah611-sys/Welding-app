@@ -16,6 +16,13 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+export class MissingLandedCostFxRateError extends Error {
+  constructor(currencyCode: string) {
+    super(`Missing ${currencyCode} to PKR exchange rate for landed cost`);
+    this.name = "MissingLandedCostFxRateError";
+  }
+}
+
 /** Convert a lot-cost row to PKR using stored rates and the lot USD/PKR rate. */
 export function lotCostToPkr(cost: LotCostLike, usdPkrRate: number): number {
   const amount = num(cost?.amount);
@@ -25,15 +32,17 @@ export function lotCostToPkr(cost: LotCostLike, usdPkrRate: number): number {
   if (code === "PKR") return amount;
   if (code === "AFN" || code === "CNY") {
     const toPkr = num(cost?.exchangeRate);
-    return toPkr > 0 ? amount * toPkr : 0;
+    if (toPkr <= 0) throw new MissingLandedCostFxRateError(code);
+    return amount * toPkr;
   }
   if (code === "USD") {
     const rate = num(cost?.exchangeRate) > 0 ? num(cost.exchangeRate) : usdPkrRate;
-    return rate > 0 ? amount * rate : 0;
+    if (rate <= 0) throw new MissingLandedCostFxRateError(code);
+    return amount * rate;
   }
 
   const legacyRate = num(cost?.exchangeRate);
-  if (legacyRate <= 0 || usdPkrRate <= 0) return 0;
+  if (legacyRate <= 0 || usdPkrRate <= 0) throw new MissingLandedCostFxRateError(code);
   return (amount / legacyRate) * usdPkrRate;
 }
 
@@ -59,9 +68,18 @@ export function lotExpensesByCurrencyToPkr(
   cnyToPkrRate = 0
 ): number {
   let total = num(byCurrency.PKR);
-  if (num(byCurrency.USD) > 0 && usdPkrRate > 0) total += num(byCurrency.USD) * usdPkrRate;
-  if (num(byCurrency.AFN) > 0 && afnToPkrRate > 0) total += num(byCurrency.AFN) * afnToPkrRate;
-  if (num(byCurrency.CNY) > 0 && cnyToPkrRate > 0) total += num(byCurrency.CNY) * cnyToPkrRate;
+  if (num(byCurrency.USD) > 0) {
+    if (usdPkrRate <= 0) throw new MissingLandedCostFxRateError("USD");
+    total += num(byCurrency.USD) * usdPkrRate;
+  }
+  if (num(byCurrency.AFN) > 0) {
+    if (afnToPkrRate <= 0) throw new MissingLandedCostFxRateError("AFN");
+    total += num(byCurrency.AFN) * afnToPkrRate;
+  }
+  if (num(byCurrency.CNY) > 0) {
+    if (cnyToPkrRate <= 0) throw new MissingLandedCostFxRateError("CNY");
+    total += num(byCurrency.CNY) * cnyToPkrRate;
+  }
   return total;
 }
 
@@ -108,13 +126,14 @@ export function computeLotLandedCostPkr(input: LotLandedCostPkrInput): LotLanded
     afnToPkrRate: 0,
     cnyToPkrRate: 0,
   };
-  if (rate <= 0) return empty;
+  const purchaseUsd = num(input.totalPurchaseUsd);
+  if (rate <= 0 && purchaseUsd > 0) throw new MissingLandedCostFxRateError("USD");
+  if (rate <= 0 && purchaseUsd <= 0 && (input.lotCosts || []).length === 0 && Object.keys(input.lotExpensesByCurrency || {}).length === 0) return empty;
 
   const costs = input.lotCosts || [];
   const afnToPkrRate = resolveAfnToPkrRate(costs);
   const cnyToPkrRate = resolveCnyToPkrRate(costs);
 
-  const purchaseUsd = num(input.totalPurchaseUsd);
   const freightPkr = costs
     .filter((c) => c.costType === "freight")
     .reduce((s, c) => s + lotCostToPkr(c, rate), 0);

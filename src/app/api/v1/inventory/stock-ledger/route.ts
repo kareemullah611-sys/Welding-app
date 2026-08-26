@@ -131,7 +131,23 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           g.name                                   AS godown_name,
           g.city_id,
           c.name                                   AS city_name,
-          lcga.qty                                 AS qty_in,
+          lcga.qty
+            + COALESCE((
+                SELECT SUM(ct.qty)
+                FROM city_transfers ct
+                WHERE ct.status = 'approved'
+                  AND ct.from_godown_id = lcga.godown_id
+                  AND ct.product_id = lcd.product_id
+                  AND ct.lot_id = lcd.lot_id
+              ), 0)
+            - COALESCE((
+                SELECT SUM(ct.qty)
+                FROM city_transfers ct
+                WHERE ct.status = 'approved'
+                  AND ct.to_godown_id = lcga.godown_id
+                  AND ct.product_id = lcd.product_id
+                  AND ct.lot_id = lcd.lot_id
+              ), 0)                              AS qty_in,
           0                                        AS qty_out,
           NULL::text                               AS customer_name
         FROM lot_city_godown_allocations lcga
@@ -177,7 +193,6 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           gf.name                                  AS godown_name,
           gf.city_id,
           c.name                                   AS city_name,
-          0                                        AS qty_in,
           gt.qty                                   AS qty_out,
           NULL::text                               AS customer_name
         FROM godown_transfers gt

@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth } from "@/lib/middleware";
 import { successResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { buildDateRange } from "@/lib/date-range";
 
 // GET /api/v1/discounts
 // Returns discount history with customer, sale, lot, and currency details.
@@ -28,9 +29,7 @@ export const GET = withAuth(async (request: NextRequest, _context: any, user: JW
     }
 
     if (dateFrom || dateTo) {
-      where.discountDate = {};
-      if (dateFrom) where.discountDate.gte = new Date(dateFrom);
-      if (dateTo)   where.discountDate.lte = new Date(dateTo + "T23:59:59");
+      where.discountDate = buildDateRange(dateFrom, dateTo);
     }
 
     const discounts = await prisma.saleDiscount.findMany({

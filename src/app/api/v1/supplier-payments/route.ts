@@ -9,6 +9,8 @@ import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idem
 import { validateSupplierPaymentSettlement } from "@/lib/settlement-validation";
 import { assertSuperAdminCashHasFunds } from "@/lib/haji-cash-balance";
 import { consumeIntermediaryUsdFifo, getLotFallbackUsdToPkrRate } from "@/lib/intermediary-usd-fifo";
+import { resolveSupplierSettlementContext } from "@/lib/liability-settlement-context";
+import { LiabilityFxValidationError } from "@/lib/realized-liability-fx";
 
 const SUPPLIER_PAYMENT_SYNC_MODULE = "supplier_payments";
 const SUPERADMIN_SYNC_CITY_ID = 0;
@@ -95,18 +97,12 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     const amountUsd = Number(parsed.data.amountUsd);
 
     let computedLocal = parsed.data.amountLocal ? Number(parsed.data.amountLocal) : null;
-    let settlementCurrencyCode: string | null = null;
 
     if (superAdminCashAccountId) {
       const debitAmount = computedLocal && computedLocal > 0 ? computedLocal : Number(parsed.data.amountUsd);
       const funds = await assertSuperAdminCashHasFunds(superAdminCashAccountId, debitAmount);
       if (!funds.ok) return errorResponse("VALIDATION", funds.message, 400);
       computedLocal = debitAmount;
-      const cashAcct = await prisma.superAdminBankAccount.findUnique({
-        where: { id: superAdminCashAccountId },
-        include: { currency: true },
-      });
-      settlementCurrencyCode = String(cashAcct?.currency?.code || "USD").toUpperCase();
     } else {
       const settlement = await validateSupplierPaymentSettlement({
         amountUsd,
@@ -121,7 +117,6 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       computedLocal = settlement.settlementCurrency === "PKR" && settlement.amountPkr
         ? settlement.amountPkr
         : (parsed.data.amountLocal ? Number(parsed.data.amountLocal) : null);
-      settlementCurrencyCode = settlement.settlementCurrency === "PKR" ? "PKR" : null;
     }
 
     const fallbackUsdToPkrRate = intermediaryId
@@ -129,6 +124,10 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       : null;
 
     const payment = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
+        `supplier-liability:${parsed.data.supplierId}:${parsed.data.lotId || "none"}`,
+      );
       const created = await tx.supplierPayment.create({
         data: {
           supplierId: parsed.data.supplierId, lotId: parsed.data.lotId || null,
@@ -176,24 +175,53 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
           },
         });
         computedLocal = fifo.amountPkr;
-        settlementCurrencyCode = "PKR";
       }
+
+      const actualSettlementPkr = intermediaryId
+        ? Number(computedLocal || 0)
+        : exchangeRate && exchangeRate > 0
+          ? round2(amountUsd * exchangeRate)
+          : 0;
+      if (actualSettlementPkr <= 0) {
+        throw new LiabilityFxValidationError("Actual PKR settlement value is required to recognize supplier FX; provide the documented settlement rate.");
+      }
+      const fx = await resolveSupplierSettlementContext({
+        supplierId: parsed.data.supplierId,
+        lotId: parsed.data.lotId || null,
+        paymentId: created.id,
+        settlementAmountUsd: amountUsd,
+        actualSettlementPkr,
+      }, tx);
+      paymentForJournal = await tx.supplierPayment.update({
+        where: { id: created.id },
+        data: {
+          amountLocal: actualSettlementPkr,
+          carryingRatePkr: fx.carryingRatePkr,
+          carryingAmountPkr: fx.carryingAmountPkr,
+          realizedFxPkr: fx.realizedFxPkr,
+          fxPoolDate: new Date(fx.originalPoolDate),
+        },
+      });
 
       await journalSupplierPaid({
         id: created.id, supplierId: parsed.data.supplierId, amountUsd: amountUsd,
-        amountLocal: computedLocal,
+        carryingAmountPkr: fx.carryingAmountPkr,
+        actualSettlementPkr,
+        journalVersion: paymentForJournal.journalVersion,
         paymentDate: paymentForJournal.paymentDate, createdBy: user.userId,
         bankAccountId: superAdminBankAccountId || superAdminCashAccountId ? null : bankAccountId,
         superAdminBankAccountId,
         superAdminCashAccountId,
         intermediaryId,
-        settlementCurrencyCode,
       }, tx);
       return paymentForJournal;
     });
 
     return successResponse({ id: payment.id }, "Payment recorded", 201);
   } catch (error) {
+    if (error instanceof LiabilityFxValidationError) {
+      return errorResponse("FX_BASIS_REQUIRED", error.message, 400);
+    }
     if (syncMeta && isSyncRequestDuplicateError(error)) {
       const existingSync = await prisma.syncRequest.findUnique({
         where: {

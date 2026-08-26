@@ -113,6 +113,9 @@ export default function LotsPage() {
   // PKR rate + add cost
   const [pkrRateInput,  setPkrRateInput]  = useState("");
   const [pkrRateSaving, setPkrRateSaving] = useState(false);
+  const [showPkrRateEdit, setShowPkrRateEdit] = useState(false);
+  const [pkrRateReason, setPkrRateReason] = useState("");
+  const [pkrRateConfirmation, setPkrRateConfirmation] = useState("");
   const [showAddCost,   setShowAddCost]   = useState(false);
   const [costForm,      setCostForm]      = useState({ costType: "freight", description: "", amount: "", currencyCode: "USD", exchangeRate: "", costDate: new Date().toISOString().split("T")[0], notes: "" });
   const [shippingLines,   setShippingLines]   = useState<any[]>([]);
@@ -675,9 +678,33 @@ export default function LotsPage() {
   const savePkrRate = async () => {
     if (!pkrRateInput || Number(pkrRateInput) <= 0) return;
     setPkrRateSaving(true);
-    const r = await apiCall(`/api/v1/lots/${selectedLot.id}/pkr-rate`, { method: "PUT", body: { pkrExchangeRate: Number(pkrRateInput) } });
+    const r = await apiCall(`/api/v1/lots/${selectedLot.id}/pkr-rate`, {
+      method: "PUT",
+      body: {
+        pkrExchangeRate: Number(pkrRateInput),
+        reason: pkrRateReason,
+        confirmation: pkrRateConfirmation,
+      },
+    });
     setPkrRateSaving(false);
-    if (r.success) setSelectedLot((prev: any) => ({ ...prev, pkrExchangeRate: Number(pkrRateInput) }));
+    if (r.success) {
+      const data = r.data as any;
+      setSelectedLot((prev: any) => ({ ...prev, pkrExchangeRate: data.pkrExchangeRate, pkrExchangeRateMetadata: data.pkrExchangeRateMetadata }));
+      setShowPkrRateEdit(false);
+      setPkrRateReason("");
+      setPkrRateConfirmation("");
+      setFormError("");
+    } else {
+      setFormError(r.error || "Failed to update exchange rate");
+    }
+  };
+
+  const openPkrRateEdit = () => {
+    setPkrRateInput(selectedLot?.pkrExchangeRate ? String(selectedLot.pkrExchangeRate) : "");
+    setPkrRateReason("");
+    setPkrRateConfirmation("");
+    setFormError("");
+    setShowPkrRateEdit(true);
   };
 
   const openAddCost = () => {
@@ -1083,10 +1110,7 @@ export default function LotsPage() {
         {l.etaDate && <div className="text-[11px] text-gray-500">ETA {formatDate(l.etaDate)}</div>}
       </div>
     )}] : []),
-    { key: "status",  label: user?.role === "city_admin" ? t("status") : "Business",  render: (l: any) => <StatusBadge status={l.status} /> },
-    ...(user?.role !== "city_admin" ? [{ key: "documents", label: "Documents", render: (l: any) => (
-      <button onClick={() => openDetail(l)} className="text-sm font-semibold text-primary-700 hover:underline">{Number(l.documentsCount || 0)}</button>
-    )}] : []),
+    ...(user?.role === "city_admin" ? [{ key: "status", label: t("status"), render: (l: any) => <StatusBadge status={l.status} /> }] : []),
     {
       key: "actions", label: t("actions"),
       render: (l: any) => (
@@ -1138,6 +1162,9 @@ export default function LotsPage() {
         columns={columns}
         data={lots}
         loading={loading}
+        rowClassName={(lot: any) => user?.role === "super_admin" && lot.status === "completed"
+          ? "border-emerald-200 bg-emerald-50/80 hover:bg-emerald-100/80"
+          : ""}
         pagination={{ page, totalPages, total, onPageChange: setPage }}
       />
 
@@ -1237,6 +1264,7 @@ export default function LotsPage() {
                 onAddDocument={openAddDocument}
                 onChangeStatus={openChangeStatus}
                 onArchiveDocument={handleArchiveDocument}
+                onEditExchangeRate={openPkrRateEdit}
               />
             )}
 
@@ -1247,6 +1275,27 @@ export default function LotsPage() {
           </div>
           )
         ) : <p className="text-gray-400 py-4">{formError || t("no_data")}</p>}
+      </Modal>
+
+      <Modal open={showPkrRateEdit} onClose={() => setShowPkrRateEdit(false)} title="Edit Exchange Rate" size="sm">
+        {formError && <div className="mb-3 rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{formError}</div>}
+        <div className="space-y-3">
+          <label className="block text-sm font-medium text-gray-700">
+            PKR per USD
+            <input className="input mt-1" inputMode="decimal" value={pkrRateInput} onChange={(event) => setPkrRateInput(event.target.value)} />
+          </label>
+          <label className="block text-sm font-medium text-gray-700">
+            Reason
+            <textarea className="input mt-1 min-h-20" value={pkrRateReason} onChange={(event) => setPkrRateReason(event.target.value)} />
+          </label>
+          <label className="block text-sm font-medium text-gray-700">
+            Type UPDATE HISTORICAL RATE to confirm
+            <input className="input mt-1" value={pkrRateConfirmation} onChange={(event) => setPkrRateConfirmation(event.target.value)} />
+          </label>
+          <button type="button" className="btn-primary w-full" disabled={pkrRateSaving} onClick={savePkrRate}>
+            {pkrRateSaving ? "Saving..." : "Save Exchange Rate"}
+          </button>
+        </div>
       </Modal>
 
       <Modal open={showAddDocument} onClose={() => setShowAddDocument(false)} title="Add Document" size="md">

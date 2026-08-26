@@ -24,6 +24,26 @@ test("authoritative P&L uses PKR journals and expenses for recognized profit", (
   assert.equal(result.profitAndLoss.netProfit, 150);
 });
 
+test("realized FX gains and losses are separate and included once in net profit", () => {
+  const result = summarizeJournalPnl({
+    accounts: [
+      { id: 1, code: "3001", name: "Sales Revenue", accountType: "revenue" },
+      { id: 2, code: "FX-GAIN", name: "Foreign Exchange Gain", accountType: "revenue" },
+      { id: 3, code: "FX-LOSS", name: "Foreign Exchange Loss", accountType: "expense" },
+    ],
+    groups: [
+      { accountId: 1, currencyCode: "PKR", _sum: { debit: 0, credit: 1_000 } },
+      { accountId: 2, currencyCode: "PKR", _sum: { debit: 0, credit: 200 } },
+      { accountId: 3, currencyCode: "PKR", _sum: { debit: 50, credit: 0 } },
+    ],
+  });
+
+  assert.equal(result.profitAndLoss.totalRevenue, 1_000);
+  assert.equal(result.profitAndLoss.totalFxGains, 200);
+  assert.equal(result.profitAndLoss.totalFxLosses, 50);
+  assert.equal(result.profitAndLoss.netProfit, 1_150);
+});
+
 test("unpaid recognized sale can still create investor-attributable profit", () => {
   const result = summarizeJournalPnl({
     accounts,
@@ -60,11 +80,26 @@ test("stored FX recognition metadata supplies PKR sale revenue without using raw
       { accountId: 2, currencyCode: "PKR", _sum: { debit: 800, credit: 0 } },
     ],
     recognizedSalePkrById: new Map([[99, 4000]]),
+    recognizedForeignSaleAmountsByCurrency: new Map([["AFN", 1000]]),
   });
 
   assert.equal(result.profitAndLoss.totalRevenue, 4000);
   assert.equal(result.profitAndLoss.netProfit, 3200);
-  assert.match(result.unsupportedForeignCurrencyEntries.join(" "), /AFN revenue/);
+  assert.deepEqual(result.unsupportedForeignCurrencyEntries, []);
+});
+
+test("foreign revenue remains blocked when stored PKR recognition metadata does not cover it", () => {
+  const result = summarizeJournalPnl({
+    accounts,
+    groups: [
+      { accountId: 1, currencyCode: "USD", _sum: { debit: 0, credit: 1000 } },
+    ],
+    recognizedSalePkrById: new Map([[100, 140_000]]),
+    recognizedForeignSaleAmountsByCurrency: new Map([["USD", 500]]),
+  });
+
+  assert.equal(result.profitAndLoss.totalRevenue, 140_000);
+  assert.match(result.unsupportedForeignCurrencyEntries.join(" "), /USD revenue/);
 });
 
 test("active sale lot rows without COGS journals are blocked from clean finalization", () => {

@@ -10,6 +10,8 @@ import { settlementAmountToPkr } from "@/lib/payment-currencies";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 import { getIntermediaryBalances } from "@/lib/intermediary-balance";
 import { consumeIntermediaryUsdFifo, getLotFallbackUsdToPkrRate } from "@/lib/intermediary-usd-fifo";
+import { resolveShippingSettlementContext } from "@/lib/liability-settlement-context";
+import { LiabilityFxValidationError } from "@/lib/realized-liability-fx";
 
 const SHIPPING_LINE_PAYMENT_SYNC_MODULE = "shipping_line_payments";
 const SUPERADMIN_SYNC_CITY_ID = 0;
@@ -36,7 +38,6 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
     let resolvedBankAccountId: number | null = null;
     let resolvedIntermediaryId: number | null = null;
     let amountLocal: number | null = null;
-    let settlementCurrencyCode: string | null = null;
 
     if (parsedCashAccountId) {
       if (bankAccountId || intermediaryId) {
@@ -57,7 +58,6 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
       if (!cashAcct || cashAcct.accountKind !== "cash") {
         return errorResponse("NOT_FOUND", "Haji cash account not found", 404);
       }
-      settlementCurrencyCode = String(cashAcct.currency.code || "USD").toUpperCase();
     } else {
       const source = await validatePaymentSource({ bankAccountId, intermediaryId, requireSelection: true });
       if (!source.ok) return errorResponse(source.code, source.message, source.status);
@@ -106,6 +106,10 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
       : null;
 
     const payment = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
+        `shipping-liability:${parsedShippingLineId}:${parsedLotId || "none"}`,
+      );
       const created = await tx.shippingLinePayment.create({
         data: {
           shippingLineId: parsedShippingLineId,
@@ -156,8 +160,32 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
           },
         });
         amountLocal = fifo.amountPkr;
-        settlementCurrencyCode = "PKR";
       }
+      const actualSettlementPkr = resolvedIntermediaryId
+        ? Number(amountLocal || 0)
+        : Number(exchangeRate || 0) > 0
+          ? Math.round(Number(amountUsd) * Number(exchangeRate) * 100) / 100
+          : 0;
+      if (actualSettlementPkr <= 0) {
+        throw new LiabilityFxValidationError("Actual PKR settlement value is required to recognize shipping FX; provide the documented settlement rate.");
+      }
+      const fx = await resolveShippingSettlementContext({
+        shippingLineId: parsedShippingLineId,
+        lotId: parsedLotId,
+        paymentId: created.id,
+        settlementAmountUsd: Number(amountUsd),
+        actualSettlementPkr,
+      }, tx);
+      paymentForJournal = await tx.shippingLinePayment.update({
+        where: { id: created.id },
+        data: {
+          amountPkr: actualSettlementPkr,
+          carryingRatePkr: fx.carryingRatePkr,
+          carryingAmountPkr: fx.carryingAmountPkr,
+          realizedFxPkr: fx.realizedFxPkr,
+          fxPoolDate: new Date(fx.originalPoolDate),
+        },
+      });
       await journalShippingLinePayment({
         id: paymentForJournal.id,
         shippingLineId: parsedShippingLineId,
@@ -167,14 +195,18 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
         bankAccountId: resolvedBankAccountId,
         intermediaryId: resolvedIntermediaryId,
         superAdminCashAccountId: parsedCashAccountId,
-        amountLocal,
-        settlementCurrencyCode,
+        carryingAmountPkr: fx.carryingAmountPkr,
+        actualSettlementPkr,
+        journalVersion: paymentForJournal.journalVersion,
       }, tx);
       return paymentForJournal;
     });
 
     return successResponse({ id: payment.id, amountUsd: Number(payment.amountUsd), amountPkr }, "Payment recorded", 201);
   } catch (error) {
+    if (error instanceof LiabilityFxValidationError) {
+      return errorResponse("FX_BASIS_REQUIRED", error.message, 400);
+    }
     if (syncMeta && isSyncRequestDuplicateError(error)) {
       const existingSync = await prisma.syncRequest.findUnique({
         where: {

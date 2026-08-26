@@ -10,6 +10,8 @@ import {
   getLotFallbackUsdToPkrRate,
   reverseIntermediaryUsdCostUsages,
 } from "@/lib/intermediary-usd-fifo";
+import { resolveSupplierSettlementContext } from "@/lib/liability-settlement-context";
+import { LiabilityFxValidationError, settlementJournalTransactionId } from "@/lib/realized-liability-fx";
 
 function round2(value: number) {
   return Math.round(value * 100) / 100;
@@ -28,6 +30,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     }
 
     const superAdminBankAccountId = existing.superAdminBankAccountId ?? null;
+    const superAdminCashAccountId = existing.superAdminCashAccountId ?? null;
     const bankAccountId = existing.bankAccountId ?? null;
     const intermediaryId = existing.intermediaryId ?? null;
 
@@ -36,22 +39,22 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
         ? (body.exchangeRate ? Number(body.exchangeRate) : null)
         : (existing.exchangeRate ? Number(existing.exchangeRate) : null);
 
-    const needsBankRate = Boolean(superAdminBankAccountId || bankAccountId);
+    const needsBankRate = Boolean(superAdminBankAccountId || superAdminCashAccountId || bankAccountId);
     if (needsBankRate && (!parsedExchangeRate || !Number.isFinite(parsedExchangeRate) || parsedExchangeRate <= 0)) {
       return validationError("Exchange rate is required for bank payments");
     }
 
-    const settlement = await validateSupplierPaymentSettlement({
-      amountUsd: nextAmountUsd,
-      superAdminBankAccountId,
-      bankAccountId,
-      intermediaryId,
-      exchangeRate: parsedExchangeRate,
-      excludeSupplierPaymentId: id,
-    });
-    if (!settlement.ok) {
-      return errorResponse(settlement.code, settlement.message, settlement.status || 400);
-    }
+    const settlement = superAdminCashAccountId
+      ? { ok: true as const, settlementCurrency: "PKR" as const, amountPkr: round2(nextAmountUsd * Number(parsedExchangeRate)) }
+      : await validateSupplierPaymentSettlement({
+          amountUsd: nextAmountUsd,
+          superAdminBankAccountId,
+          bankAccountId,
+          intermediaryId,
+          exchangeRate: parsedExchangeRate,
+          excludeSupplierPaymentId: id,
+        });
+    if (!settlement.ok) return errorResponse(settlement.code, settlement.message, settlement.status || 400);
 
     const nextAmountLocal =
       settlement.settlementCurrency === "PKR" && settlement.amountPkr
@@ -65,7 +68,11 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
       : null;
 
     await prisma.$transaction(async (tx) => {
-      await reverseJournalEntries(`SUPPPAY-${id}`, user.userId, tx);
+      await tx.$executeRawUnsafe(
+        "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
+        `supplier-liability:${existing.supplierId}:${existing.lotId || "none"}`,
+      );
+      await reverseJournalEntries(settlementJournalTransactionId("SUPPPAY", id, existing.journalVersion), user.userId, tx);
       await reverseIntermediaryUsdCostUsages({ supplierPaymentId: id }, tx);
 
       const payment = await tx.supplierPayment.update({
@@ -76,11 +83,11 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
           amountLocal: nextAmountLocal,
           reference: body.reference ?? existing.reference,
           notes: body.notes ?? existing.notes,
+          journalVersion: { increment: 1 },
         },
       });
 
       let journalAmountLocal = payment.amountLocal ? Number(payment.amountLocal) : null;
-      let settlementCurrencyCode = settlement.settlementCurrency === "PKR" ? "PKR" : null;
       let journalPayment = payment;
       if (intermediaryId) {
         const fifo = await consumeIntermediaryUsdFifo({
@@ -98,20 +105,47 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
           },
         });
         journalAmountLocal = fifo.amountPkr;
-        settlementCurrencyCode = "PKR";
       }
+
+      const actualSettlementPkr = intermediaryId
+        ? Number(journalAmountLocal || 0)
+        : parsedExchangeRate && parsedExchangeRate > 0
+          ? round2(Number(journalPayment.amountUsd) * parsedExchangeRate)
+          : 0;
+      if (actualSettlementPkr <= 0) {
+        throw new LiabilityFxValidationError("Actual PKR settlement value is required to recognize supplier FX; provide the documented settlement rate.");
+      }
+      const fx = await resolveSupplierSettlementContext({
+        supplierId: existing.supplierId,
+        lotId: existing.lotId,
+        paymentId: id,
+        settlementAmountUsd: Number(journalPayment.amountUsd),
+        actualSettlementPkr,
+      }, tx);
+      journalPayment = await tx.supplierPayment.update({
+        where: { id },
+        data: {
+          amountLocal: actualSettlementPkr,
+          carryingRatePkr: fx.carryingRatePkr,
+          carryingAmountPkr: fx.carryingAmountPkr,
+          realizedFxPkr: fx.realizedFxPkr,
+          fxPoolDate: new Date(fx.originalPoolDate),
+        },
+      });
 
       await journalSupplierPaid({
         id,
         supplierId: existing.supplierId,
         amountUsd: Number(journalPayment.amountUsd),
-        amountLocal: journalAmountLocal,
+        carryingAmountPkr: fx.carryingAmountPkr,
+        actualSettlementPkr,
+        journalVersion: journalPayment.journalVersion,
         paymentDate: journalPayment.paymentDate,
         createdBy: user.userId,
         bankAccountId,
         superAdminBankAccountId,
+        superAdminCashAccountId,
         intermediaryId,
-        settlementCurrencyCode,
       }, tx);
 
       await createAuditLog(user.userId, null, "supplier_payments", id, "update",
@@ -120,6 +154,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
 
     return successResponse({ id }, "Payment updated");
   } catch (error) {
+    if (error instanceof LiabilityFxValidationError) return errorResponse("FX_BASIS_REQUIRED", error.message, 400);
     console.error("Update supplier payment error:", error);
     return serverError();
   }
@@ -132,7 +167,7 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
     if (!existing) return errorResponse("NOT_FOUND", "Supplier payment not found", 404);
 
     await prisma.$transaction(async (tx) => {
-      await reverseJournalEntries(`SUPPPAY-${id}`, user.userId, tx);
+      await reverseJournalEntries(settlementJournalTransactionId("SUPPPAY", id, existing.journalVersion), user.userId, tx);
       await reverseIntermediaryUsdCostUsages({ supplierPaymentId: id }, tx);
       await tx.supplierPayment.delete({ where: { id } });
       await createAuditLog(user.userId, null, "supplier_payments", id, "delete",

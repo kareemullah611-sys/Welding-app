@@ -67,12 +67,6 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
                 WHERE ct.from_godown_id = ${transfer.fromGodownId}
                   AND ct.product_id = ${transfer.productId}
                   AND ct.lot_id = lcd.lot_id
-                  AND ct.status = 'approved'
-              ), 0) - COALESCE((
-                SELECT SUM(ct.qty) FROM city_transfers ct
-                WHERE ct.from_godown_id = ${transfer.fromGodownId}
-                  AND ct.product_id = ${transfer.productId}
-                  AND ct.lot_id = lcd.lot_id
                   AND ct.status = 'pending'
                   AND ct.id <> ${id}
               ), 0) as available
@@ -87,12 +81,6 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
                 SELECT SUM(si.qty) FROM sale_items si
                 JOIN sales s ON s.id = si.sale_id AND s.status IN ('active','marked_short')
                 WHERE s.godown_id = ${transfer.fromGodownId} AND si.product_id = ${transfer.productId} AND si.lot_id = lcd.lot_id
-              ), 0) - COALESCE((
-                SELECT SUM(ct.qty) FROM city_transfers ct
-                WHERE ct.from_godown_id = ${transfer.fromGodownId}
-                  AND ct.product_id = ${transfer.productId}
-                  AND ct.lot_id = lcd.lot_id
-                  AND ct.status = 'approved'
               ), 0) - COALESCE((
                 SELECT SUM(ct.qty) FROM city_transfers ct
                 WHERE ct.from_godown_id = ${transfer.fromGodownId}

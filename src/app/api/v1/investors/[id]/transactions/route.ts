@@ -4,6 +4,7 @@ import { withAuth } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import { legacyInvestorWritesAllowed } from "@/lib/investor-system-mode";
 
 const INVESTOR_TXN_SYNC_MODULE = "investor_transactions";
 const SUPERADMIN_SYNC_CITY_ID = 0;
@@ -12,6 +13,7 @@ const SUPERADMIN_SYNC_CITY_ID = 0;
 // Body: { type: "deposit"|"withdrawal"|"profit", accountId, amount, date, notes, periodStart?, periodEnd? }
 export const POST = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   if (user.role !== "super_admin") return errorResponse("FORBIDDEN", "Super admin only", 403);
+  if (!legacyInvestorWritesAllowed()) return errorResponse("LEGACY_WRITES_FROZEN", "Legacy investor transactions are read-only after migration preparation begins.", 409);
   const syncMeta = getSyncRequestMeta(request);
   try {
     const investorId = parseInt(context.params.id);
@@ -185,6 +187,7 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
 // ─── PATCH /api/v1/investors/[id]/transactions — edit amount/date/notes ───────
 export const PATCH = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   if (user.role !== "super_admin") return errorResponse("FORBIDDEN", "Super admin only", 403);
+  if (!legacyInvestorWritesAllowed()) return errorResponse("LEGACY_WRITES_FROZEN", "Legacy investor transactions are read-only after migration preparation begins.", 409);
   try {
     const body = await request.json();
     const { type, transactionId, amount, date, notes } = body;
@@ -255,6 +258,7 @@ export const PATCH = withAuth(async (request: NextRequest, context: any, user: J
 // Body: { type, transactionId }
 export const DELETE = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   if (user.role !== "super_admin") return errorResponse("FORBIDDEN", "Super admin only", 403);
+  if (!legacyInvestorWritesAllowed()) return errorResponse("LEGACY_WRITES_FROZEN", "Legacy investor transactions are read-only after migration preparation begins.", 409);
   try {
     const body = await request.json();
     const { type, transactionId } = body;

@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { legacyInvestorWritesAllowed } from "@/lib/investor-system-mode";
 
 // ─── GET /api/v1/investors/[id] — full ledger ─────────────────────────────
 export const GET = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
@@ -109,6 +110,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
 // ─── DELETE /api/v1/investors/[id] — delete investor (only if no transactions) ─
 export const DELETE = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   if (user.role !== "super_admin") return errorResponse("FORBIDDEN", "Super admin only", 403);
+  if (!legacyInvestorWritesAllowed()) return errorResponse("LEGACY_WRITES_FROZEN", "Legacy investor records are read-only after migration preparation begins.", 409);
   try {
     const id = parseInt(context.params.id);
     const accounts = await prisma.investorAccount.findMany({
@@ -132,6 +134,7 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
 // ─── PATCH /api/v1/investors/[id] — edit investor info ────────────────────
 export const PATCH = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   if (user.role !== "super_admin") return errorResponse("FORBIDDEN", "Super admin only", 403);
+  if (!legacyInvestorWritesAllowed()) return errorResponse("LEGACY_WRITES_FROZEN", "Legacy investor records are read-only after migration preparation begins.", 409);
   try {
     const id = parseInt(context.params.id);
     const body = await request.json();

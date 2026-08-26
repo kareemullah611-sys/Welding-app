@@ -5,6 +5,7 @@ import {
   lotCostToPkr,
   lotExpensesByCurrencyToPkr,
 } from "@/lib/landed-cost-pkr";
+import { buildLotCostLedger } from "@/lib/lot-cost-ledger";
 
 describe("landed-cost-pkr", () => {
   it("converts USD purchase + freight + PKR customs using lot USD/PKR rate", () => {
@@ -53,5 +54,52 @@ describe("landed-cost-pkr", () => {
     });
     assert.equal(result.lotExpensesPkr, 10_000);
     assert.equal(result.totalLandedCostPkr, 10_000);
+  });
+
+  it("does not silently drop a foreign cost when its required FX rate is missing", () => {
+    assert.throws(
+      () => lotCostToPkr({ amount: 1000, currencyCode: "AFN", exchangeRate: null }, 280),
+      /missing.*AFN.*PKR/i,
+    );
+  });
+
+  it("does not silently drop foreign lot expenses when their required FX rate is missing", () => {
+    assert.throws(
+      () => lotExpensesByCurrencyToPkr({ AFN: 1000 }, 280, 0),
+      /missing.*AFN.*PKR/i,
+    );
+  });
+
+  it("uses the lot USD/PKR recognition rate for unpaid purchase rows", () => {
+    const result = buildLotCostLedger({
+      lotDate: "2026-08-22",
+      lotCountryCode: "PK",
+      usdPkrRate: 283,
+      purchaseItems: [
+        { id: 1, supplierName: "Supplier", productName: "Product", totalPriceUsd: 1_000 },
+      ],
+      lotCosts: [],
+      lotExpensesByCurrency: {},
+    });
+
+    assert.equal(result.rows[0]?.amountPkr, 283_000);
+    assert.equal(result.rows[0]?.acquisitionRateToPkr, 283);
+  });
+
+  it("does not let a later supplier settlement rate rewrite the lot recognition basis", () => {
+    const result = buildLotCostLedger({
+      lotDate: "2026-08-22",
+      lotCountryCode: "PK",
+      usdPkrRate: 283,
+      purchaseItems: [
+        { id: 1, supplierName: "Supplier", productName: "Product", totalPriceUsd: 1_000 },
+      ],
+      lotCosts: [],
+      lotExpensesByCurrency: {},
+      supplierPaymentsForLot: [{ amountUsd: 400, exchangeRate: 287 }],
+    });
+
+    assert.equal(result.rows[0]?.amountPkr, 283_000);
+    assert.equal(result.rows[0]?.acquisitionRateToPkr, 283);
   });
 });

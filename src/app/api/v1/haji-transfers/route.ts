@@ -10,6 +10,7 @@ import { resolveAfghanistanSettlement } from "@/lib/afghanistan-haji-settlement"
 import { PAKISTAN_HAJI_TARGET, resolvePakistanDestinationAccount } from "@/lib/pakistan-haji-destination";
 import { getHajiTransferAuditStateMap, isAfghanistanHajiSettlementEligible } from "@/lib/haji-transfer-audit";
 import { groupHajiTransferSlipRows } from "@/lib/haji-transfer-slip-group";
+import { isAfghanistanCountry, isPakistanCountry } from "@/lib/country-code";
 
 const HAJI_TRANSFER_SYNC_MODULE = "haji_transfers.create";
 
@@ -72,7 +73,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
   try {
     const searchParams = request.nextUrl.searchParams;
     const { page, limit, skip } = getPaginationParams(searchParams);
-    const { dateFrom, dateTo } = getDateRange(searchParams);
+    const { dateFrom, dateToExclusive } = getDateRange(searchParams);
     const cityId = getCityScope(user, searchParams.get("city_id") ? parseInt(searchParams.get("city_id")!) : undefined);
     const lotId = searchParams.get("lot_id") ? parseInt(searchParams.get("lot_id")!) : undefined;
     const query = (searchParams.get("q") || "").trim();
@@ -87,10 +88,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const where: any = {};
     if (cityId) where.cityId = cityId;
     if (lotId) where.lotId = lotId;
-    if (dateFrom || dateTo) {
+    if (dateFrom || dateToExclusive) {
       where.transferDate = {};
       if (dateFrom) where.transferDate.gte = dateFrom;
-      if (dateTo) where.transferDate.lte = dateTo;
+      if (dateToExclusive) where.transferDate.lt = dateToExclusive;
     }
 
     const transferredToFilter = searchParams.get("transferred_to");
@@ -110,11 +111,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     const directPaymentsWhere: any = {
       ...(cityId ? { cityId } : {}),
-      ...(dateFrom || dateTo
+      ...(dateFrom || dateToExclusive
         ? {
             paymentDate: {
               ...(dateFrom ? { gte: dateFrom } : {}),
-              ...(dateTo ? { lte: dateTo } : {}),
+              ...(dateToExclusive ? { lt: dateToExclusive } : {}),
             },
           }
         : {}),
@@ -257,8 +258,8 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     }
 
     const city = await prisma.city.findUnique({ where: { id: cityId }, include: { country: true } });
-    const shouldUseSuperAdminTarget = city?.country?.name === "Pakistan";
-    const isAfghanistanCity = city?.country?.name === "Afghanistan";
+    const shouldUseSuperAdminTarget = isPakistanCountry(city?.country);
+    const isAfghanistanCity = isAfghanistanCountry(city?.country);
 
     if (isAfghanistanCity && body.sourceType && body.sourceType !== "cash_office") {
       return errorResponse("VALIDATION_ERROR", "Afghanistan city Haji transfers can only use office cash");

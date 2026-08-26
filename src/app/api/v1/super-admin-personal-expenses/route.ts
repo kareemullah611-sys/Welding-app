@@ -17,7 +17,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
 
     const searchParams = request.nextUrl.searchParams;
     const { page, limit, skip } = getPaginationParams(searchParams);
-    const { dateFrom, dateTo } = getDateRange(searchParams);
+    const { dateFrom, dateToExclusive } = getDateRange(searchParams);
     const bankAccountId = searchParams.get("bank_account_id") ? Number(searchParams.get("bank_account_id")) : undefined;
     const query = (searchParams.get("q") || "").trim();
     const normalizedQuery = query.toLowerCase();
@@ -27,10 +27,10 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
 
     const where: any = { deletedAt: null };
     if (bankAccountId) where.bankAccountId = bankAccountId;
-    if (dateFrom || dateTo) {
+    if (dateFrom || dateToExclusive) {
       where.expenseDate = {};
       if (dateFrom) where.expenseDate.gte = dateFrom;
-      if (dateTo) where.expenseDate.lte = dateTo;
+      if (dateToExclusive) where.expenseDate.lt = dateToExclusive;
     }
     if (shouldApplySearch) {
       where.OR = [

@@ -12,6 +12,7 @@ import { JWTPayload } from "@/lib/auth";
 import { journalBankDeposit } from "@/lib/accounting";
 import { getCityBankAccountAvailableBalance } from "@/lib/city-bank-balance";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import { buildDateRange } from "@/lib/date-range";
 
 type TreasuryTransferType =
   | "cheque_to_bank"
@@ -61,9 +62,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       { OR: [{ transferType: { not: "bank_to_bank" } }, { cashAmount: { lt: 0 } }] },
     ];
     if (from || to) {
-      where.depositDate = {};
-      if (from) where.depositDate.gte = new Date(from);
-      if (to) where.depositDate.lte = new Date(to + "T23:59:59.999Z");
+      where.depositDate = buildDateRange(from, to);
     }
     if (shouldApplySearch) {
       where.OR = [

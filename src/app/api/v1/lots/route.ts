@@ -12,6 +12,7 @@ import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idem
 import { cityAssignmentMetricsFromDistributions } from "@/lib/city-lot-assignment";
 import { aggregateLotSalesMetrics, fetchLotSalesForMetrics } from "@/lib/lot-sold-metrics";
 import { LOT_SHIPMENT_STATUS_VALUES, lotShipmentStatusLabel } from "@/lib/lot-documents";
+import { resolveLotRecognitionRateFromDb } from "@/lib/lot-recognition-fx-db";
 
 const LOT_SYNC_MODULE = "lots";
 const SUPERADMIN_SYNC_CITY_ID = 0;
@@ -48,7 +49,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
   try {
     const searchParams = request.nextUrl.searchParams;
     const { page, limit, skip } = getPaginationParams(searchParams);
-    const { dateFrom, dateTo } = getDateRange(searchParams);
+    const { dateFrom, dateToExclusive } = getDateRange(searchParams);
 
     const countryId = searchParams.get("country_id") ? parseInt(searchParams.get("country_id")!) : undefined;
     const status = searchParams.get("status") as "ongoing" | "completed" | undefined;
@@ -87,10 +88,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         ...(hasNumericQuery ? [{ id: Math.trunc(numericQuery) }, { pkrExchangeRate: numericQuery }] : []),
       ];
     }
-    if (dateFrom || dateTo) {
+    if (dateFrom || dateToExclusive) {
       where.lotDate = {};
       if (dateFrom) where.lotDate.gte = dateFrom;
-      if (dateTo) where.lotDate.lte = dateTo;
+      if (dateToExclusive) where.lotDate.lt = dateToExclusive;
     }
 
     const [lots, total] = await Promise.all([
@@ -285,6 +286,13 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     // Verify country exists
     const country = await prisma.country.findUnique({ where: { id: countryId } });
     if (!country) return errorResponse("NOT_FOUND", "Country not found", 404);
+    const recognitionRate = await resolveLotRecognitionRateFromDb({
+      countryCode: country.code,
+      transactionDate: new Date(`${lotDate}T00:00:00.000Z`),
+    });
+    if (!recognitionRate.ok) {
+      return errorResponse("VALIDATION_ERROR", recognitionRate.missingReason, 400);
+    }
     if (consigneeId) {
       const consignee = await prisma.consignee.findUnique({ where: { id: consigneeId } });
       if (!consignee) return errorResponse("NOT_FOUND", "Consignee not found", 404);
@@ -370,6 +378,8 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
           shipmentStatus: (shipmentStatus || "order_confirmed") as any,
           etaDate: etaDate ? new Date(etaDate) : null,
           notes,
+          pkrExchangeRate: recognitionRate.rate,
+          pkrExchangeRateMetadata: recognitionRate as any,
           createdBy: user.userId,
         },
       });
@@ -437,6 +447,8 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
 
       await createAuditLog(user.userId, null, "lots", createdLot.id, "create", undefined, {
         lotNumber, countryId, consigneeId, destinationCityId, shipmentStatus, purchaseItems, distributions,
+        pkrExchangeRate: recognitionRate.rate,
+        pkrExchangeRateMetadata: recognitionRate,
       }, getClientIP(request), tx);
 
       if (syncMeta) {
@@ -465,6 +477,8 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       lotNumber: lotFull.lotNumber,
       lotDate: lotFull.lotDate.toISOString().split("T")[0],
       notes: lotFull.notes,
+      pkrExchangeRate: Number(lotFull.pkrExchangeRate),
+      pkrExchangeRateMetadata: (lotFull as any).pkrExchangeRateMetadata || recognitionRate,
       status: lotFull.status,
       shipmentStatus: lotFull.shipmentStatus,
       shipmentStatusLabel: lotShipmentStatusLabel(lotFull.shipmentStatus),

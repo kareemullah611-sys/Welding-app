@@ -134,6 +134,7 @@ export type ExportPayload = {
 };
 
 import { formatDisplayDate } from "@/lib/display-date";
+import { buildDateRange } from "@/lib/date-range";
 
 /** dd-mm-yy for ledger/report exports */
 export function formatExportDateShort(date: Date | string): string {
@@ -148,9 +149,7 @@ export function formatExportMetaDate(value: string): string {
 }
 
 export function buildExportDateFilter(dateFrom?: string | null, dateTo?: string | null) {
-  const df: Record<string, Date> = {};
-  if (dateFrom) df.gte = new Date(dateFrom);
-  if (dateTo) df.lte = new Date(dateTo);
+  const df = buildDateRange(dateFrom, dateTo);
   return Object.keys(df).length ? df : undefined;
 }
 

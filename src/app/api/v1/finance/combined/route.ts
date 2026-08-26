@@ -7,6 +7,8 @@ import { getPaymentHajiAuditStateMap, isHajiAuditEligible } from "@/lib/payment-
 import { getSaCheckAuditStateMap } from "@/lib/sa-check-audit";
 import { computeCityTreasuryNet, computeRunningBalances, computeSuperAdminRunningBalances, buildPaymentCancellationReversalRow } from "@/lib/treasury-ledger";
 import { formatPaymentModuleDetail, formatSuperAdminPaymentDetail } from "@/lib/payment-module-detail";
+import { isAfghanistanCountry } from "@/lib/country-code";
+import { buildDateRange } from "@/lib/date-range";
 
 function createdAtMs(item: any): number {
   const value = item.raw?.createdAt;
@@ -66,9 +68,9 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
     const cityId = getCityScope(user, undefined);
 
     const dateWhere = (field: string) => {
+      const range = buildDateRange(fromDate, toDate);
       const w: any = {};
-      if (fromDate) w[field] = { ...(w[field] || {}), gte: new Date(fromDate) };
-      if (toDate) w[field] = { ...(w[field] || {}), lte: new Date(toDate + "T23:59:59") };
+      if (Object.keys(range).length) w[field] = range;
       return w;
     };
 
@@ -118,7 +120,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         include: {
           customer: { select: { id: true, name: true } },
           currency: { select: { id: true, code: true, symbol: true } },
-          city: { select: { id: true, name: true, country: { select: { name: true } } } },
+          city: { select: { id: true, name: true, country: { select: { code: true } } } },
           bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
           superAdminBankAccount: { select: { id: true, bankName: true, accountNumber: true } },
           hajiTransferPayment: {
@@ -142,7 +144,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           id: p.id,
           type: "payment",
           date: p.paymentDate.toISOString().split("T")[0],
-          detail: (p as any).city?.country?.name === "Afghanistan"
+          detail: isAfghanistanCountry((p as any).city?.country)
             ? p.detail
             : isSuperAdminHajiView && p.destination === "haji"
             ? formatSuperAdminPaymentDetail({

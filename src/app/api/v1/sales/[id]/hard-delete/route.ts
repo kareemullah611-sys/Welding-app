@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
+import { withAuth, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, validationError, serverError } from "@/lib/api-response";
 import { JWTPayload, comparePassword } from "@/lib/auth";
 
@@ -54,16 +54,25 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
       }
 
       await tx.sale.delete({ where: { id } });
+      await tx.auditLog.create({
+        data: {
+          userId: user.userId,
+          cityId: sale.cityId,
+          entityType: "sales",
+          entityId: id,
+          action: "hard_delete",
+          newValues: {
+            voucher: `#${sale.voucherNo}`,
+            date: sale.saleDate.toISOString().split("T")[0],
+            customer: sale.customer.name,
+            total: `${Number(sale.totalAmount).toLocaleString("en-US")}`,
+            items: sale.items.map((i: any) => `${i.product.name} ×${Number(i.qty)}`).join(", ") || undefined,
+            ...(sale.notes ? { notes: sale.notes } : {}),
+          },
+          ipAddress: getClientIP(request),
+        },
+      });
     });
-
-    await createAuditLog(user.userId, sale.cityId, "sales", id, "hard_delete", {
-      voucher: `#${sale.voucherNo}`,
-      date: sale.saleDate.toISOString().split("T")[0],
-      customer: sale.customer.name,
-      total: `${Number(sale.totalAmount).toLocaleString("en-US")}`,
-      items: sale.items.map((i: any) => `${i.product.name} ×${Number(i.qty)}`).join(", ") || undefined,
-      ...(sale.notes ? { notes: sale.notes } : {}),
-    }, undefined, getClientIP(request));
     return successResponse({ id }, "Sale permanently deleted");
   } catch (error) {
     console.error("Hard delete sale error:", error);

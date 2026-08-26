@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { buildDateRange } from "@/lib/date-range";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
 import { sanitizeValidationDetails } from "@/lib/sanitize-validation-details";
 
@@ -109,16 +110,14 @@ export function getSortParams(searchParams: URLSearchParams): {
 // Parse date range — returns undefined for invalid or missing dates
 export function getDateRange(searchParams: URLSearchParams): {
   dateFrom?: Date;
-  dateTo?: Date;
+  dateToExclusive?: Date;
 } {
   const dateFromStr = searchParams.get("date_from");
   const dateToStr = searchParams.get("date_to");
-  const parseDate = (s: string | null): Date | undefined => {
-    if (!s) return undefined;
-    const d = new Date(s);
-    return isNaN(d.getTime()) ? undefined : d;
-  };
-  const dateFrom = parseDate(dateFromStr);
-  const dateTo = dateToStr ? parseDate(dateToStr + "T23:59:59.999Z") : undefined;
-  return { dateFrom, dateTo };
+  try {
+    const range = buildDateRange(dateFromStr, dateToStr);
+    return { dateFrom: range.gte, dateToExclusive: range.lt };
+  } catch {
+    return {};
+  }
 }

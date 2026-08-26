@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth } from "@/lib/middleware";
 import { successResponse, paginatedResponse, errorResponse, serverError, getPaginationParams } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { legacyInvestorWritesAllowed } from "@/lib/investor-system-mode";
 
 // ─── GET /api/v1/investors ─────────────────────────────────────────────────
 export const GET = withAuth(async (request: NextRequest, _ctx, user: JWTPayload) => {
@@ -79,6 +80,7 @@ export const GET = withAuth(async (request: NextRequest, _ctx, user: JWTPayload)
 // ─── POST /api/v1/investors ────────────────────────────────────────────────
 export const POST = withAuth(async (request: NextRequest, _ctx, user: JWTPayload) => {
   if (user.role !== "super_admin") return errorResponse("FORBIDDEN", "Super admin only", 403);
+  if (!legacyInvestorWritesAllowed()) return errorResponse("LEGACY_WRITES_FROZEN", "Legacy investor records are read-only after migration preparation begins.", 409);
   try {
     const body = await request.json();
     const { name, relationship, phone, notes, currencyId, startDate, initialDeposit } = body;

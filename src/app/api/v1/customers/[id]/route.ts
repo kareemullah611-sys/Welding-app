@@ -10,6 +10,7 @@ import {
   formatCustomerLedgerSaleItemDetail,
   formatCustomerLedgerSaleItemRate,
 } from "@/lib/customer-ledger-detail";
+import { buildDateRange } from "@/lib/date-range";
 
 export const GET = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -25,12 +26,8 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     if (!customer) return errorResponse("NOT_FOUND", "Customer not found", 404);
     if (user.role === "city_admin" && customer.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
 
-    const saleDateFilter: any = {};
-    if (dateFrom) saleDateFilter.gte = new Date(dateFrom);
-    if (dateTo) saleDateFilter.lte = new Date(dateTo);
-    const paymentDateFilter: any = {};
-    if (dateFrom) paymentDateFilter.gte = new Date(dateFrom);
-    if (dateTo) paymentDateFilter.lte = new Date(dateTo);
+    const saleDateFilter = buildDateRange(dateFrom, dateTo);
+    const paymentDateFilter = buildDateRange(dateFrom, dateTo);
 
     // Get ledger
     const [sales, payments, openings] = await Promise.all([

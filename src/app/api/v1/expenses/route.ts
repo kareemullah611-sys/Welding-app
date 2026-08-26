@@ -5,6 +5,7 @@ import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middl
 import { createExpenseSchema } from "@/lib/validations";
 import { successResponse, paginatedResponse, validationError, errorResponse, serverError, getPaginationParams, getDateRange } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { isAfghanistanCountry } from "@/lib/country-code";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 
 const EXPENSE_SYNC_MODULE = "expenses.create";
@@ -32,7 +33,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
   try {
     const searchParams = request.nextUrl.searchParams;
     const { page, limit, skip } = getPaginationParams(searchParams);
-    const { dateFrom, dateTo } = getDateRange(searchParams);
+    const { dateFrom, dateToExclusive } = getDateRange(searchParams);
     const cityId = getCityScope(user, searchParams.get("city_id") ? parseInt(searchParams.get("city_id")!) : undefined);
     const lotId = searchParams.get("lot_id") ? parseInt(searchParams.get("lot_id")!) : undefined;
     const query = (searchParams.get("q") || "").trim();
@@ -54,10 +55,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     };
     if (cityId) where.cityId = cityId;
     if (lotId) where.lotId = lotId;
-    if (dateFrom || dateTo) {
+    if (dateFrom || dateToExclusive) {
       where.expenseDate = {};
       if (dateFrom) where.expenseDate.gte = dateFrom;
-      if (dateTo) where.expenseDate.lte = dateTo;
+      if (dateToExclusive) where.expenseDate.lt = dateToExclusive;
     }
     if (shouldApplySearch) {
       where.OR = [
@@ -164,7 +165,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const city = await prisma.city.findUnique({ where: { id: cityId }, include: { country: true } });
     const { lotId, expenseDate, amount, currencyId, detail, notes, paidFrom, customerId, bankAccountId, chequePaymentId } = parsed.data;
 
-    if (city?.country?.name === "Afghanistan" && !["cash_office", "customer"].includes(paidFrom)) {
+    if (isAfghanistanCountry(city?.country) && !["cash_office", "customer"].includes(paidFrom)) {
       return errorResponse("VALIDATION_ERROR", "Afghanistan city expenses can only be paid from office cash");
     }
 

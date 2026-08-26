@@ -157,6 +157,47 @@ test("resolver blocks missing or stale sarafi snapshot instead of guessing", () 
   assert.match(!missing.ok ? missing.missingReason : "", /Missing USD→PKR/);
 });
 
+test("resolver uses the most recent previous valid Sarai Shahzada rate and never a future rate", () => {
+  const result = resolveAfghanistanFxRate({
+    currencyCode: "USD",
+    transactionDate: "2026-08-16",
+    purpose: "sale_recognition",
+    positionKind: "liability",
+    sarafiRates: [
+      {
+        snapshotDate: "2026-08-17",
+        providerReference: "sarafi:future",
+        fromCurrencyCode: "USD",
+        toCurrencyCode: "PKR",
+        buyRate: 290,
+        sellRate: 291,
+        sourceTimestamp: sourceTimestamp.toISOString(),
+        fetchedTimestamp: fetchedAt.toISOString(),
+        conversionPath: ["USD→AFN", "AFN→PKR"],
+        status: "VALID_CURRENT",
+      },
+      {
+        snapshotDate: "2026-08-14",
+        providerReference: "sarafi:previous",
+        fromCurrencyCode: "USD",
+        toCurrencyCode: "PKR",
+        buyRate: 284,
+        sellRate: 285,
+        sourceTimestamp: sourceTimestamp.toISOString(),
+        fetchedTimestamp: fetchedAt.toISOString(),
+        conversionPath: ["USD→AFN", "AFN→PKR"],
+        status: "VALID_CURRENT",
+      },
+    ],
+    manualRates: [],
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.ok && result.rate, 285);
+  assert.equal(result.ok && result.rateSourceDate, "2026-08-14");
+  assert.equal(result.ok && result.daysCarriedBackward, 2);
+});
+
 test("snapshot validation blocks parse failure and abnormal rate movement", () => {
   const missingPair = normalizeSarafiAfSnapshot({
     snapshotDate: "2026-08-16",

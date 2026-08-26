@@ -16,9 +16,19 @@ type Props = {
   onAddDocument?: () => void;
   onChangeStatus?: () => void;
   onArchiveDocument?: (document: any) => void;
+  onEditExchangeRate?: () => void;
 };
 
-export function LotDetailSummary({ selectedLot, userRole, t, onAddCost, onEditPurchase, onDeletePurchase, onAddDocument, onChangeStatus, onArchiveDocument }: Props) {
+function exchangeRateSourceLabel(metadata: any) {
+  const provider = String(metadata?.provider || "").toUpperCase();
+  if (provider === "SBP") return "SBP";
+  if (provider === "SARAFI_AF") return "Sarai Shahzada";
+  if (provider === "ACTUAL_DOCUMENTED_TRANSACTION_RATE") return "Supplier Payment";
+  if (provider.includes("MANUAL")) return "Manual";
+  return metadata ? "Recorded" : "—";
+}
+
+export function LotDetailSummary({ selectedLot, userRole, t, onAddCost, onEditPurchase, onDeletePurchase, onAddDocument, onChangeStatus, onArchiveDocument, onEditExchangeRate }: Props) {
   const [previewDocument, setPreviewDocument] = React.useState<any>(null);
   const purchaseUsd = Number(selectedLot.costSummary?.totalPurchaseUsd || 0);
   const otherByCurrency = selectedLot.costSummary?.otherCostsByCurrency || selectedLot.costSummary?.costsByCurrency || {};
@@ -67,7 +77,7 @@ export function LotDetailSummary({ selectedLot, userRole, t, onAddCost, onEditPu
       )}
 
       {userRole === "super_admin" && (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
           <div className="card">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">Consignee</p>
             <p className="mt-1 text-sm font-semibold text-gray-800">{selectedLot.consignee?.name || "—"}</p>
@@ -82,6 +92,16 @@ export function LotDetailSummary({ selectedLot, userRole, t, onAddCost, onEditPu
           <div className="card">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">Documents</p>
             <p className="mt-1 text-sm font-semibold text-gray-800">{Number(selectedLot.documentsCount || selectedLot.documents?.length || 0)} saved</p>
+          </div>
+          <div className="card">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">Exchange Rate</p>
+                <p className="mt-1 text-sm font-semibold text-gray-800">{selectedLot.pkrExchangeRate ? `PKR ${Number(selectedLot.pkrExchangeRate).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}/USD` : "—"}</p>
+                <p className="mt-1 text-xs text-gray-500">Source: {exchangeRateSourceLabel(selectedLot.pkrExchangeRateMetadata)}</p>
+              </div>
+              {onEditExchangeRate && <button type="button" onClick={onEditExchangeRate} className="text-xs font-semibold text-primary-700 hover:underline">Edit</button>}
+            </div>
           </div>
         </div>
       )}

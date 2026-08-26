@@ -9,6 +9,7 @@ import {
   type AttributionProfitShareEvent,
 } from "@/lib/investor-attribution";
 import { buildPeriodProfitReportData } from "@/lib/period-profit-report-data";
+import { getInvestorSystemMode, INVESTOR_SYSTEM_MODES } from "@/lib/investor-system-mode";
 import { getCountryFallbackRateToPkr } from "@/lib/intermediary-usd-fifo";
 import { buildLegacyInvestorCapitalReview } from "@/lib/legacy-investor-capital-review";
 import {
@@ -29,6 +30,7 @@ import {
 } from "@/lib/live-fx-position-tracing";
 import { isInvestorFinalizationEnabled } from "@/lib/investor-production-gate";
 import { calculateHistoricalSaleProfitPkr } from "@/lib/historical-sale-profit";
+import { buildDateRange } from "@/lib/date-range";
 
 function dateOnly(date: Date | string): string {
   return (date instanceof Date ? date : new Date(date)).toISOString().slice(0, 10);
@@ -199,18 +201,50 @@ async function loadLegacyCapitalReview() {
 }
 
 async function loadCapitalEvents() {
-  const explicitEvents = await loadExplicitCapitalEvents();
-  if (explicitEvents.length > 0) {
+  const systemMode = getInvestorSystemMode();
+  if (systemMode !== INVESTOR_SYSTEM_MODES.MIGRATED) {
     return {
-      source: "investment_capital_events",
-      events: explicitEvents,
-      profitShareEvents: await loadExplicitProfitShareEvents(),
+      source: "legacy_investor_accounts",
+      systemMode,
+      events: await loadLegacyInvestorCapitalEvents(),
+      profitShareEvents: [] as AttributionProfitShareEvent[],
+      unmappedLegacyInvestorIds: [] as number[],
     };
   }
-  return { source: "legacy_investor_accounts", events: await loadLegacyInvestorCapitalEvents(), profitShareEvents: [] };
+
+  const [explicitEvents, profitShareEvents, activeLegacyInvestors, linkedParticipants] = await Promise.all([
+    loadExplicitCapitalEvents(),
+    loadExplicitProfitShareEvents(),
+    prisma.investor.findMany({ where: { isActive: true }, select: { id: true } }),
+    prisma.investmentParticipant.findMany({ where: { investorId: { not: null } }, select: { investorId: true } }),
+  ]);
+  const linkedInvestorIds = new Set(linkedParticipants.map((participant) => participant.investorId).filter((id): id is number => id != null));
+  const unmappedLegacyInvestorIds = activeLegacyInvestors
+    .map((investor) => investor.id)
+    .filter((investorId) => !linkedInvestorIds.has(investorId));
+
+  if (unmappedLegacyInvestorIds.length > 0) {
+    return {
+      source: "migration_incomplete",
+      systemMode,
+      events: [] as AttributionCapitalEvent[],
+      profitShareEvents: [] as AttributionProfitShareEvent[],
+      unmappedLegacyInvestorIds,
+    };
+  }
+
+  return {
+    source: "investment_capital_events",
+    systemMode,
+    events: explicitEvents,
+    profitShareEvents,
+    unmappedLegacyInvestorIds,
+  };
 }
 
 async function findMissingRequiredRates(periodStart: string, periodEnd: string) {
+  const periodRange = buildDateRange(periodStart, periodEnd);
+  const periodEndExclusive = periodRange.lt!;
   const currencies = await prisma.currency.findMany({ select: { id: true, code: true } });
   const currencyById = new Map(currencies.map((currency) => [currency.id, currency.code.toUpperCase()]));
   const pkrCurrency = currencies.find((currency) => currency.code.toUpperCase() === "PKR");
@@ -225,10 +259,10 @@ async function findMissingRequiredRates(periodStart: string, periodEnd: string) 
 
   const lots = await prisma.lot.findMany({
     where: {
-      lotDate: { lte: new Date(periodEnd) },
+      lotDate: { lt: periodEndExclusive },
       OR: [
-        { sales: { some: { saleDate: { gte: new Date(periodStart), lte: new Date(periodEnd) }, status: "active" } } },
-        { saleItems: { some: { sale: { saleDate: { gte: new Date(periodStart), lte: new Date(periodEnd) }, status: "active" } } } },
+        { sales: { some: { saleDate: periodRange, status: "active" } } },
+        { saleItems: { some: { sale: { saleDate: periodRange, status: "active" } } } },
       ],
     },
     select: { id: true, lotNumber: true, countryId: true, lotDate: true, pkrExchangeRate: true },
@@ -249,43 +283,43 @@ async function findMissingRequiredRates(periodStart: string, periodEnd: string) 
 
   const [sales, payments, expenses, withdrawals, hajiTransfers, lotCosts, supplierPayments, shippingPayments, agentPayments, intermediaryDeposits] = await Promise.all([
     prisma.sale.findMany({
-      where: { saleDate: { gte: new Date(periodStart), lte: new Date(periodEnd) }, status: "active" },
+      where: { saleDate: periodRange, status: "active" },
       select: { saleDate: true, currencyId: true, city: { select: { countryId: true } } },
     }),
     prisma.payment.findMany({
-      where: { paymentDate: { gte: new Date(periodStart), lte: new Date(periodEnd) }, status: "active" },
+      where: { paymentDate: periodRange, status: "active" },
       select: { paymentDate: true, currencyId: true, city: { select: { countryId: true } } },
     }),
     prisma.expense.findMany({
-      where: { expenseDate: { gte: new Date(periodStart), lte: new Date(periodEnd) }, deletedAt: null },
+      where: { expenseDate: periodRange, deletedAt: null },
       select: { expenseDate: true, currencyId: true, city: { select: { countryId: true } } },
     }),
     prisma.personalWithdrawal.findMany({
-      where: { withdrawalDate: { gte: new Date(periodStart), lte: new Date(periodEnd) } },
+      where: { withdrawalDate: periodRange },
       select: { withdrawalDate: true, currencyId: true, city: { select: { countryId: true } } },
     }),
     prisma.hajiTransfer.findMany({
-      where: { transferDate: { gte: new Date(periodStart), lte: new Date(periodEnd) } },
+      where: { transferDate: periodRange },
       select: { transferDate: true, currencyId: true, city: { select: { countryId: true } } },
     }),
     prisma.lotCost.findMany({
-      where: { OR: [{ costDate: { gte: new Date(periodStart), lte: new Date(periodEnd) } }, { costDate: null, lot: { lotDate: { lte: new Date(periodEnd) } } }] },
+      where: { OR: [{ costDate: periodRange }, { costDate: null, lot: { lotDate: { lt: periodEndExclusive } } }] },
       select: { costDate: true, currencyCode: true, lot: { select: { countryId: true, lotDate: true, lotNumber: true } } },
     }),
     prisma.supplierPayment.findMany({
-      where: { paymentDate: { gte: new Date(periodStart), lte: new Date(periodEnd) } },
+      where: { paymentDate: periodRange },
       select: { paymentDate: true, amountUsd: true, lot: { select: { countryId: true, lotNumber: true } } },
     }),
     prisma.shippingLinePayment.findMany({
-      where: { paymentDate: { gte: new Date(periodStart), lte: new Date(periodEnd) } },
+      where: { paymentDate: periodRange },
       select: { paymentDate: true, amountUsd: true, lot: { select: { countryId: true, lotNumber: true } } },
     }),
     prisma.agentPayment.findMany({
-      where: { paymentDate: { gte: new Date(periodStart), lte: new Date(periodEnd) } },
+      where: { paymentDate: periodRange },
       select: { paymentDate: true, currencyCode: true, city: { select: { countryId: true } } },
     }),
     prisma.intermediaryDeposit.findMany({
-      where: { depositDate: { gte: new Date(periodStart), lte: new Date(periodEnd) } },
+      where: { depositDate: periodRange },
       select: { depositDate: true, currencyId: true, city: { select: { countryId: true } } },
     }),
   ]);
@@ -327,6 +361,8 @@ function buildReadiness(input: {
   reconciliationDifferencePkr: number;
   missingRequiredRates: string[];
   capitalSource: string;
+  investorSystemMode: string;
+  unmappedLegacyInvestorIds: number[];
   finalizationDisabledReasons: string[];
 }) {
   const blockers: string[] = [];
@@ -343,6 +379,12 @@ function buildReadiness(input: {
   }
   if (input.capitalSource === "legacy_investor_accounts") {
     block("BLOCKED_UNRESOLVED_LEGACY_CAPITAL", "Legacy investor capital must be reviewed before finalization.");
+  }
+  if (input.investorSystemMode !== INVESTOR_SYSTEM_MODES.MIGRATED) {
+    block("BLOCKED_INVESTOR_MIGRATION", `Investor system mode is ${input.investorSystemMode}; finalization requires MIGRATED mode.`);
+  }
+  if (input.capitalSource === "migration_incomplete" || input.unmappedLegacyInvestorIds.length > 0) {
+    block("BLOCKED_INVESTOR_MIGRATION", `Active legacy investors remain unmapped: ${input.unmappedLegacyInvestorIds.join(", ") || "unknown"}.`);
   }
   const dataIntegrityReasons = input.finalizationDisabledReasons.filter((reason) => (
     !reason.includes("Missing ") &&
@@ -404,6 +446,8 @@ async function buildAttributionFinalizationPreview(user: JWTPayload, periodStart
     reconciliationDifferencePkr: preview.reconciliationDifferencePkr,
     missingRequiredRates: [...missingRequiredRates, ...historicalMissingRates],
     capitalSource: capital.source,
+    investorSystemMode: capital.systemMode,
+    unmappedLegacyInvestorIds: capital.unmappedLegacyInvestorIds,
     finalizationDisabledReasons: preview.finalizationDisabledReasons,
   });
   const finalizationDryRun = buildFinalizationDryRun({
@@ -482,22 +526,33 @@ function assertFinalizationEligible(input: Awaited<ReturnType<typeof buildAttrib
 }
 
 async function loadHistoricalPoolTransactions(periodStart: string, periodEnd: string, fxTransactions: HistoricalPoolTransaction[]) {
+  const periodRange = buildDateRange(periodStart, periodEnd);
   const report = await buildPeriodProfitReportData({ role: "super_admin", userId: 0 } as JWTPayload, undefined, periodStart, periodEnd);
   const landedCostByLot = new Map<number, number>();
   for (const lot of report.lotBreakdown || []) {
     landedCostByLot.set(Number(lot.lotId), Number(lot.landedCostPerCartonPkr || lot.landedCostPerCarton || 0));
   }
 
-  const [sales, discounts] = await Promise.all([
+  const [sales, discounts, supplierFxSettlements, shippingFxSettlements] = await Promise.all([
     prisma.sale.findMany({
-      where: { saleDate: { gte: new Date(periodStart), lte: new Date(periodEnd) }, status: "active" },
+      where: { saleDate: periodRange, status: "active" },
       include: { customer: { select: { name: true } }, currency: { select: { code: true } }, items: { include: { product: { select: { name: true } } } } },
       orderBy: { saleDate: "asc" },
     }),
     prisma.saleDiscount.findMany({
-      where: { discountDate: { gte: new Date(periodStart), lte: new Date(periodEnd) } },
+      where: { discountDate: periodRange },
       include: { sale: { select: { id: true, voucherNo: true, saleDate: true, customer: { select: { name: true } } } } },
       orderBy: { discountDate: "asc" },
+    }),
+    prisma.supplierPayment.findMany({
+      where: { paymentDate: periodRange, realizedFxPkr: { not: null }, fxPoolDate: { not: null }, carryingRatePkr: { not: null }, carryingAmountPkr: { not: null }, amountLocal: { not: null } },
+      select: { id: true, paymentDate: true, amountUsd: true, exchangeRate: true, amountLocal: true, carryingRatePkr: true, carryingAmountPkr: true, realizedFxPkr: true, fxPoolDate: true, supplier: { select: { name: true } } },
+      orderBy: { paymentDate: "asc" },
+    }),
+    prisma.shippingLinePayment.findMany({
+      where: { paymentDate: periodRange, realizedFxPkr: { not: null }, fxPoolDate: { not: null }, carryingRatePkr: { not: null }, carryingAmountPkr: { not: null }, amountPkr: { not: null } },
+      select: { id: true, paymentDate: true, amountUsd: true, exchangeRate: true, amountPkr: true, carryingRatePkr: true, carryingAmountPkr: true, realizedFxPkr: true, fxPoolDate: true, shippingLine: { select: { name: true } } },
+      orderBy: { paymentDate: "asc" },
     }),
   ]);
 
@@ -536,10 +591,65 @@ async function loadHistoricalPoolTransactions(periodStart: string, periodEnd: st
       description: `Discount on sale ${discount.sale.voucherNo} · ${discount.sale.customer.name}`,
     });
   }
+  for (const payment of supplierFxSettlements) {
+    transactions.push({
+      sourceType: "fx_gain_loss",
+      sourceId: `supplier-payment:${payment.id}`,
+      recognizedDate: dateOnly(payment.paymentDate),
+      originalPoolDate: dateOnly(payment.fxPoolDate!),
+      amountPkr: Number(payment.realizedFxPkr),
+      description: `Realized supplier FX · ${payment.supplier.name}`,
+      fx: {
+        currencyCode: "USD",
+        foreignAmount: Number(payment.amountUsd),
+        carryingAmountPkr: Number(payment.carryingAmountPkr),
+        carryingRate: Number(payment.carryingRatePkr),
+        valuationDate: dateOnly(payment.paymentDate),
+        valuationRate: Number(payment.exchangeRate),
+        valuationAmountPkr: Number(payment.amountLocal),
+        fxGainLossPkr: Number(payment.realizedFxPkr),
+        sourcePosition: `supplier_payments:${payment.id}`,
+        positionKind: "liability",
+        selectedRateType: "reference",
+        conversionPath: ["USD→PKR actual settlement"],
+        sourceRates: [],
+        rateSource: "Documented supplier settlement",
+        missingRateReason: null,
+      },
+    });
+  }
+  for (const payment of shippingFxSettlements) {
+    transactions.push({
+      sourceType: "fx_gain_loss",
+      sourceId: `shipping-payment:${payment.id}`,
+      recognizedDate: dateOnly(payment.paymentDate),
+      originalPoolDate: dateOnly(payment.fxPoolDate!),
+      amountPkr: Number(payment.realizedFxPkr),
+      description: `Realized shipping FX · ${payment.shippingLine.name}`,
+      fx: {
+        currencyCode: "USD",
+        foreignAmount: Number(payment.amountUsd),
+        carryingAmountPkr: Number(payment.carryingAmountPkr),
+        carryingRate: Number(payment.carryingRatePkr),
+        valuationDate: dateOnly(payment.paymentDate),
+        valuationRate: Number(payment.exchangeRate),
+        valuationAmountPkr: Number(payment.amountPkr),
+        fxGainLossPkr: Number(payment.realizedFxPkr),
+        sourcePosition: `shipping_line_payments:${payment.id}`,
+        positionKind: "liability",
+        selectedRateType: "reference",
+        conversionPath: ["USD→PKR actual settlement"],
+        sourceRates: [],
+        rateSource: "Documented shipping settlement",
+        missingRateReason: null,
+      },
+    });
+  }
   return [...transactions, ...fxTransactions];
 }
 
 async function findOpenMarketRateToPkr(currencyCode: string, valuationDate: string, positionKind: "asset" | "liability"): Promise<NormalizedExchangeRateResult> {
+  const valuationEndExclusive = buildDateRange(null, valuationDate).lt!;
   const currencies = await prisma.currency.findMany({ select: { id: true, code: true } });
   const fromCurrency = currencies.find((currency) => currency.code.toUpperCase() === currencyCode.toUpperCase());
   const pkrCurrency = currencies.find((currency) => currency.code.toUpperCase() === "PKR");
@@ -560,7 +670,7 @@ async function findOpenMarketRateToPkr(currencyCode: string, valuationDate: stri
     where: {
       fromCurrencyId: fromCurrency.id,
       toCurrencyId: pkrCurrency.id,
-      rateDate: { lte: new Date(valuationDate) },
+      rateDate: { lt: valuationEndExclusive },
     },
     orderBy: { rateDate: "desc" },
     select: { buyRate: true, sellRate: true, referenceRate: true, source: true, rateDate: true, createdAt: true, entryMethod: true, id: true },
@@ -595,10 +705,11 @@ async function findOpenMarketRateToPkr(currencyCode: string, valuationDate: stri
 
 async function loadLiveFxCoverage(periodEnd: string) {
   const valuationDate = dateOnly(periodEnd);
+  const periodEndExclusive = buildDateRange(null, periodEnd).lt!;
   const usdRate = await findOpenMarketRateToPkr("USD", valuationDate, "asset");
   const usdLayers = await prisma.intermediaryUsdCostLayer.findMany({
     where: {
-      acquiredDate: { lte: new Date(periodEnd) },
+      acquiredDate: { lt: periodEndExclusive },
       remainingAmountUsd: { gt: 0 },
     },
     include: {
@@ -628,7 +739,7 @@ async function loadLiveFxCoverage(periodEnd: string) {
     .map((currency) => currency.id);
   const deposits = await prisma.intermediaryDeposit.findMany({
     where: {
-      depositDate: { lte: new Date(periodEnd) },
+      depositDate: { lt: periodEndExclusive },
       currencyId: { in: nonPkrCurrencyIds },
     },
     select: { id: true, currencyId: true, depositDate: true, amount: true, intermediary: { select: { name: true } } },
@@ -670,6 +781,8 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
       ...preview,
       year: year || null,
       capitalSource: capital.source,
+      investorSystemMode: capital.systemMode,
+      unmappedLegacyInvestorIds: capital.unmappedLegacyInvestorIds,
       capitalSourceLabel: capital.source === "legacy_investor_accounts"
         ? "Derived from legacy investor transactions"
         : "Explicit investment capital events",

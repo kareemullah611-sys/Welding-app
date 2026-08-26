@@ -1049,6 +1049,17 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
         where: { id, cityId, isOpeningImport: true },
       });
       if (!row) return errorResponse("NOT_FOUND", "Historical sale not found");
+      const accountingEntry = await prisma.journalEntry.findFirst({
+        where: {
+          transactionId: {
+            in: [`SALE-${id}`, `COGS-${id}`, `OPENING-STOCK-COST-${id}`],
+          },
+        },
+        select: { id: true },
+      });
+      if (accountingEntry) {
+        return errorResponse("VALIDATION_ERROR", "Historical opening sale has accounting entries; use a controlled reversal instead of deletion", 400);
+      }
       await prisma.sale.delete({ where: { id: row.id } });
       await createAuditLog(user.userId, cityId, "sales", row.id, "delete", { voucherNo: row.voucherNo }, undefined, getClientIP(request));
       return successResponse({ id: row.id }, "Historical sale deleted");

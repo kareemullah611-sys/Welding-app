@@ -13,6 +13,7 @@ import { canAccessGodown } from "@/lib/godown-access";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 import { allocateSaleItemAcrossLots, consolidateSaleLotAllocationItems, AvailableSaleLot, SaleLotAllocationItem } from "@/lib/sale-lot-allocation";
 import { resolveAfghanistanFxRateFromDb } from "@/lib/sarafi-af-snapshot-db";
+import { isAfghanistanCountry } from "@/lib/country-code";
 
 const SALE_SYNC_MODULE = "sales.create";
 
@@ -70,9 +71,10 @@ async function getGodownStock(
     _sum: { qty: true },
   });
 
-  // City transfers out reserve stock while pending and consume it once approved.
+  // Approved city transfers already mutate the godown allocation. Only pending
+  // transfers need an additional reservation while awaiting approval.
   const cityTransferredOut = await db.cityTransfer.aggregate({
-    where: { fromGodownId: godownId, productId, status: { in: ["approved", "pending"] }, ...(lotId ? { lotId } : {}) },
+    where: { fromGodownId: godownId, productId, status: "pending", ...(lotId ? { lotId } : {}) },
     _sum: { qty: true },
   });
 
@@ -82,19 +84,12 @@ async function getGodownStock(
     _sum: { qty: true },
   });
 
-  const cityTransferredIn = await db.cityTransfer.aggregate({
-    where: { toGodownId: godownId, productId, status: "approved", ...(lotId ? { lotId } : {}) },
-    _sum: { qty: true },
-  });
-
   const rcv = Number(received._sum.qty || 0);
   const sld = Number(sold._sum.qty || 0);
   const out = Number(transferredOut._sum.qty || 0);
   const cityOut = Number(cityTransferredOut._sum.qty || 0);
   const inn = Number(transferredIn._sum.qty || 0);
-  const cityIn = Number(cityTransferredIn._sum.qty || 0);
-
-  return rcv - sld - out - cityOut + inn + cityIn;
+  return rcv - sld - out - cityOut + inn;
 }
 
 async function getAvailableLotsForProduct(
@@ -163,7 +158,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
   try {
     const searchParams = request.nextUrl.searchParams;
     const { page, limit, skip } = getPaginationParams(searchParams);
-    const { dateFrom, dateTo } = getDateRange(searchParams);
+    const { dateFrom, dateToExclusive } = getDateRange(searchParams);
 
     const cityId = getCityScope(user, searchParams.get("city_id") ? parseInt(searchParams.get("city_id")!) : undefined);
     const customerId = searchParams.get("customer_id") ? parseInt(searchParams.get("customer_id")!) : undefined;
@@ -200,10 +195,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     if (lotId) itemWhere.lotId = lotId;
     if (productId) itemWhere.productId = productId;
     if (Object.keys(itemWhere).length > 0) baseWhere.items = { some: itemWhere };
-    if (dateFrom || dateTo) {
+    if (dateFrom || dateToExclusive) {
       baseWhere.saleDate = {};
       if (dateFrom) baseWhere.saleDate.gte = dateFrom;
-      if (dateTo) baseWhere.saleDate.lte = dateTo;
+      if (dateToExclusive) baseWhere.saleDate.lt = dateToExclusive;
     }
 
     const formatSale = (s: any) => ({
@@ -487,7 +482,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     // Calculate total using integer-rounded arithmetic to avoid floating-point errors
     const totalAmount = roundMoney(normalizedItems.reduce((sum, i) => sum + Number(i.amount || 0), 0));
     const country = await prisma.country.findUnique({ where: { id: user.countryId! }, select: { code: true, name: true } });
-    const isAfghanistan = String(country?.code || country?.name || "").toLowerCase().includes("af");
+    const isAfghanistan = isAfghanistanCountry(country);
     const saleFx = isAfghanistan && ["AFN", "USD", "CNY"].includes(String(resolvedCurrency.code || "").toUpperCase())
       ? await resolveAfghanistanFxRateFromDb({
           currencyCode: resolvedCurrency.code,

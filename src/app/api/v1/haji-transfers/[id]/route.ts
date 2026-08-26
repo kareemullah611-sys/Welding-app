@@ -15,6 +15,7 @@ import {
   transferredToLabelForPakistanDestination,
 } from "@/lib/pakistan-haji-destination";
 import { getSaCheckAuditStateMap, isSaCheckConfirmed } from "@/lib/sa-check-audit";
+import { isAfghanistanCountry, isPakistanCountry } from "@/lib/country-code";
 
 function journalInputFromTransfer(transfer: any, createdBy: number) {
   return {
@@ -47,8 +48,8 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       return errorResponse("FORBIDDEN", "Not your city", 403);
     }
 
-    const isAfghanistan = h.city.country?.name === "Afghanistan";
-    const isPakistan = h.city.country?.name === "Pakistan";
+    const isAfghanistan = isAfghanistanCountry(h.city.country);
+    const isPakistan = isPakistanCountry(h.city.country);
     const auditEligible = isAfghanistanHajiSettlementEligible(h);
 
     if (body.action === "set_sa_check") {

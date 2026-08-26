@@ -13,6 +13,7 @@ import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idem
 import { formatSuperAdminBankLabel } from "@/lib/haji-transfer-detail";
 import { resolveAfghanistanSettlement, type ResolvedAfghanistanSettlement } from "@/lib/afghanistan-haji-settlement";
 import { formatAfghanistanCityPaymentDetail } from "@/lib/payment-module-detail";
+import { isAfghanistanCountry } from "@/lib/country-code";
 
 const PAYMENT_SYNC_MODULE = "payments.create";
 const PAYMENT_CREATE_TRANSACTION_OPTIONS = { maxWait: 15_000, timeout: 30_000 };
@@ -67,7 +68,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
   try {
     const searchParams = request.nextUrl.searchParams;
     const { page, limit, skip } = getPaginationParams(searchParams);
-    const { dateFrom, dateTo } = getDateRange(searchParams);
+    const { dateFrom, dateToExclusive } = getDateRange(searchParams);
 
     const cityId = getCityScope(user, searchParams.get("city_id") ? parseInt(searchParams.get("city_id")!) : undefined);
     const customerId = searchParams.get("customer_id") ? parseInt(searchParams.get("customer_id")!) : undefined;
@@ -86,10 +87,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     if (method) where.paymentMethod = method;
     if (destination) where.destination = destination;
     if (chequeStatus) where.chequeStatus = chequeStatus;
-    if (dateFrom || dateTo) {
+    if (dateFrom || dateToExclusive) {
       where.paymentDate = {};
       if (dateFrom) where.paymentDate.gte = dateFrom;
-      if (dateTo) where.paymentDate.lte = dateTo;
+      if (dateToExclusive) where.paymentDate.lt = dateToExclusive;
     }
 
     const [payments, total] = await Promise.all([
@@ -228,9 +229,9 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
     const city = await prisma.city.findUnique({
       where: { id: cityId },
-      include: { country: { select: { name: true } } },
+      include: { country: { select: { code: true } } },
     });
-    const isAfghanistanCity = city?.country?.name === "Afghanistan";
+    const isAfghanistanCity = isAfghanistanCountry(city?.country);
     if (isAfghanistanCity && paymentMethod !== "cash") {
       return errorResponse("VALIDATION_ERROR", "Afghanistan cities can record cash payments only");
     }

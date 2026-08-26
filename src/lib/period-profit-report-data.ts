@@ -7,6 +7,7 @@ import {
 } from "@/lib/landed-cost-pkr";
 import { getCountryFallbackRateToPkr } from "@/lib/intermediary-usd-fifo";
 import { JWTPayload } from "@/lib/auth";
+import { buildDateRange, buildYearDateRange } from "@/lib/date-range";
 
 const REPORTING_CURRENCY = "PKR";
 
@@ -27,34 +28,8 @@ function stockQtyToReportCartons(qty: unknown, product?: { unitOfMeasure?: strin
   return num(qty);
 }
 
-function supplierPaymentPkrAmount(payment: { amountUsd: unknown; amountLocal?: unknown; exchangeRate?: unknown }): number {
-  const local = num(payment.amountLocal);
-  if (local > 0) return local;
-  const rate = num(payment.exchangeRate);
-  return rate > 0 ? num(payment.amountUsd) * rate : 0;
-}
-
-function purchasePkrFromLinkedSupplierPayments(
-  totalPurchaseUsd: number,
-  fallbackUsdPkrRate: number,
-  supplierPayments: Array<{ amountUsd: unknown; amountLocal?: unknown; exchangeRate?: unknown }>
-): number | null {
-  const actualUsd = supplierPayments.reduce((sum, payment) => sum + num(payment.amountUsd), 0);
-  const actualPkr = supplierPayments.reduce((sum, payment) => sum + supplierPaymentPkrAmount(payment), 0);
-  if (actualUsd <= 0 || actualPkr <= 0 || totalPurchaseUsd <= 0) return null;
-  if (actualUsd >= totalPurchaseUsd) return actualPkr;
-  return actualPkr + ((totalPurchaseUsd - actualUsd) * fallbackUsdPkrRate);
-}
-
-function parseDate(s: string | null | undefined): Date | undefined {
-  if (!s) return undefined;
-  const d = new Date(s);
-  return isNaN(d.getTime()) ? undefined : d;
-}
-
 function buildLotProfitMetrics(input: {
   pkrExchangeRate: number | null;
-  purchasePkrOverride?: number | null;
   purchases: Array<{ totalPriceUsd: unknown }>;
   lotCosts: LotCostLike[];
   lotExpensesByCurrency: Record<string, number>;
@@ -69,10 +44,8 @@ function buildLotProfitMetrics(input: {
     lotExpensesByCurrency: input.lotExpensesByCurrency,
     usdPkrRate,
   });
-  const purchasePkr = num(input.purchasePkrOverride) > 0 ? num(input.purchasePkrOverride) : baseLanded.purchasePkr;
-  const totalLandedCostPkr = baseLanded.totalLandedCostPkr + (purchasePkr - baseLanded.purchasePkr);
   return {
-    landedCostPerCartonPkr: input.totalCartonsBought > 0 ? round2(totalLandedCostPkr / input.totalCartonsBought) : 0,
+    landedCostPerCartonPkr: input.totalCartonsBought > 0 ? round2(baseLanded.totalLandedCostPkr / input.totalCartonsBought) : 0,
   };
 }
 
@@ -91,13 +64,9 @@ export async function buildPeriodProfitReportData(
   const saleWhere: any = { status: "active" };
   if (user.role === "city_admin") saleWhere.cityId = user.cityId;
   if (year) {
-    saleWhere.saleDate = { gte: new Date(`${year}-01-01`), lte: new Date(`${year}-12-31`) };
+    saleWhere.saleDate = buildYearDateRange(year);
   } else if (dateFrom || dateTo) {
-    saleWhere.saleDate = {};
-    const from = parseDate(dateFrom);
-    const to = parseDate(dateTo);
-    if (from) saleWhere.saleDate.gte = from;
-    if (to) saleWhere.saleDate.lte = to;
+    saleWhere.saleDate = buildDateRange(dateFrom, dateTo);
   }
 
   const lots = await prisma.lot.findMany({
@@ -105,7 +74,6 @@ export async function buildPeriodProfitReportData(
       lotPurchases: { include: { product: true, supplier: true } },
       lotProducts: { include: { product: true } },
       lotCosts: true,
-      supplierPayments: { select: { amountUsd: true, amountLocal: true, exchangeRate: true } },
       country: true,
       sales: { where: saleWhere, include: { items: true } },
       expenses: {
@@ -141,11 +109,6 @@ export async function buildPeriodProfitReportData(
       : num(await getCountryFallbackRateToPkr({ countryId: lot.countryId, fromCurrencyCode: "USD", asOf: lot.lotDate }));
     const metrics = buildLotProfitMetrics({
       pkrExchangeRate: usdPkrRate,
-      purchasePkrOverride: purchasePkrFromLinkedSupplierPayments(
-        lot.lotPurchases.reduce((sum, purchase) => sum + num(purchase.totalPriceUsd), 0),
-        usdPkrRate,
-        lot.supplierPayments
-      ),
       purchases: lot.lotPurchases,
       lotCosts: lot.lotCosts.map((cost) => ({
         amount: cost.amount,

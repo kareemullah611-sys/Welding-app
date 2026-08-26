@@ -1,4 +1,4 @@
-import { lotCostToPkr, lotExpensesByCurrencyToPkr, resolveAfnToPkrRate, resolveCnyToPkrRate, type LotCostLike } from "@/lib/landed-cost-pkr";
+import { MissingLandedCostFxRateError, lotCostToPkr, lotExpensesByCurrencyToPkr, resolveAfnToPkrRate, resolveCnyToPkrRate, type LotCostLike } from "@/lib/landed-cost-pkr";
 
 export type LotCostLedgerRow = {
   date: string;
@@ -16,6 +16,7 @@ export type LotCostLedgerRow = {
 export type LotCostLedgerInput = {
   lotDate: string;
   lotCountryCode: string;
+  usdPkrRate?: number;
   purchaseItems: Array<{
     id: number;
     supplierName: string;
@@ -53,24 +54,10 @@ function rowDate(value: string | Date | null | undefined, fallback: string): str
   return d.toISOString().split("T")[0];
 }
 
-function purchasePkrFromPayments(
-  purchaseUsd: number,
-  payments: LotCostLedgerInput["supplierPaymentsForLot"]
-): { amountPkr: number; rate: number | null } {
-  if (!payments?.length) return { amountPkr: 0, rate: null };
-  let paidUsd = 0;
-  let pkrTotal = 0;
-  for (const p of payments) {
-    const usd = num(p.amountUsd);
-    const rate = num(p.exchangeRate);
-    if (usd <= 0) continue;
-    paidUsd += usd;
-    if (rate > 0) pkrTotal += usd * rate;
-  }
-  if (paidUsd <= 0 || pkrTotal <= 0) return { amountPkr: 0, rate: null };
-  const allocUsd = Math.min(purchaseUsd, paidUsd);
-  const avgRate = pkrTotal / paidUsd;
-  return { amountPkr: round2(allocUsd * avgRate), rate: round2(avgRate) };
+function purchasePkrAtRecognition(purchaseUsd: number, recognitionRate: number): { amountPkr: number; rate: number | null } {
+  if (purchaseUsd <= 0) return { amountPkr: 0, rate: null };
+  if (recognitionRate <= 0) throw new MissingLandedCostFxRateError("USD");
+  return { amountPkr: round2(purchaseUsd * recognitionRate), rate: round2(recognitionRate) };
 }
 
 export function buildLotCostLedger(input: LotCostLedgerInput): {
@@ -82,7 +69,7 @@ export function buildLotCostLedger(input: LotCostLedgerInput): {
   };
 } {
   const lotDate = input.lotDate;
-  const usdPkrFallback = 0;
+  const usdPkrFallback = num(input.usdPkrRate);
   const costs = input.lotCosts || [];
   const afnRate = resolveAfnToPkrRate(costs);
   const cnyRate = resolveCnyToPkrRate(costs);
@@ -91,7 +78,7 @@ export function buildLotCostLedger(input: LotCostLedgerInput): {
 
   for (const p of input.purchaseItems) {
     const amount = round2(num(p.totalPriceUsd));
-    const { amountPkr, rate } = purchasePkrFromPayments(amount, input.supplierPaymentsForLot);
+    const { amountPkr, rate } = purchasePkrAtRecognition(amount, usdPkrFallback);
     rawRows.push({
       date: rowDate(p.createdAt, lotDate),
       particulars: `Purchase — ${p.supplierName} (${p.productName})`,

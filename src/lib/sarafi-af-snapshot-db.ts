@@ -188,7 +188,7 @@ export async function resolveAfghanistanFxRateFromDb(input: {
   tx?: any;
   currencyCode: string;
   transactionDate: Date;
-  purpose: "sale_recognition" | "settlement" | "revaluation";
+  purpose: "lot_initial_recognition" | "sale_recognition" | "settlement" | "revaluation";
   positionKind: "asset" | "liability";
   actualDocumentedRate?: { rate: number; reference?: string | null } | null;
 }) {
@@ -218,13 +218,14 @@ export async function resolveAfghanistanFxRateFromDb(input: {
         fromCurrencyId: currency.id,
         toCurrencyId: pkr.id,
         snapshot: {
-          snapshotDate,
+          snapshotDate: { lte: snapshotDate },
           provider: "SARAFI_AF",
           market: SARAFI_AF_MARKET,
         },
       },
       include: { snapshot: true },
-      orderBy: { id: "desc" },
+      orderBy: [{ snapshot: { snapshotDate: "desc" } }, { id: "desc" }],
+      take: 30,
     }),
     db.exchangeRate.findMany({
       where: {

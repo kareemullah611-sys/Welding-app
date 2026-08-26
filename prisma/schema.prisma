@@ -435,7 +435,6 @@ model City {
   cityLiabilityAccounts  CityLiabilityAccount[]
   cityLiabilityEntries   CityLiabilityEntry[]
   openingCityLiabilities OpeningCityLiability[]
-  syncRequests           SyncRequest[]
   consignees             Consignee[]
   destinationLots        Lot[] @relation("LotDestinationCity")
 
@@ -836,6 +835,7 @@ model Lot {
   lotDate     DateTime  @map("lot_date") @db.Date
   notes           String?  @db.Text
   pkrExchangeRate Decimal? @map("pkr_exchange_rate") @db.Decimal(12, 4) // USD/PKR rate for profit calc
+  pkrExchangeRateMetadata Json? @map("pkr_exchange_rate_metadata")
   status          LotStatus @default(ongoing)
   shipmentStatus  LotShipmentStatus @default(order_confirmed) @map("shipment_status")
   etaDate         DateTime? @map("eta_date") @db.Date
@@ -1801,6 +1801,11 @@ model SupplierPayment {
   amountUsd     Decimal               @map("amount_usd") @db.Decimal(15, 2)
   exchangeRate  Decimal?              @map("exchange_rate") @db.Decimal(12, 4) // USD rate at payment time
   amountLocal   Decimal?              @map("amount_local") @db.Decimal(15, 2)  // equivalent in local currency
+  carryingRatePkr   Decimal?           @map("carrying_rate_pkr") @db.Decimal(12, 6)
+  carryingAmountPkr Decimal?           @map("carrying_amount_pkr") @db.Decimal(15, 2)
+  realizedFxPkr     Decimal?           @map("realized_fx_pkr") @db.Decimal(15, 2) // positive = gain, negative = loss
+  fxPoolDate        DateTime?          @map("fx_pool_date") @db.Date
+  journalVersion    Int                @default(1) @map("journal_version")
   paymentMethod SupplierPaymentMethod @map("payment_method")
   reference     String?               @db.VarChar(200) // bank ref, TT ref, etc
   notes         String?               @db.Text
@@ -1856,6 +1861,11 @@ model ShippingLinePayment {
   amountUsd      Decimal  @map("amount_usd") @db.Decimal(15, 2)
   exchangeRate   Decimal? @map("exchange_rate") @db.Decimal(12, 4)
   amountPkr      Decimal? @map("amount_pkr") @db.Decimal(15, 2)
+  carryingRatePkr   Decimal? @map("carrying_rate_pkr") @db.Decimal(12, 6)
+  carryingAmountPkr Decimal? @map("carrying_amount_pkr") @db.Decimal(15, 2)
+  realizedFxPkr     Decimal? @map("realized_fx_pkr") @db.Decimal(15, 2) // positive = gain, negative = loss
+  fxPoolDate        DateTime? @map("fx_pool_date") @db.Date
+  journalVersion    Int      @default(1) @map("journal_version")
   reference      String?  @db.VarChar(200)
   notes          String?  @db.Text
   createdBy      Int      @map("created_by")
@@ -1950,7 +1960,6 @@ model SyncRequest {
   createdBy  Int?     @map("created_by")
   createdAt  DateTime @default(now()) @map("created_at")
 
-  city        City     @relation(fields: [cityId], references: [id], onDelete: Cascade)
   creator    User?    @relation("SyncRequestCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
 
   @@unique([cityId, module, requestId], name: "unique_sync_request_per_city_module")

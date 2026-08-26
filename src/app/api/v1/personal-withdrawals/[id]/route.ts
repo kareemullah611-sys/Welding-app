@@ -6,6 +6,7 @@ import { reverseJournalEntries } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { updateWithdrawalSchema } from "@/lib/validations";
 import { getSaCheckAuditStateMap, isSaCheckConfirmed } from "@/lib/sa-check-audit";
+import { isAfghanistanCountry } from "@/lib/country-code";
 
 export const PATCH = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -93,7 +94,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         return errorResponse("VALIDATION_ERROR", "Cannot change amount or source for a withdrawal that was funded by a cheque");
       }
     }
-    if (w.city.country?.name === "Afghanistan" && nextSourceType !== "cash_office") {
+    if (isAfghanistanCountry(w.city.country) && nextSourceType !== "cash_office") {
       return errorResponse("VALIDATION_ERROR", "Afghanistan city withdrawals can only use office cash");
     }
     if (nextSourceType === "bank_account" && !nextBankAccountId) {

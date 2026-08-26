@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
-import { journalSaleCreated, journalSaleCOGS } from "@/lib/accounting";
+import { journalSaleCreated, journalSaleCOGS, reverseJournalEntries } from "@/lib/accounting";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { canAccessGodown } from "@/lib/godown-access";
@@ -28,6 +28,15 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 
     if (user.role === "city_admin" && sale.cityId !== user.cityId) {
       return errorResponse("FORBIDDEN", "Not your city", 403);
+    }
+    if (sale.isOpeningImport) {
+      const existingOpeningAdjustment = await prisma.journalEntry.findFirst({
+        where: { transactionId: `OPENING-STOCK-COST-${saleId}` },
+        select: { id: true },
+      });
+      if (existingOpeningAdjustment) {
+        return errorResponse("VALIDATION_ERROR", "Historical opening sale accounting has been adjusted; use a controlled reversal and correction", 400);
+      }
     }
     const nextSaleDate = body.saleDate ? new Date(body.saleDate) : sale.saleDate;
     if (Number.isNaN(nextSaleDate.getTime())) return errorResponse("VALIDATION_ERROR", "Invalid sale date");
@@ -122,16 +131,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         SELECT ct.lot_id, ct.product_id, COALESCE(SUM(ct.qty), 0) as qty
         FROM city_transfers ct
         WHERE ct.from_godown_id = ${nextGodownId}
-          AND ct.status IN ('approved', 'pending')
-          AND ct.product_id IN (${Prisma.join(productIds)})
-          AND ct.lot_id IN (${Prisma.join(candidateLotIds)})
-        GROUP BY ct.lot_id, ct.product_id
-      ),
-      city_in AS (
-        SELECT ct.lot_id, ct.product_id, COALESCE(SUM(ct.qty), 0) as qty
-        FROM city_transfers ct
-        WHERE ct.to_godown_id = ${nextGodownId}
-          AND ct.status = 'approved'
+          AND ct.status = 'pending'
           AND ct.product_id IN (${Prisma.join(productIds)})
           AND ct.lot_id IN (${Prisma.join(candidateLotIds)})
         GROUP BY ct.lot_id, ct.product_id
@@ -139,13 +139,12 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       SELECT
         lcd.lot_id,
         p.id as product_id,
-        COALESCE(r.qty, 0) - COALESCE(s.qty, 0) - COALESCE(co.qty, 0) + COALESCE(ci.qty, 0) as available
+        COALESCE(r.qty, 0) - COALESCE(s.qty, 0) - COALESCE(co.qty, 0) as available
       FROM products p
       CROSS JOIN (SELECT UNNEST(ARRAY[${Prisma.join(candidateLotIds)}])::int AS lot_id) lcd
       LEFT JOIN received r ON r.product_id = p.id AND r.lot_id = lcd.lot_id
       LEFT JOIN sold s ON s.product_id = p.id AND s.lot_id = lcd.lot_id
       LEFT JOIN city_out co ON co.product_id = p.id AND co.lot_id = lcd.lot_id
-      LEFT JOIN city_in ci ON ci.product_id = p.id AND ci.lot_id = lcd.lot_id
       WHERE p.id IN (${Prisma.join(productIds)})
     `;
     const availableByLotProduct = Object.fromEntries(
@@ -216,18 +215,23 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 	    await prisma.$transaction(async (tx) => {
       // Deterministically replace sale journals on correction to avoid cumulative
       // reverse/repost drift when a sale is corrected multiple times.
-      await tx.journalEntry.deleteMany({
-        where: {
-          transactionId: {
-            in: [
-              `SALE-${saleId}`,
-              `REV-SALE-${saleId}`,
-              `COGS-${saleId}`,
-              `REV-COGS-${saleId}`,
-            ],
+      if (sale.isOpeningImport) {
+        await reverseJournalEntries(`SALE-${saleId}`, user.userId, tx, sale.saleDate);
+        await reverseJournalEntries(`COGS-${saleId}`, user.userId, tx, sale.saleDate);
+      } else {
+        await tx.journalEntry.deleteMany({
+          where: {
+            transactionId: {
+              in: [
+                `SALE-${saleId}`,
+                `REV-SALE-${saleId}`,
+                `COGS-${saleId}`,
+                `REV-COGS-${saleId}`,
+              ],
+            },
           },
-        },
-      });
+        });
+      }
 
       await tx.saleItem.deleteMany({ where: { saleId } });
       await tx.saleItem.createMany({ data: newItemData });

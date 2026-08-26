@@ -10,15 +10,17 @@ function modelBlock(name: string) {
   return match[1];
 }
 
-test("SyncRequest has database-backed city and creator relations", () => {
-  const city = modelBlock("City");
+test("SyncRequest supports global and city idempotency scopes with a creator relation", () => {
   const user = modelBlock("User");
   const syncRequest = modelBlock("SyncRequest");
+  const migration = readFileSync("prisma/migrations/20260824120000_sync_request_global_scope/migration.sql", "utf8");
 
-  assert.match(city, /syncRequests\s+SyncRequest\[\]/);
   assert.match(user, /syncRequestsCreated\s+SyncRequest\[\]\s+@relation\("SyncRequestCreatedBy"\)/);
-  assert.match(syncRequest, /city\s+City\s+@relation\(fields: \[cityId\], references: \[id\], onDelete: Cascade\)/);
+  assert.doesNotMatch(syncRequest, /city\s+City\s+@relation/);
   assert.match(syncRequest, /creator\s+User\?\s+@relation\("SyncRequestCreatedBy", fields: \[createdBy\], references: \[id\], onDelete: SetNull\)/);
+  assert.match(migration, /DROP CONSTRAINT IF EXISTS "sync_requests_city_id_fkey"/);
+  assert.match(migration, /CHECK \("city_id" >= 0\) NOT VALID/);
+  assert.doesNotMatch(migration, /DROP TABLE|TRUNCATE|DELETE FROM/i);
 });
 
 test("superadmin app branding settings are persisted and visible", () => {
@@ -58,6 +60,7 @@ test("lots support consignees, documents, and separate shipment status without a
   const lotDocument = modelBlock("LotDocument");
   const lotStatusHistory = modelBlock("LotStatusHistory");
   const lotsPage = readFileSync("src/app/(dashboard)/lots/page.tsx", "utf8");
+  const lotDetailTabs = readFileSync("src/components/lots/LotDetailTabs.tsx", "utf8");
   const lotRoute = readFileSync("src/app/api/v1/lots/route.ts", "utf8");
   const lotDetailRoute = readFileSync("src/app/api/v1/lots/[id]/route.ts", "utf8");
   const documentRoute = readFileSync("src/app/api/v1/lots/[id]/documents/route.ts", "utf8");
@@ -114,7 +117,7 @@ test("lots support consignees, documents, and separate shipment status without a
   assert.match(lotsPage, /currentConsignee/);
   assert.match(lotsPage, /Add Document/);
   assert.match(lotsPage, /Change Status/);
-  assert.match(lotsPage, /documentsCount/);
+  assert.match(lotDetailTabs, /documentsCount/);
   assert.doesNotMatch(lotsPage, /key: "utilization"/);
   assert.doesNotMatch(lotsPage, /Copy items from previous lot/);
   assert.match(lotDocumentsHelper, /Karachi → destination city/);
@@ -603,15 +606,14 @@ test("city sales auto lot selection expands sale items across FIFO lot availabil
   assert.match(salesRoute, /Lot is required for each product/);
   assert.match(salesRoute, /exceeds available stock/);
   assert.match(salesRoute, /db\.cityTransfer\.aggregate/);
-  assert.match(salesRoute, /status: \{ in: \["approved", "pending"\] \}/);
+  assert.match(salesRoute, /status: "pending"/);
   assert.match(salesRoute, /availableLots: await getAvailableLotsForProduct\(cityId, user\.countryId!, godownId, item\.productId\)/);
   assert.match(godownStockRoute, /lotBreakdown/);
   assert.match(godownStockRoute, /city_transferred_out/);
-  assert.match(godownStockRoute, /ct\.status IN \('approved', 'pending'\)/);
-  assert.match(godownStockRoute, /city_transferred_in/);
-  assert.match(godownStockRoute, /ct\.status = 'approved'/);
+  assert.match(godownStockRoute, /ct\.status = 'pending'/);
+  assert.doesNotMatch(godownStockRoute, /city_transferred_in/);
   const saleCorrectRoute = readFileSync("src/app/api/v1/sales/[id]/correct/route.ts", "utf8");
-  assert.match(saleCorrectRoute, /ct\.status IN \('approved', 'pending'\)/);
+  assert.match(saleCorrectRoute, /ct\.status = 'pending'/);
   assert.match(salesPage, /const saleGodownId = Number\(sale\.godownId \|\| sale\.godown\?\.id \|\| 0\)/);
   assert.match(salesPage, /if \(saleGodownId\) await loadGodownStock\(saleGodownId\)/);
   assert.match(salesPage, /const expandedItems = expandAutoLotItems\(validItems, true\)/);
@@ -1055,7 +1057,7 @@ test("superadmin liability and exchange journals are atomic", () => {
   assert.match(agentUpdate, /await reverseJournalEntries\(`AGENTPAY-\$\{id\}`, user\.userId, tx\)/);
   assert.match(agentUpdate, /await journalAgentPaid\([\s\S]*,\s*tx\);/);
   assert.match(shippingCreate, /await journalShippingLinePayment\([\s\S]*,\s*tx\);/);
-  assert.match(shippingUpdate, /await reverseJournalEntries\(`SLPAY-\$\{id\}`, user\.userId, tx\)/);
+  assert.match(shippingUpdate, /await reverseJournalEntries\(settlementJournalTransactionId\("SLPAY", id, existing\.journalVersion\), user\.userId, tx\)/);
   assert.match(shippingUpdate, /await journalShippingLinePayment\([\s\S]*,\s*tx\);/);
   assert.match(intermediaryDepositCreate, /await journalIntermediaryDeposit\([\s\S]*,\s*tx\);/);
   assert.match(exchangeCreate, /await journalIntermediaryExchange\([\s\S]*,\s*tx\);/);

@@ -4,6 +4,7 @@ import { withSuperAdmin } from "@/lib/middleware";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { buildIntermediaryLedgerEntries, paginateIntermediaryLedger } from "@/lib/intermediary-ledger";
+import { buildDateRange } from "@/lib/date-range";
 
 function applyDateRange(
   target: Record<string, unknown>,
@@ -12,14 +13,7 @@ function applyDateRange(
   endDate: string | null,
 ) {
   if (!startDate && !endDate) return;
-  const range: Record<string, Date> = {};
-  if (startDate) range.gte = new Date(startDate);
-  if (endDate) {
-    const eod = new Date(endDate);
-    eod.setHours(23, 59, 59, 999);
-    range.lte = eod;
-  }
-  target[field] = range;
+  target[field] = buildDateRange(startDate, endDate);
 }
 
 export const GET = withSuperAdmin(async (request: NextRequest, context: any, _user: JWTPayload) => {

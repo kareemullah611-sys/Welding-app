@@ -78,7 +78,7 @@ export type SarafiAfStoredRateSource = {
   status: SarafiAfSnapshotStatus;
 };
 
-export type AfghanistanFxPurpose = "sale_recognition" | "settlement" | "revaluation";
+export type AfghanistanFxPurpose = "lot_initial_recognition" | "sale_recognition" | "settlement" | "revaluation";
 
 type ResolvedAfghanistanFxRate = {
   ok: true;
@@ -95,6 +95,10 @@ type ResolvedAfghanistanFxRate = {
   sourceTimestamp: string | null;
   fetchedTimestamp: string | null;
   conversionPath: string[];
+  transactionDate: string;
+  rateSourceDate: string;
+  daysCarriedBackward: number;
+  reason: "TARGET_DATE_RATE" | "PREVIOUS_AVAILABLE_RATE" | "ACTUAL_DOCUMENTED_RATE" | "PKR" | "MANUAL_RATE";
 } | {
   ok: false;
   provider: "SARAFI_AF" | "MANUAL_OPEN_MARKET" | null;
@@ -113,6 +117,12 @@ function round6(value: number) {
 
 function roundRate(value: number) {
   return Math.round((value + Number.EPSILON) * 100_000_000) / 100_000_000;
+}
+
+function daysBetween(previousDate: string, targetDate: string) {
+  const previous = new Date(`${previousDate}T00:00:00.000Z`).getTime();
+  const target = new Date(`${targetDate}T00:00:00.000Z`).getTime();
+  return Math.max(0, Math.round((target - previous) / 86_400_000));
 }
 
 function dateOnlyInKabul(date: Date) {
@@ -303,6 +313,10 @@ export function resolveAfghanistanFxRate(input: {
       sourceTimestamp: null,
       fetchedTimestamp: null,
       conversionPath: ["PKR→PKR"],
+      transactionDate: input.transactionDate,
+      rateSourceDate: input.transactionDate,
+      daysCarriedBackward: 0,
+      reason: "PKR",
     };
   }
   if (input.actualDocumentedRate?.rate && input.actualDocumentedRate.rate > 0) {
@@ -320,14 +334,22 @@ export function resolveAfghanistanFxRate(input: {
       sourceTimestamp: null,
       fetchedTimestamp: null,
       conversionPath: [`${fromCurrencyCode}→PKR`],
+      transactionDate: input.transactionDate,
+      rateSourceDate: input.transactionDate,
+      daysCarriedBackward: 0,
+      reason: "ACTUAL_DOCUMENTED_RATE",
     };
   }
 
-  const sarafi = input.sarafiRates.find((rate) =>
-    rate.snapshotDate === input.transactionDate &&
-    normalizeCurrencyCode(rate.fromCurrencyCode) === fromCurrencyCode &&
-    normalizeCurrencyCode(rate.toCurrencyCode) === "PKR"
-  );
+  const matchingSarafiRates = input.sarafiRates
+    .filter((rate) =>
+      rate.snapshotDate <= input.transactionDate &&
+      normalizeCurrencyCode(rate.fromCurrencyCode) === fromCurrencyCode &&
+      normalizeCurrencyCode(rate.toCurrencyCode) === "PKR"
+    )
+    .sort((a, b) => b.snapshotDate.localeCompare(a.snapshotDate));
+  const exactSarafi = matchingSarafiRates.find((rate) => rate.snapshotDate === input.transactionDate);
+  const sarafi = exactSarafi || matchingSarafiRates.find((rate) => rate.status === "VALID_CURRENT");
   if (sarafi) {
     if (sarafi.status !== "VALID_CURRENT") {
       return {
@@ -359,6 +381,10 @@ export function resolveAfghanistanFxRate(input: {
         sourceTimestamp: sarafi.sourceTimestamp,
         fetchedTimestamp: sarafi.fetchedTimestamp,
         conversionPath: sarafi.conversionPath,
+        transactionDate: input.transactionDate,
+        rateSourceDate: sarafi.snapshotDate,
+        daysCarriedBackward: daysBetween(sarafi.snapshotDate, input.transactionDate),
+        reason: sarafi.snapshotDate === input.transactionDate ? "TARGET_DATE_RATE" : "PREVIOUS_AVAILABLE_RATE",
       };
     }
   }
@@ -381,6 +407,10 @@ export function resolveAfghanistanFxRate(input: {
       sourceTimestamp: null,
       fetchedTimestamp: null,
       conversionPath: [`${fromCurrencyCode}→PKR`],
+      transactionDate: input.transactionDate,
+      rateSourceDate: manual.effectiveFrom,
+      daysCarriedBackward: daysBetween(manual.effectiveFrom, input.transactionDate),
+      reason: "MANUAL_RATE",
     };
   }
 

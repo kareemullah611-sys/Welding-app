@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, validationError, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { buildDateRange } from "@/lib/date-range";
 
 function round2(value: number) {
   return Math.round(value * 100) / 100;
@@ -18,9 +19,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     if (!account) return errorResponse("NOT_FOUND", "Liability not found", 404);
     if (account.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
 
-    const dateFilter: any = {};
-    if (dateFrom) dateFilter.gte = new Date(dateFrom);
-    if (dateTo) dateFilter.lte = new Date(dateTo);
+    const dateFilter = buildDateRange(dateFrom, dateTo);
 
     const [openings, entries] = await Promise.all([
       prisma.openingCityLiability.findMany({

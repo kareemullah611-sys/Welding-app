@@ -1,7 +1,9 @@
 import prisma from "@/lib/prisma";
 import { AccountType, Prisma, PrismaClient } from "@prisma/client";
-import { computeLotLandedCostPkr, groupExpensesByCurrency } from "@/lib/landed-cost-pkr";
+import { computeLotLandedCostPkr } from "@/lib/landed-cost-pkr";
 import { getCountryFallbackRateToPkr } from "@/lib/intermediary-usd-fifo";
+import { buildRealizedFxPostingAmounts, settlementJournalTransactionId } from "@/lib/realized-liability-fx";
+import { historicalOpeningAdjustmentTransactionId } from "@/lib/historical-opening-accounting";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -84,9 +86,16 @@ export async function getCOGSAccountId(db: DbClient = prisma): Promise<number> {
 export async function getOwnerWithdrawalAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("6002", "Owner Withdrawals", "equity", undefined, db); }
 export async function getHajiAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("6003", "Haji Account", "equity", undefined, db); }
 export async function getOpeningBalanceAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("3900", "Opening Balances", "equity", undefined, db); }
+export async function getHistoricalStockAdjustmentAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("3901", "Historical Stock Adjustment", "equity", undefined, db); }
 export async function getBankAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("1050", "Bank Account (USD)", "asset", undefined, db); }
 export async function getInvestorSettlementPayableAccountId(db: DbClient = prisma): Promise<number> {
   return getOrCreateAccount("2600-INVSETTLE", "Investor Settlement Payable", "liability", undefined, db);
+}
+export async function getForeignExchangeGainAccountId(db: DbClient = prisma): Promise<number> {
+  return getOrCreateAccount("FX-GAIN", "Foreign Exchange Gain", "revenue", undefined, db);
+}
+export async function getForeignExchangeLossAccountId(db: DbClient = prisma): Promise<number> {
+  return getOrCreateAccount("FX-LOSS", "Foreign Exchange Loss", "expense", undefined, db);
 }
 
 export async function getExpenseAccountId(costType: string, db: DbClient = prisma): Promise<number> {
@@ -119,12 +128,50 @@ export async function createJournalEntries(
       cityId: meta.cityId || null, entryDate: meta.entryDate, createdBy: meta.createdBy,
     }));
   if (data.length > 0) {
+    const totalDebit = data.reduce((sum, line) => sum.plus(new Prisma.Decimal(line.debit)), new Prisma.Decimal(0));
+    const totalCredit = data.reduce((sum, line) => sum.plus(new Prisma.Decimal(line.credit)), new Prisma.Decimal(0));
+    const difference = totalDebit.minus(totalCredit).abs();
+    if (difference.greaterThan(new Prisma.Decimal("0.01"))) {
+      throw new Error(
+        `Unbalanced journal ${transactionId}: debit ${totalDebit.toFixed(2)} != credit ${totalCredit.toFixed(2)}`,
+      );
+    }
     await db.journalEntry.createMany({ data });
   }
 }
 
+export async function journalSaleDiscount(d: {
+  id: number;
+  saleId: number;
+  customerId: number;
+  cityId: number;
+  lotId: number;
+  amount: number;
+  currencyCode: string;
+  discountDate: Date;
+  createdBy: number;
+}, db: DbClient = prisma) {
+  await createJournalEntries(`DISCOUNT-${d.id}`, [
+    { accountId: await getSalesRevenueAccountId(db), debit: d.amount, credit: 0, description: `Sale discount #${d.saleId}` },
+    { accountId: await getCustomerAccountId(d.customerId, db), debit: 0, credit: d.amount, description: `Sale discount #${d.saleId}` },
+  ], {
+    currencyCode: d.currencyCode,
+    entityType: "sale_discount",
+    entityId: d.id,
+    lotId: d.lotId,
+    cityId: d.cityId,
+    entryDate: d.discountDate,
+    createdBy: d.createdBy,
+  }, db);
+}
+
 // SALE CREATED
 export async function journalSaleCreated(sale: { id: number; customerId: number; cityId: number; lotId: number; totalAmount: number; currencyCode: string; saleDate: Date; createdBy: number; }, db: DbClient = prisma) {
+  const [persistedSale, existing] = await Promise.all([
+    db.sale.findUnique({ where: { id: sale.id }, select: { isOpeningImport: true } }),
+    db.journalEntry.findFirst({ where: { transactionId: `SALE-${sale.id}` }, select: { id: true } }),
+  ]);
+  if (persistedSale?.isOpeningImport || existing) return;
   const lines: JournalLine[] = [
     { accountId: await getCustomerAccountId(sale.customerId, db), debit: sale.totalAmount, credit: 0, description: `Sale #${sale.id}` },
     { accountId: await getSalesRevenueAccountId(db), debit: 0, credit: sale.totalAmount, description: `Sale #${sale.id}` },
@@ -228,51 +275,48 @@ export async function journalLotPurchase(p: { id: number; supplierId: number; lo
   ], { currencyCode: "USD", entityType: "lot_purchase", entityId: p.id, lotId: p.lotId, entryDate: new Date(), createdBy: p.createdBy }, db);
 }
 
-// SUPPLIER PAID — supplier debit in USD; bank credit in settlement currency (PKR when paid from PKR bank)
+// SUPPLIER PAID — settle the PKR carrying value and recognize realized FX separately.
 export async function journalSupplierPaid(
   p: {
-    id: number; supplierId: number; amountUsd: number; amountLocal?: number | null;
+    id: number; supplierId: number; amountUsd: number;
+    carryingAmountPkr: number; actualSettlementPkr: number; journalVersion: number;
     paymentDate: Date; createdBy: number;
     bankAccountId?: number | null;
     superAdminBankAccountId?: number | null;
     superAdminCashAccountId?: number | null;
     intermediaryId?: number | null;
-    settlementCurrencyCode?: string | null;
   },
   db: DbClient = prisma
 ) {
   let creditAccId: number;
-  let creditAmount = p.amountUsd;
-  let creditCurrency = "USD";
-
   if (p.intermediaryId) {
     creditAccId = await getIntermediaryAccountId(p.intermediaryId, db);
   } else if (p.superAdminCashAccountId) {
     creditAccId = await getSuperAdminCashGLAccountId(p.superAdminCashAccountId, db);
-    if (p.amountLocal && Number(p.amountLocal) > 0) {
-      creditAmount = Number(p.amountLocal);
-      creditCurrency = p.settlementCurrencyCode || creditCurrency;
-    }
   } else if (p.superAdminBankAccountId) {
     creditAccId = await getSuperAdminBankGLAccountId(p.superAdminBankAccountId, db);
-    if (p.amountLocal && Number(p.amountLocal) > 0) {
-      creditAmount = Number(p.amountLocal);
-      creditCurrency = p.settlementCurrencyCode || "PKR";
-    }
   } else if (p.bankAccountId) {
     creditAccId = await getBankGLAccountId(p.bankAccountId, db);
-    if (p.amountLocal && Number(p.amountLocal) > 0) {
-      creditAmount = Number(p.amountLocal);
-      creditCurrency = p.settlementCurrencyCode || "PKR";
-    }
   } else {
     creditAccId = await getBankAccountId(db);
   }
 
-  await createJournalEntries(`SUPPPAY-${p.id}`, [
-    { accountId: await getSupplierAccountId(p.supplierId, db), debit: p.amountUsd, credit: 0, description: `Payment to supplier`, currencyCode: "USD" },
-    { accountId: creditAccId, debit: 0, credit: creditAmount, description: p.intermediaryId ? `Through intermediary` : `Bank to supplier`, currencyCode: creditCurrency },
-  ], { currencyCode: "USD", entityType: "supplier_payment", entityId: p.id, entryDate: p.paymentDate, createdBy: p.createdBy }, db);
+  const amounts = buildRealizedFxPostingAmounts({
+    carryingAmountPkr: p.carryingAmountPkr,
+    actualSettlementPkr: p.actualSettlementPkr,
+  });
+  const lines: JournalLine[] = [
+    { accountId: await getSupplierAccountId(p.supplierId, db), debit: amounts.liabilityDebitPkr, credit: 0, description: `Supplier liability settled · USD ${p.amountUsd}` },
+    { accountId: creditAccId, debit: 0, credit: amounts.sourceCreditPkr, description: p.intermediaryId ? `Through intermediary` : `Payment to supplier` },
+  ];
+  if (amounts.fxLossDebitPkr > 0) {
+    lines.push({ accountId: await getForeignExchangeLossAccountId(db), debit: amounts.fxLossDebitPkr, credit: 0, description: "Realized supplier FX loss" });
+  }
+  if (amounts.fxGainCreditPkr > 0) {
+    lines.push({ accountId: await getForeignExchangeGainAccountId(db), debit: 0, credit: amounts.fxGainCreditPkr, description: "Realized supplier FX gain" });
+  }
+  await createJournalEntries(settlementJournalTransactionId("SUPPPAY", p.id, p.journalVersion), lines,
+    { currencyCode: "PKR", entityType: "supplier_payment", entityId: p.id, entryDate: p.paymentDate, createdBy: p.createdBy }, db);
 }
 
 // LOT COST (customs, freight, transport - on agent credit or cash)
@@ -677,9 +721,9 @@ export async function journalSuperAdminPersonalExpense(
   }, db);
 }
 
-// SHIPPING LINE PAID
+// SHIPPING LINE PAID — settle the PKR carrying value and recognize realized FX separately.
 // Source priority: intermediary → specific bank → generic bank
-export async function journalShippingLinePayment(p: { id: number; shippingLineId: number; amountUsd: number; paymentDate: Date; createdBy: number; bankAccountId?: number | null; intermediaryId?: number | null; superAdminCashAccountId?: number | null; amountLocal?: number | null; settlementCurrencyCode?: string | null; }, db: DbClient = prisma) {
+export async function journalShippingLinePayment(p: { id: number; shippingLineId: number; amountUsd: number; carryingAmountPkr: number; actualSettlementPkr: number; journalVersion: number; paymentDate: Date; createdBy: number; bankAccountId?: number | null; intermediaryId?: number | null; superAdminCashAccountId?: number | null; }, db: DbClient = prisma) {
   let creditAccId: number;
   if (p.intermediaryId) {
     creditAccId = await getIntermediaryAccountId(p.intermediaryId, db);
@@ -690,24 +734,32 @@ export async function journalShippingLinePayment(p: { id: number; shippingLineId
   } else {
     creditAccId = await getBankAccountId(db);
   }
-  const creditAmount = p.amountLocal && Number(p.amountLocal) > 0 ? Number(p.amountLocal) : p.amountUsd;
-  const creditCurrency = p.amountLocal && Number(p.amountLocal) > 0 ? (p.settlementCurrencyCode || "PKR") : "USD";
-  await createJournalEntries(`SLPAY-${p.id}`, [
-    { accountId: await getShippingLineAccountId(p.shippingLineId, db), debit: p.amountUsd, credit: 0, description: `Payment to shipping line` },
-    { accountId: creditAccId, debit: 0, credit: creditAmount, description: p.intermediaryId ? `Via intermediary` : `Payment to shipping line`, currencyCode: creditCurrency },
-  ], { currencyCode: "USD", entityType: "shipping_line_payment", entityId: p.id, entryDate: p.paymentDate, createdBy: p.createdBy }, db);
+  const amounts = buildRealizedFxPostingAmounts({ carryingAmountPkr: p.carryingAmountPkr, actualSettlementPkr: p.actualSettlementPkr });
+  const lines: JournalLine[] = [
+    { accountId: await getShippingLineAccountId(p.shippingLineId, db), debit: amounts.liabilityDebitPkr, credit: 0, description: `Shipping liability settled · USD ${p.amountUsd}` },
+    { accountId: creditAccId, debit: 0, credit: amounts.sourceCreditPkr, description: p.intermediaryId ? `Via intermediary` : `Payment to shipping line` },
+  ];
+  if (amounts.fxLossDebitPkr > 0) {
+    lines.push({ accountId: await getForeignExchangeLossAccountId(db), debit: amounts.fxLossDebitPkr, credit: 0, description: "Realized shipping FX loss" });
+  }
+  if (amounts.fxGainCreditPkr > 0) {
+    lines.push({ accountId: await getForeignExchangeGainAccountId(db), debit: 0, credit: amounts.fxGainCreditPkr, description: "Realized shipping FX gain" });
+  }
+  await createJournalEntries(settlementJournalTransactionId("SLPAY", p.id, p.journalVersion), lines,
+    { currencyCode: "PKR", entityType: "shipping_line_payment", entityId: p.id, entryDate: p.paymentDate, createdBy: p.createdBy }, db);
 }
 
 // COGS AT POINT OF SALE
 // Computes landed cost per carton from lot data and journals:
 // DR Cost of Goods Sold | CR Inventory
-export async function journalSaleCOGS(params: {
-  saleId: number; lotId: number; totalQtySold: number;
-  saleDate: Date; cityId: number; createdBy: number;
-}, db: DbClient = prisma) {
-  const { saleId, lotId, totalQtySold, saleDate, cityId, createdBy } = params;
-
-  const [lot, costs, lotProducts, lotExpenses, saleItems] = await Promise.all([
+export async function calculateSaleCogsPkr(params: {
+  saleId: number;
+  lotId: number;
+  totalQtySold: number;
+  usdPkrRateOverride?: number;
+}, db: DbClient = prisma): Promise<number> {
+  const { saleId, lotId, totalQtySold, usdPkrRateOverride } = params;
+  const [lot, costs, lotProducts, saleItems] = await Promise.all([
     db.lot.findUnique({ where: { id: lotId }, select: { pkrExchangeRate: true, countryId: true, lotDate: true } }),
     db.lotCost.findMany({
       where: { lotId },
@@ -717,20 +769,18 @@ export async function journalSaleCOGS(params: {
       where: { lotId },
       select: { productId: true, totalQty: true, product: { select: { unitOfMeasure: true } } },
     }),
-    db.expense.findMany({
-      where: { lotId, deletedAt: null },
-      select: { amount: true, currency: { select: { code: true } } },
-    }),
     db.saleItem.findMany({
       where: { saleId, lotId },
       select: { productId: true, qty: true, product: { select: { unitOfMeasure: true } } },
     }),
   ]);
 
-  const usdPkrRate = Number(lot?.pkrExchangeRate || 0) > 0
+  const usdPkrRate = Number(usdPkrRateOverride || 0) > 0
+    ? Number(usdPkrRateOverride)
+    : Number(lot?.pkrExchangeRate || 0) > 0
     ? Number(lot?.pkrExchangeRate || 0)
     : Number(lot ? await getCountryFallbackRateToPkr({ countryId: lot.countryId, fromCurrencyCode: "USD", asOf: lot.lotDate }, db) : 0);
-  if (totalQtySold === 0 || usdPkrRate <= 0) return;
+  if (totalQtySold === 0 || usdPkrRate <= 0) return 0;
 
   const mtProductIds = lotProducts
     .filter((lp) => lp.product.unitOfMeasure !== "PCS")
@@ -756,7 +806,7 @@ export async function journalSaleCOGS(params: {
         totalPurchaseUsd: Number(mtPurchases?._sum.totalPriceUsd || 0),
         totalCartons: mtTotalQty,
         lotCosts: costs,
-        lotExpensesByCurrency: groupExpensesByCurrency(lotExpenses),
+        lotExpensesByCurrency: {},
         usdPkrRate,
       });
       if (landed.landedCostPerCartonPkr > 0) {
@@ -777,6 +827,21 @@ export async function journalSaleCOGS(params: {
   }
 
   cogsAmount = Math.round(cogsAmount * 100) / 100;
+  return cogsAmount > 0 ? cogsAmount : 0;
+}
+
+export async function journalSaleCOGS(params: {
+  saleId: number; lotId: number; totalQtySold: number;
+  saleDate: Date; cityId: number; createdBy: number;
+}, db: DbClient = prisma) {
+  const { saleId, lotId, saleDate, cityId, createdBy } = params;
+  const [sale, existing] = await Promise.all([
+    db.sale.findUnique({ where: { id: saleId }, select: { isOpeningImport: true } }),
+    db.journalEntry.findFirst({ where: { transactionId: `COGS-${saleId}`, lotId }, select: { id: true } }),
+  ]);
+  if (sale?.isOpeningImport || existing) return;
+
+  const cogsAmount = await calculateSaleCogsPkr(params, db);
   if (cogsAmount <= 0) return;
 
   await createJournalEntries(`COGS-${saleId}`, [
@@ -785,18 +850,55 @@ export async function journalSaleCOGS(params: {
   ], { currencyCode: "PKR", entityType: "sale", entityId: saleId, lotId, cityId, entryDate: saleDate, createdBy }, db);
 }
 
+export async function journalHistoricalOpeningStockAdjustment(params: {
+  saleId: number; lotId: number; totalQtySold: number;
+  saleDate: Date; cityId: number; createdBy: number;
+}, db: DbClient = prisma): Promise<number> {
+  const { saleId, lotId, saleDate, cityId, createdBy } = params;
+  const transactionId = historicalOpeningAdjustmentTransactionId(saleId);
+  const [sale, existing] = await Promise.all([
+    db.sale.findUnique({ where: { id: saleId }, select: { isOpeningImport: true } }),
+    db.journalEntry.findFirst({ where: { transactionId, lotId }, select: { id: true } }),
+  ]);
+  if (!sale?.isOpeningImport || existing) return 0;
+
+  const adjustmentAmount = await calculateSaleCogsPkr(params, db);
+  if (adjustmentAmount <= 0) return 0;
+
+  await createJournalEntries(transactionId, [
+    { accountId: await getHistoricalStockAdjustmentAccountId(db), debit: adjustmentAmount, credit: 0, description: `Historical stock adjustment — Opening Sale #${saleId}` },
+    { accountId: await getInventoryAccountId(db), debit: 0, credit: adjustmentAmount, description: `Historical inventory reduction — Opening Sale #${saleId}` },
+  ], { currencyCode: "PKR", entityType: "historical_sale_opening_adjustment", entityId: saleId, lotId, cityId, entryDate: saleDate, createdBy }, db);
+  return adjustmentAmount;
+}
+
 // REVERSE (for cancellations)
-export async function reverseJournalEntries(transactionId: string, createdBy: number, db: DbClient = prisma) {
-  const entries = await db.journalEntry.findMany({ where: { transactionId } });
-  if (entries.length === 0) return;
-  const now = new Date();
-  await db.journalEntry.createMany({
-    data: entries.map((e) => ({
-      transactionId: `REV-${transactionId}`, accountId: e.accountId,
-      debit: Number(e.credit), credit: Number(e.debit),
-      currencyCode: e.currencyCode, exchangeRate: e.exchangeRate,
-      description: `REVERSAL: ${e.description}`, entityType: e.entityType, entityId: e.entityId,
-      lotId: e.lotId, cityId: e.cityId, entryDate: now, createdBy,
-    })),
-  });
+export async function reverseJournalEntries(transactionId: string, createdBy: number, db: DbClient = prisma, entryDate?: Date) {
+  const reverseWithinTransaction = async (tx: DbClient) => {
+    await (tx as any).$executeRawUnsafe(
+      "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
+      `journal-reversal:${transactionId}`,
+    );
+    const reversalTransactionId = `REV-${transactionId}`;
+    const existingReversal = await tx.journalEntry.findMany({ where: { transactionId: reversalTransactionId }, take: 1 });
+    if (existingReversal.length > 0) return;
+    const entries = await tx.journalEntry.findMany({ where: { transactionId } });
+    if (entries.length === 0) return;
+    const reversalDate = entryDate || new Date();
+    await tx.journalEntry.createMany({
+      data: entries.map((e) => ({
+        transactionId: reversalTransactionId, accountId: e.accountId,
+        debit: Number(e.credit), credit: Number(e.debit),
+        currencyCode: e.currencyCode, exchangeRate: e.exchangeRate,
+        description: `REVERSAL: ${e.description}`, entityType: e.entityType, entityId: e.entityId,
+        lotId: e.lotId, cityId: e.cityId, entryDate: reversalDate, createdBy,
+      })),
+    });
+  };
+
+  if (typeof (db as PrismaClient).$transaction === "function") {
+    await (db as PrismaClient).$transaction(async (tx) => reverseWithinTransaction(tx));
+    return;
+  }
+  await reverseWithinTransaction(db);
 }

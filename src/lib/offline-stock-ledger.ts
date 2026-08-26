@@ -94,6 +94,27 @@ export function buildOfflineStockLedgerFromModules(
   }
 
   const rows: LedgerRow[] = [];
+  const approvedCityTransferDelta = new Map<string, number>();
+  const allocationKey = (godownId: number, productId: number, lotId: number) => `${godownId}:${productId}:${lotId}`;
+  for (const ct of asArray(cityTransfers)) {
+    const transfer = ct as {
+      status?: string;
+      qty?: number;
+      lotId?: number;
+      productId?: number;
+      fromGodownId?: number;
+      toGodownId?: number;
+      product?: { id?: number };
+    };
+    if (String(transfer.status || "") !== "approved") continue;
+    const lotId = Number(transfer.lotId || 0);
+    const productId = Number(transfer.productId ?? transfer.product?.id ?? 0);
+    const qty = Number(transfer.qty || 0);
+    const fromKey = allocationKey(Number(transfer.fromGodownId || 0), productId, lotId);
+    const toKey = allocationKey(Number(transfer.toGodownId || 0), productId, lotId);
+    approvedCityTransferDelta.set(fromKey, (approvedCityTransferDelta.get(fromKey) || 0) + qty);
+    approvedCityTransferDelta.set(toKey, (approvedCityTransferDelta.get(toKey) || 0) - qty);
+  }
 
   for (const os of asArray(openingStocks)) {
     const row = os as {
@@ -124,7 +145,7 @@ export function buildOfflineStockLedgerFromModules(
   }
 
   for (const lot of asArray(lots)) {
-    const lotRow = lot as { lotNumber?: string; distributions?: unknown[] };
+    const lotRow = lot as { id?: number; lotNumber?: string; distributions?: unknown[] };
     for (const dist of asArray(lotRow.distributions)) {
       const d = dist as {
         productId?: number;
@@ -148,7 +169,7 @@ export function buildOfflineStockLedgerFromModules(
           godownId,
           godownName: alloc.godownName ?? godownNameById.get(godownId) ?? "",
           cityName: "",
-          qtyIn: Number(alloc.qty || 0),
+          qtyIn: Number(alloc.qty || 0) + (approvedCityTransferDelta.get(allocationKey(godownId, productId, Number(lotRow.id || 0))) || 0),
           qtyOut: 0,
         });
       }

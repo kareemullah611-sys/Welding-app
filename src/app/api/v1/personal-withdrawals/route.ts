@@ -5,6 +5,7 @@ import { createWithdrawalSchema } from "@/lib/validations";
 import { successResponse, paginatedResponse, validationError, errorResponse, serverError, getPaginationParams, getDateRange } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import { isAfghanistanCountry } from "@/lib/country-code";
 
 const WITHDRAWAL_SYNC_MODULE = "personal_withdrawals.create";
 
@@ -31,7 +32,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
   try {
     const searchParams = request.nextUrl.searchParams;
     const { page, limit, skip } = getPaginationParams(searchParams);
-    const { dateFrom, dateTo } = getDateRange(searchParams);
+    const { dateFrom, dateToExclusive } = getDateRange(searchParams);
     const cityId = getCityScope(user, searchParams.get("city_id") ? parseInt(searchParams.get("city_id")!) : undefined);
     const approvalStatus = searchParams.get("approval_status");
     const query = (searchParams.get("q") || "").trim();
@@ -52,10 +53,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     if (cityId) where.cityId = cityId;
     if (approvalStatus === "pending") where.approvedAt = null;
     if (approvalStatus === "approved") where.approvedAt = { not: null };
-    if (dateFrom || dateTo) {
+    if (dateFrom || dateToExclusive) {
       where.withdrawalDate = {};
       if (dateFrom) where.withdrawalDate.gte = dateFrom;
-      if (dateTo) where.withdrawalDate.lte = dateTo;
+      if (dateToExclusive) where.withdrawalDate.lt = dateToExclusive;
     }
     if (shouldApplySearch) {
       where.OR = [
@@ -160,7 +161,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const sourceType: "cash_office" | "bank_account" = parsed.data.sourceType ?? "cash_office";
     const bankAccountId = parsed.data.bankAccountId ?? undefined;
 
-    if (city?.country?.name === "Afghanistan" && sourceType !== "cash_office") {
+    if (isAfghanistanCountry(city?.country) && sourceType !== "cash_office") {
       return errorResponse("VALIDATION_ERROR", "Afghanistan city withdrawals can only use office cash");
     }
 

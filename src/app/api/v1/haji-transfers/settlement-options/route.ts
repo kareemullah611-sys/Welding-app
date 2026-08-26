@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { isAfghanistanCountry, isPakistanCountry } from "@/lib/country-code";
 
 export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayload) => {
   try {
@@ -11,10 +12,10 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
     if (user.role === "city_admin" && user.cityId) {
       const city = await prisma.city.findUnique({
         where: { id: user.cityId },
-        select: { country: { select: { name: true } } },
+        select: { country: { select: { code: true } } },
       });
-      isAfghanistanCityAdmin = city?.country?.name === "Afghanistan";
-      isPakistanCityAdmin = city?.country?.name === "Pakistan";
+      isAfghanistanCityAdmin = isAfghanistanCountry(city?.country);
+      isPakistanCityAdmin = isPakistanCountry(city?.country);
     }
     const isSuperAdmin = user.role === "super_admin";
     if (!isAfghanistanCityAdmin && !isPakistanCityAdmin && !isSuperAdmin) {

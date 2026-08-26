@@ -5,6 +5,7 @@ import { JWTPayload } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { assistantEntityLabel, redactAssistantDetail } from "@/lib/assistant-privacy";
 import { clientErrorMessage } from "@/lib/client-error";
+import { buildDateRange } from "@/lib/date-range";
 
 const ASSISTANT_MAX_MESSAGE_LEN = 2000;
 const ASSISTANT_MAX_HISTORY = 20;
@@ -50,54 +51,57 @@ async function askGroq(
 function lower(s: string) { return s.toLowerCase(); }
 function has(msg: string, ...words: string[]) { return words.some(w => lower(msg).includes(w)); }
 
-function parseDateRange(msg: string): { from?: Date; to?: Date } {
+function parseDateRange(msg: string): { from: Date; toExclusive: Date; labelTo: Date } {
   const now = new Date();
   if (has(msg, "this month", "current month")) {
-    return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: now };
+    return { from: new Date(now.getFullYear(), now.getMonth(), 1), toExclusive: now, labelTo: now };
   }
   if (has(msg, "last month")) {
     const y = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
     const m = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
-    return { from: new Date(y, m, 1), to: new Date(y, m + 1, 0, 23, 59, 59) };
+    return { from: new Date(y, m, 1), toExclusive: new Date(y, m + 1, 1), labelTo: new Date(y, m + 1, 0) };
   }
   if (has(msg, "this year", "current year")) {
-    return { from: new Date(now.getFullYear(), 0, 1), to: now };
+    return { from: new Date(now.getFullYear(), 0, 1), toExclusive: now, labelTo: now };
   }
   if (has(msg, "today")) {
     const start = new Date(now); start.setHours(0, 0, 0, 0);
-    return { from: start, to: now };
+    return { from: start, toExclusive: now, labelTo: now };
   }
   if (has(msg, "this week")) {
     const day = now.getDay();
     const start = new Date(now); start.setDate(now.getDate() - day); start.setHours(0,0,0,0);
-    return { from: start, to: now };
+    return { from: start, toExclusive: now, labelTo: now };
   }
   // Try to parse explicit dates like "2026-01-01" or "January 2026"
   const dateMatch = msg.match(/(\d{4}-\d{2}-\d{2})/g);
-  if (dateMatch?.length === 2) return { from: new Date(dateMatch[0]), to: new Date(dateMatch[1] + "T23:59:59") };
-  if (dateMatch?.length === 1) return { from: new Date(dateMatch[0]), to: now };
+  if (dateMatch?.length === 2) {
+    const range = buildDateRange(dateMatch[0], dateMatch[1]);
+    return { from: range.gte!, toExclusive: range.lt!, labelTo: new Date(`${dateMatch[1]}T00:00:00.000Z`) };
+  }
+  if (dateMatch?.length === 1) return { from: new Date(dateMatch[0]), toExclusive: now, labelTo: now };
   // Default: current month
-  return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: now };
+  return { from: new Date(now.getFullYear(), now.getMonth(), 1), toExclusive: now, labelTo: now };
 }
 
 // ─── Data fetchers ────────────────────────────────────────────────────────────
 async function fetchFinancialSummary(msg: string) {
-  const { from, to } = parseDateRange(msg);
+  const { from, toExclusive, labelTo } = parseDateRange(msg);
   const [sales, payments, expenses, hajiTransfers, withdrawals] = await Promise.all([
-    prisma.sale.aggregate({ where: { status: "active", saleDate: { gte: from, lte: to } }, _sum: { totalAmount: true }, _count: true }),
-    prisma.payment.aggregate({ where: { status: "active", paymentDate: { gte: from, lte: to } }, _sum: { amount: true }, _count: true }),
-    prisma.expense.aggregate({ where: { deletedAt: null, expenseDate: { gte: from, lte: to } }, _sum: { amount: true }, _count: true }),
-    prisma.hajiTransfer.aggregate({ where: { transferDate: { gte: from, lte: to } }, _sum: { amount: true }, _count: true }),
-    prisma.personalWithdrawal.aggregate({ where: { approvedAt: { not: null }, withdrawalDate: { gte: from, lte: to } }, _sum: { amount: true }, _count: true }),
+    prisma.sale.aggregate({ where: { status: "active", saleDate: { gte: from, lt: toExclusive } }, _sum: { totalAmount: true }, _count: true }),
+    prisma.payment.aggregate({ where: { status: "active", paymentDate: { gte: from, lt: toExclusive } }, _sum: { amount: true }, _count: true }),
+    prisma.expense.aggregate({ where: { deletedAt: null, expenseDate: { gte: from, lt: toExclusive } }, _sum: { amount: true }, _count: true }),
+    prisma.hajiTransfer.aggregate({ where: { transferDate: { gte: from, lt: toExclusive } }, _sum: { amount: true }, _count: true }),
+    prisma.personalWithdrawal.aggregate({ where: { approvedAt: { not: null }, withdrawalDate: { gte: from, lt: toExclusive } }, _sum: { amount: true }, _count: true }),
   ]);
-  const period = `${from?.toISOString().split("T")[0]} to ${to?.toISOString().split("T")[0]}`;
+  const period = `${from.toISOString().split("T")[0]} to ${labelTo.toISOString().split("T")[0]}`;
   return `FINANCIAL SUMMARY (${period}):\n- Sales: $${Number(sales._sum.totalAmount||0).toLocaleString()} (${sales._count} transactions)\n- Payments Received: $${Number(payments._sum.amount||0).toLocaleString()} (${payments._count})\n- Expenses: $${Number(expenses._sum.amount||0).toLocaleString()} (${expenses._count})\n- Haji Transfers: $${Number(hajiTransfers._sum.amount||0).toLocaleString()} (${hajiTransfers._count})\n- Withdrawals: $${Number(withdrawals._sum.amount||0).toLocaleString()} (${withdrawals._count})`;
 }
 
 async function fetchWithdrawals(msg: string) {
-  const { from, to } = parseDateRange(msg);
+  const { from, toExclusive } = parseDateRange(msg);
   const rows = await prisma.personalWithdrawal.findMany({
-    where: { approvedAt: { not: null }, withdrawalDate: { gte: from, lte: to } },
+    where: { approvedAt: { not: null }, withdrawalDate: { gte: from, lt: toExclusive } },
     include: { currency: { select: { symbol: true } } },
     orderBy: { withdrawalDate: "desc" }, take: 50,
   });
@@ -108,9 +112,9 @@ async function fetchWithdrawals(msg: string) {
 }
 
 async function fetchPayments(msg: string) {
-  const { from, to } = parseDateRange(msg);
+  const { from, toExclusive } = parseDateRange(msg);
   const rows = await prisma.payment.findMany({
-    where: { status: "active", paymentDate: { gte: from, lte: to } },
+    where: { status: "active", paymentDate: { gte: from, lt: toExclusive } },
     include: { customer: { select: { id: true } }, currency: { select: { symbol: true, code: true } }, city: { select: { id: true } } },
     orderBy: { paymentDate: "desc" }, take: 50,
   });
@@ -121,9 +125,9 @@ async function fetchPayments(msg: string) {
 }
 
 async function fetchSales(msg: string) {
-  const { from, to } = parseDateRange(msg);
+  const { from, toExclusive } = parseDateRange(msg);
   const rows = await prisma.sale.findMany({
-    where: { status: "active", saleDate: { gte: from, lte: to } },
+    where: { status: "active", saleDate: { gte: from, lt: toExclusive } },
     include: { customer: { select: { id: true } }, city: { select: { id: true } }, lot: { select: { lotNumber: true } } },
     orderBy: { saleDate: "desc" }, take: 50,
   });
@@ -134,9 +138,9 @@ async function fetchSales(msg: string) {
 }
 
 async function fetchExpenses(msg: string) {
-  const { from, to } = parseDateRange(msg);
+  const { from, toExclusive } = parseDateRange(msg);
   const rows = await prisma.expense.findMany({
-    where: { deletedAt: null, expenseDate: { gte: from, lte: to } },
+    where: { deletedAt: null, expenseDate: { gte: from, lt: toExclusive } },
     include: { currency: { select: { symbol: true } }, city: { select: { id: true } } },
     orderBy: { expenseDate: "desc" }, take: 50,
   });
@@ -147,9 +151,9 @@ async function fetchExpenses(msg: string) {
 }
 
 async function fetchHajiTransfers(msg: string) {
-  const { from, to } = parseDateRange(msg);
+  const { from, toExclusive } = parseDateRange(msg);
   const rows = await prisma.hajiTransfer.findMany({
-    where: { transferDate: { gte: from, lte: to } },
+    where: { transferDate: { gte: from, lt: toExclusive } },
     include: { currency: { select: { symbol: true } }, city: { select: { id: true } } },
     orderBy: { transferDate: "desc" }, take: 50,
   });

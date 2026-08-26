@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma";
+import { buildDateRange, buildYearDateRange } from "@/lib/date-range";
 
 export const AUTHORITATIVE_REPORTING_CURRENCY = "PKR";
 
@@ -8,6 +9,8 @@ export type AuthoritativePnlCurrencyRow = {
   cogs: number;
   expenses: Record<string, number>;
   expenseTotal: number;
+  fxGains: number;
+  fxLosses: number;
   grossProfit: number;
   grossMargin: number;
   netProfit: number;
@@ -27,6 +30,8 @@ export type AuthoritativeFinancialReportResult = {
     grossProfit: number;
     grossMarginPercent: number;
     totalExpenses: number;
+    totalFxGains: number;
+    totalFxLosses: number;
     netProfit: number;
     netMarginPercent: number;
   };
@@ -43,6 +48,7 @@ type JournalGroup = {
 
 type AccountLike = {
   id: number;
+  code?: string;
   name: string;
   accountType: string;
 };
@@ -82,20 +88,23 @@ export function summarizeJournalPnl(input: {
   groups: JournalGroup[];
   accounts: AccountLike[];
   recognizedSalePkrById?: Map<number, number>;
+  recognizedForeignSaleAmountsByCurrency?: Map<string, number>;
 }) {
   const accountMap = new Map(input.accounts.map((account) => [account.id, account]));
-  const byCurrency: Record<string, { revenue: number; cogs: number; expenses: Record<string, number>; expenseTotal: number }> = {};
+  const byCurrency: Record<string, { revenue: number; cogs: number; expenses: Record<string, number>; expenseTotal: number; fxGains: number; fxLosses: number }> = {};
   const unsupportedForeignCurrencyEntries: string[] = [];
 
   for (const group of input.groups) {
     const account = accountMap.get(group.accountId);
     if (!account) continue;
     const currency = String(group.currencyCode || AUTHORITATIVE_REPORTING_CURRENCY).toUpperCase();
-    if (!byCurrency[currency]) byCurrency[currency] = { revenue: 0, cogs: 0, expenses: {}, expenseTotal: 0 };
+    if (!byCurrency[currency]) byCurrency[currency] = { revenue: 0, cogs: 0, expenses: {}, expenseTotal: 0, fxGains: 0, fxLosses: 0 };
     const debit = num(group._sum.debit);
     const credit = num(group._sum.credit);
 
-    if (account.accountType === "revenue") byCurrency[currency].revenue += credit - debit;
+    if (account.code === "FX-GAIN") byCurrency[currency].fxGains += credit - debit;
+    else if (account.code === "FX-LOSS") byCurrency[currency].fxLosses += debit - credit;
+    else if (account.accountType === "revenue") byCurrency[currency].revenue += credit - debit;
     else if (account.accountType === "cogs") byCurrency[currency].cogs += debit - credit;
     else if (account.accountType === "expense") {
       byCurrency[currency].expenses[account.name] = (byCurrency[currency].expenses[account.name] || 0) + debit - credit;
@@ -105,7 +114,7 @@ export function summarizeJournalPnl(input: {
 
   const byCurrencyRows = Object.entries(byCurrency).map(([currency, data]) => {
     const grossProfit = data.revenue - data.cogs;
-    const netProfit = grossProfit - data.expenseTotal;
+    const netProfit = grossProfit - data.expenseTotal + data.fxGains - data.fxLosses;
     return {
       currency,
       revenue: round2(data.revenue),
@@ -114,25 +123,31 @@ export function summarizeJournalPnl(input: {
       grossMargin: data.revenue ? round2((grossProfit / data.revenue) * 100) : 0,
       expenses: Object.fromEntries(Object.entries(data.expenses).map(([name, amount]) => [name, round2(amount)])),
       expenseTotal: round2(data.expenseTotal),
+      fxGains: round2(data.fxGains),
+      fxLosses: round2(data.fxLosses),
       netProfit: round2(netProfit),
       netMargin: data.revenue ? round2((netProfit / data.revenue) * 100) : 0,
     };
   });
 
-  const pkr = byCurrency[AUTHORITATIVE_REPORTING_CURRENCY] || { revenue: 0, cogs: 0, expenses: {}, expenseTotal: 0 };
+  const pkr = byCurrency[AUTHORITATIVE_REPORTING_CURRENCY] || { revenue: 0, cogs: 0, expenses: {}, expenseTotal: 0, fxGains: 0, fxLosses: 0 };
   for (const [currency, data] of Object.entries(byCurrency)) {
     if (currency === AUTHORITATIVE_REPORTING_CURRENCY) continue;
-    if (Math.abs(data.revenue) > 0.01) unsupportedForeignCurrencyEntries.push(`${currency} revenue journal entries require stored PKR recognition metadata before attribution.`);
+    const recognizedForeignSaleAmount = num(input.recognizedForeignSaleAmountsByCurrency?.get(currency));
+    if (Math.abs(data.revenue) - Math.abs(recognizedForeignSaleAmount) > 0.01) unsupportedForeignCurrencyEntries.push(`${currency} revenue journal entries require stored PKR recognition metadata before attribution.`);
     if (Math.abs(data.cogs) > 0.01) unsupportedForeignCurrencyEntries.push(`${currency} COGS journal entries require stored PKR recognition metadata before attribution.`);
     if (Math.abs(data.expenseTotal) > 0.01) unsupportedForeignCurrencyEntries.push(`${currency} expense journal entries require stored PKR recognition metadata before attribution.`);
+    if (Math.abs(data.fxGains) > 0.01 || Math.abs(data.fxLosses) > 0.01) unsupportedForeignCurrencyEntries.push(`${currency} FX journal entries must be recognized in PKR before attribution.`);
   }
 
   const recognizedSaleRevenuePkr = [...(input.recognizedSalePkrById?.values() || [])].reduce((sum, value) => sum + value, 0);
   const totalRevenue = pkr.revenue + recognizedSaleRevenuePkr;
   const totalCOGS = pkr.cogs;
   const totalExpenses = pkr.expenseTotal;
+  const totalFxGains = pkr.fxGains;
+  const totalFxLosses = pkr.fxLosses;
   const grossProfit = totalRevenue - totalCOGS;
-  const netProfit = grossProfit - totalExpenses;
+  const netProfit = grossProfit - totalExpenses + totalFxGains - totalFxLosses;
 
   return {
     byCurrency: byCurrencyRows,
@@ -142,6 +157,8 @@ export function summarizeJournalPnl(input: {
       grossProfit: round2(grossProfit),
       grossMarginPercent: totalRevenue ? round2((grossProfit / totalRevenue) * 100) : 0,
       totalExpenses: round2(totalExpenses),
+      totalFxGains: round2(totalFxGains),
+      totalFxLosses: round2(totalFxLosses),
       netProfit: round2(netProfit),
       netMarginPercent: totalRevenue ? round2((netProfit / totalRevenue) * 100) : 0,
     },
@@ -181,9 +198,14 @@ export async function buildAuthoritativeFinancialReportResult(input: {
   dateTo?: string | null;
   cityId?: number | null;
 }): Promise<AuthoritativeFinancialReportResult> {
-  const dateFrom = input.year ? new Date(`${input.year}-01-01`) : input.dateFrom ? new Date(input.dateFrom) : new Date("1900-01-01");
-  const dateTo = input.year ? new Date(`${input.year}-12-31`) : input.dateTo ? new Date(input.dateTo) : new Date();
-  const where: any = { entryDate: { gte: dateFrom, lte: dateTo } };
+  const today = new Date().toISOString().slice(0, 10);
+  const range = input.year
+    ? buildYearDateRange(input.year)
+    : buildDateRange(input.dateFrom || "1900-01-01", input.dateTo || today);
+  const dateFrom = range.gte!;
+  const dateToExclusive = range.lt!;
+  const periodEnd = input.year ? `${input.year}-12-31` : input.dateTo || today;
+  const where: any = { entryDate: { gte: dateFrom, lt: dateToExclusive } };
   if (input.cityId) where.cityId = input.cityId;
 
   const [groups, accounts, recognizedFxSales, saleItemsForCogs, cogsJournalRows] = await Promise.all([
@@ -192,20 +214,27 @@ export async function buildAuthoritativeFinancialReportResult(input: {
       where,
       _sum: { debit: true, credit: true },
     }),
-    prisma.account.findMany({ select: { id: true, name: true, accountType: true } }),
+    prisma.account.findMany({ select: { id: true, code: true, name: true, accountType: true } }),
     prisma.sale.findMany({
       where: {
-        saleDate: { gte: dateFrom, lte: dateTo },
+        saleDate: { gte: dateFrom, lt: dateToExclusive },
         status: "active",
         fxPkrEquivalent: { not: null },
         ...(input.cityId ? { cityId: input.cityId } : {}),
       },
-      select: { id: true, fxPkrEquivalent: true },
+      select: {
+        id: true,
+        totalAmount: true,
+        fxOriginalCurrencyCode: true,
+        fxOriginalAmount: true,
+        fxPkrEquivalent: true,
+        currency: { select: { code: true } },
+      },
     }),
     prisma.saleItem.findMany({
       where: {
         sale: {
-          saleDate: { gte: dateFrom, lte: dateTo },
+          saleDate: { gte: dateFrom, lt: dateToExclusive },
           status: "active",
           ...(input.cityId ? { cityId: input.cityId } : {}),
         },
@@ -220,7 +249,7 @@ export async function buildAuthoritativeFinancialReportResult(input: {
     prisma.journalEntry.findMany({
       where: {
         transactionId: { startsWith: "COGS-" },
-        entryDate: { gte: dateFrom, lte: dateTo },
+        entryDate: { gte: dateFrom, lt: dateToExclusive },
         ...(input.cityId ? { cityId: input.cityId } : {}),
       },
       select: { transactionId: true, lotId: true },
@@ -228,7 +257,22 @@ export async function buildAuthoritativeFinancialReportResult(input: {
   ]);
 
   const recognizedSalePkrById = new Map(recognizedFxSales.map((sale) => [sale.id, num(sale.fxPkrEquivalent)]));
-  const summarized = summarizeJournalPnl({ groups, accounts, recognizedSalePkrById });
+  const recognizedForeignSaleAmountsByCurrency = new Map<string, number>();
+  for (const sale of recognizedFxSales) {
+    const currency = String(sale.fxOriginalCurrencyCode || sale.currency.code || "").toUpperCase();
+    if (!currency || currency === AUTHORITATIVE_REPORTING_CURRENCY) continue;
+    const originalAmount = num(sale.fxOriginalAmount ?? sale.totalAmount);
+    recognizedForeignSaleAmountsByCurrency.set(
+      currency,
+      num(recognizedForeignSaleAmountsByCurrency.get(currency)) + originalAmount,
+    );
+  }
+  const summarized = summarizeJournalPnl({
+    groups,
+    accounts,
+    recognizedSalePkrById,
+    recognizedForeignSaleAmountsByCurrency,
+  });
   const missingCogsWarnings = buildMissingCogsWarnings({
     saleLotRows: saleItemsForCogs.map((item) => ({
       saleId: item.saleId,
@@ -244,7 +288,7 @@ export async function buildAuthoritativeFinancialReportResult(input: {
     reportingCurrency: AUTHORITATIVE_REPORTING_CURRENCY,
     period: periodLabel(input.year, input.dateFrom, input.dateTo),
     periodStart: dateOnly(dateFrom),
-    periodEnd: dateOnly(dateTo),
+    periodEnd,
     cityId: input.cityId || null,
     byCurrency: summarized.byCurrency,
     profitAndLoss: summarized.profitAndLoss,

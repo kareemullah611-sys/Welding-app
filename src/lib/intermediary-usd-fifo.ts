@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import type { Prisma, PrismaClient } from "@prisma/client";
+import { COUNTRY_CODES } from "@/lib/country-code";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 type PaymentTarget =
@@ -21,11 +22,11 @@ async function getCurrencyByCode(code: string, db: DbClient) {
 async function resolveCountryIdForCurrencyCode(currencyCode: string, db: DbClient): Promise<number | null> {
   const code = currencyCode.toUpperCase();
   if (code === "PKR") {
-    const country = await db.country.findUnique({ where: { code: "PAK" }, select: { id: true } });
+    const country = await db.country.findUnique({ where: { code: COUNTRY_CODES.PAKISTAN }, select: { id: true } });
     return country?.id ?? null;
   }
   if (code === "AFN") {
-    const country = await db.country.findUnique({ where: { code: "AFG" }, select: { id: true } });
+    const country = await db.country.findUnique({ where: { code: COUNTRY_CODES.AFGHANISTAN }, select: { id: true } });
     return country?.id ?? null;
   }
 

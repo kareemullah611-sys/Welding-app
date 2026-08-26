@@ -10,6 +10,7 @@ import { paymentActionSchema, updatePaymentSchema } from "@/lib/validations";
 import { formatSuperAdminBankLabel } from "@/lib/haji-transfer-detail";
 import { resolveAfghanistanSettlement, type ResolvedAfghanistanSettlement } from "@/lib/afghanistan-haji-settlement";
 import { formatAfghanistanCityPaymentDetail } from "@/lib/payment-module-detail";
+import { isAfghanistanCountry } from "@/lib/country-code";
 
 function linkedHajiTransferDetail(payment: { paymentMethod?: string | null; superAdminBankAccount?: any }) {
   const accountLabel = payment.superAdminBankAccount
@@ -238,7 +239,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       include: {
         customer: { select: { id: true, name: true } },
         currency: { select: { id: true, code: true, symbol: true } },
-        city: { include: { country: { select: { name: true } } } },
+        city: { include: { country: { select: { code: true } } } },
       },
     });
     if (!payment) return errorResponse("NOT_FOUND", "Payment not found", 404);
@@ -254,7 +255,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     const nextPaymentDate = parsePaymentEditDate(data.paymentDate, payment.paymentDate);
     if (Number.isNaN(nextPaymentDate.getTime())) return errorResponse("VALIDATION_ERROR", "Invalid payment date");
 
-    const isAfghanistanCity = payment.city.country?.name === "Afghanistan";
+    const isAfghanistanCity = isAfghanistanCountry(payment.city.country);
     const existingLinkedHajiTransfer = await prisma.hajiTransfer.findUnique({
       where: { paymentId: id },
       select: {

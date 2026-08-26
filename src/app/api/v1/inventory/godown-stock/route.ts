@@ -42,7 +42,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         SELECT ct.from_godown_id as godown_id, ct.product_id, COALESCE(SUM(ct.qty), 0) as qty
         FROM city_transfers ct
         WHERE (${godownId}::int IS NULL OR ct.from_godown_id = ${godownId})
-          AND ct.status IN ('approved', 'pending')
+          AND ct.status = 'pending'
         GROUP BY ct.from_godown_id, ct.product_id
       ),
       transferred_in AS (
@@ -50,13 +50,6 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         FROM godown_transfers gt
         WHERE (${godownId}::int IS NULL OR gt.to_godown_id = ${godownId})
         GROUP BY gt.to_godown_id, gt.product_id
-      ),
-      city_transferred_in AS (
-        SELECT ct.to_godown_id as godown_id, ct.product_id, COALESCE(SUM(ct.qty), 0) as qty
-        FROM city_transfers ct
-        WHERE (${godownId}::int IS NULL OR ct.to_godown_id = ${godownId})
-          AND ct.status = 'approved'
-        GROUP BY ct.to_godown_id, ct.product_id
       )
       SELECT
         g.id as godown_id, g.name as godown_name,
@@ -66,7 +59,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         COALESCE(s.qty, 0) as sold,
         COALESCE(tout.qty, 0) as transferred_out,
         COALESCE(tin.qty, 0) as transferred_in,
-        (COALESCE(r.qty, 0) - COALESCE(s.qty, 0) - COALESCE(tout.qty, 0) - COALESCE(ctout.qty, 0) + COALESCE(tin.qty, 0) + COALESCE(ctin.qty, 0)) as available
+        (COALESCE(r.qty, 0) - COALESCE(s.qty, 0) - COALESCE(tout.qty, 0) - COALESCE(ctout.qty, 0) + COALESCE(tin.qty, 0)) as available
       FROM godowns g
       CROSS JOIN products p
       LEFT JOIN received r ON r.godown_id = g.id AND r.product_id = p.id
@@ -74,11 +67,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       LEFT JOIN transferred_out tout ON tout.godown_id = g.id AND tout.product_id = p.id
       LEFT JOIN city_transferred_out ctout ON ctout.godown_id = g.id AND ctout.product_id = p.id
       LEFT JOIN transferred_in tin ON tin.godown_id = g.id AND tin.product_id = p.id
-      LEFT JOIN city_transferred_in ctin ON ctin.godown_id = g.id AND ctin.product_id = p.id
       WHERE g.is_active = true AND p.is_active = true
         AND (${godownId}::int IS NULL OR g.id = ${godownId})
         AND (${cityId}::int IS NULL OR g.city_id = ${cityId})
-        AND (COALESCE(r.qty, 0) > 0 OR COALESCE(s.qty, 0) > 0 OR COALESCE(tout.qty, 0) > 0 OR COALESCE(ctout.qty, 0) > 0 OR COALESCE(tin.qty, 0) > 0 OR COALESCE(ctin.qty, 0) > 0)
+        AND (COALESCE(r.qty, 0) > 0 OR COALESCE(s.qty, 0) > 0 OR COALESCE(tout.qty, 0) > 0 OR COALESCE(ctout.qty, 0) > 0 OR COALESCE(tin.qty, 0) > 0)
       ORDER BY g.name, p.name
     `;
 
@@ -110,7 +102,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         SELECT ct.from_godown_id as godown_id, ct.lot_id, ct.product_id, COALESCE(SUM(ct.qty), 0) as qty
         FROM city_transfers ct
         WHERE (${godownId}::int IS NULL OR ct.from_godown_id = ${godownId})
-          AND ct.status IN ('approved', 'pending')
+          AND ct.status = 'pending'
         GROUP BY ct.from_godown_id, ct.lot_id, ct.product_id
       ),
       transferred_in AS (
@@ -118,19 +110,12 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         FROM godown_transfers gt
         WHERE (${godownId}::int IS NULL OR gt.to_godown_id = ${godownId})
         GROUP BY gt.to_godown_id, gt.lot_id, gt.product_id
-      ),
-      city_transferred_in AS (
-        SELECT ct.to_godown_id as godown_id, ct.lot_id, ct.product_id, COALESCE(SUM(ct.qty), 0) as qty
-        FROM city_transfers ct
-        WHERE (${godownId}::int IS NULL OR ct.to_godown_id = ${godownId})
-          AND ct.status = 'approved'
-        GROUP BY ct.to_godown_id, ct.lot_id, ct.product_id
       )
       SELECT
         g.id as godown_id, p.id as product_id,
         l.id as lot_id, l.lot_number, l.lot_date,
         p.unit_of_measure, p.pieces_per_carton,
-        (COALESCE(r.qty, 0) - COALESCE(s.qty, 0) - COALESCE(tout.qty, 0) - COALESCE(ctout.qty, 0) + COALESCE(tin.qty, 0) + COALESCE(ctin.qty, 0)) as available
+        (COALESCE(r.qty, 0) - COALESCE(s.qty, 0) - COALESCE(tout.qty, 0) - COALESCE(ctout.qty, 0) + COALESCE(tin.qty, 0)) as available
       FROM godowns g
       CROSS JOIN products p
       JOIN lots l ON l.status = 'ongoing'
@@ -139,11 +124,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       LEFT JOIN transferred_out tout ON tout.godown_id = g.id AND tout.product_id = p.id AND tout.lot_id = l.id
       LEFT JOIN city_transferred_out ctout ON ctout.godown_id = g.id AND ctout.product_id = p.id AND ctout.lot_id = l.id
       LEFT JOIN transferred_in tin ON tin.godown_id = g.id AND tin.product_id = p.id AND tin.lot_id = l.id
-      LEFT JOIN city_transferred_in ctin ON ctin.godown_id = g.id AND ctin.product_id = p.id AND ctin.lot_id = l.id
       WHERE g.is_active = true AND p.is_active = true
         AND (${godownId}::int IS NULL OR g.id = ${godownId})
         AND (${cityId}::int IS NULL OR g.city_id = ${cityId})
-        AND (COALESCE(r.qty, 0) > 0 OR COALESCE(s.qty, 0) > 0 OR COALESCE(tout.qty, 0) > 0 OR COALESCE(ctout.qty, 0) > 0 OR COALESCE(tin.qty, 0) > 0 OR COALESCE(ctin.qty, 0) > 0)
+        AND (COALESCE(r.qty, 0) > 0 OR COALESCE(s.qty, 0) > 0 OR COALESCE(tout.qty, 0) > 0 OR COALESCE(ctout.qty, 0) > 0 OR COALESCE(tin.qty, 0) > 0)
       ORDER BY l.lot_date ASC, l.id ASC
     `;
 

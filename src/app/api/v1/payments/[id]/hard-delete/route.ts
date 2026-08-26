@@ -28,25 +28,30 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
     if (!payment) return errorResponse("NOT_FOUND", "Payment not found", 404);
 
     await prisma.$transaction(async (tx) => {
+      const linkedHajiTransfers = await tx.hajiTransfer.findMany({
+        where: { OR: [{ paymentId: id }, { chequePaymentId: id }] },
+        select: { id: true },
+      });
+      if (linkedHajiTransfers.length > 0) {
+        const hajiTransactionIds = linkedHajiTransfers.flatMap((transfer) => [
+          `HAJI-${transfer.id}`,
+          `REV-HAJI-${transfer.id}`,
+        ]);
+        await tx.journalEntry.deleteMany({ where: { transactionId: { in: hajiTransactionIds } } });
+        await tx.hajiTransfer.deleteMany({ where: { id: { in: linkedHajiTransfers.map((transfer) => transfer.id) } } });
+      }
       await tx.journalEntry.deleteMany({ where: { transactionId: `PAY-${id}` } });
       await (tx as any).paymentLotTransfer.deleteMany({ where: { paymentId: id } });
-      // Fix: null out chequePaymentId on any haji transfer referencing this payment
-      // to avoid FK constraint failure and match the same cleanup customer hard-delete does
-      await (tx as any).hajiTransfer.updateMany({
-        where: { chequePaymentId: id },
-        data: { chequePaymentId: null },
-      });
       await tx.payment.delete({ where: { id } });
+      await createAuditLog(user.userId, payment.cityId, "payments", id, "hard_delete", {
+        date: payment.paymentDate.toISOString().split("T")[0],
+        customer: payment.customer.name,
+        detail: payment.detail,
+        amount: `${payment.currency.symbol || payment.currency.code} ${Number(payment.amount).toLocaleString("en-US")}`,
+        ...(payment.destination ? { destination: payment.destination } : {}),
+        ...(payment.notes ? { notes: payment.notes } : {}),
+      }, undefined, getClientIP(request), tx);
     });
-
-    await createAuditLog(user.userId, payment.cityId, "payments", id, "hard_delete", {
-      date: payment.paymentDate.toISOString().split("T")[0],
-      customer: payment.customer.name,
-      detail: payment.detail,
-      amount: `${payment.currency.symbol || payment.currency.code} ${Number(payment.amount).toLocaleString("en-US")}`,
-      ...(payment.destination ? { destination: payment.destination } : {}),
-      ...(payment.notes ? { notes: payment.notes } : {}),
-    }, undefined, getClientIP(request));
     return successResponse({ id }, "Payment permanently deleted");
   } catch (error) {
     console.error("Hard delete payment error:", error);

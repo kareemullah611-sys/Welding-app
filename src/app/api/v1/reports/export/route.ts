@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { buildDateRange } from "@/lib/date-range";
 import prisma from "@/lib/prisma";
 import { withAuth, getCityScope } from "@/lib/middleware";
 import { JWTPayload } from "@/lib/auth";
@@ -150,9 +151,9 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       const { title, meta } = buildExportMeta("Payments Report", city?.name, dateFrom, dateTo, search.rawQuery);
       const selectedType = (searchParams.get("ledger_type") || "all").trim().toLowerCase();
       const dateWhere = (field: string) => {
+        const range = buildDateRange(dateFrom, dateTo);
         const where: any = {};
-        if (dateFrom) where[field] = { ...(where[field] || {}), gte: new Date(dateFrom) };
-        if (dateTo) where[field] = { ...(where[field] || {}), lte: new Date(dateTo + "T23:59:59") };
+        if (Object.keys(range).length) where[field] = range;
         return where;
       };
       const paymentRef = (row: { manualVoucherNo?: string | null; chequeNumber?: string | null }) => cleanText(row.manualVoucherNo || row.chequeNumber || "");

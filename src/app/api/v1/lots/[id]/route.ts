@@ -353,6 +353,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     const ledgerBuilt = buildLotCostLedger({
       lotDate: lot.lotDate.toISOString().split("T")[0],
       lotCountryCode: lot.country?.code || "",
+      usdPkrRate: Number(lot.pkrExchangeRate || 0),
       purchaseItems: lotPurchases.map((p: any) => ({
         id: p.id,
         supplierName: p.supplier?.name || "",
@@ -401,6 +402,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       shipmentStatusLabel: lotShipmentStatusLabel(lot.shipmentStatus),
       etaDate: lot.etaDate ? lot.etaDate.toISOString().split("T")[0] : null,
       pkrExchangeRate: lot.pkrExchangeRate ? Number(lot.pkrExchangeRate) : null,
+      pkrExchangeRateMetadata: (lot as any).pkrExchangeRateMetadata || null,
       country: { id: lot.country.id, name: lot.country.name, code: lot.country.code },
       consignee: lot.consignee,
       destinationCity: lot.destinationCity,

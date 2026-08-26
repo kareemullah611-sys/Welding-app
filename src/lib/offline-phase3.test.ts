@@ -43,10 +43,64 @@ test("buildOfflineStockLedgerFromModules computes running stock", () => {
   assert.equal(rows[0].runningStock, 70);
 });
 
+test("approved city transfers are reflected once when synced allocations already moved", () => {
+  const sourceRows = buildOfflineStockLedgerFromModules(
+    {
+      lots: [{
+        lotNumber: "L-1",
+        lotDate: "2026-01-01",
+        distributions: [{
+          productId: 2,
+          productName: "Rod",
+          godownAllocations: [{ godownId: 1, godownName: "Ravi", qty: 450 }],
+        }],
+      }],
+      cityTransfers: [{
+        status: "approved",
+        transferDate: "2026-01-02",
+        productId: 2,
+        fromGodownId: 1,
+        toGodownId: 2,
+        qty: 200,
+        product: { name: "Rod" },
+      }],
+    },
+    { godown_id: 1, product_id: 2 },
+  );
+  const destinationRows = buildOfflineStockLedgerFromModules(
+    {
+      lots: [{
+        lotNumber: "L-1",
+        lotDate: "2026-01-01",
+        distributions: [{
+          productId: 2,
+          productName: "Rod",
+          godownAllocations: [{ godownId: 2, godownName: "Quetta", qty: 200 }],
+        }],
+      }],
+      cityTransfers: [{
+        status: "approved",
+        transferDate: "2026-01-02",
+        productId: 2,
+        fromGodownId: 1,
+        toGodownId: 2,
+        qty: 200,
+        product: { name: "Rod" },
+      }],
+    },
+    { godown_id: 2, product_id: 2 },
+  );
+
+  assert.equal(sourceRows[0].type, "city_transfer");
+  assert.equal(sourceRows[0].runningStock, 450);
+  assert.equal(destinationRows[0].type, "city_transfer");
+  assert.equal(destinationRows[0].runningStock, 200);
+});
+
 test("buildOfflineLotProfitFromModules returns lot profit summary", () => {
   const report = buildOfflineLotProfitFromModules({
     lotId: 5,
-    lots: [{ id: 5, lotNumber: "L-5", lotDate: "2026-01-01", countryName: "PK", status: "ongoing", products: [{ productId: 1, totalQty: 100 }] }],
+    lots: [{ id: 5, lotNumber: "L-5", lotDate: "2026-01-01", countryName: "PK", status: "ongoing", pkrExchangeRate: 280, products: [{ productId: 1, totalQty: 100 }] }],
     lotPurchases: [{ lotId: 5, productId: 1, totalPriceUsd: 1000, qty: 1, product: { name: "Rod" }, supplier: { name: "Sup" } }],
     lotCosts: [],
     sales: [{ lotId: 5, status: "active", cityId: 1, items: [{ productId: 1, qty: 10, amount: 500 }] }],

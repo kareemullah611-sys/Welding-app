@@ -7,6 +7,7 @@ import { buildInvestorAttributionPreview, type AttributionCapitalEvent } from ".
 import { buildFinalizationDryRun } from "./investor-finalization-dry-run";
 import { normalizeSarafiAfSnapshot, resolveAfghanistanFxRate, SARAFI_AF_MARKET } from "./sarafi-af-snapshot";
 import { isInvestorFinalizationEnabled, isInvestorFxSettlementEnabled, isInvestorSettlementEnabled } from "./investor-production-gate";
+import { allocateLiabilitySettlement } from "./realized-liability-fx";
 
 const accounts = [
   { id: 1, name: "Sales Revenue", accountType: "revenue" },
@@ -177,6 +178,30 @@ test("FX gain and loss appear once and attach to the historical pool", () => {
   assert.equal(pool.aggregateReconciliation.recognizedAmountPkr, 0);
   assert.equal(pool.transactionLinks.filter((link) => link.sourceType === "fx_gain_loss").length, 2);
   assert.equal(pool.aggregateReconciliation.reconciliationDifferencePkr, 0);
+});
+
+test("realized supplier FX loss flows once from Financial Report to investor attribution", async () => {
+  const settlement = allocateLiabilitySettlement({
+    liabilityAmountUsd: 100_000,
+    carryingRatePkr: 283,
+    previouslySettledUsd: 0,
+    settlementAmountUsd: 40_000,
+    actualSettlementPkr: 11_480_000,
+  });
+  const financial = summarizeJournalPnl({
+    accounts: [
+      { id: 1, code: "3001", name: "Sales Revenue", accountType: "revenue" },
+      { id: 4, code: "FX-LOSS", name: "Foreign Exchange Loss", accountType: "expense" },
+    ],
+    groups: [
+      { accountId: 1, currencyCode: "PKR", _sum: { debit: 0, credit: 1_000_000 } },
+      { accountId: 4, currencyCode: "PKR", _sum: { debit: Math.abs(settlement.realizedFxPkr), credit: 0 } },
+    ],
+  });
+
+  assert.equal(financial.profitAndLoss.totalFxLosses, 160_000);
+  assert.equal(financial.profitAndLoss.netProfit, 840_000);
+  await verifyChain({ financialResultPkr: 840_000, historicalAmountPkr: 840_000 });
 });
 
 test("unpaid sale remains profit-recognized and later receipt does not add profit", async () => {

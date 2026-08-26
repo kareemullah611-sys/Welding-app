@@ -7,6 +7,7 @@ import {
   formatCustomerLedgerSaleItemDetail,
   formatCustomerLedgerSaleItemRate,
 } from "@/lib/customer-ledger-detail";
+import { buildDateRange } from "@/lib/date-range";
 
 export const dynamic = "force-dynamic";
 
@@ -20,12 +21,8 @@ export async function GET(request: NextRequest) {
     const dateTo = searchParams.get("date_to");
     const ledgerType = (searchParams.get("ledger_type") || "all").trim().toLowerCase();
 
-    const saleDateFilter: any = {};
-    if (dateFrom) saleDateFilter.gte = new Date(dateFrom);
-    if (dateTo) saleDateFilter.lte = new Date(dateTo);
-    const paymentDateFilter: any = {};
-    if (dateFrom) paymentDateFilter.gte = new Date(dateFrom);
-    if (dateTo) paymentDateFilter.lte = new Date(dateTo);
+    const saleDateFilter = buildDateRange(dateFrom, dateTo);
+    const paymentDateFilter = buildDateRange(dateFrom, dateTo);
 
     const [sales, payments, openings] = await Promise.all([
       prisma.sale.findMany({
