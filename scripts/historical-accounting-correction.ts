@@ -19,6 +19,7 @@ import {
 
 const CLONE_APPLY_ACK = "APPLY_TO_ISOLATED_CLONE";
 const PRODUCTION_APPLY_ACK = "APPLY_APPROVED_HISTORICAL_CORRECTION_TO_PRODUCTION";
+const REMOTE_BACKUP_ATTESTATION_ACK = "ATTEST_VERIFIED_PRODUCTION_BACKUP_FOR_REMOTE_CORRECTION";
 const MAX_BACKUP_AGE_MS = 6 * 60 * 60 * 1000;
 
 function number(value: unknown): number {
@@ -57,20 +58,49 @@ function assertDatabaseTarget(databaseUrl: string, productionMode: boolean) {
   return { host: parsed.hostname, databaseName, environment: "PRODUCTION" };
 }
 
-function assertVerifiedProductionBackup(): string {
+function assertVerifiedProductionBackup() {
   const backupFile = String(process.env.HISTORICAL_CORRECTION_BACKUP_FILE || "").trim();
-  if (!backupFile || !existsSync(backupFile)) {
-    throw new Error("Production apply requires an existing HISTORICAL_CORRECTION_BACKUP_FILE.");
+  if (backupFile && existsSync(backupFile)) {
+    const backupAgeMs = Date.now() - statSync(backupFile).mtimeMs;
+    if (backupAgeMs < 0 || backupAgeMs > MAX_BACKUP_AGE_MS) {
+      throw new Error("Production backup must be verified and no more than six hours old.");
+    }
+    const verification = spawnSync("pg_restore", ["--list", backupFile], { stdio: "ignore" });
+    if (verification.status !== 0) {
+      throw new Error("Production backup failed pg_restore verification.");
+    }
+    return {
+      mode: "LOCAL_PG_RESTORE",
+      name: basename(backupFile),
+      verifiedAt: new Date().toISOString(),
+    };
   }
-  const backupAgeMs = Date.now() - statSync(backupFile).mtimeMs;
-  if (backupAgeMs < 0 || backupAgeMs > MAX_BACKUP_AGE_MS) {
-    throw new Error("Production backup must be verified and no more than six hours old.");
+
+  const sha256 = String(process.env.HISTORICAL_CORRECTION_BACKUP_SHA256 || "").trim().toLowerCase();
+  const createdAtValue = String(process.env.HISTORICAL_CORRECTION_BACKUP_CREATED_AT || "").trim();
+  const name = String(process.env.HISTORICAL_CORRECTION_BACKUP_NAME || "").trim();
+  const attestationAck = String(process.env.HISTORICAL_CORRECTION_BACKUP_ATTESTATION_ACK || "").trim();
+  const createdAtMs = Date.parse(createdAtValue);
+  const backupAgeMs = Date.now() - createdAtMs;
+  if (attestationAck !== REMOTE_BACKUP_ATTESTATION_ACK) {
+    throw new Error("Remote production apply requires the exact backup attestation acknowledgement.");
   }
-  const verification = spawnSync("pg_restore", ["--list", backupFile], { stdio: "ignore" });
-  if (verification.status !== 0) {
-    throw new Error("Production backup failed pg_restore verification.");
+  if (!/^[a-f0-9]{64}$/.test(sha256)) {
+    throw new Error("Remote production backup attestation requires a valid SHA-256 digest.");
   }
-  return basename(backupFile);
+  if (!name || basename(name) !== name) {
+    throw new Error("Remote production backup attestation requires a safe backup filename.");
+  }
+  if (!Number.isFinite(createdAtMs) || backupAgeMs < 0 || backupAgeMs > MAX_BACKUP_AGE_MS) {
+    throw new Error("Remote production backup attestation must be valid and no more than six hours old.");
+  }
+  return {
+    mode: "REMOTE_VERIFIED_ATTESTATION",
+    name,
+    sha256,
+    createdAt: new Date(createdAtMs).toISOString(),
+    verifiedAt: new Date().toISOString(),
+  };
 }
 
 async function buildCorrectionPlan(prisma: PrismaClient) {

@@ -101,6 +101,13 @@ test("production historical correction requires exact target acknowledgement and
   assert.match(runner, /HISTORICAL_CORRECTION_EXPECTED_DATABASE/);
   assert.match(runner, /HISTORICAL_CORRECTION_BACKUP_FILE/);
   assert.match(runner, /pg_restore/);
+  assert.match(runner, /HISTORICAL_CORRECTION_BACKUP_SHA256/);
+  assert.match(runner, /HISTORICAL_CORRECTION_BACKUP_CREATED_AT/);
+  assert.match(runner, /HISTORICAL_CORRECTION_BACKUP_NAME/);
+  assert.match(runner, /HISTORICAL_CORRECTION_BACKUP_ATTESTATION_ACK/);
+  assert.match(runner, /ATTEST_VERIFIED_PRODUCTION_BACKUP_FOR_REMOTE_CORRECTION/);
+  assert.match(runner, /\^\[a-f0-9\]\{64\}\$/);
+  assert.match(runner, /MAX_BACKUP_AGE_MS/);
   assert.match(runner, /productionMode\s*\?\s*600_000\s*:\s*120_000/);
 });
 
