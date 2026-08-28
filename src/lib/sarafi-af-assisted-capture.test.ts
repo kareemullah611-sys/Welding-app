@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import path from "node:path";
 import test from "node:test";
 import {
   parseSarafiAfSaraiShahzadaHtml,
@@ -75,4 +77,24 @@ test("assisted capture requires a configured constant-time service token", () =>
   assert.equal(isValidSarafiAfCaptureToken(token, { SARAFI_AF_CAPTURE_TOKEN: token }), true);
   assert.equal(isValidSarafiAfCaptureToken("wrong", { SARAFI_AF_CAPTURE_TOKEN: token }), false);
   assert.equal(isValidSarafiAfCaptureToken("short", { SARAFI_AF_CAPTURE_TOKEN: "short" }), false);
+});
+
+test("capture CLI starts under the CommonJS tsx runner used by GitHub Actions", () => {
+  const result = spawnSync(
+    process.execPath,
+    ["--import", "tsx", path.join(process.cwd(), "scripts", "capture-sarafi-af.ts")],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        SARAFI_AF_CAPTURE_ENDPOINT: "",
+        SARAFI_AF_CAPTURE_TOKEN: "",
+      },
+    },
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /SARAFI_AF_CAPTURE_ENDPOINT must be an HTTPS URL/);
+  assert.doesNotMatch(result.stderr, /Top-level await is currently not supported/);
 });
