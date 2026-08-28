@@ -119,16 +119,22 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     // ── Supplier payable (super admin only) ───────────────────────────────────
     if (user.role === "super_admin") {
-      const [purchased, paid] = await Promise.all([
+      const [openingSupplier, purchased, paid] = await Promise.all([
+        prisma.openingLiability.aggregate({
+          where: { supplierId: { not: null }, currency: { code: "USD" } },
+          _sum: { amount: true },
+        }),
         prisma.lotPurchase.aggregate({ _sum: { totalPriceUsd: true } }),
         prisma.supplierPayment.aggregate({ _sum: { amountUsd: true } }),
       ]);
+      const totalOpening = Number(openingSupplier._sum.amount || 0);
       const totalPurchased = Number(purchased._sum.totalPriceUsd || 0);
       const totalPaid = Number(paid._sum.amountUsd || 0);
       result.supplierPayable = {
         totalPurchasedUsd: totalPurchased,
         totalPaidUsd: totalPaid,
-        balanceUsd: Math.round((totalPurchased - totalPaid) * 100) / 100,
+        openingUsd: totalOpening,
+        balanceUsd: Math.round((totalOpening + totalPurchased - totalPaid) * 100) / 100,
       };
     }
 

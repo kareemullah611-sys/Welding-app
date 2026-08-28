@@ -1620,11 +1620,14 @@ test("module search inputs expose a clear button when text is present", () => {
   const dataTable = readFileSync("src/components/ui/index.tsx", "utf8");
   const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
   const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
+  const globalStyles = readFileSync("src/app/globals.css", "utf8");
 
   assert.match(dataTable, /aria-label="Clear search"/);
   assert.match(dataTable, /onClick=\{clearSearch\}/);
   assert.match(paymentsPage, /\{searchQuery && \(/);
   assert.match(salesPage, /\{filters\.query && \(/);
+  assert.match(globalStyles, /input\[type="search"\]::-webkit-search-cancel-button/);
+  assert.match(globalStyles, /input\[type="search"\]::-webkit-search-decoration/);
 });
 
 test("payment exports use requested details with one ref column, debit credit, and running balance", () => {

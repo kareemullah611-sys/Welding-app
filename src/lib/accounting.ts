@@ -165,6 +165,144 @@ export async function journalSaleDiscount(d: {
   }, db);
 }
 
+export async function journalOpeningCustomerBalance(d: {
+  id: number;
+  customerId: number;
+  cityId: number;
+  amount: number;
+  currencyCode: string;
+  openingDate: Date;
+  createdBy: number;
+  journalVersion: number;
+}, db: DbClient = prisma) {
+  const amount = Math.abs(d.amount);
+  if (amount === 0) return;
+  const customerAccountId = await getCustomerAccountId(d.customerId, db);
+  const openingBalanceAccountId = await getOpeningBalanceAccountId(db);
+  const customerOwesUs = d.amount > 0;
+  await createJournalEntries(`OPENAR-${d.id}-V${d.journalVersion}`, [
+    customerOwesUs
+      ? { accountId: customerAccountId, debit: amount, credit: 0, description: `Opening customer balance #${d.id}` }
+      : { accountId: customerAccountId, debit: 0, credit: amount, description: `Opening customer advance #${d.id}` },
+    customerOwesUs
+      ? { accountId: openingBalanceAccountId, debit: 0, credit: amount, description: `Opening customer balance #${d.id}` }
+      : { accountId: openingBalanceAccountId, debit: amount, credit: 0, description: `Opening customer advance #${d.id}` },
+  ], {
+    currencyCode: d.currencyCode,
+    entityType: "opening_customer_balance",
+    entityId: d.id,
+    cityId: d.cityId,
+    entryDate: d.openingDate,
+    createdBy: d.createdBy,
+  }, db);
+}
+
+export async function reverseOpeningCustomerBalanceJournals(
+  openingId: number,
+  createdBy: number,
+  db: DbClient = prisma,
+) {
+  const rows = await db.journalEntry.findMany({
+    where: { entityType: "opening_customer_balance", entityId: openingId, transactionId: { startsWith: `OPENAR-${openingId}-V` } },
+    select: { transactionId: true },
+    distinct: ["transactionId"],
+  });
+  for (const row of rows) await reverseJournalEntries(row.transactionId, createdBy, db);
+  return rows.length;
+}
+
+export async function reverseOpeningJournals(
+  entityType: string,
+  entityId: number,
+  transactionPrefix: string,
+  createdBy: number,
+  db: DbClient = prisma,
+) {
+  const rows = await db.journalEntry.findMany({
+    where: { entityType, entityId, transactionId: { startsWith: transactionPrefix } },
+    select: { transactionId: true },
+    distinct: ["transactionId"],
+  });
+  for (const row of rows) await reverseJournalEntries(row.transactionId, createdBy, db);
+  return rows.length;
+}
+
+async function journalOpeningAsset(
+  d: {
+    transactionPrefix: string;
+    entityType: string;
+    entityId: number;
+    cityId: number;
+    amount: number;
+    currencyCode: string;
+    openingDate: Date;
+    createdBy: number;
+    journalVersion: number;
+    assetAccountId: number;
+    description: string;
+  },
+  db: DbClient,
+) {
+  const amount = Math.abs(d.amount);
+  if (amount === 0) return;
+  const openingBalanceAccountId = await getOpeningBalanceAccountId(db);
+  const positiveAsset = d.amount > 0;
+  await createJournalEntries(`${d.transactionPrefix}-V${d.journalVersion}`, [
+    positiveAsset
+      ? { accountId: d.assetAccountId, debit: amount, credit: 0, description: d.description }
+      : { accountId: d.assetAccountId, debit: 0, credit: amount, description: d.description },
+    positiveAsset
+      ? { accountId: openingBalanceAccountId, debit: 0, credit: amount, description: d.description }
+      : { accountId: openingBalanceAccountId, debit: amount, credit: 0, description: d.description },
+  ], {
+    currencyCode: d.currencyCode,
+    entityType: d.entityType,
+    entityId: d.entityId,
+    cityId: d.cityId,
+    entryDate: d.openingDate,
+    createdBy: d.createdBy,
+  }, db);
+}
+
+export async function journalOpeningCashBalance(d: {
+  id: number; cityId: number; amount: number; currencyCode: string; openingDate: Date; createdBy: number; journalVersion: number;
+}, db: DbClient = prisma) {
+  await journalOpeningAsset({
+    ...d,
+    transactionPrefix: `OPENCASH-${d.id}`,
+    entityType: "opening_cash",
+    entityId: d.id,
+    assetAccountId: await getCashAccountId(d.cityId, db),
+    description: `Opening cash balance #${d.id}`,
+  }, db);
+}
+
+export async function journalOpeningBankBalance(d: {
+  id: number; cityId: number; bankAccountId: number; amount: number; currencyCode: string; openingDate: Date; createdBy: number; journalVersion: number;
+}, db: DbClient = prisma) {
+  await journalOpeningAsset({
+    ...d,
+    transactionPrefix: `OPENBANK-${d.id}`,
+    entityType: "opening_bank_balance",
+    entityId: d.id,
+    assetAccountId: await getBankGLAccountId(d.bankAccountId, db),
+    description: `Opening bank balance #${d.id}`,
+  }, db);
+}
+
+export async function journalOpeningCheque(d: {
+  id: number; cityId: number; amount: number; currencyCode: string; openingDate: Date; createdBy: number; journalVersion: number;
+}, db: DbClient = prisma) {
+  await journalOpeningAsset({
+    ...d,
+    transactionPrefix: `OPENCHEQUE-${d.id}`,
+    entityType: "opening_cheque",
+    entityId: d.id,
+    assetAccountId: await getChequesInHandAccountId(d.cityId, db),
+    description: `Opening cheque #${d.id}`,
+  }, db);
+}
+
 // SALE CREATED
 export async function journalSaleCreated(sale: { id: number; customerId: number; cityId: number; lotId: number; totalAmount: number; currencyCode: string; saleDate: Date; createdBy: number; }, db: DbClient = prisma) {
   const [persistedSale, existing] = await Promise.all([
@@ -626,16 +764,31 @@ export async function journalOpeningLiability(
     currencyCode: string;
     openingDate: Date;
     createdBy: number;
+    journalVersion: number;
   },
   db: DbClient = prisma
 ) {
+  if (p.liabilityType === "intermediary") {
+    await createJournalEntries(`OPENLIAB-${p.id}-V${p.journalVersion}`, [
+      { accountId: await getIntermediaryAccountId(p.partyId, db), debit: p.amount, credit: 0, description: "Opening intermediary receivable" },
+      { accountId: await getOpeningBalanceAccountId(db), debit: 0, credit: p.amount, description: "Opening intermediary receivable" },
+    ], {
+      currencyCode: p.currencyCode,
+      entityType: "opening_liability",
+      entityId: p.id,
+      entryDate: p.openingDate,
+      createdBy: p.createdBy,
+    }, db);
+    return;
+  }
+
   let creditAccId: number;
   if (p.liabilityType === "supplier") creditAccId = await getSupplierAccountId(p.partyId, db);
   else if (p.liabilityType === "shipping_line") creditAccId = await getShippingLineAccountId(p.partyId, db);
   else if (p.liabilityType === "agent") creditAccId = await getAgentAccountId(p.partyId, db);
-  else creditAccId = await getIntermediaryAccountId(p.partyId, db);
+  else throw new Error(`Unsupported opening liability type: ${p.liabilityType}`);
 
-  await createJournalEntries(`OPENLIAB-${p.id}`, [
+  await createJournalEntries(`OPENLIAB-${p.id}-V${p.journalVersion}`, [
     { accountId: await getOpeningBalanceAccountId(db), debit: p.amount, credit: 0, description: `Opening liability` },
     { accountId: creditAccId, debit: 0, credit: p.amount, description: `Opening liability` },
   ], {
@@ -656,10 +809,11 @@ export async function journalOpeningCityLiability(
     currencyCode: string;
     openingDate: Date;
     createdBy: number;
+    journalVersion: number;
   },
   db: DbClient = prisma
 ) {
-  await createJournalEntries(`OPENCITYLIAB-${p.id}`, [
+  await createJournalEntries(`OPENCITYLIAB-${p.id}-V${p.journalVersion}`, [
     { accountId: await getOpeningBalanceAccountId(db), debit: p.amount, credit: 0, description: "Opening city liability" },
     { accountId: await getCityLiabilityAccountId(p.accountId, db), debit: 0, credit: p.amount, description: "Opening city liability" },
   ], {
@@ -680,10 +834,11 @@ export async function journalOpeningHajiBalance(
     currencyCode: string;
     openingDate: Date;
     createdBy: number;
+    journalVersion: number;
   },
   db: DbClient = prisma
 ) {
-  await createJournalEntries(`OPENHAJI-${p.id}`, [
+  await createJournalEntries(`OPENHAJI-${p.id}-V${p.journalVersion}`, [
     { accountId: await getHajiAccountId(db), debit: p.amount, credit: 0, description: "Opening Haji balance" },
     { accountId: await getOpeningBalanceAccountId(db), debit: 0, credit: p.amount, description: "Opening Haji balance" },
   ], {

@@ -198,10 +198,15 @@ function CashReport({ data }: { data: any }) {
 function ReceivablesReport({ data }: { data: any }) {
   const { t } = useLang();
   const totals = data.totalByCurrency || {};
+  const advanceTotals = data.customerAdvancesByCurrency || {};
+  const netTotals = data.netPositionByCurrency || {};
   const customers = data.customers || [];
+  const customerAdvances = data.customerAdvances || [];
   return (<div>
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
       {Object.entries(totals).map(([curr, amt]: any) => <StatsCard key={curr} title={`${t("outstanding")} (${curr})`} value={n(amt)} icon="📥" color="red" />)}
+      {Object.entries(advanceTotals).map(([curr, amt]: any) => <StatsCard key={`advance-${curr}`} title={`Customer Advances (${curr})`} value={n(amt)} icon="↩" color="yellow" />)}
+      {Object.entries(netTotals).map(([curr, amt]: any) => <StatsCard key={`net-${curr}`} title={`Net Customer Position (${curr})`} value={n(amt)} icon="=" color={amt >= 0 ? "red" : "yellow"} />)}
     </div>
     <div className="card">
       <h3 className="text-sm font-semibold text-gray-600 mb-3">Customer Ledger Balances</h3>
@@ -209,18 +214,30 @@ function ReceivablesReport({ data }: { data: any }) {
         <div key={i} className="flex justify-between py-1.5 text-sm border-b border-gray-50"><span>{c.account.replace("AR - ", "")}</span><span className="font-medium text-red-600">{c.currency} {n(c.balance)}</span></div>
       )) : <div className="text-gray-400 text-sm">{t("no_receivables")}</div>}
     </div>
+    {customerAdvances.length > 0 && <div className="card mt-4">
+      <h3 className="text-sm font-semibold text-gray-600 mb-3">Customer Advances (Liability)</h3>
+      {customerAdvances.map((c: any, i: number) => (
+        <div key={i} className="flex justify-between py-1.5 text-sm border-b border-gray-50"><span>{c.account.replace("AR - ", "")}</span><span className="font-medium text-amber-700">{c.currency} {n(c.balance)}</span></div>
+      ))}
+    </div>}
   </div>);
 }
 
 function PayablesReport({ data }: { data: any }) {
   const { t } = useLang();
   function PaySection({ title, items, emptyKey }: { title: string; items: any[]; emptyKey: string }) {
-    const total = items.reduce((s: number, x: any) => s + x.balance, 0);
+    const totalsByCurrency = items.reduce((totals: Record<string, number>, item: any) => {
+      const currency = item.currency || "USD";
+      totals[currency] = (totals[currency] || 0) + Number(item.balance || 0);
+      return totals;
+    }, {});
     return (
       <div className="card">
         <div className="flex justify-between items-center mb-3 border-b pb-2">
           <h3 className="text-sm font-semibold text-gray-600">{title}</h3>
-          {items.length > 0 && <span className="text-sm font-bold text-orange-700">USD {n(total)}</span>}
+          {items.length > 0 && <span className="text-sm font-bold text-orange-700">
+            {Object.entries(totalsByCurrency).map(([currency, total]) => `${currency} ${n(total)}`).join(" · ")}
+          </span>}
         </div>
         {items.length ? items.map((x: any, i: number) => (
           <div key={i} className="flex justify-between py-1.5 text-sm border-b border-gray-50">

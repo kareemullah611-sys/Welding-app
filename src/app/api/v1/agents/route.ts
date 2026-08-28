@@ -18,12 +18,13 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
     else if (agentType === "clearing") where.agentType = { not: "customs" };
     const agents = await prisma.agent.findMany({
       where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip, take: limit,
-      include: { city: { select: { id: true, name: true } }, lotCosts: { where: { paidFromCash: false } }, agentPayments: true },
+      include: { city: { select: { id: true, name: true } }, openingLiabilities: { include: { currency: { select: { code: true } } } }, lotCosts: { where: { paidFromCash: false } }, agentPayments: true },
     });
     const total = await prisma.agent.count({ where });
     return paginatedResponse(agents.map(a => {
       const billed: Record<string, number> = {};
       const paid: Record<string, number> = {};
+      for (const opening of a.openingLiabilities) { billed[opening.currency.code] = (billed[opening.currency.code] || 0) + Number(opening.amount); }
       for (const c of a.lotCosts) { billed[c.currencyCode] = (billed[c.currencyCode] || 0) + Number(c.amount); }
       for (const p of a.agentPayments) { paid[p.currencyCode] = (paid[p.currencyCode] || 0) + Number(p.amount); }
       const balance: Record<string, number> = {};

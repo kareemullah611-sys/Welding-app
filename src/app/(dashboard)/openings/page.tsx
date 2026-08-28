@@ -581,13 +581,17 @@ export default function OpeningsPage() {
   const submitLiability = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canEdit) return toast.error("Opening entries are locked");
+    const partyName = liabilityPartyOptions.find((party) => party.id === liabilityForm.partyId)?.name || "Pending Party";
+    const currencyCode = data?.liabilityOptions.currencies.find((currency) => currency.id === liabilityForm.currencyId)?.code || "";
     const result = await apiCall("/api/v1/openings", {
       method: "POST",
       body: {
         kind: "liability",
         liabilityType: liabilityForm.liabilityType,
         partyId: liabilityForm.partyId,
+        partyName,
         currencyId: liabilityForm.currencyId,
+        currencyCode,
         amount: Number(liabilityForm.amount || 0),
         openingDate: liabilityForm.openingDate,
         notes: liabilityForm.notes || null,
@@ -1562,13 +1566,13 @@ export default function OpeningsPage() {
         </form>
       )}
 
-      {/* Step 5: Liabilities (super admin) */}
+      {/* Step 5: Party opening balances (super admin) */}
       {isSuperAdmin && (
         <>
           <form ref={liabilityRef} onSubmit={submitLiability} className="card space-y-3">
             <div>
-              <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-neutral-500">Opening liabilities</h2>
-              <p className="text-xs text-neutral-500 mt-1">Global opening payables (not city-scoped). Saving replaces the row for that party + currency.</p>
+              <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-neutral-500">Opening party balances</h2>
+              <p className="text-xs text-neutral-500 mt-1">Suppliers, shipping lines, and agents are payables. An intermediary balance is a receivable owed to us.</p>
             </div>
             <div className="grid md:grid-cols-2 lg:grid-cols-6 gap-3">
               <select
@@ -1581,7 +1585,7 @@ export default function OpeningsPage() {
                 <option value="supplier">Supplier</option>
                 <option value="shipping_line">Shipping line</option>
                 <option value="agent">Agent</option>
-                <option value="intermediary">Intermediary</option>
+                <option value="intermediary">Intermediary receivable (owes us)</option>
               </select>
               <select
                 className="input"
@@ -1629,15 +1633,15 @@ export default function OpeningsPage() {
                 disabled={!canEdit}
               />
             </div>
-            <button className="btn-primary" type="submit" disabled={!canEdit}>Save opening liability</button>
+            <button className="btn-primary" type="submit" disabled={!canEdit}>Save opening balance</button>
 
             <SavedTable
-              title="Saved opening liabilities"
-              emptyLabel="No opening liabilities recorded yet."
+              title="Saved opening party balances"
+              emptyLabel="No opening party balances recorded yet."
               headers={["Type", "Party", "Currency", "Amount", "Date", "Notes", ""]}
               rows={(data?.openingLiabilities || []).map((row) => (
                 <tr key={String(row.id)} className={`border-b last:border-0 ${row._pending ? "bg-amber-50/60" : ""}`}>
-                  <td className="py-2 px-3">{row.liabilityType.replace("_", " ")}</td>
+                  <td className="py-2 px-3">{row.liabilityType === "intermediary" ? "intermediary receivable" : row.liabilityType.replace("_", " ")}</td>
                   <td className="py-2 px-3">{row.partyName}</td>
                   <td className="py-2 px-3">{row.currencyCode}</td>
                   <td className="py-2 px-3">{row.amount.toLocaleString("en-US")}</td>

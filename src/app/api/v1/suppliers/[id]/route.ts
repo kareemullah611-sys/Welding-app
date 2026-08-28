@@ -10,6 +10,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, use
     const id = parseInt(context.params.id);
     const supplier = await prisma.supplier.findUnique({ where: { id },
       include: {
+        openingLiabilities: { include: { currency: { select: { code: true } } }, orderBy: { openingDate: "asc" } },
         lotPurchases: {
           include: {
             lot: { select: { id: true, lotNumber: true, lotDate: true, country: { select: { name: true } } } },
@@ -32,13 +33,17 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, use
 
     const totalPurchasedUsd = supplier.lotPurchases.reduce((s, p) => s + Number(p.totalPriceUsd), 0);
     const totalPaidUsd = supplier.supplierPayments.reduce((s, p) => s + Number(p.amountUsd), 0);
-    const balanceOwed = totalPurchasedUsd - totalPaidUsd;
-    const { rows: statement, nextLotToPay } = buildSupplierStatement(supplier);
+    const openingByCurrency = supplier.openingLiabilities.reduce<Record<string, number>>((totals, opening) => {
+      totals[opening.currency.code] = (totals[opening.currency.code] || 0) + Number(opening.amount);
+      return totals;
+    }, {});
+    const { rows: statement, nextLotToPay, openingBalanceUsd, openingBalanceRemainingUsd } = buildSupplierStatement(supplier);
+    const balanceOwed = openingBalanceUsd + totalPurchasedUsd - totalPaidUsd;
     const runningLedger = buildSupplierRunningLedger(supplier);
 
     return successResponse({
       ...supplier, id: supplier.id, name: supplier.name,
-      totalPurchasedUsd, totalPaidUsd, balanceOwed,
+      totalPurchasedUsd, totalPaidUsd, balanceOwed, openingByCurrency, openingBalanceUsd, openingBalanceRemainingUsd,
       nextLotToPay,
       purchases: supplier.lotPurchases.map((p) => ({
         id: p.id, lotNumber: p.lot.lotNumber, productName: p.product.name,

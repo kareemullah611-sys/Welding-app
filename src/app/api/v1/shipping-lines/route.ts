@@ -23,7 +23,11 @@ export const GET = withSuperAdmin(async (request: NextRequest, _context, _user: 
 
     // Compute running balance per shipping line
     const result = await Promise.all(lines.map(async (sl) => {
-      const [costs, totalPaidUsd] = await Promise.all([
+      const [openings, costs, totalPaidUsd] = await Promise.all([
+        prisma.openingLiability.findMany({
+          where: { shippingLineId: sl.id },
+          include: { currency: { select: { code: true } } },
+        }),
         prisma.lotCost.findMany({
           where: { shippingLineId: sl.id },
           select: { amount: true, currencyCode: true },
@@ -33,11 +37,14 @@ export const GET = withSuperAdmin(async (request: NextRequest, _context, _user: 
           _sum: { amountUsd: true },
         }),
       ]);
-      const billedByCurrency = costs.reduce<Record<string, number>>((acc, cost) => {
-        const currencyCode = cost.currencyCode || "USD";
-        acc[currencyCode] = Math.round(((acc[currencyCode] || 0) + Number(cost.amount)) * 100) / 100;
+      const billedByCurrency = openings.reduce<Record<string, number>>((acc, opening) => {
+        acc[opening.currency.code] = Math.round(((acc[opening.currency.code] || 0) + Number(opening.amount)) * 100) / 100;
         return acc;
       }, {});
+      for (const cost of costs) {
+        const currencyCode = cost.currencyCode || "USD";
+        billedByCurrency[currencyCode] = Math.round(((billedByCurrency[currencyCode] || 0) + Number(cost.amount)) * 100) / 100;
+      }
       const billed = billedByCurrency.USD || 0;
       const paid   = Number(totalPaidUsd._sum.amountUsd || 0);
       return {

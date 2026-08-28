@@ -317,7 +317,7 @@ export default function AgentsPage() {
         {!ledgerData ? <div className="py-8 text-center text-gray-400">{t("loading")}</div> : <>
           <DataTable columns={[
             { key: "date", label: t("date") },
-            { key: "type", label: "Entry Type", render: (e: any) => <span className={`text-xs px-1.5 py-0.5 rounded ${e.type === "charge" ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>{e.type === "charge" ? "Charge" : "Settlement"}</span> },
+            { key: "type", label: "Entry Type", render: (e: any) => <span className={`text-xs px-1.5 py-0.5 rounded ${e.type === "charge" || e.type === "opening" ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>{e.type === "opening" ? "Opening" : e.type === "charge" ? "Charge" : "Settlement"}</span> },
             { key: "description", label: "Particulars" },
             { key: "debit", label: "Debit", render: (e: any) => e.debit ? <span className="text-red-600">{e.currency} {e.debit.toLocaleString("en-US")}</span> : "" },
             { key: "credit", label: "Credit", render: (e: any) => e.credit ? <span className="text-green-600">{e.currency} {e.credit.toLocaleString("en-US")}</span> : "" },

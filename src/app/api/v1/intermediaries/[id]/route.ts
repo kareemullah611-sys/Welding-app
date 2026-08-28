@@ -28,18 +28,25 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, _us
   if (!intermediary) return errorResponse("NOT_FOUND", "Not found", 404);
 
   const whereDeposits: Record<string, unknown> = { intermediaryId: id };
+  const whereOpenings: Record<string, unknown> = { intermediaryId: id };
   const wherePayments: Record<string, unknown> = { intermediaryId: id };
   const whereExchanges: Record<string, unknown> = { intermediaryId: id, isActive: true };
   const whereHajiTransfers: Record<string, unknown> = { intermediaryId: id, settlementDestination: "intermediary" };
   const whereHajiCashReceipts: Record<string, unknown> = { intermediaryId: id };
 
   applyDateRange(whereDeposits, "depositDate", startDate, endDate);
+  applyDateRange(whereOpenings, "openingDate", startDate, endDate);
   applyDateRange(wherePayments, "paymentDate", startDate, endDate);
   applyDateRange(whereExchanges, "exchangeDate", startDate, endDate);
   applyDateRange(whereHajiTransfers, "transferDate", startDate, endDate);
   applyDateRange(whereHajiCashReceipts, "receiptDate", startDate, endDate);
 
-  const [deposits, payments, exchanges, hajiTransfers, hajiCashReceipts] = await Promise.all([
+  const [openingLiabilities, deposits, payments, exchanges, hajiTransfers, hajiCashReceipts] = await Promise.all([
+    prisma.openingLiability.findMany({
+      where: whereOpenings,
+      include: { currency: { select: { code: true } } },
+      orderBy: { openingDate: "asc" },
+    }),
     prisma.intermediaryDeposit.findMany({
       where: whereDeposits,
       include: { currency: true, city: true, bankAccount: true, superAdminBankAccount: true, creator: { select: { fullName: true } } },
@@ -79,7 +86,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, _us
     }),
   ]);
 
-  const entries = buildIntermediaryLedgerEntries({ deposits, payments, exchanges, hajiTransfers, hajiCashReceipts });
+  const entries = buildIntermediaryLedgerEntries({ openingLiabilities, deposits, payments, exchanges, hajiTransfers, hajiCashReceipts });
   const { ledger, balances, pagination } = paginateIntermediaryLedger(entries, page, limit);
 
   const exchangeHistory = exchanges.map((e) => ({

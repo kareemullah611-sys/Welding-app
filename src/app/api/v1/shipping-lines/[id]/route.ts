@@ -11,7 +11,12 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, _us
     const sl = await prisma.shippingLine.findUnique({ where: { id } });
     if (!sl) return errorResponse("NOT_FOUND", "Shipping line not found", 404);
 
-    const [costs, payments] = await Promise.all([
+    const [openings, costs, payments] = await Promise.all([
+      prisma.openingLiability.findMany({
+        where: { shippingLineId: id },
+        include: { currency: { select: { code: true } } },
+        orderBy: { openingDate: "asc" },
+      }),
       prisma.lotCost.findMany({
         where: { shippingLineId: id },
         include: { lot: { select: { id: true, lotNumber: true } } },
@@ -24,14 +29,21 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, _us
       }),
     ]);
 
-    const totalBilledUsd = costs
+    const openingUsd = openings
+      .filter(o => o.currency.code === "USD")
+      .reduce((sum, opening) => sum + Number(opening.amount), 0);
+    const totalBilledUsd = openingUsd + costs
       .filter(c => c.currencyCode === "USD")
       .reduce((s, c) => s + Number(c.amount), 0);
-    const billedByCurrency = costs.reduce<Record<string, number>>((acc, cost) => {
-      const currencyCode = cost.currencyCode || "USD";
-      acc[currencyCode] = Math.round(((acc[currencyCode] || 0) + Number(cost.amount)) * 100) / 100;
+    const openingByCurrency = openings.reduce<Record<string, number>>((acc, opening) => {
+      acc[opening.currency.code] = Math.round(((acc[opening.currency.code] || 0) + Number(opening.amount)) * 100) / 100;
       return acc;
     }, {});
+    const billedByCurrency = { ...openingByCurrency };
+    for (const cost of costs) {
+      const currencyCode = cost.currencyCode || "USD";
+      billedByCurrency[currencyCode] = Math.round(((billedByCurrency[currencyCode] || 0) + Number(cost.amount)) * 100) / 100;
+    }
     const totalPaidUsd = payments.reduce((s, p) => s + Number(p.amountUsd), 0);
     const totalPaidPkr = payments.reduce((s, p) => s + Number(p.amountPkr || 0), 0);
 
@@ -43,14 +55,23 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, _us
         balanceOwedUsd: Math.round((totalBilledUsd - totalPaidUsd) * 100) / 100,
         totalPaidPkr:   Math.round(totalPaidPkr * 100) / 100,
         billedByCurrency,
+        openingByCurrency,
         hasNonUsdCharges: Object.keys(billedByCurrency).some((currencyCode) => currencyCode !== "USD"),
       },
-      charges: costs.map(c => ({
+      charges: [
+        ...openings.map((opening) => ({
+          id: `opening-${opening.id}`, lotNumber: "Opening", lotId: null,
+          description: opening.notes || "Opening shipping-line balance", costType: "opening",
+          amount: Number(opening.amount), currencyCode: opening.currency.code,
+          costDate: opening.openingDate.toISOString().split("T")[0],
+        })),
+        ...costs.map(c => ({
         id: c.id, lotNumber: c.lot.lotNumber, lotId: c.lotId,
         description: c.description, costType: c.costType,
         amount: Number(c.amount), currencyCode: c.currencyCode,
         costDate: c.costDate?.toISOString().split("T")[0] || null,
-      })),
+        })),
+      ],
       payments: [
         ...payments.map(p => ({
         id: p.id, lotNumber: p.lot?.lotNumber || null, lotId: p.lotId,

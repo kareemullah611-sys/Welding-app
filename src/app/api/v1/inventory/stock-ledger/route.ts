@@ -193,6 +193,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           gf.name                                  AS godown_name,
           gf.city_id,
           c.name                                   AS city_name,
+          0                                        AS qty_in,
           gt.qty                                   AS qty_out,
           NULL::text                               AS customer_name
         FROM godown_transfers gt

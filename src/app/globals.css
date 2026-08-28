@@ -362,6 +362,13 @@ input[type="number"]::-webkit-outer-spin-button {
 }
 input[type="number"] { -moz-appearance: textfield; }
 
+/* Search fields use the app's own clear button; suppress Safari's duplicate control. */
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 /* ---- Print / PDF styles ---- */
 .print-only { display: none; }
 

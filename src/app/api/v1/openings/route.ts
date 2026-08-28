@@ -5,7 +5,7 @@ import { successResponse, errorResponse, validationError, serverError } from "@/
 import { JWTPayload } from "@/lib/auth";
 import { OpeningLiabilityType } from "@prisma/client";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
-import { journalOpeningCityLiability, journalOpeningHajiBalance, journalOpeningLiability, reverseJournalEntries } from "@/lib/accounting";
+import { journalOpeningBankBalance, journalOpeningCashBalance, journalOpeningCheque, journalOpeningCityLiability, journalOpeningCustomerBalance, journalOpeningHajiBalance, journalOpeningLiability, reverseOpeningCustomerBalanceJournals, reverseOpeningJournals } from "@/lib/accounting";
 import { setLegacyGodownStock, listLegacyStockForCity, purgeLegacyOpeningStockData } from "@/lib/legacy-stock-lot";
 import { listLotGodownStockForCity, setLotGodownStock } from "@/lib/lot-godown-stock";
 import { createHistoricalSale } from "@/lib/historical-sale-import";
@@ -375,23 +375,35 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
 
     if (kind === "cash") {
       if (!cityId) return validationError("City is required");
+      const scopedCityId = cityId;
       const currencyId = Number(body.currencyId);
       const amount = Number(body.amount);
       if (!Number.isInteger(currencyId) || currencyId <= 0) return validationError("Currency is required");
       if (!Number.isFinite(amount)) return validationError("Amount is required");
 
-      const cityCurrency = await prisma.cityCurrency.findFirst({ where: { cityId, currencyId } });
+      const cityCurrency = await prisma.cityCurrency.findFirst({
+        where: { cityId: scopedCityId, currencyId },
+        include: { currency: { select: { code: true } } },
+      });
       if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not available for this city");
 
-      const existing = await prisma.openingCash.findFirst({ where: { cityId, currencyId } });
-      const row = existing
-        ? await prisma.openingCash.update({
-            where: { id: existing.id },
-            data: { amount, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
-          })
-        : await prisma.openingCash.create({
-            data: { cityId, currencyId, amount, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
-          });
+      const existing = await prisma.openingCash.findFirst({ where: { cityId: scopedCityId, currencyId } });
+      const row = await prisma.$transaction(async (tx) => {
+        const saved = existing
+          ? await tx.openingCash.update({
+              where: { id: existing.id },
+              data: { amount, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
+            })
+          : await tx.openingCash.create({
+              data: { cityId: scopedCityId, currencyId, amount, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
+            });
+        const previousVersions = await reverseOpeningJournals("opening_cash", saved.id, `OPENCASH-${saved.id}`, user.userId, tx);
+        await journalOpeningCashBalance({
+          id: saved.id, cityId: scopedCityId, amount, currencyCode: cityCurrency.currency.code,
+          openingDate: saved.openingDate, createdBy: user.userId, journalVersion: previousVersions + 1,
+        }, tx);
+        return saved;
+      });
 
       await createAuditLog(
         user.userId,
@@ -421,6 +433,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
 
     if (kind === "customer") {
       if (!cityId) return validationError("City is required");
+      const scopedCityId = cityId;
       const customerId = Number(body.customerId);
       const currencyId = Number(body.currencyId);
       const amount = Number(body.amount);
@@ -428,20 +441,36 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       if (!Number.isInteger(currencyId) || currencyId <= 0) return validationError("Currency is required");
       if (!Number.isFinite(amount)) return validationError("Amount is required");
 
-      const customer = await prisma.customer.findFirst({ where: { id: customerId, cityId } });
+      const customer = await prisma.customer.findFirst({ where: { id: customerId, cityId: scopedCityId } });
       if (!customer) return errorResponse("NOT_FOUND", "Customer not found in selected city");
-      const cityCurrency = await prisma.cityCurrency.findFirst({ where: { cityId, currencyId } });
+      const cityCurrency = await prisma.cityCurrency.findFirst({ where: { cityId: scopedCityId, currencyId } });
       if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not available for this city");
 
       const existing = await prisma.openingCustomerBalance.findFirst({ where: { customerId, currencyId } });
-      const row = existing
-        ? await prisma.openingCustomerBalance.update({
-            where: { id: existing.id },
-            data: { amount, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
-          })
-        : await prisma.openingCustomerBalance.create({
-            data: { customerId, currencyId, amount, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
-          });
+      const currency = await prisma.currency.findUnique({ where: { id: currencyId }, select: { code: true } });
+      if (!currency) return errorResponse("NOT_FOUND", "Currency not found");
+      const row = await prisma.$transaction(async (tx) => {
+        const saved = existing
+          ? await tx.openingCustomerBalance.update({
+              where: { id: existing.id },
+              data: { amount, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
+            })
+          : await tx.openingCustomerBalance.create({
+              data: { customerId, currencyId, amount, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
+            });
+        const previousVersions = await reverseOpeningCustomerBalanceJournals(saved.id, user.userId, tx);
+        await journalOpeningCustomerBalance({
+          id: saved.id,
+          customerId,
+          cityId: scopedCityId,
+          amount,
+          currencyCode: currency.code,
+          openingDate: saved.openingDate,
+          createdBy: user.userId,
+          journalVersion: previousVersions + 1,
+        }, tx);
+        return saved;
+      });
 
       await createAuditLog(
         user.userId,
@@ -499,7 +528,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
                 createdBy: user.userId,
               },
             });
-        await reverseJournalEntries(`OPENHAJI-${saved.id}`, user.userId, tx);
+        const previousVersions = await reverseOpeningJournals("opening_haji_balance", saved.id, `OPENHAJI-${saved.id}`, user.userId, tx);
         await journalOpeningHajiBalance({
           id: saved.id,
           cityId: scopedCityId,
@@ -507,6 +536,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           currencyCode: currency.code,
           openingDate: saved.openingDate,
           createdBy: user.userId,
+          journalVersion: previousVersions + 1,
         }, tx);
         // Opening Haji is historical bookkeeping only, not a cash-office transfer.
         await tx.hajiTransfer.deleteMany({
@@ -678,6 +708,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
 
     if (kind === "bank") {
       if (!cityId) return validationError("City is required");
+      const scopedCityId = cityId;
       const bankAccountId = Number(body.bankAccountId);
       const currencyId = Number(body.currencyId);
       const amount = Number(body.amount);
@@ -685,20 +716,31 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       if (!Number.isInteger(currencyId) || currencyId <= 0) return validationError("Currency is required");
       if (!Number.isFinite(amount)) return validationError("Amount is required");
 
-      const bankAccount = await prisma.bankAccount.findFirst({ where: { id: bankAccountId, cityId, isActive: true } });
+      const bankAccount = await prisma.bankAccount.findFirst({ where: { id: bankAccountId, cityId: scopedCityId, isActive: true } });
       if (!bankAccount) return errorResponse("NOT_FOUND", "Bank account not found in selected city");
-      const cityCurrency = await prisma.cityCurrency.findFirst({ where: { cityId, currencyId } });
+      const cityCurrency = await prisma.cityCurrency.findFirst({
+        where: { cityId: scopedCityId, currencyId },
+        include: { currency: { select: { code: true } } },
+      });
       if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not available for this city");
 
       const existing = await prisma.openingBankBalance.findFirst({ where: { bankAccountId, currencyId } });
-      const row = existing
-        ? await prisma.openingBankBalance.update({
-            where: { id: existing.id },
-            data: { amount, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
-          })
-        : await prisma.openingBankBalance.create({
-            data: { cityId, bankAccountId, currencyId, amount, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
-          });
+      const row = await prisma.$transaction(async (tx) => {
+        const saved = existing
+          ? await tx.openingBankBalance.update({
+              where: { id: existing.id },
+              data: { amount, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
+            })
+          : await tx.openingBankBalance.create({
+              data: { cityId: scopedCityId, bankAccountId, currencyId, amount, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
+            });
+        const previousVersions = await reverseOpeningJournals("opening_bank_balance", saved.id, `OPENBANK-${saved.id}`, user.userId, tx);
+        await journalOpeningBankBalance({
+          id: saved.id, cityId: scopedCityId, bankAccountId, amount, currencyCode: cityCurrency.currency.code,
+          openingDate: saved.openingDate, createdBy: user.userId, journalVersion: previousVersions + 1,
+        }, tx);
+        return saved;
+      });
 
       await createAuditLog(
         user.userId,
@@ -728,6 +770,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
 
     if (kind === "cheque") {
       if (!cityId) return validationError("City is required");
+      const scopedCityId = cityId;
       const currencyId = Number(body.currencyId);
       const amount = Number(body.amount);
       const chequeNumber = String(body.chequeNumber || "").trim();
@@ -735,21 +778,31 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       if (!Number.isFinite(amount) || amount <= 0) return validationError("Amount is required");
       if (!chequeNumber) return validationError("Cheque number is required");
 
-      const cityCurrency = await prisma.cityCurrency.findFirst({ where: { cityId, currencyId } });
+      const cityCurrency = await prisma.cityCurrency.findFirst({
+        where: { cityId: scopedCityId, currencyId },
+        include: { currency: { select: { code: true } } },
+      });
       if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not available for this city");
 
-      const row = await prisma.openingCheque.create({
-        data: {
-          cityId,
-          currencyId,
-          amount,
-          chequeNumber,
-          chequeBank: body.chequeBank ? String(body.chequeBank).trim() : null,
-          chequeDueDate: body.chequeDueDate ? dateOnly(body.chequeDueDate) : null,
-          openingDate: dateOnly(body.openingDate),
-          notes: body.notes || null,
-          createdBy: user.userId,
-        },
+      const row = await prisma.$transaction(async (tx) => {
+        const saved = await tx.openingCheque.create({
+          data: {
+            cityId: scopedCityId,
+            currencyId,
+            amount,
+            chequeNumber,
+            chequeBank: body.chequeBank ? String(body.chequeBank).trim() : null,
+            chequeDueDate: body.chequeDueDate ? dateOnly(body.chequeDueDate) : null,
+            openingDate: dateOnly(body.openingDate),
+            notes: body.notes || null,
+            createdBy: user.userId,
+          },
+        });
+        await journalOpeningCheque({
+          id: saved.id, cityId: scopedCityId, amount, currencyCode: cityCurrency.currency.code,
+          openingDate: saved.openingDate, createdBy: user.userId, journalVersion: 1,
+        }, tx);
+        return saved;
       });
 
       await createAuditLog(user.userId, cityId, "opening_cheques", row.id, "create", undefined, { amount, chequeNumber }, getClientIP(request));
@@ -843,7 +896,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
               },
             });
 
-        await reverseJournalEntries(`OPENLIAB-${saved.id}`, user.userId, tx);
+        const previousVersions = await reverseOpeningJournals("opening_liability", saved.id, `OPENLIAB-${saved.id}`, user.userId, tx);
         await journalOpeningLiability({
           id: saved.id,
           liabilityType,
@@ -852,6 +905,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           currencyCode: currency.code,
           openingDate: saved.openingDate,
           createdBy: user.userId,
+          journalVersion: previousVersions + 1,
         }, tx);
 
         if (syncMeta) {
@@ -922,7 +976,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
               },
             });
 
-        await reverseJournalEntries(`OPENCITYLIAB-${saved.id}`, user.userId, tx);
+        const previousVersions = await reverseOpeningJournals("opening_city_liability", saved.id, `OPENCITYLIAB-${saved.id}`, user.userId, tx);
         await journalOpeningCityLiability({
           id: saved.id,
           accountId,
@@ -931,6 +985,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           currencyCode: currency.code,
           openingDate: saved.openingDate,
           createdBy: user.userId,
+          journalVersion: previousVersions + 1,
         }, tx);
         return saved;
       });
@@ -1008,7 +1063,10 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       if (!cityId) return validationError("City is required");
       const row = await prisma.openingCash.findFirst({ where: { id, cityId } });
       if (!row) return errorResponse("NOT_FOUND", "Opening cash not found");
-      await prisma.openingCash.delete({ where: { id: row.id } });
+      await prisma.$transaction(async (tx) => {
+        await reverseOpeningJournals("opening_cash", row.id, `OPENCASH-${row.id}`, user.userId, tx);
+        await tx.openingCash.delete({ where: { id: row.id } });
+      });
       await createAuditLog(user.userId, cityId, "opening_cashes", row.id, "delete", { amount: Number(row.amount) }, undefined, getClientIP(request));
       return successResponse({ id: row.id }, "Opening cash deleted");
     }
@@ -1019,7 +1077,10 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
         where: { id, customer: { cityId } },
       });
       if (!row) return errorResponse("NOT_FOUND", "Opening customer balance not found");
-      await prisma.openingCustomerBalance.delete({ where: { id: row.id } });
+      await prisma.$transaction(async (tx) => {
+        await reverseOpeningCustomerBalanceJournals(row.id, user.userId, tx);
+        await tx.openingCustomerBalance.delete({ where: { id: row.id } });
+      });
       await createAuditLog(user.userId, cityId, "opening_customer_balances", row.id, "delete", { amount: Number(row.amount) }, undefined, getClientIP(request));
       return successResponse({ id: row.id }, "Opening customer balance deleted");
     }
@@ -1029,7 +1090,7 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       const row = await prisma.openingHajiBalance.findFirst({ where: { id, cityId } });
       if (!row) return errorResponse("NOT_FOUND", "Opening Haji balance not found");
       await prisma.$transaction(async (tx) => {
-        await reverseJournalEntries(`OPENHAJI-${row.id}`, user.userId, tx);
+        await reverseOpeningJournals("opening_haji_balance", row.id, `OPENHAJI-${row.id}`, user.userId, tx);
         await tx.hajiTransfer.deleteMany({
           where: {
             cityId,
@@ -1110,7 +1171,10 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       if (!cityId) return validationError("City is required");
       const row = await prisma.openingBankBalance.findFirst({ where: { id, cityId } });
       if (!row) return errorResponse("NOT_FOUND", "Opening bank balance not found");
-      await prisma.openingBankBalance.delete({ where: { id: row.id } });
+      await prisma.$transaction(async (tx) => {
+        await reverseOpeningJournals("opening_bank_balance", row.id, `OPENBANK-${row.id}`, user.userId, tx);
+        await tx.openingBankBalance.delete({ where: { id: row.id } });
+      });
       await createAuditLog(user.userId, cityId, "opening_bank_balances", row.id, "delete", { amount: Number(row.amount) }, undefined, getClientIP(request));
       return successResponse({ id: row.id }, "Opening bank balance deleted");
     }
@@ -1119,7 +1183,10 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       if (!cityId) return validationError("City is required");
       const row = await prisma.openingCheque.findFirst({ where: { id, cityId } });
       if (!row) return errorResponse("NOT_FOUND", "Opening cheque not found");
-      await prisma.openingCheque.delete({ where: { id: row.id } });
+      await prisma.$transaction(async (tx) => {
+        await reverseOpeningJournals("opening_cheque", row.id, `OPENCHEQUE-${row.id}`, user.userId, tx);
+        await tx.openingCheque.delete({ where: { id: row.id } });
+      });
       await createAuditLog(user.userId, cityId, "opening_cheques", row.id, "delete", { amount: Number(row.amount), chequeNumber: row.chequeNumber }, undefined, getClientIP(request));
       return successResponse({ id: row.id }, "Opening cheque deleted");
     }
@@ -1129,7 +1196,7 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       const row = await prisma.openingLiability.findFirst({ where: { id } });
       if (!row) return errorResponse("NOT_FOUND", "Opening liability not found");
       await prisma.$transaction(async (tx) => {
-        await reverseJournalEntries(`OPENLIAB-${row.id}`, user.userId, tx);
+        await reverseOpeningJournals("opening_liability", row.id, `OPENLIAB-${row.id}`, user.userId, tx);
         await tx.openingLiability.delete({ where: { id: row.id } });
       });
       await createAuditLog(user.userId, null, "opening_liabilities", row.id, "delete", { amount: Number(row.amount) }, undefined, getClientIP(request));
@@ -1141,7 +1208,7 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       const row = await prisma.openingCityLiability.findFirst({ where: { id, cityId } });
       if (!row) return errorResponse("NOT_FOUND", "Opening city liability not found");
       await prisma.$transaction(async (tx) => {
-        await reverseJournalEntries(`OPENCITYLIAB-${row.id}`, user.userId, tx);
+        await reverseOpeningJournals("opening_city_liability", row.id, `OPENCITYLIAB-${row.id}`, user.userId, tx);
         await tx.openingCityLiability.delete({ where: { id: row.id } });
       });
       await createAuditLog(user.userId, cityId, "opening_city_liabilities", row.id, "delete", { amount: Number(row.amount) }, undefined, getClientIP(request));

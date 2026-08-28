@@ -4,6 +4,7 @@ import { withAuth, getCityScope } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { buildAuthoritativeFinancialReportResult } from "@/lib/authoritative-financial-report";
+import { classifyCustomerBalance } from "@/lib/customer-receivable-accounting";
 
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
@@ -73,7 +74,25 @@ async function balanceSheet(cityId?: number) {
     else balance = credit - debit;
 
     if (Math.abs(balance) > 0.01) {
-      balances.push({ code: acc.code, name: acc.name, type: acc.accountType, currency: g.currencyCode, balance: r2(balance) });
+      if (acc.code.startsWith("1200-C") && balance < 0) {
+        balances.push({
+          code: `2500-CADV-${acc.code.slice("1200-C".length)}`,
+          name: `Customer Advance - ${acc.name.replace(/^AR - /, "")}`,
+          type: "liability",
+          currency: g.currencyCode,
+          balance: r2(Math.abs(balance)),
+        });
+      } else if (acc.code.startsWith("1060-H") && balance < 0) {
+        balances.push({
+          code: `2350-IPAY-${acc.code.slice("1060-H".length)}`,
+          name: `Intermediary Payable - ${acc.name.replace(/^Intermediary - /, "")}`,
+          type: "liability",
+          currency: g.currencyCode,
+          balance: r2(Math.abs(balance)),
+        });
+      } else {
+        balances.push({ code: acc.code, name: acc.name, type: acc.accountType, currency: g.currencyCode, balance: r2(balance) });
+      }
     }
   }
 
@@ -146,24 +165,37 @@ async function receivables(cityId?: number) {
   });
 
   const customers: any[] = [];
+  const customerAdvances: any[] = [];
+  const netPositionByCurrency: Record<string, number> = {};
   for (const g of groups) {
     const acc = accountMap[g.accountId];
     if (!acc) continue;
     const balance = Number(g._sum.debit || 0) - Number(g._sum.credit || 0);
-    if (Math.abs(balance) > 0.5) {
-      customers.push({ account: acc.name, currency: g.currencyCode, balance: r2(balance) });
-    }
+    const classified = classifyCustomerBalance(balance);
+    netPositionByCurrency[g.currencyCode] = (netPositionByCurrency[g.currencyCode] || 0) + classified.net;
+    if (classified.receivable > 0.5) customers.push({ account: acc.name, currency: g.currencyCode, balance: r2(classified.receivable) });
+    if (classified.advance > 0.5) customerAdvances.push({ account: acc.name, currency: g.currencyCode, balance: r2(classified.advance) });
   }
 
   customers.sort((a, b) => b.balance - a.balance);
+  customerAdvances.sort((a, b) => b.balance - a.balance);
   const byCurrency: Record<string, number> = {};
+  const customerAdvancesByCurrency: Record<string, number> = {};
   for (const c of customers) { byCurrency[c.currency] = (byCurrency[c.currency] || 0) + c.balance; }
+  for (const c of customerAdvances) { customerAdvancesByCurrency[c.currency] = (customerAdvancesByCurrency[c.currency] || 0) + c.balance; }
 
-  return successResponse({ totalByCurrency: byCurrency, customers });
+  return successResponse({
+    totalByCurrency: byCurrency,
+    customers,
+    customerAdvances,
+    customerAdvancesByCurrency,
+    netPositionByCurrency: Object.fromEntries(Object.entries(netPositionByCurrency).map(([cc, amount]) => [cc, r2(amount)])),
+  });
 }
 
 async function payables() {
-  // Get all supplier, agent, and shipping-line payable accounts in one query
+  // Get all supplier, agent, and shipping-line payable accounts in one query.
+  // Intermediary balances are assets and belong in cash/intermediary positions.
   const allPayableAccounts = await prisma.account.findMany({
     where: {
       OR: [

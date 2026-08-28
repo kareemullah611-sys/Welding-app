@@ -25,7 +25,7 @@ export type SupplierRunningLedgerRow = {
   debitUsd: number;
   creditUsd: number;
   balanceUsd: number;
-  sourceType: "purchase" | "payment";
+  sourceType: "opening" | "purchase" | "payment";
   sourceId: number;
 };
 
@@ -39,9 +39,10 @@ function num(v: unknown) {
 }
 
 export function buildSupplierStatement(supplier: {
+  openingLiabilities?: any[];
   lotPurchases?: any[];
   supplierPayments?: any[];
-}): { rows: SupplierLotStatementRow[]; nextLotToPay: SupplierLotStatementRow | null } {
+}): { rows: SupplierLotStatementRow[]; nextLotToPay: SupplierLotStatementRow | null; openingBalanceUsd: number; openingBalanceRemainingUsd: number } {
   const byLot = new Map<
     number,
     {
@@ -94,9 +95,18 @@ export function buildSupplierStatement(supplier: {
     }))
     .sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime());
 
+  const openingBalanceUsd = round2((supplier.openingLiabilities || [])
+    .filter((opening) => opening.currency?.code === "USD")
+    .reduce((sum, opening) => sum + num(opening.amount), 0));
+  let openingBalanceRemainingUsd = openingBalanceUsd;
+
   for (const payment of sortedPayments) {
     let remaining = num(payment.amountUsd);
     if (remaining <= 0) continue;
+
+    const openingApplied = Math.min(Math.max(openingBalanceRemainingUsd, 0), remaining);
+    openingBalanceRemainingUsd = round2(openingBalanceRemainingUsd - openingApplied);
+    remaining -= openingApplied;
 
     const targetLotId = payment.lotId ? Number(payment.lotId) : null;
     const applyOrder =
@@ -142,10 +152,11 @@ export function buildSupplierStatement(supplier: {
   });
 
   const nextLotToPay = rows.find((r) => r.lotBalanceUsd > 0) || null;
-  return { rows, nextLotToPay };
+  return { rows, nextLotToPay, openingBalanceUsd, openingBalanceRemainingUsd };
 }
 
 export function buildSupplierRunningLedger(supplier: {
+  openingLiabilities?: any[];
   lotPurchases?: any[];
   supplierPayments?: any[];
 }): SupplierRunningLedgerRow[] {
@@ -167,6 +178,18 @@ export function buildSupplierRunningLedger(supplier: {
   }
 
   const entries: Array<Omit<SupplierRunningLedgerRow, "balanceUsd">> = [];
+
+  for (const opening of supplier.openingLiabilities || []) {
+    if (opening.currency?.code !== "USD") continue;
+    entries.push({
+      date: new Date(opening.openingDate).toISOString().split("T")[0],
+      particulars: "Opening supplier balance",
+      debitUsd: round2(num(opening.amount)),
+      creditUsd: 0,
+      sourceType: "opening",
+      sourceId: Number(opening.id),
+    });
+  }
 
   for (const [lotId, lot] of lotDebits) {
     entries.push({

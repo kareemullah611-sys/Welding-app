@@ -1,4 +1,5 @@
 export type IntermediaryLedgerEntryType =
+  | "opening"
   | "deposit"
   | "payment"
   | "exchange_out"
@@ -74,6 +75,14 @@ type HajiCashReceiptRow = {
   superAdminCashAccount?: { bankName: string } | null;
 };
 
+type OpeningLiabilityRow = {
+  id: number;
+  openingDate: Date;
+  amount: unknown;
+  notes?: string | null;
+  currency: { code: string };
+};
+
 export function formatHajiTransferLedgerDescription(cityName: string, detail?: string | null) {
   const city = cityName.trim();
   const text = String(detail || "").trim();
@@ -98,15 +107,25 @@ export function formatExchangeLedgerDescription(
 }
 
 export function buildIntermediaryLedgerEntries(input: {
+  openingLiabilities?: OpeningLiabilityRow[];
   deposits: DepositRow[];
   payments: PaymentRow[];
   exchanges: ExchangeRow[];
   hajiTransfers: HajiTransferRow[];
   hajiCashReceipts?: HajiCashReceiptRow[];
 }): IntermediaryLedgerEntry[] {
-  const { deposits, payments, exchanges, hajiTransfers, hajiCashReceipts = [] } = input;
+  const { openingLiabilities = [], deposits, payments, exchanges, hajiTransfers, hajiCashReceipts = [] } = input;
 
   return [
+    ...openingLiabilities.map((opening) => ({
+      date: opening.openingDate,
+      type: "opening" as const,
+      id: opening.id,
+      description: opening.notes || "Opening intermediary balance",
+      currencyCode: opening.currency.code,
+      debit: 0,
+      credit: Number(opening.amount),
+    })),
     ...deposits.map((d) => ({
       date: d.depositDate,
       type: "deposit" as const,

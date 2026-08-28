@@ -598,6 +598,12 @@ export default function SuppliersPage() {
             <StatsCard title={t("total_paid")} value={`$${formatNumber(ledgerData.totalPaidUsd)}`} icon="💰" color="green" />
             <StatsCard title={t("balance_owed")} value={`$${formatNumber(ledgerData.balanceOwed)}`} icon={ledgerData.balanceOwed > 0 ? "⚠️" : "✅"} color={ledgerData.balanceOwed > 0 ? "red" : "green"} />
           </div>
+          {Object.keys(ledgerData.openingByCurrency || {}).length > 0 && (
+            <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+              <span className="font-semibold">Opening balance:</span>{" "}
+              {Object.entries(ledgerData.openingByCurrency).map(([code, amount]) => `${code} ${formatNumber(amount as number)}`).join(", ")}
+            </div>
+          )}
           {ledgerData.nextLotToPay && (
             <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               <span className="font-semibold">Next to pay:</span> Lot {ledgerData.nextLotToPay.invoiceNumber} — ${Number(ledgerData.nextLotToPay.lotBalanceUsd).toLocaleString("en-US")} USD remaining
