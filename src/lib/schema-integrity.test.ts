@@ -1576,6 +1576,46 @@ test("sarafi afghanistan daily FX snapshots are additive and audit-only", () => 
   assert.match(settingsPage, /Automatic Sarafi\.af ingestion remains disabled/);
 });
 
+test("sarafi assisted capture remains evidence-only until superadmin approval", () => {
+  const schema = readFileSync("prisma/schema.prisma", "utf8");
+  const migration = readFileSync("prisma/migrations/20260828090000_sarafi_assisted_capture_drafts/migration.sql", "utf8");
+  const captureEngine = readFileSync("src/lib/sarafi-af-assisted-capture.ts", "utf8");
+  const captureDb = readFileSync("src/lib/sarafi-af-assisted-capture-db.ts", "utf8");
+  const snapshotDb = readFileSync("src/lib/sarafi-af-snapshot-db.ts", "utf8");
+  const captureRoute = readFileSync("src/app/api/v1/fx-snapshots/sarafi-af/captures/route.ts", "utf8");
+  const reviewRoute = readFileSync("src/app/api/v1/fx-snapshots/sarafi-af/captures/[id]/route.ts", "utf8");
+  const workflow = readFileSync(".github/workflows/sarafi-af-assisted-capture.yml", "utf8");
+  const settingsPage = readFileSync("src/app/(dashboard)/settings/page.tsx", "utf8");
+
+  assert.match(schema, /model SarafiAfAssistedCaptureDraft/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS "sarafi_af_assisted_capture_drafts"/);
+  assert.match(migration, /PENDING_REVIEW/);
+  assert.doesNotMatch(migration, /\bDROP\s+(TABLE|COLUMN|INDEX)\b|\bTRUNCATE\b|\bDELETE\s+FROM\b|\bUPDATE\b/i);
+  assert.match(captureEngine, /SARAFI_AF_ASSISTED_CAPTURE_ENABLED/);
+  assert.match(captureEngine, /official Sarai Shahzada market page/);
+  assert.match(captureEngine, /timingSafeEqual/);
+  assert.match(captureRoute, /x-sarafi-capture-token/);
+  assert.match(captureRoute, /rawHtml/);
+  assert.match(captureRoute, /screenshot/);
+  assert.match(reviewRoute, /withSuperAdmin/);
+  assert.match(captureDb, /status: "PENDING_REVIEW"/);
+  assert.match(captureDb, /status: "APPROVED"/);
+  assert.match(captureDb, /const approvalPreview = normalizeSarafiAfSnapshot/);
+  assert.match(captureDb, /approvalPreview\.status !== "VALID_CURRENT"/);
+  assert.match(captureDb, /result\.snapshot\.status !== "VALID_CURRENT"/);
+  assert.match(snapshotDb, /rawPayloadHash: true/);
+  assert.match(snapshotDb, /providerMode: true/);
+  assert.match(captureDb, /result\.duplicate/);
+  assert.match(captureDb, /EXISTING_SNAPSHOT_CONFLICT/);
+  assert.doesNotMatch(captureDb, /journalEntry\.(create|createMany|update|delete)|payment\.(create|createMany|update|delete)|bankDeposit\.(create|createMany|update|delete)/);
+  assert.match(workflow, /cron: "0 4 \* \* \*"/);
+  assert.match(workflow, /SARAFI_AF_CAPTURE_TOKEN/);
+  assert.doesNotMatch(workflow, /SARAFI_AF_AUTO_SNAPSHOT_ENABLED\s*:\s*true/);
+  assert.match(settingsPage, /Pending capture evidence/);
+  assert.match(settingsPage, /Approve/);
+  assert.match(settingsPage, /Automatic Sarafi\.af ingestion remains disabled/);
+});
+
 test("module search inputs expose a clear button when text is present", () => {
   const dataTable = readFileSync("src/components/ui/index.tsx", "utf8");
   const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");

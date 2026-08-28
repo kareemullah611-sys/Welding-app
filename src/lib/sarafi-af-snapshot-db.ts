@@ -4,6 +4,7 @@ import {
   resolveAfghanistanFxRate,
   SARAFI_AF_MARKET,
   type NormalizedSarafiAfSnapshot,
+  type SarafiAfProviderMode,
   type SarafiAfQuoteInput,
 } from "@/lib/sarafi-af-snapshot";
 
@@ -80,8 +81,11 @@ export async function createSarafiAfFxSnapshot(input: {
   sourceTimestamp?: Date | string | null;
   rawReference?: string | null;
   rawPayload?: unknown;
+  rawPayloadHash?: string | null;
   quotes: SarafiAfQuoteInput[];
   createdBy?: number | null;
+  providerMode?: SarafiAfProviderMode;
+  tx?: any;
 }) {
   const normalized = normalizeSarafiAfSnapshot({
     snapshotDate: input.snapshotDate,
@@ -89,21 +93,23 @@ export async function createSarafiAfFxSnapshot(input: {
     sourceTimestamp: input.sourceTimestamp || null,
     rawReference: input.rawReference || "manual-sarafi-af-snapshot",
     rawPayload: input.rawPayload || input.quotes,
-    providerMode: "MANUAL",
+    providerMode: input.providerMode || "MANUAL",
     quotes: input.quotes,
   });
   if (normalized.status === "VALIDATION_FAILED") {
     return { ok: false as const, snapshot: normalized };
   }
 
-  return prisma.$transaction(async (tx) => {
+  const save = async (tx: any) => {
     const currencyRows = await tx.currency.findMany({
       where: {
         code: { in: ["AFN", "PKR", "USD", "CNY"] },
       },
       select: { id: true, code: true },
     });
-    const currencies = new Map(currencyRows.map((currency) => [currency.code, currency.id]));
+    const currencies = new Map(
+      currencyRows.map((currency: { code: string; id: number }) => [currency.code, currency.id]),
+    );
     const required = new Set<string>();
     for (const quote of normalized.quotes) {
       required.add(quote.baseCurrencyCode);
@@ -119,9 +125,18 @@ export async function createSarafiAfFxSnapshot(input: {
     const idempotencyKey = `sarafi-af:${normalized.snapshotDate}:${normalized.provider}:${normalized.market}:${normalized.scheduledTime}`;
     const existing = await (tx as any).sarafiAfFxSnapshot.findUnique({
       where: { idempotencyKey },
-      select: { id: true },
+      select: { id: true, rawPayloadHash: true, providerMode: true },
     });
-    if (existing) return { ok: true as const, snapshot: normalized, id: existing.id, duplicate: true };
+    if (existing) {
+      return {
+        ok: true as const,
+        snapshot: normalized,
+        id: existing.id,
+        duplicate: true,
+        existingRawPayloadHash: existing.rawPayloadHash,
+        existingProviderMode: existing.providerMode,
+      };
+    }
 
     const saved = await (tx as any).sarafiAfFxSnapshot.create({
       data: {
@@ -136,7 +151,7 @@ export async function createSarafiAfFxSnapshot(input: {
         sourceAgeMinutes: normalized.sourceAgeMinutes,
         status: normalized.status,
         rawReference: normalized.rawReference,
-        rawPayloadHash: normalized.rawPayloadHash,
+        rawPayloadHash: input.rawPayloadHash || normalized.rawPayloadHash,
         validationWarningsJson: normalized.validationWarnings,
         idempotencyKey,
         createdBy: input.createdBy || null,
@@ -167,7 +182,9 @@ export async function createSarafiAfFxSnapshot(input: {
     });
 
     return { ok: true as const, snapshot: normalized, id: saved.id, duplicate: false };
-  });
+  };
+
+  return input.tx ? save(input.tx) : prisma.$transaction(save);
 }
 
 export function summarizeSarafiAfSnapshot(snapshot: NormalizedSarafiAfSnapshot) {

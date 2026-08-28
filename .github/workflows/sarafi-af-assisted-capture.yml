@@ -1,0 +1,35 @@
+name: Sarafi.af Assisted Capture
+
+on:
+  schedule:
+    # 08:30 Asia/Kabul (UTC+04:30; Afghanistan does not observe DST).
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --include=dev
+      - run: npx playwright install --with-deps chromium
+      - name: Capture Sarai Shahzada evidence
+        run: npm run fx:sarafi-af:capture
+        env:
+          SARAFI_AF_CAPTURE_ENDPOINT: ${{ secrets.SARAFI_AF_CAPTURE_ENDPOINT }}
+          SARAFI_AF_CAPTURE_TOKEN: ${{ secrets.SARAFI_AF_CAPTURE_TOKEN }}
+      - name: Retain capture evidence for operational review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sarafi-af-assisted-capture-${{ github.run_id }}
+          path: .artifacts/sarafi-af/
+          if-no-files-found: warn
+          retention-days: 30

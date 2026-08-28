@@ -370,6 +370,33 @@ model SarafiAfFxDerivedRate {
   @@map("sarafi_af_fx_derived_rates")
 }
 
+model SarafiAfAssistedCaptureDraft {
+  id                     Int      @id @default(autoincrement())
+  snapshotDate           DateTime @map("snapshot_date") @db.Date
+  scheduledTime          String   @default("08:30") @map("scheduled_time") @db.VarChar(20)
+  timezone               String   @default("Asia/Kabul") @db.VarChar(80)
+  provider               String   @default("SARAFI_AF") @db.VarChar(80)
+  market                 String   @default("sarai_shahzada") @db.VarChar(120)
+  sourceUrl              String   @map("source_url") @db.VarChar(500)
+  fetchedAt              DateTime @map("fetched_at")
+  sourceTimestamp        DateTime @map("source_timestamp")
+  status                 String   @default("PENDING_REVIEW") @db.VarChar(80)
+  rawPayloadHash         String   @map("raw_payload_hash") @db.VarChar(64)
+  rawHtmlStorageKey      String   @map("raw_html_storage_key") @db.VarChar(500)
+  screenshotStorageKey   String   @map("screenshot_storage_key") @db.VarChar(500)
+  quotesJson             Json     @map("quotes_json")
+  validationWarningsJson Json?    @map("validation_warnings_json")
+  idempotencyKey         String   @unique @map("idempotency_key") @db.VarChar(240)
+  reviewedBy             Int?     @map("reviewed_by")
+  reviewedAt             DateTime? @map("reviewed_at")
+  reviewNotes            String?  @map("review_notes") @db.Text
+  approvedSnapshotId     Int?     @unique @map("approved_snapshot_id")
+  createdAt              DateTime @default(now()) @map("created_at")
+
+  @@index([snapshotDate, status], map: "sarafi_af_capture_drafts_date_status_idx")
+  @@map("sarafi_af_assisted_capture_drafts")
+}
+
 model CountryFallbackExchangeRate {
   id             Int      @id @default(autoincrement())
   countryId      Int      @map("country_id")

@@ -1268,6 +1268,8 @@ function CountryFallbackRatesTab() {
   const [countries, setCountries] = useState<any[]>([]);
   const [rates, setRates] = useState<any[]>([]);
   const [sarafiSnapshots, setSarafiSnapshots] = useState<any[]>([]);
+  const [sarafiCaptures, setSarafiCaptures] = useState<any[]>([]);
+  const [sarafiCaptureEnabled, setSarafiCaptureEnabled] = useState(false);
   const [sarafiStatus, setSarafiStatus] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -1282,10 +1284,11 @@ function CountryFallbackRatesTab() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [countriesRes, ratesRes, sarafiRes] = await Promise.all([
+    const [countriesRes, ratesRes, sarafiRes, sarafiCapturesRes] = await Promise.all([
       apiCall("/api/v1/countries"),
       apiCall("/api/v1/country-fallback-rates"),
       apiCall("/api/v1/fx-snapshots/sarafi-af"),
+      apiCall("/api/v1/fx-snapshots/sarafi-af/captures"),
     ]);
     if (countriesRes.success) setCountries((countriesRes.data as any[]) || []);
     if (ratesRes.success) setRates((ratesRes.data as any[]) || []);
@@ -1293,6 +1296,11 @@ function CountryFallbackRatesTab() {
       const data = sarafiRes.data as any;
       setSarafiSnapshots(data?.snapshots || []);
       setSarafiStatus(data?.providerStatus || "");
+    }
+    if (sarafiCapturesRes.success) {
+      const data = sarafiCapturesRes.data as any;
+      setSarafiCaptures(data?.captures || []);
+      setSarafiCaptureEnabled(Boolean(data?.assistedCaptureEnabled));
     }
     setLoading(false);
   }, []);
@@ -1324,6 +1332,19 @@ function CountryFallbackRatesTab() {
     } else {
       setError(response.error || "Failed to save fallback rate");
     }
+  };
+
+  const reviewSarafiCapture = async (capture: any, action: "approve" | "reject") => {
+    const verb = action === "approve" ? "approve this capture and create an immutable accounting FX snapshot" : "reject this capture";
+    if (!window.confirm(`Are you sure you want to ${verb}?`)) return;
+    setSubmitting(true);
+    const response = await apiCall(`/api/v1/fx-snapshots/sarafi-af/captures/${capture.id}`, {
+      method: "PATCH",
+      body: { action },
+    });
+    setSubmitting(false);
+    if (response.success) await load();
+    else setError(response.error || `Failed to ${action} capture`);
   };
 
   return (
@@ -1386,9 +1407,45 @@ function CountryFallbackRatesTab() {
       <div className="card">
         <h2 className="text-lg font-semibold text-gray-900">Sarafi.af daily snapshots</h2>
         <p className="mt-1 text-sm text-gray-500">
-          Afghanistan FX audit trail. Automatic Sarafi.af ingestion remains disabled until an approved provider feed is confirmed.
+          Afghanistan FX audit trail. Assisted captures remain review-only until a superadmin approves their stored evidence.
+        </p>
+        <p className={`mt-2 text-sm ${sarafiCaptureEnabled ? "text-emerald-700" : "text-amber-700"}`}>
+          Assisted capture: {sarafiCaptureEnabled ? "Enabled — drafts still require approval" : "Disabled"}. Automatic Sarafi.af ingestion remains disabled.
         </p>
         {sarafiStatus && <p className="mt-2 text-sm text-amber-700">{sarafiStatus}</p>}
+        <h3 className="mt-4 text-sm font-semibold text-gray-800">Pending capture evidence</h3>
+        <DataTable columns={[
+          { key: "snapshotDate", label: "Date" },
+          { key: "sourceTimestamp", label: "Source Time", render: (row: any) => new Date(row.sourceTimestamp).toLocaleString() },
+          { key: "status", label: "Review", render: (row: any) => <span className={row.status === "APPROVED" ? "badge-active" : "badge-cancelled"}>{row.status}</span> },
+          {
+            key: "quotes",
+            label: "Captured Quotes",
+            render: (row: any) => (row.quotes || []).map((quote: any) => `${quote.baseCurrencyCode}: ${quote.rawBuyRate}/${quote.rawSellRate}${quote.rawUnit === "1K" ? " (1K)" : ""}`).join(" · "),
+          },
+          {
+            key: "evidence",
+            label: "Evidence",
+            render: (row: any) => (
+              <div className="flex gap-2">
+                <button type="button" className="text-xs text-primary-600 hover:underline" onClick={() => window.open(`/api/v1/fx-snapshots/sarafi-af/captures/${row.id}/evidence?type=screenshot`, "_blank", "noopener,noreferrer")}>Screenshot</button>
+                <button type="button" className="text-xs text-primary-600 hover:underline" onClick={() => window.open(`/api/v1/fx-snapshots/sarafi-af/captures/${row.id}/evidence?type=html`, "_blank", "noopener,noreferrer")}>HTML</button>
+              </div>
+            ),
+          },
+          {
+            key: "actions",
+            label: "",
+            render: (row: any) => row.status === "PENDING_REVIEW" ? (
+              <div className="flex gap-2">
+                <button type="button" disabled={submitting} className="text-xs text-emerald-700 hover:underline" onClick={() => reviewSarafiCapture(row, "approve")}>Approve</button>
+                <button type="button" disabled={submitting} className="text-xs text-red-600 hover:underline" onClick={() => reviewSarafiCapture(row, "reject")}>Reject</button>
+              </div>
+            ) : null,
+          },
+        ]} data={sarafiCaptures} loading={loading} />
+
+        <h3 className="mt-5 text-sm font-semibold text-gray-800">Approved immutable snapshots</h3>
         <DataTable columns={[
           { key: "snapshotDate", label: "Date" },
           { key: "scheduledTime", label: "Time" },

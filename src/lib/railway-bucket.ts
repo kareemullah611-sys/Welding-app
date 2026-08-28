@@ -53,6 +53,12 @@ export function createLotDocumentStorageKey(lotId: number, originalFileName: str
   return `lots/${lotId}/${Date.now()}-${Math.random().toString(36).slice(2)}-${cleanName}`;
 }
 
+export function createSarafiCaptureStorageKey(snapshotDate: string, fileName: string) {
+  const cleanDate = snapshotDate.replace(/[^0-9-]/g, "");
+  const cleanName = fileName.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 120);
+  return `fx/sarafi-af/${cleanDate}/${Date.now()}-${Math.random().toString(36).slice(2)}-${cleanName}`;
+}
+
 export async function uploadLotDocumentToBucket(params: {
   key: string;
   buffer: Buffer;
@@ -88,5 +94,41 @@ export async function getLotDocumentDownloadUrl(params: {
     Key: params.key,
     ResponseContentType: params.contentType || undefined,
     ResponseContentDisposition: `inline; filename="${safeDownloadName(params.originalFileName)}"`,
+  }), { expiresIn: 5 * 60 });
+}
+
+export async function uploadSarafiCaptureEvidence(params: {
+  key: string;
+  buffer: Buffer;
+  contentType: string;
+  fileName: string;
+}) {
+  const config = readBucketConfig();
+  const client = createBucketClient(config);
+  await client.send(new PutObjectCommand({
+    Bucket: config.bucket,
+    Key: params.key,
+    Body: params.buffer,
+    ContentType: params.contentType,
+    Metadata: {
+      originalFileName: params.fileName.slice(0, 500),
+      evidenceType: "sarafi-af-assisted-capture",
+    },
+  }));
+  return { storageKey: params.key };
+}
+
+export async function getSarafiCaptureEvidenceUrl(params: {
+  key: string;
+  fileName: string;
+  contentType: string;
+}) {
+  const config = readBucketConfig();
+  const client = createBucketClient(config);
+  return getSignedUrl(client, new GetObjectCommand({
+    Bucket: config.bucket,
+    Key: params.key,
+    ResponseContentType: params.contentType,
+    ResponseContentDisposition: `inline; filename="${safeDownloadName(params.fileName)}"`,
   }), { expiresIn: 5 * 60 });
 }
