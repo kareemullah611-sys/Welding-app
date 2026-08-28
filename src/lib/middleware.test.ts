@@ -122,6 +122,19 @@ test("middleware allows public API auth routes without a token", async () => {
   assert.equal(response.headers.get("x-middleware-next"), "1");
 });
 
+test("middleware allows Sarafi service-token capture requests to reach route validation", async () => {
+  const response = await middleware(new NextRequest(
+    "http://localhost/api/v1/fx-snapshots/sarafi-af/captures",
+    {
+      method: "POST",
+      headers: { "x-sarafi-capture-token": "a".repeat(64) },
+    },
+  ));
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-middleware-next"), "1");
+});
+
 test("getClientIP ignores spoofable forwarded headers unless trusted", () => {
   const previousTrustProxy = process.env.TRUST_PROXY_HEADERS;
   delete process.env.TRUST_PROXY_HEADERS;
