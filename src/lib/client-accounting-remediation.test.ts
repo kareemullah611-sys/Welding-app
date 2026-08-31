@@ -113,6 +113,7 @@ test("controlled correction runner requires an exact local clone backup and appr
   assert.match(script, /backup-sha256/);
   assert.match(script, /expected-count/);
   assert.match(script, /Serializable/);
+  assert.match(script, /timeout:\s*600_000/);
   assert.match(script, /pg_advisory_xact_lock/);
   assert.match(script, /CORRECTION_ALREADY_EXISTS/);
   assert.match(script, /proposedSourceUpdate/);

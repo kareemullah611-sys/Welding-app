@@ -360,7 +360,7 @@ async function main() {
       sourceRecordsUpdated: corrections.filter((correction) => correction.proposedSourceUpdate).length,
       auditRowsCreated: corrections.length,
     };
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 120_000 });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 30_000, timeout: 600_000 });
 
   const report = { mode: "CONTROLLED_CORRECTION_EXECUTION", target, previewPath, previewSha256, backupPath, backupSha256, approvedBy, completedAt: new Date().toISOString(), ...result };
   const outputPath = arg("output", false);
