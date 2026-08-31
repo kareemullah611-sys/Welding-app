@@ -34,39 +34,52 @@ export async function computeOngoingLotHajiOwedByCity(
 
   const [sales, expenses, hajiTransfers, hajiPayments, overflowCredits, openingHaji] = await Promise.all([
     db.sale.groupBy({
-      by: ["cityId", "currencyId"],
+      by: ["cityId", "currencyId", "saleDate"],
       where: { ...cityFilter, ...lotFilter, status: { in: [...ACTIVE_SALE_STATUSES] } },
       _sum: { totalAmount: true },
     }),
     db.expense.groupBy({
-      by: ["cityId", "currencyId"],
+      by: ["cityId", "currencyId", "expenseDate"],
       where: { ...cityFilter, ...lotFilter, deletedAt: null },
       _sum: { amount: true },
     }),
     db.hajiTransfer.groupBy({
-      by: ["cityId", "currencyId"],
+      by: ["cityId", "currencyId", "transferDate"],
       where: { ...cityFilter, ...lotFilter, paymentId: null },
       _sum: { amount: true },
     }),
     db.payment.groupBy({
-      by: ["cityId", "currencyId"],
+      by: ["cityId", "currencyId", "paymentDate"],
       where: { ...cityFilter, ...lotFilter, status: "active", destination: "haji" },
       _sum: { amount: true },
     }),
     db.lotSettlementOverflow.groupBy({
-      by: ["cityId", "currencyId"],
+      by: ["cityId", "currencyId", "createdAt"],
       where: {
         ...cityFilter,
         toLotId: { in: ongoingLotIds },
       },
       _sum: { overflowAmount: true },
     }),
-    db.openingHajiBalance.groupBy({
-      by: ["cityId", "currencyId", "balanceSide"],
+    db.openingHajiBalance.findMany({
       where: cityFilter,
-      _sum: { amount: true },
+      select: {
+        cityId: true,
+        currencyId: true,
+        amount: true,
+        balanceSide: true,
+        openingDate: true,
+      },
     }),
   ]);
+
+  const openingCutoffs = new Map(
+    openingHaji.map((row) => [`${row.cityId}:${row.currencyId}`, row.openingDate.getTime()])
+  );
+  const isAfterOpening = (cityId: number, currencyId: number, activityDate: Date) => {
+    const cutoff = openingCutoffs.get(`${cityId}:${currencyId}`);
+    return cutoff === undefined || activityDate.getTime() >= cutoff;
+  };
 
   const add = (cityId: number, currencyId: number, delta: number) => {
     if (!cityId || !currencyId) return;
@@ -77,23 +90,28 @@ export async function computeOngoingLotHajiOwedByCity(
   };
 
   for (const row of sales) {
+    if (!isAfterOpening(row.cityId, row.currencyId, row.saleDate)) continue;
     add(row.cityId, row.currencyId, Number(row._sum.totalAmount || 0));
   }
   for (const row of expenses) {
+    if (!isAfterOpening(row.cityId, row.currencyId, row.expenseDate)) continue;
     add(row.cityId, row.currencyId, -Number(row._sum.amount || 0));
   }
   for (const row of hajiTransfers) {
+    if (!isAfterOpening(row.cityId, row.currencyId, row.transferDate)) continue;
     add(row.cityId, row.currencyId, -Number(row._sum.amount || 0));
   }
   for (const row of hajiPayments) {
+    if (!isAfterOpening(row.cityId, row.currencyId, row.paymentDate)) continue;
     add(row.cityId, row.currencyId, -Number(row._sum.amount || 0));
   }
   for (const row of overflowCredits) {
+    if (!isAfterOpening(row.cityId, row.currencyId, row.createdAt)) continue;
     // Overflow credits into ongoing lots are not real remittances — add back
     add(row.cityId, row.currencyId, Number(row._sum.overflowAmount || 0));
   }
   for (const row of openingHaji) {
-    add(row.cityId, row.currencyId, openingHajiOwedDelta(Number(row._sum.amount || 0), row.balanceSide));
+    add(row.cityId, row.currencyId, openingHajiOwedDelta(Number(row.amount || 0), row.balanceSide));
   }
 
   // Discounts: need cityId from sale join
@@ -105,10 +123,12 @@ export async function computeOngoingLotHajiOwedByCity(
     select: {
       currencyId: true,
       discountAmount: true,
+      discountDate: true,
       sale: { select: { cityId: true } },
     },
   });
   for (const row of discountRows) {
+    if (!isAfterOpening(row.sale.cityId, row.currencyId, row.discountDate)) continue;
     add(row.sale.cityId, row.currencyId, -Number(row.discountAmount || 0));
   }
 
