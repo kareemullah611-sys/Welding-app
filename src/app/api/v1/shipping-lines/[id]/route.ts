@@ -31,12 +31,12 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, _us
 
     const openingUsd = openings
       .filter(o => o.currency.code === "USD")
-      .reduce((sum, opening) => sum + Number(opening.amount), 0);
+      .reduce((sum, opening) => sum + (opening.balanceSide === "receivable" ? -Number(opening.amount) : Number(opening.amount)), 0);
     const totalBilledUsd = openingUsd + costs
       .filter(c => c.currencyCode === "USD")
       .reduce((s, c) => s + Number(c.amount), 0);
     const openingByCurrency = openings.reduce<Record<string, number>>((acc, opening) => {
-      acc[opening.currency.code] = Math.round(((acc[opening.currency.code] || 0) + Number(opening.amount)) * 100) / 100;
+      acc[opening.currency.code] = Math.round(((acc[opening.currency.code] || 0) + (opening.balanceSide === "receivable" ? -Number(opening.amount) : Number(opening.amount))) * 100) / 100;
       return acc;
     }, {});
     const billedByCurrency = { ...openingByCurrency };
@@ -62,7 +62,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, _us
         ...openings.map((opening) => ({
           id: `opening-${opening.id}`, lotNumber: "Opening", lotId: null,
           description: opening.notes || "Opening shipping-line balance", costType: "opening",
-          amount: Number(opening.amount), currencyCode: opening.currency.code,
+          amount: opening.balanceSide === "receivable" ? -Number(opening.amount) : Number(opening.amount), currencyCode: opening.currency.code,
           costDate: opening.openingDate.toISOString().split("T")[0],
         })),
         ...costs.map(c => ({

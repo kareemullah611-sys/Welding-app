@@ -1422,8 +1422,8 @@ test("investor attribution follows financial report recognition without collecti
   assert.match(cleanupMigration, /DROP COLUMN IF EXISTS "distribution_eligible_profit_pkr"/);
   assert.match(cleanupMigration, /DROP COLUMN IF EXISTS "pending_collection_profit_pkr"/);
 
-  assert.doesNotMatch(attributionRoute, /journal[A-Z]/);
-  assert.doesNotMatch(attributionRoute, /journalEntry/);
+  assert.match(attributionRoute, /journalEntry\.findMany/);
+  assert.doesNotMatch(attributionRoute, /journalEntry\.(create|createMany|update|updateMany|delete|deleteMany|upsert)/);
   assert.doesNotMatch(attributionRoute, /allocateCollectionEligibility/);
   assert.doesNotMatch(attributionRoute, /collectionStrategy/);
   assert.doesNotMatch(attributionRoute, /unallocatedCustomerReceipts/);
@@ -1452,7 +1452,7 @@ test("investor attribution legacy capital review is read-only", () => {
 
   assert.doesNotMatch(attributionRoute, /investmentCapitalEvent\.create/);
   assert.doesNotMatch(attributionRoute, /investmentParticipant\.create/);
-  assert.doesNotMatch(attributionRoute, /journalEntry/);
+  assert.doesNotMatch(attributionRoute, /journalEntry\.(create|createMany|update|updateMany|delete|deleteMany|upsert)/);
   assert.doesNotMatch(legacyReview, /\.create\(/);
   assert.doesNotMatch(legacyReview, /\.update\(/);
   assert.doesNotMatch(legacyReview, /\.delete\(/);
@@ -1474,7 +1474,7 @@ test("investor attribution phase 1.3 historical pool tracking is preview-only", 
   assert.match(investorsPage, /transactions stay attached to their original participation pool/);
   assert.match(investorsPage, /Residual manager assumptions/);
 
-  assert.doesNotMatch(attributionRoute, /journalEntry/);
+  assert.doesNotMatch(attributionRoute, /journalEntry\.(create|createMany|update|updateMany|delete|deleteMany|upsert)/);
   assert.doesNotMatch(poolPreview, /\.create\(/);
   assert.doesNotMatch(poolPreview, /\.update\(/);
   assert.doesNotMatch(poolPreview, /\.delete\(/);

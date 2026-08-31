@@ -19,7 +19,7 @@
     "verify": "npm run lint && npm run test:smoke && npm run test:offline-gate && npm run build",
     "test:offline-gate": "node scripts/offline-feature-gate.cjs",
     "test:e2e": "playwright test",
-    "test:smoke": "node --import tsx --test scripts/security-headers.test.cjs src/lib/deployment-profile.test.ts src/lib/opening-calculations.test.ts src/app/api/health.test.ts src/app/api/ping.test.ts src/app/api/v1/auth/me.test.ts src/lib/auth.test.ts src/lib/session.test.ts src/lib/middleware.test.ts src/lib/rate-limit.test.ts src/lib/security-audit-regression.test.ts src/lib/security-audit-v2-regression.test.ts src/app/api/v1/personal-withdrawals-bank-source.test.ts src/app/api/v1/pcs-carton-products.test.ts src/lib/accounting-race.test.ts src/lib/schema-integrity.test.ts src/lib/exchange-rate-provider.test.ts src/lib/sarafi-af-assisted-capture.test.ts src/lib/live-fx-position-tracing.test.ts src/lib/investor-finalization-dry-run.test.ts src/lib/investor-participant-actions.test.ts src/lib/offline-form-cache-hydrate.test.ts src/lib/offline-cache.test.ts src/lib/offline-aggregate-prefetch.test.ts src/lib/offline-full-sync-read.test.ts src/lib/offline-remaining-mutations.test.ts src/lib/offline-local-search.test.ts src/lib/offline-phase3.test.ts src/lib/sanitize-validation-details.test.ts src/lib/secret-exposure-guard.test.ts src/lib/ledger-export.test.ts",
+    "test:smoke": "node --import tsx --test scripts/security-headers.test.cjs src/lib/deployment-profile.test.ts src/lib/opening-calculations.test.ts src/lib/opening-accounting-completeness.test.ts src/lib/opening-accounting-behavior.test.ts src/app/api/health.test.ts src/app/api/ping.test.ts src/app/api/v1/auth/me.test.ts src/lib/auth.test.ts src/lib/session.test.ts src/lib/middleware.test.ts src/lib/rate-limit.test.ts src/lib/security-audit-regression.test.ts src/lib/security-audit-v2-regression.test.ts src/app/api/v1/personal-withdrawals-bank-source.test.ts src/app/api/v1/pcs-carton-products.test.ts src/lib/accounting-race.test.ts src/lib/schema-integrity.test.ts src/lib/exchange-rate-provider.test.ts src/lib/sarafi-af-assisted-capture.test.ts src/lib/live-fx-position-tracing.test.ts src/lib/investor-finalization-dry-run.test.ts src/lib/investor-participant-actions.test.ts src/lib/offline-form-cache-hydrate.test.ts src/lib/offline-cache.test.ts src/lib/offline-aggregate-prefetch.test.ts src/lib/offline-full-sync-read.test.ts src/lib/offline-remaining-mutations.test.ts src/lib/offline-local-search.test.ts src/lib/offline-phase3.test.ts src/lib/sanitize-validation-details.test.ts src/lib/secret-exposure-guard.test.ts src/lib/ledger-export.test.ts",
     "test:critical-db": "node --import tsx --import ./scripts/test-active-session.ts --test src/app/api/v1/sync-idempotency-customers.test.ts src/app/api/v1/sync-idempotency-withdrawals.test.ts src/app/api/v1/sync-idempotency-openings.test.ts src/app/api/v1/sync-idempotency-suppliers.test.ts src/app/api/v1/sync-idempotency-intermediaries.test.ts src/app/api/v1/sync-idempotency-intermediary-deposits.test.ts src/app/api/v1/sync-idempotency-intermediary-exchanges.test.ts src/app/api/v1/sync-idempotency-products.test.ts src/app/api/v1/sync-idempotency-shipping-lines.test.ts src/app/api/v1/sync-idempotency-agents.test.ts src/app/api/v1/sync-idempotency-bank-accounts.test.ts src/app/api/v1/sync-idempotency-supplier-payments.test.ts src/app/api/v1/sync-idempotency-shipping-line-payments.test.ts src/app/api/v1/sync-idempotency-super-admin-expenses.test.ts src/app/api/v1/sync-idempotency-agent-payments.test.ts src/app/api/v1/sync-idempotency-lot-costs.test.ts src/app/api/v1/payments-completed-lot.test.ts src/app/api/v1/bank-deposits-transfer-type.test.ts src/app/api/v1/personal-withdrawal-names.test.ts src/app/api/v1/search-amount-column.test.ts src/app/api/v1/search-city-finance-modules.test.ts",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
@@ -64,7 +64,7 @@
     "jose": "^6.2.3",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.400.0",
-    "next": "^14.2.35",
+    "next": "^15.5.21",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-hot-toast": "^2.4.1",
@@ -85,12 +85,20 @@
     "electron": "^37.2.0",
     "electron-builder": "^25.1.8",
     "eslint": "^8.57.0",
-    "eslint-config-next": "^14.2.35",
-    "postcss": "^8.4.38",
+    "eslint-config-next": "^15.5.21",
+    "postcss": "^8.5.26",
     "prisma": "^5.15.0",
     "tailwindcss": "^3.4.0",
-    "tsx": "^4.21.0",
+    "tsx": "^4.23.12",
     "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "postcss": "$postcss",
+    "sharp": "0.35.0",
+    "brace-expansion": "2.1.4",
+    "exceljs": {
+      "uuid": "11.1.1"
+    }
   },
   "build": {
     "appId": "com.mrf.hardware",

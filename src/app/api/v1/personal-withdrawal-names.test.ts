@@ -28,7 +28,7 @@ test("city-admin withdrawal names endpoint returns unique filtered names", async
         amount: 1000,
         currencyId: currency.id,
         detail: `${marker}-1`,
-        withdrawnBy: "Ishaq Feroz",
+        withdrawnBy: `${marker} Ishaq Feroz`,
         createdBy: user.id,
       },
       {
@@ -37,7 +37,7 @@ test("city-admin withdrawal names endpoint returns unique filtered names", async
         amount: 1200,
         currencyId: currency.id,
         detail: `${marker}-2`,
-        withdrawnBy: "ishaq feroz",
+        withdrawnBy: `${marker} ishaq feroz`,
         createdBy: user.id,
       },
       {
@@ -46,7 +46,7 @@ test("city-admin withdrawal names endpoint returns unique filtered names", async
         amount: 1500,
         currencyId: currency.id,
         detail: `${marker}-3`,
-        withdrawnBy: "Abdul Malik",
+        withdrawnBy: `${marker} Abdul Malik`,
         createdBy: user.id,
       },
     ],
@@ -63,13 +63,15 @@ test("city-admin withdrawal names endpoint returns unique filtered names", async
     });
     const headers = { authorization: `Bearer ${token}` };
 
-    const request = new NextRequest("http://localhost/api/v1/personal-withdrawals/names?q=ish", { headers });
+    const request = new NextRequest(`http://localhost/api/v1/personal-withdrawals/names?q=${marker}`, { headers });
     const response = await getWithdrawalNames(request, { params: {} });
     const json = (await response.json()) as any;
 
     assert.equal(response.status, 200);
     assert.equal(json.success, true);
-    assert.deepEqual(json.data, ["Ishaq Feroz"]);
+    assert.equal(json.data.length, 2);
+    assert.equal(json.data.filter((name: string) => name.toLowerCase().endsWith("ishaq feroz")).length, 1);
+    assert.equal(json.data.some((name: string) => name.endsWith("Abdul Malik")), true);
   } finally {
     await prisma.personalWithdrawal.deleteMany({
       where: { id: { in: created.map((item) => item.id) } },

@@ -22,11 +22,16 @@ type OpeningData = {
   godowns: { id: number; name: string }[];
   products: { id: number; name: string }[];
   bankAccounts: { id: number; bankName: string; accountNumber: string | null }[];
+  superAdminAccounts: { id: number; name: string; accountKind: "bank" | "cash"; currencyId: number; currencyCode: string }[];
   openingCash: {
     id: number | string;
     currencyId: number;
     currencyCode: string;
     amount: number;
+    carryingAmountPkr?: number | null;
+    fxRateToPkr?: number | null;
+    fxRateDate?: string | null;
+    fxRateSource?: string | null;
     openingDate: string;
     notes?: string | null;
     _pending?: boolean;
@@ -38,6 +43,10 @@ type OpeningData = {
     currencyId: number;
     currencyCode: string;
     amount: number;
+    carryingAmountPkr?: number | null;
+    fxRateToPkr?: number | null;
+    fxRateDate?: string | null;
+    fxRateSource?: string | null;
     openingDate: string;
     notes?: string | null;
     _pending?: boolean;
@@ -85,6 +94,10 @@ type OpeningData = {
     currencyId: number;
     currencyCode: string;
     amount: number;
+    carryingAmountPkr?: number | null;
+    fxRateToPkr?: number | null;
+    fxRateDate?: string | null;
+    fxRateSource?: string | null;
     openingDate: string;
     notes?: string | null;
     _pending?: boolean;
@@ -94,6 +107,10 @@ type OpeningData = {
     currencyId: number;
     currencyCode: string;
     amount: number;
+    carryingAmountPkr?: number | null;
+    fxRateToPkr?: number | null;
+    fxRateDate?: string | null;
+    fxRateSource?: string | null;
     chequeNumber: string;
     chequeBank?: string | null;
     chequeDueDate?: string | null;
@@ -107,6 +124,11 @@ type OpeningData = {
     currencyCode: string;
     currencySymbol?: string | null;
     amount: number;
+    balanceSide: "payable" | "receivable";
+    carryingAmountPkr?: number | null;
+    fxRateToPkr?: number | null;
+    fxRateDate?: string | null;
+    fxRateSource?: string | null;
     openingDate: string;
     notes?: string | null;
     _pending?: boolean;
@@ -129,6 +151,11 @@ type OpeningData = {
     currencyId: number;
     currencyCode: string;
     amount: number;
+    balanceSide: "payable" | "receivable";
+    carryingAmountPkr?: number | null;
+    fxRateToPkr?: number | null;
+    fxRateDate?: string | null;
+    fxRateSource?: string | null;
     openingDate: string;
     notes?: string | null;
     _pending?: boolean;
@@ -140,10 +167,19 @@ type OpeningData = {
     currencyId: number;
     currencyCode: string;
     amount: number;
+    carryingAmountPkr?: number | null;
+    fxRateToPkr?: number | null;
+    fxRateDate?: string | null;
+    fxRateSource?: string | null;
     openingDate: string;
     notes?: string | null;
     _pending?: boolean;
   }[];
+  inventoryValuationOptions: { lotId: number; lotNumber: string; lotDate: string; isLegacyStock: boolean; productId: number; productName: string; quantity: number }[];
+  openingInventoryValuations: { id: number; lotId: number; lotNumber: string; productId: number; productName: string; quantity: number; unitCostPkr: number; totalValuePkr: number; originalCurrencyId?: number | null; originalCurrencyCode: string; originalAmount?: number | null; fxRateToPkr?: number | null; fxRateDate?: string | null; fxRateSource?: string | null; openingDate: string; notes?: string | null }[];
+  openingSuperAdminAccounts: { id: number; accountId: number; accountName: string; accountKind: "bank" | "cash"; currencyId: number; currencyCode: string; amount: number; carryingAmountPkr: number; fxRateToPkr?: number | null; fxRateDate?: string | null; fxRateSource?: string | null; openingDate: string; notes?: string | null }[];
+  openingEquityAllocations: { id: number; equityType: "manager_capital" | "retained_earnings" | "other"; label: string; amountPkr: number; openingDate: string; notes?: string | null }[];
+  openingEquityReconciliation: { clearingAccountCode: string; unallocatedPkr: number; reconciled: boolean };
 };
 
 type CityCurrency = { id: number; code: string; symbol?: string };
@@ -190,6 +226,20 @@ function OpeningCurrencyField({
         <option key={c.id} value={c.id}>{c.code}</option>
       ))}
     </select>
+  );
+}
+
+type FxForm = { carryingAmountPkr: string; fxRateToPkr: string; fxRateDate: string; fxRateSource: string };
+
+function OpeningFxFields({ currencyCode, value, onChange, disabled }: { currencyCode: string; value: FxForm; onChange: (next: FxForm) => void; disabled?: boolean }) {
+  if (!currencyCode || currencyCode === "PKR") return null;
+  return (
+    <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3 rounded-lg border border-amber-200 bg-amber-50/50 p-3">
+      <input className="input" type="number" step="0.01" placeholder="PKR carrying amount" value={value.carryingAmountPkr} onChange={(e) => onChange({ ...value, carryingAmountPkr: e.target.value })} required disabled={disabled} />
+      <input className="input" type="number" step="0.00000001" placeholder={`${currencyCode} → PKR rate`} value={value.fxRateToPkr} onChange={(e) => onChange({ ...value, fxRateToPkr: e.target.value })} required disabled={disabled} />
+      <input className="input" type="date" value={value.fxRateDate} onChange={(e) => onChange({ ...value, fxRateDate: e.target.value })} required disabled={disabled} />
+      <input className="input" placeholder="Historical rate source/reference" value={value.fxRateSource} onChange={(e) => onChange({ ...value, fxRateSource: e.target.value })} required disabled={disabled} />
+    </div>
   );
 }
 
@@ -245,11 +295,15 @@ export default function OpeningsPage() {
   const historicalSaleRef = useRef<HTMLFormElement>(null);
   const legacyStockRef = useRef<HTMLFormElement>(null);
   const liabilityRef = useRef<HTMLFormElement>(null);
+  const inventoryValueRef = useRef<HTMLFormElement>(null);
+  const superAdminAccountRef = useRef<HTMLFormElement>(null);
+  const equityRef = useRef<HTMLFormElement>(null);
 
   const today = new Date().toISOString().split("T")[0];
-  const [cashForm, setCashForm] = useState({ currencyId: 0, amount: "", openingDate: today, notes: "" });
-  const [customerForm, setCustomerForm] = useState({ customerId: 0, currencyId: 0, amount: "", openingDate: today, notes: "" });
-  const [bankForm, setBankForm] = useState({ bankAccountId: 0, currencyId: 0, amount: "", openingDate: today, notes: "" });
+  const emptyFx = { carryingAmountPkr: "", fxRateToPkr: "", fxRateDate: today, fxRateSource: "" };
+  const [cashForm, setCashForm] = useState({ currencyId: 0, amount: "", openingDate: today, notes: "", ...emptyFx });
+  const [customerForm, setCustomerForm] = useState({ customerId: 0, currencyId: 0, amount: "", openingDate: today, notes: "", ...emptyFx });
+  const [bankForm, setBankForm] = useState({ bankAccountId: 0, currencyId: 0, amount: "", openingDate: today, notes: "", ...emptyFx });
   const [chequeForm, setChequeForm] = useState({
     currencyId: 0,
     amount: "",
@@ -258,8 +312,9 @@ export default function OpeningsPage() {
     chequeDueDate: "",
     openingDate: today,
     notes: "",
+    ...emptyFx,
   });
-  const [hajiForm, setHajiForm] = useState({ currencyId: 0, amount: "", openingDate: today, notes: "" });
+  const [hajiForm, setHajiForm] = useState({ currencyId: 0, amount: "", balanceSide: "payable" as "payable" | "receivable", openingDate: today, notes: "", ...emptyFx });
   const [stockForm, setStockForm] = useState({ lotId: 0, godownId: 0, productId: 0, qty: "" });
   const [legacyStockForm, setLegacyStockForm] = useState({ godownId: 0, productId: 0, qty: "" });
   const [historicalSaleForm, setHistoricalSaleForm] = useState({
@@ -281,6 +336,11 @@ export default function OpeningsPage() {
     amount: string;
     openingDate: string;
     notes: string;
+    balanceSide: "payable" | "receivable";
+    carryingAmountPkr: string;
+    fxRateToPkr: string;
+    fxRateDate: string;
+    fxRateSource: string;
   }>({
     liabilityType: "supplier",
     partyId: 0,
@@ -288,6 +348,8 @@ export default function OpeningsPage() {
     amount: "",
     openingDate: today,
     notes: "",
+    balanceSide: "payable",
+    ...emptyFx,
   });
   const [cityLiabilityForm, setCityLiabilityForm] = useState({
     accountId: 0,
@@ -295,7 +357,11 @@ export default function OpeningsPage() {
     amount: "",
     openingDate: today,
     notes: "",
+    ...emptyFx,
   });
+  const [inventoryValueForm, setInventoryValueForm] = useState({ lotId: 0, productId: 0, quantity: "", unitCostPkr: "", originalCurrencyId: 0, originalAmount: "", openingDate: today, notes: "", ...emptyFx });
+  const [superAdminAccountForm, setSuperAdminAccountForm] = useState({ accountId: 0, amount: "", openingDate: today, notes: "", ...emptyFx });
+  const [equityForm, setEquityForm] = useState({ equityType: "manager_capital" as "manager_capital" | "retained_earnings" | "other", label: "Manager opening capital", amountPkr: "", openingDate: today, notes: "" });
 
   const cityReady = !isSuperAdmin || selectedCityId > 0;
   const canEdit = data?.canEditOpenings !== false;
@@ -343,6 +409,11 @@ export default function OpeningsPage() {
         currencyId: resolveCityCurrencyId(cityCurrencies, prev.currencyId),
         accountId: prev.accountId || nextData.cityLiabilityOptions?.accounts?.[0]?.id || 0,
       }));
+      setSuperAdminAccountForm((prev) => ({ ...prev, accountId: prev.accountId || nextData.superAdminAccounts?.[0]?.id || 0 }));
+      if (!inventoryValueForm.lotId && nextData.inventoryValuationOptions?.[0]) {
+        const option = nextData.inventoryValuationOptions[0];
+        setInventoryValueForm((prev) => ({ ...prev, lotId: option.lotId, productId: option.productId, quantity: String(option.quantity) }));
+      }
     } else {
       const snapshot = readOfflineReadSnapshot<OpeningData>(OPENINGS_READ_CACHE_KEY)?.data;
       if (!isOnline && snapshot) {
@@ -379,6 +450,13 @@ export default function OpeningsPage() {
     ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  const fxPayload = (form: FxForm) => ({
+    carryingAmountPkr: form.carryingAmountPkr === "" ? null : Number(form.carryingAmountPkr),
+    fxRateToPkr: form.fxRateToPkr === "" ? null : Number(form.fxRateToPkr),
+    fxRateDate: form.fxRateDate || null,
+    fxRateSource: form.fxRateSource || null,
+  });
+
   const deleteOpening = async (kind: string, id: number | string) => {
     if (String(id).startsWith("pending-")) return toast.error("Cannot delete pending sync row");
     if (!window.confirm("Delete this opening entry?")) return;
@@ -401,6 +479,7 @@ export default function OpeningsPage() {
         cityId: isSuperAdmin ? selectedCityId : undefined,
         currencyId: cashForm.currencyId,
         amount: Number(cashForm.amount || 0),
+        ...fxPayload(cashForm),
         openingDate: cashForm.openingDate,
         notes: cashForm.notes || null,
       },
@@ -423,6 +502,7 @@ export default function OpeningsPage() {
         customerId: customerForm.customerId,
         currencyId: customerForm.currencyId,
         amount: Number(customerForm.amount || 0),
+        ...fxPayload(customerForm),
         openingDate: customerForm.openingDate,
         notes: customerForm.notes || null,
       },
@@ -445,6 +525,7 @@ export default function OpeningsPage() {
         bankAccountId: bankForm.bankAccountId,
         currencyId: bankForm.currencyId,
         amount: Number(bankForm.amount || 0),
+        ...fxPayload(bankForm),
         openingDate: bankForm.openingDate,
         notes: bankForm.notes || null,
       },
@@ -467,6 +548,7 @@ export default function OpeningsPage() {
         cityId: isSuperAdmin ? selectedCityId : undefined,
         currencyId: chequeForm.currencyId,
         amount: Number(chequeForm.amount || 0),
+        ...fxPayload(chequeForm),
         chequeNumber: chequeForm.chequeNumber.trim(),
         chequeBank: chequeForm.chequeBank.trim() || null,
         chequeDueDate: chequeForm.chequeDueDate || null,
@@ -498,6 +580,8 @@ export default function OpeningsPage() {
         cityId: isSuperAdmin ? selectedCityId : undefined,
         currencyId: hajiForm.currencyId,
         amount: Number(hajiForm.amount || 0),
+        balanceSide: hajiForm.balanceSide,
+        ...fxPayload(hajiForm),
         openingDate: hajiForm.openingDate,
         notes: hajiForm.notes || null,
       },
@@ -593,6 +677,8 @@ export default function OpeningsPage() {
         currencyId: liabilityForm.currencyId,
         currencyCode,
         amount: Number(liabilityForm.amount || 0),
+        balanceSide: liabilityForm.balanceSide,
+        ...fxPayload(liabilityForm),
         openingDate: liabilityForm.openingDate,
         notes: liabilityForm.notes || null,
       },
@@ -613,6 +699,7 @@ export default function OpeningsPage() {
         accountId: cityLiabilityForm.accountId,
         currencyId: cityLiabilityForm.currencyId,
         amount: Number(cityLiabilityForm.amount || 0),
+        ...fxPayload(cityLiabilityForm),
         openingDate: cityLiabilityForm.openingDate,
         notes: cityLiabilityForm.notes || null,
       },
@@ -622,6 +709,59 @@ export default function OpeningsPage() {
     setCityLiabilityForm((prev) => ({ ...prev, amount: "", notes: "" }));
     load();
   };
+
+  const submitInventoryValue = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canEdit) return toast.error("Opening entries are locked");
+    const option = data?.inventoryValuationOptions.find((row) => row.lotId === inventoryValueForm.lotId && row.productId === inventoryValueForm.productId);
+    if (!option) return toast.error("Select a lot and product");
+    const result = await apiCall("/api/v1/openings", {
+      method: "POST",
+      body: {
+        kind: "inventory_value",
+        lotId: option.lotId,
+        productId: option.productId,
+        quantity: Number(inventoryValueForm.quantity || 0),
+        unitCostPkr: Number(inventoryValueForm.unitCostPkr || 0),
+        originalCurrencyId: inventoryValueForm.originalCurrencyId || null,
+        originalAmount: inventoryValueForm.originalAmount === "" ? null : Number(inventoryValueForm.originalAmount),
+        ...fxPayload(inventoryValueForm),
+        openingDate: inventoryValueForm.openingDate,
+        notes: inventoryValueForm.notes || null,
+      },
+    });
+    if (!result.success) return toast.error(result.error || "Failed");
+    toast.success("Opening inventory valuation saved");
+    setInventoryValueForm((prev) => ({ ...prev, quantity: "", unitCostPkr: "", originalAmount: "", notes: "" }));
+    load();
+  };
+
+  const submitSuperAdminAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canEdit) return toast.error("Opening entries are locked");
+    const result = await apiCall("/api/v1/openings", {
+      method: "POST",
+      body: { kind: "super_admin_account", accountId: superAdminAccountForm.accountId, amount: Number(superAdminAccountForm.amount || 0), ...fxPayload(superAdminAccountForm), openingDate: superAdminAccountForm.openingDate, notes: superAdminAccountForm.notes || null },
+    });
+    if (!result.success) return toast.error(result.error || "Failed");
+    toast.success("Superadmin account opening saved");
+    setSuperAdminAccountForm((prev) => ({ ...prev, amount: "", notes: "" }));
+    load();
+  };
+
+  const submitEquity = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canEdit) return toast.error("Opening entries are locked");
+    const result = await apiCall("/api/v1/openings", { method: "POST", body: { kind: "equity", ...equityForm, amountPkr: Number(equityForm.amountPkr || 0) } });
+    if (!result.success) return toast.error(result.error || "Failed");
+    toast.success("Opening equity allocation saved");
+    setEquityForm((prev) => ({ ...prev, amountPkr: "", notes: "" }));
+    load();
+  };
+
+  const currencyCodeFor = (currencies: CityCurrency[] | undefined, currencyId: number) => currencies?.find((currency) => currency.id === currencyId)?.code || "";
+  const selectedSuperAdminAccount = data?.superAdminAccounts.find((account) => account.id === superAdminAccountForm.accountId);
+  const selectedInventoryCurrency = data?.liabilityOptions.currencies.find((currency) => currency.id === inventoryValueForm.originalCurrencyId);
 
   if (loading && !data) {
     return (
@@ -659,6 +799,77 @@ export default function OpeningsPage() {
             ))}
           </select>
         </div>
+      )}
+
+      {isSuperAdmin && (
+        <>
+          <form ref={superAdminAccountRef} onSubmit={submitSuperAdminAccount} className="card space-y-3">
+            <div>
+              <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-neutral-500">Superadmin cash and bank openings</h2>
+              <p className="mt-1 text-xs text-neutral-500">Records the actual pre-go-live balance in the account currency and its audited PKR carrying value.</p>
+            </div>
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3">
+              <select className="input" value={superAdminAccountForm.accountId} onChange={(e) => setSuperAdminAccountForm((prev) => ({ ...prev, accountId: Number(e.target.value) }))} required disabled={!canEdit}>
+                <option value={0}>Cash / bank account</option>
+                {(data?.superAdminAccounts || []).map((account) => <option key={account.id} value={account.id}>{account.name} · {account.accountKind} · {account.currencyCode}</option>)}
+              </select>
+              <input className="input" type="number" step="0.01" placeholder={`Opening amount ${selectedSuperAdminAccount?.currencyCode || ""}`} value={superAdminAccountForm.amount} onChange={(e) => setSuperAdminAccountForm((prev) => ({ ...prev, amount: e.target.value }))} required disabled={!canEdit} />
+              <input className="input" type="date" value={superAdminAccountForm.openingDate} onChange={(e) => setSuperAdminAccountForm((prev) => ({ ...prev, openingDate: e.target.value }))} required disabled={!canEdit} />
+              <input className="input" placeholder="Notes (optional)" value={superAdminAccountForm.notes} onChange={(e) => setSuperAdminAccountForm((prev) => ({ ...prev, notes: e.target.value }))} disabled={!canEdit} />
+            </div>
+            <OpeningFxFields currencyCode={selectedSuperAdminAccount?.currencyCode || ""} value={superAdminAccountForm} onChange={(next) => setSuperAdminAccountForm((prev) => ({ ...prev, ...next }))} disabled={!canEdit} />
+            <button className="btn-primary" type="submit" disabled={!canEdit}>Save superadmin account opening</button>
+            <SavedTable title="Saved superadmin account openings" emptyLabel="No superadmin cash or bank openings recorded." headers={["Account", "Currency", "Original", "PKR carrying", "Date", ""]} rows={(data?.openingSuperAdminAccounts || []).map((row) => (
+              <tr key={row.id} className="border-b last:border-0"><td className="py-2 px-3">{row.accountName} · {row.accountKind}</td><td className="py-2 px-3">{row.currencyCode}</td><td className="py-2 px-3">{row.amount.toLocaleString("en-US")}</td><td className="py-2 px-3">{row.carryingAmountPkr.toLocaleString("en-US")}</td><td className="py-2 px-3">{row.openingDate}</td><td className="py-2 px-3"><button type="button" className="text-xs text-red-600 hover:underline" onClick={() => deleteOpening("super_admin_account", row.id)}>Delete</button></td></tr>
+            ))} />
+          </form>
+
+          <form ref={inventoryValueRef} onSubmit={submitInventoryValue} className="card space-y-3">
+            <div>
+              <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-neutral-500">Opening inventory valuation</h2>
+              <p className="mt-1 text-xs text-neutral-500">Superadmin assigns the authoritative PKR cost basis. Physical quantities remain controlled by city godown stock.</p>
+            </div>
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3">
+              <select className="input" value={`${inventoryValueForm.lotId}:${inventoryValueForm.productId}`} onChange={(e) => { const [lotId, productId] = e.target.value.split(":").map(Number); const option = data?.inventoryValuationOptions.find((row) => row.lotId === lotId && row.productId === productId); setInventoryValueForm((prev) => ({ ...prev, lotId, productId, quantity: option ? String(option.quantity) : "" })); }} required disabled={!canEdit}>
+                <option value="0:0">Lot / product</option>
+                {(data?.inventoryValuationOptions || []).map((option) => <option key={`${option.lotId}:${option.productId}`} value={`${option.lotId}:${option.productId}`}>{option.lotNumber} · {option.productName} · qty {option.quantity}</option>)}
+              </select>
+              <input className="input" type="number" step="0.0001" placeholder="Valued quantity" value={inventoryValueForm.quantity} onChange={(e) => setInventoryValueForm((prev) => ({ ...prev, quantity: e.target.value }))} required disabled={!canEdit} />
+              <input className="input" type="number" step="0.000001" placeholder="PKR unit cost" value={inventoryValueForm.unitCostPkr} onChange={(e) => setInventoryValueForm((prev) => ({ ...prev, unitCostPkr: e.target.value }))} required disabled={!canEdit} />
+              <input className="input bg-neutral-50" value={((Number(inventoryValueForm.quantity) || 0) * (Number(inventoryValueForm.unitCostPkr) || 0)).toLocaleString("en-US", { maximumFractionDigits: 2 })} readOnly aria-label="Total PKR inventory value" />
+              <select className="input" value={inventoryValueForm.originalCurrencyId} onChange={(e) => setInventoryValueForm((prev) => ({ ...prev, originalCurrencyId: Number(e.target.value) }))} disabled={!canEdit}>
+                <option value={0}>No foreign source (PKR basis)</option>
+                {(data?.liabilityOptions.currencies || []).filter((currency) => currency.code !== "PKR").map((currency) => <option key={currency.id} value={currency.id}>{currency.code} source amount</option>)}
+              </select>
+              <input className="input" type="number" step="0.0001" placeholder="Original foreign amount" value={inventoryValueForm.originalAmount} onChange={(e) => setInventoryValueForm((prev) => ({ ...prev, originalAmount: e.target.value }))} required={inventoryValueForm.originalCurrencyId > 0} disabled={!canEdit || !inventoryValueForm.originalCurrencyId} />
+              <input className="input" type="date" value={inventoryValueForm.openingDate} onChange={(e) => setInventoryValueForm((prev) => ({ ...prev, openingDate: e.target.value }))} required disabled={!canEdit} />
+              <input className="input" placeholder="Notes / costing evidence" value={inventoryValueForm.notes} onChange={(e) => setInventoryValueForm((prev) => ({ ...prev, notes: e.target.value }))} disabled={!canEdit} />
+            </div>
+            <OpeningFxFields currencyCode={selectedInventoryCurrency?.code || "PKR"} value={{ ...inventoryValueForm, carryingAmountPkr: String((Number(inventoryValueForm.quantity) || 0) * (Number(inventoryValueForm.unitCostPkr) || 0)) }} onChange={(next) => setInventoryValueForm((prev) => ({ ...prev, fxRateToPkr: next.fxRateToPkr, fxRateDate: next.fxRateDate, fxRateSource: next.fxRateSource }))} disabled={!canEdit} />
+            <button className="btn-primary" type="submit" disabled={!canEdit}>Save opening inventory value</button>
+            <SavedTable title="Saved opening inventory values" emptyLabel="No opening inventory values recorded." headers={["Lot", "Product", "Qty", "Unit PKR", "Total PKR", ""]} rows={(data?.openingInventoryValuations || []).map((row) => (
+              <tr key={row.id} className="border-b last:border-0"><td className="py-2 px-3">{row.lotNumber}</td><td className="py-2 px-3">{row.productName}</td><td className="py-2 px-3">{row.quantity.toLocaleString("en-US")}</td><td className="py-2 px-3">{row.unitCostPkr.toLocaleString("en-US")}</td><td className="py-2 px-3">{row.totalValuePkr.toLocaleString("en-US")}</td><td className="py-2 px-3"><button type="button" className="text-xs text-red-600 hover:underline" onClick={() => deleteOpening("inventory_value", row.id)}>Delete</button></td></tr>
+            ))} />
+          </form>
+
+          <form ref={equityRef} onSubmit={submitEquity} className="card space-y-3">
+            <div><h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-neutral-500">Opening equity reconciliation</h2><p className="mt-1 text-xs text-neutral-500">Classifies the opening-balance clearing account into manager capital, retained earnings, or another approved equity reserve.</p></div>
+            <div className={`rounded-lg border px-3 py-2 text-sm ${data?.openingEquityReconciliation?.reconciled ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+              Account {data?.openingEquityReconciliation?.clearingAccountCode || "3900"} remaining to classify: PKR {(data?.openingEquityReconciliation?.unallocatedPkr || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+            </div>
+            <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-3">
+              <select className="input" value={equityForm.equityType} onChange={(e) => setEquityForm((prev) => ({ ...prev, equityType: e.target.value as typeof prev.equityType }))} required disabled={!canEdit}><option value="manager_capital">Manager capital</option><option value="retained_earnings">Retained earnings</option><option value="other">Other opening equity</option></select>
+              <input className="input" placeholder="Label / reference" value={equityForm.label} onChange={(e) => setEquityForm((prev) => ({ ...prev, label: e.target.value }))} required disabled={!canEdit} />
+              <input className="input" type="number" step="0.01" placeholder="PKR amount" value={equityForm.amountPkr} onChange={(e) => setEquityForm((prev) => ({ ...prev, amountPkr: e.target.value }))} required disabled={!canEdit} />
+              <input className="input" type="date" value={equityForm.openingDate} onChange={(e) => setEquityForm((prev) => ({ ...prev, openingDate: e.target.value }))} required disabled={!canEdit} />
+              <input className="input" placeholder="Notes (optional)" value={equityForm.notes} onChange={(e) => setEquityForm((prev) => ({ ...prev, notes: e.target.value }))} disabled={!canEdit} />
+            </div>
+            <button className="btn-primary" type="submit" disabled={!canEdit}>Save opening equity</button>
+            <SavedTable title="Saved opening equity allocations" emptyLabel="No opening equity allocation recorded." headers={["Type", "Label", "PKR amount", "Date", ""]} rows={(data?.openingEquityAllocations || []).map((row) => (
+              <tr key={row.id} className="border-b last:border-0"><td className="py-2 px-3">{row.equityType.replaceAll("_", " ")}</td><td className="py-2 px-3">{row.label}</td><td className="py-2 px-3">{row.amountPkr.toLocaleString("en-US")}</td><td className="py-2 px-3">{row.openingDate}</td><td className="py-2 px-3"><button type="button" className="text-xs text-red-600 hover:underline" onClick={() => deleteOpening("equity", row.id)}>Delete</button></td></tr>
+            ))} />
+          </form>
+        </>
       )}
 
       {!cityReady && isSuperAdmin && (
@@ -706,6 +917,7 @@ export default function OpeningsPage() {
             disabled={formsDisabled}
           />
         </div>
+        <OpeningFxFields currencyCode={currencyCodeFor(data?.currencies, cashForm.currencyId)} value={cashForm} onChange={(next) => setCashForm((prev) => ({ ...prev, ...next }))} disabled={formsDisabled} />
         <button className="btn-primary" type="submit" disabled={formsDisabled}>Save opening cash</button>
 
         <SavedTable
@@ -728,6 +940,10 @@ export default function OpeningsPage() {
                         setCashForm({
                           currencyId: row.currencyId,
                           amount: String(row.amount),
+                          carryingAmountPkr: String(row.carryingAmountPkr ?? row.amount),
+                          fxRateToPkr: row.fxRateToPkr == null ? "" : String(row.fxRateToPkr),
+                          fxRateDate: row.fxRateDate || row.openingDate,
+                          fxRateSource: row.fxRateSource || "",
                           openingDate: row.openingDate,
                           notes: row.notes || "",
                         });
@@ -790,6 +1006,11 @@ export default function OpeningsPage() {
             disabled={formsDisabled}
           />
         </div>
+        <div className="grid md:grid-cols-2 gap-3">
+          <button type="button" className={`rounded-lg border px-3 py-2 text-sm ${hajiForm.balanceSide === "payable" ? "border-primary-500 bg-primary-50" : "border-neutral-200"}`} onClick={() => setHajiForm((prev) => ({ ...prev, balanceSide: "payable" }))}>Owed to Haji</button>
+          <button type="button" className={`rounded-lg border px-3 py-2 text-sm ${hajiForm.balanceSide === "receivable" ? "border-primary-500 bg-primary-50" : "border-neutral-200"}`} onClick={() => setHajiForm((prev) => ({ ...prev, balanceSide: "receivable" }))}>Due from Haji</button>
+        </div>
+        <OpeningFxFields currencyCode={currencyCodeFor(data?.currencies, hajiForm.currencyId)} value={hajiForm} onChange={(next) => setHajiForm((prev) => ({ ...prev, ...next }))} disabled={formsDisabled} />
         <button className="btn-primary" type="submit" disabled={formsDisabled}>Save Haji opening</button>
 
         <SavedTable
@@ -812,6 +1033,11 @@ export default function OpeningsPage() {
                         setHajiForm({
                           currencyId: row.currencyId,
                           amount: String(row.amount),
+                          balanceSide: row.balanceSide,
+                          carryingAmountPkr: String(row.carryingAmountPkr ?? row.amount),
+                          fxRateToPkr: row.fxRateToPkr == null ? "" : String(row.fxRateToPkr),
+                          fxRateDate: row.fxRateDate || row.openingDate,
+                          fxRateSource: row.fxRateSource || "",
                           openingDate: row.openingDate,
                           notes: row.notes || "",
                         });
@@ -884,6 +1110,7 @@ export default function OpeningsPage() {
             disabled={formsDisabled}
           />
         </div>
+        <OpeningFxFields currencyCode={currencyCodeFor(data?.currencies, customerForm.currencyId)} value={customerForm} onChange={(next) => setCustomerForm((prev) => ({ ...prev, ...next }))} disabled={formsDisabled} />
         <button className="btn-primary" type="submit" disabled={formsDisabled}>Save customer opening</button>
 
         <SavedTable
@@ -908,6 +1135,10 @@ export default function OpeningsPage() {
                           customerId: row.customerId,
                           currencyId: row.currencyId,
                           amount: String(row.amount),
+                          carryingAmountPkr: String(row.carryingAmountPkr ?? row.amount),
+                          fxRateToPkr: row.fxRateToPkr == null ? "" : String(row.fxRateToPkr),
+                          fxRateDate: row.fxRateDate || row.openingDate,
+                          fxRateSource: row.fxRateSource || "",
                           openingDate: row.openingDate,
                           notes: row.notes || "",
                         });
@@ -1123,6 +1354,7 @@ export default function OpeningsPage() {
             disabled={formsDisabled}
           />
         </div>
+        <OpeningFxFields currencyCode={currencyCodeFor(data?.currencies, bankForm.currencyId)} value={bankForm} onChange={(next) => setBankForm((prev) => ({ ...prev, ...next }))} disabled={formsDisabled} />
         <button className="btn-primary" type="submit" disabled={formsDisabled}>Save opening bank balance</button>
 
         <SavedTable
@@ -1151,6 +1383,10 @@ export default function OpeningsPage() {
                           bankAccountId: row.bankAccountId,
                           currencyId: row.currencyId,
                           amount: String(row.amount),
+                          carryingAmountPkr: String(row.carryingAmountPkr ?? row.amount),
+                          fxRateToPkr: row.fxRateToPkr == null ? "" : String(row.fxRateToPkr),
+                          fxRateDate: row.fxRateDate || row.openingDate,
+                          fxRateSource: row.fxRateSource || "",
                           openingDate: row.openingDate,
                           notes: row.notes || "",
                         });
@@ -1237,6 +1473,7 @@ export default function OpeningsPage() {
           onChange={(e) => setChequeForm((prev) => ({ ...prev, notes: e.target.value }))}
           disabled={formsDisabled}
         />
+        <OpeningFxFields currencyCode={currencyCodeFor(data?.currencies, chequeForm.currencyId)} value={chequeForm} onChange={(next) => setChequeForm((prev) => ({ ...prev, ...next }))} disabled={formsDisabled} />
         <button className="btn-primary" type="submit" disabled={formsDisabled}>Save opening cheque</button>
 
         <SavedTable
@@ -1521,6 +1758,7 @@ export default function OpeningsPage() {
               disabled={formsDisabled}
             />
           </div>
+          <OpeningFxFields currencyCode={currencyCodeFor(data?.currencies, cityLiabilityForm.currencyId)} value={cityLiabilityForm} onChange={(next) => setCityLiabilityForm((prev) => ({ ...prev, ...next }))} disabled={formsDisabled} />
           <button className="btn-primary" type="submit" disabled={formsDisabled}>Save opening liability</button>
 
           <SavedTable
@@ -1544,6 +1782,10 @@ export default function OpeningsPage() {
                           accountId: row.accountId,
                           currencyId: row.currencyId,
                           amount: String(row.amount),
+                          carryingAmountPkr: String(row.carryingAmountPkr ?? row.amount),
+                          fxRateToPkr: row.fxRateToPkr == null ? "" : String(row.fxRateToPkr),
+                          fxRateDate: row.fxRateDate || row.openingDate,
+                          fxRateSource: row.fxRateSource || "",
                           openingDate: row.openingDate,
                           notes: row.notes || "",
                         })}
@@ -1572,7 +1814,7 @@ export default function OpeningsPage() {
           <form ref={liabilityRef} onSubmit={submitLiability} className="card space-y-3">
             <div>
               <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-neutral-500">Opening party balances</h2>
-              <p className="text-xs text-neutral-500 mt-1">Suppliers, shipping lines, and agents are payables. An intermediary balance is a receivable owed to us.</p>
+              <p className="text-xs text-neutral-500 mt-1">Record either a payable owed to the party or a receivable/advance owed to the business.</p>
             </div>
             <div className="grid md:grid-cols-2 lg:grid-cols-6 gap-3">
               <select
@@ -1585,7 +1827,7 @@ export default function OpeningsPage() {
                 <option value="supplier">Supplier</option>
                 <option value="shipping_line">Shipping line</option>
                 <option value="agent">Agent</option>
-                <option value="intermediary">Intermediary receivable (owes us)</option>
+                <option value="intermediary">Intermediary</option>
               </select>
               <select
                 className="input"
@@ -1617,6 +1859,10 @@ export default function OpeningsPage() {
                 required
                 disabled={!canEdit}
               />
+              <select className="input" value={liabilityForm.balanceSide} onChange={(e) => setLiabilityForm((prev) => ({ ...prev, balanceSide: e.target.value as "payable" | "receivable" }))} required disabled={!canEdit}>
+                <option value="payable">Payable — we owe party</option>
+                <option value="receivable">Receivable / advance — party owes us</option>
+              </select>
               <input
                 className="input"
                 type="date"
@@ -1633,6 +1879,7 @@ export default function OpeningsPage() {
                 disabled={!canEdit}
               />
             </div>
+            <OpeningFxFields currencyCode={currencyCodeFor(data?.liabilityOptions.currencies, liabilityForm.currencyId)} value={liabilityForm} onChange={(next) => setLiabilityForm((prev) => ({ ...prev, ...next }))} disabled={!canEdit} />
             <button className="btn-primary" type="submit" disabled={!canEdit}>Save opening balance</button>
 
             <SavedTable
@@ -1641,7 +1888,7 @@ export default function OpeningsPage() {
               headers={["Type", "Party", "Currency", "Amount", "Date", "Notes", ""]}
               rows={(data?.openingLiabilities || []).map((row) => (
                 <tr key={String(row.id)} className={`border-b last:border-0 ${row._pending ? "bg-amber-50/60" : ""}`}>
-                  <td className="py-2 px-3">{row.liabilityType === "intermediary" ? "intermediary receivable" : row.liabilityType.replace("_", " ")}</td>
+                  <td className="py-2 px-3">{row.liabilityType.replace("_", " ")} · {row.balanceSide}</td>
                   <td className="py-2 px-3">{row.partyName}</td>
                   <td className="py-2 px-3">{row.currencyCode}</td>
                   <td className="py-2 px-3">{row.amount.toLocaleString("en-US")}</td>
@@ -1659,6 +1906,11 @@ export default function OpeningsPage() {
                               partyId: row.partyId,
                               currencyId: row.currencyId,
                               amount: String(row.amount),
+                              balanceSide: row.balanceSide,
+                              carryingAmountPkr: String(row.carryingAmountPkr ?? row.amount),
+                              fxRateToPkr: row.fxRateToPkr == null ? "" : String(row.fxRateToPkr),
+                              fxRateDate: row.fxRateDate || row.openingDate,
+                              fxRateSource: row.fxRateSource || "",
                               openingDate: row.openingDate,
                               notes: row.notes || "",
                             });

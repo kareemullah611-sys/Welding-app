@@ -50,6 +50,51 @@ test("journal creation uses decimal-safe equality for balanced fractional rows",
   assert.equal(writes, 1);
 });
 
+test("journal creation rejects cross-currency debit and credit netting", async () => {
+  let writes = 0;
+  const db = { journalEntry: { createMany: async () => { writes += 1; } } };
+  await assert.rejects(
+    createJournalEntries("MIXED-1", [
+      { accountId: 1, debit: 100, credit: 0, currencyCode: "USD", description: "USD debit" },
+      { accountId: 2, debit: 0, credit: 100, currencyCode: "PKR", description: "PKR credit" },
+    ], {
+      currencyCode: "PKR",
+      entityType: "test",
+      entityId: 1,
+      entryDate: new Date("2026-01-01"),
+      createdBy: 1,
+    }, db as any),
+    /unbalanced.*USD/i,
+  );
+  assert.equal(writes, 0);
+});
+
+test("journal creation is idempotent for the same immutable transaction lines", async () => {
+  const rows: any[] = [];
+  let writes = 0;
+  const db = {
+    journalEntry: {
+      findMany: async ({ where }: any) => rows.filter((row) => row.transactionId === where.transactionId),
+      createMany: async ({ data }: any) => { writes += 1; rows.push(...data); },
+    },
+  };
+  const post = () => createJournalEntries("IDEMPOTENT-1", [
+    { accountId: 1, debit: 100, credit: 0, description: "Debit" },
+    { accountId: 2, debit: 0, credit: 100, description: "Credit" },
+  ], {
+    currencyCode: "PKR",
+    entityType: "test",
+    entityId: 1,
+    entryDate: new Date("2026-01-01"),
+    createdBy: 1,
+  }, db as any);
+
+  await post();
+  await post();
+  assert.equal(writes, 1);
+  assert.equal(rows.length, 2);
+});
+
 test("journal reversal is idempotent and concurrent attempts create one reversal set", async () => {
   const rows: Array<{ transactionId: string; accountId: number; debit: number; credit: number; [key: string]: any }> = [
     { transactionId: "SALE-9", accountId: 1, debit: 100, credit: 0, currencyCode: "PKR", exchangeRate: null, description: "Sale", entityType: "sale", entityId: 9, lotId: 1, cityId: 1, entryDate: new Date("2026-01-01"), createdBy: 1 },

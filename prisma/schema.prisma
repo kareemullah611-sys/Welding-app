@@ -178,6 +178,22 @@ enum OpeningLiabilityType {
   intermediary
 }
 
+enum OpeningPartyBalanceSide {
+  payable
+  receivable
+}
+
+enum OpeningHajiBalanceSide {
+  payable
+  receivable
+}
+
+enum OpeningEquityType {
+  manager_capital
+  retained_earnings
+  other
+}
+
 enum CityLiabilityEntryType {
   charge
   payment
@@ -255,6 +271,8 @@ model Currency {
   openingBankBalances   OpeningBankBalance[]
   openingCheques        OpeningCheque[]
   openingHajiBalances   OpeningHajiBalance[]
+  openingSuperAdminAccountBalances OpeningSuperAdminAccountBalance[]
+  openingInventoryValuations OpeningInventoryValuation[]
   hajiCashReceipts      HajiCashReceipt[]
   countryFallbackFromRates CountryFallbackExchangeRate[] @relation("CountryFallbackFromCurrency")
   countryFallbackToRates   CountryFallbackExchangeRate[] @relation("CountryFallbackToCurrency")
@@ -542,6 +560,9 @@ model User {
   openingBankBalances OpeningBankBalance[]
   openingCheques     OpeningCheque[]
   openingHajiBalances OpeningHajiBalance[]
+  openingInventoryValuations OpeningInventoryValuation[]
+  openingSuperAdminAccountBalances OpeningSuperAdminAccountBalance[]
+  openingEquityAllocations OpeningEquityAllocation[]
   costsCreated       LotCost[]      @relation("CostCreatedBy")
   supplierPaymentsCreated    SupplierPayment[]    @relation("SupplierPaymentCreatedBy")
   shippingLinePaymentsCreated ShippingLinePayment[] @relation("ShippingLinePaymentCreatedBy")
@@ -634,6 +655,7 @@ model Product {
   lotPurchases         LotPurchase[]
   cityTransfers        CityTransfer[]
   openingStocks        OpeningStock[]
+  openingInventoryValuations OpeningInventoryValuation[]
 
   @@map("products")
 }
@@ -724,6 +746,11 @@ model OpeningCash {
   cityId      Int      @map("city_id")
   currencyId  Int      @map("currency_id")
   amount      Decimal  @db.Decimal(15, 2)
+  carryingAmountPkr Decimal? @map("carrying_amount_pkr") @db.Decimal(15, 2)
+  fxRateToPkr Decimal? @map("fx_rate_to_pkr") @db.Decimal(18, 8)
+  fxRateDate DateTime? @map("fx_rate_date") @db.Date
+  fxRateSource String? @map("fx_rate_source") @db.VarChar(120)
+  fxRateMetadata Json? @map("fx_rate_metadata")
   openingDate DateTime @map("opening_date") @db.Date
   notes       String?  @db.Text
   createdBy   Int      @map("created_by")
@@ -745,6 +772,12 @@ model OpeningHajiBalance {
   cityId      Int      @map("city_id")
   currencyId  Int      @map("currency_id")
   amount      Decimal  @db.Decimal(15, 2)
+  balanceSide OpeningHajiBalanceSide @default(payable) @map("balance_side")
+  carryingAmountPkr Decimal? @map("carrying_amount_pkr") @db.Decimal(15, 2)
+  fxRateToPkr Decimal? @map("fx_rate_to_pkr") @db.Decimal(18, 8)
+  fxRateDate DateTime? @map("fx_rate_date") @db.Date
+  fxRateSource String? @map("fx_rate_source") @db.VarChar(120)
+  fxRateMetadata Json? @map("fx_rate_metadata")
   openingDate DateTime @map("opening_date") @db.Date
   notes       String?  @db.Text
   createdBy   Int      @map("created_by")
@@ -766,6 +799,11 @@ model OpeningCustomerBalance {
   customerId  Int      @map("customer_id")
   currencyId  Int      @map("currency_id")
   amount      Decimal  @db.Decimal(15, 2)
+  carryingAmountPkr Decimal? @map("carrying_amount_pkr") @db.Decimal(15, 2)
+  fxRateToPkr Decimal? @map("fx_rate_to_pkr") @db.Decimal(18, 8)
+  fxRateDate DateTime? @map("fx_rate_date") @db.Date
+  fxRateSource String? @map("fx_rate_source") @db.VarChar(120)
+  fxRateMetadata Json? @map("fx_rate_metadata")
   openingDate DateTime @map("opening_date") @db.Date
   notes       String?  @db.Text
   createdBy   Int      @map("created_by")
@@ -811,6 +849,11 @@ model OpeningBankBalance {
   bankAccountId Int      @map("bank_account_id")
   currencyId    Int      @map("currency_id")
   amount        Decimal  @db.Decimal(15, 2)
+  carryingAmountPkr Decimal? @map("carrying_amount_pkr") @db.Decimal(15, 2)
+  fxRateToPkr Decimal? @map("fx_rate_to_pkr") @db.Decimal(18, 8)
+  fxRateDate DateTime? @map("fx_rate_date") @db.Date
+  fxRateSource String? @map("fx_rate_source") @db.VarChar(120)
+  fxRateMetadata Json? @map("fx_rate_metadata")
   openingDate   DateTime @map("opening_date") @db.Date
   notes         String?  @db.Text
   createdBy     Int      @map("created_by")
@@ -832,6 +875,11 @@ model OpeningCheque {
   cityId        Int       @map("city_id")
   currencyId    Int       @map("currency_id")
   amount        Decimal   @db.Decimal(15, 2)
+  carryingAmountPkr Decimal? @map("carrying_amount_pkr") @db.Decimal(15, 2)
+  fxRateToPkr Decimal? @map("fx_rate_to_pkr") @db.Decimal(18, 8)
+  fxRateDate DateTime? @map("fx_rate_date") @db.Date
+  fxRateSource String? @map("fx_rate_source") @db.VarChar(120)
+  fxRateMetadata Json? @map("fx_rate_metadata")
   chequeNumber  String    @map("cheque_number") @db.VarChar(50)
   chequeBank    String?   @map("cheque_bank") @db.VarChar(100)
   chequeDueDate DateTime? @map("cheque_due_date") @db.Date
@@ -847,6 +895,81 @@ model OpeningCheque {
 
   @@index([cityId])
   @@map("opening_cheques")
+}
+
+model OpeningInventoryValuation {
+  id                  Int      @id @default(autoincrement())
+  lotId               Int      @map("lot_id")
+  productId           Int      @map("product_id")
+  quantity            Decimal  @db.Decimal(15, 4)
+  unitCostPkr         Decimal  @map("unit_cost_pkr") @db.Decimal(18, 6)
+  totalValuePkr       Decimal  @map("total_value_pkr") @db.Decimal(15, 2)
+  originalCurrencyId  Int?     @map("original_currency_id")
+  originalAmount      Decimal? @map("original_amount") @db.Decimal(15, 4)
+  fxRateToPkr         Decimal? @map("fx_rate_to_pkr") @db.Decimal(18, 8)
+  fxRateDate          DateTime? @map("fx_rate_date") @db.Date
+  fxRateSource        String?  @map("fx_rate_source") @db.VarChar(120)
+  fxRateMetadata      Json?    @map("fx_rate_metadata")
+  openingDate         DateTime @map("opening_date") @db.Date
+  notes               String?  @db.Text
+  journalVersion      Int      @default(1) @map("journal_version")
+  createdBy           Int      @map("created_by")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  lot              Lot       @relation(fields: [lotId], references: [id], onDelete: Restrict)
+  product          Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  originalCurrency Currency? @relation(fields: [originalCurrencyId], references: [id], onDelete: Restrict)
+  creator          User      @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@unique([lotId, productId], name: "unique_opening_inventory_lot_product")
+  @@index([openingDate])
+  @@map("opening_inventory_valuations")
+}
+
+model OpeningSuperAdminAccountBalance {
+  id                 Int      @id @default(autoincrement())
+  accountId          Int      @map("account_id")
+  currencyId         Int      @map("currency_id")
+  amount             Decimal  @db.Decimal(15, 2)
+  carryingAmountPkr  Decimal  @map("carrying_amount_pkr") @db.Decimal(15, 2)
+  fxRateToPkr        Decimal? @map("fx_rate_to_pkr") @db.Decimal(18, 8)
+  fxRateDate         DateTime? @map("fx_rate_date") @db.Date
+  fxRateSource       String?  @map("fx_rate_source") @db.VarChar(120)
+  fxRateMetadata     Json?    @map("fx_rate_metadata")
+  openingDate        DateTime @map("opening_date") @db.Date
+  notes              String?  @db.Text
+  journalVersion     Int      @default(1) @map("journal_version")
+  createdBy          Int      @map("created_by")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  account  SuperAdminBankAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  currency Currency              @relation(fields: [currencyId], references: [id], onDelete: Restrict)
+  creator  User                  @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@unique([accountId], name: "unique_opening_super_admin_account")
+  @@index([openingDate])
+  @@map("opening_super_admin_account_balances")
+}
+
+model OpeningEquityAllocation {
+  id             Int               @id @default(autoincrement())
+  equityType     OpeningEquityType @map("equity_type")
+  label          String            @db.VarChar(160)
+  amountPkr      Decimal           @map("amount_pkr") @db.Decimal(15, 2)
+  openingDate    DateTime          @map("opening_date") @db.Date
+  notes          String?           @db.Text
+  journalVersion Int               @default(1) @map("journal_version")
+  createdBy      Int               @map("created_by")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  creator User @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@unique([equityType, label], name: "unique_opening_equity_type_label")
+  @@index([openingDate])
+  @@map("opening_equity_allocations")
 }
 
 // ============================================================
@@ -900,6 +1023,7 @@ model Lot {
   cityTransfers              CityTransfer[]
   cityLiabilityEntries       CityLiabilityEntry[]
   saleItems                  SaleItem[]
+  openingInventoryValuations OpeningInventoryValuation[]
 
   @@unique([countryId, lotNumber])
   @@index([countryId])
@@ -1529,6 +1653,7 @@ model SuperAdminBankAccount {
   hajiTransferBankReceipts HajiTransfer[] @relation("HajiSuperAdminBank")
   hajiCashReceipts HajiCashReceipt[]
   investmentParticipantSettlementPayments InvestmentParticipantSettlementPayment[]
+  openingBalances OpeningSuperAdminAccountBalance[]
 
   @@index([currencyId])
   @@index([createdBy])
@@ -1542,6 +1667,7 @@ model SuperAdminPersonalExpense {
   amount       Decimal   @db.Decimal(15, 2)
   detail       String    @db.VarChar(500)
   notes        String?   @db.Text
+  journalVersion Int       @default(1) @map("journal_version")
   createdBy    Int       @map("created_by")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
@@ -1567,6 +1693,32 @@ enum AccountType {
   expense
   equity
   cogs
+}
+
+enum FinancialYearStatus {
+  open
+  closed
+}
+
+model FinancialYear {
+  id           Int                 @id @default(autoincrement())
+  name         String              @db.VarChar(100)
+  startDate    DateTime            @map("start_date") @db.Date
+  endDate      DateTime            @map("end_date") @db.Date
+  status       FinancialYearStatus @default(open)
+  closeReason  String?             @map("close_reason") @db.Text
+  closedBy     Int?                @map("closed_by")
+  closedAt     DateTime?           @map("closed_at")
+  reopenReason String?             @map("reopen_reason") @db.Text
+  reopenedBy   Int?                @map("reopened_by")
+  reopenedAt   DateTime?           @map("reopened_at")
+  createdBy    Int                 @map("created_by")
+  createdAt    DateTime            @default(now()) @map("created_at")
+  updatedAt    DateTime            @updatedAt @map("updated_at")
+
+  @@unique([startDate, endDate])
+  @@index([status])
+  @@map("financial_years")
 }
 
 model Account {
@@ -1595,6 +1747,7 @@ model Account {
 model JournalEntry {
   id            Int      @id @default(autoincrement())
   transactionId String   @map("transaction_id") @db.VarChar(50) // groups related entries: "SALE-123", "PAY-456"
+  lineNumber    Int      @map("line_number")
   accountId     Int      @map("account_id")
   debit         Decimal  @default(0) @db.Decimal(15, 2)
   credit        Decimal  @default(0) @db.Decimal(15, 2)
@@ -1611,6 +1764,7 @@ model JournalEntry {
 
   account  Account @relation(fields: [accountId], references: [id])
 
+  @@unique([transactionId, lineNumber], map: "journal_entries_transaction_line_key")
   @@index([transactionId])
   @@index([accountId])
   @@index([entityType, entityId])
@@ -1753,6 +1907,11 @@ model LotPurchase {
   unitPriceUsd       Decimal  @map("unit_price_usd") @db.Decimal(12, 4)       // USD per MT
   totalPriceUsd      Decimal  @map("total_price_usd") @db.Decimal(15, 2)      // qty × unitPriceUsd
   exchangeRate       Decimal? @map("exchange_rate") @db.Decimal(12, 4)        // kept for legacy; rate is on SupplierPayment
+  carryingRatePkr         Decimal?  @map("carrying_rate_pkr") @db.Decimal(12, 6)
+  carryingAmountPkr       Decimal?  @map("carrying_amount_pkr") @db.Decimal(15, 2)
+  recognitionDate         DateTime? @map("recognition_date") @db.Date
+  recognitionRateMetadata Json?     @map("recognition_rate_metadata")
+  journalVersion          Int       @default(1) @map("journal_version")
   notes              String?  @db.Text
   createdBy       Int      @map("created_by")
   createdAt       DateTime @default(now()) @map("created_at")
@@ -2679,6 +2838,12 @@ model OpeningLiability {
   intermediaryId     Int?                 @map("intermediary_id")
   currencyId         Int                  @map("currency_id")
   amount             Decimal              @db.Decimal(15, 2)
+  balanceSide        OpeningPartyBalanceSide @default(payable) @map("balance_side")
+  carryingAmountPkr  Decimal?             @map("carrying_amount_pkr") @db.Decimal(15, 2)
+  fxRateToPkr        Decimal?             @map("fx_rate_to_pkr") @db.Decimal(18, 8)
+  fxRateDate         DateTime?            @map("fx_rate_date") @db.Date
+  fxRateSource       String?              @map("fx_rate_source") @db.VarChar(120)
+  fxRateMetadata     Json?                @map("fx_rate_metadata")
   openingDate        DateTime             @map("opening_date") @db.Date
   notes              String?              @db.Text
   createdBy          Int                  @map("created_by")
@@ -2764,6 +2929,11 @@ model OpeningCityLiability {
   cityId      Int      @map("city_id")
   currencyId  Int      @map("currency_id")
   amount      Decimal  @db.Decimal(15, 2)
+  carryingAmountPkr Decimal? @map("carrying_amount_pkr") @db.Decimal(15, 2)
+  fxRateToPkr Decimal? @map("fx_rate_to_pkr") @db.Decimal(18, 8)
+  fxRateDate DateTime? @map("fx_rate_date") @db.Date
+  fxRateSource String? @map("fx_rate_source") @db.VarChar(120)
+  fxRateMetadata Json? @map("fx_rate_metadata")
   openingDate DateTime @map("opening_date") @db.Date
   notes       String?  @db.Text
   createdBy   Int      @map("created_by")

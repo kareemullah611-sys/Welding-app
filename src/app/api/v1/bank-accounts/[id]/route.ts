@@ -64,6 +64,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         const currencyCode = String(account.currency.code || "").toUpperCase();
         const accountLabel = formatSuperAdminBankLabel(account);
         const [
+          openingBalance,
           hajiTransfersIn,
           cashReceipts,
           intermediaryOut,
@@ -72,6 +73,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           shippingPayments,
           investorSettlementPayments,
         ] = await Promise.all([
+          prisma.openingSuperAdminAccountBalance.findUnique({ where: { accountId: id } }),
           prisma.hajiTransfer.findMany({
             where: {
               currencyId: account.currencyId,
@@ -126,6 +128,19 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         ]);
 
         const rows: LedgerRow[] = [];
+        if (openingBalance) {
+          rows.push({
+            key: `opening-sa-${openingBalance.id}`,
+            date: new Date(openingBalance.openingDate),
+            createdAt: new Date(openingBalance.createdAt),
+            type: "Opening Balance",
+            detail: openingBalance.notes || "Opening superadmin cash balance",
+            reference: null,
+            currencyCode,
+            credit: Number(openingBalance.amount),
+            debit: 0,
+          });
+        }
         for (const t of hajiTransfersIn) {
           rows.push({
             key: `ht-${t.id}`,
@@ -233,7 +248,8 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
 
       const accountLabel = formatSuperAdminBankLabel(account);
       const currencyCode = String(account.currency.code || "").toUpperCase();
-      const [incomingHajiPayments, hajiTransfersIn, expenses, intermediaryDeposits, lotCosts, supplierPayments, investorSettlementPayments] = await Promise.all([
+      const [openingBalance, incomingHajiPayments, hajiTransfersIn, expenses, intermediaryDeposits, lotCosts, supplierPayments, investorSettlementPayments] = await Promise.all([
+        prisma.openingSuperAdminAccountBalance.findUnique({ where: { accountId: id } }),
         prisma.payment.findMany({
           where: {
             superAdminBankAccountId: id,
@@ -303,6 +319,19 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       ]);
 
       const rows: LedgerRow[] = [];
+      if (openingBalance) {
+        rows.push({
+          key: `opening-sa-${openingBalance.id}`,
+          date: new Date(openingBalance.openingDate),
+          createdAt: new Date(openingBalance.createdAt),
+          type: "Opening Balance",
+          detail: openingBalance.notes || "Opening superadmin bank balance",
+          reference: null,
+          currencyCode,
+          credit: Number(openingBalance.amount),
+          debit: 0,
+        });
+      }
       for (const p of incomingHajiPayments) {
         rows.push({
           key: `pay-${p.id}`,

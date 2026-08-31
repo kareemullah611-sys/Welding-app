@@ -25,6 +25,60 @@ test("shipping line payment create is idempotent for repeated sync request id", 
   const intermediary = await prisma.intermediary.create({
     data: { name: `${marker}-int`, notes: "sync test" },
   });
+  const [country, city, usd] = await Promise.all([
+    prisma.country.findUnique({ where: { code: "PK" } }),
+    prisma.city.findFirst({ where: { country: { code: "PK" } } }),
+    prisma.currency.findUnique({ where: { code: "USD" } }),
+  ]);
+  assert.ok(country && city && usd, "Pakistan, USD, and a Pakistan city are required");
+  const lot = await prisma.lot.create({
+    data: {
+      countryId: country.id,
+      lotNumber: `${marker}-lot`,
+      lotDate: new Date("2026-04-20"),
+      pkrExchangeRate: 280,
+      status: "ongoing",
+      createdBy: superAdmin.id,
+    },
+  });
+  const freight = await prisma.lotCost.create({
+    data: {
+      lotId: lot.id,
+      costType: "freight",
+      description: marker,
+      amount: 5000,
+      currencyCode: "USD",
+      exchangeRate: 280,
+      costDate: new Date("2026-04-20"),
+      shippingLineId: shippingLine.id,
+      createdBy: superAdmin.id,
+    },
+  });
+  const deposit = await prisma.intermediaryDeposit.create({
+    data: {
+      intermediaryId: intermediary.id,
+      depositDate: new Date("2026-04-21"),
+      amount: 5000,
+      currencyId: usd.id,
+      sourceType: "city_cash",
+      cityId: city.id,
+      createdBy: superAdmin.id,
+    },
+  });
+  const layer = await prisma.intermediaryUsdCostLayer.create({
+    data: {
+      intermediaryId: intermediary.id,
+      currencyId: usd.id,
+      sourceType: "sync_test_shipping",
+      sourceId: deposit.id,
+      acquiredDate: new Date("2026-04-21"),
+      originalAmountUsd: 5000,
+      remainingAmountUsd: 5000,
+      originalCostPkr: 1410000,
+      remainingCostPkr: 1410000,
+      ratePkr: 282,
+    },
+  });
 
   const syncRequestId = `req-shipping-payment-${Date.now()}`;
   const headers = {
@@ -36,12 +90,16 @@ test("shipping line payment create is idempotent for repeated sync request id", 
 
   const payload = {
     shippingLineId: shippingLine.id,
+    lotId: lot.id,
     paymentDate: "2026-04-27",
     amountUsd: 4321,
     reference: "sync-test",
     notes: "offline replay test",
     intermediaryId: intermediary.id,
+    settlementCurrency: "USD",
+    exchangeRate: 282,
   };
+  let createdPaymentId: number | null = null;
 
   try {
     const firstRequest = new NextRequest("http://localhost/api/v1/shipping-line-payments", {
@@ -55,6 +113,7 @@ test("shipping line payment create is idempotent for repeated sync request id", 
     assert.equal(firstJson.success, true);
     const firstId = firstJson.data?.id;
     assert.ok(firstId, "First call should return created id");
+    createdPaymentId = firstId;
 
     const secondRequest = new NextRequest("http://localhost/api/v1/shipping-line-payments", {
       method: "POST",
@@ -81,7 +140,15 @@ test("shipping line payment create is idempotent for repeated sync request id", 
         requestId: syncRequestId,
       },
     });
+    if (createdPaymentId) {
+      await prisma.auditLog.deleteMany({ where: { entityType: "shipping_line_payments", entityId: createdPaymentId } });
+      await prisma.journalEntry.deleteMany({ where: { entityType: "shipping_line_payment", entityId: createdPaymentId } });
+    }
     await prisma.shippingLinePayment.deleteMany({ where: { shippingLineId: shippingLine.id, reference: "sync-test" } });
+    await prisma.intermediaryUsdCostLayer.deleteMany({ where: { id: layer.id } });
+    await prisma.intermediaryDeposit.deleteMany({ where: { id: deposit.id } });
+    await prisma.lotCost.deleteMany({ where: { id: freight.id } });
+    await prisma.lot.deleteMany({ where: { id: lot.id } });
     await prisma.intermediary.deleteMany({ where: { id: intermediary.id } });
     await prisma.shippingLine.deleteMany({ where: { id: shippingLine.id } });
   }

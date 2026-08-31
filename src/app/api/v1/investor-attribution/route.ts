@@ -29,8 +29,9 @@ import {
   type UnsupportedLiveFxPosition,
 } from "@/lib/live-fx-position-tracing";
 import { isInvestorFinalizationEnabled } from "@/lib/investor-production-gate";
-import { calculateHistoricalSaleProfitPkr } from "@/lib/historical-sale-profit";
 import { buildDateRange } from "@/lib/date-range";
+import { buildAuthoritativePoolTransactions } from "@/lib/authoritative-pool-transactions";
+import { settlementJournalTransactionId } from "@/lib/realized-liability-fx";
 
 function dateOnly(date: Date | string): string {
   return (date instanceof Date ? date : new Date(date)).toISOString().slice(0, 10);
@@ -419,7 +420,7 @@ async function buildAttributionFinalizationPreview(user: JWTPayload, periodStart
       select: { periodStart: true, periodEnd: true, status: true, finalizedAt: true, reversedAt: true },
     }),
   ]);
-  const historicalPoolTransactions = await loadHistoricalPoolTransactions(periodStart, periodEnd, liveFxCoverage.historicalTransactions);
+  const historicalPoolTransactions = await loadHistoricalPoolTransactions(periodStart, periodEnd);
 
   const preview = await buildInvestorAttributionPreview({
     periodStart,
@@ -442,7 +443,7 @@ async function buildAttributionFinalizationPreview(user: JWTPayload, periodStart
     transactions: historicalPoolTransactions,
   });
   const historicalMissingRates = historicalPoolPreview.blockedReasons.filter((reason) => reason.startsWith("Missing "));
-  const readiness = buildReadiness({
+  const preliminaryReadiness = buildReadiness({
     reconciliationDifferencePkr: preview.reconciliationDifferencePkr,
     missingRequiredRates: [...missingRequiredRates, ...historicalMissingRates],
     capitalSource: capital.source,
@@ -453,7 +454,7 @@ async function buildAttributionFinalizationPreview(user: JWTPayload, periodStart
   const finalizationDryRun = buildFinalizationDryRun({
     attribution: preview,
     historicalPoolPreview,
-    readinessBlockers: readiness.blockers,
+    readinessBlockers: preliminaryReadiness.blockers,
     missingRates: [...missingRequiredRates, ...historicalMissingRates],
     unsupportedFxPositions: liveFxCoverage.unsupportedPositions,
     existingFinalizations: existingFinalizations.map((row: any) => ({
@@ -465,6 +466,14 @@ async function buildAttributionFinalizationPreview(user: JWTPayload, periodStart
     })),
     sourceReportReference: `financial-report:${periodStart}:${periodEnd}`,
   });
+  const authoritativeReadiness = finalizationDryRun.status === "READY"
+    ? preliminaryReadiness
+    : {
+        ...preliminaryReadiness,
+        status: finalizationDryRun.status,
+        finalizationButtonEnabled: false,
+        blockers: finalizationDryRun.blockers.map((blocker) => `${blocker.code}: ${blocker.message}`),
+      };
 
   return {
     capital,
@@ -475,7 +484,7 @@ async function buildAttributionFinalizationPreview(user: JWTPayload, periodStart
     preview,
     historicalPoolPreview,
     historicalMissingRates,
-    readiness,
+    readiness: authoritativeReadiness,
     finalizationDryRun,
   };
 }
@@ -525,127 +534,65 @@ function assertFinalizationEligible(input: Awaited<ReturnType<typeof buildAttrib
   return [...new Set(blockers)];
 }
 
-async function loadHistoricalPoolTransactions(periodStart: string, periodEnd: string, fxTransactions: HistoricalPoolTransaction[]) {
+async function loadHistoricalPoolTransactions(periodStart: string, periodEnd: string) {
   const periodRange = buildDateRange(periodStart, periodEnd);
-  const report = await buildPeriodProfitReportData({ role: "super_admin", userId: 0 } as JWTPayload, undefined, periodStart, periodEnd);
-  const landedCostByLot = new Map<number, number>();
-  for (const lot of report.lotBreakdown || []) {
-    landedCostByLot.set(Number(lot.lotId), Number(lot.landedCostPerCartonPkr || lot.landedCostPerCarton || 0));
-  }
-
-  const [sales, discounts, supplierFxSettlements, shippingFxSettlements] = await Promise.all([
+  const [journalLines, recognizedForeignSales, supplierFxSettlements, shippingFxSettlements] = await Promise.all([
+    prisma.journalEntry.findMany({
+      where: {
+        entryDate: periodRange,
+        currencyCode: "PKR",
+        account: { accountType: { in: ["revenue", "cogs", "expense"] } },
+      },
+      select: {
+        id: true,
+        transactionId: true,
+        entryDate: true,
+        currencyCode: true,
+        debit: true,
+        credit: true,
+        description: true,
+        account: { select: { code: true, accountType: true } },
+      },
+      orderBy: [{ entryDate: "asc" }, { id: "asc" }],
+    }),
     prisma.sale.findMany({
-      where: { saleDate: periodRange, status: "active" },
-      include: { customer: { select: { name: true } }, currency: { select: { code: true } }, items: { include: { product: { select: { name: true } } } } },
+      where: { saleDate: periodRange, status: "active", fxPkrEquivalent: { not: null } },
+      select: { id: true, saleDate: true, voucherNo: true, fxPkrEquivalent: true, customer: { select: { name: true } } },
       orderBy: { saleDate: "asc" },
     }),
-    prisma.saleDiscount.findMany({
-      where: { discountDate: periodRange },
-      include: { sale: { select: { id: true, voucherNo: true, saleDate: true, customer: { select: { name: true } } } } },
-      orderBy: { discountDate: "asc" },
-    }),
     prisma.supplierPayment.findMany({
-      where: { paymentDate: periodRange, realizedFxPkr: { not: null }, fxPoolDate: { not: null }, carryingRatePkr: { not: null }, carryingAmountPkr: { not: null }, amountLocal: { not: null } },
-      select: { id: true, paymentDate: true, amountUsd: true, exchangeRate: true, amountLocal: true, carryingRatePkr: true, carryingAmountPkr: true, realizedFxPkr: true, fxPoolDate: true, supplier: { select: { name: true } } },
-      orderBy: { paymentDate: "asc" },
+      where: { paymentDate: periodRange, fxPoolDate: { not: null } },
+      select: { id: true, journalVersion: true, fxPoolDate: true },
     }),
     prisma.shippingLinePayment.findMany({
-      where: { paymentDate: periodRange, realizedFxPkr: { not: null }, fxPoolDate: { not: null }, carryingRatePkr: { not: null }, carryingAmountPkr: { not: null }, amountPkr: { not: null } },
-      select: { id: true, paymentDate: true, amountUsd: true, exchangeRate: true, amountPkr: true, carryingRatePkr: true, carryingAmountPkr: true, realizedFxPkr: true, fxPoolDate: true, shippingLine: { select: { name: true } } },
-      orderBy: { paymentDate: "asc" },
+      where: { paymentDate: periodRange, fxPoolDate: { not: null } },
+      select: { id: true, journalVersion: true, fxPoolDate: true },
     }),
   ]);
-
-  const transactions: HistoricalPoolTransaction[] = [];
-  for (const sale of sales) {
-    for (const item of sale.items) {
-      const lotId = Number(item.lotId || sale.lotId);
-      const saleProfit = calculateHistoricalSaleProfitPkr({
-        saleId: sale.id,
-        saleCurrencyCode: sale.currency.code,
-        saleTotalAmount: sale.totalAmount,
-        saleFxPkrEquivalent: sale.fxPkrEquivalent,
-        itemAmount: item.amount,
-        itemQty: item.qty,
-        landedCostPerCartonPkr: landedCostByLot.get(lotId) || 0,
-      });
-      transactions.push({
-        sourceType: "sale_profit",
-        sourceId: item.id,
-        recognizedDate: dateOnly(sale.saleDate),
-        originalPoolDate: dateOnly(sale.saleDate),
-        amountPkr: saleProfit.profitPkr,
-        description: saleProfit.ok
-          ? `Sale ${sale.voucherNo} · ${sale.customer.name} · ${item.product.name}`
-          : saleProfit.missingReason,
-      });
-    }
-  }
-  for (const discount of discounts) {
-    transactions.push({
-      sourceType: "discount",
-      sourceId: discount.id,
-      recognizedDate: dateOnly(discount.discountDate),
-      originalPoolDate: dateOnly(discount.sale.saleDate),
-      amountPkr: -Number(discount.discountAmount || 0),
-      description: `Discount on sale ${discount.sale.voucherNo} · ${discount.sale.customer.name}`,
-    });
-  }
+  const originalPoolDateByTransactionId = new Map<string, string>();
   for (const payment of supplierFxSettlements) {
-    transactions.push({
-      sourceType: "fx_gain_loss",
-      sourceId: `supplier-payment:${payment.id}`,
-      recognizedDate: dateOnly(payment.paymentDate),
-      originalPoolDate: dateOnly(payment.fxPoolDate!),
-      amountPkr: Number(payment.realizedFxPkr),
-      description: `Realized supplier FX · ${payment.supplier.name}`,
-      fx: {
-        currencyCode: "USD",
-        foreignAmount: Number(payment.amountUsd),
-        carryingAmountPkr: Number(payment.carryingAmountPkr),
-        carryingRate: Number(payment.carryingRatePkr),
-        valuationDate: dateOnly(payment.paymentDate),
-        valuationRate: Number(payment.exchangeRate),
-        valuationAmountPkr: Number(payment.amountLocal),
-        fxGainLossPkr: Number(payment.realizedFxPkr),
-        sourcePosition: `supplier_payments:${payment.id}`,
-        positionKind: "liability",
-        selectedRateType: "reference",
-        conversionPath: ["USD→PKR actual settlement"],
-        sourceRates: [],
-        rateSource: "Documented supplier settlement",
-        missingRateReason: null,
-      },
-    });
+    originalPoolDateByTransactionId.set(
+      settlementJournalTransactionId("SUPPPAY", payment.id, payment.journalVersion),
+      dateOnly(payment.fxPoolDate!),
+    );
   }
   for (const payment of shippingFxSettlements) {
-    transactions.push({
-      sourceType: "fx_gain_loss",
-      sourceId: `shipping-payment:${payment.id}`,
-      recognizedDate: dateOnly(payment.paymentDate),
-      originalPoolDate: dateOnly(payment.fxPoolDate!),
-      amountPkr: Number(payment.realizedFxPkr),
-      description: `Realized shipping FX · ${payment.shippingLine.name}`,
-      fx: {
-        currencyCode: "USD",
-        foreignAmount: Number(payment.amountUsd),
-        carryingAmountPkr: Number(payment.carryingAmountPkr),
-        carryingRate: Number(payment.carryingRatePkr),
-        valuationDate: dateOnly(payment.paymentDate),
-        valuationRate: Number(payment.exchangeRate),
-        valuationAmountPkr: Number(payment.amountPkr),
-        fxGainLossPkr: Number(payment.realizedFxPkr),
-        sourcePosition: `shipping_line_payments:${payment.id}`,
-        positionKind: "liability",
-        selectedRateType: "reference",
-        conversionPath: ["USD→PKR actual settlement"],
-        sourceRates: [],
-        rateSource: "Documented shipping settlement",
-        missingRateReason: null,
-      },
-    });
+    originalPoolDateByTransactionId.set(
+      settlementJournalTransactionId("SLPAY", payment.id, payment.journalVersion),
+      dateOnly(payment.fxPoolDate!),
+    );
   }
-  return [...transactions, ...fxTransactions];
+  return buildAuthoritativePoolTransactions({
+    journalLines,
+    recognizedForeignSales: recognizedForeignSales.map((sale) => ({
+      id: sale.id,
+      saleDate: sale.saleDate,
+      voucherNo: sale.voucherNo,
+      fxPkrEquivalent: sale.fxPkrEquivalent,
+      customerName: sale.customer.name,
+    })),
+    originalPoolDateByTransactionId,
+  });
 }
 
 async function findOpenMarketRateToPkr(currencyCode: string, valuationDate: string, positionKind: "asset" | "liability"): Promise<NormalizedExchangeRateResult> {

@@ -3,7 +3,11 @@ import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
-import { journalSuperAdminPersonalExpense, reverseJournalEntries } from "@/lib/accounting";
+import {
+  journalSuperAdminPersonalExpense,
+  personalExpenseJournalTransactionId,
+  reverseJournalEntries,
+} from "@/lib/accounting";
 
 export const PUT = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -27,10 +31,10 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     if (!detail) return errorResponse("VALIDATION_ERROR", "Detail is required");
 
     const updated = await prisma.$transaction(async (tx) => {
-      await reverseJournalEntries(`SAEXP-${id}`, user.userId, tx);
+      await reverseJournalEntries(personalExpenseJournalTransactionId(id, expense.journalVersion), user.userId, tx);
       const row = await tx.superAdminPersonalExpense.update({
         where: { id },
-        data: { amount, detail, notes },
+        data: { amount, detail, notes, journalVersion: { increment: 1 } },
         include: { bankAccount: { include: { currency: true } } },
       });
       await journalSuperAdminPersonalExpense({
@@ -41,6 +45,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         expenseDate: row.expenseDate,
         createdBy: user.userId,
         bankAccountId: row.bankAccountId,
+        journalVersion: row.journalVersion,
       }, tx);
       return row;
     });
@@ -73,7 +78,7 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
     if (!expense || expense.deletedAt !== null) return errorResponse("NOT_FOUND", "Expense not found", 404);
 
     await prisma.$transaction(async (tx) => {
-      await reverseJournalEntries(`SAEXP-${id}`, user.userId, tx);
+      await reverseJournalEntries(personalExpenseJournalTransactionId(id, expense.journalVersion), user.userId, tx);
       await tx.superAdminPersonalExpense.update({
         where: { id },
         data: { deletedAt: new Date() },

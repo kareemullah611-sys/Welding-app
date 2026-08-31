@@ -79,6 +79,7 @@ type OpeningLiabilityRow = {
   id: number;
   openingDate: Date;
   amount: unknown;
+  balanceSide?: "payable" | "receivable";
   notes?: string | null;
   currency: { code: string };
 };
@@ -123,8 +124,8 @@ export function buildIntermediaryLedgerEntries(input: {
       id: opening.id,
       description: opening.notes || "Opening intermediary balance",
       currencyCode: opening.currency.code,
-      debit: 0,
-      credit: Number(opening.amount),
+      debit: opening.balanceSide === "payable" ? Number(opening.amount) : 0,
+      credit: opening.balanceSide === "payable" ? 0 : Number(opening.amount),
     })),
     ...deposits.map((d) => ({
       date: d.depositDate,

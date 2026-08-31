@@ -111,6 +111,7 @@ async function cashPosition(cityId?: number) {
     { code: { startsWith: "1002-CHEQUE" } },
     { code: { startsWith: "1050-BANK" } },
     { code: { startsWith: "1050-SABANK" } },
+    { code: { startsWith: "1051-SACASH" } },
     { code: "1050" },
     { code: { startsWith: "1060-H" } },
   ]};
@@ -141,7 +142,7 @@ async function cashPosition(cityId?: number) {
     if (Math.abs(balance) < 0.01) continue;
 
     const entry = { account: acc.name, cityId: acc.cityId ?? null, currency: g.currencyCode, balance: r2(balance) };
-    if (acc.code.startsWith("1001-") || acc.code.startsWith("1002-")) cashPositions.push(entry);
+    if (acc.code.startsWith("1001-") || acc.code.startsWith("1002-") || acc.code.startsWith("1051-SACASH")) cashPositions.push(entry);
     else if (acc.code.startsWith("1050")) bankPositions.push(entry);
     else if (acc.code.startsWith("1060-")) intermediaryPositions.push(entry);
   }

@@ -100,7 +100,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       expenseByCurrency[currCode[e.currencyId]] = Number(e._sum.amount || 0);
     }
 
-    // Owed to Haji = net unsettled on ongoing lots only (no opening Haji balance)
+    // Owed to Haji = opening payable/receivable plus net unsettled activity on ongoing lots.
     const hajiByCurrency = cityId
       ? await computeOngoingLotHajiOwedForCity(cityId)
       : {};
@@ -119,15 +119,19 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     // ── Supplier payable (super admin only) ───────────────────────────────────
     if (user.role === "super_admin") {
-      const [openingSupplier, purchased, paid] = await Promise.all([
+      const [openingSupplierPayable, openingSupplierReceivable, purchased, paid] = await Promise.all([
         prisma.openingLiability.aggregate({
-          where: { supplierId: { not: null }, currency: { code: "USD" } },
+          where: { supplierId: { not: null }, balanceSide: "payable", currency: { code: "USD" } },
+          _sum: { amount: true },
+        }),
+        prisma.openingLiability.aggregate({
+          where: { supplierId: { not: null }, balanceSide: "receivable", currency: { code: "USD" } },
           _sum: { amount: true },
         }),
         prisma.lotPurchase.aggregate({ _sum: { totalPriceUsd: true } }),
         prisma.supplierPayment.aggregate({ _sum: { amountUsd: true } }),
       ]);
-      const totalOpening = Number(openingSupplier._sum.amount || 0);
+      const totalOpening = Number(openingSupplierPayable._sum.amount || 0) - Number(openingSupplierReceivable._sum.amount || 0);
       const totalPurchased = Number(purchased._sum.totalPriceUsd || 0);
       const totalPaid = Number(paid._sum.amountUsd || 0);
       result.supplierPayable = {

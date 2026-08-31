@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { journalLotPurchase } from "@/lib/accounting";
+import { buildLotPurchasePkrBasis, journalLotPurchase } from "@/lib/accounting";
 import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { createLotPurchaseSchema } from "@/lib/validations";
 import { successResponse, validationError, errorResponse, serverError } from "@/lib/api-response";
@@ -38,6 +38,8 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     const lot = await prisma.lot.findUnique({ where: { id: lotId }, include: { lotProducts: { select: { productId: true } } } });
     if (!lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
     if (lot.status !== "ongoing") return errorResponse("VALIDATION_ERROR", "Purchase prices can only be recorded against ongoing lots");
+    const carryingRatePkr = Number(lot.pkrExchangeRate || 0);
+    if (carryingRatePkr <= 0) return validationError("Lot PKR recognition rate is required before recording purchase prices");
 
     // Validate positive qty and price on each product
     for (const p of products) {
@@ -61,18 +63,25 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     // with key PURCH-{lotId}-{id}. Previously createMany was used and the aggregate journal
     // was keyed to createdIds[0], making edit/delete reversals fail for every other line.
     const createdItems = await prisma.$transaction(async (tx) => {
-      const itemsCreated: { id: number; totalPriceUsd: number }[] = [];
+      const itemsCreated: { id: number; totalPriceUsd: number; carryingAmountPkr: number; journalVersion: number }[] = [];
       for (const p of products) {
+        const totalPriceUsd = roundMoney(p.qty * p.unitPriceUsd);
+        const basis = buildLotPurchasePkrBasis({ totalUsd: totalPriceUsd, carryingRatePkr });
         const item = await tx.lotPurchase.create({
           data: {
             lotId, supplierId, productId: p.productId,
             qty: p.qty, unitPriceUsd: p.unitPriceUsd,
-            totalPriceUsd: roundMoney(p.qty * p.unitPriceUsd),
-            exchangeRate: exchangeRate || null, createdBy: user.userId,
+            totalPriceUsd,
+            exchangeRate: exchangeRate || null,
+            carryingRatePkr: basis.carryingRatePkr,
+            carryingAmountPkr: basis.carryingAmountPkr,
+            recognitionDate: lot.lotDate,
+            recognitionRateMetadata: lot.pkrExchangeRateMetadata as any,
+            createdBy: user.userId,
           },
-          select: { id: true, totalPriceUsd: true },
+          select: { id: true, totalPriceUsd: true, carryingAmountPkr: true, journalVersion: true },
         });
-        itemsCreated.push({ id: item.id, totalPriceUsd: Number(item.totalPriceUsd) });
+        itemsCreated.push({ id: item.id, totalPriceUsd: Number(item.totalPriceUsd), carryingAmountPkr: Number(item.carryingAmountPkr), journalVersion: item.journalVersion });
       }
 
       await createAuditLog(user.userId, null, "lot_purchases", lotId, "create", undefined, { supplierId, products }, getClientIP(request), tx);
@@ -92,7 +101,11 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       }
 
       for (const item of itemsCreated) {
-        await journalLotPurchase({ id: item.id, supplierId, lotId, totalUsd: item.totalPriceUsd, createdBy: user.userId }, tx);
+        await journalLotPurchase({
+          id: item.id, supplierId, lotId, totalUsd: item.totalPriceUsd,
+          carryingRatePkr, carryingAmountPkr: item.carryingAmountPkr,
+          recognitionDate: lot.lotDate, journalVersion: item.journalVersion, createdBy: user.userId,
+        }, tx);
       }
 
       return itemsCreated;

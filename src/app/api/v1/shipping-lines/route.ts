@@ -38,7 +38,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, _context, _user: 
         }),
       ]);
       const billedByCurrency = openings.reduce<Record<string, number>>((acc, opening) => {
-        acc[opening.currency.code] = Math.round(((acc[opening.currency.code] || 0) + Number(opening.amount)) * 100) / 100;
+        acc[opening.currency.code] = Math.round(((acc[opening.currency.code] || 0) + (opening.balanceSide === "receivable" ? -Number(opening.amount) : Number(opening.amount))) * 100) / 100;
         return acc;
       }, {});
       for (const cost of costs) {

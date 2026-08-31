@@ -10,23 +10,30 @@ import { GET as getSales } from "@/app/api/v1/sales/route";
 test("search by amount-column numeric text matches payments and sales", async () => {
   const marker = `amt-search-${Date.now()}`;
 
-  const city = await prisma.city.findFirst({
-    where: { name: "Quetta", country: { code: "PK" } },
+  const country = await prisma.country.findUnique({ where: { code: "PK" } });
+  assert.ok(country, "Seed country PK is required for this test");
+
+  const city = await prisma.city.create({
+    data: { name: `${marker}-city`, countryId: country.id },
     include: { country: true },
   });
-  assert.ok(city, "Seed city Quetta (PK) is required for this test");
 
   const currency = await prisma.currency.findUnique({ where: { code: "PKR" } });
   assert.ok(currency, "Seed currency PKR is required for this test");
 
-  const user = await prisma.user.findUnique({ where: { username: "quetta_admin" } });
-  assert.ok(user, "Seed user quetta_admin is required for this test");
-
-  const godown = await prisma.godown.findFirst({
-    where: { cityId: city.id, isActive: true },
-    orderBy: { id: "asc" },
+  const user = await prisma.user.create({
+    data: {
+      username: `${marker}-admin`,
+      passwordHash: "test-only-not-for-login",
+      fullName: `${marker} Admin`,
+      role: "city_admin",
+      cityId: city.id,
+      isActive: true,
+    },
   });
-  assert.ok(godown, "At least one active Quetta godown is required for this test");
+  const godown = await prisma.godown.create({
+    data: { cityId: city.id, name: `${marker}-godown`, isActive: true },
+  });
 
   await prisma.cityCurrency.upsert({
     where: { cityId_currencyId: { cityId: city.id, currencyId: currency.id } },
@@ -145,5 +152,10 @@ test("search by amount-column numeric text matches payments and sales", async ()
     await prisma.lot.deleteMany({ where: { id: lot.id } });
     await prisma.customer.deleteMany({ where: { id: customer.id } });
     await prisma.product.deleteMany({ where: { id: product.id } });
+    await prisma.cityCurrency.deleteMany({ where: { cityId: city.id } });
+    await prisma.godown.deleteMany({ where: { id: godown.id } });
+    await prisma.userSession.deleteMany({ where: { userId: user.id } });
+    await prisma.user.deleteMany({ where: { id: user.id } });
+    await prisma.city.deleteMany({ where: { id: city.id } });
   }
 });

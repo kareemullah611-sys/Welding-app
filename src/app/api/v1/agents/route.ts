@@ -24,7 +24,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
     return paginatedResponse(agents.map(a => {
       const billed: Record<string, number> = {};
       const paid: Record<string, number> = {};
-      for (const opening of a.openingLiabilities) { billed[opening.currency.code] = (billed[opening.currency.code] || 0) + Number(opening.amount); }
+      for (const opening of a.openingLiabilities) { billed[opening.currency.code] = (billed[opening.currency.code] || 0) + (opening.balanceSide === "receivable" ? -Number(opening.amount) : Number(opening.amount)); }
       for (const c of a.lotCosts) { billed[c.currencyCode] = (billed[c.currencyCode] || 0) + Number(c.amount); }
       for (const p of a.agentPayments) { paid[p.currencyCode] = (paid[p.currencyCode] || 0) + Number(p.amount); }
       const balance: Record<string, number> = {};

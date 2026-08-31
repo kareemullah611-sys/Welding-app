@@ -30,6 +30,7 @@ export async function getSuperAdminCashAccountBalance(cashAccountId: number): Pr
   const accountLabel = formatSuperAdminBankLabel(account);
 
   const [
+    opening,
     hajiIn,
     receiptsIn,
     intermediaryOut,
@@ -38,6 +39,10 @@ export async function getSuperAdminCashAccountBalance(cashAccountId: number): Pr
     shippingPayments,
     investorSettlementPayments,
   ] = await Promise.all([
+    prisma.openingSuperAdminAccountBalance.aggregate({
+      where: { accountId: cashAccountId, currencyId },
+      _sum: { amount: true },
+    }),
     prisma.hajiTransfer.aggregate({
       where: {
         currencyId,
@@ -94,6 +99,7 @@ export async function getSuperAdminCashAccountBalance(cashAccountId: number): Pr
   out += Number(investorSettlementPayments._sum.paymentAmount || 0);
 
   const balance =
+    Number(opening._sum.amount || 0) +
     Number(hajiIn._sum.amount || 0) +
     Number(receiptsIn._sum.amount || 0) -
     out;

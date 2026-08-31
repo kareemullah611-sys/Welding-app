@@ -12,6 +12,19 @@ export type ApiHandler = (
   user: JWTPayload
 ) => Promise<Response>;
 
+type NextRouteContext = {
+  params: Promise<Record<string, string>>;
+};
+
+type TestRouteContext = {
+  params: Record<string, string>;
+};
+
+type WrappedApiHandler = {
+  (request: NextRequest, context: TestRouteContext): Promise<Response>;
+  (request: NextRequest, context: NextRouteContext): Promise<Response>;
+};
+
 // ============================================================
 // CSRF PROTECTION
 // Verify that state-changing requests (POST/PUT/PATCH/DELETE)
@@ -117,8 +130,9 @@ export async function getDatabaseUserForToken(user: JWTPayload): Promise<JWTPayl
 }
 
 // Auth middleware - verifies JWT and attaches user
-export function withAuth(handler: ApiHandler) {
-  return async (request: NextRequest, context: { params: Record<string, string> }) => {
+export function withAuth(handler: ApiHandler): WrappedApiHandler {
+  const wrapped = async (request: NextRequest, context: NextRouteContext | TestRouteContext) => {
+    const resolvedContext = { params: await context.params };
     if (!isCsrfSafe(request)) return csrfError();
     const token = getTokenFromRequest(request);
     if (!token) return unauthorizedResponse("Invalid or expired token");
@@ -130,10 +144,11 @@ export function withAuth(handler: ApiHandler) {
     const databaseUser = await getDatabaseUserForToken(user);
     if (!databaseUser) return unauthorizedResponse("Invalid or expired token");
     if (process.env.ENABLE_PRISMA_RLS_CONTEXT === "true") {
-      return runWithPrismaRequestContext(prisma, databaseUser, () => handler(request, context, databaseUser));
+      return runWithPrismaRequestContext(prisma, databaseUser, () => handler(request, resolvedContext, databaseUser));
     }
-    return handler(request, context, databaseUser);
+    return handler(request, resolvedContext, databaseUser);
   };
+  return wrapped as WrappedApiHandler;
 }
 
 // Role middleware - requires specific role

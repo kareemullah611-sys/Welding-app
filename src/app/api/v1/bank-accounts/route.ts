@@ -15,7 +15,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const scope = searchParams.get("scope");
 
     if (scope === "super_admin") {
-      const [incomingHajiPayments, expenses, intermediaryDeposits, lotCosts, supplierPayments, hajiCashReceipts, settlementPayments] = await Promise.all([
+      const [openingBalances, incomingHajiPayments, expenses, intermediaryDeposits, lotCosts, supplierPayments, hajiCashReceipts, settlementPayments] = await Promise.all([
+        prisma.openingSuperAdminAccountBalance.findMany({ select: { accountId: true, currencyId: true, amount: true } }),
         prisma.payment.groupBy({
           by: ["superAdminBankAccountId", "currencyId"],
           where: {
@@ -81,6 +82,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         console.error("Haji transfer bank account aggregation failed (run db bootstrap):", hajiBankAggError);
       }
       const incomingMap = new Map<string, number>();
+      const openingMap = new Map<string, number>();
+      for (const row of openingBalances) openingMap.set(`${row.accountId}:${row.currencyId}`, Number(row.amount || 0));
       for (const row of incomingHajiPayments) incomingMap.set(`${row.superAdminBankAccountId}:${row.currencyId}`, Number(row._sum.amount || 0));
       for (const row of incomingHajiBankRows) {
         const key = `${row.superAdminBankAccountId}:${row.currencyId}`;
@@ -144,7 +147,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
                 console.error(`Cash balance fallback for account ${a.id}:`, err);
                 return Math.round(((hajiCashMap.get(`${a.id}:${a.currencyId}`) || 0) - (investorSettlementPaymentMap.get(`${a.id}:${a.currencyId}`) || 0)) * 100) / 100;
               })
-            : Math.round((((incoming) - (expenseMap.get(a.id) || 0) - (intermediaryMap.get(`${a.id}:${a.currencyId}`) || 0) - (lotCostDebitMap.get(`${a.id}:${a.currencyId}`) || 0) - (supplierPaymentDebitMap.get(a.id) || 0) - (investorSettlementPaymentMap.get(`${a.id}:${a.currencyId}`) || 0)) * 100)) / 100;
+            : Math.round((((openingMap.get(`${a.id}:${a.currencyId}`) || 0) + incoming - (expenseMap.get(a.id) || 0) - (intermediaryMap.get(`${a.id}:${a.currencyId}`) || 0) - (lotCostDebitMap.get(`${a.id}:${a.currencyId}`) || 0) - (supplierPaymentDebitMap.get(a.id) || 0) - (investorSettlementPaymentMap.get(`${a.id}:${a.currencyId}`) || 0)) * 100)) / 100;
           return {
           id: a.id,
           cityId: null,

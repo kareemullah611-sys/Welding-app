@@ -9,6 +9,10 @@ function round2(n: number) {
 
 const ACTIVE_SALE_STATUSES = ["active", "marked_short"] as const;
 
+export function openingHajiOwedDelta(amount: number, balanceSide: "payable" | "receivable") {
+  return balanceSide === "payable" ? amount : -amount;
+}
+
 /** Net unsettled owed to Haji from ongoing lots only (per city, per currency code). */
 export async function computeOngoingLotHajiOwedByCity(
   db: Db = prisma,
@@ -58,7 +62,7 @@ export async function computeOngoingLotHajiOwedByCity(
       _sum: { overflowAmount: true },
     }),
     db.openingHajiBalance.groupBy({
-      by: ["cityId", "currencyId"],
+      by: ["cityId", "currencyId", "balanceSide"],
       where: cityFilter,
       _sum: { amount: true },
     }),
@@ -89,8 +93,7 @@ export async function computeOngoingLotHajiOwedByCity(
     add(row.cityId, row.currencyId, Number(row._sum.overflowAmount || 0));
   }
   for (const row of openingHaji) {
-    // Opening haji balance = amount already transferred in previous system; reduces what's owed
-    add(row.cityId, row.currencyId, -Number(row._sum.amount || 0));
+    add(row.cityId, row.currencyId, openingHajiOwedDelta(Number(row._sum.amount || 0), row.balanceSide));
   }
 
   // Discounts: need cityId from sale join

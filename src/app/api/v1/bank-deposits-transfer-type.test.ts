@@ -3,15 +3,22 @@ import test from "node:test";
 import { NextRequest } from "next/server";
 
 import { generateToken } from "@/lib/auth";
+import prisma from "@/lib/prisma";
 import { POST as createBankDeposit } from "@/app/api/v1/bank-deposits/route";
 
 test("bank deposit rejects invalid transferType before processing", async () => {
+  const cityAdmin = await prisma.user.findFirst({
+    where: { role: "city_admin", cityId: { not: null }, isActive: true },
+    include: { city: true },
+  });
+  assert.ok(cityAdmin?.city, "An active city admin is required for this test");
+
   const token = generateToken({
-    userId: 1,
-    username: "city_admin_test",
+    userId: cityAdmin.id,
+    username: cityAdmin.username,
     role: "city_admin",
-    cityId: 1,
-    countryId: 1,
+    cityId: cityAdmin.city.id,
+    countryId: cityAdmin.city.countryId,
   });
 
   const request = new NextRequest("http://localhost/api/v1/bank-deposits", {

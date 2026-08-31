@@ -85,6 +85,14 @@ export async function getSalesRevenueAccountId(db: DbClient = prisma): Promise<n
 export async function getCOGSAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("4001", "Cost of Goods Sold", "cogs", undefined, db); }
 export async function getOwnerWithdrawalAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("6002", "Owner Withdrawals", "equity", undefined, db); }
 export async function getHajiAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("6003", "Haji Account", "equity", undefined, db); }
+export async function getHajiReceivableAccountId(cityId: number, db: DbClient = prisma): Promise<number> {
+  const city = await db.city.findUnique({ where: { id: cityId }, select: { name: true } });
+  return getOrCreateAccount(`1250-H${cityId}`, `Due from Haji - ${city?.name || cityId}`, "asset", cityId, db);
+}
+export async function getHajiPayableAccountId(cityId: number, db: DbClient = prisma): Promise<number> {
+  const city = await db.city.findUnique({ where: { id: cityId }, select: { name: true } });
+  return getOrCreateAccount(`2450-H${cityId}`, `Owed to Haji - ${city?.name || cityId}`, "liability", cityId, db);
+}
 export async function getOpeningBalanceAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("3900", "Opening Balances", "equity", undefined, db); }
 export async function getHistoricalStockAdjustmentAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("3901", "Historical Stock Adjustment", "equity", undefined, db); }
 export async function getBankAccountId(db: DbClient = prisma): Promise<number> { return getOrCreateAccount("1050", "Bank Account (USD)", "asset", undefined, db); }
@@ -96,6 +104,29 @@ export async function getForeignExchangeGainAccountId(db: DbClient = prisma): Pr
 }
 export async function getForeignExchangeLossAccountId(db: DbClient = prisma): Promise<number> {
   return getOrCreateAccount("FX-LOSS", "Foreign Exchange Loss", "expense", undefined, db);
+}
+
+export function resolveOpeningCarryingAmount(input: {
+  amount: number;
+  currencyCode: string;
+  carryingAmountPkr?: number | null;
+  fxRateToPkr?: number | null;
+}) {
+  const amount = Number(input.amount);
+  if (!Number.isFinite(amount) || amount === 0) throw new Error("Opening amount must be non-zero.");
+  const currencyCode = String(input.currencyCode || "").toUpperCase();
+  if (currencyCode === "PKR") {
+    const carryingAmountPkr = Number(input.carryingAmountPkr ?? amount);
+    if (Math.abs(carryingAmountPkr - amount) > 0.01) throw new Error("PKR opening amount and PKR carrying amount must match.");
+    return { carryingAmountPkr: roundMoney(carryingAmountPkr), fxRateToPkr: 1 };
+  }
+  const carryingAmountPkr = Number(input.carryingAmountPkr);
+  const fxRateToPkr = Number(input.fxRateToPkr);
+  if (!Number.isFinite(carryingAmountPkr) || carryingAmountPkr === 0) throw new Error(`PKR carrying amount is required for ${currencyCode} openings.`);
+  if (!Number.isFinite(fxRateToPkr) || fxRateToPkr <= 0) throw new Error(`Historical ${currencyCode} to PKR rate is required.`);
+  const expected = roundMoney(new Prisma.Decimal(amount).mul(fxRateToPkr));
+  if (Math.abs(expected - carryingAmountPkr) > 0.01) throw new Error("Opening PKR carrying amount does not match the original amount and FX rate.");
+  return { carryingAmountPkr: roundMoney(carryingAmountPkr), fxRateToPkr };
 }
 
 export async function getExpenseAccountId(costType: string, db: DbClient = prisma): Promise<number> {
@@ -114,6 +145,42 @@ export async function getExpenseAccountId(costType: string, db: DbClient = prism
 
 interface JournalLine { accountId: number; debit: number; credit: number; description: string; currencyCode?: string; }
 
+function roundMoney(value: Prisma.Decimal.Value): number {
+  return Number(new Prisma.Decimal(value).toDecimalPlaces(2).toString());
+}
+
+export function buildLotPurchasePkrBasis(input: { totalUsd: number; carryingRatePkr: number }) {
+  const foreignAmountUsd = Number(new Prisma.Decimal(input.totalUsd).toDecimalPlaces(2).toString());
+  const carryingRatePkr = Number(new Prisma.Decimal(input.carryingRatePkr).toDecimalPlaces(6).toString());
+  if (foreignAmountUsd <= 0) throw new Error("Foreign purchase amount must be greater than zero.");
+  if (carryingRatePkr <= 0) throw new Error("PKR recognition rate is required for a foreign lot purchase.");
+  return {
+    foreignAmountUsd,
+    carryingRatePkr,
+    carryingAmountPkr: roundMoney(new Prisma.Decimal(foreignAmountUsd).mul(carryingRatePkr)),
+  };
+}
+
+export function lotPurchaseJournalTransactionId(lotId: number, purchaseId: number, journalVersion: number) {
+  return journalVersion <= 1 ? `PURCH-${lotId}-${purchaseId}` : `PURCH-${lotId}-${purchaseId}-V${journalVersion}`;
+}
+
+export function personalExpenseJournalTransactionId(expenseId: number, journalVersion: number) {
+  return journalVersion <= 1 ? `SAEXP-${expenseId}` : `SAEXP-${expenseId}-V${journalVersion}`;
+}
+
+export async function assertAccountingDateOpen(entryDate: Date, db: DbClient = prisma): Promise<void> {
+  const financialYearModel = (db as any).financialYear;
+  if (typeof financialYearModel?.findFirst !== "function") return;
+  const closedYear = await financialYearModel.findFirst({
+    where: { startDate: { lte: entryDate }, endDate: { gte: entryDate }, status: "closed" },
+    select: { name: true, startDate: true, endDate: true },
+  });
+  if (closedYear) {
+    throw new Error(`Accounting period ${closedYear.name} is closed; reopen it or post a controlled adjustment in an open period.`);
+  }
+}
+
 export async function createJournalEntries(
   transactionId: string, lines: JournalLine[],
   meta: { currencyCode: string; exchangeRate?: number; entityType: string; entityId: number; lotId?: number | null; cityId?: number | null; entryDate: Date; createdBy: number; }
@@ -121,22 +188,59 @@ export async function createJournalEntries(
 ): Promise<void> {
   const data = lines
     .filter((line) => line.debit !== 0 || line.credit !== 0)
-    .map((line) => ({
+    .map((line, index) => ({
       transactionId, accountId: line.accountId, debit: line.debit, credit: line.credit,
+      lineNumber: index + 1,
       currencyCode: line.currencyCode || meta.currencyCode, exchangeRate: meta.exchangeRate || null, description: line.description,
       entityType: meta.entityType, entityId: meta.entityId, lotId: meta.lotId || null,
       cityId: meta.cityId || null, entryDate: meta.entryDate, createdBy: meta.createdBy,
     }));
   if (data.length > 0) {
-    const totalDebit = data.reduce((sum, line) => sum.plus(new Prisma.Decimal(line.debit)), new Prisma.Decimal(0));
-    const totalCredit = data.reduce((sum, line) => sum.plus(new Prisma.Decimal(line.credit)), new Prisma.Decimal(0));
-    const difference = totalDebit.minus(totalCredit).abs();
-    if (difference.greaterThan(new Prisma.Decimal("0.01"))) {
-      throw new Error(
-        `Unbalanced journal ${transactionId}: debit ${totalDebit.toFixed(2)} != credit ${totalCredit.toFixed(2)}`,
-      );
+    const currencies = new Set(data.map((line) => line.currencyCode));
+    for (const currencyCode of currencies) {
+      const currencyLines = data.filter((line) => line.currencyCode === currencyCode);
+      const totalDebit = currencyLines.reduce((sum, line) => sum.plus(new Prisma.Decimal(line.debit)), new Prisma.Decimal(0));
+      const totalCredit = currencyLines.reduce((sum, line) => sum.plus(new Prisma.Decimal(line.credit)), new Prisma.Decimal(0));
+      if (totalDebit.minus(totalCredit).abs().greaterThan(new Prisma.Decimal("0.01"))) {
+        throw new Error(
+          `Unbalanced journal ${transactionId} (${currencyCode}): debit ${totalDebit.toFixed(2)} != credit ${totalCredit.toFixed(2)}`,
+        );
+      }
     }
-    await db.journalEntry.createMany({ data });
+
+    const write = async (tx: DbClient) => {
+      await assertAccountingDateOpen(meta.entryDate, tx);
+      if (typeof (tx as any).$executeRawUnsafe === "function") {
+        await (tx as any).$executeRawUnsafe(
+          "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
+          `journal-posting:${transactionId}`,
+        );
+      }
+      const existing = typeof (tx.journalEntry as any).findMany === "function"
+        ? await tx.journalEntry.findMany({ where: { transactionId }, orderBy: { lineNumber: "asc" } })
+        : [];
+      if (existing.length > 0) {
+        const same = existing.length === data.length && existing.every((row: any, index: number) => {
+          const next = data[index];
+          return row.lineNumber === next.lineNumber &&
+            row.accountId === next.accountId &&
+            new Prisma.Decimal(row.debit).equals(next.debit) &&
+            new Prisma.Decimal(row.credit).equals(next.credit) &&
+            row.currencyCode === next.currencyCode &&
+            row.entityType === next.entityType &&
+            row.entityId === next.entityId;
+        });
+        if (same) return;
+        throw new Error(`Journal transaction ${transactionId} already exists with different lines.`);
+      }
+      await tx.journalEntry.createMany({ data });
+    };
+
+    if (typeof (db as PrismaClient).$transaction === "function") {
+      await (db as PrismaClient).$transaction(async (tx) => write(tx));
+    } else {
+      await write(db);
+    }
   }
 }
 
@@ -170,12 +274,15 @@ export async function journalOpeningCustomerBalance(d: {
   customerId: number;
   cityId: number;
   amount: number;
+  carryingAmountPkr?: number | null;
+  fxRateToPkr?: number | null;
   currencyCode: string;
   openingDate: Date;
   createdBy: number;
   journalVersion: number;
 }, db: DbClient = prisma) {
-  const amount = Math.abs(d.amount);
+  const carrying = resolveOpeningCarryingAmount(d);
+  const amount = Math.abs(carrying.carryingAmountPkr);
   if (amount === 0) return;
   const customerAccountId = await getCustomerAccountId(d.customerId, db);
   const openingBalanceAccountId = await getOpeningBalanceAccountId(db);
@@ -188,7 +295,8 @@ export async function journalOpeningCustomerBalance(d: {
       ? { accountId: openingBalanceAccountId, debit: 0, credit: amount, description: `Opening customer balance #${d.id}` }
       : { accountId: openingBalanceAccountId, debit: amount, credit: 0, description: `Opening customer advance #${d.id}` },
   ], {
-    currencyCode: d.currencyCode,
+    currencyCode: "PKR",
+    exchangeRate: carrying.fxRateToPkr,
     entityType: "opening_customer_balance",
     entityId: d.id,
     cityId: d.cityId,
@@ -234,6 +342,8 @@ async function journalOpeningAsset(
     entityId: number;
     cityId: number;
     amount: number;
+    carryingAmountPkr?: number | null;
+    fxRateToPkr?: number | null;
     currencyCode: string;
     openingDate: Date;
     createdBy: number;
@@ -243,7 +353,8 @@ async function journalOpeningAsset(
   },
   db: DbClient,
 ) {
-  const amount = Math.abs(d.amount);
+  const carrying = resolveOpeningCarryingAmount(d);
+  const amount = Math.abs(carrying.carryingAmountPkr);
   if (amount === 0) return;
   const openingBalanceAccountId = await getOpeningBalanceAccountId(db);
   const positiveAsset = d.amount > 0;
@@ -255,7 +366,8 @@ async function journalOpeningAsset(
       ? { accountId: openingBalanceAccountId, debit: 0, credit: amount, description: d.description }
       : { accountId: openingBalanceAccountId, debit: amount, credit: 0, description: d.description },
   ], {
-    currencyCode: d.currencyCode,
+    currencyCode: "PKR",
+    exchangeRate: carrying.fxRateToPkr,
     entityType: d.entityType,
     entityId: d.entityId,
     cityId: d.cityId,
@@ -265,7 +377,7 @@ async function journalOpeningAsset(
 }
 
 export async function journalOpeningCashBalance(d: {
-  id: number; cityId: number; amount: number; currencyCode: string; openingDate: Date; createdBy: number; journalVersion: number;
+  id: number; cityId: number; amount: number; carryingAmountPkr?: number | null; fxRateToPkr?: number | null; currencyCode: string; openingDate: Date; createdBy: number; journalVersion: number;
 }, db: DbClient = prisma) {
   await journalOpeningAsset({
     ...d,
@@ -278,7 +390,7 @@ export async function journalOpeningCashBalance(d: {
 }
 
 export async function journalOpeningBankBalance(d: {
-  id: number; cityId: number; bankAccountId: number; amount: number; currencyCode: string; openingDate: Date; createdBy: number; journalVersion: number;
+  id: number; cityId: number; bankAccountId: number; amount: number; carryingAmountPkr?: number | null; fxRateToPkr?: number | null; currencyCode: string; openingDate: Date; createdBy: number; journalVersion: number;
 }, db: DbClient = prisma) {
   await journalOpeningAsset({
     ...d,
@@ -291,7 +403,7 @@ export async function journalOpeningBankBalance(d: {
 }
 
 export async function journalOpeningCheque(d: {
-  id: number; cityId: number; amount: number; currencyCode: string; openingDate: Date; createdBy: number; journalVersion: number;
+  id: number; cityId: number; amount: number; carryingAmountPkr?: number | null; fxRateToPkr?: number | null; currencyCode: string; openingDate: Date; createdBy: number; journalVersion: number;
 }, db: DbClient = prisma) {
   await journalOpeningAsset({
     ...d,
@@ -406,11 +518,25 @@ export async function journalBankDeposit(d: {
 }
 
 // LOT PURCHASE (buy from company)
-export async function journalLotPurchase(p: { id: number; supplierId: number; lotId: number; totalUsd: number; createdBy: number; }, db: DbClient = prisma) {
-  await createJournalEntries(`PURCH-${p.lotId}-${p.id}`, [
-    { accountId: await getInventoryAccountId(db), debit: p.totalUsd, credit: 0, description: `Purchase Lot` },
-    { accountId: await getSupplierAccountId(p.supplierId, db), debit: 0, credit: p.totalUsd, description: `Supplier payable` },
-  ], { currencyCode: "USD", entityType: "lot_purchase", entityId: p.id, lotId: p.lotId, entryDate: new Date(), createdBy: p.createdBy }, db);
+export async function journalLotPurchase(p: {
+  id: number;
+  supplierId: number;
+  lotId: number;
+  totalUsd: number;
+  carryingRatePkr: number;
+  carryingAmountPkr: number;
+  recognitionDate: Date;
+  journalVersion: number;
+  createdBy: number;
+}, db: DbClient = prisma) {
+  const basis = buildLotPurchasePkrBasis({ totalUsd: p.totalUsd, carryingRatePkr: p.carryingRatePkr });
+  if (!new Prisma.Decimal(basis.carryingAmountPkr).equals(p.carryingAmountPkr)) {
+    throw new Error(`Lot purchase ${p.id} carrying amount does not match its foreign amount and recognition rate.`);
+  }
+  await createJournalEntries(lotPurchaseJournalTransactionId(p.lotId, p.id, p.journalVersion), [
+    { accountId: await getInventoryAccountId(db), debit: basis.carryingAmountPkr, credit: 0, description: `Purchase Lot · USD ${basis.foreignAmountUsd} @ PKR ${basis.carryingRatePkr}` },
+    { accountId: await getSupplierAccountId(p.supplierId, db), debit: 0, credit: basis.carryingAmountPkr, description: `Supplier payable · USD ${basis.foreignAmountUsd} @ PKR ${basis.carryingRatePkr}` },
+  ], { currencyCode: "PKR", exchangeRate: basis.carryingRatePkr, entityType: "lot_purchase", entityId: p.id, lotId: p.lotId, entryDate: p.recognitionDate, createdBy: p.createdBy }, db);
 }
 
 // SUPPLIER PAID — settle the PKR carrying value and recognize realized FX separately.
@@ -761,6 +887,9 @@ export async function journalOpeningLiability(
     liabilityType: string;
     partyId: number;
     amount: number;
+    balanceSide: "payable" | "receivable";
+    carryingAmountPkr?: number | null;
+    fxRateToPkr?: number | null;
     currencyCode: string;
     openingDate: Date;
     createdBy: number;
@@ -768,31 +897,39 @@ export async function journalOpeningLiability(
   },
   db: DbClient = prisma
 ) {
-  if (p.liabilityType === "intermediary") {
-    await createJournalEntries(`OPENLIAB-${p.id}-V${p.journalVersion}`, [
-      { accountId: await getIntermediaryAccountId(p.partyId, db), debit: p.amount, credit: 0, description: "Opening intermediary receivable" },
-      { accountId: await getOpeningBalanceAccountId(db), debit: 0, credit: p.amount, description: "Opening intermediary receivable" },
-    ], {
-      currencyCode: p.currencyCode,
-      entityType: "opening_liability",
-      entityId: p.id,
-      entryDate: p.openingDate,
-      createdBy: p.createdBy,
-    }, db);
-    return;
-  }
+  const carrying = resolveOpeningCarryingAmount(p);
+  const amount = Math.abs(carrying.carryingAmountPkr);
+  let payableAccountId: number;
+  let receivableAccountId: number;
+  if (p.liabilityType === "supplier") {
+    payableAccountId = await getSupplierAccountId(p.partyId, db);
+    receivableAccountId = await getOrCreateAccount(`1250-S${p.partyId}`, `Advance to Supplier #${p.partyId}`, "asset", undefined, db);
+  } else if (p.liabilityType === "shipping_line") {
+    payableAccountId = await getShippingLineAccountId(p.partyId, db);
+    receivableAccountId = await getOrCreateAccount(`1260-SL${p.partyId}`, `Advance to Shipping Line #${p.partyId}`, "asset", undefined, db);
+  } else if (p.liabilityType === "agent") {
+    payableAccountId = await getAgentAccountId(p.partyId, db);
+    receivableAccountId = await getOrCreateAccount(`1270-A${p.partyId}`, `Advance to Agent #${p.partyId}`, "asset", undefined, db);
+  } else if (p.liabilityType === "intermediary") {
+    payableAccountId = await getOrCreateAccount(`2350-I${p.partyId}`, `Payable to Intermediary #${p.partyId}`, "liability", undefined, db);
+    receivableAccountId = await getIntermediaryAccountId(p.partyId, db);
+  } else throw new Error(`Unsupported opening liability type: ${p.liabilityType}`);
 
-  let creditAccId: number;
-  if (p.liabilityType === "supplier") creditAccId = await getSupplierAccountId(p.partyId, db);
-  else if (p.liabilityType === "shipping_line") creditAccId = await getShippingLineAccountId(p.partyId, db);
-  else if (p.liabilityType === "agent") creditAccId = await getAgentAccountId(p.partyId, db);
-  else throw new Error(`Unsupported opening liability type: ${p.liabilityType}`);
+  const isReceivable = p.balanceSide === "receivable";
+  const receivableDescription = p.liabilityType === "intermediary"
+    ? "Opening intermediary receivable"
+    : "Opening party receivable/advance";
 
   await createJournalEntries(`OPENLIAB-${p.id}-V${p.journalVersion}`, [
-    { accountId: await getOpeningBalanceAccountId(db), debit: p.amount, credit: 0, description: `Opening liability` },
-    { accountId: creditAccId, debit: 0, credit: p.amount, description: `Opening liability` },
+    isReceivable
+      ? { accountId: receivableAccountId, debit: amount, credit: 0, description: receivableDescription }
+      : { accountId: await getOpeningBalanceAccountId(db), debit: amount, credit: 0, description: "Opening party payable" },
+    isReceivable
+      ? { accountId: await getOpeningBalanceAccountId(db), debit: 0, credit: amount, description: receivableDescription }
+      : { accountId: payableAccountId, debit: 0, credit: amount, description: "Opening party payable" },
   ], {
-    currencyCode: p.currencyCode,
+    currencyCode: "PKR",
+    exchangeRate: carrying.fxRateToPkr,
     entityType: "opening_liability",
     entityId: p.id,
     entryDate: p.openingDate,
@@ -806,6 +943,8 @@ export async function journalOpeningCityLiability(
     accountId: number;
     cityId: number;
     amount: number;
+    carryingAmountPkr?: number | null;
+    fxRateToPkr?: number | null;
     currencyCode: string;
     openingDate: Date;
     createdBy: number;
@@ -813,11 +952,14 @@ export async function journalOpeningCityLiability(
   },
   db: DbClient = prisma
 ) {
+  const carrying = resolveOpeningCarryingAmount(p);
+  const amount = Math.abs(carrying.carryingAmountPkr);
   await createJournalEntries(`OPENCITYLIAB-${p.id}-V${p.journalVersion}`, [
-    { accountId: await getOpeningBalanceAccountId(db), debit: p.amount, credit: 0, description: "Opening city liability" },
-    { accountId: await getCityLiabilityAccountId(p.accountId, db), debit: 0, credit: p.amount, description: "Opening city liability" },
+    { accountId: await getOpeningBalanceAccountId(db), debit: amount, credit: 0, description: "Opening city liability" },
+    { accountId: await getCityLiabilityAccountId(p.accountId, db), debit: 0, credit: amount, description: "Opening city liability" },
   ], {
-    currencyCode: p.currencyCode,
+    currencyCode: "PKR",
+    exchangeRate: carrying.fxRateToPkr,
     entityType: "opening_city_liability",
     entityId: p.id,
     cityId: p.cityId,
@@ -831,6 +973,9 @@ export async function journalOpeningHajiBalance(
     id: number;
     cityId: number;
     amount: number;
+    balanceSide: "payable" | "receivable";
+    carryingAmountPkr?: number | null;
+    fxRateToPkr?: number | null;
     currencyCode: string;
     openingDate: Date;
     createdBy: number;
@@ -838,14 +983,111 @@ export async function journalOpeningHajiBalance(
   },
   db: DbClient = prisma
 ) {
+  const carrying = resolveOpeningCarryingAmount(p);
+  const amount = Math.abs(carrying.carryingAmountPkr);
+  const isReceivable = p.balanceSide === "receivable";
   await createJournalEntries(`OPENHAJI-${p.id}-V${p.journalVersion}`, [
-    { accountId: await getHajiAccountId(db), debit: p.amount, credit: 0, description: "Opening Haji balance" },
-    { accountId: await getOpeningBalanceAccountId(db), debit: 0, credit: p.amount, description: "Opening Haji balance" },
+    isReceivable
+      ? { accountId: await getHajiReceivableAccountId(p.cityId, db), debit: amount, credit: 0, description: "Opening due from Haji" }
+      : { accountId: await getOpeningBalanceAccountId(db), debit: amount, credit: 0, description: "Opening owed to Haji" },
+    isReceivable
+      ? { accountId: await getOpeningBalanceAccountId(db), debit: 0, credit: amount, description: "Opening due from Haji" }
+      : { accountId: await getHajiPayableAccountId(p.cityId, db), debit: 0, credit: amount, description: "Opening owed to Haji" },
   ], {
-    currencyCode: p.currencyCode,
+    currencyCode: "PKR",
+    exchangeRate: carrying.fxRateToPkr,
     entityType: "opening_haji_balance",
     entityId: p.id,
     cityId: p.cityId,
+    entryDate: p.openingDate,
+    createdBy: p.createdBy,
+  }, db);
+}
+
+export async function journalOpeningInventoryValuation(p: {
+  id: number;
+  lotId: number;
+  productId: number;
+  totalValuePkr: number;
+  openingDate: Date;
+  createdBy: number;
+  journalVersion: number;
+}, db: DbClient = prisma) {
+  const amount = roundMoney(p.totalValuePkr);
+  if (amount <= 0) throw new Error("Opening inventory value must be greater than zero.");
+  await createJournalEntries(`OPENINV-${p.id}-V${p.journalVersion}`, [
+    { accountId: await getInventoryAccountId(db), debit: amount, credit: 0, description: `Opening inventory valuation · lot ${p.lotId} · product ${p.productId}` },
+    { accountId: await getOpeningBalanceAccountId(db), debit: 0, credit: amount, description: `Opening inventory valuation · lot ${p.lotId} · product ${p.productId}` },
+  ], {
+    currencyCode: "PKR",
+    entityType: "opening_inventory_valuation",
+    entityId: p.id,
+    lotId: p.lotId,
+    entryDate: p.openingDate,
+    createdBy: p.createdBy,
+  }, db);
+}
+
+export async function journalOpeningSuperAdminAccountBalance(p: {
+  id: number;
+  accountId: number;
+  accountKind: "bank" | "cash";
+  amount: number;
+  carryingAmountPkr: number;
+  fxRateToPkr?: number | null;
+  currencyCode: string;
+  openingDate: Date;
+  createdBy: number;
+  journalVersion: number;
+}, db: DbClient = prisma) {
+  const carrying = resolveOpeningCarryingAmount(p);
+  await journalOpeningAsset({
+    transactionPrefix: `OPENSA-${p.id}`,
+    entityType: "opening_super_admin_account_balance",
+    entityId: p.id,
+    cityId: 0,
+    amount: p.amount,
+    carryingAmountPkr: carrying.carryingAmountPkr,
+    fxRateToPkr: carrying.fxRateToPkr,
+    currencyCode: p.currencyCode,
+    openingDate: p.openingDate,
+    createdBy: p.createdBy,
+    journalVersion: p.journalVersion,
+    assetAccountId: p.accountKind === "cash"
+      ? await getSuperAdminCashGLAccountId(p.accountId, db)
+      : await getSuperAdminBankGLAccountId(p.accountId, db),
+    description: `Opening superadmin ${p.accountKind} balance #${p.id}`,
+  }, db);
+}
+
+export async function journalOpeningEquityAllocation(p: {
+  id: number;
+  equityType: "manager_capital" | "retained_earnings" | "other";
+  label: string;
+  amountPkr: number;
+  openingDate: Date;
+  createdBy: number;
+  journalVersion: number;
+}, db: DbClient = prisma) {
+  const amount = Math.abs(roundMoney(p.amountPkr));
+  if (amount === 0) throw new Error("Opening equity amount must be non-zero.");
+  const account = p.equityType === "manager_capital"
+    ? await getOrCreateAccount("3902", "Opening Manager Capital", "equity", undefined, db)
+    : p.equityType === "retained_earnings"
+      ? await getOrCreateAccount("3903", "Opening Retained Earnings", "equity", undefined, db)
+      : await getOrCreateAccount("3904", "Other Opening Equity", "equity", undefined, db);
+  const positiveEquity = p.amountPkr > 0;
+  await createJournalEntries(`OPENEQ-${p.id}-V${p.journalVersion}`, [
+    positiveEquity
+      ? { accountId: await getOpeningBalanceAccountId(db), debit: amount, credit: 0, description: p.label }
+      : { accountId: account, debit: amount, credit: 0, description: p.label },
+    positiveEquity
+      ? { accountId: account, debit: 0, credit: amount, description: p.label }
+      : { accountId: await getOpeningBalanceAccountId(db), debit: 0, credit: amount, description: p.label },
+  ], {
+    currencyCode: "PKR",
+    entityType: "opening_equity_allocation",
+    entityId: p.id,
     entryDate: p.openingDate,
     createdBy: p.createdBy,
   }, db);
@@ -861,10 +1103,11 @@ export async function journalSuperAdminPersonalExpense(
     expenseDate: Date;
     createdBy: number;
     bankAccountId: number;
+    journalVersion: number;
   },
   db: DbClient = prisma
 ) {
-  await createJournalEntries(`SAEXP-${e.id}`, [
+  await createJournalEntries(personalExpenseJournalTransactionId(e.id, e.journalVersion), [
     { accountId: await getExpenseAccountId("office", db), debit: e.amount, credit: 0, description: e.detail },
     { accountId: await getSuperAdminBankGLAccountId(e.bankAccountId, db), debit: 0, credit: e.amount, description: e.detail },
   ], {
@@ -914,7 +1157,7 @@ export async function calculateSaleCogsPkr(params: {
   usdPkrRateOverride?: number;
 }, db: DbClient = prisma): Promise<number> {
   const { saleId, lotId, totalQtySold, usdPkrRateOverride } = params;
-  const [lot, costs, lotProducts, saleItems] = await Promise.all([
+  const [lot, costs, lotProducts, saleItems, openingValuations] = await Promise.all([
     db.lot.findUnique({ where: { id: lotId }, select: { pkrExchangeRate: true, countryId: true, lotDate: true } }),
     db.lotCost.findMany({
       where: { lotId },
@@ -928,7 +1171,22 @@ export async function calculateSaleCogsPkr(params: {
       where: { saleId, lotId },
       select: { productId: true, qty: true, product: { select: { unitOfMeasure: true } } },
     }),
+    db.openingInventoryValuation.findMany({
+      where: { lotId },
+      select: { productId: true, unitCostPkr: true },
+    }),
   ]);
+
+  if (openingValuations.length > 0) {
+    const unitCostByProduct = new Map(openingValuations.map((row) => [row.productId, Number(row.unitCostPkr)]));
+    const missingProductIds = saleItems
+      .filter((item) => !unitCostByProduct.has(item.productId))
+      .map((item) => item.productId);
+    if (missingProductIds.length > 0) {
+      throw new Error(`Opening inventory valuation is incomplete for lot ${lotId}; missing product(s): ${Array.from(new Set(missingProductIds)).join(", ")}`);
+    }
+    return roundMoney(saleItems.reduce((sum, item) => sum + Number(item.qty || 0) * Number(unitCostByProduct.get(item.productId) || 0), 0));
+  }
 
   const usdPkrRate = Number(usdPkrRateOverride || 0) > 0
     ? Number(usdPkrRateOverride)
@@ -1040,9 +1298,10 @@ export async function reverseJournalEntries(transactionId: string, createdBy: nu
     const entries = await tx.journalEntry.findMany({ where: { transactionId } });
     if (entries.length === 0) return;
     const reversalDate = entryDate || new Date();
+    await assertAccountingDateOpen(reversalDate, tx);
     await tx.journalEntry.createMany({
       data: entries.map((e) => ({
-        transactionId: reversalTransactionId, accountId: e.accountId,
+        transactionId: reversalTransactionId, lineNumber: e.lineNumber, accountId: e.accountId,
         debit: Number(e.credit), credit: Number(e.debit),
         currencyCode: e.currencyCode, exchangeRate: e.exchangeRate,
         description: `REVERSAL: ${e.description}`, entityType: e.entityType, entityId: e.entityId,

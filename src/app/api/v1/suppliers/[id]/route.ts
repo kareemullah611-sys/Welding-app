@@ -34,7 +34,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, use
     const totalPurchasedUsd = supplier.lotPurchases.reduce((s, p) => s + Number(p.totalPriceUsd), 0);
     const totalPaidUsd = supplier.supplierPayments.reduce((s, p) => s + Number(p.amountUsd), 0);
     const openingByCurrency = supplier.openingLiabilities.reduce<Record<string, number>>((totals, opening) => {
-      totals[opening.currency.code] = (totals[opening.currency.code] || 0) + Number(opening.amount);
+      totals[opening.currency.code] = (totals[opening.currency.code] || 0) + (opening.balanceSide === "receivable" ? -Number(opening.amount) : Number(opening.amount));
       return totals;
     }, {});
     const { rows: statement, nextLotToPay, openingBalanceUsd, openingBalanceRemainingUsd } = buildSupplierStatement(supplier);

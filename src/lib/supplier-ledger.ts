@@ -97,7 +97,7 @@ export function buildSupplierStatement(supplier: {
 
   const openingBalanceUsd = round2((supplier.openingLiabilities || [])
     .filter((opening) => opening.currency?.code === "USD")
-    .reduce((sum, opening) => sum + num(opening.amount), 0));
+    .reduce((sum, opening) => sum + (opening.balanceSide === "receivable" ? -num(opening.amount) : num(opening.amount)), 0));
   let openingBalanceRemainingUsd = openingBalanceUsd;
 
   for (const payment of sortedPayments) {
@@ -184,8 +184,8 @@ export function buildSupplierRunningLedger(supplier: {
     entries.push({
       date: new Date(opening.openingDate).toISOString().split("T")[0],
       particulars: "Opening supplier balance",
-      debitUsd: round2(num(opening.amount)),
-      creditUsd: 0,
+      debitUsd: opening.balanceSide === "receivable" ? 0 : round2(num(opening.amount)),
+      creditUsd: opening.balanceSide === "receivable" ? round2(num(opening.amount)) : 0,
       sourceType: "opening",
       sourceId: Number(opening.id),
     });

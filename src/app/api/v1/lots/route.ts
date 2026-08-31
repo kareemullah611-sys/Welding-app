@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, withSuperAdmin, getCityScope, createAuditLog, getClientIP } from "@/lib/middleware";
 import { createLotSchema } from "@/lib/validations";
-import { journalLotPurchase } from "@/lib/accounting";
+import { buildLotPurchasePkrBasis, journalLotPurchase } from "@/lib/accounting";
 import {
   successResponse, paginatedResponse, validationError, errorResponse, serverError,
   getPaginationParams, getDateRange,
@@ -405,6 +405,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         const product = productById.get(item.productId)!;
         const { purchaseQty, unitPriceUsd } = purchaseQtyAndPrice(item, product);
         const totalPriceUsd = round2(purchaseQty * unitPriceUsd);
+        const purchaseBasis = buildLotPurchasePkrBasis({ totalUsd: totalPriceUsd, carryingRatePkr: recognitionRate.rate });
         const purchase = await tx.lotPurchase.create({
           data: {
             lotId: lot.id,
@@ -414,11 +415,19 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
             weightPerCartonKg: product.unitOfMeasure === "PCS" ? null : product.defaultWeightPerCartonKg,
             unitPriceUsd,
             totalPriceUsd,
+            carryingRatePkr: purchaseBasis.carryingRatePkr,
+            carryingAmountPkr: purchaseBasis.carryingAmountPkr,
+            recognitionDate: new Date(lotDate),
+            recognitionRateMetadata: recognitionRate as any,
             createdBy: user.userId,
           },
         });
         await journalLotPurchase(
-          { id: purchase.id, supplierId: item.supplierId, lotId: lot.id, totalUsd: totalPriceUsd, createdBy: user.userId },
+          {
+            id: purchase.id, supplierId: item.supplierId, lotId: lot.id, totalUsd: totalPriceUsd,
+            carryingRatePkr: purchaseBasis.carryingRatePkr, carryingAmountPkr: purchaseBasis.carryingAmountPkr,
+            recognitionDate: new Date(lotDate), journalVersion: purchase.journalVersion, createdBy: user.userId,
+          },
           tx
         );
       }

@@ -20,7 +20,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, use
 
     // Build ledger
     const entries: any[] = [];
-    for (const opening of agent.openingLiabilities) { entries.push({ date: opening.openingDate, type: "opening", description: opening.notes || "Opening agent balance", debit: Number(opening.amount), credit: 0, currency: opening.currency.code }); }
+    for (const opening of agent.openingLiabilities) { entries.push({ date: opening.openingDate, type: "opening", description: opening.notes || "Opening agent balance", debit: opening.balanceSide === "receivable" ? 0 : Number(opening.amount), credit: opening.balanceSide === "receivable" ? Number(opening.amount) : 0, currency: opening.currency.code }); }
     for (const c of agent.lotCosts) { entries.push({ date: c.costDate || c.createdAt, type: "charge", description: `${c.costType}: ${c.description} (Lot ${c.lot.lotNumber})`, debit: Number(c.amount), credit: 0, currency: c.currencyCode }); }
     for (const p of agent.agentPayments) { entries.push({ date: p.paymentDate, type: "payment", description: `Payment ${p.paymentMethod} ${p.reference || ""}`, debit: 0, credit: Number(p.amount), currency: p.currencyCode }); }
     entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());

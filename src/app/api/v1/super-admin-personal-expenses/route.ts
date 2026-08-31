@@ -185,6 +185,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
         expenseDate: created.expenseDate,
         createdBy: user.userId,
         bankAccountId,
+        journalVersion: created.journalVersion,
       }, tx);
 
       if (syncMeta) {

@@ -53,6 +53,7 @@ test("lot cost create is idempotent for repeated sync request id", async () => {
     supplierId: supplier.id,
     notes: "offline replay test",
   };
+  let createdCostId: number | null = null;
 
   try {
     const firstRequest = new NextRequest("http://localhost/api/v1/lot-costs", {
@@ -66,6 +67,7 @@ test("lot cost create is idempotent for repeated sync request id", async () => {
     assert.equal(firstJson.success, true);
     const firstId = firstJson.data?.id;
     assert.ok(firstId, "First call should return created id");
+    createdCostId = firstId;
 
     const secondRequest = new NextRequest("http://localhost/api/v1/lot-costs", {
       method: "POST",
@@ -89,8 +91,23 @@ test("lot cost create is idempotent for repeated sync request id", async () => {
         requestId: syncRequestId,
       },
     });
+    if (createdCostId) {
+      await prisma.auditLog.deleteMany({
+        where: { entityType: "lot_costs", entityId: createdCostId },
+      });
+      await prisma.journalEntry.deleteMany({
+        where: { entityType: "lot_cost", entityId: createdCostId },
+      });
+    }
     await prisma.lotCost.deleteMany({ where: { lotId: lot.id, description: marker } });
     await prisma.supplier.deleteMany({ where: { id: supplier.id } });
     await prisma.lot.deleteMany({ where: { id: lot.id } });
+  }
+
+  if (createdCostId) {
+    const orphanJournalCount = await prisma.journalEntry.count({
+      where: { entityType: "lot_cost", entityId: createdCostId },
+    });
+    assert.equal(orphanJournalCount, 0, "Test cleanup must not leave an orphan lot-cost journal");
   }
 });

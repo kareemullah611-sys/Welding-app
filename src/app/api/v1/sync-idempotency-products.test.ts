@@ -27,7 +27,7 @@ test("product create is idempotent for repeated sync request id", async () => {
     "x-sync-device-id": "device-test-1",
   };
 
-  const payload = { name: marker };
+  const payload = { name: marker, unitOfMeasure: "PCS", piecesPerCarton: 1 };
 
   try {
     const firstRequest = new NextRequest("http://localhost/api/v1/products", {

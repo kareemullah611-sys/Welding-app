@@ -7,7 +7,12 @@ import { buildLotCostLedger } from "@/lib/lot-cost-ledger";
 import { computeLotLandedCostPkr } from "@/lib/landed-cost-pkr";
 import { buildCityLotAssignmentDetail } from "@/lib/city-lot-assignment";
 import { updateLotSchema } from "@/lib/validations";
-import { journalLotPurchase, reverseJournalEntries } from "@/lib/accounting";
+import {
+  buildLotPurchasePkrBasis,
+  journalLotPurchase,
+  lotPurchaseJournalTransactionId,
+  reverseJournalEntries,
+} from "@/lib/accounting";
 import { LOT_SHIPMENT_STATUS_VALUES, lotDocumentCategoryLabel, lotShipmentStatusLabel } from "@/lib/lot-documents";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -613,11 +618,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
 
         for (const existing of existingPurchases) {
           if (incomingIds.has(existing.id)) continue;
-          try {
-            await reverseJournalEntries(`PURCH-${existing.lotId}-${existing.id}`, user.userId, tx);
-          } catch (je) {
-            console.error("Reverse journal (lot purchase delete):", je);
-          }
+          await reverseJournalEntries(lotPurchaseJournalTransactionId(existing.lotId, existing.id, existing.journalVersion), user.userId, tx);
           await tx.lotPurchase.delete({ where: { id: existing.id } });
         }
 
@@ -628,12 +629,10 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
           if (item.id) {
             const existing = existingPurchases.find((row) => row.id === item.id);
             if (!existing) throw new Error(`Purchase item #${item.id} not found on this lot`);
-            try {
-              await reverseJournalEntries(`PURCH-${existing.lotId}-${existing.id}`, user.userId, tx);
-            } catch (je) {
-              console.error("Reverse journal (lot purchase update):", je);
-            }
-            await tx.lotPurchase.update({
+            const carryingRatePkr = Number(existing.carryingRatePkr || lot.pkrExchangeRate || 0);
+            const basis = buildLotPurchasePkrBasis({ totalUsd: totalPriceUsd, carryingRatePkr });
+            await reverseJournalEntries(lotPurchaseJournalTransactionId(existing.lotId, existing.id, existing.journalVersion), user.userId, tx);
+            const updatedPurchase = await tx.lotPurchase.update({
               where: { id: item.id },
               data: {
                 supplierId: item.supplierId,
@@ -642,13 +641,24 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
                 weightPerCartonKg: product.unitOfMeasure === "PCS" ? null : product.defaultWeightPerCartonKg,
                 unitPriceUsd,
                 totalPriceUsd,
+                carryingRatePkr: basis.carryingRatePkr,
+                carryingAmountPkr: basis.carryingAmountPkr,
+                recognitionDate: existing.recognitionDate || lot.lotDate,
+                recognitionRateMetadata: existing.recognitionRateMetadata || lot.pkrExchangeRateMetadata as any,
+                journalVersion: { increment: 1 },
               },
             });
             await journalLotPurchase(
-              { id: item.id, supplierId: item.supplierId, lotId: id, totalUsd: totalPriceUsd, createdBy: user.userId },
+              {
+                id: item.id, supplierId: item.supplierId, lotId: id, totalUsd: totalPriceUsd,
+                carryingRatePkr: basis.carryingRatePkr, carryingAmountPkr: basis.carryingAmountPkr,
+                recognitionDate: updatedPurchase.recognitionDate || lot.lotDate,
+                journalVersion: updatedPurchase.journalVersion, createdBy: user.userId,
+              },
               tx,
             );
           } else {
+            const basis = buildLotPurchasePkrBasis({ totalUsd: totalPriceUsd, carryingRatePkr: Number(lot.pkrExchangeRate || 0) });
             const purchase = await tx.lotPurchase.create({
               data: {
                 lotId: id,
@@ -658,11 +668,19 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
                 weightPerCartonKg: product.unitOfMeasure === "PCS" ? null : product.defaultWeightPerCartonKg,
                 unitPriceUsd,
                 totalPriceUsd,
+                carryingRatePkr: basis.carryingRatePkr,
+                carryingAmountPkr: basis.carryingAmountPkr,
+                recognitionDate: lot.lotDate,
+                recognitionRateMetadata: lot.pkrExchangeRateMetadata as any,
                 createdBy: user.userId,
               },
             });
             await journalLotPurchase(
-              { id: purchase.id, supplierId: item.supplierId, lotId: id, totalUsd: totalPriceUsd, createdBy: user.userId },
+              {
+                id: purchase.id, supplierId: item.supplierId, lotId: id, totalUsd: totalPriceUsd,
+                carryingRatePkr: basis.carryingRatePkr, carryingAmountPkr: basis.carryingAmountPkr,
+                recognitionDate: lot.lotDate, journalVersion: purchase.journalVersion, createdBy: user.userId,
+              },
               tx,
             );
           }
@@ -739,10 +757,22 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
     const lot = await prisma.lot.findUnique({ where: { id } });
     if (!lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
     // Check if lot has sales
-    const salesCount = await prisma.sale.count({ where: { lotId: id, status: "active" } });
+    const salesCount = await prisma.sale.count({ where: { status: "active", OR: [{ lotId: id }, { items: { some: { lotId: id } } }] } });
     if (salesCount > 0) return errorResponse("FORBIDDEN", `Cannot delete: lot has ${salesCount} active sales`, 403);
     // Delete all related data atomically — if any step fails the lot is NOT deleted
     await prisma.$transaction(async (tx) => {
+      const [purchases, costs, expenses, transfers] = await Promise.all([
+        tx.lotPurchase.findMany({ where: { lotId: id } }),
+        tx.lotCost.findMany({ where: { lotId: id }, select: { id: true } }),
+        tx.expense.findMany({ where: { lotId: id }, select: { id: true } }),
+        tx.hajiTransfer.findMany({ where: { lotId: id }, select: { id: true } }),
+      ]);
+      for (const purchase of purchases) {
+        await reverseJournalEntries(lotPurchaseJournalTransactionId(id, purchase.id, purchase.journalVersion), user.userId, tx);
+      }
+      for (const cost of costs) await reverseJournalEntries(`COST-${cost.id}`, user.userId, tx);
+      for (const expense of expenses) await reverseJournalEntries(`EXP-${expense.id}`, user.userId, tx);
+      for (const transfer of transfers) await reverseJournalEntries(`HAJI-${transfer.id}`, user.userId, tx);
       await tx.lotCityGodownAllocation.deleteMany({ where: { lotCityDistribution: { lotId: id } } });
       await tx.lotCityDistribution.deleteMany({ where: { lotId: id } });
       await tx.lotProduct.deleteMany({ where: { lotId: id } });
@@ -751,8 +781,8 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
       await tx.expense.deleteMany({ where: { lotId: id } });
       await tx.hajiTransfer.deleteMany({ where: { lotId: id } });
       await tx.lot.delete({ where: { id } });
+      await createAuditLog(user.userId, null, "lots", id, "delete", { lotNumber: lot.lotNumber }, undefined, getClientIP(request), tx);
     });
-    await createAuditLog(user.userId, null, "lots", id, "delete", { lotNumber: lot.lotNumber }, undefined, getClientIP(request));
     return successResponse({ id }, "Lot deleted");
   } catch (error: any) {
     console.error("Delete lot error:", error?.message);

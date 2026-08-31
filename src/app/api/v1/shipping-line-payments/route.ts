@@ -28,6 +28,27 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
     if (!parsedShippingLineId || !paymentDate || !amountUsd) return validationError("shippingLineId, paymentDate, and amountUsd are required");
     if (Number(amountUsd) <= 0) return validationError("Amount must be greater than 0");
 
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: SHIPPING_LINE_PAYMENT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        const existingPayment = await prisma.shippingLinePayment.findUnique({ where: { id: existingSync.entityId } });
+        if (existingPayment) {
+          return successResponse(
+            { id: existingPayment.id, amountUsd: Number(existingPayment.amountUsd), amountPkr: existingPayment.amountPkr ? Number(existingPayment.amountPkr) : null },
+            "Payment already synced"
+          );
+        }
+      }
+    }
+
     const [sl, lot] = await Promise.all([
       prisma.shippingLine.findUnique({ where: { id: parsedShippingLineId }, select: { id: true } }),
       parsedLotId ? prisma.lot.findUnique({ where: { id: parsedLotId }, select: { id: true } }) : Promise.resolve(null),
@@ -79,27 +100,6 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
     );
     const amountPkr = amountPkrValue > 0 ? Math.round(amountPkrValue * 100) / 100 : null;
     if (!amountLocal && amountPkr) amountLocal = amountPkr;
-
-    if (syncMeta) {
-      const existingSync = await prisma.syncRequest.findUnique({
-        where: {
-          unique_sync_request_per_city_module: {
-            cityId: SUPERADMIN_SYNC_CITY_ID,
-            module: SHIPPING_LINE_PAYMENT_SYNC_MODULE,
-            requestId: syncMeta.requestId,
-          },
-        },
-      });
-      if (existingSync?.entityId) {
-        const existingPayment = await prisma.shippingLinePayment.findUnique({ where: { id: existingSync.entityId } });
-        if (existingPayment) {
-          return successResponse(
-            { id: existingPayment.id, amountUsd: Number(existingPayment.amountUsd), amountPkr: existingPayment.amountPkr ? Number(existingPayment.amountPkr) : null },
-            "Payment already synced"
-          );
-        }
-      }
-    }
 
     const fallbackUsdToPkrRate = resolvedIntermediaryId
       ? await getLotFallbackUsdToPkrRate(parsedLotId)
