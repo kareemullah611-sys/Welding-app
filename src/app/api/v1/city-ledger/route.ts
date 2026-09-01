@@ -76,15 +76,15 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     for (const p of payments) {
       const isInHand = p.destination === "our_account";
-      const hajiCredit = p.destination === "haji" && p.lot.status === "ongoing" ? Number(p.amount) : 0;
+      const hajiCredit = p.destination === "haji" && p.lot?.status === "ongoing" ? Number(p.amount) : 0;
       entries.push({
         date: p.paymentDate.toISOString().split("T")[0],
         type: "payment", category: isInHand ? "Cash In" : "Direct to Haji",
         description: `${p.detail} from ${p.customer.name} (${p.paymentMethod})`,
         debit: 0, credit: Number(p.amount),
         hajiCredit,
-        currency: p.currency.code, lot: p.lot.lotNumber,
-        lotStatus: p.lot.status,
+        currency: p.currency.code, lot: p.lot?.lotNumber ?? null,
+        lotStatus: p.lot?.status ?? null,
         account: isInHand ? "Cash In Hand" : "Haji Account",
         counterAccount: "Receivables",
         method: p.paymentMethod, destination: p.destination,
@@ -97,9 +97,9 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         type: "expense", category: "Expense",
         description: e.detail,
         debit: Number(e.amount), credit: 0,
-        hajiCredit: e.lot.status === "ongoing" ? Number(e.amount) : 0,
-        currency: e.currency.code, lot: e.lot.lotNumber,
-        lotStatus: e.lot.status,
+        hajiCredit: e.lot?.status === "ongoing" ? Number(e.amount) : 0,
+        currency: e.currency.code, lot: e.lot?.lotNumber ?? null,
+        lotStatus: e.lot?.status ?? null,
         account: "Expenses", counterAccount: "Cash In Hand",
       });
     }

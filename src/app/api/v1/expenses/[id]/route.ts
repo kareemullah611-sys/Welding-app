@@ -28,7 +28,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       chequePaymentId: (expense as any).chequePaymentId ?? null,
       customerPaymentId: (expense as any).customerPaymentId ?? null,
       customerPayment: (expense as any).customerPayment ?? null,
-      lotNumber: (expense as any).lot.lotNumber, currency: (expense as any).currency.code,
+      lotNumber: (expense as any).lot?.lotNumber ?? null, currency: (expense as any).currency.code,
     });
   } catch (error) { return serverError(); }
 });
@@ -138,20 +138,16 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       const customer = await prisma.customer.findFirst({ where: { id: nextCustomerId, cityId: expense.cityId, isActive: true } });
       if (!customer) return errorResponse("NOT_FOUND", "Customer not found in your city", 404);
     }
-    const nextLotId = data.lotId !== undefined && data.lotId ? data.lotId : expense.lotId;
-    if (!nextLotId) return errorResponse("VALIDATION_ERROR", "Lot is required");
-    const lotChanged = nextLotId !== expense.lotId;
-    const nextLot = lotChanged
-      ? await prisma.lot.findFirst({
-          where: {
-            id: nextLotId,
-            status: "ongoing",
-            lotCityDistributions: { some: { cityId: expense.cityId } },
-          },
-          select: { id: true, lotNumber: true },
-        })
-      : await prisma.lot.findUnique({ where: { id: nextLotId }, select: { id: true, lotNumber: true } });
-    if (!nextLot) return errorResponse("VALIDATION_ERROR", "Lot not found, completed, or not distributed to your city");
+
+    let customerPaymentFifoLotId: number | null = (expense as any).customerPayment?.lotId ?? null;
+    if (nextPaidFrom === "customer" && nextCustomerId && !customerPaymentFifoLotId) {
+      const fifoLot = await prisma.lot.findFirst({
+        where: { status: "ongoing", lotCityDistributions: { some: { cityId: expense.cityId } } },
+        orderBy: [{ lotDate: "asc" }, { id: "asc" }],
+        select: { id: true },
+      });
+      customerPaymentFifoLotId = fifoLot?.id ?? null;
+    }
 
     const old = {
       date: expense.expenseDate.toISOString().split("T")[0],
@@ -185,7 +181,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         const paymentData = {
           cityId: expense.cityId,
           customerId: nextCustomerId,
-          lotId: nextLot.id,
+          lotId: customerPaymentFifoLotId,
           paymentDate: nextExpenseDate,
           amount: data.amount ?? expense.amount,
           currencyId: expense.currencyId,
@@ -209,7 +205,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           id: payment.id,
           customerId: nextCustomerId,
           cityId: expense.cityId,
-          lotId: nextLot.id,
+          lotId: customerPaymentFifoLotId,
           amount: Number(payment.amount),
           currencyCode: (expense as any).currency.code,
           paymentDate: payment.paymentDate,
@@ -224,7 +220,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       const next = await tx.expense.update({
         where: { id },
         data: {
-          lotId: nextLot.id,
+          lotId: null,
           expenseDate: nextExpenseDate,
           amount: data.amount ?? expense.amount,
           detail: data.detail || expense.detail,
@@ -240,7 +236,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       await journalExpenseCreated({
         id,
         cityId: expense.cityId,
-        lotId: nextLot.id,
+        lotId: null,
         amount: Number(next.amount),
         currencyCode: (expense as any).currency.code,
         detail: next.detail,
@@ -261,7 +257,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           date: next.expenseDate.toISOString().split("T")[0],
           amount: Number(next.amount),
           detail: next.detail,
-          lotId: nextLot.id,
+          lotId: null,
           paidFrom: nextPaidFrom,
           bankAccountId: nextBankAccountId,
         },

@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma";
+import { lockIntermediaryUsdFifo } from "@/lib/financial-locks";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { COUNTRY_CODES } from "@/lib/country-code";
 
@@ -191,6 +192,7 @@ export async function consumeIntermediaryUsdFifo(
   let remainingUsd = round2(input.amountUsd);
   if (remainingUsd <= 0) return { amountPkr: 0, effectiveRatePkr: 0, usedFallback: false };
 
+  await lockIntermediaryUsdFifo(db, input.intermediaryId);
   const layers = await db.intermediaryUsdCostLayer.findMany({
     where: { intermediaryId: input.intermediaryId, remainingAmountUsd: { gt: 0 } },
     orderBy: [{ acquiredDate: "asc" }, { id: "asc" }],

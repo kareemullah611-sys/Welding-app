@@ -5,7 +5,6 @@ import { successResponse, errorResponse, serverError } from "@/lib/api-response"
 import { JWTPayload } from "@/lib/auth";
 import {
   computeLotLandedCostPkr,
-  groupExpensesByCurrency,
   type LotCostLike,
 } from "@/lib/landed-cost-pkr";
 import { getCountryFallbackRateToPkr } from "@/lib/intermediary-usd-fifo";
@@ -192,7 +191,6 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
     }),
   ]);
 
-  const lotExpensesByCurrency = groupExpensesByCurrency(lotExpenses);
   const totalCartonsBought = lot.lotProducts.reduce((s, lp) => s + stockQtyToReportCartons(lp.totalQty, lp.product), 0);
   const metrics = buildLotProfitMetrics({
     lotId,
@@ -209,7 +207,7 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
       exchangeRate: c.exchangeRate,
       costType: c.costType,
     })),
-    lotExpensesByCurrency,
+    lotExpensesByCurrency: {},
     totalCartonsBought,
   });
 
@@ -230,7 +228,7 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
       if (!salesByProduct[pid]) {
         salesByProduct[pid] = { qty: 0, revenue: 0, productName: item.product.name };
       }
-      salesByProduct[pid].qty += num(item.qty);
+      salesByProduct[pid].qty += stockQtyToReportCartons(item.qty, item.product);
       salesByProduct[pid].revenue += num(item.amount);
       totalRevenue += num(item.amount);
     }
@@ -245,9 +243,14 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
   const totalDiscounts = num(discountsAgg._sum.discountAmount);
   const netRevenue = totalRevenue - totalDiscounts;
 
-  // Operational expenses only — lot-tagged expenses are already in landed cost / COGS.
-  const operationalExpenses = { _sum: { amount: null as number | null } };
-  const totalOperationalExpenses = num(operationalExpenses._sum.amount);
+  const unsupportedExpenseCurrencies = Array.from(new Set(
+    lotExpenses
+      .filter((expense) => String(expense.currency.code).toUpperCase() !== "PKR")
+      .map((expense) => String(expense.currency.code).toUpperCase()),
+  ));
+  const totalOperationalExpenses = lotExpenses
+    .filter((expense) => String(expense.currency.code).toUpperCase() === "PKR")
+    .reduce((sum, expense) => sum + num(expense.amount), 0);
 
   const productProfits = metrics.productCosts.map((pc) => {
     const soldData = salesByProduct[pc.productId];
@@ -298,7 +301,7 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
       otherCostsPkr: round2(metrics.landed.nonFreightCostsPkr + metrics.landed.lotExpensesPkr),
     },
     productCosts: productProfits,
-    profitSummary: {
+      profitSummary: {
       grossRevenue: round2(totalRevenue),
       totalDiscounts: round2(totalDiscounts),
       netRevenue: round2(netRevenue),
@@ -308,9 +311,10 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
       lotExpensesInLandedCost: round2(metrics.landed.lotExpensesPkr),
       netProfit: round2(netProfit),
       unsoldInventoryValue: round2(productProfits.reduce((s, p) => s + p.unsoldValue, 0)),
-      totalRevenue: round2(netRevenue),
-    },
-  });
+        totalRevenue: round2(netRevenue),
+      },
+      warnings: unsupportedExpenseCurrencies.map((currency) => `${currency} expenses require stored PKR recognition metadata and are excluded from this lot preview.`),
+    });
 }
 
 function parseDate(s: string | null | undefined): Date | undefined {

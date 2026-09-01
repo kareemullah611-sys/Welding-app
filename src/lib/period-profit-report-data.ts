@@ -2,7 +2,6 @@ import prisma from "@/lib/prisma";
 import { buildAuthoritativeFinancialReportResult } from "@/lib/authoritative-financial-report";
 import {
   computeLotLandedCostPkr,
-  groupExpensesByCurrency,
   type LotCostLike,
 } from "@/lib/landed-cost-pkr";
 import { getCountryFallbackRateToPkr } from "@/lib/intermediary-usd-fifo";
@@ -75,7 +74,7 @@ export async function buildPeriodProfitReportData(
       lotProducts: { include: { product: true } },
       lotCosts: true,
       country: true,
-      sales: { where: saleWhere, include: { items: true } },
+      sales: { where: saleWhere, include: { items: { include: { product: true } } } },
       expenses: {
         where: user.role === "city_admin" ? { cityId: user.cityId!, deletedAt: null } : { deletedAt: null },
         include: { currency: true },
@@ -103,7 +102,6 @@ export async function buildPeriodProfitReportData(
     const totalCartons = lot.lotProducts.reduce((sum, lotProduct) => (
       sum + stockQtyToReportCartons(lotProduct.totalQty, lotProduct.product)
     ), 0);
-    const lotExpensesByCurrency = groupExpensesByCurrency(lot.expenses);
     const usdPkrRate = lot.pkrExchangeRate
       ? num(lot.pkrExchangeRate)
       : num(await getCountryFallbackRateToPkr({ countryId: lot.countryId, fromCurrencyCode: "USD", asOf: lot.lotDate }));
@@ -116,7 +114,7 @@ export async function buildPeriodProfitReportData(
         exchangeRate: cost.exchangeRate,
         costType: cost.costType,
       })),
-      lotExpensesByCurrency,
+      lotExpensesByCurrency: {},
       totalCartonsBought: totalCartons,
     });
 
@@ -125,13 +123,16 @@ export async function buildPeriodProfitReportData(
     for (const sale of lot.sales) {
       for (const item of sale.items) {
         grossLotRevenue += num(item.amount);
-        lotCartonsSold += num(item.qty);
+        lotCartonsSold += stockQtyToReportCartons(item.qty, item.product);
       }
     }
 
     const lotDiscounts = discountByLot[lot.id] || 0;
     const lotRevenue = grossLotRevenue - lotDiscounts;
     const lotCOGS = lotCartonsSold * metrics.landedCostPerCartonPkr;
+    const lotExpensesPkr = lot.expenses
+      .filter((expense) => String(expense.currency.code).toUpperCase() === "PKR")
+      .reduce((sum, expense) => sum + num(expense.amount), 0);
 
     totalRevenue += lotRevenue;
     totalCOGS += lotCOGS;
@@ -149,9 +150,9 @@ export async function buildPeriodProfitReportData(
         discounts: round2(lotDiscounts),
         revenue: round2(lotRevenue),
         cogs: round2(lotCOGS),
-        expenses: 0,
+        expenses: round2(lotExpensesPkr),
         grossProfit: round2(lotRevenue - lotCOGS),
-        netProfit: round2(lotRevenue - lotCOGS),
+        netProfit: round2(lotRevenue - lotCOGS - lotExpensesPkr),
       });
     }
   }

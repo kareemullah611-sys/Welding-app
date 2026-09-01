@@ -135,7 +135,7 @@ function addDays(value: string, days: number): string {
 function normalizeShare(value: number | null | undefined, participantType: AttributionParticipantType): number {
   if (participantType === "manager") return 100;
   const share = Number(value);
-  if (!Number.isFinite(share)) return 100;
+  if (!Number.isFinite(share)) return 0;
   return Math.max(0, Math.min(100, share));
 }
 
@@ -267,6 +267,17 @@ export function buildHistoricalPoolPreview(input: {
   const boundaries = buildBoundaries(input.periodStart, input.periodEnd, input.capitalEvents, profitShareEvents);
   const pools: HistoricalPoolPreview["pools"] = [];
   const blockedReasons = new Set<string>();
+  for (const event of input.capitalEvents) {
+    if (event.participantType !== "investor") continue;
+    if (!Number.isFinite(Number(event.investorProfitSharePercent))) {
+      blockedReasons.add(`${event.participantName} has no explicit investor profit-share percentage.`);
+    }
+  }
+  for (const event of profitShareEvents) {
+    if (!Number.isFinite(Number(event.investorProfitSharePercent))) {
+      blockedReasons.add(`Participant ${event.participantId} has an invalid profit-share event.`);
+    }
+  }
 
   for (let index = 0; index < boundaries.length - 1; index += 1) {
     const segmentStart = boundaries[index];

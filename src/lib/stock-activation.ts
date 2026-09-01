@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { journalSaleCOGS } from "@/lib/accounting";
+import { lockGodownProductStock } from "@/lib/financial-locks";
 
 /**
  * After new stock arrives in a godown, auto-activate any marked_short sales
@@ -15,91 +16,65 @@ import { journalSaleCOGS } from "@/lib/accounting";
  * entry that was skipped at sale-creation time.
  */
 export async function autoActivateShortSales(godownId: number): Promise<number> {
-  // Get all marked_short sales in this godown, oldest first
-  const shortSales = await prisma.sale.findMany({
-    where: { godownId, status: "marked_short" },
-    include: { items: true },
-    orderBy: [{ saleDate: "asc" }, { id: "asc" }],
-  });
-
-  if (!shortSales.length) return 0;
-
-  // Gather all product IDs involved
-  const productIds = Array.from(
-    new Set(shortSales.flatMap((s) => s.items.map((i) => i.productId)))
-  );
-
-  // Free capacity = received - active_sold - transferredOut + transferredIn
-  // (deliberately excludes marked_short so we can check if stock covers them)
-  const freeCapacity: Record<number, number> = {};
-  for (const productId of productIds) {
-    const received = await prisma.lotCityGodownAllocation.aggregate({
-      where: { godownId, productId },
-      _sum: { qty: true },
+  return prisma.$transaction(async (tx) => {
+    let shortSales = await tx.sale.findMany({
+      where: { godownId, status: "marked_short" },
+      include: { items: true },
+      orderBy: [{ saleDate: "asc" }, { id: "asc" }],
     });
-    const activeSold = await prisma.saleItem.aggregate({
-      where: { productId, sale: { godownId, status: "active" } },
-      _sum: { qty: true },
-    });
-    const out = await prisma.godownTransfer.aggregate({
-      where: { fromGodownId: godownId, productId },
-      _sum: { qty: true },
-    });
-    const inn = await prisma.godownTransfer.aggregate({
-      where: { toGodownId: godownId, productId },
-      _sum: { qty: true },
-    });
-    freeCapacity[productId] =
-      Number(received._sum.qty || 0) -
-      Number(activeSold._sum.qty || 0) -
-      Number(out._sum.qty || 0) +
-      Number(inn._sum.qty || 0);
-  }
+    if (!shortSales.length) return 0;
 
-  let activated = 0;
+    const productIds = Array.from(new Set(shortSales.flatMap((sale) => sale.items.map((item) => item.productId))));
+    await lockGodownProductStock(tx, productIds.map((productId) => ({ godownId, productId })));
+    shortSales = await tx.sale.findMany({
+      where: { godownId, status: "marked_short" },
+      include: { items: true },
+      orderBy: [{ saleDate: "asc" }, { id: "asc" }],
+    });
 
-  for (const sale of shortSales) {
-    // Check if ALL items in this sale are within remaining free capacity
-    const canActivate = sale.items.every(
-      (item) => (freeCapacity[item.productId] ?? 0) >= Number(item.qty)
-    );
+    const freeCapacity: Record<number, number> = {};
+    for (const productId of productIds) {
+      const [received, activeSold, out, inn] = await Promise.all([
+        tx.lotCityGodownAllocation.aggregate({ where: { godownId, productId }, _sum: { qty: true } }),
+        tx.saleItem.aggregate({ where: { productId, sale: { godownId, status: "active" } }, _sum: { qty: true } }),
+        tx.godownTransfer.aggregate({ where: { fromGodownId: godownId, productId }, _sum: { qty: true } }),
+        tx.godownTransfer.aggregate({ where: { toGodownId: godownId, productId }, _sum: { qty: true } }),
+      ]);
+      freeCapacity[productId] = Number(received._sum.qty || 0)
+        - Number(activeSold._sum.qty || 0)
+        - Number(out._sum.qty || 0)
+        + Number(inn._sum.qty || 0);
+    }
 
-    if (canActivate) {
-      // Deduct this sale's items from free capacity
+    let activated = 0;
+    for (const sale of shortSales) {
+      if (!sale.items.every((item) => (freeCapacity[item.productId] ?? 0) >= Number(item.qty))) continue;
       for (const item of sale.items) {
         freeCapacity[item.productId] = (freeCapacity[item.productId] ?? 0) - Number(item.qty);
       }
-      // Atomically activate only if still marked_short — prevents race condition where
-      // two concurrent stock events both try to activate the same sale
-      const { count } = await prisma.sale.updateMany({
+      const { count } = await tx.sale.updateMany({
         where: { id: sale.id, status: "marked_short" },
         data: { status: "active", stockShortFlag: false },
       });
-      if (count > 0) {
-        activated++;
-        // Fix C4: post the deferred COGS journal entry now that the sale is active.
-        try {
-          const qtyByLot = sale.items.reduce((acc: Record<number, number>, item) => {
-            const lotId = Number(item.lotId || sale.lotId);
-            acc[lotId] = (acc[lotId] || 0) + Number(item.qty);
-            return acc;
-          }, {});
-          for (const [lotId, totalQtySold] of Object.entries(qtyByLot) as Array<[string, number]>) {
-            await journalSaleCOGS({
-              saleId: sale.id,
-              lotId: Number(lotId),
-              totalQtySold,
-              saleDate: sale.saleDate,
-              cityId: sale.cityId,
-              createdBy: sale.createdBy,
-            });
-          }
-        } catch (cogsErr) {
-          console.error(`Failed to post deferred COGS for sale ${sale.id} on activation:`, cogsErr);
-        }
-      }
-    }
-  }
+      if (count === 0) continue;
 
-  return activated;
+      const qtyByLot = sale.items.reduce((acc: Record<number, number>, item) => {
+        const lotId = Number(item.lotId || sale.lotId);
+        acc[lotId] = (acc[lotId] || 0) + Number(item.qty);
+        return acc;
+      }, {});
+      for (const [lotId, totalQtySold] of Object.entries(qtyByLot) as Array<[string, number]>) {
+        await journalSaleCOGS({
+          saleId: sale.id,
+          lotId: Number(lotId),
+          totalQtySold,
+          saleDate: sale.saleDate,
+          cityId: sale.cityId,
+          createdBy: sale.createdBy,
+        }, tx);
+      }
+      activated++;
+    }
+    return activated;
+  });
 }

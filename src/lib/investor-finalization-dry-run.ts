@@ -13,6 +13,7 @@ export type FinalizationDryRunBlockerCode =
   | "BLOCKED_RESIDUAL_RECONCILIATION"
   | "BLOCKED_DATA_INTEGRITY"
   | "BLOCKED_DUPLICATE_FINALIZATION"
+  | "BLOCKED_OVERLAPPING_FINALIZATION"
   | "POST_FINALIZATION_ADJUSTMENT_REQUIRED";
 
 export type UnsupportedFxPosition = {
@@ -146,6 +147,10 @@ function samePeriod(a: ExistingFinalizationRecord, periodStart: string, periodEn
   return a.periodStart === periodStart && a.periodEnd === periodEnd;
 }
 
+function overlapsPeriod(a: ExistingFinalizationRecord, periodStart: string, periodEnd: string) {
+  return a.periodStart <= periodEnd && a.periodEnd >= periodStart;
+}
+
 function addBlocker(
   blockers: FinalizationDryRun["blockers"],
   code: FinalizationDryRunBlockerCode,
@@ -231,7 +236,7 @@ function buildPostingSimulation(input: {
         sourceFinalizationPeriod,
         sourcePool: defaultPoolId,
         sourceAttributionLine,
-        postingType: "manager_own_capital_result",
+        postingType: isGain ? "manager_own_capital_profit" : "manager_own_capital_loss",
         reconciliationReference: `finalization:${sourceFinalizationPeriod}:manager-own-capital:${effect.participantId}`,
       });
     }
@@ -435,6 +440,8 @@ export function buildFinalizationDryRun(input: {
   for (const existing of input.existingFinalizations || []) {
     if (samePeriod(existing, periodStart, periodEnd) && existing.status === "FINALIZED") {
       addBlocker(blockers, "BLOCKED_DUPLICATE_FINALIZATION", "This period already has a finalized snapshot; use reversal/corrected finalization workflow.");
+    } else if (overlapsPeriod(existing, periodStart, periodEnd) && existing.status === "FINALIZED") {
+      addBlocker(blockers, "BLOCKED_OVERLAPPING_FINALIZATION", `Finalized period ${existing.periodStart} to ${existing.periodEnd} overlaps this period.`);
     }
   }
   for (const sourceChange of input.sourceChangesAfterFinalization || []) {

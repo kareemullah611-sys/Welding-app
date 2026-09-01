@@ -7,6 +7,33 @@ import { successResponse, errorResponse, serverError } from "@/lib/api-response"
 import { JWTPayload } from "@/lib/auth";
 import { canAccessGodown } from "@/lib/godown-access";
 import { allocateSaleItemAcrossLots, consolidateSaleLotAllocationItems, AvailableSaleLot, SaleLotAllocationItem } from "@/lib/sale-lot-allocation";
+import { lockGodownProductStock } from "@/lib/financial-locks";
+
+async function getLockedGodownStock(
+  tx: Prisma.TransactionClient,
+  godownId: number,
+  productId: number,
+  lotId: number,
+): Promise<number> {
+  const [received, sold, transferredOut, transferredIn, cityTransferredOut] = await Promise.all([
+    tx.lotCityGodownAllocation.aggregate({
+      where: { godownId, productId, lotCityDistribution: { lotId } },
+      _sum: { qty: true },
+    }),
+    tx.saleItem.aggregate({
+      where: { productId, lotId, sale: { godownId, status: { in: ["active", "marked_short"] } } },
+      _sum: { qty: true },
+    }),
+    tx.godownTransfer.aggregate({ where: { fromGodownId: godownId, productId, lotId }, _sum: { qty: true } }),
+    tx.godownTransfer.aggregate({ where: { toGodownId: godownId, productId, lotId }, _sum: { qty: true } }),
+    tx.cityTransfer.aggregate({ where: { fromGodownId: godownId, productId, lotId, status: "pending" }, _sum: { qty: true } }),
+  ]);
+  return Number(received._sum.qty || 0)
+    - Number(sold._sum.qty || 0)
+    - Number(transferredOut._sum.qty || 0)
+    + Number(transferredIn._sum.qty || 0)
+    - Number(cityTransferredOut._sum.qty || 0);
+}
 
 // PUT /api/v1/sales/:id/correct - Correct items on a sale (wrong product given)
 // Body: { saleDate?, items: [{ id?, productId, lotId, qty, ratePerCarton }], reason: string }
@@ -213,6 +240,18 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 	    const nextSaleLotId = Number(newItemData[0]?.lotId || sale.lotId || 0);
 
 	    await prisma.$transaction(async (tx) => {
+      const lockScopes = [
+        ...sale.items.map((item) => ({ godownId: sale.godownId, productId: item.productId })),
+        ...newItemData.map((item) => ({ godownId: nextGodownId, productId: item.productId })),
+      ];
+      await lockGodownProductStock(tx, lockScopes);
+      for (const item of newItemData) {
+        const available = await getLockedGodownStock(tx, nextGodownId, item.productId, item.lotId);
+        const ownExistingQty = nextGodownId === sale.godownId ? Number(oldQtyByLotProduct[stockKey(item.lotId, item.productId)] || 0) : 0;
+        if (item.qty > available + ownExistingQty) {
+          throw new Error(`STOCK_SHORT:${item.productId}:${item.lotId}:${Math.max(0, available + ownExistingQty)}`);
+        }
+      }
       // Deterministically replace sale journals on correction to avoid cumulative
       // reverse/repost drift when a sale is corrected multiple times.
       if (sale.isOpeningImport) {
@@ -273,6 +312,10 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 
 	    return successResponse({ saleId, lotId: nextSaleLotId, totalAmount }, "Sale corrected successfully");
   } catch (error) {
+    if (error instanceof Error && error.message.startsWith("STOCK_SHORT:")) {
+      const [, productId, lotId, available] = error.message.split(":");
+      return errorResponse("VALIDATION_ERROR", `Product ${productId} lot ${lotId}: corrected quantity exceeds available stock ${available}`);
+    }
     console.error("Sale correction error:", error);
     return serverError();
   }

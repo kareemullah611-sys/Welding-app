@@ -1,0 +1,5 @@
+ALTER TABLE "expenses"
+ALTER COLUMN "lot_id" DROP NOT NULL;
+
+ALTER TABLE "payments"
+ALTER COLUMN "lot_id" DROP NOT NULL;

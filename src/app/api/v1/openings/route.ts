@@ -28,6 +28,10 @@ const OPENING_LIABILITY_SYNC_MODULE = "opening_liabilities";
 
 class OpeningValidationError extends Error {}
 
+async function lockOpeningScope(tx: Prisma.TransactionClient, scope: string) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`opening:${scope}`}))`;
+}
+
 function openingFxData(body: any, currencyCode: string, amount: number) {
   if (currencyCode !== "PKR" && (!body.fxRateDate || !String(body.fxRateSource || "").trim())) {
     throw new OpeningValidationError(`Historical ${currencyCode} rate date and source are required.`);
@@ -547,9 +551,11 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
 
       const existing = await prisma.openingCash.findFirst({ where: { cityId: scopedCityId, currencyId } });
       const row = await prisma.$transaction(async (tx) => {
-        const saved = existing
+        await lockOpeningScope(tx, `cash:${scopedCityId}:${currencyId}`);
+        const current = await tx.openingCash.findFirst({ where: { cityId: scopedCityId, currencyId } });
+        const saved = current
           ? await tx.openingCash.update({
-              where: { id: existing.id },
+              where: { id: current.id },
               data: { amount, ...fxData, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
             })
           : await tx.openingCash.create({
@@ -609,9 +615,11 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       if (!currency) return errorResponse("NOT_FOUND", "Currency not found");
       const fxData = openingFxData(body, currency.code, amount);
       const row = await prisma.$transaction(async (tx) => {
-        const saved = existing
+        await lockOpeningScope(tx, `customer:${customerId}:${currencyId}`);
+        const current = await tx.openingCustomerBalance.findFirst({ where: { customerId, currencyId } });
+        const saved = current
           ? await tx.openingCustomerBalance.update({
-              where: { id: existing.id },
+              where: { id: current.id },
               data: { amount, ...fxData, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
             })
           : await tx.openingCustomerBalance.create({
@@ -676,9 +684,11 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       const fxData = openingFxData(body, currency.code, amount);
       const existing = await prisma.openingHajiBalance.findFirst({ where: { cityId: scopedCityId, currencyId } });
       const row = await prisma.$transaction(async (tx) => {
-        const saved = existing
+        await lockOpeningScope(tx, `haji:${scopedCityId}:${currencyId}`);
+        const current = await tx.openingHajiBalance.findFirst({ where: { cityId: scopedCityId, currencyId } });
+        const saved = current
           ? await tx.openingHajiBalance.update({
-              where: { id: existing.id },
+              where: { id: current.id },
               data: { amount, balanceSide, ...fxData, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
             })
           : await tx.openingHajiBalance.create({
@@ -895,9 +905,11 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
 
       const existing = await prisma.openingBankBalance.findFirst({ where: { bankAccountId, currencyId } });
       const row = await prisma.$transaction(async (tx) => {
-        const saved = existing
+        await lockOpeningScope(tx, `bank:${bankAccountId}:${currencyId}`);
+        const current = await tx.openingBankBalance.findFirst({ where: { bankAccountId, currencyId } });
+        const saved = current
           ? await tx.openingBankBalance.update({
-              where: { id: existing.id },
+              where: { id: current.id },
               data: { amount, ...fxData, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
             })
           : await tx.openingBankBalance.create({
@@ -1049,9 +1061,11 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       }
 
       const row = await prisma.$transaction(async (tx) => {
-        const saved = existing
+        await lockOpeningScope(tx, `liability:${liabilityType}:${partyId}:${currencyId}`);
+        const current = await tx.openingLiability.findFirst({ where });
+        const saved = current
           ? await tx.openingLiability.update({
-              where: { id: existing.id },
+              where: { id: current.id },
               data: { liabilityType, amount, balanceSide, ...fxData, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
             })
           : await tx.openingLiability.create({
@@ -1138,9 +1152,11 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
 
       const existing = await prisma.openingCityLiability.findFirst({ where: { accountId, currencyId } });
       const row = await prisma.$transaction(async (tx) => {
-        const saved = existing
+        await lockOpeningScope(tx, `city-liability:${accountId}:${currencyId}`);
+        const current = await tx.openingCityLiability.findFirst({ where: { accountId, currencyId } });
+        const saved = current
           ? await tx.openingCityLiability.update({
-              where: { id: existing.id },
+              where: { id: current.id },
               data: { amount, ...fxData, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
             })
           : await tx.openingCityLiability.create({
@@ -1225,11 +1241,13 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       }
       const existing = await prisma.openingInventoryValuation.findUnique({ where: { unique_opening_inventory_lot_product: { lotId, productId } } });
       const row = await prisma.$transaction(async (tx) => {
-        const nextVersion = (existing?.journalVersion || 0) + 1;
-        if (existing) await reverseOpeningJournals("opening_inventory_valuation", existing.id, `OPENINV-${existing.id}`, user.userId, tx);
-        const saved = existing
+        await lockOpeningScope(tx, `inventory:${lotId}:${productId}`);
+        const current = await tx.openingInventoryValuation.findUnique({ where: { unique_opening_inventory_lot_product: { lotId, productId } } });
+        const nextVersion = (current?.journalVersion || 0) + 1;
+        if (current) await reverseOpeningJournals("opening_inventory_valuation", current.id, `OPENINV-${current.id}`, user.userId, tx);
+        const saved = current
           ? await tx.openingInventoryValuation.update({
-              where: { id: existing.id },
+              where: { id: current.id },
               data: { quantity, unitCostPkr, totalValuePkr, originalCurrencyId, originalAmount, fxRateToPkr, fxRateDate, fxRateSource, fxRateMetadata, openingDate, notes: body.notes || null, journalVersion: nextVersion, createdBy: user.userId },
             })
           : await tx.openingInventoryValuation.create({
@@ -1253,10 +1271,12 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       const fxData = openingFxData(body, account.currency.code, amount);
       const existing = await prisma.openingSuperAdminAccountBalance.findUnique({ where: { accountId } });
       const row = await prisma.$transaction(async (tx) => {
-        const nextVersion = (existing?.journalVersion || 0) + 1;
-        if (existing) await reverseOpeningJournals("opening_super_admin_account_balance", existing.id, `OPENSA-${existing.id}`, user.userId, tx);
-        const saved = existing
-          ? await tx.openingSuperAdminAccountBalance.update({ where: { id: existing.id }, data: { amount, ...fxData, openingDate: dateOnly(body.openingDate), notes: body.notes || null, journalVersion: nextVersion, createdBy: user.userId } })
+        await lockOpeningScope(tx, `super-admin-account:${accountId}`);
+        const current = await tx.openingSuperAdminAccountBalance.findUnique({ where: { accountId } });
+        const nextVersion = (current?.journalVersion || 0) + 1;
+        if (current) await reverseOpeningJournals("opening_super_admin_account_balance", current.id, `OPENSA-${current.id}`, user.userId, tx);
+        const saved = current
+          ? await tx.openingSuperAdminAccountBalance.update({ where: { id: current.id }, data: { amount, ...fxData, openingDate: dateOnly(body.openingDate), notes: body.notes || null, journalVersion: nextVersion, createdBy: user.userId } })
           : await tx.openingSuperAdminAccountBalance.create({ data: { accountId, currencyId: account.currencyId, amount, ...fxData, openingDate: dateOnly(body.openingDate), notes: body.notes || null, journalVersion: 1, createdBy: user.userId } });
         await journalOpeningSuperAdminAccountBalance({ id: saved.id, accountId, accountKind: account.accountKind, amount, carryingAmountPkr: fxData.carryingAmountPkr, fxRateToPkr: fxData.fxRateToPkr, currencyCode: account.currency.code, openingDate: saved.openingDate, createdBy: user.userId, journalVersion: saved.journalVersion }, tx);
         return saved;
@@ -1275,10 +1295,12 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       if (!Number.isFinite(amountPkr) || amountPkr === 0) return validationError("Opening equity amount must be non-zero");
       const existing = await prisma.openingEquityAllocation.findUnique({ where: { unique_opening_equity_type_label: { equityType: equityType as any, label } } });
       const row = await prisma.$transaction(async (tx) => {
-        const nextVersion = (existing?.journalVersion || 0) + 1;
-        if (existing) await reverseOpeningJournals("opening_equity_allocation", existing.id, `OPENEQ-${existing.id}`, user.userId, tx);
-        const saved = existing
-          ? await tx.openingEquityAllocation.update({ where: { id: existing.id }, data: { amountPkr, openingDate: dateOnly(body.openingDate), notes: body.notes || null, journalVersion: nextVersion, createdBy: user.userId } })
+        await lockOpeningScope(tx, `equity:${equityType}:${label}`);
+        const current = await tx.openingEquityAllocation.findUnique({ where: { unique_opening_equity_type_label: { equityType: equityType as any, label } } });
+        const nextVersion = (current?.journalVersion || 0) + 1;
+        if (current) await reverseOpeningJournals("opening_equity_allocation", current.id, `OPENEQ-${current.id}`, user.userId, tx);
+        const saved = current
+          ? await tx.openingEquityAllocation.update({ where: { id: current.id }, data: { amountPkr, openingDate: dateOnly(body.openingDate), notes: body.notes || null, journalVersion: nextVersion, createdBy: user.userId } })
           : await tx.openingEquityAllocation.create({ data: { equityType: equityType as any, label, amountPkr, openingDate: dateOnly(body.openingDate), notes: body.notes || null, journalVersion: 1, createdBy: user.userId } });
         await journalOpeningEquityAllocation({ id: saved.id, equityType: equityType as any, label, amountPkr, openingDate: saved.openingDate, createdBy: user.userId, journalVersion: saved.journalVersion }, tx);
         return saved;

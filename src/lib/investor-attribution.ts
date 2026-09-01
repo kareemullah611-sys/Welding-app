@@ -103,7 +103,7 @@ function compareDate(a: string, b: string): number {
 function normalizeShare(value: number | null | undefined, participantType: AttributionParticipantType): number {
   if (participantType === "manager") return 100;
   const share = Number(value);
-  if (!Number.isFinite(share)) return 100;
+  if (!Number.isFinite(share)) return 0;
   return Math.max(0, Math.min(100, share));
 }
 
@@ -175,6 +175,17 @@ export async function buildInvestorAttributionPreview(input: {
   }
   for (const missing of input.missingRequiredRates || []) {
     disabledReasons.add(missing);
+  }
+  for (const event of input.capitalEvents) {
+    if (event.participantType !== "investor") continue;
+    if (!Number.isFinite(Number(event.investorProfitSharePercent))) {
+      disabledReasons.add(`${event.participantName} has no explicit investor profit-share percentage.`);
+    }
+  }
+  for (const event of profitShareEvents) {
+    if (!Number.isFinite(Number(event.investorProfitSharePercent))) {
+      disabledReasons.add(`Participant ${event.participantId} has an invalid profit-share event.`);
+    }
   }
 
   for (let index = 0; index < boundaries.length - 1; index += 1) {

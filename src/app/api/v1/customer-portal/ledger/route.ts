@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
           status: p.status,
           currency: p.currency.code,
           currencySymbol: p.currency.symbol || p.currency.code,
-          lotNumber: p.lot.lotNumber,
+          lotNumber: p.lot?.lotNumber ?? null,
         };
       }),
     ].filter((t) => ledgerType === "all" || t.type === ledgerType)

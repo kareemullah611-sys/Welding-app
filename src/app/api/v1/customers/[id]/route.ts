@@ -94,7 +94,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           status: p.status,
           currency: p.currency.code,
           currencySymbol: p.currency.symbol || p.currency.code,
-          lotNumber: p.lot.lotNumber,
+          lotNumber: p.lot?.lotNumber ?? null,
         };
       }),
     ].filter((t) => ledgerType === "all" || t.type === ledgerType)

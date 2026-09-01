@@ -231,7 +231,7 @@ test("phase 2.1 posting simulation includes manager own-capital and manager prof
   const dryRun = buildFinalizationDryRun({ attribution, historicalPoolPreview });
   const postingTypes = dryRun.postingSimulation.entries.map((entry) => entry.postingType);
 
-  assert.ok(postingTypes.includes("manager_own_capital_result"));
+  assert.ok(postingTypes.includes("manager_own_capital_profit"));
   assert.ok(postingTypes.includes("manager_profit_share"));
 });
 

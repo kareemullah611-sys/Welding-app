@@ -4,6 +4,7 @@ import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, validationError, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { journalSaleDiscount } from "@/lib/accounting";
+import { lockSaleDiscount } from "@/lib/financial-locks";
 
 // POST /api/v1/sales/:id/discount
 export const POST = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
@@ -30,6 +31,10 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
     const appliedDate = discountDate ? new Date(discountDate) : new Date();
     if (Number.isNaN(appliedDate.getTime())) return validationError("Invalid discount date");
     const discount = await prisma.$transaction(async (tx) => {
+      await lockSaleDiscount(tx, saleId);
+      const lockedSale = await tx.sale.findUnique({ where: { id: saleId } });
+      if (!lockedSale || lockedSale.status !== "active") throw new Error("SALE_NOT_ACTIVE");
+      if (Number(discountAmount) > Number(lockedSale.totalAmount)) throw new Error("DISCOUNT_EXCEEDS_REMAINING_SALE");
       const created = await tx.saleDiscount.create({
         data: {
           saleId, discountAmount, currencyId: sale.currencyId, appliedToLotId,
@@ -62,6 +67,12 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
       appliedToLotId, originalLotCompleted: sale.lot.status === "completed",
     }, "Discount applied");
   } catch (error) {
+    if (error instanceof Error && error.message === "DISCOUNT_EXCEEDS_REMAINING_SALE") {
+      return validationError("Discount cannot exceed the remaining sale amount");
+    }
+    if (error instanceof Error && error.message === "SALE_NOT_ACTIVE") {
+      return validationError("Can only discount active sales");
+    }
     return serverError();
   }
 });

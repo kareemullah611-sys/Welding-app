@@ -10,6 +10,7 @@ import {
 } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import { normalizePaymentFx } from "@/lib/payment-fx";
 import { formatSuperAdminBankLabel } from "@/lib/haji-transfer-detail";
 import { resolveAfghanistanSettlement, type ResolvedAfghanistanSettlement } from "@/lib/afghanistan-haji-settlement";
 import { formatAfghanistanCityPaymentDetail } from "@/lib/payment-module-detail";
@@ -53,7 +54,7 @@ function formatPaymentCreateResponse(payment: any, exchangeRate?: number | null,
     destination: payment.destination,
     status: payment.status,
     customer: payment.customer,
-    lot: { id: payment.lot.id, lotNumber: payment.lot.lotNumber },
+    lot: payment.lot ? { id: payment.lot.id, lotNumber: payment.lot.lotNumber } : null,
     currency: { id: payment.currency.id, code: payment.currency.code, symbol: payment.currency.symbol },
     createdBy: payment.creator,
     bankAccountId: payment.bankAccountId ?? null,
@@ -139,7 +140,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       hajiAudit: isHajiAuditEligible(p) ? (hajiAuditStateById[p.id] || null) : null,
       bankDepositId: (p as any).bankDepositId ?? null,
       customer: p.customer,
-      lot: { id: p.lot.id, lotNumber: p.lot.lotNumber, status: p.lot.status },
+      lot: p.lot ? { id: p.lot.id, lotNumber: p.lot.lotNumber, status: p.lot.status } : null,
       currency: { id: p.currency.id, code: p.currency.code, symbol: p.currency.symbol },
       createdBy: p.creator,
       attachments: ((p as any).attachments || []).map((a: any) => ({
@@ -197,7 +198,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     if (!parsed.success) return validationError("Invalid payment data", parsed.error.errors);
 
     let {
-      customerId, lotId, paymentDate, detail, amount, currencyId, exchangeRate, usdEquivalent,
+      customerId, lotId, paymentDate, detail, amount, currencyId, exchangeRate,
       manualVoucherNo, paymentMethod, destination, notes, chequeNumber: chequeNumberInput,
       chequeBank, chequeDueDate, bankAccountId, superAdminBankAccountId,
       settlementDestination, intermediaryId, superAdminCashAccountId,
@@ -223,9 +224,20 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const cityCurrency = await prisma.cityCurrency.findFirst({
       where: { cityId, currencyId: currencyId ?? undefined },
       orderBy: { currencyId: "asc" },
+      include: { currency: { select: { code: true } } },
     });
     if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported in your city");
     const resolvedCurrencyId = currencyId ?? cityCurrency.currencyId;
+    let normalizedFx: { exchangeRate: number | null; usdEquivalent: number | null };
+    try {
+      normalizedFx = normalizePaymentFx({
+        amount: Number(amount),
+        currencyCode: cityCurrency.currency.code,
+        exchangeRate,
+      });
+    } catch {
+      return errorResponse("VALIDATION_ERROR", "AFN/USD exchange rate must be greater than 0");
+    }
 
     const city = await prisma.city.findUnique({
       where: { id: cityId },
@@ -336,6 +348,8 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           detail,
           amount,
           currencyId: resolvedCurrencyId,
+          exchangeRate: normalizedFx.exchangeRate,
+          usdEquivalent: normalizedFx.usdEquivalent,
           manualVoucherNo: manualVoucherNo?.trim() || null,
           paymentMethod,
           destination,
@@ -357,17 +371,6 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           creator: { select: { id: true, fullName: true } },
         },
       } as any) as any;
-
-      if (exchangeRate != null || usdEquivalent != null) {
-        try {
-          await tx.$executeRaw`
-            UPDATE payments
-            SET exchange_rate = ${exchangeRate ?? null},
-                usd_equivalent = ${usdEquivalent ?? null}
-            WHERE id = ${createdPayment.id}
-          `;
-        } catch (_) { /* columns not yet migrated — ignore */ }
-      }
 
       await createAuditLog(user.userId, cityId, "payments", createdPayment.id, "create", undefined, {
         date: paymentDate,
@@ -457,7 +460,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       return createdPayment;
     }, PAYMENT_CREATE_TRANSACTION_OPTIONS);
 
-    const responsePayData = formatPaymentCreateResponse(payment, exchangeRate ?? null, usdEquivalent ?? null);
+    const responsePayData = formatPaymentCreateResponse(payment, normalizedFx.exchangeRate, normalizedFx.usdEquivalent);
 
     return successResponse(responsePayData, "Payment recorded successfully", 201);
   } catch (error: any) {

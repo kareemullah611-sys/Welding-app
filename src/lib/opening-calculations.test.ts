@@ -37,5 +37,5 @@ test("lot godown stock cannot exceed assigned city distribution", () => {
   assert.doesNotMatch(source, /data: \{ allocatedQty: cityTotal \}/);
   assert.doesNotMatch(source, /lotProduct\.upsert/);
   assert.match(legacyEndpoint, /incomingByGodown/);
-  assert.match(legacyEndpoint, /nextTotal > Number\(dist\.allocatedQty\)/);
+  assert.match(legacyEndpoint, /nextTotal > Number\(lockedDist\.allocatedQty\)/);
 });

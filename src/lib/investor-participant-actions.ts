@@ -52,14 +52,14 @@ function isProfitLedgerEntry(entry: any): boolean {
   if (entry.category === "investor_profit") return true;
   if (entry.category === "manager_profit_share") return true;
   if (entry.category === "manager_residual") return String(entry.postingType || "") === "exited_residual_gain";
-  if (entry.category === "manager_own_capital") return !String(entry.debitAccount || "").toLowerCase().includes("manager capital");
+  if (entry.category === "manager_own_capital") return entry.postingType === "manager_own_capital_profit";
   return false;
 }
 
 function isLossLedgerEntry(entry: any): boolean {
   if (entry.category === "investor_capital_loss") return true;
   if (entry.category === "manager_residual") return String(entry.postingType || "") === "exited_residual_loss";
-  if (entry.category === "manager_own_capital") return String(entry.debitAccount || "").toLowerCase().includes("manager capital");
+  if (entry.category === "manager_own_capital") return entry.postingType === "manager_own_capital_loss";
   return false;
 }
 

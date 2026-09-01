@@ -12,7 +12,7 @@ const EXPENSE_SYNC_MODULE = "expenses.create";
 
 function formatExpenseCreateResponse(expense: any) {
   return {
-    id: expense.id, lotNumber: expense.lot.lotNumber,
+    id: expense.id, lotNumber: expense.lot?.lotNumber ?? null,
     expenseDate: expense.expenseDate.toISOString().split("T")[0],
     amount: Number(expense.amount), detail: expense.detail,
     paidFrom: expense.paidFrom ?? "cash_office",
@@ -105,7 +105,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     return paginatedResponse(
       expenses.map((e: any) => ({
         id: e.id, cityId: e.cityId, lotId: e.lotId,
-        lotNumber: e.lot.lotNumber,
+        lotNumber: e.lot?.lotNumber ?? null,
         expenseDate: e.expenseDate.toISOString().split("T")[0],
         amount: Number(e.amount), detail: e.detail, notes: e.notes,
         paidFrom: e.paidFrom ?? "cash_office",
@@ -163,7 +163,17 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     }
 
     const city = await prisma.city.findUnique({ where: { id: cityId }, include: { country: true } });
-    const { lotId, expenseDate, amount, currencyId, detail, notes, paidFrom, customerId, bankAccountId, chequePaymentId } = parsed.data;
+    const { expenseDate, amount, currencyId, detail, notes, paidFrom, customerId, bankAccountId, chequePaymentId } = parsed.data;
+
+    let expensePaymentFifoLotId: number | null = null;
+    if (paidFrom === "customer" && city?.country) {
+      const fifoLot = await prisma.lot.findFirst({
+        where: { status: "ongoing", countryId: city.country.id, lotCityDistributions: { some: { cityId } } },
+        orderBy: [{ lotDate: "asc" }, { id: "asc" }],
+        select: { id: true },
+      });
+      expensePaymentFifoLotId = fifoLot?.id ?? null;
+    }
 
     if (isAfghanistanCountry(city?.country) && !["cash_office", "customer"].includes(paidFrom)) {
       return errorResponse("VALIDATION_ERROR", "Afghanistan city expenses can only be paid from office cash");
@@ -190,14 +200,10 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       if (!customer) return errorResponse("NOT_FOUND", "Customer not found in your city", 404);
     }
 
-    const lot = await prisma.lot.findFirst({
-      where: { id: lotId ?? undefined, status: "ongoing", lotCityDistributions: { some: { cityId } } },
-    });
-    if (!lot) return errorResponse("VALIDATION_ERROR", "Lot not found, completed, or not distributed to your city");
     const expense = await prisma.$transaction(async (tx) => {
       let chequePayment: any = null;
       if (paidFrom === "cheque" && chequePaymentId) {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${32002}, ${chequePaymentId})`;
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${32002}::int, ${chequePaymentId}::int)`;
         chequePayment = await tx.payment.findUnique({ where: { id: chequePaymentId } });
         if (!chequePayment) throw new Error("CHEQUE_NOT_FOUND");
         if (chequePayment.cityId !== cityId) throw new Error("CHEQUE_FORBIDDEN");
@@ -217,7 +223,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           data: {
             cityId,
             customerId,
-            lotId: lot.id,
+            lotId: expensePaymentFifoLotId,
             paymentDate: new Date(expenseDate),
             amount: resolvedAmount,
             currencyId: (resolvedCurrencyId ?? cityCurrency.currencyId) as number,
@@ -241,7 +247,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
       const createdExpense = await tx.expense.create({
         data: {
-          cityId, lotId: lot.id, expenseDate: new Date(expenseDate), amount: resolvedAmount,
+          cityId, lotId: null, expenseDate: new Date(expenseDate), amount: resolvedAmount,
           currencyId: (resolvedCurrencyId ?? cityCurrency.currencyId) as number, detail, notes, createdBy: user.userId,
           ...(paidFrom !== "cash_office" ? { paidFrom } : {}),
           ...(bankAccountId != null ? { bankAccountId } : {}),
@@ -261,7 +267,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           id: customerPaymentId,
           customerId,
           cityId,
-          lotId: lot.id,
+          lotId: expensePaymentFifoLotId,
           amount: Number(createdExpense.amount),
           currencyCode: createdExpense.currency.code,
           paymentDate: createdExpense.expenseDate,
@@ -273,13 +279,12 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
       await createAuditLog(user.userId, cityId, "expenses", createdExpense.id, "create", undefined, {
         date: expenseDate,
-        lot: `Lot ${createdExpense.lot.lotNumber}`,
         detail,
         amount: `${createdExpense.currency.symbol || createdExpense.currency.code} ${Number(resolvedAmount).toLocaleString("en-US")}`,
         ...(notes ? { notes } : {}),
       }, getClientIP(request), tx);
 
-      await journalExpenseCreated({ id: createdExpense.id, cityId, lotId: lot.id, amount: Number(createdExpense.amount), currencyCode: createdExpense.currency.code, detail, expenseDate: createdExpense.expenseDate, createdBy: user.userId, paidFrom: paidFrom ?? "cash_office", bankAccountId: bankAccountId ?? null }, tx);
+      await journalExpenseCreated({ id: createdExpense.id, cityId, lotId: null, amount: Number(createdExpense.amount), currencyCode: createdExpense.currency.code, detail, expenseDate: createdExpense.expenseDate, createdBy: user.userId, paidFrom: paidFrom ?? "cash_office", bankAccountId: bankAccountId ?? null }, tx);
 
       if (syncMeta) {
         await tx.syncRequest.create({

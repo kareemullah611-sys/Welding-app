@@ -169,11 +169,26 @@ export function personalExpenseJournalTransactionId(expenseId: number, journalVe
   return journalVersion <= 1 ? `SAEXP-${expenseId}` : `SAEXP-${expenseId}-V${journalVersion}`;
 }
 
+export function lotCostJournalTransactionId(costId: number, journalVersion: number) {
+  return journalVersion <= 1 ? `COST-${costId}` : `COST-${costId}-V${journalVersion}`;
+}
+
 export async function assertAccountingDateOpen(entryDate: Date, db: DbClient = prisma): Promise<void> {
   const financialYearModel = (db as any).financialYear;
   if (typeof financialYearModel?.findFirst !== "function") return;
+  const matchingYear = await financialYearModel.findFirst({
+    where: { startDate: { lte: entryDate }, endDate: { gte: entryDate } },
+    select: { id: true },
+  });
+  if (!matchingYear) return;
+  if (typeof (db as any).$executeRawUnsafe === "function") {
+    await (db as any).$executeRawUnsafe(
+      "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
+      `financial-year:${matchingYear.id}`,
+    );
+  }
   const closedYear = await financialYearModel.findFirst({
-    where: { startDate: { lte: entryDate }, endDate: { gte: entryDate }, status: "closed" },
+    where: { id: matchingYear.id, status: "closed" },
     select: { name: true, startDate: true, endDate: true },
   });
   if (closedYear) {
@@ -432,7 +447,7 @@ export async function journalSaleCreated(sale: { id: number; customerId: number;
 // PAYMENT RECEIVED (cash / bank transfer / online)
 export async function journalPaymentReceived(
   p: {
-    id: number; customerId: number; cityId: number; lotId: number;
+    id: number; customerId: number; cityId: number; lotId: number | null;
     amount: number; currencyCode: string; paymentDate: Date; createdBy: number;
     destination?: string | null; superAdminBankAccountId?: number | null;
     bankAccountId?: number | null; paymentMethod?: string | null;
@@ -459,7 +474,7 @@ export async function journalPaymentReceived(
 
 // CHEQUE RECEIVED — stages into Cheques in Hand first, not Cash
 // DR Cheques in Hand | CR AR - Customer
-export async function journalChequeReceived(p: { id: number; customerId: number; cityId: number; lotId: number; amount: number; currencyCode: string; paymentDate: Date; createdBy: number; }, db: DbClient = prisma) {
+export async function journalChequeReceived(p: { id: number; customerId: number; cityId: number; lotId: number | null; amount: number; currencyCode: string; paymentDate: Date; createdBy: number; }, db: DbClient = prisma) {
   const amount = Math.abs(p.amount);
   const isReturn = p.amount < 0;
   const chequeAccountId = await getChequesInHandAccountId(p.cityId, db);
@@ -588,8 +603,11 @@ export async function journalLotCost(c: {
   id: number;
   lotId: number;
   costType: string;
-  amount: number;
-  currencyCode: string;
+  amountPkr: number;
+  originalAmount: number;
+  originalCurrencyCode: string;
+  recognitionDate: Date;
+  journalVersion: number;
   createdBy: number;
   supplierId?: number;
   agentId?: number;
@@ -600,7 +618,7 @@ export async function journalLotCost(c: {
   intermediaryId?: number | null;
   paidFromCash?: boolean;
 }, db: DbClient = prisma) {
-  const expAccId = await getExpenseAccountId(c.costType, db);
+  const inventoryAccountId = await getInventoryAccountId(db);
   let creditAccId: number;
   if (c.shippingLineId) { creditAccId = await getShippingLineAccountId(c.shippingLineId, db); }
   else if (c.supplierId) { creditAccId = await getSupplierAccountId(c.supplierId, db); }
@@ -612,10 +630,11 @@ export async function journalLotCost(c: {
   else if (c.paidFromCash) { creditAccId = await getOrCreateAccount("1001-GENERAL", "Cash in Hand - General", "asset", undefined, db); }
   else if (c.cityId) { creditAccId = await getCashAccountId(c.cityId, db); }
   else { creditAccId = await getOrCreateAccount("2999", "General Payable", "liability", undefined, db); }
-  await createJournalEntries(`COST-${c.id}`, [
-    { accountId: expAccId, debit: c.amount, credit: 0, description: `${c.costType} Lot #${c.lotId}` },
-    { accountId: creditAccId, debit: 0, credit: c.amount, description: `${c.costType}` },
-  ], { currencyCode: c.currencyCode, entityType: "lot_cost", entityId: c.id, lotId: c.lotId, cityId: c.cityId, entryDate: new Date(), createdBy: c.createdBy }, db);
+  const source = `${c.originalCurrencyCode} ${c.originalAmount}`;
+  await createJournalEntries(lotCostJournalTransactionId(c.id, c.journalVersion), [
+    { accountId: inventoryAccountId, debit: c.amountPkr, credit: 0, description: `${c.costType} Lot #${c.lotId} · ${source}` },
+    { accountId: creditAccId, debit: 0, credit: c.amountPkr, description: `${c.costType} · ${source}` },
+  ], { currencyCode: "PKR", entityType: "lot_cost", entityId: c.id, lotId: c.lotId, cityId: c.cityId, entryDate: c.recognitionDate, createdBy: c.createdBy }, db);
 }
 
 // AGENT PAID
@@ -639,7 +658,7 @@ export async function journalAgentPaid(p: { id: number; agentId: number; cityId:
 
 // EXPENSE
 // CR account depends on paidFrom: bank_account → specific bank GL, else city cash
-export async function journalExpenseCreated(e: { id: number; cityId: number; lotId: number; amount: number; currencyCode: string; detail: string; expenseDate: Date; createdBy: number; paidFrom?: string | null; bankAccountId?: number | null; }, db: DbClient = prisma) {
+export async function journalExpenseCreated(e: { id: number; cityId: number; lotId: number | null; amount: number; currencyCode: string; detail: string; expenseDate: Date; createdBy: number; paidFrom?: string | null; bankAccountId?: number | null; }, db: DbClient = prisma) {
   let creditAccId: number;
   if (e.paidFrom === "bank_account" && e.bankAccountId) {
     creditAccId = await getBankGLAccountId(e.bankAccountId, db);

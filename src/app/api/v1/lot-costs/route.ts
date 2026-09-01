@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { journalLotCost } from "@/lib/accounting";
 import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
@@ -81,6 +82,12 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     });
     if (!rateResult.ok) return validationError(rateResult.message);
     const exchangeRate = rateResult.exchangeRate;
+    const costDate = input.costDate ? new Date(input.costDate) : new Date();
+    if (Number.isNaN(costDate.getTime())) return validationError("Invalid cost date");
+    const amountPkr = Number(new Prisma.Decimal(amount)
+      .mul(currencyCode === "PKR" ? 1 : Number(exchangeRate))
+      .toDecimalPlaces(2)
+      .toString());
 
     if (isFreight) {
       if (!shippingLineId) return validationError("Shipping line is required for freight");
@@ -157,7 +164,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
           description: input.description, amount,
           currencyCode,
           exchangeRate,
-          costDate: input.costDate ? new Date(input.costDate) : null,
+          costDate,
           supplierId,
           agentId,
           shippingLineId,
@@ -174,8 +181,11 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         id: createdCost.id,
         lotId: input.lotId,
         costType: input.costType,
-        amount,
-        currencyCode,
+        amountPkr,
+        originalAmount: amount,
+        originalCurrencyCode: currencyCode,
+        recognitionDate: costDate,
+        journalVersion: createdCost.journalVersion,
         createdBy: user.userId,
         supplierId: supplierId || undefined,
         agentId: agentId || undefined,

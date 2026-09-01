@@ -409,6 +409,56 @@ function buildReadiness(input: {
   };
 }
 
+async function findSourceChangesAfterFinalization(finalizations: any[]) {
+  const changes: Array<{ sourceType: string; sourceId: number; changedAt: string; reason: string }> = [];
+  for (const finalization of finalizations) {
+    if (!finalization.finalizedAt) continue;
+    const dateRange = { gte: finalization.periodStart, lte: finalization.periodEnd };
+    const changedAfter = { gt: finalization.finalizedAt };
+    const [sales, discounts, expenses, lotCosts, supplierPayments, shippingPayments, fallbackRates, exchangeRates] = await Promise.all([
+      prisma.sale.findMany({ where: { saleDate: dateRange, updatedAt: changedAfter }, select: { id: true, updatedAt: true }, take: 100 }),
+      prisma.saleDiscount.findMany({ where: { discountDate: dateRange, createdAt: changedAfter }, select: { id: true, createdAt: true }, take: 100 }),
+      prisma.expense.findMany({ where: { expenseDate: dateRange, updatedAt: changedAfter }, select: { id: true, updatedAt: true }, take: 100 }),
+      prisma.lotCost.findMany({
+        where: {
+          updatedAt: changedAfter,
+          OR: [
+            { costDate: dateRange },
+            { costDate: null, lot: { lotDate: dateRange } },
+          ],
+        },
+        select: { id: true, updatedAt: true },
+        take: 100,
+      }),
+      prisma.supplierPayment.findMany({ where: { paymentDate: dateRange, updatedAt: changedAfter }, select: { id: true, updatedAt: true }, take: 100 }),
+      prisma.shippingLinePayment.findMany({ where: { paymentDate: dateRange, updatedAt: changedAfter }, select: { id: true, updatedAt: true }, take: 100 }),
+      prisma.countryFallbackExchangeRate.findMany({ where: { effectiveFrom: dateRange, updatedAt: changedAfter }, select: { id: true, updatedAt: true }, take: 100 }),
+      prisma.exchangeRate.findMany({ where: { rateDate: dateRange, createdAt: changedAfter }, select: { id: true, createdAt: true }, take: 100 }),
+    ]);
+    const add = (sourceType: string, rows: Array<{ id: number; updatedAt?: Date; createdAt?: Date }>) => {
+      for (const row of rows) {
+        const changedAt = row.updatedAt || row.createdAt;
+        if (!changedAt) continue;
+        changes.push({
+          sourceType,
+          sourceId: row.id,
+          changedAt: changedAt.toISOString(),
+          reason: `Source changed after finalization ${finalization.id}.`,
+        });
+      }
+    };
+    add("sale", sales);
+    add("sale_discount", discounts);
+    add("expense", expenses);
+    add("lot_cost", lotCosts);
+    add("supplier_payment", supplierPayments);
+    add("shipping_line_payment", shippingPayments);
+    add("country_fallback_exchange_rate", fallbackRates);
+    add("exchange_rate", exchangeRates);
+  }
+  return changes;
+}
+
 async function buildAttributionFinalizationPreview(user: JWTPayload, periodStart: string, periodEnd: string) {
   const [capital, missingRequiredRates, legacyCapitalReview, liveFxCoverage, existingFinalizations] = await Promise.all([
     loadCapitalEvents(),
@@ -416,10 +466,15 @@ async function buildAttributionFinalizationPreview(user: JWTPayload, periodStart
     loadLegacyCapitalReview(),
     loadLiveFxCoverage(periodEnd),
     (prisma as any).profitAttributionPeriod.findMany({
-      where: { periodStart: new Date(periodStart), periodEnd: new Date(periodEnd), status: { in: ["finalized"] } },
-      select: { periodStart: true, periodEnd: true, status: true, finalizedAt: true, reversedAt: true },
+      where: {
+        status: "finalized",
+        periodStart: { lte: new Date(periodEnd) },
+        periodEnd: { gte: new Date(periodStart) },
+      },
+      select: { id: true, periodStart: true, periodEnd: true, status: true, finalizedAt: true, reversedAt: true },
     }),
   ]);
+  const sourceChangesAfterFinalization = await findSourceChangesAfterFinalization(existingFinalizations);
   const historicalPoolTransactions = await loadHistoricalPoolTransactions(periodStart, periodEnd);
 
   const preview = await buildInvestorAttributionPreview({
@@ -464,6 +519,7 @@ async function buildAttributionFinalizationPreview(user: JWTPayload, periodStart
       finalizedAt: row.finalizedAt?.toISOString() || null,
       reversedAt: row.reversedAt?.toISOString() || null,
     })),
+    sourceChangesAfterFinalization,
     sourceReportReference: `financial-report:${periodStart}:${periodEnd}`,
   });
   const authoritativeReadiness = finalizationDryRun.status === "READY"
@@ -497,7 +553,7 @@ function requireNumericParticipantId(participantId: string) {
 function ledgerCategoryForPosting(postingType: string) {
   if (postingType === "investor_profit_entitlement") return "investor_profit";
   if (postingType === "investor_capital_loss") return "investor_capital_loss";
-  if (postingType === "manager_own_capital_result") return "manager_own_capital";
+  if (postingType === "manager_own_capital_profit" || postingType === "manager_own_capital_loss") return "manager_own_capital";
   if (postingType === "manager_profit_share") return "manager_profit_share";
   if (postingType === "exited_residual_gain" || postingType === "exited_residual_loss") return "manager_residual";
   return null;
@@ -774,14 +830,19 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
 
       const result = await prisma.$transaction(async (tx) => {
         const txAny = tx as any;
-        const lockKey = `investor-finalization:${periodStart}:${periodEnd}`;
+        const lockKey = "investor-finalization-timeline";
         await tx.$executeRawUnsafe("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)", lockKey);
         const existing = await tx.profitAttributionPeriod.findFirst({
-          where: { periodStart: new Date(periodStart), periodEnd: new Date(periodEnd), status: "finalized" },
-          select: { id: true },
+          where: {
+            status: "finalized",
+            periodStart: { lte: new Date(periodEnd) },
+            periodEnd: { gte: new Date(periodStart) },
+          },
+          select: { id: true, periodStart: true, periodEnd: true },
         });
         if (existing) {
-          throw new Error("ALREADY_FINALIZED");
+          const samePeriod = dateOnly(existing.periodStart) === periodStart && dateOnly(existing.periodEnd) === periodEnd;
+          throw new Error(samePeriod ? "ALREADY_FINALIZED" : "OVERLAPPING_FINALIZATION");
         }
 
         const period = await txAny.profitAttributionPeriod.create({
@@ -892,6 +953,15 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
         if (!period || period.status !== "finalized") {
           throw new Error("NOT_FINALIZED");
         }
+        const consumingEntries = await txAny.investmentParticipantActionLedgerEntry.findMany({
+          where: { action: { status: "active" } },
+          select: { sourceFinalizationIds: true },
+        });
+        const periodIsConsumed = consumingEntries.some((entry: any) => (
+          Array.isArray(entry.sourceFinalizationIds)
+          && entry.sourceFinalizationIds.some((source: any) => Number(source?.periodId) === period.id)
+        ));
+        if (periodIsConsumed) throw new Error("FINALIZATION_ENTITLEMENT_CONSUMED");
 
         const reversal = await txAny.profitAttributionPeriod.create({
           data: {
@@ -948,6 +1018,12 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
   } catch (error: any) {
     if (String(error?.message || "") === "ALREADY_FINALIZED") {
       return errorResponse("ALREADY_FINALIZED", "This investor attribution period is already finalized.", 409);
+    }
+    if (String(error?.message || "") === "OVERLAPPING_FINALIZATION") {
+      return errorResponse("OVERLAPPING_FINALIZATION", "This period overlaps an existing finalized investor attribution period.", 409);
+    }
+    if (String(error?.message || "") === "FINALIZATION_ENTITLEMENT_CONSUMED") {
+      return errorResponse("FINALIZATION_ENTITLEMENT_CONSUMED", "Reverse or settle dependent investor actions before reversing this finalization.", 409);
     }
     if (String(error?.message || "") === "NOT_FINALIZED") {
       return errorResponse("NOT_FINALIZED", "Only finalized investor attribution periods can be reversed.", 409);

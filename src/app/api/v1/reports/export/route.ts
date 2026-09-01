@@ -388,7 +388,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         cleanText(e.city.name),
         cleanText(e.detail),
         fmtReportMoney(Number(e.amount), e.currency.symbol, e.currency.code),
-        cleanText(e.lot.lotNumber),
+        cleanText(e.lot?.lotNumber || ""),
         cleanText(e.notes || ""),
       ]);
       payload = { title, meta, headers, rows: dataRows };

@@ -14,6 +14,7 @@ import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idem
 import { allocateSaleItemAcrossLots, consolidateSaleLotAllocationItems, AvailableSaleLot, SaleLotAllocationItem } from "@/lib/sale-lot-allocation";
 import { resolveAfghanistanFxRateFromDb } from "@/lib/sarafi-af-snapshot-db";
 import { isAfghanistanCountry } from "@/lib/country-code";
+import { lockGodownProductStock } from "@/lib/financial-locks";
 
 const SALE_SYNC_MODULE = "sales.create";
 
@@ -495,6 +496,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const sale = await prisma.$transaction(async (tx) => {
       const productIdsToLock: number[] = Array.from(new Set<number>(normalizedItems.map((item) => item.productId)));
       if (productIdsToLock.length > 0) {
+        await lockGodownProductStock(tx, productIdsToLock.map((productId) => ({ godownId, productId })));
         await tx.$executeRaw`
           SELECT id
           FROM lot_city_godown_allocations

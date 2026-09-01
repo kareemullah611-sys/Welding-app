@@ -72,7 +72,12 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
         "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
         `supplier-liability:${existing.supplierId}:${existing.lotId || "none"}`,
       );
-      await reverseJournalEntries(settlementJournalTransactionId("SUPPPAY", id, existing.journalVersion), user.userId, tx);
+      const lockedExisting = await tx.supplierPayment.findUnique({ where: { id } });
+      if (!lockedExisting) throw Object.assign(new Error("Supplier payment no longer exists"), { code: "PAYMENT_CHANGED_RETRY" });
+      if (lockedExisting.journalVersion !== existing.journalVersion) {
+        throw Object.assign(new Error("Supplier payment changed while this edit was open"), { code: "PAYMENT_CHANGED_RETRY" });
+      }
+      await reverseJournalEntries(settlementJournalTransactionId("SUPPPAY", id, lockedExisting.journalVersion), user.userId, tx);
       await reverseIntermediaryUsdCostUsages({ supplierPaymentId: id }, tx);
 
       const payment = await tx.supplierPayment.update({
@@ -155,6 +160,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     return successResponse({ id }, "Payment updated");
   } catch (error) {
     if (error instanceof LiabilityFxValidationError) return errorResponse("FX_BASIS_REQUIRED", error.message, 400);
+    if ((error as any)?.code === "PAYMENT_CHANGED_RETRY") return errorResponse("PAYMENT_CHANGED_RETRY", error instanceof Error ? error.message : "Payment changed; reload and retry", 409);
     console.error("Update supplier payment error:", error);
     return serverError();
   }
@@ -167,7 +173,13 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
     if (!existing) return errorResponse("NOT_FOUND", "Supplier payment not found", 404);
 
     await prisma.$transaction(async (tx) => {
-      await reverseJournalEntries(settlementJournalTransactionId("SUPPPAY", id, existing.journalVersion), user.userId, tx);
+      await tx.$executeRawUnsafe(
+        "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
+        `supplier-liability:${existing.supplierId}:${existing.lotId || "none"}`,
+      );
+      const lockedExisting = await tx.supplierPayment.findUnique({ where: { id } });
+      if (!lockedExisting) throw Object.assign(new Error("Supplier payment no longer exists"), { code: "PAYMENT_CHANGED_RETRY" });
+      await reverseJournalEntries(settlementJournalTransactionId("SUPPPAY", id, lockedExisting.journalVersion), user.userId, tx);
       await reverseIntermediaryUsdCostUsages({ supplierPaymentId: id }, tx);
       await tx.supplierPayment.delete({ where: { id } });
       await createAuditLog(user.userId, null, "supplier_payments", id, "delete",

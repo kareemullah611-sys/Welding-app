@@ -1284,7 +1284,7 @@ model Payment {
   id                 Int                @id @default(autoincrement())
   cityId             Int                @map("city_id")
   customerId         Int                @map("customer_id")
-  lotId              Int                @map("lot_id")
+  lotId              Int?               @map("lot_id")
   paymentDate        DateTime           @map("payment_date") @db.Date
   detail             String             @db.VarChar(500)
   amount             Decimal            @db.Decimal(15, 2)
@@ -1314,7 +1314,7 @@ model Payment {
 
   city        City        @relation(fields: [cityId], references: [id])
   customer    Customer    @relation(fields: [customerId], references: [id])
-  lot         Lot         @relation(fields: [lotId], references: [id])
+  lot         Lot?        @relation(fields: [lotId], references: [id])
   currency    Currency    @relation(fields: [currencyId], references: [id])
   creator     User        @relation("PaymentCreatedBy", fields: [createdBy], references: [id])
   canceller   User?       @relation("PaymentCancelledBy", fields: [cancelledBy], references: [id])
@@ -1375,7 +1375,7 @@ model PaymentLotTransfer {
 model Expense {
   id          Int       @id @default(autoincrement())
   cityId      Int       @map("city_id")
-  lotId       Int       @map("lot_id")
+  lotId       Int?      @map("lot_id")
   expenseDate DateTime  @map("expense_date") @db.Date
   amount      Decimal   @db.Decimal(15, 2)
   currencyId  Int       @map("currency_id")
@@ -1392,7 +1392,7 @@ model Expense {
   deletedAt   DateTime? @map("deleted_at") // null = active; non-null = soft-deleted
 
   city        City         @relation(fields: [cityId], references: [id])
-  lot         Lot          @relation(fields: [lotId], references: [id])
+  lot         Lot?         @relation(fields: [lotId], references: [id])
   currency    Currency     @relation(fields: [currencyId], references: [id])
   creator     User         @relation(fields: [createdBy], references: [id])
   bankAccount BankAccount? @relation(fields: [bankAccountId], references: [id])
@@ -1947,6 +1947,7 @@ model LotCost {
   superAdminBankAccountId Int? @map("super_admin_bank_account_id") // super admin bank debit source
   intermediaryId Int?        @map("intermediary_id")   // for intermediary settlement
   paidFromCash   Boolean     @default(false) @map("paid_from_cash")
+  journalVersion Int         @default(1) @map("journal_version")
   notes        String?     @db.Text
   createdBy    Int         @map("created_by")
   createdAt    DateTime    @default(now()) @map("created_at")

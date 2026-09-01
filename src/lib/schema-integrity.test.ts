@@ -229,18 +229,26 @@ test("Haji openings stay historical and customer-to-Haji payments get linked tra
   assert.doesNotMatch(hajiOpeningBlock![0], /hajiTransfer\.create/);
 });
 
-test("city expense edit keeps creation-time fields available", () => {
+test("city expenses are not assigned to lots", () => {
+  const schema = readFileSync("prisma/schema.prisma", "utf8");
   const validations = readFileSync("src/lib/validations.ts", "utf8");
+  const expenseCreateRoute = readFileSync("src/app/api/v1/expenses/route.ts", "utf8");
   const expenseUpdateRoute = readFileSync("src/app/api/v1/expenses/[id]/route.ts", "utf8");
   const expensesPage = readFileSync("src/app/(dashboard)/expenses/page.tsx", "utf8");
 
-  assert.match(validations, /export const updateExpenseSchema = z\.object\(\{\s+lotId:/);
-  assert.match(expenseUpdateRoute, /const lotChanged = nextLotId !== expense\.lotId/);
-  assert.match(expenseUpdateRoute, /lotCityDistributions: \{ some: \{ cityId: expense\.cityId \} \}/);
-  assert.match(expenseUpdateRoute, /lotId: nextLot\.id/);
+  assert.match(schema, /model Expense \{[\s\S]*?lotId\s+Int\?/);
+  assert.match(schema, /model Payment \{[\s\S]*?lotId\s+Int\?/);
+  assert.doesNotMatch(validations, /export const createExpenseSchema = z\.object\(\{\s+lotId:/);
+  assert.doesNotMatch(validations, /export const updateExpenseSchema = z\.object\(\{\s+lotId:/);
+  assert.match(expenseCreateRoute, /cityId, lotId: null, expenseDate:/);
+  assert.match(expenseCreateRoute, /lotId: expensePaymentFifoLotId/);
+  assert.match(expenseCreateRoute, /pg_advisory_xact_lock\(\$\{32002\}::int, \$\{chequePaymentId\}::int\)/);
+  assert.match(expenseUpdateRoute, /lotId: null,/);
+  assert.match(expenseUpdateRoute, /lotId: customerPaymentFifoLotId/);
   assert.match(expensesPage, /const openEdit = async/);
-  assert.match(expensesPage, /apiCall\("\/api\/v1\/lots", \{ params: \{ limit: 100, status: "ongoing" \} \}\)/);
-  assert.match(expensesPage, /lotId: form\.lotId \|\| selected\?\.lotId \|\| null/);
+  assert.doesNotMatch(expensesPage, /apiCall\("\/api\/v1\/lots"/);
+  assert.doesNotMatch(expensesPage, /value=\{form\.lotId\}/);
+  assert.doesNotMatch(expensesPage, /lotId: form\.lotId/);
 });
 
 test("city payment modal owns haji expense and withdrawal creation", () => {
@@ -1057,7 +1065,7 @@ test("superadmin liability and exchange journals are atomic", () => {
   assert.match(agentUpdate, /await reverseJournalEntries\(`AGENTPAY-\$\{id\}`, user\.userId, tx\)/);
   assert.match(agentUpdate, /await journalAgentPaid\([\s\S]*,\s*tx\);/);
   assert.match(shippingCreate, /await journalShippingLinePayment\([\s\S]*,\s*tx\);/);
-  assert.match(shippingUpdate, /await reverseJournalEntries\(settlementJournalTransactionId\("SLPAY", id, existing\.journalVersion\), user\.userId, tx\)/);
+  assert.match(shippingUpdate, /await reverseJournalEntries\(settlementJournalTransactionId\("SLPAY", id, lockedExisting\.journalVersion\), user\.userId, tx\)/);
   assert.match(shippingUpdate, /await journalShippingLinePayment\([\s\S]*,\s*tx\);/);
   assert.match(intermediaryDepositCreate, /await journalIntermediaryDeposit\([\s\S]*,\s*tx\);/);
   assert.match(exchangeCreate, /await journalIntermediaryExchange\([\s\S]*,\s*tx\);/);
@@ -1398,12 +1406,10 @@ test("investor attribution phase 1.1 keeps participant management separate from 
   assert.match(investorsPage, /Participation segments/);
 });
 
-test("profit report helper does not query impossible null expense lot ids", () => {
+test("lot profit report only includes historical lot-linked expenses", () => {
   const profitReportRoute = readFileSync("src/app/api/v1/profit-report/route.ts", "utf8");
-  const periodProfitHelper = readFileSync("src/lib/period-profit-report-data.ts", "utf8");
 
-  assert.doesNotMatch(profitReportRoute, /lotId:\s*null/);
-  assert.doesNotMatch(periodProfitHelper, /lotId:\s*null/);
+  assert.match(profitReportRoute, /prisma\.expense\.findMany\(\{\s+where: \{ lotId, deletedAt: null \}/);
 });
 
 test("investor attribution follows financial report recognition without collection eligibility", () => {

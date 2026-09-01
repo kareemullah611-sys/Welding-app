@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
@@ -27,7 +27,6 @@ type ExpensesReadSnapshot = {
 };
 
 type ExpensesFormCache = {
-  lots: any[];
   currencies: any[];
   bankAccounts: any[];
   inHandCheques: any[];
@@ -86,13 +85,12 @@ export default function ExpensesPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [selected, setSelected] = useState<any>(null);
-  const [lots, setLots] = useState<any[]>([]);
   const [currencies, setCurrencies] = useState<any[]>([]);
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
   const [inHandCheques, setInHandCheques] = useState<any[]>([]);
   const [form, setForm] = useState<any>({
     expenseDate: new Date().toISOString().split("T")[0],
-    amount: 0, detail: "", notes: "", lotId: 0, currencyId: 0,
+    amount: 0, detail: "", notes: "", currencyId: 0,
     paidFrom: "cash_office", bankAccountId: 0, chequePaymentId: 0,
   });
   const [submitting, setSubmitting] = useState(false);
@@ -101,6 +99,7 @@ export default function ExpensesPage() {
   const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
   const [openActionId, setOpenActionId] = useState<number | null>(null);
   const [prefillHandled, setPrefillHandled] = useState(false);
+  const createRequestRef = useRef<{ signature: string; requestId: string } | null>(null);
   const closeEmbed = useCallback(() => {
     if (typeof window !== "undefined" && window.parent !== window) {
       window.parent.postMessage({ type: "dashboard-quick-close" }, window.location.origin);
@@ -197,9 +196,9 @@ export default function ExpensesPage() {
   }, [openActionId]);
 
   const openCreate = async (preset?: Record<string, any>) => {
+    createRequestRef.current = null;
     if (!isOnline) {
       const cached = readOfflineFormCache<ExpensesFormCache>(EXPENSES_FORM_CACHE_KEY, [
-        "lots",
         "currencies",
         "bankAccounts",
         "inHandCheques",
@@ -213,7 +212,6 @@ export default function ExpensesPage() {
         setShowCreate(true);
         return;
       }
-      setLots(cached.lots);
       setCurrencies(cached.currencies);
       setBankAccounts(cached.bankAccounts);
       setInHandCheques(cached.inHandCheques);
@@ -223,7 +221,6 @@ export default function ExpensesPage() {
         amount: 0,
         detail: "",
         notes: "",
-        lotId: 0,
         currencyId: cached.currencies[0]?.id || 0,
         paidFrom: "cash_office",
         bankAccountId: 0,
@@ -236,14 +233,12 @@ export default function ExpensesPage() {
     }
 
     const requests: Promise<any>[] = [
-      apiCall("/api/v1/lots", { params: { limit: 100, status: "ongoing" } }),
       apiCall("/api/v1/cities"),
     ];
     if (!isAfghanistanCity) {
       requests.push(apiCall("/api/v1/bank-accounts"));
     }
-    const [lotRes, cityRes, baRes] = await Promise.all(requests);
-    if (lotRes.success) setLots(lotRes.data as any[]);
+    const [cityRes, baRes] = await Promise.all(requests);
     if (cityRes.success && user?.cityId) {
       const city = (cityRes.data as any[]).find((c: any) => c.id === user.cityId);
       if (city?.currencies?.length) {
@@ -258,7 +253,6 @@ export default function ExpensesPage() {
       : [];
     if (cachedCurrencies.length > 0) {
       writeOfflineFormCache<ExpensesFormCache>(EXPENSES_FORM_CACHE_KEY, {
-        lots: lotRes.success ? (lotRes.data as any[]) : [],
         currencies: cachedCurrencies,
         bankAccounts: !isAfghanistanCity && baRes?.success ? (baRes.data as any[]) : [],
         inHandCheques: [],
@@ -266,7 +260,7 @@ export default function ExpensesPage() {
     }
     setForm((f: any) => ({
       ...f, expenseDate: new Date().toISOString().split("T")[0],
-      amount: 0, detail: "", notes: "", lotId: 0,
+      amount: 0, detail: "", notes: "",
       paidFrom: "cash_office", customerId: 0, customerName: "", bankAccountId: 0, chequePaymentId: 0,
       ...preset,
     }));
@@ -290,7 +284,6 @@ export default function ExpensesPage() {
 
     const createBody: any = {
       ...form,
-      lotId: form.lotId || selected?.lotId || null,
       currencyId: resolvedCurrencyId,
     };
     if (form.paidFrom !== "bank_account") delete createBody.bankAccountId;
@@ -347,9 +340,17 @@ export default function ExpensesPage() {
 
     // ── Online: normal submit ──
     setSubmitting(true);
-    const result = await apiCall("/api/v1/expenses", { method: "POST", body: createBody });
+    const payloadSignature = JSON.stringify(createBody);
+    if (!createRequestRef.current || createRequestRef.current.signature !== payloadSignature) {
+      createRequestRef.current = { signature: payloadSignature, requestId: `browser-${crypto.randomUUID()}` };
+    }
+    const result = await apiCall("/api/v1/expenses", {
+      method: "POST",
+      body: createBody,
+      headers: { "x-sync-request-id": createRequestRef.current.requestId },
+    });
     setSubmitting(false);
-    if (result.success) { setShowCreate(false); if (isEmbed) closeEmbed(); load(); } else { setFormError(result.error || "Failed"); }
+    if (result.success) { createRequestRef.current = null; setShowCreate(false); if (isEmbed) closeEmbed(); load(); } else { setFormError(result.error || "Failed"); }
   };
 
   useEffect(() => {
@@ -373,32 +374,26 @@ export default function ExpensesPage() {
     setSelected(e);
     if (!isOnline) {
       const cached = readOfflineFormCache<ExpensesFormCache>(EXPENSES_FORM_CACHE_KEY, [
-        "lots",
         "currencies",
         "bankAccounts",
         "inHandCheques",
       ]);
       if (cached) {
-        setLots(cached.lots);
         setCurrencies(cached.currencies);
         setBankAccounts(cached.bankAccounts);
         setInHandCheques(cached.inHandCheques);
       }
     } else {
-      const requests: Promise<any>[] = [
-        apiCall("/api/v1/lots", { params: { limit: 100, status: "ongoing" } }),
-      ];
       if (!isAfghanistanCity) {
-        requests.push(apiCall("/api/v1/bank-accounts"));
+        const bankAccountsResult = await apiCall("/api/v1/bank-accounts");
+        if (bankAccountsResult.success) setBankAccounts(bankAccountsResult.data as any[]);
+      } else {
+        setBankAccounts([]);
       }
-      const [lotRes, baRes] = await Promise.all(requests);
-      if (lotRes.success) setLots(lotRes.data as any[]);
-      if (!isAfghanistanCity && baRes?.success) setBankAccounts(baRes.data as any[]);
-      else setBankAccounts([]);
     }
     setForm({
       expenseDate: e.expenseDate, amount: e.amount, detail: e.detail,
-      notes: e.notes || "", lotId: e.lotId || 0, currencyId: e.currency?.id || 0,
+      notes: e.notes || "", currencyId: e.currency?.id || 0,
       paidFrom: e.paidFrom || "cash_office", bankAccountId: e.bankAccountId || 0, chequePaymentId: e.chequePaymentId || 0,
       customerId: e.customerPayment?.customerId || 0, customerName: e.customerPayment?.customer?.name || "",
     });
@@ -412,7 +407,6 @@ export default function ExpensesPage() {
       expenseDate: form.expenseDate,
       amount: form.amount,
       detail: form.detail,
-      lotId: form.lotId || null,
       paidFrom: form.paidFrom,
       notes: form.notes,
     };
@@ -434,8 +428,6 @@ export default function ExpensesPage() {
               expenseDate: form.expenseDate,
               amount: form.amount,
               detail: form.detail,
-              lotId: form.lotId || exp.lotId,
-              lotNumber: lots.find((lot: any) => lot.id === form.lotId)?.lotNumber || exp.lotNumber,
               paidFrom: form.paidFrom,
               bankAccountId: form.paidFrom === "bank_account" ? form.bankAccountId : null,
               notes: form.notes,
@@ -468,8 +460,6 @@ export default function ExpensesPage() {
                 expenseDate: form.expenseDate,
                 amount: form.amount,
                 detail: form.detail,
-                lotId: form.lotId || exp.lotId,
-                lotNumber: lots.find((lot: any) => lot.id === form.lotId)?.lotNumber || exp.lotNumber,
                 paidFrom: form.paidFrom,
                 bankAccountId: form.paidFrom === "bank_account" ? form.bankAccountId : null,
                 notes: form.notes,
@@ -652,24 +642,15 @@ export default function ExpensesPage() {
             <label className="mb-1 block text-sm font-medium text-gray-700">{t("detail")} *</label>
             <input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" />
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
-              <input
-                type="number"
-                value={form.amount || ""}
-                onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
-                className="input-field"
-                onWheel={e => e.currentTarget.blur()}
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">{t("lot")}</label>
-              <select value={form.lotId} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
-                <option value={0}>{t("auto_fifo")}</option>
-                {lots.map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}</option>)}
-              </select>
-            </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">{t("amount")} *</label>
+            <input
+              type="number"
+              value={form.amount || ""}
+              onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))}
+              className="input-field"
+              onWheel={e => e.currentTarget.blur()}
+            />
           </div>
           {!isEmbed && (
             <>
@@ -735,16 +716,7 @@ export default function ExpensesPage() {
             />
           )}
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("detail")}</label><input value={form.detail} onChange={e => setForm((f: any) => ({ ...f, detail: e.target.value }))} className="input-field" /></div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")}</label><input type="number" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} /></div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t("lot")}</label>
-              <select value={form.lotId} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
-                <option value={0}>{t("auto_fifo")}</option>
-                {lots.map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}</option>)}
-              </select>
-            </div>
-          </div>
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")}</label><input type="number" value={form.amount || ""} onChange={e => setForm((f: any) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} className="input-field" onWheel={e => e.currentTarget.blur()} /></div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label><input value={form.notes} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} className="input-field" /></div>
         </div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">

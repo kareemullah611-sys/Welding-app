@@ -238,7 +238,7 @@ export const createPaymentSchema = z.object({
   amount: nonZeroAmount,
   currencyId: z.number().int().optional().nullable(),
   exchangeRate: z.number().positive().optional().nullable(),  // AFN/USD rate on payment day
-  usdEquivalent: nonZeroAmount.optional().nullable(), // USD value of AFN payment
+  usdEquivalent: nonZeroAmount.optional().nullable(), // Deprecated input; server derives this from amount and exchangeRate
   manualVoucherNo: z.string().max(50).optional(),
   paymentMethod: z.enum(["cash", "cheque", "bank_transfer", "online"]),
   destination: z.enum(["haji", "our_account"]),
@@ -292,7 +292,6 @@ export const paymentActionSchema = z.discriminatedUnion("action", [
 // EXPENSES
 // ============================================================
 export const createExpenseSchema = z.object({
-  lotId: z.number().int().optional().nullable(),
   expenseDate: z.string(),
   amount: z.number().positive(),
   currencyId: z.number().int().optional().nullable(),
@@ -305,7 +304,6 @@ export const createExpenseSchema = z.object({
 });
 
 export const updateExpenseSchema = z.object({
-  lotId: z.number().int().optional().nullable(),
   expenseDate: z.string().optional(),
   amount: z.coerce.number().positive().optional(),
   detail: z.string().trim().min(1).max(500).optional(),
