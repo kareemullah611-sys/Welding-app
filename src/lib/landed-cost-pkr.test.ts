@@ -102,4 +102,23 @@ describe("landed-cost-pkr", () => {
     assert.equal(result.rows[0]?.amountPkr, 283_000);
     assert.equal(result.rows[0]?.acquisitionRateToPkr, 283);
   });
+
+  it("omits Golden Bridge from purchase particulars in the lot cost ledger", () => {
+    const result = buildLotCostLedger({
+      lotDate: "2026-08-22",
+      lotCountryCode: "PAK",
+      usdPkrRate: 280,
+      purchaseItems: [{
+        id: 1,
+        supplierName: "Golden Bridge",
+        productName: "7018-12",
+        totalPriceUsd: 100,
+      }],
+      lotCosts: [],
+      lotExpensesByCurrency: {},
+    });
+
+    assert.equal(result.rows[0].particulars, "Purchase — 7018-12");
+    assert.doesNotMatch(result.rows[0].particulars, /Golden Bridge/i);
+  });
 });

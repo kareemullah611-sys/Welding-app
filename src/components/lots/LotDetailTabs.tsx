@@ -51,21 +51,21 @@ export function LotDetailSummary({ selectedLot, userRole, t, onAddCost, onEditPu
 
   return (
     <>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <StatsCard title="Purchase (USD)" value={`$${formatNumber(purchaseUsd)}`} icon="P" color="blue" />
-        {Object.entries(otherByCurrency).map(([code, amt]) => (
-          <StatsCard key={code} title={`Costs (${code})`} value={formatNumber(Number(amt))} icon="C" color="yellow" />
-        ))}
-        {landedPkr != null && (
-          <StatsCard title="Landed cost (PKR)" value={`Rs ${formatNumber(Math.round(landedPkr))}`} icon="L" color="green" />
-        )}
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <StatsCard title="Landed cost (PKR)" value={landedPkr != null ? `Rs ${formatNumber(Math.round(landedPkr))}` : "—"} icon="L" color="green" />
         <StatsCard title="Total Cartons" value={formatNumber(selectedLot.stockSummary?.totalCartons || 0)} icon="T" color="blue" />
         <StatsCard title="Sold Cartons" value={formatNumber(selectedLot.stockSummary?.soldCartons || 0)} icon="S" color="green" />
         <StatsCard title="Remaining" value={formatNumber(selectedLot.stockSummary?.remainingCartons || 0)} icon="R" color="yellow" />
       </div>
+
+      {Object.keys(otherByCurrency).length > 0 && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {Object.entries(otherByCurrency).map(([code, amt]) => (
+          <StatsCard key={code} title={`Costs (${code})`} value={formatNumber(Number(amt))} icon="C" color="yellow" />
+        ))}
+        </div>
+      )}
 
       {userRole === "super_admin" && (
         <div className="flex flex-wrap items-center gap-2">
@@ -179,10 +179,9 @@ export function LotDetailSummary({ selectedLot, userRole, t, onAddCost, onEditPu
         <div className="card">
           <h4 className="mb-3 text-sm font-semibold text-gray-700">Purchase (USD)</h4>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
+            <table className="w-full min-w-[560px] text-sm">
               <thead>
                 <tr className="border-b border-[#eadfce] bg-[#f9f3ea] text-left text-[11px] uppercase tracking-[0.12em] text-[#8b7b6c]">
-                  <th className="px-3 py-2.5">Supplier</th>
                   <th className="px-3 py-2.5">Product</th>
                   <th className="px-3 py-2.5 text-right">Qty (MT/CTN)</th>
                   <th className="px-3 py-2.5 text-right">Amount USD</th>
@@ -197,7 +196,6 @@ export function LotDetailSummary({ selectedLot, userRole, t, onAddCost, onEditPu
                     : Number(p.qtyMt || 0);
                   return (
                     <tr key={p.id} className="border-b border-[#f1e8dd]">
-                      <td className="px-3 py-2.5">{p.supplierName}</td>
                       <td className="px-3 py-2.5">{p.productName}</td>
                       <td className="px-3 py-2.5 text-right">{displayPurchaseQty.toLocaleString("en-US", { minimumFractionDigits: 3 })}</td>
                       <td className="px-3 py-2.5 text-right font-semibold text-blue-700">${Number(p.totalPriceUsd).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>

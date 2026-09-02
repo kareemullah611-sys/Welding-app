@@ -1045,6 +1045,9 @@ export default function LotsPage() {
   // TABLE COLUMNS
   // ════════════════════════════════════════════
   const columns = [
+    ...(user?.role !== "city_admin" ? [{ key: "suppliers", label: "Supplier", render: (l: any) => (
+      <span className="text-sm text-gray-700">{(l.suppliers || []).map((s: any) => s.name).join(", ") || "—"}</span>
+    )}] : []),
     { key: "lotNumber", label: t("lot_num"), render: (l: any) => {
       const total = Number(l.totalCartons || 0);
       const sold = Number(l.soldCartons || 0);
@@ -1054,21 +1057,20 @@ export default function LotsPage() {
           {getPendingQueueId(l?.id)
             ? <span className="font-mono font-semibold text-gray-500 text-sm">{l.lotNumber}</span>
             : <button onClick={() => openDetail(l)} className="font-mono font-semibold text-primary-600 hover:underline text-sm">{l.lotNumber}</button>}
-          {user?.role !== "city_admin" && <div className="mt-0.5 text-[11px] font-semibold text-gray-500">{pct}%</div>}
+          {user?.role !== "city_admin" && (
+            <>
+              <div className="mt-0.5 text-[11px] text-gray-500">{l.destinationCity?.name || l.countryName || "—"}</div>
+              <div className="mt-0.5 text-[11px] font-semibold text-gray-500">{pct}%</div>
+            </>
+          )}
           {user?.role === "city_admin" && <div className="mt-0.5 text-[11px] text-gray-500">{formatDate(l.lotDate)}</div>}
         </div>
       );
     }},
-    ...(user?.role !== "city_admin" ? [{ key: "suppliers", label: "Supplier", render: (l: any) => (
-      <span className="text-sm text-gray-700">{(l.suppliers || []).map((s: any) => s.name).join(", ") || "—"}</span>
-    )}] : []),
     ...(user?.role !== "city_admin" ? [{ key: "consignee", label: "Consignee", render: (l: any) => (
       <span className="text-sm text-gray-700">{l.consignee?.name || "—"}</span>
     )}] : []),
-    ...(user?.role !== "city_admin" ? [{ key: "destination", label: "Destination", render: (l: any) => (
-      <span className="text-sm text-gray-700">{l.destinationCity?.name || l.countryName || "—"}</span>
-    )}] : []),
-    { key: "lotDate",  label: t("date"),     render: (l: any) => <span className="text-sm text-gray-500">{formatDate(l.lotDate)}</span> },
+    ...(user?.role === "city_admin" ? [{ key: "lotDate", label: t("date"), render: (l: any) => <span className="text-sm text-gray-500">{formatDate(l.lotDate)}</span> }] : []),
     { key: "products", label: t("product"),  render: (l: any) => {
       const isCityView = user?.role === "city_admin";
       const items = isCityView ? (l.assignmentProducts || l.distributions || []) : (l.products || []);
@@ -1204,7 +1206,7 @@ export default function LotsPage() {
                   </button>
                 </div>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.16em] text-[#8f7963]">{t("lot")}</p>
                   <p className="mt-1 text-sm font-semibold text-[#2f241b]">{selectedLot.lotNumber}</p>
@@ -1220,10 +1222,6 @@ export default function LotsPage() {
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.16em] text-[#8f7963]">{t("status")}</p>
                   <div className="mt-1"><StatusBadge status={selectedLot.status} /></div>
-                </div>
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-[#8f7963]">Created By</p>
-                  <p className="mt-1 text-sm font-semibold text-[#2f241b]">{selectedLot.createdBy?.fullName || "—"}</p>
                 </div>
               </div>
               {selectedLot.notes && (

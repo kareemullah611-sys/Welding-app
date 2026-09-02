@@ -81,7 +81,7 @@ export function buildLotCostLedger(input: LotCostLedgerInput): {
     const { amountPkr, rate } = purchasePkrAtRecognition(amount, usdPkrFallback);
     rawRows.push({
       date: rowDate(p.createdAt, lotDate),
-      particulars: `Purchase — ${p.supplierName} (${p.productName})`,
+      particulars: `Purchase — ${p.productName}`,
       amount,
       currencyCode: "USD",
       acquisitionRateToPkr: rate,
