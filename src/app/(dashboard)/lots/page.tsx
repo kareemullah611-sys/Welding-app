@@ -10,7 +10,7 @@ import { Pencil, Package, CheckCircle, RotateCcw, Trash2, Warehouse } from "luci
 import { exportLotCostLedgerXlsx, exportLotCostLedgerPdf } from "@/lib/ledger-export";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingLots } from "@/lib/offline-queue-overlays";
-import { LotDetailSummary, LotDetailLedger, CityLotAssignmentDetail } from "@/components/lots/LotDetailTabs";
+import { LotDetailSummary, LotDetailLedger, LotAccountingTrace, CityLotAssignmentDetail } from "@/components/lots/LotDetailTabs";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { applyQueuedMutationsToLots } from "@/lib/offline-remaining-mutations";
 import { formatCityPot } from "@/lib/city-money-format";
@@ -31,7 +31,7 @@ type LotsReadSnapshot = {
   lotDetailById: Record<string, any>;
 };
 
-type LotDetailTab = "summary" | "ledger";
+type LotDetailTab = "summary" | "ledger" | "trace";
 
 export default function LotsPage() {
   const { user } = useAuth();
@@ -1235,6 +1235,7 @@ export default function LotsPage() {
               {([
                 { key: "summary", label: "Summary" },
                 { key: "ledger", label: "Cost Ledger" },
+                { key: "trace", label: "Accounting Trace" },
               ] as { key: LotDetailTab; label: string }[]).map((tab) => (
                 <button
                   key={tab.key}
@@ -1268,6 +1269,9 @@ export default function LotsPage() {
 
             {activeDetailTab === "ledger" && (
               <LotDetailLedger selectedLot={selectedLot} userRole={user?.role} />
+            )}
+            {activeDetailTab === "trace" && (
+              <LotAccountingTrace selectedLot={selectedLot} userRole={user?.role} />
             )}
 
           </div>

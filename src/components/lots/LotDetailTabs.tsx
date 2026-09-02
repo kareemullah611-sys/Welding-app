@@ -1,5 +1,6 @@
 "use client";
 import React from "react";
+import Link from "next/link";
 import { Modal, StatsCard, formatNumber, formatDate, StatusBadge } from "@/components/ui";
 import { Download, FileText, Pencil, Trash2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
@@ -294,6 +295,132 @@ export function LotDetailLedger({ selectedLot, userRole }: { selectedLot: any; u
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+export function LotAccountingTrace({ selectedLot, userRole }: { selectedLot: any; userRole?: string }) {
+  if (userRole !== "super_admin") return null;
+  const trace = selectedLot.accountingTrace;
+  if (!trace) return <div className="card text-sm text-gray-400">Accounting trace is unavailable for this lot.</div>;
+  const money = (value: unknown) => value == null ? "—" : `PKR ${formatNumber(Number(value))}`;
+  const quantity = (value: unknown) => formatNumber(Number(value || 0));
+  const fx = trace.fxRecognitionBasis || {};
+  const reconciliationDifference = Number(trace.reconciliation?.difference || 0);
+
+  return (
+    <div className="space-y-4">
+      <div className="card">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-500">End-to-end source chain</p>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          {(trace.chain || []).map((step: string, index: number) => (
+            <React.Fragment key={step}>
+              {index > 0 && <span className="text-gray-300">→</span>}
+              <span className="rounded-full border border-[#e5d8c7] bg-[#fbf6ef] px-2.5 py-1 font-medium text-[#5d4a3a]">{step}</span>
+            </React.Fragment>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="card">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">FX recognition basis</p>
+          <p className="mt-1 text-sm font-semibold text-gray-800">{fx.rate ? `${fx.currencyPair} ${Number(fx.rate).toLocaleString("en-US")}` : "Missing"}</p>
+          <p className="mt-1 text-xs text-gray-500">Recognition date: {fx.recognitionDate || "—"}</p>
+          <p className="text-xs text-gray-500">Provider: {fx.metadata?.provider || fx.metadata?.source || "—"}</p>
+        </div>
+        <div className="card">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">Journal reconciliation</p>
+          <p className={`mt-1 text-sm font-semibold ${Math.abs(reconciliationDifference) < 0.01 ? "text-green-700" : "text-red-700"}`}>
+            Difference {money(reconciliationDifference)}
+          </p>
+          <p className="mt-1 text-xs text-gray-500">Debits {money(trace.reconciliation?.totalDebits)}</p>
+          <p className="text-xs text-gray-500">Credits {money(trace.reconciliation?.totalCredits)}</p>
+        </div>
+        <div className="card">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">Investor attribution</p>
+          <p className="mt-1 text-sm font-semibold text-gray-800">Historical-pool attribution</p>
+          <Link href="/investors" className="mt-1 inline-block text-xs font-semibold text-primary-700 hover:underline">Open investor attribution →</Link>
+        </div>
+      </div>
+
+      <TraceTable
+        title="Stock Value → Quantity and Cost Basis"
+        headers={["Product", "Original", "Distributed", "Transfers", "Sold", "Remaining", "Unit cost", "Remaining value", "Source"]}
+        rows={(trace.stock || []).map((row: any) => [
+          row.productName,
+          quantity(row.originalQuantity),
+          quantity(row.distributedQuantity),
+          quantity(row.internalTransferQuantity),
+          quantity(row.soldQuantity),
+          <span key="remaining" className={Number(row.remainingQuantity) < 0 ? "font-semibold text-red-700" : "font-semibold text-gray-800"}>{quantity(row.remainingQuantity)}</span>,
+          money(row.unitCarryingCostPkr),
+          money(row.remainingStockValuePkr),
+          <div key="source" className="min-w-[170px] text-xs"><div>{row.supplierNames?.join(", ") || "Opening valuation"}</div><div className="text-gray-400">Purchases: {row.purchaseIds?.join(", ") || "—"}</div>{row.blockers?.map((blocker: string) => <div key={blocker} className="text-red-600">{blocker}</div>)}</div>,
+        ])}
+      />
+
+      <TraceTable
+        title="Revenue → Sales → COGS"
+        headers={["Sale", "Date / City", "Customer", "Product / Qty", "Original revenue", "Recognized PKR", "COGS", "Gross profit", "Journal"]}
+        rows={(trace.sales || []).map((sale: any) => [
+          sale.voucherNo || `#${sale.id}`,
+          <div key="date"><div>{sale.saleDate}</div><div className="text-xs text-gray-400">{sale.city}</div></div>,
+          sale.customer,
+          <div key="items" className="min-w-[150px] text-xs">{sale.items.map((item: any) => <div key={`${sale.id}-${item.productId}`}>{item.product} · {quantity(item.quantity)}</div>)}</div>,
+          `${sale.currency} ${formatNumber(Number(sale.originalAmount || 0))}`,
+          <div key="recognized"><div>{money(sale.recognizedRevenuePkr)}</div>{sale.blockers?.map((blocker: string) => <div key={blocker} className="mt-1 text-xs text-red-600">{blocker}</div>)}</div>,
+          money(sale.cogsPkr),
+          money(sale.grossProfitPkr),
+          <div key="journals" className="text-xs text-gray-500">{sale.journalTransactionIds?.join(", ") || "Missing"}</div>,
+        ])}
+      />
+
+      <TraceTable
+        title="Purchase / Import → FX Basis"
+        headers={["Purchase", "Supplier", "Product", "USD", "Recognition date", "Rate", "PKR basis", "Journal"]}
+        rows={(trace.purchases || []).map((purchase: any) => [
+          `#${purchase.id}`,
+          purchase.supplier,
+          purchase.product,
+          `$${formatNumber(Number(purchase.originalAmountUsd || 0))}`,
+          purchase.recognitionDate,
+          purchase.carryingRatePkr == null ? "—" : Number(purchase.carryingRatePkr).toLocaleString("en-US"),
+          money(purchase.carryingAmountPkr),
+          <div key="journals" className="text-xs text-gray-500">{purchase.journalTransactionIds?.join(", ") || "Missing"}</div>,
+        ])}
+      />
+
+      <TraceTable
+        title="Supplier / Shipping Settlement → FX Gain or Loss"
+        headers={["Type", "Party", "Date", "USD", "Carrying PKR", "Settlement PKR", "FX gain/loss", "Reference", "Journal"]}
+        rows={[
+          ...(trace.supplierSettlements || []).map((payment: any) => ["Supplier", payment.supplier, payment.paymentDate, `$${formatNumber(Number(payment.amountUsd || 0))}`, money(payment.carryingAmountPkr), money(payment.settlementAmountPkr), money(payment.realizedFxPkr), payment.reference || "—", payment.journalTransactionIds?.join(", ") || "Missing"]),
+          ...(trace.shippingSettlements || []).map((payment: any) => ["Shipping", payment.shippingLine, payment.paymentDate, `$${formatNumber(Number(payment.amountUsd || 0))}`, money(payment.carryingAmountPkr), money(payment.settlementAmountPkr), money(payment.realizedFxPkr), payment.reference || "—", payment.journalTransactionIds?.join(", ") || "Missing"]),
+        ]}
+      />
+
+      <TraceTable
+        title="Journal Lines"
+        headers={["Date", "Transaction", "Account", "Description", "Debit", "Credit", "Currency"]}
+        rows={(trace.journals || []).map((entry: any) => [entry.entryDate, entry.transactionId, `${entry.accountCode} · ${entry.accountName}`, entry.description, formatNumber(Number(entry.debit || 0)), formatNumber(Number(entry.credit || 0)), entry.currencyCode])}
+      />
+    </div>
+  );
+}
+
+function TraceTable({ title, headers, rows }: { title: string; headers: string[]; rows: React.ReactNode[][] }) {
+  return (
+    <div className="card overflow-hidden p-0">
+      <h4 className="border-b border-[#eadfce] px-4 py-3 text-sm font-semibold text-gray-700">{title}</h4>
+      {rows.length ? (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[900px] text-sm">
+            <thead><tr className="border-b border-[#eadfce] bg-[#f9f3ea] text-left text-[11px] uppercase tracking-[0.12em] text-[#8b7b6c]">{headers.map((header) => <th key={header} className="px-3 py-2.5">{header}</th>)}</tr></thead>
+            <tbody>{rows.map((row, rowIndex) => <tr key={rowIndex} className="border-b border-[#f1e8dd] even:bg-[#fcfaf7]">{row.map((cell, cellIndex) => <td key={cellIndex} className="px-3 py-2.5 align-top">{cell}</td>)}</tr>)}</tbody>
+          </table>
+        </div>
+      ) : <p className="px-4 py-6 text-sm text-gray-400">No source records for this section.</p>}
     </div>
   );
 }

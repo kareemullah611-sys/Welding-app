@@ -14,6 +14,7 @@ import {
   reverseJournalEntries,
 } from "@/lib/accounting";
 import { LOT_SHIPMENT_STATUS_VALUES, lotDocumentCategoryLabel, lotShipmentStatusLabel } from "@/lib/lot-documents";
+import { buildLotStockTrace } from "@/lib/accounting-traceability";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -111,7 +112,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     } catch (e) {}
 
     let sales: any[] = [], payments: any[] = [], expenses: any[] = [], hajiTransfers: any[] = [];
-    try { sales = await prisma.sale.findMany({ where: { OR: [{ lotId: id }, { items: { some: { lotId: id } } }], status: { in: ["active", "marked_short"] } }, select: { id: true, voucherNo: true, totalAmount: true, saleDate: true, customer: { select: { name: true } }, items: { where: { lotId: id }, select: { lotId: true, qty: true, amount: true, product: { select: { id: true, name: true } } } } }, orderBy: { saleDate: "desc" }, take: 100 }); } catch (e) {}
+    try { sales = await prisma.sale.findMany({ where: { OR: [{ lotId: id }, { items: { some: { lotId: id } } }], status: { in: ["active", "marked_short"] } }, select: { id: true, voucherNo: true, totalAmount: true, saleDate: true, status: true, isOpeningImport: true, fxOriginalCurrencyCode: true, fxOriginalAmount: true, fxSelectedRate: true, fxSelectedRateType: true, fxProvider: true, fxProviderReference: true, fxPkrEquivalent: true, fxConversionPathJson: true, customer: { select: { id: true, name: true } }, city: { select: { id: true, name: true } }, godown: { select: { id: true, name: true } }, currency: { select: { code: true } }, discounts: { where: { appliedToLotId: id }, select: { id: true, discountAmount: true, discountDate: true, notes: true, currency: { select: { code: true } } } }, items: { where: { lotId: id }, select: { lotId: true, qty: true, cartonQty: true, ratePerCarton: true, amount: true, product: { select: { id: true, name: true, unitOfMeasure: true, piecesPerCarton: true } } } } }, orderBy: { saleDate: "desc" } }); } catch (e) {}
     try { payments = await prisma.payment.findMany({ where: { lotId: id, status: "active" }, select: { id: true, amount: true, paymentDate: true, detail: true, customer: { select: { name: true } } }, orderBy: { paymentDate: "desc" }, take: 100 }); } catch (e) {}
     try { expenses = await prisma.expense.findMany({ where: { lotId: id, deletedAt: null }, select: { id: true, amount: true, detail: true, expenseDate: true, currency: { select: { code: true } } }, orderBy: { expenseDate: "desc" } }); } catch (e) {}
     try { hajiTransfers = await prisma.hajiTransfer.findMany({ where: { lotId: id }, select: { id: true, amount: true, detail: true, transferDate: true, transferType: true }, orderBy: { transferDate: "desc" } }); } catch (e) {}
@@ -350,10 +351,75 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     const supplierPaymentsForLot = supplierIds.length
       ? await prisma.supplierPayment.findMany({
           where: { lotId: id, supplierId: { in: supplierIds } },
-          select: { amountUsd: true, exchangeRate: true, paymentDate: true },
+          select: {
+            id: true,
+            amountUsd: true,
+            exchangeRate: true,
+            amountLocal: true,
+            carryingRatePkr: true,
+            carryingAmountPkr: true,
+            realizedFxPkr: true,
+            paymentDate: true,
+            paymentMethod: true,
+            reference: true,
+            notes: true,
+            supplier: { select: { id: true, name: true } },
+            intermediary: { select: { id: true, name: true } },
+          },
           orderBy: { paymentDate: "asc" },
         })
       : [];
+
+    const [shippingPaymentsForLot, openingValuations, godownTransfers, cityTransfers] = await Promise.all([
+      prisma.shippingLinePayment.findMany({
+        where: { lotId: id },
+        select: {
+          id: true,
+          amountUsd: true,
+          exchangeRate: true,
+          amountPkr: true,
+          carryingRatePkr: true,
+          carryingAmountPkr: true,
+          realizedFxPkr: true,
+          paymentDate: true,
+          reference: true,
+          notes: true,
+          shippingLine: { select: { id: true, name: true } },
+          intermediary: { select: { id: true, name: true } },
+        },
+        orderBy: { paymentDate: "asc" },
+      }),
+      prisma.openingInventoryValuation.findMany({
+        where: { lotId: id },
+        select: { productId: true, unitCostPkr: true, totalValuePkr: true, originalAmount: true, fxRateToPkr: true, fxRateDate: true, fxRateSource: true, fxRateMetadata: true },
+      }),
+      prisma.godownTransfer.findMany({
+        where: { lotId: id },
+        select: { id: true, productId: true, qty: true, transferDate: true, fromGodown: { select: { name: true } }, toGodown: { select: { name: true } } },
+        orderBy: { transferDate: "asc" },
+      }),
+      prisma.cityTransfer.findMany({
+        where: { lotId: id },
+        select: { id: true, productId: true, qty: true, status: true, transferDate: true, fromCity: { select: { name: true } }, toCity: { select: { name: true } } },
+        orderBy: { transferDate: "asc" },
+      }),
+    ]);
+
+    const supplierPaymentIds = supplierPaymentsForLot.map((payment) => payment.id);
+    const shippingPaymentIds = shippingPaymentsForLot.map((payment) => payment.id);
+    const discountIds = sales.flatMap((sale: any) => sale.discounts.map((discount: any) => discount.id));
+    const traceJournals = await prisma.journalEntry.findMany({
+      where: {
+        OR: [
+          { lotId: id },
+          ...(supplierPaymentIds.length ? [{ entityType: "supplier_payment", entityId: { in: supplierPaymentIds } }] : []),
+          ...(shippingPaymentIds.length ? [{ entityType: "shipping_line_payment", entityId: { in: shippingPaymentIds } }] : []),
+          ...(discountIds.length ? [{ entityType: "sale_discount", entityId: { in: discountIds } }] : []),
+        ],
+      },
+      include: { account: { select: { code: true, name: true, accountType: true } } },
+      orderBy: [{ entryDate: "asc" }, { transactionId: "asc" }, { lineNumber: "asc" }],
+    });
 
     const ledgerBuilt = buildLotCostLedger({
       lotDate: lot.lotDate.toISOString().split("T")[0],
@@ -399,6 +465,170 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           usdPkrRate: Number(lot.pkrExchangeRate),
         })
       : null;
+
+    const openingValuationByProduct = new Map(openingValuations.map((valuation) => [valuation.productId, valuation]));
+    const additionalLandedCostPkr = ledgerBuilt.rows
+      .filter((row) => row.sourceType !== "purchase")
+      .reduce((sum, row) => sum + Number(row.amountPkr || 0), 0);
+    const stockTrace = buildLotStockTrace({
+      lotProducts: lotProducts.map((lotProduct: any) => ({
+        productId: lotProduct.productId,
+        productName: lotProduct.product.name,
+        unitOfMeasure: lotProduct.product.unitOfMeasure,
+        piecesPerCarton: lotProduct.product.piecesPerCarton,
+        originalQty: Number(lotProduct.totalQty || 0),
+        openingUnitCostPkr: openingValuationByProduct.get(lotProduct.productId)?.unitCostPkr
+          ? Number(openingValuationByProduct.get(lotProduct.productId)!.unitCostPkr)
+          : null,
+      })),
+      purchases: lotPurchases.map((purchase: any) => ({
+        id: purchase.id,
+        productId: purchase.productId,
+        supplierName: purchase.supplier?.name || "",
+        originalAmountUsd: Number(purchase.totalPriceUsd || 0),
+        carryingAmountPkr: purchase.carryingAmountPkr == null ? null : Number(purchase.carryingAmountPkr),
+      })),
+      distributed: distributions.map((distribution: any) => ({ productId: distribution.productId, qty: Number(distribution.allocatedQty || 0) })),
+      sales: sales.flatMap((sale: any) => sale.items.map((item: any) => ({ productId: item.product.id, qty: Number(item.qty || 0) }))),
+      godownTransfers: godownTransfers.map((transfer) => ({ productId: transfer.productId, qty: Number(transfer.qty || 0) })),
+      cityTransfers: cityTransfers.map((transfer) => ({ productId: transfer.productId, qty: Number(transfer.qty || 0), status: transfer.status })),
+      additionalLandedCostPkr,
+    });
+    const journalRows = traceJournals.map((entry) => ({
+      id: entry.id,
+      transactionId: entry.transactionId,
+      lineNumber: entry.lineNumber,
+      entryDate: entry.entryDate.toISOString().split("T")[0],
+      entityType: entry.entityType,
+      entityId: entry.entityId,
+      lotId: entry.lotId,
+      cityId: entry.cityId,
+      accountCode: entry.account.code,
+      accountName: entry.account.name,
+      accountType: entry.account.accountType,
+      debit: Number(entry.debit),
+      credit: Number(entry.credit),
+      currencyCode: entry.currencyCode,
+      exchangeRate: entry.exchangeRate == null ? null : Number(entry.exchangeRate),
+      description: entry.description,
+    }));
+    const totalJournalDebits = journalRows.reduce((sum, entry) => sum + entry.debit, 0);
+    const totalJournalCredits = journalRows.reduce((sum, entry) => sum + entry.credit, 0);
+    const accountingTrace = {
+      access: "super_admin",
+      chain: ["P&L", "Revenue", "Sales", "Lot", "Product", "Cartons", "COGS", "Purchase / Import", "FX Basis", "Supplier Settlement", "FX Gain / Loss", "Journal"],
+      fxRecognitionBasis: {
+        currencyPair: "USD/PKR",
+        rate: lot.pkrExchangeRate ? Number(lot.pkrExchangeRate) : null,
+        metadata: (lot as any).pkrExchangeRateMetadata || null,
+        recognitionDate: lot.lotDate.toISOString().split("T")[0],
+      },
+      stock: stockTrace,
+      purchases: lotPurchases.map((purchase: any) => ({
+        id: purchase.id,
+        supplier: purchase.supplier?.name || "—",
+        productId: purchase.productId,
+        product: purchase.product?.name || "—",
+        quantity: Number(purchase.qty || 0),
+        originalAmountUsd: Number(purchase.totalPriceUsd || 0),
+        carryingRatePkr: purchase.carryingRatePkr == null ? null : Number(purchase.carryingRatePkr),
+        carryingAmountPkr: purchase.carryingAmountPkr == null ? null : Number(purchase.carryingAmountPkr),
+        recognitionDate: purchase.recognitionDate?.toISOString().split("T")[0] || lot.lotDate.toISOString().split("T")[0],
+        recognitionRateMetadata: purchase.recognitionRateMetadata || null,
+        journalTransactionIds: journalRows.filter((entry) => entry.entityType === "lot_purchase" && entry.entityId === purchase.id).map((entry) => entry.transactionId).filter((value, index, rows) => rows.indexOf(value) === index),
+      })),
+      sales: sales.map((sale: any) => {
+        const nativeLotAmount = sale.items.reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
+        const saleNativeAmount = Number(sale.totalAmount || 0);
+        const recognizedPkr = String(sale.currency.code).toUpperCase() === "PKR"
+          ? nativeLotAmount
+          : sale.fxPkrEquivalent == null || saleNativeAmount === 0
+          ? null
+          : Number(sale.fxPkrEquivalent) * (nativeLotAmount / saleNativeAmount);
+        const saleDiscountIds = sale.discounts.map((discount: any) => discount.id);
+        const unsupportedDiscountCurrency = sale.discounts.some((discount: any) => String(discount.currency.code).toUpperCase() !== "PKR");
+        const discountPkr = unsupportedDiscountCurrency
+          ? null
+          : sale.discounts.reduce((sum: number, discount: any) => sum + Number(discount.discountAmount || 0), 0);
+        const netRecognizedRevenuePkr = recognizedPkr == null || discountPkr == null ? null : recognizedPkr - discountPkr;
+        const relatedJournals = journalRows.filter((entry) => (
+          (entry.entityType === "sale" && entry.entityId === sale.id)
+          || (entry.entityType === "sale_discount" && saleDiscountIds.includes(Number(entry.entityId)))
+        ));
+        const cogsPkr = relatedJournals
+          .filter((entry) => entry.accountType === "cogs")
+          .reduce((sum, entry) => sum + entry.debit - entry.credit, 0);
+        const hasSaleJournal = relatedJournals.some((entry) => entry.transactionId === `SALE-${sale.id}`);
+        const hasCogsJournal = relatedJournals.some((entry) => entry.transactionId === `COGS-${sale.id}`);
+        const blockers = [
+          ...(String(sale.currency.code).toUpperCase() !== "PKR" && recognizedPkr == null ? ["Foreign sale lacks stored PKR recognition metadata"] : []),
+          ...(unsupportedDiscountCurrency ? ["Foreign-currency discount lacks stored PKR recognition metadata"] : []),
+          ...(!sale.isOpeningImport && !hasSaleJournal ? ["Missing SALE journal"] : []),
+          ...(!sale.isOpeningImport && !hasCogsJournal ? ["Missing COGS journal"] : []),
+        ];
+        return {
+          id: sale.id,
+          voucherNo: sale.voucherNo,
+          saleDate: sale.saleDate.toISOString().split("T")[0],
+          city: sale.city.name,
+          customer: sale.customer.name,
+          godown: sale.godown.name,
+          currency: sale.currency.code,
+          originalAmount: nativeLotAmount,
+          recognizedRevenuePkr: netRecognizedRevenuePkr == null ? null : round2(netRecognizedRevenuePkr),
+          fxRate: sale.fxSelectedRate == null ? null : Number(sale.fxSelectedRate),
+          fxRateType: sale.fxSelectedRateType,
+          fxProvider: sale.fxProvider,
+          fxProviderReference: sale.fxProviderReference,
+          fxConversionPath: sale.fxConversionPathJson,
+          discounts: sale.discounts.map((discount: any) => ({ id: discount.id, amount: Number(discount.discountAmount), currency: discount.currency.code, date: discount.discountDate.toISOString().split("T")[0], notes: discount.notes })),
+          cogsPkr: round2(cogsPkr),
+          grossProfitPkr: netRecognizedRevenuePkr == null ? null : round2(netRecognizedRevenuePkr - cogsPkr),
+          blockers,
+          items: sale.items.map((item: any) => ({ productId: item.product.id, product: item.product.name, quantity: toDisplayStockQty(Number(item.qty || 0), item.product), originalAmount: Number(item.amount || 0) })),
+          journalTransactionIds: relatedJournals.map((entry) => entry.transactionId).filter((value, index, rows) => rows.indexOf(value) === index),
+        };
+      }),
+      supplierSettlements: supplierPaymentsForLot.map((payment) => ({
+        id: payment.id,
+        supplier: payment.supplier.name,
+        paymentDate: payment.paymentDate.toISOString().split("T")[0],
+        amountUsd: Number(payment.amountUsd),
+        carryingRatePkr: payment.carryingRatePkr == null ? null : Number(payment.carryingRatePkr),
+        carryingAmountPkr: payment.carryingAmountPkr == null ? null : Number(payment.carryingAmountPkr),
+        settlementRatePkr: payment.exchangeRate == null ? null : Number(payment.exchangeRate),
+        settlementAmountPkr: payment.amountLocal == null ? null : Number(payment.amountLocal),
+        realizedFxPkr: payment.realizedFxPkr == null ? null : Number(payment.realizedFxPkr),
+        paymentMethod: payment.paymentMethod,
+        source: payment.intermediary?.name || null,
+        reference: payment.reference,
+        journalTransactionIds: journalRows.filter((entry) => entry.entityType === "supplier_payment" && entry.entityId === payment.id).map((entry) => entry.transactionId).filter((value, index, rows) => rows.indexOf(value) === index),
+      })),
+      shippingSettlements: shippingPaymentsForLot.map((payment) => ({
+        id: payment.id,
+        shippingLine: payment.shippingLine.name,
+        paymentDate: payment.paymentDate.toISOString().split("T")[0],
+        amountUsd: Number(payment.amountUsd),
+        carryingRatePkr: payment.carryingRatePkr == null ? null : Number(payment.carryingRatePkr),
+        carryingAmountPkr: payment.carryingAmountPkr == null ? null : Number(payment.carryingAmountPkr),
+        settlementRatePkr: payment.exchangeRate == null ? null : Number(payment.exchangeRate),
+        settlementAmountPkr: payment.amountPkr == null ? null : Number(payment.amountPkr),
+        realizedFxPkr: payment.realizedFxPkr == null ? null : Number(payment.realizedFxPkr),
+        source: payment.intermediary?.name || null,
+        reference: payment.reference,
+        journalTransactionIds: journalRows.filter((entry) => entry.entityType === "shipping_line_payment" && entry.entityId === payment.id).map((entry) => entry.transactionId).filter((value, index, rows) => rows.indexOf(value) === index),
+      })),
+      transfers: {
+        godown: godownTransfers.map((transfer) => ({ id: transfer.id, productId: transfer.productId, quantity: Number(transfer.qty), date: transfer.transferDate.toISOString().split("T")[0], from: transfer.fromGodown.name, to: transfer.toGodown.name })),
+        city: cityTransfers.map((transfer) => ({ id: transfer.id, productId: transfer.productId, quantity: Number(transfer.qty), status: transfer.status, date: transfer.transferDate.toISOString().split("T")[0], from: transfer.fromCity.name, to: transfer.toCity.name })),
+      },
+      journals: journalRows,
+      reconciliation: {
+        totalDebits: round2(totalJournalDebits),
+        totalCredits: round2(totalJournalCredits),
+        difference: round2(totalJournalDebits - totalJournalCredits),
+      },
+    };
 
     return successResponse({
       id: lot.id, lotNumber: lot.lotNumber, lotDate: lot.lotDate.toISOString().split("T")[0],
@@ -480,6 +710,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         createdAt: h.createdAt.toISOString(),
       })),
       auditTimeline,
+      accountingTrace,
     });
   } catch (error: any) {
     console.error("Lot detail error:", error?.message || error);

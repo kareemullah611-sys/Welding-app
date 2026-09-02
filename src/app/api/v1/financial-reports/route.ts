@@ -1,20 +1,18 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { withAuth, getCityScope } from "@/lib/middleware";
+import { withSuperAdmin } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { buildAuthoritativeFinancialReportResult } from "@/lib/authoritative-financial-report";
 import { classifyCustomerBalance } from "@/lib/customer-receivable-accounting";
 
-export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
+export const GET = withSuperAdmin(async (request: NextRequest, context, user: JWTPayload) => {
   try {
     const sp = request.nextUrl.searchParams;
     const report = sp.get("report"); // pnl, balance_sheet, cash, receivables, payables
     const year = sp.get("year") ? parseInt(sp.get("year")!) : new Date().getFullYear();
-    // Fix P1: enforce city scope — city_admin must only see their own city's data.
-    // Previously city_id was read directly from query string with no role check.
     const requestedCityId = sp.get("city_id") ? parseInt(sp.get("city_id")!) : undefined;
-    const cityId = getCityScope(user, requestedCityId);
+    const cityId = requestedCityId;
 
     switch (report) {
       case "pnl": return await profitAndLoss(year, cityId);

@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
@@ -66,6 +67,7 @@ export default function AccountsPage() {
   }, [isOnline, mergeSnapshot, readSnapshot, user]);
 
   const load = useCallback(async () => {
+    if (user?.role !== "super_admin") return;
     setLoading(true);
     const params: any = { report: tab, year };
     if (cityId) params.city_id = cityId;
@@ -92,8 +94,12 @@ export default function AccountsPage() {
       }
     }
     setLoading(false);
-  }, [cityId, isOnline, mergeSnapshot, queuedItems, readSnapshot, tab, year]);
+  }, [cityId, isOnline, mergeSnapshot, queuedItems, readSnapshot, tab, user?.role, year]);
   useEffect(() => { load(); }, [load]);
+
+  if (user && user.role !== "super_admin") {
+    return <div><PageHeader title={t("financial_reports")} /><div className="card py-12 text-center text-gray-400">{t("super_admin_only")}</div></div>;
+  }
 
   return (
     <div>
@@ -130,32 +136,44 @@ export default function AccountsPage() {
 
 function PnLReport({ data }: { data: any }) {
   const { t } = useLang();
-  const pnl = data.pnl || [];
-  if (!pnl.length) return <div className="text-gray-400 py-8 text-center">{t("no_data")}</div>;
-  return (<div className="space-y-6">{pnl.map((p: any, i: number) => (
-    <div key={i} className="card">
-      <h3 className="text-lg font-bold text-gray-800 mb-4 border-b pb-2">{t("profit_loss")} — {p.currency}</h3>
+  const p = data.authoritativePkr;
+  const pkrJournalSummary = (data.pnl || []).find((row: any) => row.currency === "PKR");
+  if (!p) return <div className="text-gray-400 py-8 text-center">{t("no_data")}</div>;
+  return (<div className="space-y-4">
+    {(data.fxWarnings || []).length > 0 && (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <p className="font-semibold">Accounting trace requires attention</p>
+        {(data.fxWarnings || []).map((warning: string) => <p key={warning} className="mt-1">{warning}</p>)}
+      </div>
+    )}
+    <div className="card">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b pb-2">
+        <h3 className="text-lg font-bold text-gray-800">Profit &amp; Loss — PKR</h3>
+        <Link href="/profit-report" className="text-xs font-semibold text-primary-700 hover:underline">Open full accounting trace →</Link>
+      </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-        <StatsCard title={t("revenue")} value={n(p.revenue)} icon="💰" color="green" />
-        <StatsCard title={t("cogs")} value={n(p.cogs)} icon="📦" color="blue" />
+        <StatsCard title={t("revenue")} value={n(p.totalRevenue)} icon="💰" color="green" />
+        <StatsCard title={t("cogs")} value={n(p.totalCOGS)} icon="📦" color="blue" />
         <StatsCard title={t("gross_profit")} value={n(p.grossProfit)} icon="📈" color={p.grossProfit >= 0 ? "green" : "red"} />
         <StatsCard title={t("net_profit")} value={n(p.netProfit)} icon={p.netProfit >= 0 ? "🎉" : "⚠️"} color={p.netProfit >= 0 ? "green" : "red"} />
       </div>
-      <div className="grid grid-cols-2 gap-4 text-sm mb-3">
-        <div><span className="text-gray-500">{t("gross_margin")}:</span> <strong>{p.grossMargin}%</strong></div>
-        <div><span className="text-gray-500">{t("net_margin")}:</span> <strong>{p.netMargin}%</strong></div>
+      <div className="grid grid-cols-2 gap-4 text-sm mb-3 md:grid-cols-4">
+        <div><span className="text-gray-500">{t("gross_margin")}:</span> <strong>{p.grossMarginPercent}%</strong></div>
+        <div><span className="text-gray-500">{t("net_margin")}:</span> <strong>{p.netMarginPercent}%</strong></div>
+        <div><span className="text-gray-500">FX gains:</span> <strong className="text-green-700">{n(p.totalFxGains)}</strong></div>
+        <div><span className="text-gray-500">FX losses:</span> <strong className="text-red-700">{n(p.totalFxLosses)}</strong></div>
       </div>
-      {Object.keys(p.expenses || {}).length > 0 && (
+      {Object.keys(pkrJournalSummary?.expenses || {}).length > 0 && (
         <div className="pt-3 border-t">
           <h4 className="text-sm font-semibold text-gray-600 mb-2">{t("expenses_breakdown")}</h4>
-          {Object.entries(p.expenses).map(([name, amt]: any) => (
+          {Object.entries(pkrJournalSummary.expenses).map(([name, amt]: any) => (
             <div key={name} className="flex justify-between text-sm py-1 border-b border-gray-50"><span className="text-gray-600">{name}</span><span className="font-medium">{n(amt)}</span></div>
           ))}
-          <div className="flex justify-between text-sm font-bold pt-1"><span>{t("total_expenses")}</span><span>{n(p.expenseTotal)}</span></div>
+          <div className="flex justify-between text-sm font-bold pt-1"><span>{t("total_expenses")}</span><span>{n(p.totalExpenses)}</span></div>
         </div>
       )}
     </div>
-  ))}</div>);
+  </div>);
 }
 
 function CashReport({ data }: { data: any }) {

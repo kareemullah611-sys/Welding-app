@@ -6,6 +6,8 @@ import { PageHeader, DataTable, StatsCard, formatNumber, formatDate } from "@/co
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { applyPendingProfitReportPeriod } from "@/lib/offline-profit-report";
+import { useAuth } from "@/hooks/useAuth";
+import { LotAccountingTrace } from "@/components/lots/LotDetailTabs";
 
 const PROFIT_REPORT_READ_CACHE_KEY = "mrf-profit-report-read-cache-v1";
 
@@ -19,6 +21,7 @@ type ProfitReportReadSnapshot = {
 
 export default function ProfitReportPage() {
   const { t } = useLang();
+  const { user } = useAuth();
   const { isOnline, queuedItems } = useOffline();
   const [mode, setMode] = useState<"lot" | "period">("period");
   const [lots, setLots] = useState<any[]>([]);
@@ -70,9 +73,15 @@ export default function ProfitReportPage() {
     else { params.year = year; }
     const r = await apiCall("/api/v1/profit-report", { params });
     if (r.success) {
-      const nextData = !isOnline && mode === "period"
+      let nextData = !isOnline && mode === "period"
         ? applyPendingProfitReportPeriod(r.data, queuedItems as any, year)
         : r.data;
+      if (mode === "lot" && selectedLotId) {
+        const detailResponse = await apiCall(`/api/v1/lots/${selectedLotId}`);
+        if (detailResponse.success) {
+          nextData = { ...(nextData as any), accountingTrace: (detailResponse.data as any)?.accountingTrace };
+        }
+      }
       setData(nextData);
       writeOfflineReadSnapshot<ProfitReportReadSnapshot>(PROFIT_REPORT_READ_CACHE_KEY, {
         lots,
@@ -94,6 +103,24 @@ export default function ProfitReportPage() {
     }
     setLoading(false);
   };
+
+  const traceLot = async (lotId: number) => {
+    setLoading(true);
+    const [response, detailResponse] = await Promise.all([
+      apiCall("/api/v1/profit-report", { params: { lot_id: lotId } }),
+      apiCall(`/api/v1/lots/${lotId}`),
+    ]);
+    if (response.success && detailResponse.success) {
+      setSelectedLotId(lotId);
+      setMode("lot");
+      setData({ ...(response.data as any), accountingTrace: (detailResponse.data as any)?.accountingTrace });
+    }
+    setLoading(false);
+  };
+
+  if (user && user.role !== "super_admin") {
+    return <div><PageHeader title={t("profit_report")} /><div className="card py-12 text-center text-gray-400">{t("super_admin_only")}</div></div>;
+  }
 
   return (
     <div>
@@ -119,7 +146,7 @@ export default function ProfitReportPage() {
         </div>
       </div>
 
-      {data && mode === "period" && <PeriodReport data={data} />}
+      {data && mode === "period" && <PeriodReport data={data} onTraceLot={traceLot} />}
       {data && mode === "lot" && <LotReport data={data} />}
     </div>
   );
@@ -131,7 +158,7 @@ function pkr(value: number | string | null | undefined) {
   return `PKR ${formatNumber(n)}`;
 }
 
-function PeriodReport({ data }: { data: any }) {
+function PeriodReport({ data, onTraceLot }: { data: any; onTraceLot: (lotId: number) => void }) {
   const { t } = useLang();
   const pl = data.profitAndLoss;
   const currency = data.reportingCurrency || "PKR";
@@ -165,7 +192,7 @@ function PeriodReport({ data }: { data: any }) {
       <div className="card">
         <h3 className="text-sm font-semibold text-gray-500 mb-3">{t("lot_breakdown")}</h3>
         <DataTable columns={[
-          { key: "lotNumber", label: t("lot") },
+          { key: "lotNumber", label: t("lot"), render: (l: any) => <button type="button" onClick={() => onTraceLot(l.lotId)} className="font-semibold text-primary-700 hover:underline">{l.lotNumber}</button> },
           { key: "country", label: t("country") },
           { key: "landedCostPerCarton", label: t("cost_per_carton"), render: (l: any) => pkr(l.landedCostPerCartonPkr ?? l.landedCostPerCarton) },
           { key: "cartonsSold", label: t("sold"), render: (l: any) => formatNumber(l.cartonsSold) },
@@ -173,6 +200,7 @@ function PeriodReport({ data }: { data: any }) {
           { key: "cogs", label: t("cogs"), render: (l: any) => <span className="text-red-600">{pkr(l.cogs)}</span> },
           { key: "grossProfit", label: t("gross_profit_label"), render: (l: any) => <span className={l.grossProfit >= 0 ? "text-green-600 font-medium" : "text-red-600 font-medium"}>{pkr(l.grossProfit)}</span> },
           { key: "netProfit", label: t("net_profit_label"), render: (l: any) => <span className={l.netProfit >= 0 ? "text-green-700 font-bold" : "text-red-700 font-bold"}>{pkr(l.netProfit)}</span> },
+          { key: "trace", label: "Trace", render: (l: any) => <button type="button" onClick={() => onTraceLot(l.lotId)} className="text-xs font-semibold text-primary-700 hover:underline">Trace accounting</button> },
         ]} data={data.lotBreakdown || []} loading={false} />
       </div>
     </>
@@ -235,6 +263,9 @@ function LotReport({ data }: { data: any }) {
           { key: "costOfGoodsSold", label: t("cogs"), render: (p: any) => <span className="text-red-600">{pkr(p.costOfGoodsSold)}</span> },
           { key: "grossProfit", label: t("profit"), render: (p: any) => <span className={p.grossProfit >= 0 ? "text-green-600 font-bold" : "text-red-600 font-bold"}>{pkr(p.grossProfit)}</span> },
         ]} data={data.productCosts || []} loading={false} />
+      </div>
+      <div className="mt-6">
+        <LotAccountingTrace selectedLot={data} userRole="super_admin" />
       </div>
     </>
   );

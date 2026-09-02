@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { withAuth } from "@/lib/middleware";
+import { withSuperAdmin } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import {
@@ -152,7 +152,7 @@ function buildLotProfitMetrics(input: LotProfitInputs) {
 }
 
 // GET /api/v1/profit-report?lot_id=X or ?year=2026 or ?date_from=&date_to=
-export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
+export const GET = withSuperAdmin(async (request: NextRequest, context, user: JWTPayload) => {
   try {
     const sp = request.nextUrl.searchParams;
     const lotId = sp.get("lot_id") ? parseInt(sp.get("lot_id")!) : undefined;
