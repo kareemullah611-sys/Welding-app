@@ -1,4 +1,4 @@
-import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 type BucketConfig = {
@@ -57,6 +57,13 @@ export function createSarafiCaptureStorageKey(snapshotDate: string, fileName: st
   const cleanDate = snapshotDate.replace(/[^0-9-]/g, "");
   const cleanName = fileName.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 120);
   return `fx/sarafi-af/${cleanDate}/${Date.now()}-${Math.random().toString(36).slice(2)}-${cleanName}`;
+}
+
+export function createFxEvidenceStorageKey(provider: string, snapshotDate: string, fileName: string) {
+  const cleanProvider = provider.replace(/[^a-zA-Z0-9-]/g, "-").toLowerCase();
+  const cleanDate = snapshotDate.replace(/[^0-9-]/g, "");
+  const cleanName = fileName.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 120);
+  return `fx/${cleanProvider}/${cleanDate}/${Date.now()}-${Math.random().toString(36).slice(2)}-${cleanName}`;
 }
 
 export async function uploadLotDocumentToBucket(params: {
@@ -131,4 +138,32 @@ export async function getSarafiCaptureEvidenceUrl(params: {
     ResponseContentType: params.contentType,
     ResponseContentDisposition: `inline; filename="${safeDownloadName(params.fileName)}"`,
   }), { expiresIn: 5 * 60 });
+}
+
+export async function uploadFxCaptureEvidence(params: {
+  key: string;
+  buffer: Buffer;
+  contentType: string;
+  fileName: string;
+  provider: string;
+}) {
+  const config = readBucketConfig();
+  const client = createBucketClient(config);
+  await client.send(new PutObjectCommand({
+    Bucket: config.bucket,
+    Key: params.key,
+    Body: params.buffer,
+    ContentType: params.contentType,
+    Metadata: {
+      originalFileName: params.fileName.slice(0, 500),
+      evidenceType: `${params.provider.toLowerCase()}-daily-fx-capture`,
+    },
+  }));
+  return { storageKey: params.key };
+}
+
+export async function deleteBucketObject(key: string) {
+  const config = readBucketConfig();
+  const client = createBucketClient(config);
+  await client.send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key }));
 }

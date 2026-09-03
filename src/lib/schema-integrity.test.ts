@@ -1579,10 +1579,10 @@ test("sarafi afghanistan daily FX snapshots are additive and audit-only", () => 
   assert.match(scheduler, /SARAFI_AF_AUTO_SNAPSHOT_ENABLED/);
   assert.match(scheduler, /No provider fetch was attempted/);
   assert.match(settingsPage, /Sarafi\.af daily snapshots/);
-  assert.match(settingsPage, /Automatic Sarafi\.af ingestion remains disabled/);
+  assert.match(settingsPage, /validated captures authorize automatically/);
 });
 
-test("sarafi assisted capture remains evidence-only until superadmin approval", () => {
+test("sarafi assisted capture auto-authorizes only validated immutable snapshots", () => {
   const schema = readFileSync("prisma/schema.prisma", "utf8");
   const migration = readFileSync("prisma/migrations/20260828090000_sarafi_assisted_capture_drafts/migration.sql", "utf8");
   const captureEngine = readFileSync("src/lib/sarafi-af-assisted-capture.ts", "utf8");
@@ -1613,13 +1613,14 @@ test("sarafi assisted capture remains evidence-only until superadmin approval", 
   assert.match(snapshotDb, /providerMode: true/);
   assert.match(captureDb, /result\.duplicate/);
   assert.match(captureDb, /EXISTING_SNAPSHOT_CONFLICT/);
+  assert.match(captureRoute, /authorizeSarafiAfCaptureDraft/);
+  assert.match(captureRoute, /Capture authorized and immutable FX snapshot created/);
   assert.doesNotMatch(captureDb, /journalEntry\.(create|createMany|update|delete)|payment\.(create|createMany|update|delete)|bankDeposit\.(create|createMany|update|delete)/);
   assert.match(workflow, /cron: "0 4 \* \* \*"/);
   assert.match(workflow, /SARAFI_AF_CAPTURE_TOKEN/);
   assert.doesNotMatch(workflow, /SARAFI_AF_AUTO_SNAPSHOT_ENABLED\s*:\s*true/);
-  assert.match(settingsPage, /Pending capture evidence/);
-  assert.match(settingsPage, /Approve/);
-  assert.match(settingsPage, /Automatic Sarafi\.af ingestion remains disabled/);
+  assert.match(settingsPage, /Daily capture evidence/);
+  assert.match(settingsPage, /validated captures authorize automatically/);
 });
 
 test("module search inputs expose a clear button when text is present", () => {

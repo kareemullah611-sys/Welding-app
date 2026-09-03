@@ -1269,6 +1269,7 @@ function CountryFallbackRatesTab() {
   const [rates, setRates] = useState<any[]>([]);
   const [sarafiSnapshots, setSarafiSnapshots] = useState<any[]>([]);
   const [sarafiCaptures, setSarafiCaptures] = useState<any[]>([]);
+  const [sbpSnapshots, setSbpSnapshots] = useState<any[]>([]);
   const [sarafiCaptureEnabled, setSarafiCaptureEnabled] = useState(false);
   const [sarafiStatus, setSarafiStatus] = useState("");
   const [loading, setLoading] = useState(true);
@@ -1284,11 +1285,12 @@ function CountryFallbackRatesTab() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [countriesRes, ratesRes, sarafiRes, sarafiCapturesRes] = await Promise.all([
+    const [countriesRes, ratesRes, sarafiRes, sarafiCapturesRes, sbpRes] = await Promise.all([
       apiCall("/api/v1/countries"),
       apiCall("/api/v1/country-fallback-rates"),
       apiCall("/api/v1/fx-snapshots/sarafi-af"),
       apiCall("/api/v1/fx-snapshots/sarafi-af/captures"),
+      apiCall("/api/v1/fx-snapshots/sbp"),
     ]);
     if (countriesRes.success) setCountries((countriesRes.data as any[]) || []);
     if (ratesRes.success) setRates((ratesRes.data as any[]) || []);
@@ -1302,6 +1304,7 @@ function CountryFallbackRatesTab() {
       setSarafiCaptures(data?.captures || []);
       setSarafiCaptureEnabled(Boolean(data?.assistedCaptureEnabled));
     }
+    if (sbpRes.success) setSbpSnapshots(((sbpRes.data as any)?.snapshots || []));
     setLoading(false);
   }, []);
 
@@ -1407,13 +1410,13 @@ function CountryFallbackRatesTab() {
       <div className="card">
         <h2 className="text-lg font-semibold text-gray-900">Sarafi.af daily snapshots</h2>
         <p className="mt-1 text-sm text-gray-500">
-          Afghanistan FX audit trail. Assisted captures remain review-only until a superadmin approves their stored evidence.
+          Afghanistan FX audit trail. Current, complete Sarai Shahzada captures authorize automatically after strict validation.
         </p>
         <p className={`mt-2 text-sm ${sarafiCaptureEnabled ? "text-emerald-700" : "text-amber-700"}`}>
-          Assisted capture: {sarafiCaptureEnabled ? "Enabled — drafts still require approval" : "Disabled"}. Automatic Sarafi.af ingestion remains disabled.
+          Assisted capture: {sarafiCaptureEnabled ? "Enabled — validated captures authorize automatically" : "Disabled"}.
         </p>
         {sarafiStatus && <p className="mt-2 text-sm text-amber-700">{sarafiStatus}</p>}
-        <h3 className="mt-4 text-sm font-semibold text-gray-800">Pending capture evidence</h3>
+        <h3 className="mt-4 text-sm font-semibold text-gray-800">Daily capture evidence</h3>
         <DataTable columns={[
           { key: "snapshotDate", label: "Date" },
           { key: "sourceTimestamp", label: "Source Time", render: (row: any) => new Date(row.sourceTimestamp).toLocaleString() },
@@ -1426,12 +1429,12 @@ function CountryFallbackRatesTab() {
           {
             key: "evidence",
             label: "Evidence",
-            render: (row: any) => (
+            render: (row: any) => row.evidenceAvailable ? (
               <div className="flex gap-2">
                 <button type="button" className="text-xs text-primary-600 hover:underline" onClick={() => window.open(`/api/v1/fx-snapshots/sarafi-af/captures/${row.id}/evidence?type=screenshot`, "_blank", "noopener,noreferrer")}>Screenshot</button>
                 <button type="button" className="text-xs text-primary-600 hover:underline" onClick={() => window.open(`/api/v1/fx-snapshots/sarafi-af/captures/${row.id}/evidence?type=html`, "_blank", "noopener,noreferrer")}>HTML</button>
               </div>
-            ),
+            ) : <span className="text-xs text-gray-400">Expired</span>,
           },
           {
             key: "actions",
@@ -1466,6 +1469,30 @@ function CountryFallbackRatesTab() {
             ),
           },
         ]} data={sarafiSnapshots} loading={loading} />
+      </div>
+
+      <div className="card">
+        <h2 className="text-lg font-semibold text-gray-900">SBP daily USD/PKR rates</h2>
+        <p className="mt-1 text-sm text-gray-500">
+          Official State Bank of Pakistan weighted-average customer buying and selling rates. Stored rates are immutable; captured HTML and screenshot evidence expires after seven days.
+        </p>
+        <DataTable columns={[
+          { key: "rateDate", label: "Date" },
+          { key: "buyRate", label: "Buying", render: (row: any) => Number(row.buyRate).toLocaleString("en-US", { maximumFractionDigits: 6 }) },
+          { key: "sellRate", label: "Selling", render: (row: any) => Number(row.sellRate).toLocaleString("en-US", { maximumFractionDigits: 6 }) },
+          { key: "status", label: "Status", render: (row: any) => <span className="badge-active">{row.status}</span> },
+          { key: "source", label: "Source", render: (row: any) => <a href={row.sourceUrl} target="_blank" rel="noreferrer" className="text-xs text-primary-600 hover:underline">Official SBP link</a> },
+          {
+            key: "evidence",
+            label: "Evidence",
+            render: (row: any) => row.evidenceAvailable ? (
+              <div className="flex gap-2">
+                <button type="button" className="text-xs text-primary-600 hover:underline" onClick={() => window.open(`/api/v1/fx-snapshots/sbp/${row.id}/evidence?type=screenshot`, "_blank", "noopener,noreferrer")}>Screenshot</button>
+                <button type="button" className="text-xs text-primary-600 hover:underline" onClick={() => window.open(`/api/v1/fx-snapshots/sbp/${row.id}/evidence?type=html`, "_blank", "noopener,noreferrer")}>HTML</button>
+              </div>
+            ) : <span className="text-xs text-gray-400">Expired</span>,
+          },
+        ]} data={sbpSnapshots} loading={loading} />
       </div>
     </div>
   );

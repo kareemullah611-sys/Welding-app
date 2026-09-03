@@ -26,6 +26,9 @@ function draftDto(row: any) {
     reviewedAt: row.reviewedAt?.toISOString() || null,
     reviewNotes: row.reviewNotes,
     approvedSnapshotId: row.approvedSnapshotId,
+    evidenceExpiresAt: row.evidenceExpiresAt.toISOString(),
+    evidenceDeletedAt: row.evidenceDeletedAt?.toISOString() || null,
+    evidenceAvailable: !row.evidenceDeletedAt && Boolean(row.rawHtmlStorageKey || row.screenshotStorageKey),
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -74,6 +77,7 @@ export async function createSarafiAfCaptureDraft(input: {
       rawPayloadHash: input.capture.rawPayloadHash,
       rawHtmlStorageKey: input.rawHtmlStorageKey,
       screenshotStorageKey: input.screenshotStorageKey,
+      evidenceExpiresAt: new Date(new Date(input.capture.fetchedAt).getTime() + 7 * 24 * 60 * 60 * 1000),
       quotesJson: input.capture.quotes,
       validationWarningsJson: warnings,
       idempotencyKey,
@@ -85,7 +89,7 @@ export async function createSarafiAfCaptureDraft(input: {
 export async function reviewSarafiAfCaptureDraft(input: {
   id: number;
   action: "approve" | "reject";
-  reviewedBy: number;
+  reviewedBy: number | null;
   reviewNotes?: string | null;
 }) {
   return prisma.$transaction(async (tx) => {
@@ -174,14 +178,28 @@ export async function reviewSarafiAfCaptureDraft(input: {
   });
 }
 
+export async function authorizeSarafiAfCaptureDraft(input: {
+  id: number;
+  reviewNotes: string;
+}) {
+  return reviewSarafiAfCaptureDraft({
+    id: input.id,
+    action: "approve",
+    reviewedBy: null,
+    reviewNotes: input.reviewNotes,
+  });
+}
+
 export async function getSarafiAfCaptureEvidence(input: { id: number; type: "screenshot" | "html" }) {
   const draft = await (prisma as any).sarafiAfAssistedCaptureDraft.findUnique({
     where: { id: input.id },
-    select: { snapshotDate: true, screenshotStorageKey: true, rawHtmlStorageKey: true },
+    select: { snapshotDate: true, evidenceDeletedAt: true, screenshotStorageKey: true, rawHtmlStorageKey: true },
   });
-  if (!draft) return null;
+  if (!draft || draft.evidenceDeletedAt) return null;
   const date = draft.snapshotDate.toISOString().split("T")[0];
+  const key = input.type === "screenshot" ? draft.screenshotStorageKey : draft.rawHtmlStorageKey;
+  if (!key) return null;
   return input.type === "screenshot"
-    ? { key: draft.screenshotStorageKey, fileName: `sarafi-af-${date}.png`, contentType: "image/png" }
-    : { key: draft.rawHtmlStorageKey, fileName: `sarafi-af-${date}.html`, contentType: "text/html; charset=utf-8" };
+    ? { key, fileName: `sarafi-af-${date}.png`, contentType: "image/png" }
+    : { key, fileName: `sarafi-af-${date}.html`, contentType: "text/html; charset=utf-8" };
 }

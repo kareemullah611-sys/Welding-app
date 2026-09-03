@@ -7,7 +7,11 @@ import {
   parseSarafiAfSaraiShahzadaHtml,
   SARAFI_AF_ASSISTED_SOURCE_URL,
 } from "@/lib/sarafi-af-assisted-capture";
-import { createSarafiAfCaptureDraft, listSarafiAfCaptureDrafts } from "@/lib/sarafi-af-assisted-capture-db";
+import {
+  authorizeSarafiAfCaptureDraft,
+  createSarafiAfCaptureDraft,
+  listSarafiAfCaptureDrafts,
+} from "@/lib/sarafi-af-assisted-capture-db";
 import { createSarafiCaptureStorageKey, uploadSarafiCaptureEvidence } from "@/lib/railway-bucket";
 
 export const runtime = "nodejs";
@@ -80,9 +84,29 @@ export async function POST(request: NextRequest) {
       rawHtmlStorageKey: rawHtmlKey,
       screenshotStorageKey: screenshotKey,
     });
+    if (result.draft.status === "APPROVED") {
+      return successResponse(
+        { duplicate: true, capture: result.draft, snapshotId: result.draft.approvedSnapshotId },
+        "Capture already authorized",
+      );
+    }
+
+    const authorization = await authorizeSarafiAfCaptureDraft({
+      id: result.draft.id,
+      reviewNotes: "Automatically authorized after strict Sarai Shahzada validation",
+    });
+    if (!authorization.ok) {
+      const status = authorization.code === "NOT_FOUND" ? 404 : authorization.code === "INVALID_STATUS" ? 409 : 400;
+      return errorResponse(
+        authorization.code,
+        authorization.message,
+        status,
+        "warnings" in authorization ? [{ warnings: authorization.warnings }] : undefined,
+      );
+    }
     return successResponse(
-      { duplicate: result.duplicate, capture: result.draft },
-      result.duplicate ? "Capture draft already exists" : "Capture draft saved for superadmin review",
+      { duplicate: result.duplicate, capture: authorization.draft, snapshotId: authorization.snapshotId },
+      result.duplicate ? "Existing capture authorized" : "Capture authorized and immutable FX snapshot created",
       result.duplicate ? 200 : 201,
     );
   } catch (error) {

@@ -37,7 +37,7 @@ export const GET = withSuperAdmin(async (request: NextRequest) => {
       snapshots,
       schedule: buildSarafiAfScheduledSnapshotDate(),
       autoSnapshotEnabled: isSarafiAfAutoSnapshotEnabled(),
-      providerStatus: "Sarafi.af foundation is available, but automatic authoritative ingestion is disabled unless explicitly enabled.",
+      providerStatus: "Validated scheduled Sarai Shahzada captures are automatically authorized; invalid, stale, and conflicting captures remain blocked.",
     });
   } catch (error) {
     console.error("List Sarafi.af FX snapshots error:", error);

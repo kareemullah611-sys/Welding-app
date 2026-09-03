@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -97,4 +98,23 @@ test("capture CLI starts under the CommonJS tsx runner used by GitHub Actions", 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /SARAFI_AF_CAPTURE_ENDPOINT must be an HTTPS URL/);
   assert.doesNotMatch(result.stderr, /Top-level await is currently not supported/);
+});
+
+test("validated daily Sarafi captures are automatically authorized without a user approval", () => {
+  const captureRoute = readFileSync(
+    path.join(process.cwd(), "src/app/api/v1/fx-snapshots/sarafi-af/captures/route.ts"),
+    "utf8",
+  );
+  const captureDb = readFileSync(
+    path.join(process.cwd(), "src/lib/sarafi-af-assisted-capture-db.ts"),
+    "utf8",
+  );
+
+  assert.match(captureRoute, /authorizeSarafiAfCaptureDraft/);
+  assert.match(captureRoute, /Automatically authorized after strict Sarai Shahzada validation/);
+  assert.match(captureRoute, /Capture authorized and immutable FX snapshot created/);
+  assert.match(captureDb, /reviewedBy:\s*number\s*\|\s*null/);
+  assert.match(captureDb, /approvalPreview\.status !== "VALID_CURRENT"/);
+  assert.match(captureDb, /EXISTING_SNAPSHOT_CONFLICT/);
+  assert.doesNotMatch(captureRoute, /saved for superadmin review/);
 });

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyTokenEdge } from "@/lib/jwt-edge";
 
 // Pages that don't require authentication
-const publicPaths = ["/login", "/icon", "/apple-icon", "/api/v1/auth/login", "/api/v1/auth/me", "/api/v1/auth/logout", "/api/health", "/api/ping", "/api/csp-report", "/api/v1/fx-snapshots/sarafi-af/captures", "/customer-portal", "/api/v1/customer-portal"];
+const publicPaths = ["/login", "/icon", "/apple-icon", "/api/v1/auth/login", "/api/v1/auth/me", "/api/v1/auth/logout", "/api/health", "/api/ping", "/api/csp-report", "/api/v1/fx-snapshots/sarafi-af/captures", "/api/v1/fx-snapshots/sbp", "/api/v1/fx-snapshots/evidence-retention", "/customer-portal", "/api/v1/customer-portal"];
 const STATIC_FILE_EXTENSION_PATTERN = /\.(?:avif|bmp|css|gif|ico|jpeg|jpg|js|json|map|png|svg|txt|webmanifest|webp|woff|woff2)$/i;
 
 function isPublicPath(pathname: string): boolean {

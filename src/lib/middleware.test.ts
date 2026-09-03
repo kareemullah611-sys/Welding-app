@@ -135,6 +135,18 @@ test("middleware allows Sarafi service-token capture requests to reach route val
   assert.equal(response.headers.get("x-middleware-next"), "1");
 });
 
+test("middleware allows daily FX service-token endpoints to reach route validation", async () => {
+  for (const pathname of ["/api/v1/fx-snapshots/sbp", "/api/v1/fx-snapshots/evidence-retention"]) {
+    const response = await middleware(new NextRequest(`http://localhost${pathname}`, {
+      method: "POST",
+      headers: { "x-daily-fx-capture-token": "a".repeat(64) },
+    }));
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("x-middleware-next"), "1");
+  }
+});
+
 test("getClientIP ignores spoofable forwarded headers unless trusted", () => {
   const previousTrustProxy = process.env.TRUST_PROXY_HEADERS;
   delete process.env.TRUST_PROXY_HEADERS;

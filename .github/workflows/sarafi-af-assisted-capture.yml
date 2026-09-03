@@ -1,13 +1,16 @@
-name: Sarafi.af Assisted Capture
+name: Daily FX Source Capture
 
 on:
   schedule:
     # 08:30 Asia/Kabul (UTC+04:30; Afghanistan does not observe DST).
     - cron: "0 4 * * *"
+    # 18:30 Asia/Karachi on Pakistan business days for the published SBP daily rate.
+    - cron: "30 13 * * 1-5"
   workflow_dispatch:
 
 jobs:
   capture:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 4 * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -32,4 +35,44 @@ jobs:
           name: sarafi-af-assisted-capture-${{ github.run_id }}
           path: .artifacts/sarafi-af/
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 7
+
+  capture-sbp:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '30 13 * * 1-5'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --include=dev
+      - run: npx playwright install --with-deps chromium
+      - name: Capture official SBP USD/PKR daily rate
+        run: npm run fx:sbp:capture
+        env:
+          SBP_FX_CAPTURE_ENDPOINT: ${{ secrets.SBP_FX_CAPTURE_ENDPOINT }}
+          DAILY_FX_CAPTURE_TOKEN: ${{ secrets.DAILY_FX_CAPTURE_TOKEN }}
+      - name: Retain SBP source evidence for seven days
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbp-daily-fx-${{ github.run_id }}
+          path: .artifacts/sbp-fx/
+          if-no-files-found: warn
+          retention-days: 7
+
+  cleanup-expired-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete FX evidence older than seven days
+        env:
+          FX_EVIDENCE_CLEANUP_ENDPOINT: ${{ secrets.FX_EVIDENCE_CLEANUP_ENDPOINT }}
+          DAILY_FX_CAPTURE_TOKEN: ${{ secrets.DAILY_FX_CAPTURE_TOKEN }}
+        run: >-
+          curl --fail --silent --show-error
+          -X POST "$FX_EVIDENCE_CLEANUP_ENDPOINT"
+          -H "x-daily-fx-capture-token: $DAILY_FX_CAPTURE_TOKEN"

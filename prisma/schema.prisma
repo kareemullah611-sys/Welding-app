@@ -313,6 +313,7 @@ model ExchangeRate {
   toCurrency   Currency      @relation("ExchangeRateToCurrency", fields: [toCurrencyId], references: [id], onDelete: Restrict)
   correctionOf ExchangeRate? @relation("ExchangeRateCorrection", fields: [correctionOfId], references: [id], onDelete: Restrict)
   corrections  ExchangeRate[] @relation("ExchangeRateCorrection")
+  sbpSnapshots SbpDailyFxSnapshot[]
 
   @@unique([rateDate, fromCurrencyId, toCurrencyId, source], map: "exchange_rates_date_currency_source_key")
   @@index([fromCurrencyId, toCurrencyId, rateDate], map: "exchange_rates_currency_date_idx")
@@ -400,8 +401,10 @@ model SarafiAfAssistedCaptureDraft {
   sourceTimestamp        DateTime @map("source_timestamp")
   status                 String   @default("PENDING_REVIEW") @db.VarChar(80)
   rawPayloadHash         String   @map("raw_payload_hash") @db.VarChar(64)
-  rawHtmlStorageKey      String   @map("raw_html_storage_key") @db.VarChar(500)
-  screenshotStorageKey   String   @map("screenshot_storage_key") @db.VarChar(500)
+  rawHtmlStorageKey      String?  @map("raw_html_storage_key") @db.VarChar(500)
+  screenshotStorageKey   String?  @map("screenshot_storage_key") @db.VarChar(500)
+  evidenceExpiresAt      DateTime @map("evidence_expires_at")
+  evidenceDeletedAt      DateTime? @map("evidence_deleted_at")
   quotesJson             Json     @map("quotes_json")
   validationWarningsJson Json?    @map("validation_warnings_json")
   idempotencyKey         String   @unique @map("idempotency_key") @db.VarChar(240)
@@ -413,6 +416,33 @@ model SarafiAfAssistedCaptureDraft {
 
   @@index([snapshotDate, status], map: "sarafi_af_capture_drafts_date_status_idx")
   @@map("sarafi_af_assisted_capture_drafts")
+}
+
+model SbpDailyFxSnapshot {
+  id                   Int      @id @default(autoincrement())
+  rateDate             DateTime @map("rate_date") @db.Date
+  provider             String   @default("SBP") @db.VarChar(80)
+  market               String   @default("weighted_average_customer") @db.VarChar(120)
+  sourceUrl            String   @map("source_url") @db.VarChar(500)
+  fetchedAt            DateTime @map("fetched_at")
+  buyRate              Decimal  @map("buy_rate") @db.Decimal(18, 6)
+  sellRate             Decimal  @map("sell_rate") @db.Decimal(18, 6)
+  referenceRate        Decimal  @map("reference_rate") @db.Decimal(18, 6)
+  status               String   @db.VarChar(80)
+  rawPayloadHash       String   @map("raw_payload_hash") @db.VarChar(64)
+  rawHtmlStorageKey    String?  @map("raw_html_storage_key") @db.VarChar(500)
+  screenshotStorageKey String?  @map("screenshot_storage_key") @db.VarChar(500)
+  evidenceExpiresAt    DateTime @map("evidence_expires_at")
+  evidenceDeletedAt    DateTime? @map("evidence_deleted_at")
+  exchangeRateId       Int      @unique @map("exchange_rate_id")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  exchangeRate ExchangeRate @relation(fields: [exchangeRateId], references: [id], onDelete: Restrict)
+
+  @@unique([rateDate, provider, market], map: "sbp_daily_fx_snapshots_date_provider_market_key")
+  @@index([rateDate, status], map: "sbp_daily_fx_snapshots_date_status_idx")
+  @@index([evidenceExpiresAt, evidenceDeletedAt], map: "sbp_daily_fx_snapshots_evidence_expiry_idx")
+  @@map("sbp_daily_fx_snapshots")
 }
 
 model CountryFallbackExchangeRate {
