@@ -34,6 +34,14 @@ test("lot accounting trace remains behind the existing city-admin early return",
   assert.ok(accountingTrace > cityReturn);
 });
 
+test("lot accounting trace loads sale journals by sale entity for multi-lot allocations", () => {
+  const lotRoute = read("src/app/api/v1/lots/[id]/route.ts");
+
+  assert.match(lotRoute, /const saleIds = sales\.map\(\(sale[^)]*\) => sale\.id\)/);
+  assert.match(lotRoute, /entityType: "sale", entityId: \{ in: saleIds \}/);
+  assert.match(lotRoute, /entry\.transactionId === `COGS-\$\{sale\.id\}` && entry\.lotId === id/);
+});
+
 test("stock trace reconciles source quantity, sales, remaining stock, and carrying value", () => {
   const rows = buildLotStockTrace({
     lotProducts: [

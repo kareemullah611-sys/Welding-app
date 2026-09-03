@@ -407,11 +407,13 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
 
     const supplierPaymentIds = supplierPaymentsForLot.map((payment) => payment.id);
     const shippingPaymentIds = shippingPaymentsForLot.map((payment) => payment.id);
+    const saleIds = sales.map((sale: any) => sale.id);
     const discountIds = sales.flatMap((sale: any) => sale.discounts.map((discount: any) => discount.id));
     const traceJournals = await prisma.journalEntry.findMany({
       where: {
         OR: [
           { lotId: id },
+          ...(saleIds.length ? [{ entityType: "sale", entityId: { in: saleIds } }] : []),
           ...(supplierPaymentIds.length ? [{ entityType: "supplier_payment", entityId: { in: supplierPaymentIds } }] : []),
           ...(shippingPaymentIds.length ? [{ entityType: "shipping_line_payment", entityId: { in: shippingPaymentIds } }] : []),
           ...(discountIds.length ? [{ entityType: "sale_discount", entityId: { in: discountIds } }] : []),
@@ -551,15 +553,15 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           ? null
           : sale.discounts.reduce((sum: number, discount: any) => sum + Number(discount.discountAmount || 0), 0);
         const netRecognizedRevenuePkr = recognizedPkr == null || discountPkr == null ? null : recognizedPkr - discountPkr;
-        const relatedJournals = journalRows.filter((entry) => (
-          (entry.entityType === "sale" && entry.entityId === sale.id)
-          || (entry.entityType === "sale_discount" && saleDiscountIds.includes(Number(entry.entityId)))
-        ));
-        const cogsPkr = relatedJournals
+        const saleJournals = journalRows.filter((entry) => entry.transactionId === `SALE-${sale.id}`);
+        const lotCogsJournals = journalRows.filter((entry) => entry.transactionId === `COGS-${sale.id}` && entry.lotId === id);
+        const discountJournals = journalRows.filter((entry) => entry.entityType === "sale_discount" && saleDiscountIds.includes(Number(entry.entityId)));
+        const relatedJournals = [...saleJournals, ...lotCogsJournals, ...discountJournals];
+        const cogsPkr = lotCogsJournals
           .filter((entry) => entry.accountType === "cogs")
           .reduce((sum, entry) => sum + entry.debit - entry.credit, 0);
-        const hasSaleJournal = relatedJournals.some((entry) => entry.transactionId === `SALE-${sale.id}`);
-        const hasCogsJournal = relatedJournals.some((entry) => entry.transactionId === `COGS-${sale.id}`);
+        const hasSaleJournal = saleJournals.length > 0;
+        const hasCogsJournal = lotCogsJournals.length > 0;
         const blockers = [
           ...(String(sale.currency.code).toUpperCase() !== "PKR" && recognizedPkr == null ? ["Foreign sale lacks stored PKR recognition metadata"] : []),
           ...(unsupportedDiscountCurrency ? ["Foreign-currency discount lacks stored PKR recognition metadata"] : []),
