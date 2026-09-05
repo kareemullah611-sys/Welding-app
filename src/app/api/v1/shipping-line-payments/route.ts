@@ -5,10 +5,7 @@ import { successResponse, validationError, errorResponse, serverError } from "@/
 import { journalShippingLinePayment } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { validatePaymentSource } from "@/lib/payment-source-validation";
-import { assertSuperAdminCashHasFunds } from "@/lib/haji-cash-balance";
-import { settlementAmountToPkr } from "@/lib/payment-currencies";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
-import { getIntermediaryBalances } from "@/lib/intermediary-balance";
 import { consumeIntermediaryUsdFifo, getLotFallbackUsdToPkrRate } from "@/lib/intermediary-usd-fifo";
 import { resolveShippingSettlementContext } from "@/lib/liability-settlement-context";
 import { LiabilityFxValidationError } from "@/lib/realized-liability-fx";
@@ -20,7 +17,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
   const syncMeta = getSyncRequestMeta(request);
   try {
     const body = await request.json();
-    const { shippingLineId, lotId, paymentDate, amountUsd, settlementCurrency, exchangeRate, reference, notes, bankAccountId, intermediaryId, superAdminCashAccountId } = body;
+    const { shippingLineId, lotId, paymentDate, amountUsd, settlementCurrency, exchangeRate, reference, notes, bankAccountId, superAdminBankAccountId, intermediaryId, superAdminCashAccountId } = body;
     const parsedShippingLineId = Number(shippingLineId);
     const parsedLotId = lotId ? Number(lotId) : null;
     const parsedCashAccountId = superAdminCashAccountId ? Number(superAdminCashAccountId) : null;
@@ -56,50 +53,24 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
     if (!sl) return errorResponse("NOT_FOUND", "Shipping line not found", 404);
     if (parsedLotId && !lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
 
-    let resolvedBankAccountId: number | null = null;
-    let resolvedIntermediaryId: number | null = null;
-    let amountLocal: number | null = null;
-
-    if (parsedCashAccountId) {
-      if (bankAccountId || intermediaryId) {
-        return validationError("Choose either haji cash or another funding source, not both");
-      }
-      const amountPkrValue = settlementAmountToPkr(
-        Number(amountUsd),
-        String(settlementCurrency || "USD"),
-        exchangeRate ? Number(exchangeRate) : 0
-      );
-      amountLocal = amountPkrValue > 0 ? Math.round(amountPkrValue * 100) / 100 : Number(amountUsd);
-      const funds = await assertSuperAdminCashHasFunds(parsedCashAccountId, amountLocal);
-      if (!funds.ok) return errorResponse("VALIDATION", funds.message, 400);
-      const cashAcct = await prisma.superAdminBankAccount.findUnique({
-        where: { id: parsedCashAccountId },
-        include: { currency: true },
-      });
-      if (!cashAcct || cashAcct.accountKind !== "cash") {
-        return errorResponse("NOT_FOUND", "Haji cash account not found", 404);
-      }
-    } else {
-      const source = await validatePaymentSource({ bankAccountId, intermediaryId, requireSelection: true });
-      if (!source.ok) return errorResponse(source.code, source.message, source.status);
-      resolvedBankAccountId = source.bankAccountId;
-      resolvedIntermediaryId = source.intermediaryId;
-      if (resolvedIntermediaryId) {
-        const balances = await getIntermediaryBalances(resolvedIntermediaryId);
-        const availableUsd = Number(balances.USD || 0);
-        if (Number(amountUsd) > availableUsd + 0.001) {
-          return errorResponse("INSUFFICIENT_FUNDS", `Insufficient intermediary USD balance. Available: $${availableUsd.toLocaleString("en-US")}`, 400);
-        }
-      }
+    const source = await validatePaymentSource({
+      bankAccountId,
+      superAdminBankAccountId,
+      superAdminCashAccountId,
+      intermediaryId,
+      currencyCode: String(settlementCurrency || "USD"),
+      requireSelection: true,
+    });
+    if (!source.ok) return errorResponse(source.code, source.message, source.status);
+    const resolvedBankAccountId = source.bankAccountId;
+    const resolvedSuperAdminBankAccountId = source.superAdminBankAccountId;
+    const resolvedIntermediaryId = source.intermediaryId;
+    const documentedRate = exchangeRate ? Number(exchangeRate) : 0;
+    if (!resolvedIntermediaryId && (!Number.isFinite(documentedRate) || documentedRate <= 0)) {
+      return validationError("Documented USD → PKR settlement rate is required");
     }
-
-    const amountPkrValue = settlementAmountToPkr(
-      Number(amountUsd),
-      String(settlementCurrency || "USD"),
-      exchangeRate ? Number(exchangeRate) : 0
-    );
-    const amountPkr = amountPkrValue > 0 ? Math.round(amountPkrValue * 100) / 100 : null;
-    if (!amountLocal && amountPkr) amountLocal = amountPkr;
+    let amountLocal: number | null = !resolvedIntermediaryId ? Math.round(Number(amountUsd) * documentedRate * 100) / 100 : null;
+    const amountPkr = amountLocal;
 
     const fallbackUsdToPkrRate = resolvedIntermediaryId
       ? await getLotFallbackUsdToPkrRate(parsedLotId)
@@ -115,6 +86,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
           shippingLineId: parsedShippingLineId,
           lotId: parsedLotId,
           bankAccountId: resolvedBankAccountId,
+          superAdminBankAccountId: resolvedSuperAdminBankAccountId,
           intermediaryId: resolvedIntermediaryId,
           superAdminCashAccountId: parsedCashAccountId,
           paymentDate: new Date(paymentDate),
@@ -128,7 +100,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
       });
 
       await createAuditLog(user.userId, null, "shipping_line_payments", created.id, "create", undefined,
-        { shippingLineId: parsedShippingLineId, amountUsd, bankAccountId: resolvedBankAccountId, intermediaryId: resolvedIntermediaryId, superAdminCashAccountId: parsedCashAccountId }, getClientIP(request), tx);
+        { shippingLineId: parsedShippingLineId, amountUsd, bankAccountId: resolvedBankAccountId, superAdminBankAccountId: resolvedSuperAdminBankAccountId, intermediaryId: resolvedIntermediaryId, superAdminCashAccountId: parsedCashAccountId }, getClientIP(request), tx);
 
       if (syncMeta) {
         await tx.syncRequest.create({
@@ -163,9 +135,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
       }
       const actualSettlementPkr = resolvedIntermediaryId
         ? Number(amountLocal || 0)
-        : Number(exchangeRate || 0) > 0
-          ? Math.round(Number(amountUsd) * Number(exchangeRate) * 100) / 100
-          : 0;
+        : Number(amountPkr || 0);
       if (actualSettlementPkr <= 0) {
         throw new LiabilityFxValidationError("Actual PKR settlement value is required to recognize shipping FX; provide the documented settlement rate.");
       }
@@ -193,6 +163,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
         paymentDate: paymentForJournal.paymentDate,
         createdBy: user.userId,
         bankAccountId: resolvedBankAccountId,
+        superAdminBankAccountId: resolvedSuperAdminBankAccountId,
         intermediaryId: resolvedIntermediaryId,
         superAdminCashAccountId: parsedCashAccountId,
         carryingAmountPkr: fx.carryingAmountPkr,

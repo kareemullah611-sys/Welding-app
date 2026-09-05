@@ -60,7 +60,7 @@ export async function getCityBankAccountAvailableBalance(
     }),
     db.currency.findUnique({ where: { id: currencyId }, select: { code: true } }),
     db.supplierPayment.findMany({
-      where: { bankAccountId },
+      where: { bankAccountId, deletedAt: null },
       select: { amountLocal: true, amountUsd: true, exchangeRate: true },
     }),
   ]);

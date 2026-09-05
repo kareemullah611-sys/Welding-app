@@ -13,7 +13,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, use
         city: true,
         openingLiabilities: { include: { currency: true }, orderBy: { openingDate: "asc" } },
         lotCosts: { where: { paidFromCash: false }, include: { lot: { select: { lotNumber: true } } }, orderBy: { createdAt: "desc" } },
-        agentPayments: { orderBy: { paymentDate: "desc" } },
+        agentPayments: { where: { deletedAt: null }, orderBy: { paymentDate: "desc" } },
       },
     });
     if (!agent) return errorResponse("NOT_FOUND", "Agent not found", 404);

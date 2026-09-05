@@ -256,10 +256,10 @@ export async function buildOfflineSyncPayload(
   ] = isCityAdmin
     ? [emptyArr, emptyArr, emptyArr, emptyArr, emptyArr, emptyArr, emptyArr, emptyArr]
     : await Promise.all([
-        prisma.supplierPayment.findMany({ orderBy: { paymentDate: "desc" } }),
-        prisma.agentPayment.findMany({ orderBy: { paymentDate: "desc" } }),
-        prisma.shippingLinePayment.findMany({ orderBy: { paymentDate: "desc" } }),
-        prisma.intermediaryDeposit.findMany({ orderBy: { depositDate: "desc" } }),
+        prisma.supplierPayment.findMany({ where: { deletedAt: null }, orderBy: { paymentDate: "desc" } }),
+        prisma.agentPayment.findMany({ where: { deletedAt: null }, orderBy: { paymentDate: "desc" } }),
+        prisma.shippingLinePayment.findMany({ where: { deletedAt: null }, orderBy: { paymentDate: "desc" } }),
+        prisma.intermediaryDeposit.findMany({ where: { deletedAt: null }, orderBy: { depositDate: "desc" } }),
         prisma.intermediaryExchange.findMany({ orderBy: { exchangeDate: "desc" } }),
         prisma.investorDeposit.findMany({ orderBy: { depositDate: "desc" } }),
         prisma.investorWithdrawal.findMany({ orderBy: { withdrawalDate: "desc" } }),

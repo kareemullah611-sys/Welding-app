@@ -301,7 +301,20 @@ export async function computeCityTreasuryNet(
     prisma.bankAccount.findMany({ where: { cityId }, select: { id: true } }),
   ]);
 
-  const cashInOffice = subtractMap(
+  const liabilityEntries = await prisma.superAdminLiabilityEntry.findMany({
+    where: { cityId, sourceType: { in: ["city_cash", "city_bank"] } },
+    select: { sourceType: true, currencyId: true, liabilityEffect: true },
+  });
+  await resolveCodes(liabilityEntries.map((entry) => entry.currencyId));
+  const liabilityCashEffect: Pot = {};
+  const liabilityBankEffect: Pot = {};
+  for (const entry of liabilityEntries) {
+    const code = codeById[entry.currencyId] ?? String(entry.currencyId);
+    const target = entry.sourceType === "city_cash" ? liabilityCashEffect : liabilityBankEffect;
+    target[code] = (target[code] || 0) + Number(entry.liabilityEffect || 0);
+  }
+
+  const cashInOffice = addMap(subtractMap(
     subtractMap(
       subtractMap(
         subtractMap(addMap(await mapRows(openingCashRaw), await mapRows(cashPaymentsRaw)), await mapRows(hajiFromCashRaw)),
@@ -310,7 +323,7 @@ export async function computeCityTreasuryNet(
       await mapRows(depositsRaw, "cashAmount")
     ),
     await mapRows(withdrawalsRaw)
-  );
+  ), liabilityCashEffect);
 
   const chequesInHand = await mapRows(chequesInHandRaw);
 
@@ -318,6 +331,7 @@ export async function computeCityTreasuryNet(
   const supplierPaymentsFromBank = await prisma.supplierPayment.findMany({
     where: {
       bankAccountId: cityBankAccountIds.length > 0 ? { in: cityBankAccountIds } : { in: [-1] },
+      deletedAt: null,
     },
     select: { amountLocal: true, amountUsd: true, exchangeRate: true },
   });
@@ -345,6 +359,7 @@ export async function computeCityTreasuryNet(
     ),
     supplierBankOut
   );
+  bankBalance = addMap(bankBalance, liabilityBankEffect);
 
   return addMap(addMap(cashInOffice, chequesInHand), bankBalance);
 }

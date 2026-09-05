@@ -27,21 +27,27 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, _us
   const intermediary = await prisma.intermediary.findUnique({ where: { id } });
   if (!intermediary) return errorResponse("NOT_FOUND", "Not found", 404);
 
-  const whereDeposits: Record<string, unknown> = { intermediaryId: id };
+  const whereDeposits: Record<string, unknown> = { intermediaryId: id, deletedAt: null };
   const whereOpenings: Record<string, unknown> = { intermediaryId: id };
-  const wherePayments: Record<string, unknown> = { intermediaryId: id };
+  const wherePayments: Record<string, unknown> = { intermediaryId: id, deletedAt: null };
+  const whereShippingPayments: Record<string, unknown> = { intermediaryId: id, deletedAt: null };
+  const whereAgentPayments: Record<string, unknown> = { intermediaryId: id, deletedAt: null };
+  const whereLiabilityEntries: Record<string, unknown> = { intermediaryId: id };
   const whereExchanges: Record<string, unknown> = { intermediaryId: id, isActive: true };
   const whereHajiTransfers: Record<string, unknown> = { intermediaryId: id, settlementDestination: "intermediary" };
-  const whereHajiCashReceipts: Record<string, unknown> = { intermediaryId: id };
+  const whereHajiCashReceipts: Record<string, unknown> = { intermediaryId: id, reversedAt: null };
 
   applyDateRange(whereDeposits, "depositDate", startDate, endDate);
   applyDateRange(whereOpenings, "openingDate", startDate, endDate);
   applyDateRange(wherePayments, "paymentDate", startDate, endDate);
+  applyDateRange(whereShippingPayments, "paymentDate", startDate, endDate);
+  applyDateRange(whereAgentPayments, "paymentDate", startDate, endDate);
+  applyDateRange(whereLiabilityEntries, "entryDate", startDate, endDate);
   applyDateRange(whereExchanges, "exchangeDate", startDate, endDate);
   applyDateRange(whereHajiTransfers, "transferDate", startDate, endDate);
   applyDateRange(whereHajiCashReceipts, "receiptDate", startDate, endDate);
 
-  const [openingLiabilities, deposits, payments, exchanges, hajiTransfers, hajiCashReceipts] = await Promise.all([
+  const [openingLiabilities, deposits, payments, shippingPayments, agentPayments, liabilityEntries, exchanges, hajiTransfers, hajiCashReceipts] = await Promise.all([
     prisma.openingLiability.findMany({
       where: whereOpenings,
       include: { currency: { select: { code: true } } },
@@ -56,6 +62,21 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, _us
       where: wherePayments,
       include: { supplier: true, creator: { select: { fullName: true } } },
       orderBy: { paymentDate: "asc" },
+    }),
+    prisma.shippingLinePayment.findMany({
+      where: whereShippingPayments,
+      include: { shippingLine: { select: { name: true } } },
+      orderBy: { paymentDate: "asc" },
+    }),
+    prisma.agentPayment.findMany({
+      where: whereAgentPayments,
+      include: { agent: { select: { name: true } } },
+      orderBy: { paymentDate: "asc" },
+    }),
+    prisma.superAdminLiabilityEntry.findMany({
+      where: whereLiabilityEntries,
+      include: { currency: { select: { code: true } }, account: { select: { name: true } } },
+      orderBy: { entryDate: "asc" },
     }),
     prisma.intermediaryExchange.findMany({
       where: whereExchanges,
@@ -86,7 +107,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, _us
     }),
   ]);
 
-  const entries = buildIntermediaryLedgerEntries({ openingLiabilities, deposits, payments, exchanges, hajiTransfers, hajiCashReceipts });
+  const entries = buildIntermediaryLedgerEntries({ openingLiabilities, deposits, payments, shippingPayments, agentPayments, liabilityEntries, exchanges, hajiTransfers, hajiCashReceipts });
   const { ledger, balances, pagination } = paginateIntermediaryLedger(entries, page, limit);
 
   const exchangeHistory = exchanges.map((e) => ({

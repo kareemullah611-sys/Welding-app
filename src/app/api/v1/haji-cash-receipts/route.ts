@@ -4,7 +4,6 @@ import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { journalHajiCashReceipt } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
-import { assertSuperAdminCashAccount } from "@/lib/haji-cash-balance";
 import { getIntermediaryBalances } from "@/lib/intermediary-balance";
 
 function parsePositiveAmount(value: unknown): number | null {
@@ -18,17 +17,31 @@ function parsePositiveAmount(value: unknown): number | null {
 export const POST = withSuperAdmin(async (request: NextRequest, _context: any, user: JWTPayload) => {
   const body = await request.json();
   const cashAccountId = Number(body.superAdminCashAccountId || 0);
+  const bankAccountId = Number(body.superAdminBankAccountId || 0);
   const intermediaryId = Number(body.intermediaryId || 0);
   const amount = parsePositiveAmount(body.amount);
 
-  if (!cashAccountId || !intermediaryId) {
-    return errorResponse("VALIDATION", "Haji cash account and intermediary are required", 400);
+  if (Number(Boolean(cashAccountId)) + Number(Boolean(bankAccountId)) !== 1) {
+    return errorResponse("VALIDATION", "Choose exactly one destination: superadmin bank or cash account", 400);
+  }
+  if (!intermediaryId) {
+    return errorResponse("VALIDATION", "Intermediary is required", 400);
   }
   if (!body.receiptDate) return errorResponse("VALIDATION", "receiptDate required", 400);
   if (!amount) return errorResponse("VALIDATION", "amount must be > 0", 400);
 
-  const cashCheck = await assertSuperAdminCashAccount(cashAccountId);
-  if (!cashCheck.ok) return errorResponse("VALIDATION", cashCheck.message, 400);
+  const destinationAccountId = cashAccountId || bankAccountId;
+  const destinationAccount = await prisma.superAdminBankAccount.findUnique({
+    where: { id: destinationAccountId },
+    include: { currency: true },
+  });
+  if (!destinationAccount || !destinationAccount.isActive) {
+    return errorResponse("NOT_FOUND", "Active superadmin destination account not found", 404);
+  }
+  const expectedKind = cashAccountId ? "cash" : "bank";
+  if (destinationAccount.accountKind !== expectedKind) {
+    return errorResponse("VALIDATION", `Selected destination must be a superadmin ${expectedKind} account`, 400);
+  }
 
   const intermediary = await prisma.intermediary.findUnique({
     where: { id: intermediaryId },
@@ -38,25 +51,22 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
     return errorResponse("NOT_FOUND", "Intermediary not found", 404);
   }
 
-  const currencyCode = String(cashCheck.account.currency.code || "").toUpperCase();
-  const balances = await getIntermediaryBalances(intermediaryId);
-  const available = Number(balances[currencyCode] || 0);
-  if (amount > available + 0.0001) {
-    return errorResponse(
-      "VALIDATION",
-      `Intermediary has insufficient ${currencyCode} balance (${available.toLocaleString("en-US")} available)`,
-      400,
-    );
-  }
+  const currencyCode = String(destinationAccount.currency.code || "").toUpperCase();
 
   const created = await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)", `intermediary-return:${intermediaryId}:${currencyCode}`);
+    const balances = await getIntermediaryBalances(intermediaryId, undefined, tx);
+    const available = Number(balances[currencyCode] || 0);
+    if (amount > available + 0.0001) {
+      throw new Error(`INTERMEDIARY_BALANCE:${available}`);
+    }
     const row = await tx.hajiCashReceipt.create({
       data: {
-        superAdminCashAccountId: cashAccountId,
+        superAdminCashAccountId: destinationAccountId,
         intermediaryId,
         receiptDate: new Date(body.receiptDate),
         amount,
-        currencyId: cashCheck.account.currencyId,
+        currencyId: destinationAccount.currencyId,
         notes: body.notes || null,
         createdBy: user.userId,
       },
@@ -65,7 +75,8 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
     await journalHajiCashReceipt(
       {
         id: row.id,
-        superAdminCashAccountId: cashAccountId,
+        superAdminCashAccountId: destinationAccountId,
+        accountKind: destinationAccount.accountKind,
         intermediaryId,
         amount,
         currencyCode,
@@ -82,13 +93,28 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
       row.id,
       "create",
       undefined,
-      { superAdminCashAccountId: cashAccountId, intermediaryId, amount, currencyCode },
+      { destinationAccountId, destinationAccountKind: destinationAccount.accountKind, intermediaryId, amount, currencyCode },
       getClientIP(request),
       tx,
     );
 
     return row;
+  }).catch((error) => {
+    const message = error instanceof Error ? error.message : "";
+    if (message.startsWith("INTERMEDIARY_BALANCE:")) {
+      const available = Number(message.split(":")[1] || 0);
+      return { balanceError: available } as const;
+    }
+    throw error;
   });
+
+  if ("balanceError" in created) {
+    return errorResponse(
+      "VALIDATION",
+      `Intermediary has insufficient ${currencyCode} balance (${created.balanceError.toLocaleString("en-US")} available)`,
+      400,
+    );
+  }
 
   return successResponse(
     {

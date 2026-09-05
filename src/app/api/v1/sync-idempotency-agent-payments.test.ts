@@ -21,6 +21,13 @@ test("agent payment create is idempotent for repeated sync request id", async ()
 
   const city = await prisma.city.findFirst({ where: { name: "Quetta", country: { code: "PK" } } });
   assert.ok(city, "Seed city Quetta (PK) is required");
+  const fundingAccount = await prisma.bankAccount.create({
+    data: {
+      cityId: city.id,
+      bankName: `${marker}-bank`,
+      accountNumber: marker,
+    },
+  });
 
   const agent = await prisma.agent.create({
     data: {
@@ -48,6 +55,7 @@ test("agent payment create is idempotent for repeated sync request id", async ()
     paymentMethod: "cash",
     reference: "sync-test",
     notes: "offline replay test",
+    bankAccountId: fundingAccount.id,
   };
 
   try {
@@ -87,5 +95,6 @@ test("agent payment create is idempotent for repeated sync request id", async ()
     });
     await prisma.agentPayment.deleteMany({ where: { agentId: agent.id, reference: "sync-test" } });
     await prisma.agent.deleteMany({ where: { id: agent.id } });
+    await prisma.bankAccount.deleteMany({ where: { id: fundingAccount.id } });
   }
 });

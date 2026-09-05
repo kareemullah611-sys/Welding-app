@@ -260,7 +260,7 @@ export default function SuppliersPage() {
     const [r, lotR, bankR, intR] = await Promise.all([
       apiCall(`/api/v1/suppliers/${s.id}`),
       apiCall("/api/v1/lots", { params: { limit: 100 } }),
-      apiCall("/api/v1/bank-accounts", { params: { scope: "super_admin" } }),
+      apiCall("/api/v1/super-admin-liabilities/options"),
       apiCall("/api/v1/intermediaries"),
     ]);
     if (r.success) {
@@ -287,8 +287,13 @@ export default function SuppliersPage() {
       }
     }
     if (bankR.success) {
-      setBankAccounts(bankR.data as any[]);
-      mergeSnapshot({ bankAccounts: bankR.data as any[] });
+      const sourceOptions: any = bankR.data || {};
+      const loadedAccounts = [
+        ...(sourceOptions.superAdminAccounts || []).map((account: any) => ({ ...account, accountScope: "super_admin" })),
+        ...(sourceOptions.cities || []).flatMap((city: any) => (city.bankAccounts || []).map((account: any) => ({ ...account, cityId: city.id, cityName: city.name, accountScope: "city", accountKind: "bank", currency: { code: "PKR" } }))),
+      ];
+      setBankAccounts(loadedAccounts);
+      mergeSnapshot({ bankAccounts: loadedAccounts });
       setShowOfflineSnapshot(false);
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
@@ -399,7 +404,7 @@ export default function SuppliersPage() {
       return;
     }
     if (paymentForm.paidVia === "bank" && !paymentForm.superAdminBankAccountId) {
-      setError("Please select a super admin bank account");
+      setError("Please select a funding account");
       return;
     }
     if (paymentForm.paidVia === "bank" && !(paymentForm.exchangeRate > 0)) {
@@ -420,9 +425,13 @@ export default function SuppliersPage() {
       reference: paymentForm.reference || undefined,
       notes: paymentForm.notes || undefined,
     };
-    if (paymentForm.lotId) body.lotId = paymentForm.lotId;
+    if (!paymentForm.lotId) { setSubmitting(false); setError("Select the lot whose supplier liability is being paid"); return; }
+    body.lotId = paymentForm.lotId;
     if (paymentForm.paidVia === "bank") {
-      body.superAdminBankAccountId = paymentForm.superAdminBankAccountId;
+      const selectedFundingAccount = bankAccounts.find((account: any) => account.id === paymentForm.superAdminBankAccountId);
+      if (selectedFundingAccount?.accountScope === "city") body.bankAccountId = paymentForm.superAdminBankAccountId;
+      else if (selectedFundingAccount?.accountKind === "cash") body.superAdminCashAccountId = paymentForm.superAdminBankAccountId;
+      else body.superAdminBankAccountId = paymentForm.superAdminBankAccountId;
       body.exchangeRate = paymentForm.exchangeRate;
       body.amountLocal = paymentForm.amountLocal;
     } else {
@@ -709,9 +718,9 @@ export default function SuppliersPage() {
               <input value={selected?.name || ""} className="input-field bg-gray-50 text-gray-500" disabled />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">{t("lot_optional")}</label>
+              <label className="mb-1 block text-sm font-medium text-gray-700">Lot *</label>
               <select value={paymentForm.lotId} onChange={(e) => setPaymentForm((f) => ({ ...f, lotId: parseInt(e.target.value) }))} className="select-field">
-                <option value={0}>{t("general_not_linked")}</option>
+                <option value={0}>Select lot</option>
                 {lots.map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}</option>)}
               </select>
             </div>
@@ -729,7 +738,7 @@ export default function SuppliersPage() {
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">Paid Via *</label>
             <div className="mb-2 flex gap-2">
-              <button type="button" onClick={() => setPaymentForm((f) => ({ ...f, paidVia: "bank", intermediaryId: 0 }))} className={`rounded border px-3 py-1 text-sm ${paymentForm.paidVia === "bank" ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 bg-white text-gray-600"}`}>Super Admin Bank</button>
+              <button type="button" onClick={() => setPaymentForm((f) => ({ ...f, paidVia: "bank", intermediaryId: 0 }))} className={`rounded border px-3 py-1 text-sm ${paymentForm.paidVia === "bank" ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 bg-white text-gray-600"}`}>Bank / Cash Account</button>
               <button type="button" onClick={() => setPaymentForm((f) => ({ ...f, paidVia: "intermediary", superAdminBankAccountId: 0, bankAccountId: 0 }))} className={`rounded border px-3 py-1 text-sm ${paymentForm.paidVia === "intermediary" ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 bg-white text-gray-600"}`}>Intermediary</button>
             </div>
             {paymentForm.paidVia === "bank" ? (
@@ -737,7 +746,7 @@ export default function SuppliersPage() {
                 <option value={0}>{t("select")}</option>
                 {bankAccounts.filter((b: any) => b.isActive !== false).map((b: any) => (
                   <option key={b.id} value={b.id}>
-                    {b.bankName}{b.accountNumber ? ` - ${b.accountNumber}` : ""}{b.currency?.code ? ` (${b.currency.code})` : ""}{b.runningBalance != null ? ` · Avail: ${Number(b.runningBalance).toLocaleString("en-US")}` : ""}
+                    {b.accountScope === "city" ? `${b.cityName} · ` : ""}{b.accountKind === "cash" ? "Cash · " : "Bank · "}{b.bankName}{b.accountNumber ? ` - ${b.accountNumber}` : ""}{b.currency?.code ? ` (${b.currency.code})` : ""}{b.runningBalance != null ? ` · Balance: ${Number(b.runningBalance).toLocaleString("en-US")}` : ""}
                   </option>
                 ))}
               </select>

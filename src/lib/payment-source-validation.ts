@@ -2,8 +2,11 @@ import prisma from "@/lib/prisma";
 
 type SourceValidationArgs = {
   bankAccountId?: unknown;
+  superAdminBankAccountId?: unknown;
+  superAdminCashAccountId?: unknown;
   intermediaryId?: unknown;
   cityId?: number | null;
+  currencyCode?: string | null;
   requireSelection?: boolean;
 };
 
@@ -11,6 +14,8 @@ type SourceValidationResult =
   | {
       ok: true;
       bankAccountId: number | null;
+      superAdminBankAccountId: number | null;
+      superAdminCashAccountId: number | null;
       intermediaryId: number | null;
     }
   | {
@@ -28,23 +33,45 @@ function normalizeOptionalId(value: unknown): number | null {
 
 export async function validatePaymentSource({
   bankAccountId,
+  superAdminBankAccountId,
+  superAdminCashAccountId,
   intermediaryId,
   cityId,
+  currencyCode,
   requireSelection = false,
 }: SourceValidationArgs): Promise<SourceValidationResult> {
   const normalizedBankAccountId = normalizeOptionalId(bankAccountId);
+  const normalizedSuperAdminBankAccountId = normalizeOptionalId(superAdminBankAccountId);
+  const normalizedSuperAdminCashAccountId = normalizeOptionalId(superAdminCashAccountId);
   const normalizedIntermediaryId = normalizeOptionalId(intermediaryId);
 
-  if (Number.isNaN(normalizedBankAccountId) || Number.isNaN(normalizedIntermediaryId)) {
+  if ([normalizedBankAccountId, normalizedSuperAdminBankAccountId, normalizedSuperAdminCashAccountId, normalizedIntermediaryId].some(Number.isNaN)) {
     return { ok: false, code: "VALIDATION_ERROR", message: "Funding source selection is invalid" };
   }
 
-  if (normalizedBankAccountId && normalizedIntermediaryId) {
-    return { ok: false, code: "VALIDATION_ERROR", message: "Choose either a bank account or an intermediary, not both" };
+  const sourceCount = [normalizedBankAccountId, normalizedSuperAdminBankAccountId, normalizedSuperAdminCashAccountId, normalizedIntermediaryId].filter(Boolean).length;
+  if (sourceCount > 1) {
+    return { ok: false, code: "VALIDATION_ERROR", message: "Choose exactly one funding source" };
   }
 
-  if (requireSelection && !normalizedBankAccountId && !normalizedIntermediaryId) {
+  if (requireSelection && sourceCount === 0) {
     return { ok: false, code: "VALIDATION_ERROR", message: "A funding source is required" };
+  }
+
+  const normalizedCurrencyCode = String(currencyCode || "").trim().toUpperCase();
+  const superAdminAccountId = normalizedSuperAdminBankAccountId || normalizedSuperAdminCashAccountId;
+  if (superAdminAccountId) {
+    const account = await prisma.superAdminBankAccount.findUnique({
+      where: { id: superAdminAccountId },
+      include: { currency: { select: { code: true } } },
+    });
+    if (!account) return { ok: false, code: "NOT_FOUND", message: "Super admin account not found", status: 404 };
+    if (!account.isActive) return { ok: false, code: "VALIDATION_ERROR", message: "Selected super admin account is inactive" };
+    const expectedKind = normalizedSuperAdminCashAccountId ? "cash" : "bank";
+    if (account.accountKind !== expectedKind) return { ok: false, code: "VALIDATION_ERROR", message: `Selected account is not a super admin ${expectedKind} account` };
+    if (normalizedCurrencyCode && String(account.currency.code).toUpperCase() !== normalizedCurrencyCode) {
+      return { ok: false, code: "CURRENCY_MISMATCH", message: "Funding account currency must match the transaction currency; record an exchange first" };
+    }
   }
 
   if (normalizedBankAccountId) {
@@ -79,6 +106,8 @@ export async function validatePaymentSource({
   return {
     ok: true,
     bankAccountId: normalizedBankAccountId,
+    superAdminBankAccountId: normalizedSuperAdminBankAccountId,
+    superAdminCashAccountId: normalizedSuperAdminCashAccountId,
     intermediaryId: normalizedIntermediaryId,
   };
 }

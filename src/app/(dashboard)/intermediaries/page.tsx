@@ -345,13 +345,15 @@ export default function IntermediariesPage() {
     if (!depositForm.currencyId) { setDepositError("Currency is required"); return; }
     if (!depositForm.superAdminBankAccountId) { setDepositError("Super admin bank account is required"); return; }
     setDepositSubmitting(true);
+    const selectedAccount = superAdminBankAccounts.find((account: any) => String(account.id) === depositForm.superAdminBankAccountId);
     const body: any = {
       depositDate: depositForm.depositDate,
       amount: parsedAmount,
       currencyId: Number(depositForm.currencyId),
-      superAdminBankAccountId: Number(depositForm.superAdminBankAccountId),
       notes: depositForm.notes || null,
     };
+    if (selectedAccount?.accountKind === "cash") body.superAdminCashAccountId = Number(depositForm.superAdminBankAccountId);
+    else body.superAdminBankAccountId = Number(depositForm.superAdminBankAccountId);
     const r = await apiCall(`/api/v1/intermediaries/${selected.id}/deposits`, { method: "POST", body });
     setDepositSubmitting(false);
     if (r.success) { setShowDeposit(false); openLedger(selected); } else { setDepositError(r.error || "Failed"); }
@@ -364,7 +366,7 @@ export default function IntermediariesPage() {
       depositDate: entry.date?.split("T")[0] || "",
       amount: String(entry.debit),
       currencyId: String(entry.currencyId || ""),
-      superAdminBankAccountId: String(entry.superAdminBankAccountId || ""),
+      superAdminBankAccountId: String(entry.superAdminBankAccountId || entry.superAdminCashAccountId || ""),
       notes: String(entry.notes || ""),
     });
     setEditDepositError("");
@@ -383,7 +385,11 @@ export default function IntermediariesPage() {
       notes: editDepositForm.notes || null,
     };
     if (editDepositForm.currencyId) body.currencyId = Number(editDepositForm.currencyId);
-    if (editDepositForm.superAdminBankAccountId) body.superAdminBankAccountId = Number(editDepositForm.superAdminBankAccountId);
+    if (editDepositForm.superAdminBankAccountId) {
+      const selectedAccount = superAdminBankAccounts.find((account: any) => String(account.id) === editDepositForm.superAdminBankAccountId);
+      if (selectedAccount?.accountKind === "cash") body.superAdminCashAccountId = Number(editDepositForm.superAdminBankAccountId);
+      else body.superAdminBankAccountId = Number(editDepositForm.superAdminBankAccountId);
+    }
     const r = await apiCall(`/api/v1/intermediary-deposits/${editDepositId}`, { method: "PUT", body });
     setEditDepositSubmitting(false);
     if (r.success) { setShowEditDeposit(false); openLedger(selected); } else { setEditDepositError(r.error || "Failed"); }
@@ -392,6 +398,12 @@ export default function IntermediariesPage() {
   const handleDeleteDeposit = async (id: number) => {
     if (!confirm("Delete this deposit? The journal entry will be reversed.")) return;
     await apiCall(`/api/v1/intermediary-deposits/${id}`, { method: "DELETE" });
+    openLedger(selected);
+  };
+
+  const handleReverseReceipt = async (id: number) => {
+    if (!confirm("Reverse this intermediary return? The original record will remain in the audit trail.")) return;
+    await apiCall(`/api/v1/haji-cash-receipts/${id}/reverse`, { method: "POST" });
     openLedger(selected);
   };
 
@@ -964,6 +976,15 @@ export default function IntermediariesPage() {
                               </RowActionMenu>
                             );
                           })()}
+                          {entry.type === "haji_cash_receipt" && !entry._pending && (
+                            <button
+                              type="button"
+                              onClick={() => void handleReverseReceipt(entry.id)}
+                              className="rounded-lg px-2 py-1 text-[10px] font-medium text-red-600 hover:bg-red-50"
+                            >
+                              Reverse
+                            </button>
+                          )}
                           {entry.type === "exchange_out" && !entry._pending && (() => {
                             const exch = ledger?.exchangeHistory?.find((ex: any) => ex.id === entry.id);
                             if (!exch) return null;
@@ -1008,7 +1029,7 @@ export default function IntermediariesPage() {
           <div className="rounded-xl border border-gray-200 bg-gray-50/50 p-4">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Transfer Route</p>
             <p className="text-sm text-gray-700">
-              <span className="font-medium">🏦 {superAdminBankAccounts.find((b: any) => String(b.id) === depositForm.superAdminBankAccountId)?.bankName || "Select Bank"}</span>
+              <span className="font-medium">{superAdminBankAccounts.find((b: any) => String(b.id) === depositForm.superAdminBankAccountId)?.accountKind === "cash" ? "💵" : "🏦"} {superAdminBankAccounts.find((b: any) => String(b.id) === depositForm.superAdminBankAccountId)?.bankName || "Select Account"}</span>
               <span className="text-gray-400 mx-2">→</span>
               <span className="font-medium">👤 {selected?.name}</span>
             </p>
@@ -1031,11 +1052,11 @@ export default function IntermediariesPage() {
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Bank Account</label>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Super Admin Account</label>
             <select value={depositForm.superAdminBankAccountId} onChange={e => setDepositForm(prev => ({ ...prev, superAdminBankAccountId: e.target.value }))} className="select-field">
-              <option value="">Select bank account</option>
+              <option value="">Select bank or cash account</option>
               {superAdminBankAccounts.filter((b: any) => b.isActive && (!depositForm.currencyId || String(b.currencyId) === String(depositForm.currencyId))).map((b: any) => (
-                <option key={b.id} value={b.id}>{b.bankName}{b.accountNumber ? ` - ${b.accountNumber}` : ""}</option>
+                <option key={b.id} value={b.id}>{b.accountKind === "cash" ? "Cash" : "Bank"} · {b.bankName}{b.accountNumber ? ` - ${b.accountNumber}` : ""}</option>
               ))}
             </select>
           </div>
@@ -1150,11 +1171,11 @@ export default function IntermediariesPage() {
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Bank Account</label>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Super Admin Account</label>
             <select value={editDepositForm.superAdminBankAccountId} onChange={e => setEditDepositForm(prev => ({ ...prev, superAdminBankAccountId: e.target.value }))} className="select-field">
-              <option value="">Select bank account</option>
+                  <option value="">Select bank or cash account</option>
               {superAdminBankAccounts.filter((b: any) => b.isActive && (!editDepositForm.currencyId || String(b.currencyId) === String(editDepositForm.currencyId))).map((b: any) => (
-                <option key={b.id} value={b.id}>{b.bankName}{b.accountNumber ? ` - ${b.accountNumber}` : ""}</option>
+                    <option key={b.id} value={b.id}>{b.accountKind === "cash" ? "Cash" : "Bank"} · {b.bankName}{b.accountNumber ? ` - ${b.accountNumber}` : ""}</option>
               ))}
             </select>
           </div>

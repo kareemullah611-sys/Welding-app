@@ -350,7 +350,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     const supplierIds = Array.from(new Set(lotPurchases.map((p: any) => Number(p.supplierId)).filter(Boolean)));
     const supplierPaymentsForLot = supplierIds.length
       ? await prisma.supplierPayment.findMany({
-          where: { lotId: id, supplierId: { in: supplierIds } },
+          where: { lotId: id, supplierId: { in: supplierIds }, deletedAt: null },
           select: {
             id: true,
             amountUsd: true,
@@ -372,7 +372,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
 
     const [shippingPaymentsForLot, openingValuations, godownTransfers, cityTransfers] = await Promise.all([
       prisma.shippingLinePayment.findMany({
-        where: { lotId: id },
+        where: { lotId: id, deletedAt: null },
         select: {
           id: true,
           amountUsd: true,

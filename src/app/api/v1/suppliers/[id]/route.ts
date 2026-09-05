@@ -19,6 +19,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, use
           orderBy: { createdAt: "desc" },
         },
         supplierPayments: {
+          where: { deletedAt: null },
           include: {
             lot: { select: { id: true, lotNumber: true } },
             bankAccount: { select: { id: true, bankName: true, accountNumber: true } },

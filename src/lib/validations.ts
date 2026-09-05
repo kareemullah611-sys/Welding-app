@@ -434,7 +434,7 @@ export const createLotCostSchema = z.object({
 // ============================================================
 export const createSupplierPaymentSchema = z.object({
   supplierId: z.number().int().positive(),
-  lotId: z.number().int().positive().optional(),
+  lotId: z.number().int().positive(),
   paymentDate: z.string(),
   amountUsd: z.number().positive(),
   exchangeRate: z.number().positive().optional(),

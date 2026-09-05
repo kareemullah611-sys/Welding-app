@@ -5,6 +5,7 @@ import { successResponse, errorResponse, serverError } from "@/lib/api-response"
 import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 import { getSuperAdminCashAccountBalance } from "@/lib/haji-cash-balance";
+import { getSuperAdminBankBalance } from "@/lib/settlement-validation";
 
 const BANK_ACCOUNT_SYNC_MODULE = "bank_accounts";
 const SUPERADMIN_SYNC_CITY_ID = 0;
@@ -33,7 +34,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         }),
         prisma.intermediaryDeposit.groupBy({
           by: ["superAdminBankAccountId", "currencyId"],
-          where: { superAdminBankAccountId: { not: null } },
+          where: { superAdminBankAccountId: { not: null }, deletedAt: null },
           _sum: { amount: true },
         }),
         prisma.lotCost.findMany({
@@ -142,12 +143,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           const incoming = isCash
             ? 0
             : (incomingMap.get(`${a.id}:${a.currencyId}`) || 0);
-          const runningBalance = isCash
-            ? await getSuperAdminCashAccountBalance(a.id).catch((err) => {
-                console.error(`Cash balance fallback for account ${a.id}:`, err);
-                return Math.round(((hajiCashMap.get(`${a.id}:${a.currencyId}`) || 0) - (investorSettlementPaymentMap.get(`${a.id}:${a.currencyId}`) || 0)) * 100) / 100;
-              })
-            : Math.round((((openingMap.get(`${a.id}:${a.currencyId}`) || 0) + incoming - (expenseMap.get(a.id) || 0) - (intermediaryMap.get(`${a.id}:${a.currencyId}`) || 0) - (lotCostDebitMap.get(`${a.id}:${a.currencyId}`) || 0) - (supplierPaymentDebitMap.get(a.id) || 0) - (investorSettlementPaymentMap.get(`${a.id}:${a.currencyId}`) || 0)) * 100)) / 100;
+          const authoritativeBalance = await getSuperAdminBankBalance(a.id);
+          const runningBalance = authoritativeBalance?.balance ?? (isCash
+            ? await getSuperAdminCashAccountBalance(a.id).catch(() => 0)
+            : Math.round((((openingMap.get(`${a.id}:${a.currencyId}`) || 0) + incoming - (expenseMap.get(a.id) || 0) - (intermediaryMap.get(`${a.id}:${a.currencyId}`) || 0) - (lotCostDebitMap.get(`${a.id}:${a.currencyId}`) || 0) - (supplierPaymentDebitMap.get(a.id) || 0) - (investorSettlementPaymentMap.get(`${a.id}:${a.currencyId}`) || 0)) * 100)) / 100);
           return {
           id: a.id,
           cityId: null,
@@ -165,6 +164,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
             expenses: a._count.expenses,
           },
           runningBalance,
+          isNegative: runningBalance < 0,
           accountScope: "super_admin",
         };
         }))
@@ -290,6 +290,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       }),
       prisma.intermediaryDeposit.findMany({
         where: {
+          deletedAt: null,
           bankAccountId: cityId
             ? { in: scopedBankAccountIds.length > 0 ? scopedBankAccountIds : [-1] }
             : { not: null },

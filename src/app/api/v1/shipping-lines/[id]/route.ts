@@ -23,7 +23,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context: any, _us
         orderBy: { createdAt: "desc" },
       }),
       prisma.shippingLinePayment.findMany({
-        where: { shippingLineId: id },
+        where: { shippingLineId: id, deletedAt: null },
         include: { lot: { select: { id: true, lotNumber: true } } },
         orderBy: { paymentDate: "desc" },
       }),

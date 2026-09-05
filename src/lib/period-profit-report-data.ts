@@ -158,7 +158,7 @@ export async function buildPeriodProfitReportData(
   }
 
   const totalPurchased = await prisma.lotPurchase.aggregate({ _sum: { totalPriceUsd: true } });
-  const totalPaid = await prisma.supplierPayment.aggregate({ _sum: { amountUsd: true } });
+  const totalPaid = await prisma.supplierPayment.aggregate({ where: { deletedAt: null }, _sum: { amountUsd: true } });
 
   return {
     reportingCurrency: REPORTING_CURRENCY,

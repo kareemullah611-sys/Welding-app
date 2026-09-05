@@ -35,7 +35,7 @@ export async function resolveSupplierSettlementContext(input: {
   }
   if (lot.lotPurchases.length === 0) throw new LiabilityFxValidationError("No supplier liability exists for the selected lot.");
   const previous = await db.supplierPayment.aggregate({
-    where: { supplierId: input.supplierId, lotId: input.lotId, id: { not: input.paymentId } },
+    where: { supplierId: input.supplierId, lotId: input.lotId, id: { not: input.paymentId }, deletedAt: null },
     _sum: { amountUsd: true },
   });
   return allocateLiabilitySettlementLayers({
@@ -84,7 +84,7 @@ export async function resolveShippingSettlementContext(input: {
     };
   });
   const previous = await db.shippingLinePayment.aggregate({
-    where: { shippingLineId: input.shippingLineId, lotId: input.lotId, id: { not: input.paymentId } },
+    where: { shippingLineId: input.shippingLineId, lotId: input.lotId, id: { not: input.paymentId }, deletedAt: null },
     _sum: { amountUsd: true },
   });
   return allocateLiabilitySettlementLayers({

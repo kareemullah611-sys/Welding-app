@@ -5,7 +5,6 @@ import { successResponse, errorResponse, serverError } from "@/lib/api-response"
 import { reverseJournalEntries, journalShippingLinePayment } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { validatePaymentSource } from "@/lib/payment-source-validation";
-import { getIntermediaryBalances } from "@/lib/intermediary-balance";
 import {
   consumeIntermediaryUsdFifo,
   getLotFallbackUsdToPkrRate,
@@ -20,16 +19,15 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     const body = await request.json();
 
     const existing = await prisma.shippingLinePayment.findUnique({ where: { id } });
-    if (!existing) return errorResponse("NOT_FOUND", "Payment not found", 404);
+    if (!existing || existing.deletedAt) return errorResponse("NOT_FOUND", "Payment not found", 404);
 
-    const superAdminCashAccountId = existing.superAdminCashAccountId ?? null;
-    const source = superAdminCashAccountId
-      ? { ok: true as const, bankAccountId: null, intermediaryId: null }
-      : await validatePaymentSource({
-          bankAccountId: body.bankAccountId !== undefined ? body.bankAccountId : existing.bankAccountId,
-          intermediaryId: body.intermediaryId !== undefined ? body.intermediaryId : existing.intermediaryId,
-          requireSelection: true,
-        });
+    const source = await validatePaymentSource({
+      bankAccountId: body.bankAccountId !== undefined ? body.bankAccountId : existing.bankAccountId,
+      superAdminBankAccountId: body.superAdminBankAccountId !== undefined ? body.superAdminBankAccountId : existing.superAdminBankAccountId,
+      superAdminCashAccountId: body.superAdminCashAccountId !== undefined ? body.superAdminCashAccountId : existing.superAdminCashAccountId,
+      intermediaryId: body.intermediaryId !== undefined ? body.intermediaryId : existing.intermediaryId,
+      requireSelection: true,
+    });
     if (!source.ok) return errorResponse(source.code, source.message, source.status);
 
     const amountUsd = body.amountUsd !== undefined ? Number(body.amountUsd) : Number(existing.amountUsd);
@@ -41,14 +39,6 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     if (exchangeRate !== null && (!Number.isFinite(exchangeRate) || exchangeRate <= 0)) {
       return errorResponse("VALIDATION_ERROR", "Exchange rate must be greater than 0");
     }
-    if (source.intermediaryId) {
-      const balances = await getIntermediaryBalances(source.intermediaryId, { excludeShippingLinePaymentId: id });
-      const availableUsd = Number(balances.USD || 0);
-      if (amountUsd > availableUsd + 0.001) {
-        return errorResponse("INSUFFICIENT_FUNDS", `Insufficient intermediary USD balance. Available: $${availableUsd.toLocaleString("en-US")}`, 400);
-      }
-    }
-
     const fallbackUsdToPkrRate = source.intermediaryId
       ? await getLotFallbackUsdToPkrRate(existing.lotId || null)
       : null;
@@ -72,6 +62,8 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
           exchangeRate,
           amountPkr: exchangeRate ? Math.round(amountUsd * exchangeRate * 100) / 100 : null,
           bankAccountId: source.bankAccountId,
+          superAdminBankAccountId: source.superAdminBankAccountId,
+          superAdminCashAccountId: source.superAdminCashAccountId,
           intermediaryId: source.intermediaryId,
           reference: body.reference !== undefined ? body.reference || null : existing.reference,
           notes: body.notes !== undefined ? body.notes || null : existing.notes,
@@ -129,8 +121,9 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
         paymentDate: journalPayment.paymentDate,
         createdBy: user.userId,
         bankAccountId: source.bankAccountId,
+        superAdminBankAccountId: source.superAdminBankAccountId,
         intermediaryId: source.intermediaryId,
-        superAdminCashAccountId,
+        superAdminCashAccountId: source.superAdminCashAccountId,
         carryingAmountPkr: fx.carryingAmountPkr,
         actualSettlementPkr,
         journalVersion: journalPayment.journalVersion,
@@ -151,7 +144,7 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
   try {
     const id = parseInt(context.params.id);
     const existing = await prisma.shippingLinePayment.findUnique({ where: { id } });
-    if (!existing) return errorResponse("NOT_FOUND", "Payment not found", 404);
+    if (!existing || existing.deletedAt) return errorResponse("NOT_FOUND", "Payment not found", 404);
 
     await prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(
@@ -159,10 +152,10 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
         `shipping-liability:${existing.shippingLineId}:${existing.lotId || "none"}`,
       );
       const lockedExisting = await tx.shippingLinePayment.findUnique({ where: { id } });
-      if (!lockedExisting) throw Object.assign(new Error("Shipping payment no longer exists"), { code: "PAYMENT_CHANGED_RETRY" });
+      if (!lockedExisting || lockedExisting.deletedAt) throw Object.assign(new Error("Shipping payment no longer exists"), { code: "PAYMENT_CHANGED_RETRY" });
       await reverseJournalEntries(settlementJournalTransactionId("SLPAY", id, lockedExisting.journalVersion), user.userId, tx);
       await reverseIntermediaryUsdCostUsages({ shippingLinePaymentId: id }, tx);
-      await tx.shippingLinePayment.delete({ where: { id } });
+      await tx.shippingLinePayment.update({ where: { id }, data: { deletedAt: new Date(), deletedBy: user.userId } });
       await createAuditLog(user.userId, null, "shipping_line_payments", id, "delete",
         { amountUsd: Number(existing.amountUsd), shippingLineId: existing.shippingLineId }, undefined, getClientIP(request as any), tx);
     });

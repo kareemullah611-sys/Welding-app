@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { withSuperAdmin } from "@/lib/middleware";
+import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse } from "@/lib/api-response";
-import { journalIntermediaryDeposit, reverseJournalEntries } from "@/lib/accounting";
+import { intermediaryDepositJournalTransactionId, journalIntermediaryDeposit, reverseJournalEntries } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 
 function parsePositiveAmount(value: unknown): number | null {
@@ -40,39 +40,54 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
   const nextSuperAdminBankAccountId = body.superAdminBankAccountId !== undefined
     ? Number(body.superAdminBankAccountId || 0)
     : Number(existing.superAdminBankAccountId || 0);
-  if (!nextSuperAdminBankAccountId) return errorResponse("VALIDATION", "Super admin bank account is required", 400);
-  const superAdminBankAccount = await prisma.superAdminBankAccount.findUnique({
-    where: { id: nextSuperAdminBankAccountId },
-    select: { id: true, isActive: true, currencyId: true },
-  });
-  if (!superAdminBankAccount) return errorResponse("NOT_FOUND", "Super admin bank account not found", 404);
-  if (!superAdminBankAccount.isActive) return errorResponse("VALIDATION", "Selected super admin bank account is inactive", 400);
-  if (superAdminBankAccount.currencyId !== currencyId) {
-    return errorResponse("VALIDATION", "Deposit currency must match selected super admin bank account currency", 400);
+  const nextSuperAdminCashAccountId = body.superAdminCashAccountId !== undefined
+    ? Number(body.superAdminCashAccountId || 0)
+    : Number(existing.superAdminCashAccountId || 0);
+  if (Number(Boolean(nextSuperAdminBankAccountId)) + Number(Boolean(nextSuperAdminCashAccountId)) !== 1) {
+    return errorResponse("VALIDATION", "Choose exactly one source: super admin bank or haji cash account", 400);
   }
-
-  await reverseJournalEntries(`INTDEP-${id}`, user.userId);
-
-  const updated = await prisma.intermediaryDeposit.update({
-    where: { id },
-    data: {
-      depositDate: body.depositDate ? new Date(body.depositDate) : undefined,
-      amount: nextAmount,
-      currencyId,
-      sourceType: "super_admin_bank_account",
-      cityId: null,
-      bankAccountId: null,
-      superAdminBankAccountId: nextSuperAdminBankAccountId,
-      notes: body.notes !== undefined ? body.notes || null : undefined,
-    },
+  const sourceAccountId = nextSuperAdminCashAccountId || nextSuperAdminBankAccountId;
+  const sourceAccount = await prisma.superAdminBankAccount.findUnique({
+    where: { id: sourceAccountId },
+    select: { id: true, isActive: true, currencyId: true, accountKind: true },
   });
-
-  await journalIntermediaryDeposit({
-    id, intermediaryId: updated.intermediaryId,
-    amount: Number(updated.amount), currencyCode: currency.code,
-    depositDate: updated.depositDate, createdBy: user.userId,
-    sourceType: updated.sourceType,
-    cityId: updated.cityId, bankAccountId: updated.bankAccountId, superAdminBankAccountId: updated.superAdminBankAccountId,
+  if (!sourceAccount) return errorResponse("NOT_FOUND", "Super admin source account not found", 404);
+  if (!sourceAccount.isActive) return errorResponse("VALIDATION", "Selected super admin source account is inactive", 400);
+  if (sourceAccount.currencyId !== currencyId) return errorResponse("VALIDATION", "Deposit currency must match selected source account currency", 400);
+  if (nextSuperAdminCashAccountId && sourceAccount.accountKind !== "cash") return errorResponse("VALIDATION", "Selected account is not a haji cash account", 400);
+  if (nextSuperAdminBankAccountId && sourceAccount.accountKind !== "bank") return errorResponse("VALIDATION", "Selected account is not a bank account", 400);
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)", `intermediary-deposit:${id}`);
+    const locked = await tx.intermediaryDeposit.findUnique({ where: { id } });
+    if (!locked || locked.deletedAt) throw Object.assign(new Error("Deposit changed; reload and retry"), { code: "DEPOSIT_CHANGED_RETRY" });
+    await reverseJournalEntries(intermediaryDepositJournalTransactionId(id, locked.journalVersion), user.userId, tx);
+    const nextVersion = locked.journalVersion + 1;
+    const row = await tx.intermediaryDeposit.update({
+      where: { id },
+      data: {
+        depositDate: body.depositDate ? new Date(body.depositDate) : undefined,
+        amount: nextAmount,
+        currencyId,
+        sourceType: nextSuperAdminCashAccountId ? "super_admin_cash" : "super_admin_bank_account",
+        cityId: null,
+        bankAccountId: null,
+        superAdminBankAccountId: nextSuperAdminCashAccountId ? null : nextSuperAdminBankAccountId,
+        superAdminCashAccountId: nextSuperAdminCashAccountId || null,
+        notes: body.notes !== undefined ? body.notes || null : undefined,
+        journalVersion: nextVersion,
+      },
+    });
+    await journalIntermediaryDeposit({
+      id, intermediaryId: row.intermediaryId,
+      amount: Number(row.amount), currencyCode: currency.code,
+      depositDate: row.depositDate, createdBy: user.userId,
+      sourceType: row.sourceType, cityId: row.cityId, bankAccountId: row.bankAccountId,
+      superAdminBankAccountId: row.superAdminBankAccountId,
+      superAdminCashAccountId: row.superAdminCashAccountId,
+      journalVersion: row.journalVersion,
+    }, tx);
+    await createAuditLog(user.userId, null, "intermediary_deposits", id, "update", existing, row, getClientIP(request), tx);
+    return row;
   });
 
   return successResponse(updated, "Updated");
@@ -83,8 +98,14 @@ export const DELETE = withSuperAdmin(async (_req: NextRequest, context: any, use
   const existing = await prisma.intermediaryDeposit.findUnique({ where: { id } });
   if (!existing) return errorResponse("NOT_FOUND", "Not found", 404);
 
-  await reverseJournalEntries(`INTDEP-${id}`, user.userId);
-  await prisma.intermediaryDeposit.delete({ where: { id } });
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)", `intermediary-deposit:${id}`);
+    const locked = await tx.intermediaryDeposit.findUnique({ where: { id } });
+    if (!locked || locked.deletedAt) return;
+    await reverseJournalEntries(intermediaryDepositJournalTransactionId(id, locked.journalVersion), user.userId, tx);
+    await tx.intermediaryDeposit.update({ where: { id }, data: { deletedAt: new Date(), deletedBy: user.userId } });
+    await createAuditLog(user.userId, null, "intermediary_deposits", id, "delete", existing, undefined, getClientIP(_req), tx);
+  });
 
   return successResponse({ id }, "Deleted");
 });

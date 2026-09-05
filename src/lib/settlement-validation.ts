@@ -43,7 +43,26 @@ export async function getSuperAdminBankBalance(
   const currencyId = account.currencyId;
   const currencyCode = String(account.currency.code || "PKR").toUpperCase();
 
-  const [incomingHaji, hajiTransfers, expenses, intermediaryDeposits, lotCosts] = await Promise.all([
+  const [
+    opening,
+    incomingHaji,
+    hajiTransfers,
+    cashReceipts,
+    expenses,
+    intermediaryDeposits,
+    lotCosts,
+    supplierPayments,
+    agentPayments,
+    shippingPayments,
+    investorSettlementPayments,
+    transfersIn,
+    transfersOut,
+    liabilitySourceEntries,
+  ] = await Promise.all([
+    db.openingSuperAdminAccountBalance.aggregate({
+      where: { accountId, currencyId },
+      _sum: { amount: true },
+    }),
     db.payment.groupBy({
       by: ["superAdminBankAccountId"],
       where: {
@@ -58,40 +77,78 @@ export async function getSuperAdminBankBalance(
       where: { superAdminBankAccountId: accountId, currencyId },
       _sum: { amount: true },
     }),
+    db.hajiCashReceipt.aggregate({
+      where: { superAdminCashAccountId: accountId, currencyId, reversedAt: null },
+      _sum: { amount: true },
+    }),
     db.superAdminPersonalExpense.aggregate({
       where: { bankAccountId: accountId, deletedAt: null },
       _sum: { amount: true },
     }),
     db.intermediaryDeposit.aggregate({
-      where: { superAdminBankAccountId: accountId, currencyId },
+      where: { superAdminBankAccountId: accountId, currencyId, deletedAt: null },
       _sum: { amount: true },
     }),
     db.lotCost.findMany({
       where: { superAdminBankAccountId: accountId, currencyCode },
       select: { amount: true },
     }),
+    db.supplierPayment.findMany({
+      where: { superAdminBankAccountId: accountId, deletedAt: null },
+      select: { amountLocal: true, amountUsd: true },
+    }),
+    db.agentPayment.findMany({
+      where: { superAdminBankAccountId: accountId, currencyCode, deletedAt: null },
+      select: { amount: true },
+    }),
+    db.shippingLinePayment.findMany({
+      where: { superAdminBankAccountId: accountId, deletedAt: null },
+      select: { amountPkr: true, amountUsd: true },
+    }),
+    db.investmentParticipantSettlementPayment.aggregate({
+      where: { superAdminBankAccountId: accountId, currencyId, status: "settled" },
+      _sum: { paymentAmount: true },
+    }),
+    db.superAdminAccountTransfer.aggregate({
+      where: { destinationAccountId: accountId, reversedAt: null },
+      _sum: { toAmount: true },
+    }),
+    db.superAdminAccountTransfer.aggregate({
+      where: { sourceAccountId: accountId, reversedAt: null },
+      _sum: { fromAmount: true },
+    }),
+    db.superAdminLiabilityEntry.aggregate({
+      where: {
+        currencyId,
+        OR: [
+          { superAdminBankAccountId: accountId },
+          { superAdminCashAccountId: accountId },
+        ],
+      },
+      _sum: { liabilityEffect: true },
+    }),
   ]);
 
-  const supplierPayments = await db.supplierPayment.findMany({
-    where: { superAdminBankAccountId: accountId },
-    select: { amountLocal: true, amountUsd: true, exchangeRate: true },
-  });
-
-  const incoming = Number(incomingHaji[0]?._sum.amount || 0) + Number(hajiTransfers._sum.amount || 0);
+  const incoming =
+    Number(opening._sum.amount || 0) +
+    Number(incomingHaji[0]?._sum.amount || 0) +
+    Number(hajiTransfers._sum.amount || 0) +
+    Number(cashReceipts._sum.amount || 0) +
+    Number(transfersIn._sum.toAmount || 0) +
+    Number(liabilitySourceEntries._sum.liabilityEffect || 0);
   const expenseOut = Number(expenses._sum.amount || 0);
   const intermediaryOut = Number(intermediaryDeposits._sum.amount || 0);
   const lotCostOut = lotCosts.reduce((s, r) => s + Number(r.amount || 0), 0);
   let supplierOut = 0;
   for (const p of supplierPayments) {
-    const local = Number(p.amountLocal || 0);
-    if (local > 0) supplierOut += local;
-    else if (currencyCode === "PKR") {
-      const rate = Number(p.exchangeRate || 0);
-      if (rate > 0) supplierOut += Number(p.amountUsd) * rate;
-    }
+    supplierOut += currencyCode === "PKR" ? Number(p.amountLocal || 0) : Number(p.amountUsd || 0);
   }
+  const agentOut = agentPayments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const shippingOut = shippingPayments.reduce((sum, payment) => sum + (currencyCode === "PKR" ? Number(payment.amountPkr || 0) : Number(payment.amountUsd || 0)), 0);
+  const investorOut = Number(investorSettlementPayments._sum.paymentAmount || 0);
+  const transferOut = Number(transfersOut._sum.fromAmount || 0);
 
-  const balance = round2(incoming - expenseOut - intermediaryOut - lotCostOut - supplierOut);
+  const balance = round2(incoming - expenseOut - intermediaryOut - lotCostOut - supplierOut - agentOut - shippingOut - investorOut - transferOut);
   return { balance, currencyCode };
 }
 
@@ -172,6 +229,7 @@ export async function validateLotCostSettlement(input: SettlementValidationInput
 export async function validateSupplierPaymentSettlement(input: {
   amountUsd: number;
   superAdminBankAccountId?: number | null;
+  superAdminCashAccountId?: number | null;
   bankAccountId?: number | null;
   intermediaryId?: number | null;
   exchangeRate?: number | null;
@@ -179,14 +237,13 @@ export async function validateSupplierPaymentSettlement(input: {
 }): Promise<SettlementValidationResult> {
   const amountUsd = Number(input.amountUsd);
   const superAdminBankId = input.superAdminBankAccountId ? Number(input.superAdminBankAccountId) : null;
+  const superAdminCashId = input.superAdminCashAccountId ? Number(input.superAdminCashAccountId) : null;
   const cityBankId = input.bankAccountId ? Number(input.bankAccountId) : null;
   const intermediaryId = input.intermediaryId ? Number(input.intermediaryId) : null;
 
-  if (superAdminBankId && intermediaryId) {
-    return { ok: false, code: "VALIDATION_ERROR", message: "Choose either a bank account or an intermediary, not both" };
-  }
-  if (!superAdminBankId && !cityBankId && !intermediaryId) {
-    return { ok: false, code: "VALIDATION_ERROR", message: "A funding source is required" };
+  const sourceCount = [superAdminBankId, superAdminCashId, cityBankId, intermediaryId].filter(Boolean).length;
+  if (sourceCount !== 1) {
+    return { ok: false, code: "VALIDATION_ERROR", message: "Choose exactly one funding source" };
   }
 
   if (intermediaryId) {
@@ -194,40 +251,33 @@ export async function validateSupplierPaymentSettlement(input: {
     if (Number.isFinite(rate) && rate > 0) {
       // acquisition rate for PKR reporting — allowed but not used for balance check
     }
-    const balances = await getIntermediaryBalances(intermediaryId, {
-      excludeSupplierPaymentId: input.excludeSupplierPaymentId || undefined,
-    });
-    const available = Number(balances.USD || 0);
-    if (amountUsd > available + 0.001) {
-      return {
-        ok: false,
-        code: "INSUFFICIENT_FUNDS",
-        message: `Insufficient intermediary USD balance. Available: $${available.toLocaleString("en-US")}`,
-      };
-    }
     const amountPkr = rate > 0 ? round2(amountUsd * rate) : null;
     return { ok: true, settlementCurrency: "USD", settlementAmount: amountUsd, amountPkr };
   }
 
-  const bankId = superAdminBankId || cityBankId;
+  const superAdminAccountId = superAdminBankId || superAdminCashId;
+  const bankId = superAdminAccountId || cityBankId;
   if (!bankId) return { ok: false, code: "VALIDATION_ERROR", message: "Bank account required" };
 
-  if (superAdminBankId) {
+  if (superAdminAccountId) {
+    const account = await prisma.superAdminBankAccount.findUnique({
+      where: { id: superAdminAccountId },
+      include: { currency: { select: { code: true } } },
+    });
+    if (!account || !account.isActive) return { ok: false, code: "NOT_FOUND", message: "Active super admin account not found", status: 404 };
+    const expectedKind = superAdminCashId ? "cash" : "bank";
+    if (account.accountKind !== expectedKind) return { ok: false, code: "VALIDATION_ERROR", message: `Selected account is not a super admin ${expectedKind} account` };
+    const accountCurrency = String(account.currency.code || "").toUpperCase();
+    if (!new Set(["PKR", "USD"]).has(accountCurrency)) {
+      return { ok: false, code: "CURRENCY_MISMATCH", message: "Supplier USD liabilities may be paid only from a USD account or a PKR account with a documented exchange rate" };
+    }
     const rate = Number(input.exchangeRate);
     if (!Number.isFinite(rate) || rate <= 0) {
-      return { ok: false, code: "VALIDATION_ERROR", message: "Exchange rate (USD→PKR) is required when paying from a bank account" };
+      return { ok: false, code: "VALIDATION_ERROR", message: "Documented settlement rate (USD→PKR) is required" };
     }
-    const settlementAmount = round2(amountUsd * rate);
-    const bal = await getSuperAdminBankBalance(superAdminBankId);
-    if (!bal) return { ok: false, code: "NOT_FOUND", message: "Could not compute bank balance", status: 404 };
-    if (settlementAmount > bal.balance + 0.001) {
-      return {
-        ok: false,
-        code: "INSUFFICIENT_FUNDS",
-        message: `Insufficient bank balance. Available: ${bal.balance.toLocaleString("en-US")} ${bal.currencyCode}`,
-      };
-    }
-    return { ok: true, settlementCurrency: "PKR", settlementAmount, amountPkr: settlementAmount };
+    const amountPkr = round2(amountUsd * rate);
+    const settlementAmount = accountCurrency === "PKR" ? amountPkr : amountUsd;
+    return { ok: true, settlementCurrency: accountCurrency, settlementAmount, amountPkr };
   }
 
   // Legacy city bank path

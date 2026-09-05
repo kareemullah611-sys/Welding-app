@@ -18,7 +18,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
     else if (agentType === "clearing") where.agentType = { not: "customs" };
     const agents = await prisma.agent.findMany({
       where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip, take: limit,
-      include: { city: { select: { id: true, name: true } }, openingLiabilities: { include: { currency: { select: { code: true } } } }, lotCosts: { where: { paidFromCash: false } }, agentPayments: true },
+      include: { city: { select: { id: true, name: true } }, openingLiabilities: { include: { currency: { select: { code: true } } } }, lotCosts: { where: { paidFromCash: false } }, agentPayments: { where: { deletedAt: null } } },
     });
     const total = await prisma.agent.count({ where });
     return paginatedResponse(agents.map(a => {

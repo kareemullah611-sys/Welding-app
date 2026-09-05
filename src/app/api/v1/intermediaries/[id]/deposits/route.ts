@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { withSuperAdmin } from "@/lib/middleware";
+import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { journalIntermediaryDeposit } from "@/lib/accounting";
 import { assertSuperAdminCashHasFunds } from "@/lib/haji-cash-balance";
@@ -105,6 +105,14 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
           createdBy: user.userId,
         },
       });
+      await createAuditLog(user.userId, null, "intermediary_deposits", created.id, "create", undefined, {
+        intermediaryId,
+        amount,
+        currencyId: Number(body.currencyId),
+        sourceType,
+        superAdminBankAccountId: superAdminBankAccountId || null,
+        superAdminCashAccountId: superAdminCashAccountId || null,
+      }, getClientIP(request), tx);
 
       if (syncMeta) {
         await tx.syncRequest.create({
@@ -126,6 +134,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
         sourceType, cityId, bankAccountId,
         superAdminBankAccountId: superAdminCashAccountId ? null : superAdminBankAccountId,
         superAdminCashAccountId: superAdminCashAccountId || null,
+        journalVersion: created.journalVersion,
       }, tx);
       return created;
     });

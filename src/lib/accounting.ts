@@ -639,21 +639,28 @@ export async function journalLotCost(c: {
 
 // AGENT PAID
 // Source priority: intermediary → specific bank → city cash
-export async function journalAgentPaid(p: { id: number; agentId: number; cityId: number; amount: number; currencyCode: string; paymentDate: Date; createdBy: number; bankAccountId?: number | null; intermediaryId?: number | null; superAdminCashAccountId?: number | null; }, db: DbClient = prisma) {
+export async function journalAgentPaid(p: { id: number; agentId: number; cityId: number; amount: number; currencyCode: string; paymentDate: Date; createdBy: number; journalVersion?: number; bankAccountId?: number | null; superAdminBankAccountId?: number | null; intermediaryId?: number | null; superAdminCashAccountId?: number | null; }, db: DbClient = prisma) {
   let creditAccId: number;
   if (p.intermediaryId) {
     creditAccId = await getIntermediaryAccountId(p.intermediaryId, db);
   } else if (p.superAdminCashAccountId) {
     creditAccId = await getSuperAdminCashGLAccountId(p.superAdminCashAccountId, db);
+  } else if (p.superAdminBankAccountId) {
+    creditAccId = await getSuperAdminBankGLAccountId(p.superAdminBankAccountId, db);
   } else if (p.bankAccountId) {
     creditAccId = await getBankGLAccountId(p.bankAccountId, db);
   } else {
     creditAccId = await getCashAccountId(p.cityId, db);
   }
-  await createJournalEntries(`AGENTPAY-${p.id}`, [
+  const journalVersion = Number(p.journalVersion || 1);
+  await createJournalEntries(agentPaymentJournalTransactionId(p.id, journalVersion), [
     { accountId: await getAgentAccountId(p.agentId, db), debit: p.amount, credit: 0, description: `Payment to agent` },
     { accountId: creditAccId, debit: 0, credit: p.amount, description: p.intermediaryId ? `Via intermediary` : p.bankAccountId ? `Bank to agent` : `Cash to agent` },
   ], { currencyCode: p.currencyCode, entityType: "agent_payment", entityId: p.id, cityId: p.cityId, entryDate: p.paymentDate, createdBy: p.createdBy }, db);
+}
+
+export function agentPaymentJournalTransactionId(id: number, journalVersion: number) {
+  return journalVersion <= 1 ? `AGENTPAY-${id}` : `AGENTPAY-${id}-V${journalVersion}`;
 }
 
 // EXPENSE
@@ -820,6 +827,7 @@ export async function journalIntermediaryDeposit(d: {
   depositDate: Date; createdBy: number;
   sourceType: string; cityId?: number | null; bankAccountId?: number | null;
   superAdminBankAccountId?: number | null; superAdminCashAccountId?: number | null;
+  journalVersion?: number;
 }, db: DbClient = prisma) {
   let creditAccId: number;
   if (d.sourceType === "super_admin_cash" && d.superAdminCashAccountId) {
@@ -833,23 +841,153 @@ export async function journalIntermediaryDeposit(d: {
   } else {
     creditAccId = await getOrCreateAccount("1050", "Bank Account (USD)", "asset", undefined, db);
   }
-  await createJournalEntries(`INTDEP-${d.id}`, [
+  await createJournalEntries(intermediaryDepositJournalTransactionId(d.id, d.journalVersion || 1), [
     { accountId: await getIntermediaryAccountId(d.intermediaryId, db), debit: d.amount, credit: 0, description: `Deposit to intermediary #${d.intermediaryId}` },
     { accountId: creditAccId, debit: 0, credit: d.amount, description: `Deposit to intermediary #${d.intermediaryId}` },
   ], { currencyCode: d.currencyCode, entityType: "intermediary_deposit", entityId: d.id, cityId: d.cityId, entryDate: d.depositDate, createdBy: d.createdBy }, db);
 }
 
+export function intermediaryDepositJournalTransactionId(id: number, journalVersion: number) {
+  return journalVersion <= 1 ? `INTDEP-${id}` : `INTDEP-${id}-V${journalVersion}`;
+}
+
+async function getSuperAdminLiabilitySourceAccountId(source: {
+  sourceType: string;
+  superAdminBankAccountId?: number | null;
+  superAdminCashAccountId?: number | null;
+  intermediaryId?: number | null;
+  bankAccountId?: number | null;
+  cityId?: number | null;
+}, db: DbClient) {
+  if (source.sourceType === "super_admin_bank" && source.superAdminBankAccountId) return getSuperAdminBankGLAccountId(source.superAdminBankAccountId, db);
+  if (source.sourceType === "super_admin_cash" && source.superAdminCashAccountId) return getSuperAdminCashGLAccountId(source.superAdminCashAccountId, db);
+  if (source.sourceType === "intermediary" && source.intermediaryId) return getIntermediaryAccountId(source.intermediaryId, db);
+  if (source.sourceType === "city_bank" && source.bankAccountId) return getBankGLAccountId(source.bankAccountId, db);
+  if (source.sourceType === "city_cash" && source.cityId) return getCashAccountId(source.cityId, db);
+  throw new Error("A valid liability funding source is required");
+}
+
+export async function journalSuperAdminLiabilityEntry(entry: {
+  id: number;
+  entryType: "loan_received" | "liability_incurred" | "payment";
+  controlAccountId: number;
+  counterAccountId?: number | null;
+  pkrAmount: number;
+  carryingAmountPkr?: number | null;
+  actualSettlementPkr?: number | null;
+  entryDate: Date;
+  createdBy: number;
+  sourceType?: string | null;
+  superAdminBankAccountId?: number | null;
+  superAdminCashAccountId?: number | null;
+  intermediaryId?: number | null;
+  bankAccountId?: number | null;
+  cityId?: number | null;
+  description: string;
+}, db: DbClient = prisma) {
+  let lines: Array<{ accountId: number; debit: number; credit: number; description: string }>;
+  if (entry.entryType === "liability_incurred") {
+    if (!entry.counterAccountId) throw new Error("A counterpart account is required for a liability charge");
+    lines = [
+      { accountId: entry.counterAccountId, debit: entry.pkrAmount, credit: 0, description: entry.description },
+      { accountId: entry.controlAccountId, debit: 0, credit: entry.pkrAmount, description: entry.description },
+    ];
+  } else {
+    const sourceAccountId = await getSuperAdminLiabilitySourceAccountId({
+      sourceType: entry.sourceType || "",
+      superAdminBankAccountId: entry.superAdminBankAccountId,
+      superAdminCashAccountId: entry.superAdminCashAccountId,
+      intermediaryId: entry.intermediaryId,
+      bankAccountId: entry.bankAccountId,
+      cityId: entry.cityId,
+    }, db);
+    if (entry.entryType === "loan_received") {
+      lines = [
+        { accountId: sourceAccountId, debit: entry.pkrAmount, credit: 0, description: entry.description },
+        { accountId: entry.controlAccountId, debit: 0, credit: entry.pkrAmount, description: entry.description },
+      ];
+    } else {
+      const amounts = buildRealizedFxPostingAmounts({
+        carryingAmountPkr: entry.carryingAmountPkr ?? entry.pkrAmount,
+        actualSettlementPkr: entry.actualSettlementPkr ?? entry.pkrAmount,
+      });
+      lines = [
+        { accountId: entry.controlAccountId, debit: amounts.liabilityDebitPkr, credit: 0, description: entry.description },
+        { accountId: sourceAccountId, debit: 0, credit: amounts.sourceCreditPkr, description: entry.description },
+      ];
+      if (amounts.fxLossDebitPkr > 0) {
+        lines.push({ accountId: await getForeignExchangeLossAccountId(db), debit: amounts.fxLossDebitPkr, credit: 0, description: `${entry.description} — realized FX loss` });
+      }
+      if (amounts.fxGainCreditPkr > 0) {
+        lines.push({ accountId: await getForeignExchangeGainAccountId(db), debit: 0, credit: amounts.fxGainCreditPkr, description: `${entry.description} — realized FX gain` });
+      }
+    }
+  }
+  await createJournalEntries(`SALIAB-${entry.id}`, lines, {
+    currencyCode: "PKR",
+    entityType: "super_admin_liability_entry",
+    entityId: entry.id,
+    entryDate: entry.entryDate,
+    createdBy: entry.createdBy,
+  }, db);
+}
+
+export async function journalSuperAdminAccountTransfer(transfer: {
+  id: number;
+  transferType: "same_currency" | "exchange";
+  sourceAccountId: number;
+  destinationAccountId: number;
+  fromCurrencyCode: string;
+  toCurrencyCode: string;
+  fromAmount: number;
+  toAmount: number;
+  transferDate: Date;
+  createdBy: number;
+}, db: DbClient = prisma) {
+  const [source, destination] = await Promise.all([
+    db.superAdminBankAccount.findUnique({ where: { id: transfer.sourceAccountId }, select: { accountKind: true } }),
+    db.superAdminBankAccount.findUnique({ where: { id: transfer.destinationAccountId }, select: { accountKind: true } }),
+  ]);
+  if (!source || !destination) throw new Error("Transfer accounts are required");
+  const sourceGlId = source.accountKind === "cash"
+    ? await getSuperAdminCashGLAccountId(transfer.sourceAccountId, db)
+    : await getSuperAdminBankGLAccountId(transfer.sourceAccountId, db);
+  const destinationGlId = destination.accountKind === "cash"
+    ? await getSuperAdminCashGLAccountId(transfer.destinationAccountId, db)
+    : await getSuperAdminBankGLAccountId(transfer.destinationAccountId, db);
+  if (transfer.transferType === "same_currency") {
+    await createJournalEntries(`SATRANS-${transfer.id}`, [
+      { accountId: destinationGlId, debit: transfer.toAmount, credit: 0, description: "Superadmin account transfer received" },
+      { accountId: sourceGlId, debit: 0, credit: transfer.fromAmount, description: "Superadmin account transfer sent" },
+    ], { currencyCode: transfer.fromCurrencyCode, entityType: "super_admin_account_transfer", entityId: transfer.id, entryDate: transfer.transferDate, createdBy: transfer.createdBy }, db);
+    return;
+  }
+  const clearingId = await getOrCreateAccount("1062-SAFX", "Superadmin FX Transfer Clearing", "asset", undefined, db);
+  await createJournalEntries(`SATRANS-OUT-${transfer.id}`, [
+    { accountId: clearingId, debit: transfer.fromAmount, credit: 0, description: "Superadmin exchange transfer out" },
+    { accountId: sourceGlId, debit: 0, credit: transfer.fromAmount, description: "Superadmin exchange transfer out" },
+  ], { currencyCode: transfer.fromCurrencyCode, entityType: "super_admin_account_transfer", entityId: transfer.id, entryDate: transfer.transferDate, createdBy: transfer.createdBy }, db);
+  await createJournalEntries(`SATRANS-IN-${transfer.id}`, [
+    { accountId: destinationGlId, debit: transfer.toAmount, credit: 0, description: "Superadmin exchange transfer in" },
+    { accountId: clearingId, debit: 0, credit: transfer.toAmount, description: "Superadmin exchange transfer in" },
+  ], { currencyCode: transfer.toCurrencyCode, entityType: "super_admin_account_transfer", entityId: transfer.id, entryDate: transfer.transferDate, createdBy: transfer.createdBy }, db);
+}
+
 export async function journalHajiCashReceipt(r: {
   id: number;
   superAdminCashAccountId: number;
+  accountKind: "bank" | "cash";
   intermediaryId: number;
   amount: number;
   currencyCode: string;
   receiptDate: Date;
   createdBy: number;
 }, db: DbClient = prisma) {
+  const destinationAccountId = r.accountKind === "cash"
+    ? await getSuperAdminCashGLAccountId(r.superAdminCashAccountId, db)
+    : await getSuperAdminBankGLAccountId(r.superAdminCashAccountId, db);
   await createJournalEntries(`HAJIREC-${r.id}`, [
-    { accountId: await getSuperAdminCashGLAccountId(r.superAdminCashAccountId, db), debit: r.amount, credit: 0, description: `Receipt from intermediary #${r.intermediaryId}` },
+    { accountId: destinationAccountId, debit: r.amount, credit: 0, description: `Receipt from intermediary #${r.intermediaryId}` },
     { accountId: await getIntermediaryAccountId(r.intermediaryId, db), debit: 0, credit: r.amount, description: `Receipt from intermediary #${r.intermediaryId}` },
   ], {
     currencyCode: r.currencyCode,
@@ -1140,12 +1278,14 @@ export async function journalSuperAdminPersonalExpense(
 
 // SHIPPING LINE PAID — settle the PKR carrying value and recognize realized FX separately.
 // Source priority: intermediary → specific bank → generic bank
-export async function journalShippingLinePayment(p: { id: number; shippingLineId: number; amountUsd: number; carryingAmountPkr: number; actualSettlementPkr: number; journalVersion: number; paymentDate: Date; createdBy: number; bankAccountId?: number | null; intermediaryId?: number | null; superAdminCashAccountId?: number | null; }, db: DbClient = prisma) {
+export async function journalShippingLinePayment(p: { id: number; shippingLineId: number; amountUsd: number; carryingAmountPkr: number; actualSettlementPkr: number; journalVersion: number; paymentDate: Date; createdBy: number; bankAccountId?: number | null; superAdminBankAccountId?: number | null; intermediaryId?: number | null; superAdminCashAccountId?: number | null; }, db: DbClient = prisma) {
   let creditAccId: number;
   if (p.intermediaryId) {
     creditAccId = await getIntermediaryAccountId(p.intermediaryId, db);
   } else if (p.superAdminCashAccountId) {
     creditAccId = await getSuperAdminCashGLAccountId(p.superAdminCashAccountId, db);
+  } else if (p.superAdminBankAccountId) {
+    creditAccId = await getSuperAdminBankGLAccountId(p.superAdminBankAccountId, db);
   } else if (p.bankAccountId) {
     creditAccId = await getBankGLAccountId(p.bankAccountId, db);
   } else {

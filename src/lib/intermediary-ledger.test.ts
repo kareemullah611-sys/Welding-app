@@ -109,3 +109,21 @@ test("paginates merged intermediary ledger after running balances", () => {
   assert.equal(page.ledger.length, 2);
   assert.equal(page.balances.USD, -150);
 });
+
+test("includes every intermediary settlement class and lender movement", () => {
+  const entries = buildIntermediaryLedgerEntries({
+    deposits: [],
+    payments: [],
+    shippingPayments: [{ id: 3, paymentDate: new Date("2026-09-01"), amountUsd: 40, shippingLine: { name: "Carrier" } }],
+    agentPayments: [{ id: 4, paymentDate: new Date("2026-09-02"), amount: 20, currencyCode: "USD", agent: { name: "Clearing Agent" } }],
+    liabilityEntries: [
+      { id: 5, entryDate: new Date("2026-09-03"), entryType: "loan_received", amount: 100, liabilityEffect: 100, currency: { code: "USD" }, account: { name: "Lender A" } },
+      { id: 6, entryDate: new Date("2026-09-04"), entryType: "payment", amount: 30, liabilityEffect: -30, currency: { code: "USD" }, account: { name: "Lender A" } },
+    ],
+    exchanges: [],
+    hajiTransfers: [],
+  });
+
+  assert.deepEqual(entries.map((entry) => entry.type), ["shipping_payment", "agent_payment", "liability_receipt", "liability_payment"]);
+  assert.deepEqual(entries.map((entry) => [entry.debit, entry.credit]), [[40, 0], [20, 0], [0, 100], [30, 0]]);
+});

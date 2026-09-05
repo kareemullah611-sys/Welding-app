@@ -2,6 +2,10 @@ export type IntermediaryLedgerEntryType =
   | "opening"
   | "deposit"
   | "payment"
+  | "shipping_payment"
+  | "agent_payment"
+  | "liability_receipt"
+  | "liability_payment"
   | "exchange_out"
   | "exchange_in"
   | "haji_transfer"
@@ -41,6 +45,34 @@ type PaymentRow = {
   amountUsd: unknown;
   notes?: string | null;
   supplier: { name: string };
+};
+
+type ShippingPaymentRow = {
+  id: number;
+  paymentDate: Date;
+  amountUsd: unknown;
+  notes?: string | null;
+  shippingLine: { name: string };
+};
+
+type AgentPaymentRow = {
+  id: number;
+  paymentDate: Date;
+  amount: unknown;
+  currencyCode: string;
+  notes?: string | null;
+  agent: { name: string };
+};
+
+type LiabilityEntryRow = {
+  id: number;
+  entryDate: Date;
+  entryType: string;
+  amount: unknown;
+  liabilityEffect: unknown;
+  remarks?: string | null;
+  currency: { code: string };
+  account: { name: string };
 };
 
 type ExchangeRow = {
@@ -111,11 +143,14 @@ export function buildIntermediaryLedgerEntries(input: {
   openingLiabilities?: OpeningLiabilityRow[];
   deposits: DepositRow[];
   payments: PaymentRow[];
+  shippingPayments?: ShippingPaymentRow[];
+  agentPayments?: AgentPaymentRow[];
+  liabilityEntries?: LiabilityEntryRow[];
   exchanges: ExchangeRow[];
   hajiTransfers: HajiTransferRow[];
   hajiCashReceipts?: HajiCashReceiptRow[];
 }): IntermediaryLedgerEntry[] {
-  const { openingLiabilities = [], deposits, payments, exchanges, hajiTransfers, hajiCashReceipts = [] } = input;
+  const { openingLiabilities = [], deposits, payments, shippingPayments = [], agentPayments = [], liabilityEntries = [], exchanges, hajiTransfers, hajiCashReceipts = [] } = input;
 
   return [
     ...openingLiabilities.map((opening) => ({
@@ -149,6 +184,36 @@ export function buildIntermediaryLedgerEntries(input: {
       debit: Number(p.amountUsd),
       credit: 0,
     })),
+    ...shippingPayments.map((payment) => ({
+      date: payment.paymentDate,
+      type: "shipping_payment" as const,
+      id: payment.id,
+      description: `Shipping payment — ${payment.shippingLine.name}${payment.notes ? ` — ${payment.notes}` : ""}`,
+      currencyCode: "USD",
+      debit: Number(payment.amountUsd),
+      credit: 0,
+    })),
+    ...agentPayments.map((payment) => ({
+      date: payment.paymentDate,
+      type: "agent_payment" as const,
+      id: payment.id,
+      description: `Agent payment — ${payment.agent.name}${payment.notes ? ` — ${payment.notes}` : ""}`,
+      currencyCode: String(payment.currencyCode || "PKR").toUpperCase(),
+      debit: Number(payment.amount),
+      credit: 0,
+    })),
+    ...liabilityEntries.map((entry) => {
+      const sourceIncrease = Number(entry.liabilityEffect) > 0;
+      return {
+        date: entry.entryDate,
+        type: sourceIncrease ? "liability_receipt" as const : "liability_payment" as const,
+        id: entry.id,
+        description: `${sourceIncrease ? "Received from" : "Paid to"} ${entry.account.name}${entry.remarks ? ` — ${entry.remarks}` : ""}`,
+        currencyCode: entry.currency.code,
+        debit: sourceIncrease ? 0 : Number(entry.amount),
+        credit: sourceIncrease ? Number(entry.amount) : 0,
+      };
+    }),
     ...exchanges.flatMap((e) => {
       const description = formatExchangeLedgerDescription(
         e.fromCurrency.code,
@@ -190,7 +255,7 @@ export function buildIntermediaryLedgerEntries(input: {
       date: r.receiptDate,
       type: "haji_cash_receipt" as const,
       id: r.id,
-      description: `Haji cash${r.superAdminCashAccount?.bankName ? ` — ${r.superAdminCashAccount.bankName}` : ""}${r.notes ? ` — ${r.notes}` : ""}`,
+      description: `Returned to superadmin${r.superAdminCashAccount?.bankName ? ` — ${r.superAdminCashAccount.bankName}` : ""}${r.notes ? ` — ${r.notes}` : ""}`,
       currencyCode: r.currency.code,
       debit: Number(r.amount),
       credit: 0,

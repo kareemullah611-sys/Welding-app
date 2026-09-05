@@ -186,7 +186,7 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
       include: { currency: true },
     }),
     prisma.supplierPayment.findMany({
-      where: { lotId },
+      where: { lotId, deletedAt: null },
       select: { amountUsd: true, amountLocal: true, exchangeRate: true },
     }),
   ]);

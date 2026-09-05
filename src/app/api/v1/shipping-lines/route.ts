@@ -16,7 +16,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, _context, _user: 
         where: { isActive: true },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         skip, take: limit,
-        include: { _count: { select: { payments: true, lotCosts: true } } },
+        include: { _count: { select: { payments: { where: { deletedAt: null } }, lotCosts: true } } },
       }),
       prisma.shippingLine.count({ where: { isActive: true } }),
     ]);
@@ -33,7 +33,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, _context, _user: 
           select: { amount: true, currencyCode: true },
         }),
         prisma.shippingLinePayment.aggregate({
-          where: { shippingLineId: sl.id },
+          where: { shippingLineId: sl.id, deletedAt: null },
           _sum: { amountUsd: true },
         }),
       ]);

@@ -7,7 +7,6 @@ import { successResponse, validationError, errorResponse, serverError, paginated
 import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 import { validateSupplierPaymentSettlement } from "@/lib/settlement-validation";
-import { assertSuperAdminCashHasFunds } from "@/lib/haji-cash-balance";
 import { consumeIntermediaryUsdFifo, getLotFallbackUsdToPkrRate } from "@/lib/intermediary-usd-fifo";
 import { resolveSupplierSettlementContext } from "@/lib/liability-settlement-context";
 import { LiabilityFxValidationError } from "@/lib/realized-liability-fx";
@@ -23,7 +22,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
   try {
     const { page, limit, skip } = getPaginationParams(request.nextUrl.searchParams);
     const supplierId = request.nextUrl.searchParams.get("supplier_id") ? parseInt(request.nextUrl.searchParams.get("supplier_id")!) : undefined;
-    const where: any = {};
+    const where: any = { deletedAt: null };
     if (supplierId) where.supplierId = supplierId;
 
     const [payments, total] = await Promise.all([
@@ -98,26 +97,18 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
 
     let computedLocal = parsed.data.amountLocal ? Number(parsed.data.amountLocal) : null;
 
-    if (superAdminCashAccountId) {
-      const debitAmount = computedLocal && computedLocal > 0 ? computedLocal : Number(parsed.data.amountUsd);
-      const funds = await assertSuperAdminCashHasFunds(superAdminCashAccountId, debitAmount);
-      if (!funds.ok) return errorResponse("VALIDATION", funds.message, 400);
-      computedLocal = debitAmount;
-    } else {
-      const settlement = await validateSupplierPaymentSettlement({
-        amountUsd,
-        superAdminBankAccountId,
-        bankAccountId,
-        intermediaryId,
-        exchangeRate,
-      });
-      if (!settlement.ok) {
-        return errorResponse(settlement.code, settlement.message, settlement.status || 400);
-      }
-      computedLocal = settlement.settlementCurrency === "PKR" && settlement.amountPkr
-        ? settlement.amountPkr
-        : (parsed.data.amountLocal ? Number(parsed.data.amountLocal) : null);
+    const settlement = await validateSupplierPaymentSettlement({
+      amountUsd,
+      superAdminBankAccountId,
+      superAdminCashAccountId,
+      bankAccountId,
+      intermediaryId,
+      exchangeRate,
+    });
+    if (!settlement.ok) {
+      return errorResponse(settlement.code, settlement.message, settlement.status || 400);
     }
+    computedLocal = settlement.amountPkr ?? (parsed.data.amountLocal ? Number(parsed.data.amountLocal) : null);
 
     const fallbackUsdToPkrRate = intermediaryId
       ? await getLotFallbackUsdToPkrRate(parsed.data.lotId || null)
@@ -130,7 +121,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       );
       const created = await tx.supplierPayment.create({
         data: {
-          supplierId: parsed.data.supplierId, lotId: parsed.data.lotId || null,
+          supplierId: parsed.data.supplierId, lotId: parsed.data.lotId,
           paymentDate: new Date(parsed.data.paymentDate), amountUsd: parsed.data.amountUsd,
           exchangeRate, amountLocal: computedLocal,
           paymentMethod: parsed.data.paymentMethod as any, reference: parsed.data.reference,

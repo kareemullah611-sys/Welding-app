@@ -22,7 +22,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     const id = parseInt(context.params.id);
     const body = await request.json();
     const existing = await prisma.supplierPayment.findUnique({ where: { id } });
-    if (!existing) return errorResponse("NOT_FOUND", "Supplier payment not found", 404);
+    if (!existing || existing.deletedAt) return errorResponse("NOT_FOUND", "Supplier payment not found", 404);
 
     const nextAmountUsd = body.amountUsd !== undefined ? Number(body.amountUsd) : Number(existing.amountUsd);
     if (!Number.isFinite(nextAmountUsd) || nextAmountUsd <= 0) {
@@ -44,11 +44,10 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
       return validationError("Exchange rate is required for bank payments");
     }
 
-    const settlement = superAdminCashAccountId
-      ? { ok: true as const, settlementCurrency: "PKR" as const, amountPkr: round2(nextAmountUsd * Number(parsedExchangeRate)) }
-      : await validateSupplierPaymentSettlement({
+    const settlement = await validateSupplierPaymentSettlement({
           amountUsd: nextAmountUsd,
           superAdminBankAccountId,
+          superAdminCashAccountId,
           bankAccountId,
           intermediaryId,
           exchangeRate: parsedExchangeRate,
@@ -73,7 +72,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
         `supplier-liability:${existing.supplierId}:${existing.lotId || "none"}`,
       );
       const lockedExisting = await tx.supplierPayment.findUnique({ where: { id } });
-      if (!lockedExisting) throw Object.assign(new Error("Supplier payment no longer exists"), { code: "PAYMENT_CHANGED_RETRY" });
+      if (!lockedExisting || lockedExisting.deletedAt) throw Object.assign(new Error("Supplier payment no longer exists"), { code: "PAYMENT_CHANGED_RETRY" });
       if (lockedExisting.journalVersion !== existing.journalVersion) {
         throw Object.assign(new Error("Supplier payment changed while this edit was open"), { code: "PAYMENT_CHANGED_RETRY" });
       }
@@ -170,7 +169,7 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
   try {
     const id = parseInt(context.params.id);
     const existing = await prisma.supplierPayment.findUnique({ where: { id } });
-    if (!existing) return errorResponse("NOT_FOUND", "Supplier payment not found", 404);
+    if (!existing || existing.deletedAt) return errorResponse("NOT_FOUND", "Supplier payment not found", 404);
 
     await prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(
@@ -178,10 +177,10 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
         `supplier-liability:${existing.supplierId}:${existing.lotId || "none"}`,
       );
       const lockedExisting = await tx.supplierPayment.findUnique({ where: { id } });
-      if (!lockedExisting) throw Object.assign(new Error("Supplier payment no longer exists"), { code: "PAYMENT_CHANGED_RETRY" });
+      if (!lockedExisting || lockedExisting.deletedAt) throw Object.assign(new Error("Supplier payment no longer exists"), { code: "PAYMENT_CHANGED_RETRY" });
       await reverseJournalEntries(settlementJournalTransactionId("SUPPPAY", id, lockedExisting.journalVersion), user.userId, tx);
       await reverseIntermediaryUsdCostUsages({ supplierPaymentId: id }, tx);
-      await tx.supplierPayment.delete({ where: { id } });
+      await tx.supplierPayment.update({ where: { id }, data: { deletedAt: new Date(), deletedBy: user.userId } });
       await createAuditLog(user.userId, null, "supplier_payments", id, "delete",
         { amountUsd: Number(existing.amountUsd), supplierId: existing.supplierId }, undefined, getClientIP(request), tx);
     });

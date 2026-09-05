@@ -46,7 +46,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
       );
     }
 
-    const [openingCash, cashPayments, hajiOut, expenseOut, deposits, withdrawalsOut] =
+    const [openingCash, cashPayments, hajiOut, expenseOut, deposits, withdrawalsOut, liabilityEntries] =
       await Promise.all([
         prisma.openingCash.findMany({
           where: { cityId },
@@ -95,6 +95,20 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         prisma.personalWithdrawal.findMany({
           where: { cityId, sourceType: "cash_office", approvedAt: { not: null } } as any,
           select: { id: true, withdrawalDate: true, createdAt: true, amount: true, currencyId: true, detail: true },
+        }),
+        prisma.superAdminLiabilityEntry.findMany({
+          where: { cityId, sourceType: "city_cash" },
+          select: {
+            id: true,
+            entryDate: true,
+            createdAt: true,
+            amount: true,
+            liabilityEffect: true,
+            currencyId: true,
+            reference: true,
+            remarks: true,
+            account: { select: { name: true } },
+          },
         }),
       ]);
 
@@ -184,6 +198,20 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         currencyId: w.currencyId,
         credit: 0,
         debit: Number(w.amount),
+      });
+    }
+    for (const entry of liabilityEntries) {
+      const sourceIncrease = Number(entry.liabilityEffect) > 0;
+      rows.push({
+        key: `saliab-${entry.id}`,
+        date: new Date(entry.entryDate),
+        createdAt: new Date(entry.createdAt),
+        type: sourceIncrease ? "Liability Receipt/Reversal" : "Liability Payment",
+        detail: `${entry.account.name}${entry.remarks ? ` — ${entry.remarks}` : ""}`,
+        reference: entry.reference,
+        currencyId: entry.currencyId,
+        credit: sourceIncrease ? Number(entry.amount) : 0,
+        debit: sourceIncrease ? 0 : Number(entry.amount),
       });
     }
 

@@ -41,6 +41,54 @@ function respondLedgerView(
   });
 }
 
+async function appendSuperAdminControlRows(accountId: number, currencyCode: string, rows: LedgerRow[]) {
+  const [transfers, liabilityEntries] = await Promise.all([
+    prisma.superAdminAccountTransfer.findMany({
+      where: { reversedAt: null, OR: [{ sourceAccountId: accountId }, { destinationAccountId: accountId }] },
+      include: {
+        sourceAccount: { select: { bankName: true } },
+        destinationAccount: { select: { bankName: true } },
+        fromCurrency: { select: { code: true } },
+        toCurrency: { select: { code: true } },
+      },
+      orderBy: [{ transferDate: "asc" }, { createdAt: "asc" }],
+    }),
+    prisma.superAdminLiabilityEntry.findMany({
+      where: { OR: [{ superAdminBankAccountId: accountId }, { superAdminCashAccountId: accountId }] },
+      include: { account: { select: { name: true } }, currency: { select: { code: true } } },
+      orderBy: [{ entryDate: "asc" }, { createdAt: "asc" }],
+    }),
+  ]);
+  for (const transfer of transfers) {
+    const incoming = transfer.destinationAccountId === accountId;
+    rows.push({
+      key: `satrans-${transfer.id}-${incoming ? "in" : "out"}`,
+      date: new Date(transfer.transferDate),
+      createdAt: new Date(transfer.createdAt),
+      type: transfer.transferType === "exchange" ? "Account Exchange" : "Account Transfer",
+      detail: incoming ? `From ${transfer.sourceAccount.bankName}` : `To ${transfer.destinationAccount.bankName}`,
+      reference: transfer.reference,
+      currencyCode: incoming ? transfer.toCurrency.code : transfer.fromCurrency.code,
+      credit: incoming ? Number(transfer.toAmount) : 0,
+      debit: incoming ? 0 : Number(transfer.fromAmount),
+    });
+  }
+  for (const entry of liabilityEntries) {
+    const sourceIncrease = Number(entry.liabilityEffect) > 0;
+    rows.push({
+      key: `saliab-${entry.id}`,
+      date: new Date(entry.entryDate),
+      createdAt: new Date(entry.createdAt),
+      type: sourceIncrease ? "Liability Receipt/Reversal" : "Liability Payment",
+      detail: entry.account.name,
+      reference: entry.reference,
+      currencyCode: entry.currency.code || currencyCode,
+      credit: sourceIncrease ? Number(entry.amount) : 0,
+      debit: sourceIncrease ? 0 : Number(entry.amount),
+    });
+  }
+}
+
 export const GET = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
     const id = parseInt(context.params.id);
@@ -96,27 +144,27 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
             orderBy: [{ transferDate: "asc" }, { createdAt: "asc" }],
           }),
           prisma.hajiCashReceipt.findMany({
-            where: { superAdminCashAccountId: id },
+            where: { superAdminCashAccountId: id, reversedAt: null },
             include: { intermediary: { select: { name: true } }, currency: { select: { code: true } } },
             orderBy: [{ receiptDate: "asc" }, { createdAt: "asc" }],
           }),
           prisma.intermediaryDeposit.findMany({
-            where: { superAdminCashAccountId: id },
+            where: { superAdminCashAccountId: id, deletedAt: null },
             include: { intermediary: { select: { name: true } }, currency: { select: { code: true } } },
             orderBy: [{ depositDate: "asc" }, { createdAt: "asc" }],
           }),
           prisma.supplierPayment.findMany({
-            where: { superAdminCashAccountId: id },
+            where: { superAdminCashAccountId: id, deletedAt: null },
             include: { supplier: { select: { name: true } }, lot: { select: { lotNumber: true } } },
             orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
           }),
           prisma.agentPayment.findMany({
-            where: { superAdminCashAccountId: id, currencyCode },
+            where: { superAdminCashAccountId: id, currencyCode, deletedAt: null },
             include: { agent: { select: { name: true, agentType: true } } },
             orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
           }),
           prisma.shippingLinePayment.findMany({
-            where: { superAdminCashAccountId: id },
+            where: { superAdminCashAccountId: id, deletedAt: null },
             include: { shippingLine: { select: { name: true } }, lot: { select: { lotNumber: true } } },
             orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
           }),
@@ -234,6 +282,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
             debit: Number(p.paymentAmount),
           });
         }
+        await appendSuperAdminControlRows(id, currencyCode, rows);
 
         return respondLedgerView(request.nextUrl.searchParams, {
           id: account.id,
@@ -248,7 +297,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
 
       const accountLabel = formatSuperAdminBankLabel(account);
       const currencyCode = String(account.currency.code || "").toUpperCase();
-      const [openingBalance, incomingHajiPayments, hajiTransfersIn, expenses, intermediaryDeposits, lotCosts, supplierPayments, investorSettlementPayments] = await Promise.all([
+      const [openingBalance, incomingHajiPayments, hajiTransfersIn, intermediaryReturns, expenses, intermediaryDeposits, lotCosts, supplierPayments, investorSettlementPayments] = await Promise.all([
         prisma.openingSuperAdminAccountBalance.findUnique({ where: { accountId: id } }),
         prisma.payment.findMany({
           where: {
@@ -284,6 +333,11 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           },
           orderBy: [{ transferDate: "asc" }, { createdAt: "asc" }],
         }),
+        prisma.hajiCashReceipt.findMany({
+          where: { superAdminCashAccountId: id, reversedAt: null },
+          include: { intermediary: { select: { name: true } }, currency: { select: { code: true } } },
+          orderBy: [{ receiptDate: "asc" }, { createdAt: "asc" }],
+        }),
         prisma.superAdminPersonalExpense.findMany({
           where: { bankAccountId: id, deletedAt: null },
           select: {
@@ -297,7 +351,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           orderBy: [{ expenseDate: "asc" }, { createdAt: "asc" }],
         }),
         prisma.intermediaryDeposit.findMany({
-          where: { superAdminBankAccountId: id },
+          where: { superAdminBankAccountId: id, deletedAt: null },
           include: { intermediary: { select: { name: true } }, currency: { select: { code: true } } },
           orderBy: [{ depositDate: "asc" }, { createdAt: "asc" }],
         }),
@@ -307,7 +361,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           orderBy: [{ costDate: "asc" }, { createdAt: "asc" }],
         }),
         prisma.supplierPayment.findMany({
-          where: { superAdminBankAccountId: id },
+          where: { superAdminBankAccountId: id, deletedAt: null },
           include: { supplier: { select: { name: true } }, lot: { select: { lotNumber: true } } },
           orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
         }),
@@ -355,6 +409,19 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           reference: t.referenceNo || null,
           currencyCode: t.currency.code,
           credit: Number(t.amount),
+          debit: 0,
+        });
+      }
+      for (const receipt of intermediaryReturns) {
+        rows.push({
+          key: `hcr-${receipt.id}`,
+          date: new Date(receipt.receiptDate),
+          createdAt: new Date(receipt.createdAt),
+          type: "Intermediary Return",
+          detail: `Received from ${receipt.intermediary.name}${receipt.notes ? ` — ${receipt.notes}` : ""}`,
+          reference: null,
+          currencyCode: receipt.currency.code,
+          credit: Number(receipt.amount),
           debit: 0,
         });
       }
@@ -425,6 +492,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           debit: Number(p.paymentAmount),
         });
       }
+      await appendSuperAdminControlRows(id, currencyCode, rows);
 
       return respondLedgerView(request.nextUrl.searchParams, {
         id: account.id,
@@ -441,7 +509,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     if (!account) return errorResponse("NOT_FOUND", "Bank account not found", 404);
     if (user.role === "city_admin" && account.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
 
-    const [paymentsIn, deposits, depositedCheques, expenses, hajiTransfers, supplierPayments, shippingLinePayments, agentPayments, lotCosts, intermediaryDeposits] =
+    const [paymentsIn, deposits, depositedCheques, expenses, hajiTransfers, supplierPayments, shippingLinePayments, agentPayments, lotCosts, intermediaryDeposits, liabilityEntries] =
       await Promise.all([
         prisma.payment.findMany({
           where: { bankAccountId: id, destination: "our_account", status: "active", cityId: account.cityId },
@@ -488,17 +556,17 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           orderBy: [{ transferDate: "asc" }, { createdAt: "asc" }],
         }),
         prisma.supplierPayment.findMany({
-          where: { bankAccountId: id },
+          where: { bankAccountId: id, deletedAt: null },
           select: { id: true, paymentDate: true, createdAt: true, amountUsd: true, amountLocal: true, exchangeRate: true, reference: true },
           orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
         }),
         prisma.shippingLinePayment.findMany({
-          where: { bankAccountId: id },
+          where: { bankAccountId: id, deletedAt: null },
           select: { id: true, paymentDate: true, createdAt: true, amountUsd: true, amountPkr: true, exchangeRate: true, reference: true },
           orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
         }),
         prisma.agentPayment.findMany({
-          where: { bankAccountId: id },
+          where: { bankAccountId: id, deletedAt: null },
           select: { id: true, paymentDate: true, createdAt: true, amount: true, currencyCode: true, reference: true },
           orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
         }),
@@ -508,9 +576,14 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           orderBy: [{ costDate: "asc" }, { createdAt: "asc" }],
         }),
         prisma.intermediaryDeposit.findMany({
-          where: { bankAccountId: id },
+          where: { bankAccountId: id, deletedAt: null },
           include: { intermediary: { select: { name: true } }, currency: { select: { code: true } } },
           orderBy: [{ depositDate: "asc" }, { createdAt: "asc" }],
+        }),
+        prisma.superAdminLiabilityEntry.findMany({
+          where: { bankAccountId: id, cityId: account.cityId, sourceType: "city_bank" },
+          include: { account: { select: { name: true } }, currency: { select: { code: true } } },
+          orderBy: [{ entryDate: "asc" }, { createdAt: "asc" }],
         }),
       ]);
 
@@ -650,6 +723,20 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         currencyCode: d.currency.code,
         credit: 0,
         debit: Number(d.amount),
+      });
+    }
+    for (const entry of liabilityEntries) {
+      const sourceIncrease = Number(entry.liabilityEffect) > 0;
+      rows.push({
+        key: `saliab-${entry.id}`,
+        date: new Date(entry.entryDate),
+        createdAt: new Date(entry.createdAt),
+        type: sourceIncrease ? "Liability Receipt/Reversal" : "Liability Payment",
+        detail: entry.account.name,
+        reference: entry.reference,
+        currencyCode: entry.currency.code,
+        credit: sourceIncrease ? Number(entry.amount) : 0,
+        debit: sourceIncrease ? 0 : Number(entry.amount),
       });
     }
 

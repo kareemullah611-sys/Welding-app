@@ -16,7 +16,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
       prisma.supplier.findMany({ where: { isActive: true }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip, take: limit,
         include: {
           lotPurchases: { select: { totalPriceUsd: true } },
-          supplierPayments: { select: { amountUsd: true } },
+          supplierPayments: { where: { deletedAt: null }, select: { amountUsd: true } },
         },
       }),
       prisma.supplier.count({ where: { isActive: true } }),

@@ -1062,7 +1062,7 @@ test("superadmin liability and exchange journals are atomic", () => {
   assert.match(accounting, /journalIntermediaryExchange\([\s\S]*db: DbClient = prisma/);
   assert.match(accounting, /journalIntermediaryDeposit\([\s\S]*db: DbClient = prisma/);
   assert.match(agentCreate, /await journalAgentPaid\([\s\S]*,\s*tx\);/);
-  assert.match(agentUpdate, /await reverseJournalEntries\(`AGENTPAY-\$\{id\}`, user\.userId, tx\)/);
+  assert.match(agentUpdate, /await reverseJournalEntries\(agentPaymentJournalTransactionId\(id, locked\.journalVersion\), user\.userId, tx\)/);
   assert.match(agentUpdate, /await journalAgentPaid\([\s\S]*,\s*tx\);/);
   assert.match(shippingCreate, /await journalShippingLinePayment\([\s\S]*,\s*tx\);/);
   assert.match(shippingUpdate, /await reverseJournalEntries\(settlementJournalTransactionId\("SLPAY", id, lockedExisting\.journalVersion\), user\.userId, tx\)/);
@@ -1108,9 +1108,9 @@ test("country fallback rates and intermediary FIFO costing are wired", () => {
   assert.match(settlementValidation, /excludeSupplierPaymentId/);
   assert.match(supplierCreate, /consumeIntermediaryUsdFifo\(/);
   assert.match(supplierUpdate, /reverseIntermediaryUsdCostUsages\(\{ supplierPaymentId: id \}/);
-  assert.match(shippingCreate, /getIntermediaryBalances\(resolvedIntermediaryId\)/);
+  assert.doesNotMatch(shippingCreate, /INSUFFICIENT_FUNDS|getIntermediaryBalances\(resolvedIntermediaryId\)/);
   assert.match(shippingCreate, /consumeIntermediaryUsdFifo\(/);
-  assert.match(shippingUpdate, /excludeShippingLinePaymentId: id/);
+  assert.match(shippingUpdate, /resolveShippingSettlementContext\([\s\S]*paymentId: id/);
   assert.match(shippingUpdate, /reverseIntermediaryUsdCostUsages\(\{ shippingLinePaymentId: id \}/);
   assert.match(exchangeCreate, /createIntermediaryUsdLayerFromExchange\(/);
   assert.match(exchangeUpdate, /assertIntermediaryUsdLayerUnused\("intermediary_exchange", id\)/);

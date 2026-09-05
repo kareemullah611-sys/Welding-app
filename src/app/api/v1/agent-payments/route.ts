@@ -1,11 +1,10 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { journalAgentPaid } from "@/lib/accounting";
-import { withSuperAdmin } from "@/lib/middleware";
+import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, validationError, errorResponse, serverError, paginatedResponse, getPaginationParams } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { validatePaymentSource } from "@/lib/payment-source-validation";
-import { assertSuperAdminCashHasFunds } from "@/lib/haji-cash-balance";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 
 const AGENT_PAYMENT_SYNC_MODULE = "agent_payments";
@@ -15,13 +14,13 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
   try {
     const { page, limit, skip } = getPaginationParams(request.nextUrl.searchParams);
     const agentId = request.nextUrl.searchParams.get("agent_id") ? parseInt(request.nextUrl.searchParams.get("agent_id")!) : undefined;
-    const where: any = {};
+    const where: any = { deletedAt: null };
     if (agentId) where.agentId = agentId;
     const [payments, total] = await Promise.all([
-      prisma.agentPayment.findMany({ where, include: { agent: { select: { name: true } }, city: { select: { name: true } } }, orderBy: { paymentDate: "desc" }, skip, take: limit }),
+      prisma.agentPayment.findMany({ where, include: { agent: { select: { name: true } }, city: { select: { name: true } } }, orderBy: [{ paymentDate: "desc" }, { id: "desc" }], skip, take: limit }),
       prisma.agentPayment.count({ where }),
     ]);
-    return paginatedResponse(payments.map(p => ({ id: p.id, agentName: p.agent.name, cityName: p.city.name, paymentDate: p.paymentDate.toISOString().split("T")[0], amount: Number(p.amount), currencyCode: p.currencyCode, paymentMethod: p.paymentMethod, reference: p.reference })), total, page, limit);
+    return paginatedResponse(payments.map(p => ({ id: p.id, agentName: p.agent.name, cityName: p.city.name, paymentDate: p.paymentDate.toISOString().split("T")[0], amount: Number(p.amount), currencyCode: p.currencyCode, paymentMethod: p.paymentMethod, reference: p.reference, bankAccountId: p.bankAccountId, superAdminBankAccountId: p.superAdminBankAccountId, superAdminCashAccountId: p.superAdminCashAccountId, intermediaryId: p.intermediaryId })), total, page, limit);
   } catch (error) { return serverError(); }
 });
 
@@ -48,38 +47,17 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       return errorResponse("VALIDATION_ERROR", "Settlement city must match the agent's city");
     }
 
-    const superAdminCashAccountId = body.superAdminCashAccountId ? Number(body.superAdminCashAccountId) : null;
     const currencyCode = String(body.currencyCode || "PKR").toUpperCase();
-
-    let bankAccountId: number | null = null;
-    let intermediaryId: number | null = null;
-
-    if (superAdminCashAccountId) {
-      if (body.bankAccountId || body.intermediaryId) {
-        return validationError("Choose either haji cash or another funding source, not both");
-      }
-      const funds = await assertSuperAdminCashHasFunds(superAdminCashAccountId, amount);
-      if (!funds.ok) return errorResponse("VALIDATION", funds.message, 400);
-      const cashAcct = await prisma.superAdminBankAccount.findUnique({
-        where: { id: superAdminCashAccountId },
-        include: { currency: true },
-      });
-      if (!cashAcct || cashAcct.accountKind !== "cash") {
-        return errorResponse("NOT_FOUND", "Haji cash account not found", 404);
-      }
-      if (String(cashAcct.currency.code || "").toUpperCase() !== currencyCode) {
-        return errorResponse("VALIDATION", "Payment currency must match haji cash account currency", 400);
-      }
-    } else {
-      const source = await validatePaymentSource({
-        bankAccountId: body.bankAccountId,
-        intermediaryId: body.intermediaryId,
-        cityId,
-      });
-      if (!source.ok) return errorResponse(source.code, source.message, source.status);
-      bankAccountId = source.bankAccountId;
-      intermediaryId = source.intermediaryId;
-    }
+    const source = await validatePaymentSource({
+      bankAccountId: body.bankAccountId,
+      superAdminBankAccountId: body.superAdminBankAccountId,
+      superAdminCashAccountId: body.superAdminCashAccountId,
+      intermediaryId: body.intermediaryId,
+      cityId,
+      currencyCode,
+      requireSelection: true,
+    });
+    if (!source.ok) return errorResponse(source.code, source.message, source.status);
 
     if (syncMeta) {
       const existingSync = await prisma.syncRequest.findUnique({
@@ -103,12 +81,20 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
           paymentDate: new Date(body.paymentDate || new Date()),
           amount, currencyCode: body.currencyCode || "PKR",
           paymentMethod: body.paymentMethod || "cash",
-          bankAccountId,
-          intermediaryId,
-          superAdminCashAccountId,
+          bankAccountId: source.bankAccountId,
+          superAdminBankAccountId: source.superAdminBankAccountId,
+          intermediaryId: source.intermediaryId,
+          superAdminCashAccountId: source.superAdminCashAccountId,
           reference: body.reference, notes: body.notes, createdBy: user.userId,
         },
       });
+      await createAuditLog(user.userId, cityId, "agent_payments", createdPayment.id, "create", undefined, {
+        agentId, cityId, amount, currencyCode,
+        bankAccountId: source.bankAccountId,
+        superAdminBankAccountId: source.superAdminBankAccountId,
+        superAdminCashAccountId: source.superAdminCashAccountId,
+        intermediaryId: source.intermediaryId,
+      }, getClientIP(request), tx);
       if (syncMeta) {
         await tx.syncRequest.create({
           data: {
@@ -130,9 +116,11 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         currencyCode: body.currencyCode || "PKR",
         paymentDate: createdPayment.paymentDate,
         createdBy: user.userId,
-        bankAccountId,
-        intermediaryId,
-        superAdminCashAccountId,
+        bankAccountId: source.bankAccountId,
+        superAdminBankAccountId: source.superAdminBankAccountId,
+        intermediaryId: source.intermediaryId,
+        superAdminCashAccountId: source.superAdminCashAccountId,
+        journalVersion: createdPayment.journalVersion,
       }, tx);
       return createdPayment;
     });

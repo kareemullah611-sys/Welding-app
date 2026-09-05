@@ -308,19 +308,19 @@ async function findMissingRequiredRates(periodStart: string, periodEnd: string) 
       select: { costDate: true, currencyCode: true, lot: { select: { countryId: true, lotDate: true, lotNumber: true } } },
     }),
     prisma.supplierPayment.findMany({
-      where: { paymentDate: periodRange },
+      where: { paymentDate: periodRange, deletedAt: null },
       select: { paymentDate: true, amountUsd: true, lot: { select: { countryId: true, lotNumber: true } } },
     }),
     prisma.shippingLinePayment.findMany({
-      where: { paymentDate: periodRange },
+      where: { paymentDate: periodRange, deletedAt: null },
       select: { paymentDate: true, amountUsd: true, lot: { select: { countryId: true, lotNumber: true } } },
     }),
     prisma.agentPayment.findMany({
-      where: { paymentDate: periodRange },
+      where: { paymentDate: periodRange, deletedAt: null },
       select: { paymentDate: true, currencyCode: true, city: { select: { countryId: true } } },
     }),
     prisma.intermediaryDeposit.findMany({
-      where: { depositDate: periodRange },
+      where: { depositDate: periodRange, deletedAt: null },
       select: { depositDate: true, currencyId: true, city: { select: { countryId: true } } },
     }),
   ]);
@@ -617,11 +617,11 @@ async function loadHistoricalPoolTransactions(periodStart: string, periodEnd: st
       orderBy: { saleDate: "asc" },
     }),
     prisma.supplierPayment.findMany({
-      where: { paymentDate: periodRange, fxPoolDate: { not: null } },
+      where: { paymentDate: periodRange, fxPoolDate: { not: null }, deletedAt: null },
       select: { id: true, journalVersion: true, fxPoolDate: true },
     }),
     prisma.shippingLinePayment.findMany({
-      where: { paymentDate: periodRange, fxPoolDate: { not: null } },
+      where: { paymentDate: periodRange, fxPoolDate: { not: null }, deletedAt: null },
       select: { id: true, journalVersion: true, fxPoolDate: true },
     }),
   ]);
@@ -743,6 +743,7 @@ async function loadLiveFxCoverage(periodEnd: string) {
   const deposits = await prisma.intermediaryDeposit.findMany({
     where: {
       depositDate: { lt: periodEndExclusive },
+      deletedAt: null,
       currencyId: { in: nonPkrCurrencyIds },
     },
     select: { id: true, currencyId: true, depositDate: true, amount: true, intermediary: { select: { name: true } } },

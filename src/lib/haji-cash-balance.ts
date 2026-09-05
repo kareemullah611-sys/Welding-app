@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { formatSuperAdminBankLabel } from "@/lib/haji-transfer-detail";
+import { getSuperAdminBankBalance } from "@/lib/settlement-validation";
 
 function round2(n: number) {
   return Math.round(n * 100) / 100;
@@ -24,87 +25,8 @@ export async function assertSuperAdminCashAccount(accountId: number) {
 export async function getSuperAdminCashAccountBalance(cashAccountId: number): Promise<number> {
   const checked = await assertSuperAdminCashAccount(cashAccountId);
   if (!checked.ok) return 0;
-  const { account } = checked;
-  const currencyId = account.currencyId;
-  const currencyCode = String(account.currency.code || "").toUpperCase();
-  const accountLabel = formatSuperAdminBankLabel(account);
-
-  const [
-    opening,
-    hajiIn,
-    receiptsIn,
-    intermediaryOut,
-    supplierPayments,
-    agentPayments,
-    shippingPayments,
-    investorSettlementPayments,
-  ] = await Promise.all([
-    prisma.openingSuperAdminAccountBalance.aggregate({
-      where: { accountId: cashAccountId, currencyId },
-      _sum: { amount: true },
-    }),
-    prisma.hajiTransfer.aggregate({
-      where: {
-        currencyId,
-        OR: [
-          {
-            superAdminCashAccountId: cashAccountId,
-            settlementDestination: "super_admin_cash",
-          },
-          {
-            superAdminCashAccountId: null,
-            superAdminBankAccountId: null,
-            transferredTo: accountLabel,
-          },
-        ],
-      },
-      _sum: { amount: true },
-    }),
-    prisma.hajiCashReceipt.aggregate({
-      where: { superAdminCashAccountId: cashAccountId, currencyId },
-      _sum: { amount: true },
-    }),
-    prisma.intermediaryDeposit.aggregate({
-      where: { superAdminCashAccountId: cashAccountId, currencyId },
-      _sum: { amount: true },
-    }),
-    prisma.supplierPayment.findMany({
-      where: { superAdminCashAccountId: cashAccountId },
-      select: { amountLocal: true, amountUsd: true, exchangeRate: true },
-    }),
-    prisma.agentPayment.findMany({
-      where: { superAdminCashAccountId: cashAccountId, currencyCode },
-      select: { amount: true },
-    }),
-    prisma.shippingLinePayment.findMany({
-      where: { superAdminCashAccountId: cashAccountId },
-      select: { amountUsd: true, amountPkr: true, exchangeRate: true },
-    }),
-    (prisma as any).investmentParticipantSettlementPayment.aggregate({
-      where: { superAdminBankAccountId: cashAccountId, currencyId, status: "settled" },
-      _sum: { paymentAmount: true },
-    }),
-  ]);
-
-  let out = Number(intermediaryOut._sum.amount || 0);
-  for (const p of supplierPayments) {
-    const local = Number(p.amountLocal || 0);
-    out += local > 0 ? local : Number(p.amountUsd || 0);
-  }
-  for (const p of agentPayments) out += Number(p.amount || 0);
-  for (const p of shippingPayments) {
-    const local = Number(p.amountPkr || 0);
-    out += local > 0 ? local : Number(p.amountUsd || 0);
-  }
-  out += Number(investorSettlementPayments._sum.paymentAmount || 0);
-
-  const balance =
-    Number(opening._sum.amount || 0) +
-    Number(hajiIn._sum.amount || 0) +
-    Number(receiptsIn._sum.amount || 0) -
-    out;
-
-  return round2(balance);
+  const balance = await getSuperAdminBankBalance(cashAccountId);
+  return round2(balance?.balance || 0);
 }
 
 export async function assertSuperAdminCashHasFunds(cashAccountId: number, amount: number) {

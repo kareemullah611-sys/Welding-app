@@ -72,6 +72,7 @@ const superAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
       { label: "Clearing Agents", key: "agents",         href: "/agents?agentType=clearing",   icon: Handshake,     roles: ["super_admin"] },
       { label: "Intermediaries",  key: "intermediaries", href: "/intermediaries",               icon: ArrowLeftRight, roles: ["super_admin"] },
       { label: "Custom Agents",   key: "custom_agents",  href: "/agents?agentType=customs",    icon: Handshake,     roles: ["super_admin"] },
+      { label: "Lenders & Other Payables", key: "super_admin_liabilities", href: "/super-admin-liabilities", icon: Handshake, roles: ["super_admin"] },
     ],
   },
   {
@@ -81,6 +82,7 @@ const superAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
       { label: "Payments",         key: "payments",         href: "/payments",         icon: Wallet,    roles: ["super_admin", "city_admin"] },
       { label: "Expenses",         key: "expenses",         href: "/expenses",         icon: Banknote,  roles: ["city_admin"] },
       { label: "Home Expenses", key: "super_admin_personal_expenses", href: "/super-admin-personal-expenses", icon: Banknote, roles: ["super_admin"] },
+      { label: "Account Transfers", key: "super_admin_account_transfers", href: "/super-admin-account-transfers", icon: ArrowLeftRight, roles: ["super_admin"] },
       { label: "Withdrawals",      key: "personal_withdrawals", href: "/personal-withdrawals", icon: PiggyBank, roles: ["super_admin", "city_admin"] },
       { label: "Haji Transfers",   key: "haji_transfers",   href: "/haji-transfers",   icon: ArrowLeftRight, roles: ["city_admin"] },
       { label: "Customers",        key: "customers",        href: "/customers",        icon: Users,     roles: ["city_admin"] },

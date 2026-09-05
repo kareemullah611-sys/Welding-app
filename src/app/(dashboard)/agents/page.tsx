@@ -87,7 +87,7 @@ export default function AgentsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [openActionId, setOpenActionId] = useState<number | null>(null);
-  const filteredBankAccounts = bankAccounts.filter((b: any) => !payForm.cityId || b.cityId === payForm.cityId);
+  const filteredBankAccounts = bankAccounts.filter((b: any) => b.accountScope === "super_admin" || !payForm.cityId || b.cityId === payForm.cityId);
   const agentTypeFilter = String(searchParams.get("agentType") || "").toLowerCase();
   const showOnlyCustomAgents = agentTypeFilter === "customs";
   const showOnlyClearingAgents = agentTypeFilter === "clearing";
@@ -203,11 +203,15 @@ export default function AgentsPage() {
     setPayForm({ agentId: a.id, cityId: a.city?.id || cities[0]?.id || 0, paymentDate: new Date().toISOString().split("T")[0], amount: 0, currencyCode: "PKR", paymentMethod: "cash", reference: "", paidFrom: "city_cash", bankAccountId: "", intermediaryId: "" });
     setShowPayment(true); setError("");
     const [baRes, intRes] = await Promise.all([
-      bankAccounts.length ? Promise.resolve({ success: true, data: bankAccounts }) : apiCall("/api/v1/bank-accounts", { params: { limit: 100 } }),
+      bankAccounts.length ? Promise.resolve({ success: true, data: { preparedAccounts: bankAccounts } }) : apiCall("/api/v1/super-admin-liabilities/options"),
       intermediaries.length ? Promise.resolve({ success: true, data: intermediaries }) : apiCall("/api/v1/intermediaries"),
     ]);
     if (baRes.success) {
-      const loadedBanks = (baRes.data as any).items || baRes.data as any[];
+      const optionData: any = baRes.data || {};
+      const loadedBanks = optionData.preparedAccounts || [
+        ...(optionData.superAdminAccounts || []).map((account: any) => ({ ...account, accountScope: "super_admin" })),
+        ...(optionData.cities || []).flatMap((city: any) => (city.bankAccounts || []).map((account: any) => ({ ...account, cityId: city.id, cityName: city.name, accountScope: "city", accountKind: "bank", currency: { code: "PKR" } }))),
+      ];
       setBankAccounts(loadedBanks);
       mergeSnapshot({ bankAccounts: loadedBanks });
       setShowOfflineSnapshot(false);
@@ -237,7 +241,10 @@ export default function AgentsPage() {
     if (payForm.paidFrom === "intermediary" && !payForm.intermediaryId) { setError("Select an intermediary"); return; }
     setSubmitting(true);
     const body: any = { ...payForm };
-    body.bankAccountId = payForm.paidFrom === "bank" && payForm.bankAccountId ? Number(payForm.bankAccountId) : null;
+    const selectedFundingAccount = bankAccounts.find((account: any) => String(account.id) === payForm.bankAccountId);
+    body.bankAccountId = payForm.paidFrom === "bank" && selectedFundingAccount?.accountScope === "city" ? Number(payForm.bankAccountId) : null;
+    body.superAdminBankAccountId = payForm.paidFrom === "bank" && selectedFundingAccount?.accountScope === "super_admin" && selectedFundingAccount?.accountKind !== "cash" ? Number(payForm.bankAccountId) : null;
+    body.superAdminCashAccountId = payForm.paidFrom === "bank" && selectedFundingAccount?.accountKind === "cash" ? Number(payForm.bankAccountId) : null;
     body.intermediaryId = payForm.paidFrom === "intermediary" && payForm.intermediaryId ? Number(payForm.intermediaryId) : null;
     const r = await apiCall("/api/v1/agent-payments", { method: "POST", body });
     setSubmitting(false);
@@ -347,7 +354,7 @@ export default function AgentsPage() {
               </label>
               <label className="flex items-center gap-1.5 text-sm cursor-pointer">
                 <input type="radio" name="agentPaidFrom" value="bank" checked={payForm.paidFrom === "bank"} onChange={() => setPayForm(f => ({ ...f, paidFrom: "bank", intermediaryId: "" }))} />
-                Bank Ledger
+                Bank / Cash Account
               </label>
               <label className="flex items-center gap-1.5 text-sm cursor-pointer">
                 <input type="radio" name="agentPaidFrom" value="intermediary" checked={payForm.paidFrom === "intermediary"} onChange={() => setPayForm(f => ({ ...f, paidFrom: "intermediary", bankAccountId: "" }))} />
@@ -357,7 +364,7 @@ export default function AgentsPage() {
             {payForm.paidFrom === "bank" && (
               <select value={payForm.bankAccountId} onChange={e => setPayForm(f => ({ ...f, bankAccountId: e.target.value }))} className="select-field text-sm">
                 <option value="">Select bank account</option>
-                {filteredBankAccounts.map((b: any) => <option key={b.id} value={b.id}>{b.bankName} {b.accountNumber || ""}</option>)}
+                {filteredBankAccounts.filter((b: any) => b.accountScope === "city" ? payForm.currencyCode === "PKR" : b.currency?.code === payForm.currencyCode).map((b: any) => <option key={`${b.accountScope}-${b.id}`} value={b.id}>{b.accountScope === "city" ? `${b.cityName} · ` : ""}{b.accountKind === "cash" ? "Cash" : "Bank"} · {b.bankName} {b.accountNumber || ""} · {b.currency?.code || "PKR"}</option>)}
               </select>
             )}
             {payForm.paidFrom === "intermediary" && (

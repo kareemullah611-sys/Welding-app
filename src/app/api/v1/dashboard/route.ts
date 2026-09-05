@@ -129,7 +129,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           _sum: { amount: true },
         }),
         prisma.lotPurchase.aggregate({ _sum: { totalPriceUsd: true } }),
-        prisma.supplierPayment.aggregate({ _sum: { amountUsd: true } }),
+        prisma.supplierPayment.aggregate({ where: { deletedAt: null }, _sum: { amountUsd: true } }),
       ]);
       const totalOpening = Number(openingSupplierPayable._sum.amount || 0) - Number(openingSupplierReceivable._sum.amount || 0);
       const totalPurchased = Number(purchased._sum.totalPriceUsd || 0);

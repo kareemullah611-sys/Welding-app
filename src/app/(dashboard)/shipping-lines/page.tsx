@@ -4,7 +4,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, StatsCard, formatNumber, formatDate, RowActionMenu } from "@/components/ui";
-import { SETTLEMENT_CURRENCY_CODES, settlementAmountToPkr } from "@/lib/payment-currencies";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingShippingLines } from "@/lib/offline-queue-overlays";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
@@ -17,6 +16,7 @@ type ShippingLinesReadSnapshot = {
   ledgerByLine: Record<string, any>;
   bankAccounts: any[];
   intermediaries: any[];
+  lots?: any[];
 };
 
 function applyQueuedMutationsToShippingLines(baseRows: any[], queueItems: any[]) {
@@ -81,9 +81,10 @@ export default function ShippingLinesPage() {
 
   // Add payment
   const [showPayment, setShowPayment] = useState(false);
-  const [payForm, setPayForm] = useState({ paymentDate: new Date().toISOString().split("T")[0], amountUsd: "", settlementCurrency: "USD", exchangeRate: "", reference: "", notes: "", paidFrom: "bank", bankAccountId: "", intermediaryId: "" });
+  const [payForm, setPayForm] = useState({ lotId: "", paymentDate: new Date().toISOString().split("T")[0], amountUsd: "", settlementCurrency: "USD", exchangeRate: "", reference: "", notes: "", paidFrom: "account", bankAccountId: "", intermediaryId: "" });
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
   const [intermediaries, setIntermediaries] = useState<any[]>([]);
+  const [lots, setLots] = useState<any[]>([]);
   const [openActionId, setOpenActionId] = useState<number | string | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
@@ -209,15 +210,20 @@ export default function ShippingLinesPage() {
       return;
     }
     setSelected(sl);
-    setPayForm({ paymentDate: new Date().toISOString().split("T")[0], amountUsd: "", settlementCurrency: "USD", exchangeRate: "", reference: "", notes: "", paidFrom: "bank", bankAccountId: "", intermediaryId: "" });
+    setPayForm({ lotId: "", paymentDate: new Date().toISOString().split("T")[0], amountUsd: "", settlementCurrency: "USD", exchangeRate: "", reference: "", notes: "", paidFrom: "account", bankAccountId: "", intermediaryId: "" });
     setError(""); setShowPayment(true);
     // Load bank accounts and intermediaries
-    const [baRes, intRes] = await Promise.all([
-      bankAccounts.length ? Promise.resolve({ success: true, data: bankAccounts }) : apiCall("/api/v1/bank-accounts", { params: { limit: 100 } }),
+    const [baRes, intRes, lotsRes] = await Promise.all([
+      bankAccounts.length ? Promise.resolve({ success: true, data: { preparedAccounts: bankAccounts } }) : apiCall("/api/v1/super-admin-liabilities/options"),
       intermediaries.length ? Promise.resolve({ success: true, data: intermediaries }) : apiCall("/api/v1/intermediaries"),
+      lots.length ? Promise.resolve({ success: true, data: lots }) : apiCall("/api/v1/lots", { params: { limit: 100 } }),
     ]);
     if (baRes.success) {
-      const loadedBanks = (baRes.data as any).items || baRes.data as any[];
+      const optionData: any = baRes.data || {};
+      const loadedBanks = optionData.preparedAccounts || [
+        ...(optionData.superAdminAccounts || []).map((account: any) => ({ ...account, accountScope: "super_admin" })),
+        ...(optionData.cities || []).flatMap((city: any) => (city.bankAccounts || []).map((account: any) => ({ ...account, cityId: city.id, cityName: city.name, accountScope: "city", accountKind: "bank", currency: { code: "PKR" } }))),
+      ];
       setBankAccounts(loadedBanks);
       mergeSnapshot({ bankAccounts: loadedBanks });
       setShowOfflineSnapshot(false);
@@ -239,26 +245,32 @@ export default function ShippingLinesPage() {
         setShowOfflineSnapshot(true);
       }
     }
+    if (lotsRes.success) setLots((lotsRes.data as any[]) || []);
   };
 
   const handleAddPayment = async () => {
     if (!payForm.amountUsd || Number(payForm.amountUsd) <= 0) { setError("Amount required"); return; }
-    if (payForm.settlementCurrency !== "PKR" && !(Number(payForm.exchangeRate) > 0)) {
-      setError(`${payForm.settlementCurrency} → PKR exchange rate is required`);
+    if (!payForm.lotId) { setError("Select the lot whose shipping liability is being paid"); return; }
+    if (payForm.paidFrom !== "intermediary" && !(Number(payForm.exchangeRate) > 0)) {
+      setError("Documented USD → PKR settlement rate is required");
       return;
     }
-    if (payForm.paidFrom === "bank" && !payForm.bankAccountId) { setError("Select a bank account"); return; }
+    if (payForm.paidFrom === "account" && !payForm.bankAccountId) { setError("Select a bank or cash account"); return; }
     if (payForm.paidFrom === "intermediary" && !payForm.intermediaryId) { setError("Select an intermediary"); return; }
     setSubmitting(true);
+    const selectedFundingAccount = bankAccounts.find((account: any) => String(account.id) === payForm.bankAccountId);
     const r = await apiCall("/api/v1/shipping-line-payments", {
       method: "POST",
       body: {
         shippingLineId: selected.id,
+        lotId: Number(payForm.lotId),
         paymentDate:    payForm.paymentDate,
         amountUsd:      Number(payForm.amountUsd),
-        settlementCurrency: payForm.settlementCurrency,
-        exchangeRate:   payForm.settlementCurrency === "PKR" ? null : Number(payForm.exchangeRate),
-        bankAccountId:  payForm.paidFrom === "bank" && payForm.bankAccountId ? Number(payForm.bankAccountId) : null,
+        settlementCurrency: selectedFundingAccount?.currency?.code || "USD",
+        exchangeRate: payForm.paidFrom === "intermediary" ? null : Number(payForm.exchangeRate),
+        bankAccountId: payForm.paidFrom === "account" && selectedFundingAccount?.accountScope === "city" ? Number(payForm.bankAccountId) : null,
+        superAdminBankAccountId: payForm.paidFrom === "account" && selectedFundingAccount?.accountScope === "super_admin" && selectedFundingAccount?.accountKind !== "cash" ? Number(payForm.bankAccountId) : null,
+        superAdminCashAccountId: payForm.paidFrom === "account" && selectedFundingAccount?.accountKind === "cash" ? Number(payForm.bankAccountId) : null,
         intermediaryId: payForm.paidFrom === "intermediary" && payForm.intermediaryId ? Number(payForm.intermediaryId) : null,
         reference:      payForm.reference || null,
         notes:          payForm.notes || null,
@@ -380,29 +392,27 @@ export default function ShippingLinesPage() {
       <Modal open={showPayment} onClose={() => setShowPayment(false)} title={`Record Settlement — ${selected?.name || ""}`} size="md">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">Lot *</label><select value={payForm.lotId} onChange={e => setPayForm(f => ({ ...f, lotId: e.target.value }))} className="select-field"><option value="">Select lot</option>{lots.map((lot: any) => <option key={lot.id} value={lot.id}>{lot.lotNumber}</option>)}</select></div>
           <div className="grid grid-cols-2 gap-3">
             <div><label className="block text-sm font-medium text-gray-700 mb-1">Date *</label>
               <input type="date" value={payForm.paymentDate} onChange={e => setPayForm(f => ({ ...f, paymentDate: e.target.value }))} className="input-field" /></div>
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">Settlement Currency *</label>
-              <select value={payForm.settlementCurrency} onChange={e => setPayForm(f => ({ ...f, settlementCurrency: e.target.value }))} className="select-field">
-                {SETTLEMENT_CURRENCY_CODES.map((code) => <option key={code} value={code}>{code}</option>)}
-              </select></div>
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">Liability currency</label><input value="USD" className="input-field bg-gray-50" disabled /></div>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">Amount ({payForm.settlementCurrency}) *</label>
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">Liability amount (USD) *</label>
               <input type="number" value={payForm.amountUsd} onChange={e => setPayForm(f => ({ ...f, amountUsd: e.target.value }))} className="input-field" placeholder="0.00" min="0.01" step="0.01" onWheel={e => e.currentTarget.blur()} /></div>
-            {payForm.settlementCurrency !== "PKR" && (
+            {payForm.paidFrom !== "intermediary" && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{payForm.settlementCurrency} → PKR Rate *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">USD → PKR settlement rate *</label>
               <input type="number" value={payForm.exchangeRate} onChange={e => setPayForm(f => ({ ...f, exchangeRate: e.target.value }))} className="input-field" placeholder="e.g. 278.50" min="0.01" step="0.01" onWheel={e => e.currentTarget.blur()} />
             </div>
             )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col justify-end">
-              {payForm.amountUsd && (payForm.settlementCurrency === "PKR" || payForm.exchangeRate) && (
+              {payForm.amountUsd && payForm.exchangeRate && payForm.paidFrom !== "intermediary" && (
                 <div className="p-2 bg-green-50 border border-green-200 rounded text-sm text-green-800">
-                  PKR equiv: <strong>Rs. {settlementAmountToPkr(Number(payForm.amountUsd), payForm.settlementCurrency, Number(payForm.exchangeRate || 1)).toLocaleString("en-US", { maximumFractionDigits: 0 })}</strong>
+                  Actual settlement value: <strong>PKR {(Number(payForm.amountUsd) * Number(payForm.exchangeRate)).toLocaleString("en-US", { maximumFractionDigits: 0 })}</strong>
                 </div>
               )}
             </div>
@@ -413,18 +423,18 @@ export default function ShippingLinesPage() {
             <label className="block text-sm font-semibold text-blue-800 mb-1">Settlement Source *</label>
             <div className="flex gap-3">
               <label className="flex items-center gap-1.5 text-sm cursor-pointer">
-                <input type="radio" name="slPaidFrom" value="bank" checked={payForm.paidFrom === "bank"} onChange={() => setPayForm(f => ({ ...f, paidFrom: "bank", intermediaryId: "" }))} />
-                Bank Ledger
+                <input type="radio" name="slPaidFrom" value="account" checked={payForm.paidFrom === "account"} onChange={() => setPayForm(f => ({ ...f, paidFrom: "account", intermediaryId: "" }))} />
+                Bank / Cash Account
               </label>
               <label className="flex items-center gap-1.5 text-sm cursor-pointer">
                 <input type="radio" name="slPaidFrom" value="intermediary" checked={payForm.paidFrom === "intermediary"} onChange={() => setPayForm(f => ({ ...f, paidFrom: "intermediary", bankAccountId: "" }))} />
                 Intermediary Ledger
               </label>
             </div>
-            {payForm.paidFrom === "bank" && (
+            {payForm.paidFrom === "account" && (
               <select value={payForm.bankAccountId} onChange={e => setPayForm(f => ({ ...f, bankAccountId: e.target.value }))} className="select-field text-sm">
                 <option value="">Select bank account</option>
-                {bankAccounts.map((b: any) => <option key={b.id} value={b.id}>{b.bankName} {b.accountNumber || ""}</option>)}
+                {bankAccounts.filter((b: any) => ["PKR", "USD"].includes(String(b.currency?.code || "PKR"))).map((b: any) => <option key={`${b.accountScope}-${b.id}`} value={b.id}>{b.accountScope === "city" ? `${b.cityName} · ` : ""}{b.accountKind === "cash" ? "Cash" : "Bank"} · {b.bankName} {b.accountNumber || ""} · {b.currency?.code || "PKR"}</option>)}
               </select>
             )}
             {payForm.paidFrom === "intermediary" && (

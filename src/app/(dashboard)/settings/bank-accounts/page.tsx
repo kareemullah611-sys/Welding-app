@@ -356,7 +356,9 @@ export default function BankAccountsPage() {
     const r = await apiCall("/api/v1/haji-cash-receipts", {
       method: "POST",
       body: {
-        superAdminCashAccountId: ledgerAccount.id,
+        ...(ledgerAccount.accountKind === "cash"
+          ? { superAdminCashAccountId: ledgerAccount.id }
+          : { superAdminBankAccountId: ledgerAccount.id }),
         intermediaryId: receiveForm.intermediaryId,
         receiptDate: receiveForm.receiptDate,
         amount,
@@ -782,9 +784,11 @@ export default function BankAccountsPage() {
               )}
               </div>
               <div className="flex items-center gap-2">
+                {isSA && (
+                  <button type="button" onClick={openReceiveModal} className="glass-btn px-3 py-1.5 text-sm font-medium text-emerald-800">Receive from intermediary</button>
+                )}
                 {isHajiCashLedger && (
                   <>
-                    <button type="button" onClick={openReceiveModal} className="glass-btn px-3 py-1.5 text-sm font-medium text-emerald-800">Receive</button>
                     <select
                       onChange={(e) => { const v = e.target.value as SendKind; if (v) openSendModal(v); }}
                       className="glass-btn px-3 py-1.5 text-sm font-medium text-rose-800 bg-white cursor-pointer"

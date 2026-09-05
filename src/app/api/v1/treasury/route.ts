@@ -113,6 +113,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       where: { cityId, sourceType: "cash_office", approvedAt: { not: null } } as any,
       _sum: { amount: true },
     });
+    const liabilityCashEntriesRaw = await prisma.superAdminLiabilityEntry.groupBy({
+      by: ["currencyId"],
+      where: { cityId, sourceType: "city_cash" },
+      _sum: { liabilityEffect: true },
+    });
 
     // Resolve currency codes for all currency IDs encountered
     const allCurrencyIds = Array.from(
@@ -123,6 +128,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         ...expensesFromCashRaw.map((r) => r.currencyId),
         ...depositsRaw.map((r) => r.currencyId),
         ...withdrawalsRaw.map((r) => r.currencyId),
+        ...liabilityCashEntriesRaw.map((r) => r.currencyId),
       ])
     );
 
@@ -178,11 +184,17 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         total: Number(r._sum?.amount ?? 0),
       }))
     );
+    const liabilityCashEffect = toBalanceMap(
+      liabilityCashEntriesRaw.map((r) => ({
+        currencyCode: codeById[r.currencyId] ?? String(r.currencyId),
+        total: Number(r._sum.liabilityEffect ?? 0),
+      }))
+    );
 
-    const cashInOffice = subtractMap(
+    const cashInOffice = addMap(subtractMap(
       subtractMap(subtractMap(subtractMap(addMap(openingCash, cashIn), hajiCashOut), expenseCashOut), depositCashOut),
       withdrawalsCashOut
-    );
+    ), liabilityCashEffect);
 
     // ----------------------------------------------------------------
     // 2. CHEQUES IN HAND
@@ -293,10 +305,19 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       select: { id: true },
     });
     const cityBankAccountIds = cityBankAccounts.map((account) => account.id);
+    const liabilityBankEntries = await prisma.superAdminLiabilityEntry.findMany({
+      where: {
+        cityId,
+        sourceType: "city_bank",
+        bankAccountId: cityBankAccountIds.length > 0 ? { in: cityBankAccountIds } : { in: [-1] },
+      },
+      select: { bankAccountId: true, currencyId: true, liabilityEffect: true },
+    });
 
     const supplierPaymentsFromBank = await prisma.supplierPayment.findMany({
       where: {
         bankAccountId: cityBankAccountIds.length > 0 ? { in: cityBankAccountIds } : { in: [-1] },
+        deletedAt: null,
       },
       select: {
         bankAccountId: true,
@@ -314,6 +335,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       ...hajiFromBankRaw.map((r) => r.currencyId),
       ...expensesFromBankRaw.map((r) => r.currencyId),
       ...withdrawalsFromBankRaw.map((r) => r.currencyId),
+      ...liabilityBankEntries.map((r) => r.currencyId),
     ].filter((id) => !codeById[id]);
 
     if (newIds.length > 0) {
@@ -367,6 +389,18 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     const supplierBankOutByCurrency: Record<string, number> = {};
     const supplierBankOutByAccount = new Map<number, Record<string, number>>();
+    const liabilityBankEffectByCurrency: Record<string, number> = {};
+    const liabilityBankEffectByAccount = new Map<number, Record<string, number>>();
+    for (const entry of liabilityBankEntries) {
+      const currencyCode = codeById[entry.currencyId] ?? String(entry.currencyId);
+      const amount = Number(entry.liabilityEffect || 0);
+      liabilityBankEffectByCurrency[currencyCode] = (liabilityBankEffectByCurrency[currencyCode] || 0) + amount;
+      if (entry.bankAccountId) {
+        const accountPot = liabilityBankEffectByAccount.get(entry.bankAccountId) || {};
+        accountPot[currencyCode] = (accountPot[currencyCode] || 0) + amount;
+        liabilityBankEffectByAccount.set(entry.bankAccountId, accountPot);
+      }
+    }
     for (const payment of supplierPaymentsFromBank) {
       const amountLocal = Number(payment.amountLocal || 0);
       const amountUsd = Number(payment.amountUsd || 0);
@@ -390,7 +424,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     // bankBalance = openingBank + bankPaymentsIn + depositCashIn + depositedChequesIn - outflows
     let bankBalance = addMap(addMap(addMap(addMap(openingBankIn, bankPaymentsIn), depositCashOut), depositedChequesIn), {});
-    bankBalance = subtractMap(subtractMap(subtractMap(subtractMap(bankBalance, hajiFromBankOut), expenseBankOut), withdrawalBankOut), supplierBankOutByCurrency);
+    bankBalance = addMap(subtractMap(subtractMap(subtractMap(subtractMap(bankBalance, hajiFromBankOut), expenseBankOut), withdrawalBankOut), supplierBankOutByCurrency), liabilityBankEffectByCurrency);
 
     // ----------------------------------------------------------------
     // 4. Per-account bank breakdown
@@ -551,7 +585,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         }))
       );
 
-      const acctBalance = subtractMap(
+      const acctBalance = addMap(subtractMap(
         subtractMap(
           subtractMap(
             subtractMap(addMap(addMap(addMap(acctOpeningIn, acctBankPaymentsIn), acctDepositsIn), acctChequesIn), acctHajiOut),
@@ -560,7 +594,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           acctExpensesOut
         ),
         supplierBankOutByAccount.get(acct.id) || {}
-      );
+      ), liabilityBankEffectByAccount.get(acct.id) || {});
 
       perAccountBalances.push({
         id: acct.id,
