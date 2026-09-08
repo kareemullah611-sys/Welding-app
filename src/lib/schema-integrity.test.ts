@@ -1670,3 +1670,13 @@ test("city payments PDF uses the module treasury running-balance rules", () => {
     "payments export must apply active filters before calculating balances",
   );
 });
+
+test("payment create and edit cheque selectors share a responsive search filter", () => {
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+
+  assert.match(paymentsPage, /const \[chequeSearchQuery, setChequeSearchQuery\] = useState\(""\)/);
+  assert.match(paymentsPage, /const filteredHajiChequeOptions = filterPaymentChequeOptions\(hajiChequeOptions, chequeSearchQuery\)/);
+  assert.equal((paymentsPage.match(/filteredHajiChequeOptions\.map/g) || []).length, 2);
+  assert.equal((paymentsPage.match(/placeholder="Search cheques/g) || []).length, 2);
+  assert.match(paymentsPage, /className="[^\"]*w-full[^\"]*min-w-0|className="[^\"]*min-w-0[^\"]*w-full/);
+});

@@ -310,6 +310,23 @@ function preserveSignedPaymentAmount(value: number | null, rawValue: string): nu
   return rawValue === "-" || rawValue === "." || rawValue === "-." || rawValue.endsWith(".") ? rawValue : value || 0;
 }
 
+function filterPaymentChequeOptions(cheques: any[], query: string) {
+  const search = query.trim().toLowerCase();
+  if (!search) return cheques;
+  return cheques.filter((cheque: any) => {
+    const receivedDate = cheque.date || cheque.paymentDate || cheque.createdAt;
+    return [
+      cheque.chequeNumber,
+      cheque.manualVoucherNo,
+      cheque.id,
+      cheque.customer?.name,
+      cheque.amount,
+      receivedDate,
+      receivedDate ? formatDate(receivedDate) : "",
+    ].some((value) => String(value ?? "").toLowerCase().includes(search));
+  });
+}
+
 export default function PaymentsPage() {
   const { user } = useAuth();
   const { t } = useLang();
@@ -347,6 +364,7 @@ export default function PaymentsPage() {
   const [cityBankAccounts, setCityBankAccounts] = useState<any[]>([]);
   const [superAdminBankAccounts, setSuperAdminBankAccounts] = useState<any[]>([]);
   const [inHandCheques, setInHandCheques] = useState<any[]>([]);
+  const [chequeSearchQuery, setChequeSearchQuery] = useState("");
   const [settlementIntermediaries, setSettlementIntermediaries] = useState<any[]>([]);
   const [settlementCashAccounts, setSettlementCashAccounts] = useState<any[]>([]);
   const [settlementOptionsLoading, setSettlementOptionsLoading] = useState(false);
@@ -817,6 +835,7 @@ export default function PaymentsPage() {
     setResolvingQueueId(null);
     setPaymentSavedNotice(null);
     setShowLatestEntry(false);
+    setChequeSearchQuery("");
     setLatestCreatedEntry(await loadLatestCreateEntrySummary());
     const { loadedCurrencies } = await loadHelpers();
     const offlineReadinessError = getOfflineFormReadinessError({
@@ -1196,6 +1215,7 @@ export default function PaymentsPage() {
   };
 
   const openEdit = async (item: any) => {
+    setChequeSearchQuery("");
     if (item.type === "payment_reversal" || (item.type === "payment" && item.status === "cancelled")) return;
     setCreateFormReady(false);
     setCreateType(item.type);
@@ -2063,6 +2083,7 @@ export default function PaymentsPage() {
   ]
     .filter((cheque: any, index: number, rows: any[]) => cheque?.id && rows.findIndex((row: any) => row?.id === cheque.id) === index)
     .sort((a: any, b: any) => Number(b.id || 0) - Number(a.id || 0));
+  const filteredHajiChequeOptions = filterPaymentChequeOptions(hajiChequeOptions, chequeSearchQuery);
   const selectedHajiCheques = hajiChequeOptions.filter((cheque: any) => selectedHajiChequeIds.includes(cheque.id));
   const selectedHajiChequeTotal = selectedHajiCheques.reduce((sum: number, cheque: any) => sum + Number(cheque.amount || 0), 0);
   const withdrawalSourceValue = form.sourceType === "bank_account" && form.bankAccountId
@@ -2806,8 +2827,31 @@ export default function PaymentsPage() {
                   {hajiChequeOptions.length === 0 ? (
                     <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-700">No cheques in hand. Record a cheque payment first.</div>
                   ) : (
-                    <div className="max-h-52 overflow-auto rounded-lg border border-gray-200 divide-y divide-gray-100 bg-white">
-                      {hajiChequeOptions.map((cheque: any) => {
+                    <div className="min-w-0">
+                      <div className="relative mb-2 w-full min-w-0">
+                        <input
+                          type="text"
+                          value={chequeSearchQuery}
+                          onChange={(event) => setChequeSearchQuery(event.target.value)}
+                          placeholder="Search cheques by number, customer, amount or date"
+                          className="input-field w-full min-w-0 pr-10 text-sm"
+                        />
+                        {chequeSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setChequeSearchQuery("")}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full px-2 py-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                            aria-label="Clear cheque search"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                      <div className="max-h-52 overflow-auto rounded-lg border border-gray-200 divide-y divide-gray-100 bg-white">
+                      {filteredHajiChequeOptions.length === 0 && (
+                        <div className="p-3 text-center text-sm text-gray-500">No cheques match your search.</div>
+                      )}
+                      {filteredHajiChequeOptions.map((cheque: any) => {
                         const checked = selectedHajiChequeIds.includes(cheque.id);
                         const ref = cheque.chequeNumber || cheque.manualVoucherNo || String(cheque.id);
                         const symbol = cheque.currency?.symbol || cheque.currency?.code || "";
@@ -2840,6 +2884,7 @@ export default function PaymentsPage() {
                           </label>
                         );
                       })}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -3395,8 +3440,31 @@ export default function PaymentsPage() {
                       {hajiChequeOptions.length === 0 ? (
                         <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-700">No cheque details available for this transfer.</div>
                       ) : (
-                        <div className="max-h-52 overflow-auto rounded-lg border border-gray-200 divide-y divide-gray-100 bg-white">
-                          {hajiChequeOptions.map((cheque: any) => {
+                        <div className="min-w-0">
+                          <div className="relative mb-2 w-full min-w-0">
+                            <input
+                              type="text"
+                              value={chequeSearchQuery}
+                              onChange={(event) => setChequeSearchQuery(event.target.value)}
+                              placeholder="Search cheques by number, customer, amount or date"
+                              className="input-field w-full min-w-0 pr-10 text-sm"
+                            />
+                            {chequeSearchQuery && (
+                              <button
+                                type="button"
+                                onClick={() => setChequeSearchQuery("")}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full px-2 py-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                                aria-label="Clear cheque search"
+                              >
+                                ×
+                              </button>
+                            )}
+                          </div>
+                          <div className="max-h-52 overflow-auto rounded-lg border border-gray-200 divide-y divide-gray-100 bg-white">
+                          {filteredHajiChequeOptions.length === 0 && (
+                            <div className="p-3 text-center text-sm text-gray-500">No cheques match your search.</div>
+                          )}
+                          {filteredHajiChequeOptions.map((cheque: any) => {
                             const checked = selectedHajiChequeIds.includes(cheque.id);
                             const locked = cheque.chequeStatus && cheque.chequeStatus !== "in_hand";
                             const ref = cheque.chequeNumber || cheque.manualVoucherNo || String(cheque.id);
@@ -3431,6 +3499,7 @@ export default function PaymentsPage() {
                               </label>
                             );
                           })}
+                          </div>
                         </div>
                       )}
                     </div>
