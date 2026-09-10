@@ -55,7 +55,7 @@ export function BrandLoader({
   if (!fullscreen) return core;
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[radial-gradient(circle_at_50%_35%,#fafafa_0%,#f0f0f2_55%,#e8e8ec_100%)]">
+    <div className="brand-loader-fullscreen fixed inset-0 z-[9999] flex items-center justify-center bg-[radial-gradient(circle_at_50%_35%,#fafafa_0%,#f0f0f2_55%,#e8e8ec_100%)]">
       {core}
     </div>
   );
