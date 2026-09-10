@@ -41,6 +41,25 @@ test("Pakistan lot recognition carries the latest previous published rate backwa
   assert.equal(result.ok && result.daysCarriedBackward, 2);
 });
 
+test("Pakistan lot recognition uses the configured country fallback on the exact date when SBP is unavailable", () => {
+  const result = resolvePakistanUsdLotRecognitionRate({
+    transactionDate: "2026-08-22",
+    rates: [],
+    fallbackRates: [{
+      effectiveFrom: "2026-08-22",
+      rate: 282.5,
+      providerReference: "country_fallback_exchange_rates:1",
+    }],
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.ok && result.provider, "COUNTRY_FALLBACK");
+  assert.equal(result.ok && result.rate, 282.5);
+  assert.equal(result.ok && result.rateSourceDate, "2026-08-22");
+  assert.equal(result.ok && result.daysCarriedBackward, 0);
+  assert.equal(result.ok && result.businessAdjustmentPkr, 0);
+});
+
 test("qualifying actual documented initial rate overrides Pakistan market fallback without adding three", () => {
   const result = resolvePakistanUsdLotRecognitionRate({
     transactionDate: "2026-08-14",

@@ -16,22 +16,36 @@ export async function resolveLotRecognitionRateFromDb(input: {
   const transactionDate = dateOnly(input.transactionDate);
 
   if (countryCode === "PK") {
-    const [usd, pkr] = await Promise.all([
+    const [country, usd, pkr] = await Promise.all([
+      db.country.findUnique({ where: { code: countryCode }, select: { id: true } }),
       db.currency.findUnique({ where: { code: "USD" }, select: { id: true } }),
       db.currency.findUnique({ where: { code: "PKR" }, select: { id: true } }),
     ]);
-    if (!usd || !pkr) return { ok: false as const, missingReason: "USD and PKR currency records are required." };
-    const rows = await db.exchangeRate.findMany({
-      where: {
-        fromCurrencyId: usd.id,
-        toCurrencyId: pkr.id,
-        rateDate: { lte: input.transactionDate },
-        source: { in: ["SBP_OPEN_MARKET_CLOSING", "sbp_open_market_closing"] },
-        sellRate: { not: null },
-      },
-      orderBy: [{ rateDate: "desc" }, { id: "desc" }],
-      take: 30,
-    });
+    if (!country || !usd || !pkr) return { ok: false as const, missingReason: "Pakistan, USD, and PKR records are required." };
+    const [rows, fallbackRows] = await Promise.all([
+      db.exchangeRate.findMany({
+        where: {
+          fromCurrencyId: usd.id,
+          toCurrencyId: pkr.id,
+          rateDate: { lte: input.transactionDate },
+          source: { in: ["SBP_OPEN_MARKET_CLOSING", "sbp_open_market_closing"] },
+          sellRate: { not: null },
+        },
+        orderBy: [{ rateDate: "desc" }, { id: "desc" }],
+        take: 30,
+      }),
+      db.countryFallbackExchangeRate.findMany({
+        where: {
+          countryId: country.id,
+          fromCurrencyId: usd.id,
+          toCurrencyId: pkr.id,
+          effectiveFrom: { lte: input.transactionDate },
+          isActive: true,
+        },
+        orderBy: [{ effectiveFrom: "desc" }, { id: "desc" }],
+        take: 30,
+      }),
+    ]);
     return resolvePakistanUsdLotRecognitionRate({
       transactionDate,
       rates: rows.map((row: any) => ({
@@ -39,6 +53,11 @@ export async function resolveLotRecognitionRateFromDb(input: {
         buyRate: Number(row.buyRate || 0),
         sellRate: Number(row.sellRate || 0),
         providerReference: `exchange_rates:${row.id}`,
+      })),
+      fallbackRates: fallbackRows.map((row: any) => ({
+        effectiveFrom: dateOnly(row.effectiveFrom),
+        rate: Number(row.rate),
+        providerReference: `country_fallback_exchange_rates:${row.id}`,
       })),
     });
   }

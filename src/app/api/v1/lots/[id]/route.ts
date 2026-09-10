@@ -1013,6 +1013,7 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
       await tx.lotPurchase.deleteMany({ where: { lotId: id } });
       await tx.expense.deleteMany({ where: { lotId: id } });
       await tx.hajiTransfer.deleteMany({ where: { lotId: id } });
+      await tx.lotStatusHistory.deleteMany({ where: { lotId: id } });
       await tx.lot.delete({ where: { id } });
       await createAuditLog(user.userId, null, "lots", id, "delete", { lotNumber: lot.lotNumber }, undefined, getClientIP(request), tx);
     });
