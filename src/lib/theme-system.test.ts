@@ -36,3 +36,11 @@ test("dark mode preserves the product's warm burgundy and neutral design languag
   assert.match(css, /--border:\s*345\s+12%\s+28%/);
   assert.doesNotMatch(sidebar, /dark:(?:bg|from|via|to|border)-slate/);
 });
+
+test("completed lot rows keep a dark surface with a restrained completion accent", () => {
+  const lots = readFileSync("src/app/(dashboard)/lots/page.tsx", "utf8");
+
+  assert.match(lots, /dark:bg-emerald-950\/25/);
+  assert.match(lots, /dark:border-emerald-700\/50/);
+  assert.match(lots, /dark:hover:bg-emerald-900\/30/);
+});

@@ -1165,7 +1165,7 @@ export default function LotsPage() {
         data={lots}
         loading={loading}
         rowClassName={(lot: any) => user?.role === "super_admin" && lot.status === "completed"
-          ? "border-emerald-200 bg-emerald-50/80 hover:bg-emerald-100/80"
+          ? "border-emerald-200 bg-emerald-50/80 hover:bg-emerald-100/80 dark:border-emerald-700/50 dark:bg-emerald-950/25 dark:hover:bg-emerald-900/30"
           : ""}
         pagination={{ page, totalPages, total, onPageChange: setPage }}
       />
