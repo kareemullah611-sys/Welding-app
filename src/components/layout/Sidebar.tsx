@@ -33,13 +33,13 @@ const SIDEBAR_NAV_SCROLL_KEY = "mrf-sidebar-nav-scroll";
 const SIDEBAR_OPEN_GROUPS_KEY = "mrf-sidebar-open-groups";
 
 const SIDEBAR_SHELL =
-  "bg-white/40 dark:bg-slate-900/80 backdrop-blur-2xl backdrop-saturate-[1.8] border-white/60 dark:border-slate-700/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_0_0.5px_rgba(255,255,255,0.3),0_24px_60px_-24px_rgba(42,6,8,0.38)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_24px_60px_-24px_rgba(0,0,0,0.8)]";
+  "bg-white/40 dark:bg-[#21191c]/80 backdrop-blur-2xl backdrop-saturate-[1.8] border-white/60 dark:border-[#594148]/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_0_0.5px_rgba(255,255,255,0.3),0_24px_60px_-24px_rgba(42,6,8,0.38)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_24px_60px_-24px_rgba(0,0,0,0.8)]";
 
 // Mobile drawer only: a brighter frosted base. The mobile panel sits over a
 // dark scrim and the browser often weakens backdrop-filter on mobile, so the
 // too-transparent desktop base would composite into flat grey there.
 const SIDEBAR_SHELL_MOBILE =
-  "bg-gradient-to-b from-white/85 via-white/80 to-white/85 dark:from-slate-900/95 dark:via-slate-900/92 dark:to-slate-900/95 backdrop-blur-2xl backdrop-saturate-[1.8] border-white/60 dark:border-slate-700/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),inset_0_0_0_0.5px_rgba(255,255,255,0.4),0_24px_60px_-24px_rgba(42,6,8,0.38)]";
+  "bg-gradient-to-b from-white/85 via-white/80 to-white/85 dark:from-[#21191c]/95 dark:via-[#21191c]/92 dark:to-[#21191c]/95 backdrop-blur-2xl backdrop-saturate-[1.8] border-white/60 dark:border-[#594148]/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),inset_0_0_0_0.5px_rgba(255,255,255,0.4),0_24px_60px_-24px_rgba(42,6,8,0.38)]";
 
 // ─── Nav Config ───────────────────────────────────────────────────────────────
 interface NavItemDef {

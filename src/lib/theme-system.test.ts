@@ -26,3 +26,13 @@ test("dark mode defines semantic surfaces, form controls, financial states, char
   assert.match(css, /\.dark \.recharts-cartesian-grid/);
   assert.match(css, /@media print[\s\S]*color-scheme:\s*light/);
 });
+
+test("dark mode preserves the product's warm burgundy and neutral design language", () => {
+  const css = readFileSync("src/app/globals.css", "utf8");
+  const sidebar = readFileSync("src/components/layout/Sidebar.tsx", "utf8");
+
+  assert.match(css, /--background:\s*345\s+11%\s+8%/);
+  assert.match(css, /--surface:\s*345\s+10%\s+12%/);
+  assert.match(css, /--border:\s*345\s+12%\s+28%/);
+  assert.doesNotMatch(sidebar, /dark:(?:bg|from|via|to|border)-slate/);
+});
