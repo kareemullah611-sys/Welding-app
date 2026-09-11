@@ -407,6 +407,9 @@ export default function PaymentsPage() {
   const [showLatestEntry, setShowLatestEntry] = useState(false);
   const [createFormReady, setCreateFormReady] = useState(false);
   const [createFormVersion, setCreateFormVersion] = useState(0);
+  const clearPaymentCreateError = () => {
+    if (error) setError("");
+  };
   const prefillHandledRef = useRef(false);
   const createRequestRef = useRef<{ signature: string; requestId: string } | null>(null);
   const closeEmbed = useCallback(() => {
@@ -2191,6 +2194,13 @@ export default function PaymentsPage() {
 
       {/* ── CREATE MODAL ───────────────────────────────────────────────────── */}
       <Modal open={showCreate} onClose={() => { setShowCreate(false); setCreateFormReady(false); setPaymentSavedNotice(null); setLatestCreatedEntry(null); setShowLatestEntry(false); if (isEmbed) closeEmbed(); }} title={createTitle} size="md" inline={isEmbed} hideHeader={isEmbed} headerAccent={createType === "payment" ? "bg-emerald-500" : createType === "haji_transfer" ? "bg-indigo-500" : createType === "expense" ? "bg-rose-500" : "bg-amber-500"}>
+        <fieldset
+          disabled={submitting || savingQueue}
+          onChangeCapture={clearPaymentCreateError}
+          onInputCapture={clearPaymentCreateError}
+          className="m-0 min-w-0 border-0 p-0 disabled:cursor-wait"
+          aria-busy={submitting || savingQueue}
+        >
         <div onClick={() => setShowLatestEntry(false)}>
         {paymentSavedNotice && <ModalStatusNotice type="success" message={paymentSavedNotice} />}
         {latestCreatedEntry && (
@@ -3048,6 +3058,7 @@ export default function PaymentsPage() {
           )}
         </div>}
         </div>
+        </fieldset>
       </Modal>
 
       {/* ── EDIT MODAL ──────────────────────────────────────────────────────── */}

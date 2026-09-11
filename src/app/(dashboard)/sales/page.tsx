@@ -648,6 +648,10 @@ export default function SalesPage() {
     : Number(item.qty || 0) * Number(item.ratePerCarton || 0);
   const itemUsdAmount = (item: any) => isPcsItem(item) ? itemPieces(item) * Number(item.ratePerPieceUsd || 0) : 0;
   const totalAmount = form.items.reduce((sum, i) => sum + itemLocalAmount(i), 0);
+  const clearSaleCreateError = () => {
+    if (formError) setFormError("");
+    if (shortConfirmed) setShortConfirmed(false);
+  };
   const expandAutoLotItems = (items: any[], includeOwnCorrectQty = false) => {
     const expanded: any[] = [];
     for (const item of items) {
@@ -1343,6 +1347,13 @@ export default function SalesPage() {
       )}
       {/* ========== CREATE SALE MODAL ========== */}
       <Modal open={showCreate} onClose={() => { setShowCreate(false); setSaleCreateFormReady(false); setShortConfirmed(false); setFormError(""); setSaleSavedNotice(null); setLatestCreatedSale(null); setShowLatestSale(false); if (isEmbed) closeEmbed(); }} title={t("new_sale")} size={isEmbed ? "lg" : "xl"} inline={isEmbed} hideHeader={isEmbed} headerAccent="bg-blue-500">
+        <fieldset
+          disabled={submitting}
+          onChangeCapture={clearSaleCreateError}
+          onInputCapture={clearSaleCreateError}
+          className="m-0 min-w-0 border-0 p-0 disabled:cursor-wait"
+          aria-busy={submitting}
+        >
         <div onClick={() => setShowLatestSale(false)}>
         {saleSavedNotice && <ModalStatusNotice type="success" message={saleSavedNotice} />}
         {latestCreatedSale && (
@@ -1759,6 +1770,7 @@ export default function SalesPage() {
         </>
         )}
         </div>
+        </fieldset>
       </Modal>
 
       {/* ========== CANCEL SALE MODAL ========== */}
