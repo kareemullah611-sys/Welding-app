@@ -25,3 +25,7 @@ export async function lockSaleDiscount(db: DbClient, saleId: number): Promise<vo
 export async function lockIntermediaryUsdFifo(db: DbClient, intermediaryId: number): Promise<void> {
   await db.$executeRaw`SELECT pg_advisory_xact_lock(31003, ${intermediaryId}::int)`;
 }
+
+export async function lockLotProductReclassification(db: DbClient, lotId: number): Promise<void> {
+  await db.$executeRaw`SELECT pg_advisory_xact_lock(31004, ${lotId}::int)`;
+}
