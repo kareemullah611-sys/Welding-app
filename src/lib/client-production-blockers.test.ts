@@ -22,7 +22,7 @@ test("all audited stock mutations use the shared godown-product lock", () => {
   for (const path of paths) assert.match(read(path), /lockGodownProductStock/);
   assert.match(read(paths[3]), /prisma\.\$transaction/);
   const activation = read(paths[4]);
-  assert.match(activation, /journalSaleCOGS\([\s\S]*, tx\)/);
+  assert.match(activation, /journalSaleCOGSForLots\([\s\S]*, tx\)/);
   assert.doesNotMatch(activation, /Failed to post deferred COGS/);
 });
 

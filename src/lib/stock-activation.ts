@@ -1,5 +1,5 @@
 import prisma from "@/lib/prisma";
-import { journalSaleCOGS } from "@/lib/accounting";
+import { journalSaleCOGSForLots } from "@/lib/accounting";
 import { lockGodownProductStock } from "@/lib/financial-locks";
 
 /**
@@ -63,16 +63,16 @@ export async function autoActivateShortSales(godownId: number): Promise<number> 
         acc[lotId] = (acc[lotId] || 0) + Number(item.qty);
         return acc;
       }, {});
-      for (const [lotId, totalQtySold] of Object.entries(qtyByLot) as Array<[string, number]>) {
-        await journalSaleCOGS({
-          saleId: sale.id,
+      await journalSaleCOGSForLots({
+        saleId: sale.id,
+        allocations: (Object.entries(qtyByLot) as Array<[string, number]>).map(([lotId, totalQtySold]) => ({
           lotId: Number(lotId),
           totalQtySold,
-          saleDate: sale.saleDate,
-          cityId: sale.cityId,
-          createdBy: sale.createdBy,
-        }, tx);
-      }
+        })),
+        saleDate: sale.saleDate,
+        cityId: sale.cityId,
+        createdBy: sale.createdBy,
+      }, tx);
       activated++;
     }
     return activated;

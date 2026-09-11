@@ -3,7 +3,7 @@ import prisma from "@/lib/prisma";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middleware";
 import { createSaleSchema } from "@/lib/validations";
-import { journalSaleCreated, journalPaymentReceived, journalSaleCOGS } from "@/lib/accounting";
+import { journalSaleCreated, journalPaymentReceived, journalSaleCOGSForLots } from "@/lib/accounting";
 import {
   successResponse, paginatedResponse, validationError, errorResponse, serverError,
   getPaginationParams, getDateRange,
@@ -624,12 +624,14 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         acc[item.lotId!] = (acc[item.lotId!] || 0) + item.stockQty;
         return acc;
       }, {});
-      for (const [itemLotId, totalQtySold] of Object.entries(qtyByLot) as Array<[string, number]>) {
-        await journalSaleCOGS({
-          saleId: createdSale.id, lotId: Number(itemLotId), totalQtySold,
-          saleDate: createdSale.saleDate, cityId: createdSale.cityId, createdBy: user.userId,
-        }, tx);
-      }
+      await journalSaleCOGSForLots({
+        saleId: createdSale.id,
+        allocations: (Object.entries(qtyByLot) as Array<[string, number]>).map(([itemLotId, totalQtySold]) => ({
+          lotId: Number(itemLotId),
+          totalQtySold,
+        })),
+        saleDate: createdSale.saleDate, cityId: createdSale.cityId, createdBy: user.userId,
+      }, tx);
 
       if (syncMeta) {
         await tx.syncRequest.create({

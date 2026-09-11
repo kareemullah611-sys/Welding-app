@@ -143,7 +143,7 @@ export async function getExpenseAccountId(costType: string, db: DbClient = prism
   return getOrCreateAccount(entry.code, entry.name, "expense", undefined, db);
 }
 
-interface JournalLine { accountId: number; debit: number; credit: number; description: string; currencyCode?: string; }
+interface JournalLine { accountId: number; debit: number; credit: number; description: string; currencyCode?: string; lotId?: number | null; }
 
 function roundMoney(value: Prisma.Decimal.Value): number {
   return Number(new Prisma.Decimal(value).toDecimalPlaces(2).toString());
@@ -207,7 +207,7 @@ export async function createJournalEntries(
       transactionId, accountId: line.accountId, debit: line.debit, credit: line.credit,
       lineNumber: index + 1,
       currencyCode: line.currencyCode || meta.currencyCode, exchangeRate: meta.exchangeRate || null, description: line.description,
-      entityType: meta.entityType, entityId: meta.entityId, lotId: meta.lotId || null,
+      entityType: meta.entityType, entityId: meta.entityId, lotId: line.lotId ?? meta.lotId ?? null,
       cityId: meta.cityId || null, entryDate: meta.entryDate, createdBy: meta.createdBy,
     }));
   if (data.length > 0) {
@@ -243,7 +243,8 @@ export async function createJournalEntries(
             new Prisma.Decimal(row.credit).equals(next.credit) &&
             row.currencyCode === next.currencyCode &&
             row.entityType === next.entityType &&
-            row.entityId === next.entityId;
+            row.entityId === next.entityId &&
+            row.lotId === next.lotId;
         });
         if (same) return;
         throw new Error(`Journal transaction ${transactionId} already exists with different lines.`);
@@ -1406,20 +1407,50 @@ export async function journalSaleCOGS(params: {
   saleId: number; lotId: number; totalQtySold: number;
   saleDate: Date; cityId: number; createdBy: number;
 }, db: DbClient = prisma) {
-  const { saleId, lotId, saleDate, cityId, createdBy } = params;
-  const [sale, existing] = await Promise.all([
-    db.sale.findUnique({ where: { id: saleId }, select: { isOpeningImport: true } }),
-    db.journalEntry.findFirst({ where: { transactionId: `COGS-${saleId}`, lotId }, select: { id: true } }),
+  return journalSaleCOGSForLots({
+    saleId: params.saleId,
+    allocations: [{ lotId: params.lotId, totalQtySold: params.totalQtySold }],
+    saleDate: params.saleDate,
+    cityId: params.cityId,
+    createdBy: params.createdBy,
+  }, db);
+}
+
+export async function journalSaleCOGSForLots(params: {
+  saleId: number;
+  allocations: Array<{ lotId: number; totalQtySold: number }>;
+  saleDate: Date;
+  cityId: number;
+  createdBy: number;
+}, db: DbClient = prisma) {
+  const { saleId, allocations, saleDate, cityId, createdBy } = params;
+  const sale = await db.sale.findUnique({ where: { id: saleId }, select: { isOpeningImport: true } });
+  if (sale?.isOpeningImport) return;
+
+  const costs = await Promise.all(allocations.map(async ({ lotId, totalQtySold }) => ({
+    lotId,
+    amount: await calculateSaleCogsPkr({ saleId, lotId, totalQtySold }, db),
+  })));
+  const postable = costs.filter(({ amount }) => amount > 0);
+  if (!postable.length) return;
+
+  const [cogsAccountId, inventoryAccountId] = await Promise.all([
+    getCOGSAccountId(db),
+    getInventoryAccountId(db),
   ]);
-  if (sale?.isOpeningImport || existing) return;
+  const lines: JournalLine[] = postable.flatMap(({ lotId, amount }) => [
+    { accountId: cogsAccountId, debit: amount, credit: 0, description: `COGS — Sale #${saleId} · Lot #${lotId}`, lotId },
+    { accountId: inventoryAccountId, debit: 0, credit: amount, description: `Inventory reduction — Sale #${saleId} · Lot #${lotId}`, lotId },
+  ]);
 
-  const cogsAmount = await calculateSaleCogsPkr(params, db);
-  if (cogsAmount <= 0) return;
-
-  await createJournalEntries(`COGS-${saleId}`, [
-    { accountId: await getCOGSAccountId(db), debit: cogsAmount, credit: 0, description: `COGS — Sale #${saleId}` },
-    { accountId: await getInventoryAccountId(db), debit: 0, credit: cogsAmount, description: `Inventory reduction — Sale #${saleId}` },
-  ], { currencyCode: "PKR", entityType: "sale", entityId: saleId, lotId, cityId, entryDate: saleDate, createdBy }, db);
+  await createJournalEntries(`COGS-${saleId}`, lines, {
+    currencyCode: "PKR",
+    entityType: "sale",
+    entityId: saleId,
+    cityId,
+    entryDate: saleDate,
+    createdBy,
+  }, db);
 }
 
 export async function journalHistoricalOpeningStockAdjustment(params: {

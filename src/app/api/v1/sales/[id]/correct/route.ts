@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
-import { journalSaleCreated, journalSaleCOGS, reverseJournalEntries } from "@/lib/accounting";
+import { journalSaleCreated, journalSaleCOGSForLots, reverseJournalEntries } from "@/lib/accounting";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { canAccessGodown } from "@/lib/godown-access";
@@ -295,12 +295,14 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         acc[item.lotId] = (acc[item.lotId] || 0) + item.qty;
         return acc;
       }, {});
-      for (const [itemLotId, totalQtySold] of Object.entries(qtyByLot) as Array<[string, number]>) {
-        await journalSaleCOGS({
-          saleId, lotId: Number(itemLotId), totalQtySold,
-          saleDate: nextSaleDate, cityId: sale.cityId, createdBy: user.userId,
-        }, tx);
-      }
+      await journalSaleCOGSForLots({
+        saleId,
+        allocations: (Object.entries(qtyByLot) as Array<[string, number]>).map(([itemLotId, totalQtySold]) => ({
+          lotId: Number(itemLotId),
+          totalQtySold,
+        })),
+        saleDate: nextSaleDate, cityId: sale.cityId, createdBy: user.userId,
+      }, tx);
 
 	      await createAuditLog(user.userId, sale.cityId, "sales", saleId, "update",
 	        { items: oldItems, totalAmount: Number(sale.totalAmount), godownId: sale.godownId, lotId: sale.lotId, saleDate: sale.saleDate },
