@@ -875,18 +875,10 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
               godownAllocations: { select: { godownId: true, productId: true, qty: true } },
             },
           });
-          const [saleCount, godownTransferCount, cityTransferCount, targetDistributions] = await Promise.all([
-            tx.saleItem.count({ where: { lotId: id, productId: fromProductId } }),
-            tx.godownTransfer.count({ where: { lotId: id, productId: fromProductId } }),
-            tx.cityTransfer.count({ where: { lotId: id, productId: fromProductId } }),
-            tx.lotCityDistribution.findMany({
-              where: { lotId: id, productId: toProductId },
-              select: { cityId: true, allocatedQty: true },
-            }),
-          ]);
-          if (saleCount || godownTransferCount || cityTransferCount) {
-            throw new Error("PRODUCT_RECLASSIFICATION_HAS_MOVEMENTS");
-          }
+          const targetDistributions = await tx.lotCityDistribution.findMany({
+            where: { lotId: id, productId: toProductId },
+            select: { cityId: true, allocatedQty: true },
+          });
           const sourceCityIds = new Set(sourceDistributions.map(({ cityId }) => cityId));
           if (targetDistributions.some(({ cityId }) => sourceCityIds.has(cityId))) {
             throw new Error("PRODUCT_RECLASSIFICATION_COLLISION");
@@ -906,6 +898,20 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
             where: { id: { in: distributionIds } },
             data: { productId: toProductId },
           });
+          const [saleItems, godownTransfers, cityTransfers] = await Promise.all([
+            tx.saleItem.updateMany({
+              where: { lotId: id, productId: fromProductId },
+              data: { productId: toProductId },
+            }),
+            tx.godownTransfer.updateMany({
+              where: { lotId: id, productId: fromProductId },
+              data: { productId: toProductId },
+            }),
+            tx.cityTransfer.updateMany({
+              where: { lotId: id, productId: fromProductId },
+              data: { productId: toProductId },
+            }),
+          ]);
           await createAuditLog(
             user.userId,
             null,
@@ -916,6 +922,13 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
             {
               action: "reclassify_product",
               productId: toProductId,
+              descendantsUpdated: {
+                cityDistributions: sourceDistributions.length,
+                godownAllocations: sourceDistributions.reduce((sum, row) => sum + row.godownAllocations.length, 0),
+                saleItems: saleItems.count,
+                godownTransfers: godownTransfers.count,
+                cityTransfers: cityTransfers.count,
+              },
               distributions: sourceDistributions.map((distribution) => ({
                 ...distribution,
                 godownAllocations: distribution.godownAllocations.map((allocation) => ({ ...allocation, productId: toProductId })),
@@ -1057,9 +1070,6 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     }
     if (error?.message === "AMBIGUOUS_PRODUCT_RECLASSIFICATION") {
       return errorResponse("VALIDATION_ERROR", "Distributed products must be corrected one-to-one; split or partial product corrections are not allowed", 400);
-    }
-    if (error?.message === "PRODUCT_RECLASSIFICATION_HAS_MOVEMENTS") {
-      return errorResponse("VALIDATION_ERROR", "This product cannot be corrected because stock has already been sold or transferred", 400);
     }
     if (error?.message === "PRODUCT_RECLASSIFICATION_COLLISION") {
       return errorResponse("VALIDATION_ERROR", "The corrected product is already distributed to one of the same cities; resolve that distribution first", 400);

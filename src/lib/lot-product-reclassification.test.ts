@@ -22,11 +22,11 @@ test("lot edit reclassifies distributed and godown-assigned stock with its corre
   assert.match(route, /action: "reclassify_product"/);
 });
 
-test("lot product reclassification is blocked after sales or transfers", () => {
-  assert.match(route, /saleItem\.count/);
-  assert.match(route, /godownTransfer\.count/);
-  assert.match(route, /cityTransfer\.count/);
-  assert.match(route, /cannot be corrected because stock has already been sold or transferred/i);
+test("lot product reclassification cascades through sales and transfers", () => {
+  assert.match(route, /saleItem\.updateMany/);
+  assert.match(route, /godownTransfer\.updateMany/);
+  assert.match(route, /cityTransfer\.updateMany/);
+  assert.doesNotMatch(route, /PRODUCT_RECLASSIFICATION_HAS_MOVEMENTS/);
 });
 
 test("lot product reclassification rejects ambiguous mappings and destination collisions", () => {
