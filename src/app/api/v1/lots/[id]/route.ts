@@ -863,6 +863,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
           data.purchaseItems!,
           nextProductIds,
           new Set(distributedProductRows.map(({ productId }) => productId)),
+          data.productReclassifications,
         );
 
         for (const { fromProductId, toProductId } of productReclassifications) {

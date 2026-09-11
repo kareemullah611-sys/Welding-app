@@ -193,6 +193,10 @@ export const updateLotSchema = z.object({
   etaDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
   notes: z.string().optional().nullable(),
   purchaseItems: z.array(updateLotPurchaseItemSchema).min(1).optional(),
+  productReclassifications: z.array(z.object({
+    fromProductId: z.number().int().positive(),
+    toProductId: z.number().int().positive(),
+  })).optional(),
 });
 
 

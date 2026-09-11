@@ -109,6 +109,11 @@ export default function LotsPage() {
   const [editLotId,    setEditLotId]    = useState<number | null>(null);
   const [editForm,     setEditForm]     = useState<LotFormState>(emptyLotForm());
   const [editWarnings, setEditWarnings] = useState<string[]>([]);
+  const [staleProductAssignments, setStaleProductAssignments] = useState<Array<{
+    fromProductId: number;
+    fromProductName: string;
+    toProductId: number;
+  }>>([]);
 
   // PKR rate + add cost
   const [pkrRateInput,  setPkrRateInput]  = useState("");
@@ -972,6 +977,26 @@ export default function LotsPage() {
     const r = await apiCall(`/api/v1/lots/${lot.id}`);
     if (!r.success) { alert("Failed to load lot"); return; }
     const d = r.data as any;
+    const currentProductIds = new Set<number>((d.products || []).map((product: any) => Number(product.productId)));
+    const distributedProductIds = new Set<number>((d.distributions || []).map((distribution: any) => Number(distribution.productId)));
+    const availableTargets = (d.products || []).filter((product: any) => !distributedProductIds.has(Number(product.productId)));
+    const staleByProduct = new Map<number, string>();
+    for (const distribution of d.distributions || []) {
+      const productId = Number(distribution.productId);
+      if (!currentProductIds.has(productId)) staleByProduct.set(productId, String(distribution.productName || `Product #${productId}`));
+    }
+    setStaleProductAssignments([...staleByProduct].map(([fromProductId, fromProductName]) => {
+      const normalizedSource = fromProductName.trim().toLowerCase();
+      const matchingTargets = availableTargets.filter((product: any) => {
+        const targetName = String(product.productName || "").trim().toLowerCase();
+        return targetName === normalizedSource || targetName.endsWith(`-${normalizedSource}`);
+      });
+      return {
+        fromProductId,
+        fromProductName,
+        toProductId: matchingTargets.length === 1 ? Number(matchingTargets[0].productId) : 0,
+      };
+    }));
     setEditLotId(d.id);
     setEditForm({
       countryId: d.country?.id || 0,
@@ -998,8 +1023,17 @@ export default function LotsPage() {
     if (!editForm.countryId || !editForm.lotNumber || !validItems.length) {
       setFormError("Fill country, lot number and at least one complete invoice line"); return;
     }
+    if (staleProductAssignments.some((mapping) => !mapping.toProductId)) {
+      setFormError("Select the corrected product for every existing distribution"); return;
+    }
+    const requestBody = {
+      ...body,
+      ...(staleProductAssignments.length ? {
+        productReclassifications: staleProductAssignments.map(({ fromProductId, toProductId }) => ({ fromProductId, toProductId })),
+      } : {}),
+    };
     setSubmitting(true); setEditWarnings([]);
-    const r = await apiCall(`/api/v1/lots/${editLotId}`, { method: "PUT", body });
+    const r = await apiCall(`/api/v1/lots/${editLotId}`, { method: "PUT", body: requestBody });
     setSubmitting(false);
     if (r.success) {
       setShowEditLot(false);
@@ -1727,6 +1761,33 @@ export default function LotsPage() {
           <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
             <p className="font-semibold text-amber-800 mb-1">Please review:</p>
             {editWarnings.map((w, i) => <p key={i} className="text-amber-700 text-xs">{w}</p>)}
+          </div>
+        )}
+        {staleProductAssignments.length > 0 && (
+          <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <p className="mb-2 text-sm font-semibold text-amber-800">Repair existing product assignments</p>
+            <p className="mb-3 text-xs text-amber-700">Choose the corrected product for each product already assigned to cities and godowns. Quantities and locations will not change.</p>
+            <div className="grid gap-2">
+              {staleProductAssignments.map((mapping) => (
+                <label key={mapping.fromProductId} className="grid items-center gap-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+                  <span className="font-medium text-gray-700">{mapping.fromProductName}</span>
+                  <span className="text-gray-400">→</span>
+                  <select
+                    value={mapping.toProductId || ""}
+                    onChange={(event) => setStaleProductAssignments((rows) => rows.map((row) => (
+                      row.fromProductId === mapping.fromProductId ? { ...row, toProductId: Number(event.target.value) } : row
+                    )))}
+                    className="input text-sm"
+                  >
+                    <option value="">Select corrected product</option>
+                    {(editForm.purchaseItems || []).map((item: any) => {
+                      const product = products.find((row: any) => row.id === Number(item.productId));
+                      return product ? <option key={product.id} value={product.id}>{product.name}</option> : null;
+                    })}
+                  </select>
+                </label>
+              ))}
+            </div>
           </div>
         )}
         {renderLotInvoiceForm(editForm, setEditForm)}

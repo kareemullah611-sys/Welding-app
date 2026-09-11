@@ -4,6 +4,7 @@ import test from "node:test";
 import { buildProductReclassifications } from "./lot-product-reclassification";
 
 const route = readFileSync("src/app/api/v1/lots/[id]/route.ts", "utf8");
+const lotsPage = readFileSync("src/app/(dashboard)/lots/page.tsx", "utf8");
 
 test("lot edit reclassifies distributed and godown-assigned stock with its corrected product", () => {
   assert.deepEqual(
@@ -53,4 +54,20 @@ test("removing a distributed product without an identifiable replacement is reje
     ),
     /AMBIGUOUS_PRODUCT_RECLASSIFICATION/,
   );
+});
+
+test("an already-inconsistent lot can provide an explicit one-to-one recovery mapping", () => {
+  assert.deepEqual(
+    buildProductReclassifications(
+      [{ id: 7, productId: 20 }],
+      [{ id: 7, productId: 20 }],
+      new Set([20]),
+      new Set([10]),
+      [{ fromProductId: 10, toProductId: 20 }],
+    ),
+    [{ fromProductId: 10, toProductId: 20 }],
+  );
+  assert.match(route, /data\.productReclassifications/);
+  assert.match(lotsPage, /Repair existing product assignments/);
+  assert.match(lotsPage, /productReclassifications/);
 });

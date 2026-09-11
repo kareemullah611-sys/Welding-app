@@ -8,6 +8,7 @@ export function buildProductReclassifications(
   incomingPurchases: IncomingPurchase[],
   nextProductIds: Set<number>,
   distributedProductIds: Set<number>,
+  explicitMappings: ProductReclassification[] = [],
 ): ProductReclassification[] {
   const incomingById = new Map(
     incomingPurchases.filter((item): item is IncomingPurchase & { id: number } => Boolean(item.id)).map((item) => [item.id, item]),
@@ -19,6 +20,19 @@ export function buildProductReclassifications(
     const targets = targetsBySource.get(existing.productId) || new Set<number>();
     targets.add(incoming.productId);
     targetsBySource.set(existing.productId, targets);
+  }
+  for (const mapping of explicitMappings) {
+    if (
+      mapping.fromProductId === mapping.toProductId
+      || !distributedProductIds.has(mapping.fromProductId)
+      || nextProductIds.has(mapping.fromProductId)
+      || !nextProductIds.has(mapping.toProductId)
+    ) {
+      throw new Error("AMBIGUOUS_PRODUCT_RECLASSIFICATION");
+    }
+    const targets = targetsBySource.get(mapping.fromProductId) || new Set<number>();
+    targets.add(mapping.toProductId);
+    targetsBySource.set(mapping.fromProductId, targets);
   }
 
   const result: ProductReclassification[] = [];
