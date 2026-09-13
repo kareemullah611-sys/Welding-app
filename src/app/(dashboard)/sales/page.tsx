@@ -1879,7 +1879,7 @@ export default function SalesPage() {
                         <td className="px-3 py-3 text-[#52525b]">{item.lot?.lotNumber || voucherSale.lot?.lotNumber || "—"}</td>
                         <td className="px-3 py-3 text-right tabular-nums text-[#3f3f46]">
                           {Number(item.cartonQty ?? item.qty ?? 0).toLocaleString("en-US")}
-                          <span className="ml-1 text-[10px] uppercase text-[#8a8a93]">{item.cartonQty != null ? "ctn" : item.unitOfMeasure || ""}</span>
+                          <span className="ml-1 text-[10px] uppercase text-[#8a8a93]">ctn</span>
                         </td>
                         <td className="px-3 py-3 text-right tabular-nums text-[#3f3f46]">
                           <span className="block">{formatVoucherAmount(item.ratePerCarton)}</span>

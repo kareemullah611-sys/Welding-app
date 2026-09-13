@@ -1754,3 +1754,14 @@ test("sale reference opens a read-only professional voucher modal", () => {
   assert.match(saleDetailRoute, /ratePerPieceLocal: i\.ratePerPieceLocal === null \? null : Number\(i\.ratePerPieceLocal\)/);
   assert.match(saleDetailRoute, /amountUsd: i\.amountUsd === null \? null : Number\(i\.amountUsd\)/);
 });
+
+test("sale voucher labels sold quantity as cartons instead of product purchase UOM", () => {
+  const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
+  const voucherStart = salesPage.indexOf("READ-ONLY SALE VOUCHER");
+  const voucherEnd = salesPage.indexOf("CANCEL SALE MODAL", voucherStart);
+  const voucher = salesPage.slice(voucherStart, voucherEnd);
+
+  assert.match(voucher, /item\.cartonQty \?\? item\.qty/);
+  assert.match(voucher, />ctn<\/span>/);
+  assert.doesNotMatch(voucher, /item\.unitOfMeasure/);
+});
