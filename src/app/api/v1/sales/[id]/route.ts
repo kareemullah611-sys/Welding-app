@@ -30,8 +30,15 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       currency: { id: sale.currency.id, code: sale.currency.code, symbol: sale.currency.symbol },
       items: sale.items.map((i) => ({
         id: i.id, productId: i.productId, productName: i.product.name,
+        unitOfMeasure: i.product.unitOfMeasure, piecesPerCarton: i.product.piecesPerCarton,
         lotId: i.lotId, lot: i.lot,
-        qty: Number(i.qty), ratePerCarton: Number(i.ratePerCarton), amount: Number(i.amount),
+        qty: Number(i.qty),
+        cartonQty: i.cartonQty === null ? null : Number(i.cartonQty),
+        ratePerCarton: Number(i.ratePerCarton),
+        ratePerPieceLocal: i.ratePerPieceLocal === null ? null : Number(i.ratePerPieceLocal),
+        ratePerPieceUsd: i.ratePerPieceUsd === null ? null : Number(i.ratePerPieceUsd),
+        amount: Number(i.amount),
+        amountUsd: i.amountUsd === null ? null : Number(i.amountUsd),
       })),
       discounts: sale.discounts.map((d) => ({
         id: d.id, amount: Number(d.discountAmount), date: d.discountDate.toISOString().split("T")[0],

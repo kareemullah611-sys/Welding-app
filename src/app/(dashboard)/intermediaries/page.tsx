@@ -3,7 +3,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, DataTable, Modal, formatNumber, formatDate, RowActionMenu } from "@/components/ui";
+import { PageHeader, DataTable, Modal, formatNumber, formatDate, RowActionMenu, FilterMenu } from "@/components/ui";
 import ExcelJS from "exceljs";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { getPendingIntermediaries } from "@/lib/offline-queue-overlays";
@@ -840,7 +840,12 @@ export default function IntermediariesPage() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-gray-200 bg-gray-50/60 px-2.5 py-1.5 text-xs">
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50/60 px-2.5 py-1.5 text-xs">
+            <FilterMenu
+              activeCount={Number(ledgerDateFilter !== "all") + Number(Boolean(ledgerCurrencyFilter))}
+              onClear={() => { setLedgerDateFilter("all"); setLedgerCurrencyFilter(""); setCustomStartDate(""); setCustomEndDate(""); }}
+            >
+            <div className="flex flex-col gap-2">
             <label className="flex items-center gap-1.5 text-gray-600">
               <span className="font-medium">Date</span>
               <select
@@ -898,6 +903,9 @@ export default function IntermediariesPage() {
                 Clear
               </button>
             )}
+            </div>
+            </FilterMenu>
+            <div className="flex items-center gap-2">
             <span className="ml-auto text-gray-400">
               {total > 0 && `${ledgerPage}/${totalPages} · ${total}`}
             </span>
@@ -907,6 +915,7 @@ export default function IntermediariesPage() {
             {ledgerPage < totalPages && (
               <button onClick={() => handleLedgerPageChange(ledgerPage + 1)} className="text-gray-600 hover:text-gray-800">→</button>
             )}
+            </div>
           </div>
 
           {ledgerLoading ? (

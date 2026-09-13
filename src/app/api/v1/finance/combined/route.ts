@@ -34,6 +34,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
     const destinationFilter = sp.get("destination");
     const paymentMethodFilter = sp.get("payment_method") as "cash" | "bank_transfer" | "cheque" | "online" | null;
     const chequeStatusFilter = sp.get("cheque_status") as "in_hand" | "deposited_to_bank" | "sent_to_haji" | "used_for_expense" | "used_for_liability" | "used_for_withdrawal" | "bounced" | null;
+    const isChequeRegisterRequest = typeFilter === "payment" && paymentMethodFilter === "cheque";
     const fromDate = sp.get("from_date");
     const toDate = sp.get("to_date");
     const query = (sp.get("q") || "").trim();
@@ -87,7 +88,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           ...dateWhere("paymentDate"),
           ...(destinationFilter ? { destination: destinationFilter } : {}),
           ...(paymentMethodFilter ? { paymentMethod: paymentMethodFilter } : {}),
-          ...(chequeStatusFilter ? { chequeStatus: chequeStatusFilter } : {}),
+          ...(!isChequeRegisterRequest && chequeStatusFilter ? { chequeStatus: chequeStatusFilter } : {}),
           ...(shouldApplySearch && !isNumericLikeQuery
             ? {
                 OR: [
@@ -555,6 +556,32 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
       });
     }
 
+    const chequeStatusCounts = isChequeRegisterRequest
+      ? combined.reduce((counts, item) => {
+          if (item.type !== "payment") return counts;
+          const status = String(item.raw?.chequeStatus || "in_hand");
+          counts.all += 1;
+          if (status in counts) counts[status] += 1;
+          return counts;
+        }, {
+          all: 0,
+          in_hand: 0,
+          deposited_to_bank: 0,
+          sent_to_haji: 0,
+          used_for_expense: 0,
+          used_for_liability: 0,
+          used_for_withdrawal: 0,
+          bounced: 0,
+        } as Record<string, number>)
+      : undefined;
+
+    if (isChequeRegisterRequest) {
+      combined = combined.filter((item) => item.type === "payment");
+      if (chequeStatusFilter) {
+        combined = combined.filter((item) => (item.raw?.chequeStatus || "in_hand") === chequeStatusFilter);
+      }
+    }
+
     const total = combined.length;
     const skip = (page - 1) * limit;
     const items = combined.slice(skip, skip + limit);
@@ -564,6 +591,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
 
     return paginatedResponse(items, total, page, limit, undefined, {
       currentBalanceByCurrency,
+      ...(chequeStatusCounts ? { chequeStatusCounts } : {}),
     });
   } catch (error) {
     console.error("Finance combined error:", error);

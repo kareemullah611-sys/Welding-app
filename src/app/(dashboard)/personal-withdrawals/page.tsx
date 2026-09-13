@@ -3,7 +3,7 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, DataTable, Modal, formatNumber, formatDate, RowActionMenu } from "@/components/ui";
+import { PageHeader, DataTable, Modal, formatNumber, formatDate, RowActionMenu, FilterMenu } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
 import { getEmbedQuickformPath, shouldSimplifyCityModals } from "@/lib/quickform-embed";
@@ -851,7 +851,9 @@ export default function PersonalWithdrawalsPage() {
         </div>
       )}
 
-      {!isEmbed && <div className="mb-4 flex flex-wrap items-center gap-2">
+      {!isEmbed && <div className="mb-4 flex justify-end">
+        <FilterMenu activeCount={Number(statusFilter !== "all")} onClear={() => setStatusFilter("all")}>
+        <div className="flex flex-col gap-2">
         <button
           type="button"
           onClick={() => setStatusFilter("all")}
@@ -873,6 +875,8 @@ export default function PersonalWithdrawalsPage() {
         >
           Approved ({counts.approved})
         </button>
+        </div>
+        </FilterMenu>
       </div>}
 
       {/* Pending approvals summary for super admin */}

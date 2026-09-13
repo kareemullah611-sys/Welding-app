@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, DataTable, StatsCard, EmptyState, formatNumber, formatDate } from "@/components/ui";
+import { PageHeader, DataTable, StatsCard, EmptyState, formatNumber, formatDate, FilterMenu } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { openLedgerExport } from "@/lib/ledger-export";
@@ -515,6 +515,12 @@ export default function ReportsPage() {
                 <option value="discount_history">{reportLabels.discount_history}</option>
               </select>
             </div>
+            <FilterMenu
+              className="self-end"
+              activeCount={Number(Boolean(filters.city_id)) + Number(Boolean(filters.customer_id)) + Number(datePreset !== "all")}
+              onClear={() => { setFilters((current) => ({ ...current, city_id: "", customer_id: "" })); applyDatePreset("all"); }}
+            >
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {showCityFilter && (
               <div>
                 <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-[#71717a]">{t("city")}</label>
@@ -579,6 +585,8 @@ export default function ReportsPage() {
                 </div>
               </>
             )}
+            </div>
+            </FilterMenu>
           </div>
 
           <div className="flex flex-wrap items-center gap-3 border-t border-[#ececee] pt-4">

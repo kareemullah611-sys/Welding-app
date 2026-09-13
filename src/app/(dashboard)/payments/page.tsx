@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, DataTable, Modal, StatusBadge, ModalStatusNotice, formatDate, RowActionMenu, MobileDateInput, FormattedNumberInput, ModalFormSkeleton } from "@/components/ui";
+import { PageHeader, DataTable, Modal, StatusBadge, ModalStatusNotice, formatDate, RowActionMenu, MobileDateInput, FormattedNumberInput, ModalFormSkeleton, FilterMenu } from "@/components/ui";
 import CustomerFieldWithNew from "@/components/CustomerFieldWithNew";
 import WithdraweeFieldWithNew from "@/components/WithdraweeFieldWithNew";
 import { useLang } from "@/lib/lang";
@@ -2097,8 +2097,8 @@ export default function PaymentsPage() {
     <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
       {!isEmbed && <PageHeader title={isSuperAdmin ? "Haji Payments" : t("payments")} />}
       {!isEmbed && (
-        <div className="mb-3 grid grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap">
-          <div className="relative col-span-2 min-w-0 sm:col-span-1 sm:min-w-[7rem] sm:flex-1 sm:max-w-xs">
+        <div className="mb-3 flex items-center gap-2">
+          <div className="relative min-w-[7rem] flex-1 max-w-xs">
             <input
               type="text"
               value={searchQuery}
@@ -2117,11 +2117,16 @@ export default function PaymentsPage() {
               </button>
             )}
           </div>
+          <FilterMenu
+            activeCount={Number(!isSuperAdmin && typeFilter !== "all") + Number(dateRangePreset !== "all")}
+            onClear={() => { if (!isSuperAdmin) setTypeFilter("all"); applyDatePreset("all"); }}
+          >
+          <div className="flex flex-col gap-2">
           {!isSuperAdmin && (
             <select
               value={typeFilter}
               onChange={e => setTypeFilter(e.target.value)}
-              className="select-field h-8 min-w-0 w-full text-xs sm:w-auto"
+              className="select-field h-8 min-w-0 w-full text-xs"
             >
               <option value="all">All types</option>
               <option value="payment">Payments</option>
@@ -2133,7 +2138,7 @@ export default function PaymentsPage() {
           <select
             value={dateRangePreset}
             onChange={(e) => applyDatePreset(e.target.value as "today" | "last7" | "month" | "all" | "custom")}
-            className="select-field h-8 min-w-0 w-full text-xs sm:w-auto"
+            className="select-field h-8 min-w-0 w-full text-xs"
             aria-label="Date range preset"
           >
             <option value="month">This month</option>
@@ -2148,16 +2153,18 @@ export default function PaymentsPage() {
                 type="date"
                 value={fromDate}
                 onChange={(e) => setFromDate(e.target.value)}
-                className="input-field h-8 min-w-0 w-full text-xs sm:w-[8.5rem]"
+                className="input-field h-8 min-w-0 w-full text-xs"
               />
               <input
                 type="date"
                 value={toDate}
                 onChange={(e) => setToDate(e.target.value)}
-                className="input-field h-8 min-w-0 w-full text-xs sm:w-[8.5rem]"
+                className="input-field h-8 min-w-0 w-full text-xs"
               />
             </>
           )}
+          </div>
+          </FilterMenu>
           <LedgerExportButtons
             type={paymentExportType}
             dateFrom={fromDate || undefined}
@@ -2166,7 +2173,7 @@ export default function PaymentsPage() {
             ledgerType={!isSuperAdmin ? typeFilter : undefined}
             query={searchQuery}
             disabled={!isOnline}
-            className="col-span-2 justify-end sm:ml-auto"
+            className="ml-auto shrink-0 justify-end"
           />
         </div>
       )}

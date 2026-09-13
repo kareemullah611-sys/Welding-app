@@ -3,7 +3,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
-import { PageHeader, DataTable, Modal, formatNumber, formatDate, RowActionMenu, MobileDateInput, FormattedNumberInput } from "@/components/ui";
+import { PageHeader, DataTable, Modal, formatNumber, formatDate, RowActionMenu, MobileDateInput, FormattedNumberInput, FilterMenu } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
 import { getEmbedQuickformPath, shouldSimplifyCityModals } from "@/lib/quickform-embed";
@@ -1041,16 +1041,13 @@ export default function HajiTransfersPage() {
     <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
       {!isEmbed && <PageHeader
         title={t("haji_transfers")}
-        action={user?.role === "city_admin" ? (
-          <div className="flex flex-wrap items-center gap-2">
+        action={(
+          <FilterMenu activeCount={Number(Boolean(filterFrom)) + Number(Boolean(filterTo))} onClear={() => { setFilterFrom(""); setFilterTo(""); }}>
+          <div className="flex flex-col gap-2">
             <MobileDateInput variant="filter" value={filterFrom} onChange={setFilterFrom} placeholder="From" aria-label="From date" />
             <MobileDateInput variant="filter" value={filterTo} onChange={setFilterTo} placeholder="To" aria-label="To date" />
           </div>
-        ) : (
-          <div className="flex flex-wrap items-center gap-2">
-            <MobileDateInput variant="filter" value={filterFrom} onChange={setFilterFrom} placeholder="From" aria-label="From date" />
-            <MobileDateInput variant="filter" value={filterTo} onChange={setFilterTo} placeholder="To" aria-label="To date" />
-          </div>
+          </FilterMenu>
         )}
       />}
       {!isEmbed && showOfflineSnapshot && (

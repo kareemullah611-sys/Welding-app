@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, DataTable, Modal, StatusBadge, ModalStatusNotice, formatCurrency, formatDate, RowActionMenu, MobileDateInput, ModalFormSkeleton } from "@/components/ui";
+import { PageHeader, DataTable, Modal, StatusBadge, ModalStatusNotice, formatCurrency, formatDate, RowActionMenu, MobileDateInput, ModalFormSkeleton, FilterMenu } from "@/components/ui";
 import CustomerFieldWithNew from "@/components/CustomerFieldWithNew";
 import { useLang } from "@/lib/lang";
 import { safeParseQueuedBody } from "@/lib/queue-resolve";
@@ -207,6 +207,10 @@ export default function SalesPage() {
   const [showCancel, setShowCancel] = useState(false);
   const [showDiscount, setShowDiscount] = useState(false);
   const [showCorrect, setShowCorrect] = useState(false);
+  const [showVoucher, setShowVoucher] = useState(false);
+  const [voucherSale, setVoucherSale] = useState<any>(null);
+  const [voucherLoading, setVoucherLoading] = useState(false);
+  const [voucherError, setVoucherError] = useState("");
   const [saleCreateFormReady, setSaleCreateFormReady] = useState(false);
   const [saleCorrectFormReady, setSaleCorrectFormReady] = useState(false);
   const [correctItems, setCorrectItems] = useState<any[]>([]);
@@ -851,6 +855,21 @@ export default function SalesPage() {
     return () => document.removeEventListener("pointerdown", handleOutside, true);
   }, [showLatestSale]);
 
+  const openSaleVoucher = async (sale: any) => {
+    setVoucherSale(sale);
+    setVoucherError("");
+    setShowVoucher(true);
+    if (!isOnline || String(sale?.id || "").startsWith("pending-")) return;
+    setVoucherLoading(true);
+    const result = await apiCall(`/api/v1/sales/${sale.id}`);
+    setVoucherLoading(false);
+    if (result.success) {
+      setVoucherSale((current: any) => ({ ...current, ...(result.data as any) }));
+    } else {
+      setVoucherError(result.error || "Could not load complete sale details");
+    }
+  };
+
   // Hard delete sale (super admin + 2FA)
   const openHardDelete = (sale: any) => { setHardDeleteTarget(sale); setHardDeletePassword(""); setHardDeleteError(""); setShowHardDelete(true); };
   const handleHardDelete = async () => {
@@ -1080,7 +1099,16 @@ export default function SalesPage() {
     label: simplifyModals ? "Ref. No." : t("voucher_hash"),
     className: simplifyModals ? "pl-2 pr-0.5 w-[3.25rem]" : "px-2 w-16",
     headerClassName: simplifyModals ? "pl-2 pr-0.5 normal-case tracking-normal" : undefined,
-    render: (s: any) => <span className="font-mono text-xs font-medium">{s.voucherNo}</span>,
+    render: (s: any) => (
+      <button
+        type="button"
+        onClick={() => openSaleVoucher(s.sourceSale || s)}
+        aria-label={`Open sale voucher #${s.voucherNo}`}
+        className="rounded px-1 py-0.5 font-mono text-xs font-semibold text-[#7A1118] underline decoration-[#7A1118]/25 underline-offset-2 transition-colors hover:bg-[#f8ecee] hover:decoration-[#7A1118]"
+      >
+        {s.voucherNo}
+      </button>
+    ),
   };
   const salesDateColumn = {
     key: "saleDate",
@@ -1251,6 +1279,10 @@ export default function SalesPage() {
   const salesColumns = simplifyModals
     ? [salesVoucherColumn, salesDateColumn, salesCustomerColumn, salesQtyColumn, salesProductColumn, ...salesTailColumns]
     : [salesVoucherColumn, salesDateColumn, salesCustomerColumn, salesProductColumn, salesQtyColumn, ...salesTailColumns];
+  const voucherCurrencyPrefix = voucherSale?.currency?.symbol || (voucherSale?.currency?.code ? `${voucherSale.currency.code} ` : "");
+  const voucherItemsSubtotal = (voucherSale?.items || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
+  const voucherDiscountTotal = (voucherSale?.discounts || []).reduce((sum: number, discount: any) => sum + Number(discount.amount || 0), 0);
+  const formatVoucherAmount = (amount: unknown) => `${voucherCurrencyPrefix}${Number(amount || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 
   return (
     <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
@@ -1272,9 +1304,8 @@ export default function SalesPage() {
         </div>
       )}
 
-      <div className="mb-3 flex min-w-0 flex-col items-start gap-2 md:flex-row md:flex-nowrap md:items-center md:overflow-x-auto">
-        <div className={`flex min-w-0 w-full items-center gap-2 pb-0.5 md:w-auto ${dateRangePreset === "custom" ? "flex-wrap overflow-visible" : "flex-nowrap overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]"}`}>
-          <div className="relative min-w-[7rem] flex-[1_1_7rem] max-w-[min(100%,14rem)] md:max-w-[20rem]">
+      <div className="mb-3 flex min-w-0 items-center gap-2">
+          <div className="relative min-w-[7rem] flex-1 max-w-[20rem]">
             <input
               type="text"
               value={filters.query}
@@ -1293,13 +1324,18 @@ export default function SalesPage() {
               </button>
             )}
           </div>
-          <select value={filters.status} onChange={(e) => { setFilters((f) => ({ ...f, status: e.target.value })); setPage(1); }} className="select-field !w-auto h-9 min-h-9 min-w-[8.5rem] shrink-0 py-1.5 pl-2.5 pr-8 text-sm md:max-w-[8.75rem]">
+          <FilterMenu
+            activeCount={Number(Boolean(filters.status)) + Number(Boolean(filters.lot_id)) + Number(dateRangePreset !== "all")}
+            onClear={() => { setFilters((f) => ({ ...f, status: "", lot_id: "" })); applyDatePreset("all"); setPage(1); }}
+          >
+          <div className={`flex min-w-0 w-full items-center gap-2 pb-0.5 ${dateRangePreset === "custom" ? "flex-wrap overflow-visible" : "flex-col"}`}>
+          <select value={filters.status} onChange={(e) => { setFilters((f) => ({ ...f, status: e.target.value })); setPage(1); }} className="select-field h-9 min-h-9 w-full py-1.5 pl-2.5 pr-8 text-sm">
             <option value="">{t("all_statuses")}</option><option value="active">{t("active")}</option><option value="cancelled">{t("cancelled")}</option><option value="marked_short">{t("marked_short")}</option>
           </select>
           <select
             value={filters.lot_id}
             onChange={(e) => { setFilters((f) => ({ ...f, lot_id: e.target.value })); setPage(1); }}
-            className="select-field !w-auto h-9 min-h-9 min-w-[7.5rem] shrink-0 py-1.5 pl-2.5 pr-8 text-sm md:max-w-[9rem]"
+            className="select-field h-9 min-h-9 w-full py-1.5 pl-2.5 pr-8 text-sm"
             aria-label={`${t("lot")} filter`}
           >
             <option value="">All lots</option>
@@ -1312,7 +1348,7 @@ export default function SalesPage() {
           <select
             value={dateRangePreset}
             onChange={(e) => applyDatePreset(e.target.value as "today" | "last7" | "month" | "all" | "custom")}
-            className="select-field !w-auto h-9 min-h-9 min-w-[7.75rem] shrink-0 py-1.5 pl-2.5 pr-8 text-sm md:max-w-[7.5rem]"
+            className="select-field h-9 min-h-9 w-full py-1.5 pl-2.5 pr-8 text-sm"
             aria-label="Date range preset"
           >
             <option value="month">This month</option>
@@ -1323,11 +1359,12 @@ export default function SalesPage() {
           </select>
           {dateRangePreset === "custom" && (
             <>
-              <input type="date" value={filters.date_from} onChange={(e) => { setFilters((f) => ({ ...f, date_from: e.target.value })); setPage(1); }} className="input-field h-9 min-h-9 min-w-[7rem] flex-[1_1_7rem] max-w-[8.75rem] py-1.5 text-sm" aria-label="From date" />
-              <input type="date" value={filters.date_to} onChange={(e) => { setFilters((f) => ({ ...f, date_to: e.target.value })); setPage(1); }} className="input-field h-9 min-h-9 min-w-[7rem] flex-[1_1_7rem] max-w-[8.75rem] py-1.5 text-sm" aria-label="To date" />
+              <input type="date" value={filters.date_from} onChange={(e) => { setFilters((f) => ({ ...f, date_from: e.target.value })); setPage(1); }} className="input-field h-9 min-h-9 min-w-[7rem] flex-[1_1_7rem] py-1.5 text-sm" aria-label="From date" />
+              <input type="date" value={filters.date_to} onChange={(e) => { setFilters((f) => ({ ...f, date_to: e.target.value })); setPage(1); }} className="input-field h-9 min-h-9 min-w-[7rem] flex-[1_1_7rem] py-1.5 text-sm" aria-label="To date" />
             </>
           )}
-        </div>
+          </div>
+          </FilterMenu>
         <LedgerExportButtons
           type="sales"
           dateFrom={filters.date_from || undefined}
@@ -1337,7 +1374,7 @@ export default function SalesPage() {
           status={filters.status || undefined}
           lotId={filters.lot_id || undefined}
           disabled={!isOnline}
-          className="shrink-0 justify-end self-end w-full md:w-auto md:ml-auto"
+          className="ml-auto shrink-0 justify-end"
         />
       </div>
 
@@ -1444,28 +1481,29 @@ export default function SalesPage() {
           )}
 
           <div className={isEmbed ? "quickform-panel space-y-2" : "rounded-lg border border-gray-200 bg-gray-50/70 p-3 space-y-2"}>
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("product")} *</p>
-              <button type="button" onClick={addItem} className="text-xs font-semibold text-primary-700 hover:text-primary-800">+ {t("add_item")}</button>
-            </div>
             <div className="module-scroll-x overflow-x-auto -mx-1 px-1 py-1">
               <div className="min-w-[590px] space-y-2">
-                <div className="grid grid-cols-[minmax(0,1fr)_78px_68px_52px_80px_84px_24px] gap-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                  <span>{t("product")}</span>
-                  <span>{t("lot")}</span>
-                  <span className="text-right">{t("qty")}</span>
-                  <span className="text-center">{t("available")}</span>
-                  <span className="text-right truncate" title={t("rate_per_carton")}>Rate</span>
-                  <span className="text-right">{t("amount")}</span>
-                  <span />
-                </div>
                 {form.items.map((item, idx) => {
                   const avail = getAvailable(item.productId);
                   const pcsItem = isPcsItem(item);
                   const localPcsLabel = isAfghanistanSale ? "AFN/PCS" : "PKR/PCS";
                   const remainderQty = selectedLotRemainderQty(item);
+                  const lotAvailability = autoLotAllocationPreview(item);
                   return (
-                    <div key={idx} className="grid grid-cols-[minmax(0,1fr)_78px_68px_52px_80px_84px_24px] gap-2 items-center">
+                    <div key={idx} className="space-y-1">
+                    <div className="grid grid-cols-[minmax(0,1fr)_78px_68px_52px_80px_84px_24px] gap-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                      <span>{t("product")}</span>
+                      <span className="flex items-center justify-between gap-1">
+                        <span>{t("lot")}</span>
+                        {lotAvailability && <span data-testid={`sale-lot-availability-${idx}`} className="truncate normal-case tracking-normal text-blue-700" title={lotAvailability}>{lotAvailability}</span>}
+                      </span>
+                      <span className="text-right">{t("qty")}</span>
+                      <span className="text-center">{t("available")}</span>
+                      <span className="text-right truncate" title={t("rate_per_carton")}>Rate</span>
+                      <span className="text-right">{t("amount")}</span>
+                      <span />
+                    </div>
+                    <div className="grid grid-cols-[minmax(0,1fr)_78px_68px_52px_80px_84px_24px] gap-2 items-center">
                       <select
                         value={item.productId}
                         onChange={(e) => updateItem(idx, "productId", parseInt(e.target.value))}
@@ -1525,10 +1563,11 @@ export default function SalesPage() {
                           </select>
                         </div>
                       )}
-                      {autoLotAllocationPreview(item) && <p className="col-span-7 text-[11px] text-blue-700">{autoLotAllocationPreview(item)}</p>}
+                    </div>
                     </div>
                   );
                 })}
+                <button type="button" onClick={addItem} aria-label="Add another sale item" className="text-xs font-semibold text-primary-700 hover:text-primary-800">+ {t("add_item")}</button>
               </div>
             </div>
             <div className="flex justify-end border-t border-gray-200/80 pt-2">
@@ -1644,16 +1683,13 @@ export default function SalesPage() {
             <h3 className="text-sm font-semibold text-gray-900 mt-1">Add products and selling rates</h3>
           </div>
           )}
-          <div className="flex items-center justify-between mb-2">
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("product")} *</label>
-            <button onClick={addItem} className="text-primary-600 text-sm font-medium hover:text-primary-700">+ {t("add_item")}</button>
-          </div>
           <div className="space-y-2">
             {form.items.map((item, idx) => {
               const avail = getAvailable(item.productId);
               const pcsItem = isPcsItem(item);
               const localPcsLabel = isAfghanistanSale ? "AFN/PCS" : "PKR/PCS";
               const remainderQty = selectedLotRemainderQty(item);
+              const lotAvailability = autoLotAllocationPreview(item);
               return (
                 <div key={idx} className="flex flex-wrap gap-2 items-end">
                   <div className="flex-1">
@@ -1667,7 +1703,10 @@ export default function SalesPage() {
                     </select>
                   </div>
                   <div className="w-24">
-                    {idx === 0 && <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("lot")}</label>}
+                    <div className="mb-1 flex min-h-[1rem] items-center justify-between gap-1">
+                      {idx === 0 && <label className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("lot")}</label>}
+                      {lotAvailability && <span data-testid={`sale-lot-availability-${idx}`} className="truncate text-[10px] text-blue-700" title={lotAvailability}>{lotAvailability}</span>}
+                    </div>
                     <select value={item.lotId || 0} onChange={(e) => updateItem(idx, "lotId", parseInt(e.target.value))} className="select-field text-sm">
                       <option value={0}>Auto</option>
                       {lotOptionsForItem(item).map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}{l.status === "completed" ? " ✓" : ""}</option>)}
@@ -1706,10 +1745,10 @@ export default function SalesPage() {
                       </select>
                     </div>
                   )}
-                  {autoLotAllocationPreview(item) && <p className="basis-full text-[11px] text-blue-700">{autoLotAllocationPreview(item)}</p>}
                 </div>
               );
             })}
+            <button type="button" onClick={addItem} aria-label="Add another sale item" className="text-primary-600 text-sm font-medium hover:text-primary-700">+ {t("add_item")}</button>
           </div>
           <div className="mt-3 text-right">
             <span className="text-sm text-gray-500">{t("total")}: </span>
@@ -1771,6 +1810,136 @@ export default function SalesPage() {
         )}
         </div>
         </fieldset>
+      </Modal>
+
+      {/* ========== READ-ONLY SALE VOUCHER ========== */}
+      <Modal
+        open={showVoucher}
+        onClose={() => { setShowVoucher(false); setVoucherError(""); }}
+        title={`Sale Voucher #${voucherSale?.voucherNo || ""}`}
+        size="lg"
+      >
+        {voucherLoading ? (
+          <ModalFormSkeleton />
+        ) : voucherSale ? (
+          <div className="space-y-4">
+            <div className="overflow-hidden rounded-2xl border border-[#e5d5d7] bg-[linear-gradient(135deg,#fff_0%,#fbf5f6_100%)]">
+              <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[#eadde0] px-4 py-4 sm:px-5">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#8B1A1A]">Sale Voucher</p>
+                  <p className="mt-1 font-mono text-2xl font-bold tracking-tight text-[#2A0608]">#{voucherSale.voucherNo}</p>
+                  <p className="mt-1 text-xs text-[#71717a]">Read-only voucher</p>
+                </div>
+                <div className="text-right">
+                  <StatusBadge status={voucherSale.status} />
+                  <p className="mt-2 text-sm font-medium tabular-nums text-[#3f3f46]">{formatDate(voucherSale.saleDate)}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-px bg-[#eadde0] sm:grid-cols-4">
+                {[
+                  ["Customer", voucherSale.customer?.name || "—"],
+                  ["City", voucherSale.cityName || user?.cityName || "—"],
+                  ["Godown", voucherSale.godown?.name || "—"],
+                  ["Currency", voucherSale.currency?.code || "—"],
+                ].map(([label, value]) => (
+                  <div key={label} className="min-w-0 bg-white px-4 py-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[#8a8a93]">{label}</p>
+                    <p className="mt-1 truncate text-sm font-semibold text-[#27272a]" title={String(value)}>{value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {voucherError && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                {voucherError}. Showing the available saved-list details.
+              </div>
+            )}
+
+            <div className="overflow-hidden rounded-2xl border border-[#e4e4e7] bg-white">
+              <div className="border-b border-[#ececee] bg-[#fafafa] px-4 py-3">
+                <h3 className="text-sm font-semibold text-[#2A0608]">Sale items</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[34rem] text-sm">
+                  <thead className="bg-[#f4f4f5] text-[10px] uppercase tracking-wider text-[#71717a]">
+                    <tr>
+                      <th className="px-4 py-2.5 text-left font-semibold">Product</th>
+                      <th className="px-3 py-2.5 text-left font-semibold">Lot</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">Quantity</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">Rate</th>
+                      <th className="px-4 py-2.5 text-right font-semibold">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#ececee]">
+                    {Array.isArray(voucherSale.items) && voucherSale.items.map((item: any, index: number) => (
+                      <tr key={item.id || `${item.productId}-${index}`} className={index % 2 ? "bg-[#fafafa]" : "bg-white"}>
+                        <td className="px-4 py-3 font-medium text-[#27272a]">{item.productName || item.product?.name || "—"}</td>
+                        <td className="px-3 py-3 text-[#52525b]">{item.lot?.lotNumber || voucherSale.lot?.lotNumber || "—"}</td>
+                        <td className="px-3 py-3 text-right tabular-nums text-[#3f3f46]">
+                          {Number(item.cartonQty ?? item.qty ?? 0).toLocaleString("en-US")}
+                          <span className="ml-1 text-[10px] uppercase text-[#8a8a93]">{item.cartonQty != null ? "ctn" : item.unitOfMeasure || ""}</span>
+                        </td>
+                        <td className="px-3 py-3 text-right tabular-nums text-[#3f3f46]">
+                          <span className="block">{formatVoucherAmount(item.ratePerCarton)}</span>
+                          {item.ratePerPieceLocal != null && <span className="block text-[10px] text-[#8a8a93]">{formatVoucherAmount(item.ratePerPieceLocal)}/pc</span>}
+                        </td>
+                        <td className="px-4 py-3 text-right font-semibold tabular-nums text-[#27272a]">
+                          <span className="block">{formatVoucherAmount(item.amount)}</span>
+                          {item.amountUsd != null && <span className="block text-[10px] font-medium text-[#8a8a93]">USD {Number(item.amountUsd).toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_18rem]">
+              <div className="space-y-3">
+                {Array.isArray(voucherSale.discounts) && voucherSale.discounts.length > 0 && (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-amber-800">Discount history</p>
+                    <div className="mt-2 space-y-2">
+                      {voucherSale.discounts.map((discount: any) => (
+                        <div key={discount.id} className="flex items-start justify-between gap-3 text-sm">
+                          <div className="min-w-0 text-amber-900">
+                            <span className="font-medium tabular-nums">{formatDate(discount.date)}</span>
+                            {discount.notes && <span className="ml-2 text-amber-800">{discount.notes}</span>}
+                          </div>
+                          <span className="shrink-0 font-semibold tabular-nums text-amber-900">− {formatVoucherAmount(discount.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {(voucherSale.notes || voucherSale.customer?.phone || voucherSale.createdBy?.fullName) && (
+                  <div className="rounded-2xl border border-[#e4e4e7] bg-[#fafafa] px-4 py-3 text-sm text-[#52525b]">
+                    {voucherSale.customer?.phone && <p><span className="font-medium text-[#27272a]">Customer phone:</span> {voucherSale.customer.phone}</p>}
+                    {voucherSale.notes && <p className="mt-1 whitespace-pre-wrap"><span className="font-medium text-[#27272a]">Notes:</span> {voucherSale.notes}</p>}
+                    {voucherSale.createdBy?.fullName && <p className="mt-1"><span className="font-medium text-[#27272a]">Recorded by:</span> {voucherSale.createdBy.fullName}</p>}
+                  </div>
+                )}
+                {voucherSale.cancellation && (
+                  <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                    <p className="font-semibold">Cancelled</p>
+                    <p className="mt-1">{voucherSale.cancellation.reason || "No reason recorded"}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="h-fit rounded-2xl border border-[#e5d5d7] bg-[#fbf5f6] px-4 py-4">
+                <div className="flex justify-between gap-3 text-sm text-[#52525b]"><span>Gross sale</span><span className="tabular-nums">{formatVoucherAmount(voucherItemsSubtotal)}</span></div>
+                {voucherDiscountTotal > 0 && <div className="mt-2 flex justify-between gap-3 text-sm text-amber-700"><span>Discounts</span><span className="tabular-nums">− {formatVoucherAmount(voucherDiscountTotal)}</span></div>}
+                <div className="mt-3 flex items-end justify-between gap-3 border-t border-[#dec7ca] pt-3">
+                  <span className="text-sm font-semibold text-[#2A0608]">Net sale</span>
+                  <span className="text-xl font-bold tabular-nums text-[#7A1118]">{formatVoucherAmount(voucherSale.totalAmount)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </Modal>
 
       {/* ========== CANCEL SALE MODAL ========== */}
@@ -1843,10 +2012,11 @@ export default function SalesPage() {
         <div className="space-y-2 mb-3">
           {correctItems.map((item, i) => {
             const remainderQty = selectedLotRemainderQty(item, true);
+            const lotAvailability = autoLotAllocationPreview(item, true);
             return (
             <div key={i} className="grid grid-cols-1 gap-2 items-end sm:grid-cols-2 lg:grid-cols-5">
               <div><label className="block text-xs text-gray-500 mb-1">{t("product")}</label><select value={item.productId} onChange={e => { const v = parseInt(e.target.value); setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, productId: v, lotId: 0, remainingLotId: 0 } : c)); }} className="select-field text-sm"><option value={0}>{t("select_product")}</option>{products.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
-              <div><label className="block text-xs text-gray-500 mb-1">{t("lot")}</label><select value={item.lotId || 0} disabled={isSaleItemLotLocked(item)} onChange={e => { const v = parseInt(e.target.value); setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, lotId: v, remainingLotId: 0 } : c)); }} className="select-field text-sm disabled:bg-gray-100 disabled:text-gray-500"><option value={0}>Auto</option>{lotOptionsForItem(item, true).map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}{l.status === "completed" ? " ✓" : ""}</option>)}</select></div>
+              <div><div className="mb-1 flex items-center justify-between gap-1"><label className="block text-xs text-gray-500">{t("lot")}</label>{lotAvailability && <span data-testid={`correct-sale-lot-availability-${i}`} className="truncate text-[10px] text-blue-700" title={lotAvailability}>{lotAvailability}</span>}</div><select value={item.lotId || 0} disabled={isSaleItemLotLocked(item)} onChange={e => { const v = parseInt(e.target.value); setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, lotId: v, remainingLotId: 0 } : c)); }} className="select-field text-sm disabled:bg-gray-100 disabled:text-gray-500"><option value={0}>Auto</option>{lotOptionsForItem(item, true).map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}{l.status === "completed" ? " ✓" : ""}</option>)}</select></div>
               <div><label className="block text-xs text-gray-500 mb-1">{t("cartons")}</label><input type="number" value={item.qty || ""} onChange={e => { const v = parseFloat(e.target.value) || 0; setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, qty: v } : c)); }} className="input-field text-sm" /></div>
               <div><label className="block text-xs text-gray-500 mb-1">{t("rate_per_carton")}</label><input type="number" value={item.ratePerCarton || ""} onChange={e => { const v = parseFloat(e.target.value) || 0; setCorrectItems(ci => ci.map((c, idx) => idx === i ? { ...c, ratePerCarton: v } : c)); }} className="input-field text-sm" /></div>
               <div className="flex gap-1 items-center"><span className="text-sm text-gray-600">{((item.qty || 0) * (item.ratePerCarton || 0)).toLocaleString("en-US")}</span>{correctItems.length > 1 && <button onClick={() => setCorrectItems(ci => ci.filter((_, idx) => idx !== i))} className="text-red-500 text-lg">×</button>}</div>
@@ -1859,11 +2029,10 @@ export default function SalesPage() {
                   </select>
                 </div>
               )}
-              {autoLotAllocationPreview(item, true) && <p className="col-span-1 text-[11px] text-blue-700 sm:col-span-2 lg:col-span-5">{autoLotAllocationPreview(item, true)}</p>}
             </div>
             );
           })}
-          <button onClick={() => setCorrectItems(ci => [...ci, emptySaleItem()])} className="text-xs text-primary-600 hover:underline">+ {t("add_item")}</button>
+          <button type="button" onClick={() => setCorrectItems(ci => [...ci, emptySaleItem()])} aria-label="Add another sale item" className="text-xs text-primary-600 hover:underline">+ {t("add_item")}</button>
         </div>
         <div><label className="block text-sm font-medium text-gray-700 mb-1">Edit reason *</label><input value={correctReason} onChange={e => setCorrectReason(e.target.value)} className="input-field" /></div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t">

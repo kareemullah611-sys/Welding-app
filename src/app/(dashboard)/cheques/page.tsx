@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, DataTable, Modal, formatDate } from "@/components/ui";
+import { PageHeader, DataTable, Modal, formatDate, FilterMenu } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { applyQueuedMutationsToCheques } from "@/lib/offline-remaining-mutations";
@@ -17,6 +17,7 @@ type ChequesReadSnapshot = {
   allCheques: any[];
   totalPages: number;
   total: number;
+  statusCounts?: ChequeStatusCounts;
 };
 
 const CHEQUE_STATUS_CONFIG: Record<string, { label: string; shortLabel: string; color: string; icon: string; glassVariant: GlassVariant }> = {
@@ -39,6 +40,18 @@ const filterBtnClass = (active: boolean, variant: GlassVariant) =>
 
 const TABS = ["all", "in_hand", "deposited_to_bank", "sent_to_haji", "used_for_expense", "used_for_liability", "used_for_withdrawal", "bounced"] as const;
 type Tab = typeof TABS[number];
+type ChequeStatusCounts = Record<Tab, number>;
+
+const EMPTY_STATUS_COUNTS: ChequeStatusCounts = {
+  all: 0,
+  in_hand: 0,
+  deposited_to_bank: 0,
+  sent_to_haji: 0,
+  used_for_expense: 0,
+  used_for_liability: 0,
+  used_for_withdrawal: 0,
+  bounced: 0,
+};
 
 export default function ChequesPage() {
   const { t } = useLang();
@@ -49,6 +62,7 @@ export default function ChequesPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [statusCounts, setStatusCounts] = useState<ChequeStatusCounts>(EMPTY_STATUS_COUNTS);
   const [searchQuery, setSearchQuery] = useState("");
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   
@@ -113,9 +127,14 @@ export default function ChequesPage() {
       setAllCheques(nextRows);
       const nextTotalPages = (r.pagination as any)?.totalPages || 1;
       const nextTotal = (r.pagination as any)?.total || 0;
+      const nextStatusCounts = {
+        ...EMPTY_STATUS_COUNTS,
+        ...((r.meta as any)?.chequeStatusCounts || {}),
+      };
       setTotalPages(nextTotalPages);
       setTotal(nextTotal);
-      writeSnapshot({ allCheques: nextRows, totalPages: nextTotalPages, total: nextTotal });
+      setStatusCounts(nextStatusCounts);
+      writeSnapshot({ allCheques: nextRows, totalPages: nextTotalPages, total: nextTotal, statusCounts: nextStatusCounts });
       setShowOfflineSnapshot(false);
     } else if (!isOnline) {
       const snapshot = readSnapshot()?.data;
@@ -132,6 +151,7 @@ export default function ChequesPage() {
         setAllCheques(nextRows);
         setTotalPages(snapshot.totalPages || 1);
         setTotal(snapshot.total || snapshot.allCheques.length || 0);
+        setStatusCounts(snapshot.statusCounts || { ...EMPTY_STATUS_COUNTS, all: snapshot.total || snapshot.allCheques.length || 0 });
         setShowOfflineSnapshot(true);
       }
     }
@@ -157,10 +177,7 @@ export default function ChequesPage() {
     else { setBounceError(r.error || "Failed"); }
   };
 
-  const tabCounts = TABS.reduce((acc, t) => {
-    acc[t] = t === "all" ? allCheques.length : allCheques.filter(c => c.raw?.chequeStatus === t).length;
-    return acc;
-  }, {} as Record<Tab, number>);
+  const tabCounts = statusCounts;
 
   const tabLabel = (tabKey: Tab) => {
     if (tabKey === "all") return ALL_TAB.shortLabel;
@@ -238,7 +255,9 @@ export default function ChequesPage() {
       )}
 
       {/* Tabs */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <div className="mb-4 flex justify-end">
+      <FilterMenu activeCount={Number(tab !== "all")} onClear={() => setTab("all")}>
+      <div className="flex flex-col gap-2">
         {TABS.map((tabKey) => (
           <button
             key={tabKey}
@@ -250,6 +269,8 @@ export default function ChequesPage() {
             {tabCounts[tabKey] > 0 ? ` (${tabCounts[tabKey]})` : ""}
           </button>
         ))}
+      </div>
+      </FilterMenu>
       </div>
 
       <DataTable

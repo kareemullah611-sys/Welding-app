@@ -33,7 +33,7 @@ import {
   openNativePicker,
   focusFirstModalField,
 } from "@/lib/modal-keyboard";
-import { X, ChevronLeft, ChevronRight, Inbox, CheckCircle2, AlertTriangle } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Inbox, CheckCircle2, AlertTriangle, Filter as Funnel } from "lucide-react";
 import { TableSkeleton } from "@/components/ui/skeleton";
 
 function usesNativeFieldKeyboard(el: HTMLElement) {
@@ -119,6 +119,77 @@ export function PageHeader({
       </div>
       {action && <div className="flex w-full min-w-0 flex-wrap gap-2 sm:w-auto sm:flex-shrink-0 sm:justify-end">{action}</div>}
       </div>
+    </div>
+  );
+}
+
+export function FilterMenu({
+  children,
+  activeCount = 0,
+  onClear,
+  label = "Filters",
+  className,
+}: {
+  children: React.ReactNode;
+  activeCount?: number;
+  onClear?: () => void;
+  label?: string;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div ref={menuRef} className={cn("relative inline-flex shrink-0", className)}>
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-label={label}
+        aria-expanded={open}
+        className={cn(
+          "relative inline-flex h-9 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-medium shadow-sm transition-colors",
+          open || activeCount > 0
+            ? "border-[#8B1A1A]/35 bg-[#f8ecee] text-[#7A1118]"
+            : "border-[#d4d4d8] bg-white text-[#52525b] hover:bg-[#f4f4f5]"
+        )}
+      >
+        <Funnel className="h-4 w-4" strokeWidth={1.8} />
+        <span className="hidden sm:inline">{label}</span>
+        {activeCount > 0 && (
+          <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-[#8B1A1A] px-1.5 text-[10px] font-semibold leading-5 text-white">
+            {activeCount}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-[80] mt-2 w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-[#e4e4e7] bg-white p-3 shadow-[0_20px_55px_-24px_rgba(42,6,8,0.4)]">
+          <div className="mb-3 flex items-center justify-between gap-3 border-b border-[#ececee] pb-2">
+            <span className="text-sm font-semibold text-[#2A0608]">{label}</span>
+            {onClear && activeCount > 0 && (
+              <button type="button" onClick={onClear} className="text-xs font-medium text-[#8B1A1A] hover:underline">
+                Clear
+              </button>
+            )}
+          </div>
+          {children}
+        </div>
+      )}
     </div>
   );
 }

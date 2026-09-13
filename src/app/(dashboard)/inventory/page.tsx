@@ -4,7 +4,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, Modal, formatNumber, MobileDateInput, RowActionMenu, PaginationBar, PageSkeleton } from "@/components/ui";
+import { PageHeader, Modal, formatNumber, MobileDateInput, RowActionMenu, PaginationBar, PageSkeleton, FilterMenu } from "@/components/ui";
 import { DEFAULT_LIST_PAGE_SIZE, paginateList } from "@/lib/pagination";
 import { GlassButton } from "@/components/ui/GlassButton";
 import { useLang } from "@/lib/lang";
@@ -902,8 +902,12 @@ export default function InventoryPage() {
             <p className="text-xs text-gray-500">Receipts, issues, transfers, and sales by godown.</p>
           </div>
         </div>
-        <div className="mb-4 rounded-xl border border-gray-200 bg-white/95 px-3 py-2 shadow-[0_14px_32px_-28px_rgba(15,23,42,0.35)]">
-          <div className="grid grid-cols-2 items-end gap-2 lg:grid-cols-[minmax(10rem,1fr)_minmax(10rem,1fr)_8rem_8rem]">
+        <div className="mb-4 flex justify-end">
+          <FilterMenu
+            activeCount={Number(ledgerGodownId > 0) + Number(ledgerProductId > 0) + Number(Boolean(ledgerDateFrom)) + Number(Boolean(ledgerDateTo))}
+            onClear={() => { setLedgerGodownId(0); setLedgerProductId(0); setLedgerDateFrom(""); setLedgerDateTo(""); }}
+          >
+          <div className="grid grid-cols-2 items-end gap-2">
             <div className="col-span-2 min-w-0 sm:col-span-1">
               <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Godown</label>
               <select value={ledgerGodownId} onChange={e => setLedgerGodownId(parseInt(e.target.value))} className="select-field h-8 min-h-8 w-full py-1.5 text-sm">
@@ -941,6 +945,7 @@ export default function InventoryPage() {
               />
             </div>
           </div>
+          </FilterMenu>
         </div>
         {ledgerLoading ? (
           <div className="flex justify-center py-10"><div className="w-7 h-7 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" /></div>

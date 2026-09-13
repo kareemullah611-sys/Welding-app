@@ -3,7 +3,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, PaginationBar, EmptyState } from "@/components/ui";
+import { PageHeader, PaginationBar, EmptyState, FilterMenu } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -364,6 +364,7 @@ export default function ActivityFeedPage() {
         action={
           <div className="flex items-center gap-3 flex-wrap">
             {user?.role === "super_admin" && (
+              <FilterMenu activeCount={Number(filterCityId !== "")} onClear={() => { setFilterCityId(""); load(1, ""); }}>
               <select
                 value={filterCityId}
                 onChange={(e) => {
@@ -376,6 +377,7 @@ export default function ActivityFeedPage() {
                 <option value="">All Cities</option>
                 {cities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
+              </FilterMenu>
             )}
             <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer select-none">
               <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} className="rounded border-gray-300" />

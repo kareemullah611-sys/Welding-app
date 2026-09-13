@@ -42,7 +42,13 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       }),
       prisma.payment.findMany({
         where: { customerId: id, ...(Object.keys(paymentDateFilter).length ? { paymentDate: paymentDateFilter } : {}) },
-        include: { currency: true, lot: { select: { lotNumber: true } }, customerPaidExpense: { select: { id: true } } },
+        include: {
+          currency: true,
+          lot: { select: { lotNumber: true } },
+          bankAccount: { select: { bankName: true, accountNumber: true } },
+          superAdminBankAccount: { select: { bankName: true, accountNumber: true } },
+          customerPaidExpense: { select: { id: true } },
+        },
         orderBy: { paymentDate: "asc" },
       }),
       prisma.openingCustomerBalance.findMany({

@@ -633,6 +633,25 @@ test("city sales auto lot selection expands sale items across FIFO lot availabil
   assert.match(salesPage, /Auto oldest lot/);
 });
 
+test("sale item controls place add-item last and lot availability beside the lot label", () => {
+  const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
+
+  assert.match(salesPage, /data-testid={`sale-lot-availability-\${idx}`}/);
+  assert.match(salesPage, /data-testid={`correct-sale-lot-availability-\${i}`}/);
+
+  const compactItems = salesPage.slice(
+    salesPage.indexOf('<div className="module-scroll-x'),
+    salesPage.indexOf('<div className="flex justify-end border-t')
+  );
+  assert.ok(compactItems.indexOf("form.items.map") < compactItems.indexOf('aria-label="Add another sale item"'));
+
+  const fullItems = salesPage.slice(
+    salesPage.indexOf("{/* LINE ITEMS */}"),
+    salesPage.indexOf("</div>\n\n        </>\n        )}", salesPage.indexOf("{/* LINE ITEMS */}"))
+  );
+  assert.ok(fullItems.indexOf("form.items.map") < fullItems.indexOf('aria-label="Add another sale item"'));
+});
+
 test("city lot detail sold metrics use real sale item lot ids", () => {
   const cityLotAssignment = readFileSync("src/lib/city-lot-assignment.ts", "utf8");
   const lotsRoute = readFileSync("src/app/api/v1/lots/route.ts", "utf8");
@@ -727,6 +746,8 @@ test("customer ledger sale details stay complete with at-rate display across tab
 
   assert.match(customerRoute, /formatCustomerLedgerSaleItemDetail/);
   assert.match(customerRoute, /formatCustomerLedgerSaleItemRate/);
+  assert.match(customerRoute, /bankAccount: \{ select: \{ bankName: true, accountNumber: true \} \}/);
+  assert.match(customerRoute, /superAdminBankAccount: \{ select: \{ bankName: true, accountNumber: true \} \}/);
   assert.match(customerRoute, /\.\.\.sales\.flatMap\(\(s\) => \(s\.items \|\| \[\]\)\.map\(\(item\) =>/);
   assert.match(customerRoute, /debit: \["active", "marked_short"\]\.includes\(s\.status\) \? Number\(item\.amount\) : 0/);
   assert.match(exportRoute, /formatCustomerLedgerSaleItemDetail/);
@@ -754,11 +775,12 @@ test("customer ledger filters stay compact in city modal", () => {
   const filterPanel = customersPage.slice(customersPage.indexOf("Search entries…") - 500, customersPage.indexOf("<GlassButton", customersPage.indexOf("Search entries…")) + 500);
   const loadingBlock = customersPage.slice(customersPage.indexOf("{ledgerLoading ? ("), customersPage.indexOf(") : ledgerData ? ("));
 
+  assert.match(filterPanel, /<FilterMenu/);
+  assert.ok(filterPanel.indexOf("Search entries…") < filterPanel.indexOf("<FilterMenu"));
   assert.match(filterPanel, /grid grid-cols-2 items-end gap-2/);
-  assert.match(filterPanel, /lg:grid-cols-\[minmax\(10rem,1fr\)_7rem_7\.5rem_7\.5rem\]/);
   assert.match(filterPanel, /h-8 min-h-8 w-full py-1\.5 text-sm/);
   assert.match(filterPanel, /className="h-8 w-full px-2 text-sm"/);
-  assert.match(filterPanel, /className="col-span-2 h-8 justify-self-end px-3 text-sm lg:col-span-4"/);
+  assert.match(filterPanel, /className="col-span-2 h-8 w-full px-3 text-sm"/);
   assert.match(loadingBlock, /<TableSkeleton columns=\{5\} rows=\{7\} compact \/>/);
   assert.doesNotMatch(loadingBlock, /animate-spin/);
   assert.doesNotMatch(filterPanel, /flex flex-col gap-3/);
@@ -771,8 +793,8 @@ test("city inventory avoids focus auto-refresh and keeps stock movement filters 
   assert.doesNotMatch(inventoryPage, /addEventListener\("focus"/);
   assert.doesNotMatch(inventoryPage, /addEventListener\("pageshow"/);
   assert.doesNotMatch(movementFilters, />\s*Refresh\s*</);
+  assert.match(movementFilters, /<FilterMenu/);
   assert.match(movementFilters, /grid grid-cols-2 items-end gap-2/);
-  assert.match(movementFilters, /lg:grid-cols-\[minmax\(10rem,1fr\)_minmax\(10rem,1fr\)_8rem_8rem\]/);
   assert.match(movementFilters, /h-8 min-h-8 w-full py-1\.5 text-sm/);
   assert.match(movementFilters, /MobileDateInput/);
 });
@@ -1118,16 +1140,21 @@ test("country fallback rates and intermediary FIFO costing are wired", () => {
   assert.match(profitRoute, /purchasePkrFromLinkedSupplierPayments/);
 });
 
-test("cheque register paginates server-side after cheque and status filters", () => {
+test("cheque register paginates rows while showing server-wide status totals", () => {
   const chequesPage = readFileSync("src/app/(dashboard)/cheques/page.tsx", "utf8");
   const combinedRoute = readFileSync("src/app/api/v1/finance/combined/route.ts", "utf8");
 
   assert.match(chequesPage, /type: "payment", page, limit: DEFAULT_LIST_PAGE_SIZE, payment_method: "cheque"/);
   assert.match(chequesPage, /if \(tab !== "all"\) params\.cheque_status = tab/);
   assert.match(chequesPage, /useEffect\(\(\) => \{ setPage\(1\); \}, \[tab\]\)/);
+  assert.match(chequesPage, /setStatusCounts\(nextStatusCounts\)/);
+  assert.match(chequesPage, /const tabCounts = statusCounts/);
   assert.match(combinedRoute, /const paymentMethodFilter = sp\.get\("payment_method"\)/);
   assert.match(combinedRoute, /\.\.\.\(paymentMethodFilter \? \{ paymentMethod: paymentMethodFilter \} : \{\}\)/);
-  assert.match(combinedRoute, /\.\.\.\(chequeStatusFilter \? \{ chequeStatus: chequeStatusFilter \} : \{\}\)/);
+  assert.match(combinedRoute, /const isChequeRegisterRequest = typeFilter === "payment" && paymentMethodFilter === "cheque"/);
+  assert.match(combinedRoute, /const chequeStatusCounts = isChequeRegisterRequest/);
+  assert.match(combinedRoute, /combined = combined\.filter\(\(item\) => \(item\.raw\?\.chequeStatus \|\| "in_hand"\) === chequeStatusFilter\)/);
+  assert.match(combinedRoute, /\.\.\.\(chequeStatusCounts \? \{ chequeStatusCounts \} : \{\}\)/);
 });
 
 test("pakistan inter funds transfer keeps compact rows with standard pagination", () => {
@@ -1679,4 +1706,51 @@ test("payment create and edit cheque selectors share a responsive search filter"
   assert.equal((paymentsPage.match(/filteredHajiChequeOptions\.map/g) || []).length, 2);
   assert.equal((paymentsPage.match(/placeholder="Search cheques/g) || []).length, 2);
   assert.match(paymentsPage, /className="[^\"]*w-full[^\"]*min-w-0|className="[^\"]*min-w-0[^\"]*w-full/);
+});
+
+test("module filters use one shared filter menu while search remains visible", () => {
+  const sharedUi = readFileSync("src/components/ui/index.tsx", "utf8");
+  const filterPages = [
+    "src/app/(dashboard)/sales/page.tsx",
+    "src/app/(dashboard)/payments/page.tsx",
+    "src/app/(dashboard)/cheques/page.tsx",
+    "src/app/(dashboard)/personal-withdrawals/page.tsx",
+    "src/app/(dashboard)/haji-transfers/page.tsx",
+    "src/app/(dashboard)/customers/page.tsx",
+    "src/app/(dashboard)/inventory/page.tsx",
+    "src/app/(dashboard)/intermediaries/page.tsx",
+    "src/app/(dashboard)/reports/page.tsx",
+    "src/app/(dashboard)/activity-feed/page.tsx",
+    "src/app/(dashboard)/liabilities/page.tsx",
+  ].map((path) => [path, readFileSync(path, "utf8")] as const);
+
+  assert.match(sharedUi, /export function FilterMenu/);
+  assert.match(sharedUi, /aria-label=\{label\}/);
+  assert.match(sharedUi, /<Funnel/);
+
+  for (const [path, source] of filterPages) {
+    assert.match(source, /<FilterMenu/, `${path} must consolidate its filters behind FilterMenu`);
+  }
+
+  assert.match(filterPages[0][1], /placeholder="Search…"/);
+  assert.match(filterPages[1][1], /placeholder="Search…"/);
+  assert.match(filterPages[5][1], /placeholder="Search entries…"/);
+  assert.match(filterPages[10][1], /placeholder="Search entries…"/);
+});
+
+test("sale reference opens a read-only professional voucher modal", () => {
+  const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
+  const saleDetailRoute = readFileSync("src/app/api/v1/sales/[id]/route.ts", "utf8");
+
+  assert.match(salesPage, /aria-label=\{`Open sale voucher #\$\{s\.voucherNo\}`\}/);
+  assert.match(salesPage, /openSaleVoucher\(s\.sourceSale \|\| s\)/);
+  assert.match(salesPage, /apiCall\(`\/api\/v1\/sales\/\$\{sale\.id\}`\)/);
+  assert.match(salesPage, /<Modal\s+open=\{showVoucher\}/);
+  assert.match(salesPage, /Sale Voucher/);
+  assert.match(salesPage, /voucherSale\.items\.map/);
+  assert.match(salesPage, /voucherSale\.discounts\.map/);
+  assert.match(salesPage, /Read-only voucher/);
+  assert.match(saleDetailRoute, /cartonQty: i\.cartonQty === null \? null : Number\(i\.cartonQty\)/);
+  assert.match(saleDetailRoute, /ratePerPieceLocal: i\.ratePerPieceLocal === null \? null : Number\(i\.ratePerPieceLocal\)/);
+  assert.match(saleDetailRoute, /amountUsd: i\.amountUsd === null \? null : Number\(i\.amountUsd\)/);
 });

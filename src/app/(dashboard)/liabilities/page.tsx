@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { PageHeader, DataTable, Modal, RowActionMenu, formatDate, MobileDateInput } from "@/components/ui";
+import { PageHeader, DataTable, Modal, RowActionMenu, formatDate, MobileDateInput, FilterMenu } from "@/components/ui";
 import { LedgerExportButtons } from "@/components/LedgerExportButtons";
 import { GlassButton } from "@/components/ui/GlassButton";
 import { apiCall } from "@/hooks/useApi";
@@ -287,11 +287,18 @@ export default function LiabilitiesPage() {
             <LedgerExportButtons type="customer_ledger" customerId={selected?.id} disabled />
           </div>
           <div className="rounded-xl border border-[#ececee] bg-white px-4 py-3">
-            <div className="flex flex-col gap-3 md:flex-row md:items-end md:gap-2">
+            <div className="flex items-end gap-2">
               <div className="min-w-0 flex-1"><label className={LEDGER_FIELD_LABEL}>Search</label><input value={ledgerSearchQuery} onChange={(e) => setLedgerSearchQuery(e.target.value)} placeholder="Search entries…" className="input-field h-9 w-full text-sm" /></div>
+              <FilterMenu
+                activeCount={Number(Boolean(ledgerDateFrom)) + Number(Boolean(ledgerDateTo))}
+                onClear={() => { setLedgerDateFrom(""); setLedgerDateTo(""); }}
+              >
+              <div className="flex flex-col gap-2">
               <div className="shrink-0"><label className={LEDGER_FIELD_LABEL}>{t("from")}</label><MobileDateInput variant="filter" value={ledgerDateFrom} onChange={setLedgerDateFrom} className="w-full sm:w-[9rem]" /></div>
               <div className="shrink-0"><label className={LEDGER_FIELD_LABEL}>{t("to")}</label><MobileDateInput variant="filter" value={ledgerDateTo} onChange={setLedgerDateTo} className="w-full sm:w-[9rem]" /></div>
-              <GlassButton type="button" onClick={() => selected && loadLedger(selected, { from: ledgerDateFrom || undefined, to: ledgerDateTo || undefined })} disabled={ledgerLoading || !selected} className="h-9 shrink-0 px-4 text-sm md:self-end"><Play className="h-4 w-4" strokeWidth={2} />{ledgerLoading ? t("loading") : t("generate")}</GlassButton>
+              <GlassButton type="button" onClick={() => selected && loadLedger(selected, { from: ledgerDateFrom || undefined, to: ledgerDateTo || undefined })} disabled={ledgerLoading || !selected} className="h-9 w-full px-4 text-sm"><Play className="h-4 w-4" strokeWidth={2} />{ledgerLoading ? t("loading") : t("generate")}</GlassButton>
+              </div>
+              </FilterMenu>
             </div>
           </div>
           {ledgerLoading ? <div className="flex justify-center py-12"><div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-200 border-t-primary-600" /></div> : (
