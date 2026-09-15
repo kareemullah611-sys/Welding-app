@@ -7,15 +7,22 @@ test.describe("mobile smoke", () => {
 
     await expect(page.getByRole("heading", { name: /dashboard/i })).toBeVisible();
 
-    await page.getByRole("button", { name: /new sale/i }).click();
-    await expect(page.locator("iframe[title='New Sale form']")).toBeVisible();
-    const saleFrame = page.frameLocator("iframe[title='New Sale form']");
+    await page.getByRole("button", { name: /^sale$/i }).click();
+    await expect(page.getByRole("heading", { name: /^sale$/i })).toBeVisible();
+    const saleFrame = page.frameLocator('iframe[title="Sale form"]');
     await expect(saleFrame.getByText(/customer \*/i)).toBeVisible();
+    await expect
+      .poll(() => saleFrame.locator("body").evaluate((body) => body.scrollWidth <= window.innerWidth))
+      .toBe(true);
 
-    await page.getByRole("button", { name: /close quick form/i }).click();
+    await page.getByRole("button", { name: /close form/i }).click();
 
-    await page.getByRole("button", { name: /receive payment/i }).click();
-    const paymentFrame = page.frameLocator("iframe[title='Receive Payment form']");
-    await expect(paymentFrame.getByText(/how was the payment received/i)).toBeVisible();
+    await page.getByRole("button", { name: /^payment$/i }).click();
+    await expect(page.getByRole("heading", { name: /^payment$/i })).toBeVisible();
+    const paymentFrame = page.frameLocator('iframe[title="Payment form"]');
+    await expect(paymentFrame.getByText(/payment method/i)).toBeVisible();
+    await expect
+      .poll(() => paymentFrame.locator("body").evaluate((body) => body.scrollWidth <= window.innerWidth))
+      .toBe(true);
   });
 });

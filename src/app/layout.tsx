@@ -30,15 +30,17 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <Script id="theme-init" strategy="beforeInteractive">
-        {`(function(){try{var key="mrf-theme";var saved=localStorage.getItem(key);var theme=saved==="light"||saved==="dark"||saved==="system"?saved:"system";var dark=theme==="dark"||(theme==="system"&&window.matchMedia("(prefers-color-scheme: dark)").matches);var root=document.documentElement;root.classList.toggle("dark",dark);root.dataset.theme=theme;root.style.colorScheme=dark?"dark":"light";}catch(e){}})();`}
-      </Script>
-      <body suppressHydrationWarning>
+      <head>
+        <Script id="theme-init" strategy="beforeInteractive">
+          {`(function(){try{var key="mrf-theme";var saved=localStorage.getItem(key);var theme=saved==="light"||saved==="dark"||saved==="system"?saved:"system";var dark=theme==="dark"||(theme==="system"&&window.matchMedia("(prefers-color-scheme: dark)").matches);var root=document.documentElement;root.classList.toggle("dark",dark);root.dataset.theme=theme;root.style.colorScheme=dark?"dark":"light";}catch(e){}})();`}
+        </Script>
         {process.env.NODE_ENV === "development" && (
           <Script id="dev-unregister-sw" strategy="beforeInteractive">
             {`if(typeof navigator!=="undefined"&&"serviceWorker"in navigator){navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.unregister();});});}`}
           </Script>
         )}
+      </head>
+      <body suppressHydrationWarning>
         <ThemeProvider>
           <LangProvider>
             <AuthProvider>

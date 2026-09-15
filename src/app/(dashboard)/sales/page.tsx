@@ -1304,7 +1304,7 @@ export default function SalesPage() {
         </div>
       )}
 
-      <div className="mb-3 flex min-w-0 items-center gap-2">
+      <div className="mb-3 flex min-w-0 flex-wrap items-center gap-2">
           <div className="relative min-w-[7rem] flex-1 max-w-[20rem]">
             <input
               type="text"
@@ -1374,7 +1374,7 @@ export default function SalesPage() {
           status={filters.status || undefined}
           lotId={filters.lot_id || undefined}
           disabled={!isOnline}
-          className="ml-auto shrink-0 justify-end"
+          className="w-full min-w-0 justify-end sm:ml-auto sm:w-auto"
         />
       </div>
 

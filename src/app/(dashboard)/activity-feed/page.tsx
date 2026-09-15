@@ -452,7 +452,7 @@ export default function ActivityFeedPage() {
                   return (
                     <div
                       key={item.id}
-                      className="bg-white rounded-xl border border-gray-100 px-4 py-3.5 hover:border-gray-200 hover:shadow-sm transition-all duration-150"
+                      className="bg-white rounded-xl border border-gray-100 px-4 py-3.5 hover:border-gray-200 hover:shadow-sm transition-all duration-150 dark:bg-[#21191c] dark:border-[#4a363c]"
                     >
                       <div className="flex items-start gap-3">
                         {/* Avatar */}

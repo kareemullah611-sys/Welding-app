@@ -1320,6 +1320,37 @@ input[type="search"]::-webkit-search-decoration {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82), 0 12px 28px -16px rgba(51, 65, 85, 0.24);
 }
 
+.dark .glass-btn-primary {
+  border-color: rgba(224, 107, 124, 0.38);
+  background: rgba(190, 69, 89, 0.18);
+  color: #f7b8c2;
+}
+.dark .glass-btn-secondary {
+  border-color: #4a363c;
+  background: rgba(42, 32, 35, 0.88);
+  color: #eee4e1;
+}
+.dark .glass-btn-danger {
+  border-color: rgba(251, 113, 133, 0.42);
+  background: rgba(159, 18, 57, 0.24);
+  color: #fda4af;
+}
+.dark .glass-btn-warning {
+  border-color: rgba(251, 191, 36, 0.42);
+  background: rgba(146, 64, 14, 0.24);
+  color: #fcd34d;
+}
+.dark .glass-btn-xlsx {
+  border-color: rgba(52, 211, 153, 0.42);
+  background: rgba(6, 95, 70, 0.24);
+  color: #6ee7b7;
+}
+.dark .glass-btn-pdf {
+  border-color: rgba(148, 163, 184, 0.42);
+  background: rgba(71, 85, 105, 0.24);
+  color: #cbd5e1;
+}
+
 .city-admin-ui .btn-primary {
   display: inline-flex;
   align-items: center;

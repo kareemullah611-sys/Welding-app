@@ -314,11 +314,7 @@ export default function AssistantPage() {
       <div
         ref={chatAreaRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto min-h-0 py-3 space-y-1"
-        style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Crect width='400' height='400' fill='%23e5ddd5'/%3E%3C/svg%3E")`,
-          backgroundColor: "#e5ddd5",
-        }}
+        className="assistant-chat-area flex-1 overflow-y-auto min-h-0 bg-[#e5ddd5] py-3 space-y-1 dark:bg-[#241d1f]"
       >
         {/* ── Empty State ── */}
         {messages.length === 0 && (

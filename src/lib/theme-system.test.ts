@@ -16,6 +16,13 @@ test("theme system supports persisted light, dark, and system modes without star
   assert.match(sidebar, /ThemeSwitcher/);
 });
 
+test("theme bootstrap script is rendered inside the document head", () => {
+  const layout = readFileSync("src/app/layout.tsx", "utf8");
+
+  assert.match(layout, /<head>[\s\S]*<Script id="theme-init"[\s\S]*<\/head>/);
+  assert.doesNotMatch(layout, /<\/head>\s*<Script id="theme-init"/);
+});
+
 test("dark mode defines semantic surfaces, form controls, financial states, charts, and print isolation", () => {
   const css = readFileSync("src/app/globals.css", "utf8");
 

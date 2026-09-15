@@ -2097,7 +2097,7 @@ export default function PaymentsPage() {
     <div className={isEmbed ? "flex min-h-0 flex-1 flex-col" : undefined}>
       {!isEmbed && <PageHeader title={isSuperAdmin ? "Haji Payments" : t("payments")} />}
       {!isEmbed && (
-        <div className="mb-3 flex items-center gap-2">
+        <div className="mb-3 flex min-w-0 flex-wrap items-center gap-2">
           <div className="relative min-w-[7rem] flex-1 max-w-xs">
             <input
               type="text"
@@ -2173,7 +2173,7 @@ export default function PaymentsPage() {
             ledgerType={!isSuperAdmin ? typeFilter : undefined}
             query={searchQuery}
             disabled={!isOnline}
-            className="ml-auto shrink-0 justify-end"
+            className="w-full min-w-0 justify-end sm:ml-auto sm:w-auto"
           />
         </div>
       )}
