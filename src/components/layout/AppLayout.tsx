@@ -10,8 +10,9 @@ import { EmbedAuthRecovery } from "@/components/quickform/EmbedAuthRecovery";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { getEmbedFromLocation } from "@/lib/quickform-embed";
 import { useAppBranding } from "@/hooks/useAppBranding";
+import SuperAdminTransactionModal from "@/components/transactions/SuperAdminTransactionModal";
 
-function AppInner({ children, isCityAdmin }: { children: React.ReactNode; isCityAdmin: boolean }) {
+function AppInner({ children, isCityAdmin, isSuperAdmin }: { children: React.ReactNode; isCityAdmin: boolean; isSuperAdmin: boolean }) {
   const { dir } = useLang();
   const { collapsed } = useSidebar();
   const branding = useAppBranding();
@@ -48,6 +49,7 @@ function AppInner({ children, isCityAdmin }: { children: React.ReactNode; isCity
       >
         <div className="mx-auto min-w-0 max-w-7xl px-4 pb-8 pt-16 lg:px-6 lg:pt-6">
           <div className="shell-panel ambient-ring module-page p-4 sm:p-5 lg:p-6 page-enter">
+            {isSuperAdmin ? <div className="mb-4 flex justify-end"><SuperAdminTransactionModal /></div> : null}
             <div className={isCityAdmin ? "city-admin-ui" : undefined}>{children}</div>
           </div>
         </div>
@@ -112,7 +114,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <LangProvider>
       <SidebarContext.Provider value={{ collapsed: effectiveCollapsed, setCollapsed }}>
-        <AppInner isCityAdmin={user.role === "city_admin"}>{children}</AppInner>
+        <AppInner isCityAdmin={user.role === "city_admin"} isSuperAdmin={user.role === "super_admin"}>{children}</AppInner>
       </SidebarContext.Provider>
     </LangProvider>
   );

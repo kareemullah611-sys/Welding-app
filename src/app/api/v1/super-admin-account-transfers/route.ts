@@ -4,8 +4,11 @@ import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { errorResponse, getPaginationParams, paginatedResponse, serverError, successResponse, validationError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { journalSuperAdminAccountTransfer } from "@/lib/accounting";
+import { getSyncRequestMeta } from "@/lib/sync-idempotency";
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
+const SUPER_ADMIN_ACCOUNT_TRANSFER_SYNC_MODULE = "super_admin_account_transfers";
+const SUPERADMIN_SYNC_CITY_ID = 0;
 
 export const GET = withSuperAdmin(async (request: NextRequest) => {
   try {
@@ -38,8 +41,23 @@ export const GET = withSuperAdmin(async (request: NextRequest) => {
 });
 
 export const POST = withSuperAdmin(async (request: NextRequest, _context: unknown, user: JWTPayload) => {
+  const syncMeta = getSyncRequestMeta(request);
   try {
     const body = await request.json();
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: {
+          unique_sync_request_per_city_module: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: SUPER_ADMIN_ACCOUNT_TRANSFER_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+          },
+        },
+      });
+      if (existingSync?.entityId) {
+        return successResponse({ id: existingSync.entityId }, "Account transfer already recorded");
+      }
+    }
     const sourceAccountId = Number(body.sourceAccountId);
     const destinationAccountId = Number(body.destinationAccountId);
     if (!sourceAccountId || !destinationAccountId) return validationError("Source and destination accounts are required");
@@ -62,7 +80,25 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: unknow
     if (!Number.isFinite(toAmount) || toAmount <= 0) return validationError("Destination amount must be greater than zero");
     if (Math.abs(toAmount - expectedToAmount) > 0.01) return validationError(`Destination amount must equal ${expectedToAmount.toLocaleString("en-US")} at the entered rate`);
 
-    const created = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
+      if (syncMeta) {
+        await tx.$executeRawUnsafe(
+          "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
+          `sync:${SUPER_ADMIN_ACCOUNT_TRANSFER_SYNC_MODULE}:${syncMeta.requestId}`
+        );
+        const existingSync = await tx.syncRequest.findUnique({
+          where: {
+            unique_sync_request_per_city_module: {
+              cityId: SUPERADMIN_SYNC_CITY_ID,
+              module: SUPER_ADMIN_ACCOUNT_TRANSFER_SYNC_MODULE,
+              requestId: syncMeta.requestId,
+            },
+          },
+        });
+        if (existingSync?.entityId) {
+          return { id: existingSync.entityId, duplicate: true };
+        }
+      }
       const lockKey = [sourceAccountId, destinationAccountId].sort((a, b) => a - b).join(":");
       await tx.$executeRawUnsafe("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)", `superadmin-transfer:${lockKey}`);
       const row = await tx.superAdminAccountTransfer.create({
@@ -95,9 +131,26 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: unknow
         createdBy: user.userId,
       }, tx);
       await createAuditLog(user.userId, null, "super_admin_account_transfers", row.id, "create", undefined, { sourceAccountId, destinationAccountId, fromAmount, toAmount, exchangeRate, rateSource }, getClientIP(request), tx);
-      return row;
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: SUPER_ADMIN_ACCOUNT_TRANSFER_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "super_admin_account_transfers",
+            entityId: row.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+      return { id: row.id, duplicate: false };
     });
-    return successResponse({ id: created.id }, "Account transfer recorded", 201);
+    return successResponse(
+      { id: result.id },
+      result.duplicate ? "Account transfer already recorded" : "Account transfer recorded",
+      result.duplicate ? 200 : 201
+    );
   } catch (error) {
     console.error("Create superadmin transfer:", error);
     return serverError();

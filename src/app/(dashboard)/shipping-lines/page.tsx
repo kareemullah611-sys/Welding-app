@@ -8,6 +8,7 @@ import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline
 import { getPendingShippingLines } from "@/lib/offline-queue-overlays";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import { openSuperAdminTransaction } from "@/lib/superadmin-transactions";
 
 const SHIPPING_LINES_READ_CACHE_KEY = "mrf-shipping-lines-read-cache-v1";
 
@@ -307,7 +308,7 @@ export default function ShippingLinesPage() {
           {!getPendingQueueId(sl?.id) && (
             <>
               <button onClick={() => { setOpenActionId(null); openLedger(sl); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">Open Ledger</button>
-              <button onClick={() => { setOpenActionId(null); openAddPayment(sl); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-green-700 hover:bg-green-50 sm:py-2 sm:text-xs">Record Settlement</button>
+              <button onClick={() => { setOpenActionId(null); openSuperAdminTransaction({ type: "shipping_payment", prefill: { partyId: Number(sl.id) }, onSuccess: load }); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-green-700 hover:bg-green-50 sm:py-2 sm:text-xs">Record Settlement</button>
             </>
           )}
           <button onClick={() => { setOpenActionId(null); openEdit(sl); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 sm:py-2 sm:text-xs">Edit</button>
@@ -503,7 +504,7 @@ export default function ShippingLinesPage() {
             <div className="card">
               <div className="flex items-center justify-between mb-2">
                 <h4 className="text-sm font-semibold text-gray-600">Settlement Entries</h4>
-                <button onClick={() => { setShowLedger(false); openAddPayment(selected); }} className="text-xs text-primary-600 hover:underline">+ Record Settlement</button>
+                <button onClick={() => { setShowLedger(false); openSuperAdminTransaction({ type: "shipping_payment", prefill: { partyId: Number(selected?.id || 0) }, onSuccess: load }); }} className="text-xs text-primary-600 hover:underline">+ Record Settlement</button>
               </div>
               {ledger.payments.length > 0 ? (
                 <table className="w-full text-sm">

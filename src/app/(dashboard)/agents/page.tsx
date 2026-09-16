@@ -9,6 +9,7 @@ import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline
 import { getPendingAgents } from "@/lib/offline-queue-overlays";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import { openSuperAdminTransaction } from "@/lib/superadmin-transactions";
 
 const AGENTS_READ_CACHE_KEY = "mrf-agents-read-cache-v1";
 
@@ -277,7 +278,7 @@ export default function AgentsPage() {
               onOpenChange={(open) => setOpenActionId(open ? a.id : null)}
             >
               <button onClick={() => { setOpenActionId(null); openLedger(a); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-primary-700 hover:bg-primary-50 sm:py-2 sm:text-xs">Open Ledger</button>
-              <button onClick={() => { setOpenActionId(null); openPayment(a); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-green-700 hover:bg-green-50 sm:py-2 sm:text-xs">{t("pay_agent")}</button>
+              <button onClick={() => { setOpenActionId(null); openSuperAdminTransaction({ type: "agent_payment", prefill: { partyId: Number(a.id) }, onSuccess: load }); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-green-700 hover:bg-green-50 sm:py-2 sm:text-xs">{t("pay_agent")}</button>
               {getPendingQueueId(a?.id) && (
                 <button
                   onClick={async () => {

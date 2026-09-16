@@ -10,6 +10,7 @@ import { getPendingIntermediaries } from "@/lib/offline-queue-overlays";
 import { applyPendingIntermediaryLedger } from "@/lib/offline-intermediary-ledger";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import { openSuperAdminTransaction } from "@/lib/superadmin-transactions";
 import { useAppBranding } from "@/hooks/useAppBranding";
 
 const INTERMEDIARIES_READ_CACHE_KEY = "mrf-intermediaries-read-cache-v1";
@@ -835,8 +836,8 @@ export default function IntermediariesPage() {
             <div className="flex flex-wrap items-center gap-1.5">
               <button onClick={exportIntermediaryLedgerXlsx} className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100">XLSX</button>
               <button onClick={exportIntermediaryLedgerPdf} className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100">PDF</button>
-              <button onClick={openExchangeModal} className="rounded bg-amber-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-amber-700">+ FX</button>
-              <button onClick={openDeposit} className="btn-primary px-2 py-1 text-[11px]">+ Deposit</button>
+              <button onClick={() => openSuperAdminTransaction({ type: "intermediary_exchange", prefill: { partyId: Number(selected?.id || 0) }, onSuccess: () => openLedger(selected) })} className="rounded bg-amber-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-amber-700">+ FX</button>
+              <button onClick={() => openSuperAdminTransaction({ type: "intermediary_deposit", prefill: { partyId: Number(selected?.id || 0) }, onSuccess: () => openLedger(selected) })} className="btn-primary px-2 py-1 text-[11px]">+ Deposit</button>
             </div>
           </div>
 

@@ -9,6 +9,7 @@ import { useLang } from "@/lib/lang";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
 import ExcelJS from "exceljs";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
+import { openSuperAdminTransaction, type SuperAdminTransactionType } from "@/lib/superadmin-transactions";
 
 const BANK_ACCOUNTS_READ_CACHE_KEY = "mrf-bank-accounts-read-cache-v1";
 const LEDGER_FETCH_LIMIT = 10000;
@@ -331,6 +332,22 @@ export default function BankAccountsPage() {
     resetSendForm();
     void loadCashActionRefs();
     setSendKind(kind);
+  };
+
+  const openUnifiedSend = (kind: SendKind) => {
+    if (!ledgerAccount || !kind) return;
+    const typeByKind: Record<Exclude<SendKind, "">, SuperAdminTransactionType> = {
+      supplier: "supplier_payment",
+      intermediary: "intermediary_deposit",
+      shipping: "shipping_payment",
+      clearing: "agent_payment",
+      customs: "agent_payment",
+    };
+    openSuperAdminTransaction({
+      type: typeByKind[kind],
+      prefill: { sourceAccountId: Number(ledgerAccount.id) },
+      onSuccess: refreshCashLedger,
+    });
   };
 
   const parseCashAmount = (value: string) => {
@@ -785,12 +802,12 @@ export default function BankAccountsPage() {
               </div>
               <div className="flex items-center gap-2">
                 {isSA && (
-                  <button type="button" onClick={openReceiveModal} className="glass-btn px-3 py-1.5 text-sm font-medium text-emerald-800">Receive from intermediary</button>
+                  <button type="button" onClick={() => ledgerAccount && openSuperAdminTransaction({ type: "intermediary_receipt", prefill: { destinationAccountId: Number(ledgerAccount.id) }, onSuccess: refreshCashLedger })} className="glass-btn px-3 py-1.5 text-sm font-medium text-emerald-800">Receive from intermediary</button>
                 )}
                 {isHajiCashLedger && (
                   <>
                     <select
-                      onChange={(e) => { const v = e.target.value as SendKind; if (v) openSendModal(v); }}
+                      onChange={(e) => { const v = e.target.value as SendKind; if (v) openUnifiedSend(v); e.currentTarget.value = ""; }}
                       className="glass-btn px-3 py-1.5 text-sm font-medium text-rose-800 bg-white cursor-pointer"
                       defaultValue=""
                     >

@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { DataTable, MobileDateInput, Modal, PageHeader, RowActionMenu, formatDate } from "@/components/ui";
 import { apiCall } from "@/hooks/useApi";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import { openSuperAdminTransaction } from "@/lib/superadmin-transactions";
 
 const initialForm = () => ({ transferDate: new Date().toISOString().split("T")[0], sourceAccountId: 0, destinationAccountId: 0, fromAmount: "", exchangeRate: "", rateSource: "", reference: "", notes: "" });
 
@@ -65,7 +66,7 @@ export default function SuperAdminAccountTransfersPage() {
   ], [openActionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return <div>
-    <PageHeader title="Account Transfers" action={<button className="btn-primary text-sm" onClick={() => { setForm(initialForm()); setError(""); setShowCreate(true); }}>New transfer</button>} />
+    <PageHeader title="Account Transfers" action={<button className="btn-primary text-sm" onClick={() => openSuperAdminTransaction({ type: "account_transfer", onSuccess: load })}>New transfer</button>} />
     {error ? <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
     <DataTable columns={columns} data={rows} loading={loading} pagination={{ page, totalPages: pagination.totalPages, total: pagination.total, onPageChange: setPage }} />
     <Modal open={showCreate} onClose={() => setShowCreate(false)} title="New Account Transfer" size="lg">

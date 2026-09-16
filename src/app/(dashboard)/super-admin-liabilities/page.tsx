@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { DataTable, MobileDateInput, Modal, PageHeader, RowActionMenu, formatDate } from "@/components/ui";
 import { apiCall } from "@/hooks/useApi";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import { openSuperAdminTransaction } from "@/lib/superadmin-transactions";
 
 const today = () => new Date().toISOString().split("T")[0];
 const emptyEntry = () => ({ entryType: "loan_received", entryDate: today(), currencyId: 0, amount: "", exchangeRateToPkr: "", rateSource: "", source: "", counterAccountId: 0, reference: "", remarks: "" });
@@ -129,8 +130,8 @@ export default function SuperAdminLiabilitiesPage() {
     { key: "balances", label: "Outstanding principal", render: (row: any) => <div>{Object.entries(row.balancesByCurrency || {}).map(([code, value]: any) => <div key={code} className={Number(value) < 0 ? "text-amber-700" : "text-gray-800"}>{code} {Number(value).toLocaleString("en-US")}</div>)}</div> },
     { key: "balancePkr", label: "PKR carrying value", render: (row: any) => `PKR ${Number(row.balancePkr || 0).toLocaleString("en-US")}` },
     { key: "actions", label: "", render: (row: any) => <RowActionMenu open={openActionId === row.id} onOpenChange={(open) => setOpenActionId(open ? row.id : null)}>
-      {row.partyType === "lender" ? <button className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50" onClick={() => { setOpenActionId(null); openEntry(row, "loan_received"); }}>Loan received</button> : <button className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50" onClick={() => { setOpenActionId(null); openEntry(row, "liability_incurred"); }}>Record liability</button>}
-      <button className="w-full px-3 py-2 text-left text-sm text-emerald-700 hover:bg-emerald-50" onClick={() => { setOpenActionId(null); openEntry(row, "payment"); }}>Record payment</button>
+      {row.partyType === "lender" ? <button className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50" onClick={() => { setOpenActionId(null); openSuperAdminTransaction({ type: "liability_receive", prefill: { partyId: Number(row.id) }, onSuccess: load }); }}>Receive funds</button> : <button className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50" onClick={() => { setOpenActionId(null); openSuperAdminTransaction({ type: "liability_incurred", prefill: { partyId: Number(row.id) }, onSuccess: load }); }}>Record amount owed</button>}
+      <button className="w-full px-3 py-2 text-left text-sm text-emerald-700 hover:bg-emerald-50" onClick={() => { setOpenActionId(null); openSuperAdminTransaction({ type: "liability_payment", prefill: { partyId: Number(row.id) }, onSuccess: load }); }}>Record payment</button>
       <button className="w-full px-3 py-2 text-left text-sm text-primary-700 hover:bg-primary-50" onClick={() => { setOpenActionId(null); openLedger(row); }}>View ledger</button>
     </RowActionMenu> },
   ];

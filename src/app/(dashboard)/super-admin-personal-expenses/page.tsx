@@ -9,6 +9,7 @@ import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline
 import { getPendingSuperAdminPersonalExpenses } from "@/lib/offline-queue-overlays";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import { openSuperAdminTransaction } from "@/lib/superadmin-transactions";
 
 const SA_PERSONAL_EXPENSES_READ_CACHE_KEY = "mrf-sa-personal-expenses-read-cache-v1";
 
@@ -259,7 +260,7 @@ export default function SuperAdminPersonalExpensesPage() {
         title="Home Expenses"
         action={
           <div className="flex gap-2">
-            <button onClick={openNewExpense} className="btn-primary text-sm">+ New Expense</button>
+            <button onClick={() => openSuperAdminTransaction({ type: "home_expense", onSuccess: load })} className="btn-primary text-sm">+ New Expense</button>
           </div>
         }
       />

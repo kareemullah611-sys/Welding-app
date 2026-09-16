@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
-import { PageHeader, StatsCard, formatNumber, DataTable, SkeletonLine, TableSkeleton } from "@/components/ui";
+import { PageHeader, formatNumber, DataTable, SkeletonLine, TableSkeleton } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { applyPendingDashboardMetrics } from "@/lib/offline-dashboard";
@@ -23,6 +23,9 @@ import {
   Building2,
   AlertCircle,
   CheckCircle2,
+  Receipt,
+  Wallet,
+  Plus,
   X,
 } from "lucide-react";
 
@@ -47,28 +50,31 @@ const QuickActionCard = ({
   color: string;
   onClick?: () => void;
 }) => {
-  const themes: Record<string, { glow: string; icon: string }> = {
-    blue: { glow: "bg-sky-400", icon: "from-[#5ac8fa] to-[#007aff]" },
-    green: { glow: "bg-emerald-400", icon: "from-[#34d399] to-[#059669]" },
-    orange: { glow: "bg-orange-400", icon: "from-[#ffb340] to-[#ff9500]" },
-    red: { glow: "bg-rose-400", icon: "from-[#ff6b8a] to-[#ff3b30]" },
-    purple: { glow: "bg-violet-400", icon: "from-[#c084fc] to-[#af52de]" },
+  const themes: Record<string, { glow: string; icon: string; hint: string }> = {
+    blue: { glow: "bg-sky-400", icon: "from-[#5ac8fa] to-[#007aff]", hint: "text-blue-600" },
+    green: { glow: "bg-emerald-400", icon: "from-[#34d399] to-[#059669]", hint: "text-emerald-600" },
+    orange: { glow: "bg-orange-400", icon: "from-[#ffb340] to-[#ff9500]", hint: "text-amber-600" },
+    red: { glow: "bg-rose-400", icon: "from-[#ff6b8a] to-[#ff3b30]", hint: "text-rose-600" },
+    purple: { glow: "bg-violet-400", icon: "from-[#c084fc] to-[#af52de]", hint: "text-violet-600" },
   };
   const theme = themes[color] || themes.blue;
 
   const inner = (
     <>
       <div
-        className={`quick-action-glow pointer-events-none absolute left-1/2 top-5 h-14 w-14 -translate-x-1/2 rounded-full blur-2xl ${theme.glow}`}
+        className={`quick-action-glow pointer-events-none absolute left-10 top-3 h-12 w-12 rounded-full blur-2xl ${theme.glow}`}
       />
       <div
-        className={`relative flex h-12 w-12 items-center justify-center rounded-[14px] bg-gradient-to-b text-white shadow-[0_8px_20px_-8px_rgba(0,0,0,0.45)] ring-1 ring-white/40 transition-transform duration-500 ease-[cubic-bezier(0.34,1.45,0.64,1)] group-hover:scale-110 group-active:scale-95 ${theme.icon}`}
+        className={`relative flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-[13px] bg-gradient-to-b text-white shadow-[0_8px_20px_-8px_rgba(0,0,0,0.45)] ring-1 ring-white/40 transition-transform duration-500 ease-[cubic-bezier(0.34,1.45,0.64,1)] group-hover:scale-110 group-active:scale-95 ${theme.icon}`}
       >
-        <div className="pointer-events-none absolute inset-0 rounded-[14px] bg-gradient-to-b from-white/35 to-transparent" />
-        <Icon className="relative h-[22px] w-[22px]" strokeWidth={2} />
+        <div className="pointer-events-none absolute inset-0 rounded-[13px] bg-gradient-to-b from-white/35 to-transparent" />
+        <Icon className="relative h-[21px] w-[21px]" strokeWidth={2} />
       </div>
-      <span className="relative px-1 text-center text-[13px] font-medium leading-tight tracking-tight text-[#2f241b]">
-        {title}
+      <span className="relative truncate text-sm font-semibold text-[#2f241b]">{title}</span>
+      <span
+        className={`relative ml-auto flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-white/70 ring-1 ring-white/60 transition-transform duration-300 group-hover:rotate-90 ${theme.hint}`}
+      >
+        <Plus className="h-4 w-4" strokeWidth={2.5} />
       </span>
     </>
   );
@@ -78,7 +84,7 @@ const QuickActionCard = ({
       <button
         type="button"
         onClick={onClick}
-        className="quick-action-tile group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6B0F1A]/25 focus-visible:ring-offset-2"
+        className="quick-action-tile group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40 focus-visible:ring-offset-2"
       >
         {inner}
       </button>
@@ -92,58 +98,58 @@ const QuickActionCard = ({
   );
 };
 
-const MetricCard = ({ 
-  title, 
-  value, 
-  subtitle, 
-  trend,
+const CityMetricCard = ({
+  title,
+  value,
+  revealed,
+  subtitle,
   icon: Icon,
-  color,
-  glass = true,
-}: { 
-  title: string; 
-  value: string | number; 
+  tone,
+  onClick,
+}: {
+  title: string;
+  value: string;
+  revealed: boolean;
   subtitle?: string;
-  trend?: 'up' | 'down' | null;
   icon: React.ElementType;
-  color: string;
-  glass?: boolean;
+  tone: "red" | "green" | "blue" | "amber" | "violet" | "slate";
+  onClick: (e: React.MouseEvent) => void;
 }) => {
-  const colors: Record<string, { bg: string; icon: string; value: string }> = {
-    green: { bg: "from-emerald-50 to-white", icon: "text-emerald-600", value: "text-emerald-700" },
-    red: { bg: "from-rose-50 to-white", icon: "text-rose-600", value: "text-rose-700" },
-    blue: { bg: "from-blue-50 to-white", icon: "text-blue-600", value: "text-blue-700" },
-    yellow: { bg: "from-amber-50 to-white", icon: "text-amber-600", value: "text-amber-700" },
-    purple: { bg: "from-violet-50 to-white", icon: "text-violet-600", value: "text-violet-700" },
+  const tones: Record<string, { chip: string; value: string }> = {
+    red: { chip: "bg-red-50 text-red-600", value: "text-red-700" },
+    green: { chip: "bg-emerald-50 text-emerald-600", value: "text-emerald-700" },
+    blue: { chip: "bg-blue-50 text-blue-600", value: "text-blue-700" },
+    amber: { chip: "bg-amber-50 text-amber-600", value: "text-amber-700" },
+    violet: { chip: "bg-violet-100 text-violet-700", value: "text-violet-700" },
+    slate: { chip: "bg-gray-100 text-gray-600", value: "text-gray-700" },
   };
-  const c = colors[color] || colors.blue;
-  
+  const c = tones[tone] || tones.blue;
+
   return (
-    <div
-      className={cn(
-        "p-5 transition-shadow",
-        glass
-          ? "rounded-[1.5rem] border border-white/60 bg-white/40 backdrop-blur-2xl backdrop-saturate-[1.8] shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_24px_60px_-24px_rgba(42,6,8,0.28)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_28px_70px_-26px_rgba(42,6,8,0.34)]"
-          : "rounded-2xl bg-gradient-to-br bg-white border border-gray-100 shadow-sm hover:shadow-md"
-      )}
+    <button
+      type="button"
+      onClick={onClick}
+      className="stat-card group flex w-full flex-col items-stretch text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40 focus-visible:ring-offset-2"
     >
-      <div className="flex items-start justify-between mb-3">
-        <div className={cn("p-2.5 rounded-xl bg-gradient-to-br shadow-sm", glass && "ring-1 ring-white/70", c.bg)}>
-          <Icon className={`w-5 h-5 ${c.icon}`} />
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase leading-snug tracking-[0.14em] text-gray-500 line-clamp-2">{title}</p>
+          <p className={`mt-1.5 text-lg font-bold leading-tight tabular-nums sm:text-xl ${c.value}`}>
+            {revealed ? value : "•••"}
+          </p>
+          <p className="mt-1 min-h-[1rem] text-[11px] text-gray-400">
+            {revealed ? (subtitle ?? "") : "Tap to reveal"}
+          </p>
         </div>
-        {trend && (
-          <div className={`flex items-center gap-1 text-xs font-medium ${trend === 'up' ? 'text-emerald-600' : 'text-rose-600'}`}>
-            {trend === 'up' ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
-          </div>
-        )}
+        <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${c.chip}`}>
+          <Icon className="h-5 w-5" strokeWidth={2} />
+        </div>
       </div>
-      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">{title}</p>
-      <p className={`text-xl font-bold ${c.value} tabular-nums`}>{value}</p>
-      {subtitle && <p className="text-xs text-gray-400 mt-1">{subtitle}</p>}
-    </div>
+    </button>
   );
 };
 
+const MetricCard = ({   title,   value,   subtitle,   icon: Icon,  color,}: {   title: string;   value: string | number;   subtitle?: string;  icon: React.ElementType;  color: "red" | "green" | "blue" | "amber" | "violet" | "slate";}) => {  const tones: Record<string, { chip: string; value: string }> = {    red: { chip: "bg-red-50 text-red-600", value: "text-red-700" },    green: { chip: "bg-emerald-50 text-emerald-600", value: "text-emerald-700" },    blue: { chip: "bg-blue-50 text-blue-600", value: "text-blue-700" },    amber: { chip: "bg-amber-50 text-amber-600", value: "text-amber-700" },    violet: { chip: "bg-violet-100 text-violet-700", value: "text-violet-700" },    slate: { chip: "bg-gray-100 text-gray-600", value: "text-gray-700" },  };  const c = tones[color] || tones.blue;  return (    <button      type="button"      className="stat-card group w-full rounded-xl border border-white/60 bg-white/40 backdrop-blur-xl backdrop-saturate-[1.8] shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_24px_60px_-24px_rgba(42,6,8,0.28)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_28px_70px_-26px_rgba(42,6,8,0.34)] flex flex-col items-stretch text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40 focus-visible:ring-offset-2"    >      <div className="p-5 flex-1">        <p className="text-[11px] font-semibold uppercase leading-snug tracking-[0.14em] text-gray-500 line-clamp-2">{title}</p>        <p className="mt-2 text-lg font-bold leading-tight tabular-nums sm:text-xl {c.value}">          {value}        </p>        <p className="mt-1 text-xs text-gray-400">          {subtitle ?? ""}        </p>      </div>      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl {c.chip}">        <Icon className="h-5 w-5" strokeWidth={2} />      </div>    </button>  );};
 const SectionCard = ({ 
   title, 
   children, 
@@ -169,26 +175,35 @@ function DashboardSkeleton() {
         <SkeletonLine className="h-8 max-w-[14rem]" />
       </div>
 
-      <div className="quick-action-panel relative overflow-hidden rounded-[1.75rem] border border-white/55 p-3">
-        <div className="relative grid grid-cols-2 gap-2.5 sm:gap-3">
-          {Array.from({ length: 4 }).map((_, index) => (
+      <div className="quick-action-panel relative overflow-hidden rounded-[1.5rem] border border-white/55 p-2.5">
+        <div className="relative grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3">
+          {Array.from({ length: 2 }).map((_, index) => (
             <div key={index} className="quick-action-tile">
-              <SkeletonLine delay={index * 80} className="h-12 w-12" />
-              <SkeletonLine delay={index * 110} className="h-3 w-20" />
+              <SkeletonLine delay={index * 90} className="h-11 w-11" />
+              <SkeletonLine delay={index * 130} className="h-4 w-24" />
             </div>
           ))}
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <div key={index} className="rounded-[1.5rem] border border-white/60 bg-white/40 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_24px_60px_-24px_rgba(42,6,8,0.28)] backdrop-blur-2xl">
-            <div className="mb-3 flex items-start justify-between">
-              <SkeletonLine delay={index * 90} className="h-10 w-10" />
-              <SkeletonLine delay={index * 110} className="h-3 w-8" />
+      <div className="flex items-center gap-3.5 rounded-[1.5rem] border border-white/60 bg-white/40 px-5 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_24px_60px_-24px_rgba(42,6,8,0.28)] backdrop-blur-2xl">
+        <SkeletonLine className="h-11 w-11" />
+        <div className="flex-1 space-y-2">
+          <SkeletonLine className="h-3 w-24" />
+          <SkeletonLine delay={90} className="h-6 w-44" />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, index) => (
+          <div key={index} className="stat-card p-4 sm:p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="w-full space-y-2">
+                <SkeletonLine delay={index * 90} className="h-3 w-20" />
+                <SkeletonLine delay={index * 130} className="h-6 w-28" />
+              </div>
+              <SkeletonLine delay={index * 110} className="h-10 w-10 flex-shrink-0" />
             </div>
-            <SkeletonLine delay={index * 130} className="mb-2 h-3 w-24" />
-            <SkeletonLine delay={index * 150} className="h-6 w-28" />
           </div>
         ))}
       </div>
@@ -353,21 +368,32 @@ export default function DashboardPage() {
 
   // ─── CITY ADMIN DASHBOARD ─────────────────────────────────────────────────
   if (user?.role === "city_admin") {
-    const isAfghanistanCityAdmin = user?.countryName === "Afghanistan";
     const singleCurrency = isSingleCurrencyCityAdmin(user);
+
+    const outstandingEntries = Object.entries(data?.outstandingByCurrency || {}) as [string, number][];
+    const hajiEntries = Object.entries(data?.hajiByCurrency || {}) as [string, number][];
+    const expenseEntries = Object.entries(data?.expenseByCurrency || {}) as [string, number][];
+    const withdrawalEntries = Object.entries(data?.withdrawalByCurrency || {}) as [string, number][];
+
+    const revealOutstanding = (e: React.MouseEvent) => { e.stopPropagation(); collapseBalanceHub(); setRevealedMetric("outstanding"); };
+    const revealCartons = (e: React.MouseEvent) => { e.stopPropagation(); collapseBalanceHub(); setRevealedMetric("cartons"); };
+    const revealHaji = (e: React.MouseEvent) => { e.stopPropagation(); collapseBalanceHub(); setRevealedMetric("haji"); };
+    const revealExpenses = (e: React.MouseEvent) => { e.stopPropagation(); collapseBalanceHub(); setRevealedMetric("expenses"); };
+    const revealWithdrawals = (e: React.MouseEvent) => { e.stopPropagation(); collapseBalanceHub(); setRevealedMetric("withdrawals"); };
 
     return (
       <div className="space-y-6" onClick={() => setRevealedMetric(null)}>
         <PageHeader title={t("dashboard")} />
         {showOfflineSnapshot && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-800">
+            <AlertCircle className="h-4 w-4 flex-shrink-0" />
             Offline snapshot mode: showing last cached dashboard data for this device.
           </div>
         )}
 
-        <div className="quick-action-panel relative overflow-hidden rounded-[1.75rem] border border-white/55 p-3">
+        <div className="quick-action-panel relative overflow-hidden rounded-[1.5rem] border border-white/55 p-2.5">
           <div className="pointer-events-none absolute inset-0 opacity-90 [background:radial-gradient(circle_at_12%_22%,rgba(56,189,248,0.16),transparent_44%),radial-gradient(circle_at_88%_68%,rgba(168,85,247,0.12),transparent_40%),radial-gradient(circle_at_50%_95%,rgba(16,185,129,0.1),transparent_36%)]" />
-          <div className="relative grid grid-cols-2 gap-2.5 sm:gap-3">
+          <div className="relative grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3">
           <QuickActionCard 
             icon={ShoppingCart} 
             title="Sale" 
@@ -389,44 +415,80 @@ export default function DashboardPage() {
         </div>
 
         {/* Key Metrics */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-5">
           {/* Outstanding */}
-          {Object.entries(data?.outstandingByCurrency || {}).length > 0
-            ? Object.entries(data.outstandingByCurrency).map(([cc, amt]: [string, any]) => (
-                <div key={`out-${cc}`} onClick={(e) => { e.stopPropagation(); collapseBalanceHub(); setRevealedMetric("outstanding"); }}>
-                  <MetricCard 
-                    title={singleCurrency ? "Outstanding" : `Outstanding (${cc})`} 
-                    value={revealedMetric === "outstanding" ? formatCityAmount(user, amt || 0, cc) : "•••"}
-                    icon={AlertCircle}
-                    color="red"
-                  />
-                </div>
+          {outstandingEntries.length > 0
+            ? outstandingEntries.map(([cc, amt]) => (
+                <CityMetricCard
+                  key={`out-${cc}`}
+                  title={singleCurrency ? "Outstanding" : `Outstanding (${cc})`}
+                  value={formatCityAmount(user, amt || 0, cc)}
+                  revealed={revealedMetric === "outstanding"}
+                  subtitle={singleCurrency ? undefined : `Customers owing ${cc}`}
+                  icon={AlertCircle}
+                  tone="red"
+                  onClick={revealOutstanding}
+                />
               ))
-            : <div onClick={(e) => { e.stopPropagation(); collapseBalanceHub(); setRevealedMetric("outstanding"); }}><MetricCard title="Outstanding" value={revealedMetric === "outstanding" ? "0" : "•••"} icon={CheckCircle2} color="green" /></div>
+            : <CityMetricCard title="Outstanding" value="0" revealed={revealedMetric === "outstanding"} icon={CheckCircle2} tone="green" onClick={revealOutstanding} />
           }
-          
-          <div onClick={(e) => { e.stopPropagation(); collapseBalanceHub(); setRevealedMetric("cartons"); }}>
-            <MetricCard 
-              title="Cartons Sold" 
-              value={revealedMetric === "cartons" ? formatNumber(data?.totalCartonsSold || 0) : "•••"} 
-              icon={Package} 
-              color="blue" 
-            />
-          </div>
-          
+
+          <CityMetricCard
+            title="Cartons Sold"
+            value={formatNumber(data?.totalCartonsSold || 0)}
+            revealed={revealedMetric === "cartons"}
+            icon={Package}
+            tone="blue"
+            onClick={revealCartons}
+          />
+
           {/* Owed to Haji */}
-          {Object.entries(data?.hajiByCurrency || {}).length > 0
-            ? Object.entries(data.hajiByCurrency).map(([cc, amt]: [string, any]) => (
-                <div key={`haji-${cc}`} onClick={(e) => { e.stopPropagation(); collapseBalanceHub(); setRevealedMetric("haji"); }}>
-                  <MetricCard 
-                    title={singleCurrency ? "Owed to Haji" : `Owed to Haji (${cc})`} 
-                    value={revealedMetric === "haji" ? formatCityAmount(user, amt || 0, cc) : "•••"}
-                    icon={ArrowRightLeft}
-                    color="orange"
-                  />
-                </div>
+          {hajiEntries.length > 0
+            ? hajiEntries.map(([cc, amt]) => (
+                <CityMetricCard
+                  key={`haji-${cc}`}
+                  title={singleCurrency ? "Owed to Haji" : `Owed to Haji (${cc})`}
+                  value={formatCityAmount(user, amt || 0, cc)}
+                  revealed={revealedMetric === "haji"}
+                  subtitle={singleCurrency ? undefined : `Company share ${cc}`}
+                  icon={ArrowRightLeft}
+                  tone="amber"
+                  onClick={revealHaji}
+                />
               ))
-            : <div onClick={(e) => { e.stopPropagation(); collapseBalanceHub(); setRevealedMetric("haji"); }}><MetricCard title="Owed to Haji" value={revealedMetric === "haji" ? "0" : "•••"} icon={ArrowRightLeft} color="green" /></div>
+            : <CityMetricCard title="Owed to Haji" value="0" revealed={revealedMetric === "haji"} icon={CheckCircle2} tone="green" onClick={revealHaji} />
+          }
+
+          {/* Expenses */}
+          {expenseEntries.length > 0
+            ? expenseEntries.map(([cc, amt]) => (
+                <CityMetricCard
+                  key={`exp-${cc}`}
+                  title={singleCurrency ? "Expenses" : `Expenses (${cc})`}
+                  value={formatCityAmount(user, amt || 0, cc)}
+                  revealed={revealedMetric === "expenses"}
+                  icon={Receipt}
+                  tone="violet"
+                  onClick={revealExpenses}
+                />
+              ))
+            : <CityMetricCard title="Expenses" value="0" revealed={revealedMetric === "expenses"} icon={Receipt} tone="slate" onClick={revealExpenses} />
+          }
+
+          {/* Personal Withdrawals */}
+          {withdrawalEntries.length > 0
+            ? withdrawalEntries.map(([cc, amt]) => (
+                <CityMetricCard
+                  key={`wd-${cc}`}
+                  title={singleCurrency ? "Withdrawals" : `Withdrawals (${cc})`}
+                  value={formatCityAmount(user, amt || 0, cc)}
+                  revealed={revealedMetric === "withdrawals"}
+                  icon={Wallet}
+                  tone="slate"
+                  onClick={revealWithdrawals}
+                />
+              ))
+            : <CityMetricCard title="Withdrawals" value="0" revealed={revealedMetric === "withdrawals"} icon={Wallet} tone="slate" onClick={revealWithdrawals} />
           }
         </div>
 
@@ -523,7 +585,7 @@ export default function DashboardPage() {
             title={`Due from Cities (${cc})`} 
             value={`${cc} ${formatNumber(amt)}`}
             icon={ArrowRightLeft}
-            color="orange"
+            color="amber"
           />
         ))}
         <MetricCard 
@@ -537,7 +599,7 @@ export default function DashboardPage() {
             title="Owed to Company" 
             value={`$${formatNumber(data.supplierPayable.balanceUsd)}`}
             icon={Building2}
-            color="purple"
+            color="violet"
           />
         )}
       </div>
@@ -571,7 +633,7 @@ export default function DashboardPage() {
                   title={`Due from Cities (${cc})`} 
                   value={`${cc} ${formatNumber(amt)}`}
                   icon={ArrowRightLeft}
-                  color="orange"
+                  color="amber"
                 />
               ))}
               <MetricCard 

@@ -448,7 +448,7 @@ export default function Sidebar() {
   const renderNavContent = (navRef: React.Ref<HTMLElement>) => (
     <div className="relative flex flex-col h-full">
       {/* ── Liquid-glass specular sheen ── */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-28 bg-gradient-to-b from-white/45 via-white/10 to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-28 bg-gradient-to-b from-white/45 via-white/10 to-transparent dark:hidden" />
       {/* ── Logo ── */}
       <div
         className={cn(

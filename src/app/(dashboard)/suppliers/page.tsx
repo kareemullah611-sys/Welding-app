@@ -11,6 +11,7 @@ import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline
 import { getPendingSuppliers } from "@/lib/offline-queue-overlays";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import { openSuperAdminTransaction } from "@/lib/superadmin-transactions";
 
 const SUPPLIERS_READ_CACHE_KEY = "mrf-suppliers-read-cache-v1";
 
@@ -631,7 +632,7 @@ export default function SuppliersPage() {
                 Export XLSX
               </button>
               {isSuperAdmin && (
-                <button onClick={openPaymentCreate} className="text-xs text-primary-600 hover:underline font-medium">
+                <button onClick={() => openSuperAdminTransaction({ type: "supplier_payment", prefill: { partyId: Number(selected?.id || 0) }, onSuccess: refreshLedger })} className="text-xs text-primary-600 hover:underline font-medium">
                   + {t("record_payment")}
                 </button>
               )}
