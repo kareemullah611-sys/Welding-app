@@ -71,6 +71,7 @@ test("Afghanistan AFN sale preserves raw AFN while recognizing PKR from Sarai Sh
       { baseCurrencyCode: "USD", quoteCurrencyCode: "AFN", rawBuyRate: 70, rawSellRate: 71, rawUnit: "1" },
       { baseCurrencyCode: "PKR", quoteCurrencyCode: "AFN", rawBuyRate: 250, rawSellRate: 250, rawUnit: "1K" },
       { baseCurrencyCode: "CNY", quoteCurrencyCode: "AFN", rawBuyRate: 10, rawSellRate: 10, rawUnit: "1" },
+      { baseCurrencyCode: "AED", quoteCurrencyCode: "AFN", rawBuyRate: 19, rawSellRate: 19, rawUnit: "1" },
     ],
   });
   const afnRate = resolveAfghanistanFxRate({
@@ -121,6 +122,7 @@ test("Afghanistan USD sale keeps USD original and exposes USD→AFN→PKR conver
       { baseCurrencyCode: "USD", quoteCurrencyCode: "AFN", rawBuyRate: 70, rawSellRate: 70, rawUnit: "1" },
       { baseCurrencyCode: "PKR", quoteCurrencyCode: "AFN", rawBuyRate: 250, rawSellRate: 250, rawUnit: "1K" },
       { baseCurrencyCode: "CNY", quoteCurrencyCode: "AFN", rawBuyRate: 10, rawSellRate: 10, rawUnit: "1" },
+      { baseCurrencyCode: "AED", quoteCurrencyCode: "AFN", rawBuyRate: 19, rawSellRate: 19, rawUnit: "1" },
     ],
   });
   const usd = snapshot.derivedRates.find((rate) => rate.fromCurrencyCode === "USD")!;
@@ -141,6 +143,7 @@ test("CNY is canonical for RMB and does not create duplicate currency meaning", 
       { baseCurrencyCode: "USD", quoteCurrencyCode: "AFN", rawBuyRate: 70, rawSellRate: 70, rawUnit: "1" },
       { baseCurrencyCode: "PKR", quoteCurrencyCode: "AFN", rawBuyRate: 250, rawSellRate: 250, rawUnit: "1K" },
       { baseCurrencyCode: "RMB", quoteCurrencyCode: "AFN", rawBuyRate: 10, rawSellRate: 10, rawUnit: "1" },
+      { baseCurrencyCode: "AED", quoteCurrencyCode: "AFN", rawBuyRate: 19, rawSellRate: 19, rawUnit: "1" },
     ],
   });
 

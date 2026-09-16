@@ -4,16 +4,21 @@ import { withSuperAdmin } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import { getIntermediaryBalances } from "@/lib/intermediary-balance";
 
 const INTERMEDIARY_SYNC_MODULE = "intermediaries";
 const SUPERADMIN_SYNC_CITY_ID = 0;
 
-export const GET = withSuperAdmin(async (_request: NextRequest, _context: any, _user: JWTPayload) => {
+export const GET = withSuperAdmin(async (request: NextRequest, _context: any, _user: JWTPayload) => {
   const intermediaries = await prisma.intermediary.findMany({
     where: {},
     orderBy: { name: "asc" },
   });
-  return successResponse(intermediaries);
+  if (request.nextUrl.searchParams.get("include_balances") !== "1") return successResponse(intermediaries);
+  return successResponse(await Promise.all(intermediaries.map(async (intermediary) => ({
+    ...intermediary,
+    balances: await getIntermediaryBalances(intermediary.id),
+  }))));
 });
 
 export const POST = withSuperAdmin(async (request: NextRequest, _context: any, user: JWTPayload) => {

@@ -12,10 +12,13 @@ import {
 } from "@/lib/intermediary-usd-fifo";
 import { resolveSupplierSettlementContext } from "@/lib/liability-settlement-context";
 import { LiabilityFxValidationError, settlementJournalTransactionId } from "@/lib/realized-liability-fx";
+import { getSupplierLotPaymentCapacity } from "@/lib/supplier-payment-capacity";
 
 function round2(value: number) {
   return Math.round(value * 100) / 100;
 }
+
+class SupplierPaymentCapacityError extends Error {}
 
 export const PUT = withSuperAdmin(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -75,6 +78,20 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
       if (!lockedExisting || lockedExisting.deletedAt) throw Object.assign(new Error("Supplier payment no longer exists"), { code: "PAYMENT_CHANGED_RETRY" });
       if (lockedExisting.journalVersion !== existing.journalVersion) {
         throw Object.assign(new Error("Supplier payment changed while this edit was open"), { code: "PAYMENT_CHANGED_RETRY" });
+      }
+      if (lockedExisting.lotId) {
+        const capacity = await getSupplierLotPaymentCapacity({
+          supplierId: lockedExisting.supplierId,
+          lotId: lockedExisting.lotId,
+          excludePaymentId: id,
+          db: tx,
+        });
+        const maximumAllowed = Math.max(capacity.outstandingUsd, Number(lockedExisting.amountUsd));
+        if (nextAmountUsd > maximumAllowed + 0.001) {
+          throw new SupplierPaymentCapacityError(
+            `Payment exceeds this supplier's outstanding purchase amount for the lot. Available: USD ${maximumAllowed.toLocaleString("en-US")}`,
+          );
+        }
       }
       await reverseJournalEntries(settlementJournalTransactionId("SUPPPAY", id, lockedExisting.journalVersion), user.userId, tx);
       await reverseIntermediaryUsdCostUsages({ supplierPaymentId: id }, tx);
@@ -158,6 +175,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
 
     return successResponse({ id }, "Payment updated");
   } catch (error) {
+    if (error instanceof SupplierPaymentCapacityError) return validationError(error.message);
     if (error instanceof LiabilityFxValidationError) return errorResponse("FX_BASIS_REQUIRED", error.message, 400);
     if ((error as any)?.code === "PAYMENT_CHANGED_RETRY") return errorResponse("PAYMENT_CHANGED_RETRY", error instanceof Error ? error.message : "Payment changed; reload and retry", 409);
     console.error("Update supplier payment error:", error);

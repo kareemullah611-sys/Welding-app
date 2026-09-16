@@ -3,10 +3,17 @@ import path from "node:path";
 import { chromium } from "@playwright/test";
 import { isSbpDailyRateCurrent, parseSbpUsdPkrDailyHtml, SBP_DAILY_SOURCE_URL } from "../src/lib/sbp-daily-fx";
 
+function deriveSbpCaptureEndpoint() {
+  const explicit = String(process.env.SBP_FX_CAPTURE_ENDPOINT || "").trim();
+  if (explicit) return explicit;
+  return String(process.env.SARAFI_AF_CAPTURE_ENDPOINT || "").trim()
+    .replace(/\/sarafi-af\/captures\/?$/i, "/sbp");
+}
+
 async function main() {
-  const endpoint = String(process.env.SBP_FX_CAPTURE_ENDPOINT || "").trim();
+  const endpoint = deriveSbpCaptureEndpoint();
   const token = String(process.env.DAILY_FX_CAPTURE_TOKEN || process.env.SARAFI_AF_CAPTURE_TOKEN || "");
-  if (!/^https:\/\//i.test(endpoint)) throw new Error("SBP_FX_CAPTURE_ENDPOINT must be an HTTPS URL");
+  if (!/^https:\/\//i.test(endpoint)) throw new Error("SBP capture endpoint must be an HTTPS URL");
   if (token.length < 32) throw new Error("DAILY_FX_CAPTURE_TOKEN must contain at least 32 characters");
 
   const outputDir = path.resolve(".artifacts", "sbp-fx");

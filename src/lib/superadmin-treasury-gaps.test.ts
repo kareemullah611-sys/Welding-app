@@ -49,6 +49,20 @@ test("supplier shipping and agent settlements share approved superadmin sources"
   assert.match(agentRoute, /superAdminBankAccountId/);
 });
 
+test("superadmin bank ledger includes shipping and agent payments deducted from its balance", () => {
+  const bankLedger = read("src/app/api/v1/bank-accounts/[id]/route.ts");
+  const cashBranchStart = bankLedger.indexOf("const accountLabel = formatSuperAdminBankLabel(account);");
+  const bankBranchStart = bankLedger.indexOf("const accountLabel = formatSuperAdminBankLabel(account);", cashBranchStart + 1);
+  const bankBranchEnd = bankLedger.indexOf("const account = await prisma.bankAccount.findUnique", bankBranchStart);
+  const bankBranch = bankLedger.slice(bankBranchStart, bankBranchEnd);
+
+  assert.match(bankBranch, /prisma\.shippingLinePayment\.findMany/);
+  assert.match(bankBranch, /where: \{ superAdminBankAccountId: id, deletedAt: null \}/);
+  assert.match(bankBranch, /type: "Send — Shipping Line"/);
+  assert.match(bankBranch, /prisma\.agentPayment\.findMany/);
+  assert.match(bankBranch, /type: p\.agent\.agentType === "customs" \? "Send — Customs Agent" : "Send — Clearing Agent"/);
+});
+
 test("superadmin treasury supports controlled account transfers", () => {
   const schema = read("prisma/schema.prisma");
   const route = read("src/app/api/v1/super-admin-account-transfers/route.ts");

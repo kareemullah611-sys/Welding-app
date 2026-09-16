@@ -63,7 +63,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context, user: 
     }
     const snapshotDate = String(body?.snapshotDate || scheduled.snapshotDate);
     const quotes = parseQuotes(body?.quotes);
-    if (!quotes) return validationError("Valid USD/AFN, PKR/AFN, and CNY/AFN quotes are required");
+    if (!quotes) return validationError("Valid USD/AFN, PKR/AFN, CNY/AFN, and AED/AFN quotes are required");
 
     const result = await createSarafiAfFxSnapshot({
       snapshotDate,

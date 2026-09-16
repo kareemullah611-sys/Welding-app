@@ -46,7 +46,7 @@ async function main() {
     const responseBody = await response.text();
     if (!response.ok) throw new Error(`Capture upload failed (${response.status}): ${responseBody.slice(0, 500)}`);
     console.log(JSON.stringify({
-      status: "pending_review",
+      status: "authorized",
       snapshotDate: parsed.snapshotDate,
       market: parsed.market,
       sourceTimestamp: parsed.sourceTimestamp,

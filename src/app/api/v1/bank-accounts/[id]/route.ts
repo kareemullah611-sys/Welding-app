@@ -297,7 +297,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
 
       const accountLabel = formatSuperAdminBankLabel(account);
       const currencyCode = String(account.currency.code || "").toUpperCase();
-      const [openingBalance, incomingHajiPayments, hajiTransfersIn, intermediaryReturns, expenses, intermediaryDeposits, lotCosts, supplierPayments, investorSettlementPayments] = await Promise.all([
+      const [openingBalance, incomingHajiPayments, hajiTransfersIn, intermediaryReturns, expenses, intermediaryDeposits, lotCosts, supplierPayments, agentPayments, shippingPayments, investorSettlementPayments] = await Promise.all([
         prisma.openingSuperAdminAccountBalance.findUnique({ where: { accountId: id } }),
         prisma.payment.findMany({
           where: {
@@ -363,6 +363,16 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         prisma.supplierPayment.findMany({
           where: { superAdminBankAccountId: id, deletedAt: null },
           include: { supplier: { select: { name: true } }, lot: { select: { lotNumber: true } } },
+          orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
+        }),
+        prisma.agentPayment.findMany({
+          where: { superAdminBankAccountId: id, currencyCode, deletedAt: null },
+          include: { agent: { select: { name: true, agentType: true } } },
+          orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
+        }),
+        prisma.shippingLinePayment.findMany({
+          where: { superAdminBankAccountId: id, deletedAt: null },
+          include: { shippingLine: { select: { name: true } }, lot: { select: { lotNumber: true } } },
           orderBy: [{ paymentDate: "asc" }, { createdAt: "asc" }],
         }),
         (prisma as any).investmentParticipantSettlementPayment.findMany({
@@ -473,6 +483,33 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           createdAt: new Date(p.createdAt),
           type: "Send — Supplier",
           detail: `${p.supplier.name}${p.lot?.lotNumber ? ` (${p.lot.lotNumber})` : ""}`,
+          reference: p.reference || null,
+          currencyCode,
+          credit: 0,
+          debit,
+        });
+      }
+      for (const p of agentPayments) {
+        rows.push({
+          key: `ap-${p.id}`,
+          date: new Date(p.paymentDate),
+          createdAt: new Date(p.createdAt),
+          type: p.agent.agentType === "customs" ? "Send — Customs Agent" : "Send — Clearing Agent",
+          detail: p.agent.name,
+          reference: p.reference || null,
+          currencyCode: p.currencyCode,
+          credit: 0,
+          debit: Number(p.amount),
+        });
+      }
+      for (const p of shippingPayments) {
+        const debit = currencyCode === "PKR" ? Number(p.amountPkr || 0) : Number(p.amountUsd || 0);
+        rows.push({
+          key: `slp-${p.id}`,
+          date: new Date(p.paymentDate),
+          createdAt: new Date(p.createdAt),
+          type: "Send — Shipping Line",
+          detail: `${p.shippingLine.name}${p.lot?.lotNumber ? ` (${p.lot.lotNumber})` : ""}`,
           reference: p.reference || null,
           currencyCode,
           credit: 0,

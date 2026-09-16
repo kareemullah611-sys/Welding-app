@@ -103,7 +103,7 @@ export async function createSarafiAfFxSnapshot(input: {
   const save = async (tx: any) => {
     const currencyRows = await tx.currency.findMany({
       where: {
-        code: { in: ["AFN", "PKR", "USD", "CNY"] },
+        code: { in: ["AFN", "PKR", "USD", "CNY", "AED"] },
       },
       select: { id: true, code: true },
     });

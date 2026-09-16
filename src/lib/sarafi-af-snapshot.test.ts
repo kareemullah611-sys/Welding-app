@@ -19,7 +19,7 @@ test("sarafi snapshot uses Asia/Kabul accounting date and 08:30 schedule", () =>
   assert.equal(scheduled.timezone, "Asia/Kabul");
 });
 
-test("sarafi snapshot normalizes PKR 1K quote and derives AFN USD and CNY to PKR", () => {
+test("sarafi snapshot normalizes PKR 1K quote and derives AFN USD CNY and AED to PKR", () => {
   const snapshot = normalizeSarafiAfSnapshot({
     snapshotDate: "2026-08-16",
     fetchedAt,
@@ -29,6 +29,7 @@ test("sarafi snapshot normalizes PKR 1K quote and derives AFN USD and CNY to PKR
       { baseCurrencyCode: "USD", quoteCurrencyCode: "AFN", rawBuyRate: 70, rawSellRate: 71, rawUnit: "1" },
       { baseCurrencyCode: "PKR", quoteCurrencyCode: "AFN", rawBuyRate: 250, rawSellRate: 252, rawUnit: "1K" },
       { baseCurrencyCode: "CNY", quoteCurrencyCode: "AFN", rawBuyRate: 9.7, rawSellRate: 9.9, rawUnit: "1" },
+      { baseCurrencyCode: "AED", quoteCurrencyCode: "AFN", rawBuyRate: 19, rawSellRate: 19.2, rawUnit: "1" },
     ],
   });
 
@@ -40,6 +41,7 @@ test("sarafi snapshot normalizes PKR 1K quote and derives AFN USD and CNY to PKR
   assert.deepEqual(snapshot.derivedRates.find((rate) => rate.fromCurrencyCode === "USD")?.conversionPath, ["USD→AFN", "AFN→PKR"]);
   assert.equal(snapshot.derivedRates.find((rate) => rate.fromCurrencyCode === "USD")?.buyRate, 277.77778);
   assert.equal(snapshot.derivedRates.find((rate) => rate.fromCurrencyCode === "CNY")?.buyRate, 38.492064);
+  assert.equal(snapshot.derivedRates.find((rate) => rate.fromCurrencyCode === "AED")?.buyRate, 75.396826);
 });
 
 test("sarafi snapshot preserves buy and sell rates for assets and liabilities", () => {
@@ -52,6 +54,7 @@ test("sarafi snapshot preserves buy and sell rates for assets and liabilities", 
       { baseCurrencyCode: "USD", quoteCurrencyCode: "AFN", rawBuyRate: 70, rawSellRate: 71, rawUnit: "1" },
       { baseCurrencyCode: "PKR", quoteCurrencyCode: "AFN", rawBuyRate: 250, rawSellRate: 252, rawUnit: "1K" },
       { baseCurrencyCode: "CNY", quoteCurrencyCode: "AFN", rawBuyRate: 9.7, rawSellRate: 9.9, rawUnit: "1" },
+      { baseCurrencyCode: "AED", quoteCurrencyCode: "AFN", rawBuyRate: 19, rawSellRate: 19.2, rawUnit: "1" },
     ],
   });
   const sources: SarafiAfStoredRateSource[] = snapshot.derivedRates.map((rate) => ({
@@ -218,11 +221,13 @@ test("snapshot validation blocks parse failure and abnormal rate movement", () =
       { baseCurrencyCode: "USD", quoteCurrencyCode: "AFN", rawBuyRate: 70, rawSellRate: 71, rawUnit: "1" },
       { baseCurrencyCode: "PKR", quoteCurrencyCode: "AFN", rawBuyRate: 250, rawSellRate: 252, rawUnit: "1K" },
       { baseCurrencyCode: "CNY", quoteCurrencyCode: "AFN", rawBuyRate: 9.7, rawSellRate: 9.9, rawUnit: "1" },
+      { baseCurrencyCode: "AED", quoteCurrencyCode: "AFN", rawBuyRate: 19, rawSellRate: 19.2, rawUnit: "1" },
     ],
   });
 
   assert.equal(missingPair.status, "VALIDATION_FAILED");
   assert.match(missingPair.validationWarnings.join(" "), /CNY\/AFN quote is required/);
+  assert.match(missingPair.validationWarnings.join(" "), /AED\/AFN quote is required/);
   assert.equal(abnormal.status, "VALIDATION_FAILED");
   assert.match(abnormal.validationWarnings.join(" "), /changed more than 10%/);
 });

@@ -541,7 +541,7 @@ export default function LotsPage() {
               return s + (isNaN(amt) ? 0 : amt);
             }, 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
-          <span className="text-xs text-gray-400">
+          <span className="lot-carton-count-highlight inline-flex items-center rounded-full border border-primary-200 bg-primary-50 px-3 py-1 text-sm font-semibold text-primary-700 shadow-sm dark:border-primary-700/60 dark:bg-primary-950/50 dark:text-primary-200">
             {form.purchaseItems.reduce((s: number, p: any) => {
               const prod = products.find((row: any) => row.id === Number(p.productId));
               if (prod?.unitOfMeasure === "PCS") return s + Math.floor(Number(p.qtyPcs || 0) / Number(prod.piecesPerCarton || 1));

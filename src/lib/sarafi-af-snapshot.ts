@@ -207,9 +207,11 @@ export function normalizeSarafiAfSnapshot(input: {
   const pkrAfn = quoteByPair.get("PKR/AFN");
   const usdAfn = quoteByPair.get("USD/AFN");
   const cnyAfn = quoteByPair.get("CNY/AFN");
+  const aedAfn = quoteByPair.get("AED/AFN");
   if (!pkrAfn) warnings.push("PKR/AFN quote is required.");
   if (!usdAfn) warnings.push("USD/AFN quote is required.");
   if (!cnyAfn) warnings.push("CNY/AFN quote is required.");
+  if (!aedAfn) warnings.push("AED/AFN quote is required.");
 
   const derivedRates: SarafiAfDerivedRate[] = [];
   if (pkrAfn) {
@@ -241,6 +243,16 @@ export function normalizeSarafiAfSnapshot(input: {
         sellRate: round6(cnyAfn.normalizedSellRate * afnPkrSell),
         conversionPath: ["CNY→AFN", "AFN→PKR"],
         sourceRates: ["CNY/AFN", "PKR/AFN"],
+      });
+    }
+    if (aedAfn) {
+      derivedRates.push({
+        fromCurrencyCode: "AED",
+        toCurrencyCode: "PKR",
+        buyRate: round6(aedAfn.normalizedBuyRate * afnPkrBuy),
+        sellRate: round6(aedAfn.normalizedSellRate * afnPkrSell),
+        conversionPath: ["AED→AFN", "AFN→PKR"],
+        sourceRates: ["AED/AFN", "PKR/AFN"],
       });
     }
   }

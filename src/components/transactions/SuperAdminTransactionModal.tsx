@@ -48,7 +48,17 @@ function amountValue(value: unknown) {
 
 function accountLabel(account: any) {
   const scope = account.accountScope === "city" ? `${account.cityName} · ` : "";
-  return `${scope}${account.accountKind === "cash" ? "Cash" : "Bank"} · ${account.bankName}${account.accountNumber ? ` (${account.accountNumber})` : ""} · ${account.currency?.code || "PKR"}`;
+  const balances = account.runningBalanceByCurrency
+    ? Object.entries(account.runningBalanceByCurrency).map(([code, balance]) => `${code} ${Number(balance).toLocaleString("en-US", { maximumFractionDigits: 2 })}`).join(" · ")
+    : `${account.currency?.code || "PKR"} ${Number(account.runningBalance || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+  return `${scope}${account.accountKind === "cash" ? "Cash" : "Bank"} · ${account.bankName}${account.accountNumber ? ` (${account.accountNumber})` : ""} · Balance: ${balances}`;
+}
+
+function partyOptionLabel(row: any) {
+  const balances = row.balances
+    ? Object.entries(row.balances).filter(([, balance]) => Number(balance) !== 0).map(([code, balance]) => `${code} ${Number(balance).toLocaleString("en-US", { maximumFractionDigits: 2 })}`).join(" · ")
+    : "";
+  return balances ? `${row.name} · Balance: ${balances}` : row.name;
 }
 
 function accountKey(account: any) {
@@ -70,6 +80,7 @@ export default function SuperAdminTransactionModal() {
   const [form, setForm] = useState(emptyForm);
   const [prefill, setPrefill] = useState<SuperAdminTransactionPrefill>({});
   const [referenceData, setReferenceData] = useState<ReferenceData>(emptyReferenceData);
+  const [supplierLotOptions, setSupplierLotOptions] = useState<any[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -80,20 +91,25 @@ export default function SuperAdminTransactionModal() {
 
   const loadReferenceData = useCallback(async () => {
     setLoadingOptions(true);
-    const [supplierResult, shippingResult, agentResult, intermediaryResult, lotResult, liabilityResult, liabilityOptionsResult] = await Promise.all([
+    const [supplierResult, shippingResult, agentResult, intermediaryResult, lotResult, liabilityResult, liabilityOptionsResult, superAdminAccountResult, cityAccountResult] = await Promise.all([
       apiCall("/api/v1/suppliers", { params: { page: 1, limit: 100 } }),
       apiCall("/api/v1/shipping-lines", { params: { page: 1, limit: 100 } }),
       apiCall("/api/v1/agents", { params: { page: 1, limit: 100 } }),
-      apiCall("/api/v1/intermediaries"),
+      apiCall("/api/v1/intermediaries", { params: { include_balances: 1 } }),
       apiCall("/api/v1/lots", { params: { page: 1, limit: 100 } }),
       apiCall("/api/v1/super-admin-liabilities", { params: { page: 1, limit: 100 } }),
       apiCall("/api/v1/super-admin-liabilities/options"),
+      apiCall("/api/v1/bank-accounts", { params: { scope: "super_admin" } }),
+      apiCall("/api/v1/bank-accounts"),
     ]);
     const optionData: any = liabilityOptionsResult.success ? liabilityOptionsResult.data || {} : {};
-    const superAdminAccounts = (optionData.superAdminAccounts || []).map((account: any) => ({ ...account, accountScope: "super_admin" }));
-    const cityAccounts = (optionData.cities || []).flatMap((city: any) => (city.bankAccounts || []).map((account: any) => ({
-      ...account, cityId: city.id, cityName: city.name, accountScope: "city", accountKind: "bank", currency: { code: "PKR" },
+    const superAdminAccounts = (superAdminAccountResult.success ? superAdminAccountResult.data as any[] : optionData.superAdminAccounts || []).map((account: any) => ({ ...account, accountScope: "super_admin" }));
+    const fallbackCityAccounts = (optionData.cities || []).flatMap((city: any) => (city.bankAccounts || []).map((account: any) => ({
+      ...account, cityId: city.id, cityName: city.name, runningBalanceByCurrency: {},
     })));
+    const cityAccounts = (cityAccountResult.success ? cityAccountResult.data as any[] : fallbackCityAccounts).map((account: any) => ({
+      ...account, accountScope: "city", accountKind: "bank",
+    }));
     setReferenceData({
       suppliers: supplierResult.success ? supplierResult.data as any[] : [],
       shippingLines: shippingResult.success ? shippingResult.data as any[] : [],
@@ -160,12 +176,26 @@ export default function SuperAdminTransactionModal() {
     if (agent?.city?.id && !form.cityId) setForm((current) => ({ ...current, cityId: Number(agent.city.id) }));
   }, [form.cityId, form.partyId, referenceData.agents, type]);
 
+  useEffect(() => {
+    if (type !== "supplier_payment" || !form.partyId) {
+      setSupplierLotOptions([]);
+      return;
+    }
+    let active = true;
+    void apiCall("/api/v1/supplier-payments/options", { params: { supplier_id: form.partyId } }).then((result) => {
+      if (!active) return;
+      setSupplierLotOptions(result.success ? result.data as any[] : []);
+    });
+    return () => { active = false; };
+  }, [form.partyId, type]);
+
   const sourceAccount = findAccount(referenceData.allFundingAccounts, form.sourceAccountId);
   const destinationAccount = findAccount(referenceData.superAdminAccounts, form.destinationAccountId);
   const selectedCurrency = referenceData.currencies.find((row) => Number(row.id) === Number(form.currencyId));
   const toCurrency = referenceData.currencies.find((row) => Number(row.id) === Number(form.toCurrencyId));
   const selectedLiability = referenceData.liabilities.find((row) => Number(row.id) === Number(form.partyId));
   const selectedAgent = referenceData.agents.find((row) => Number(row.id) === Number(form.partyId));
+  const selectedSupplierLot = supplierLotOptions.find((row) => Number(row.id) === Number(form.lotId));
   const liabilityAccountOptions = selectedLiability?.partyType === "creditor" && type === "liability_payment"
     ? referenceData.allFundingAccounts
     : referenceData.superAdminAccounts;
@@ -180,6 +210,9 @@ export default function SuperAdminTransactionModal() {
     if (!(amount > 0)) return "Enter an amount greater than zero";
     if (["supplier_payment", "shipping_payment", "agent_payment", "liability_payment", "liability_receive", "liability_incurred"].includes(type) && !form.partyId) return "Select the relevant party";
     if (["supplier_payment", "shipping_payment"].includes(type) && !form.lotId) return "Select the related lot";
+    if (type === "supplier_payment" && selectedSupplierLot && amount > Number(selectedSupplierLot.outstandingUsd) + 0.001) {
+      return `Amount exceeds this supplier's outstanding purchase amount for the lot (USD ${Number(selectedSupplierLot.outstandingUsd).toLocaleString("en-US")})`;
+    }
     if (type === "account_transfer") {
       if (!form.sourceAccountId || !form.destinationAccountId) return "Select both accounts";
       if (form.sourceAccountId === form.destinationAccountId) return "From and To accounts must be different";
@@ -386,11 +419,12 @@ export default function SuperAdminTransactionModal() {
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Date" required><MobileDateInput variant="field" value={form.date} onChange={(date) => setForm({ ...form, date })} /></Field>
 
-              {type === "supplier_payment" && <PartySelect label="Supplier" rows={referenceData.suppliers} value={form.partyId} onChange={(partyId) => setForm({ ...form, partyId })} />}
+              {type === "supplier_payment" && <PartySelect label="Supplier" rows={referenceData.suppliers} value={form.partyId} onChange={(partyId) => setForm({ ...form, partyId, lotId: 0 })} />}
               {type === "shipping_payment" && <PartySelect label="Shipping company" rows={referenceData.shippingLines} value={form.partyId} onChange={(partyId) => setForm({ ...form, partyId })} />}
               {type === "agent_payment" && <PartySelect label="Agent" rows={referenceData.agents} value={form.partyId} onChange={(partyId) => setForm({ ...form, partyId, cityId: Number(referenceData.agents.find((row) => Number(row.id) === partyId)?.city?.id || form.cityId) })} />}
               {["liability_payment", "liability_receive", "liability_incurred"].includes(type) && <PartySelect label="Lender / payable" rows={referenceData.liabilities} value={form.partyId} onChange={(partyId) => setForm({ ...form, partyId })} />}
-              {["supplier_payment", "shipping_payment"].includes(type) && <Field label="Related lot" required><select className="select-field" value={form.lotId} onChange={(event) => setForm({ ...form, lotId: Number(event.target.value) })}><option value={0}>Select lot</option>{referenceData.lots.map((lot) => <option key={lot.id} value={lot.id}>{lot.lotNumber}</option>)}</select></Field>}
+              {type === "supplier_payment" && <Field label="Related lot" required><select className="select-field" value={form.lotId} onChange={(event) => setForm({ ...form, lotId: Number(event.target.value) })}><option value={0}>Select supplier lot</option>{supplierLotOptions.map((lot) => <option key={lot.id} value={lot.id}>{lot.lotNumber} · {lot.products.map((product: any) => `${product.productName}: USD ${Number(product.amountUsd).toLocaleString("en-US")}`).join("; ")} · Outstanding USD {Number(lot.outstandingUsd).toLocaleString("en-US")}</option>)}</select></Field>}
+              {type === "shipping_payment" && <Field label="Related lot" required><select className="select-field" value={form.lotId} onChange={(event) => setForm({ ...form, lotId: Number(event.target.value) })}><option value={0}>Select lot</option>{referenceData.lots.map((lot) => <option key={lot.id} value={lot.id}>{lot.lotNumber}</option>)}</select></Field>}
 
               <Field label={["supplier_payment", "shipping_payment"].includes(type) ? "Liability amount (USD)" : "Amount"} required><FormattedNumberInput className="input-field" value={form.amount} maxDecimalPlaces={2} onValueChange={(_, raw) => setForm({ ...form, amount: raw })} /></Field>
 
@@ -456,7 +490,7 @@ function Field({ label, required, children }: { label: string; required?: boolea
 }
 
 function PartySelect({ label, rows, value, onChange }: { label: string; rows: any[]; value: number; onChange: (value: number) => void }) {
-  return <Field label={label} required><select className="select-field" value={value} onChange={(event) => onChange(Number(event.target.value))}><option value={0}>Select {label.toLowerCase()}</option>{rows.filter((row) => row.isActive !== false).map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></Field>;
+  return <Field label={label} required><select className="select-field" value={value} onChange={(event) => onChange(Number(event.target.value))}><option value={0}>Select {label.toLowerCase()}</option>{rows.filter((row) => row.isActive !== false).map((row) => <option key={row.id} value={row.id}>{partyOptionLabel(row)}</option>)}</select></Field>;
 }
 
 function AccountSelect({ label, rows, value, onChange }: { label: string; rows: any[]; value: string; onChange: (value: string) => void }) {

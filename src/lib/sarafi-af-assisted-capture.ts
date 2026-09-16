@@ -20,7 +20,7 @@ export type ParsedSarafiAfAssistedCapture = {
   quotes: SarafiAfAssistedCaptureQuote[];
 };
 
-const REQUIRED_QUOTES = ["USD", "PKR", "CNY"] as const;
+const REQUIRED_QUOTES = ["USD", "PKR", "CNY", "AED"] as const;
 const KABUL_OFFSET_MINUTES = 4 * 60 + 30;
 
 function textContent(value: string) {
@@ -109,9 +109,6 @@ export function parseSarafiAfSaraiShahzadaHtml(input: {
     };
   });
 
-  const sourceTimestamp = quotes
-    .map((quote) => sourceTimeOnCaptureDay(quote.sourceTime, input.fetchedAt).getTime())
-    .reduce((earliest, current) => Math.min(earliest, current));
   const captureDate = kabulDateParts(input.fetchedAt);
   const snapshotDate = `${captureDate.year}-${String(captureDate.month).padStart(2, "0")}-${String(captureDate.day).padStart(2, "0")}`;
 
@@ -122,7 +119,7 @@ export function parseSarafiAfSaraiShahzadaHtml(input: {
     market: SARAFI_AF_MARKET,
     sourceUrl: input.sourceUrl,
     fetchedAt: input.fetchedAt.toISOString(),
-    sourceTimestamp: new Date(sourceTimestamp).toISOString(),
+    sourceTimestamp: input.fetchedAt.toISOString(),
     rawPayloadHash: createHash("sha256").update(input.html).digest("hex"),
     quotes,
   };

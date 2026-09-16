@@ -46,3 +46,10 @@ test("dark mode keeps expanded panels and sidebar branding visible", () => {
   assert.match(css, /\.dark \[class\*="bg-gray-50\/"\][\s\S]*background-color: #2a2023 !important/);
   assert.match(sidebar, /pointer-events-none absolute inset-x-0 top-0 z-10 h-28[^\n]*dark:hidden/);
 });
+
+test("lot creation highlights the calculated carton count", () => {
+  const lots = readFileSync("src/app/(dashboard)/lots/page.tsx", "utf8");
+
+  assert.match(lots, /lot-carton-count-highlight/);
+  assert.match(lots, /cartons \(calculated\)/);
+});

@@ -30,6 +30,12 @@ const MARKET_HTML = `
       <td><b class="sellRate">9.50</b></td>
       <td class="time">08:15 AM</td>
     </tr>
+    <tr>
+      <td><a href="/exchange-rates/sarai-shahzada/AED-AFN">AED - UAE Dirham</a></td>
+      <td><b class="buyRate">18.61</b></td>
+      <td><b class="sellRate">18.64</b></td>
+      <td class="time">08:18 AM</td>
+    </tr>
   </table>
 `;
 
@@ -42,13 +48,13 @@ test("assisted capture extracts only required Sarai Shahzada quotes with PKR 1K 
 
   assert.equal(result.market, "sarai_shahzada");
   assert.equal(result.snapshotDate, "2026-08-28");
-  assert.equal(result.sourceTimestamp, "2026-08-28T03:40:00.000Z");
-  assert.deepEqual(result.quotes.map((quote) => quote.baseCurrencyCode), ["USD", "PKR", "CNY"]);
+  assert.equal(result.sourceTimestamp, "2026-08-28T04:00:00.000Z");
+  assert.deepEqual(result.quotes.map((quote) => quote.baseCurrencyCode), ["USD", "PKR", "CNY", "AED"]);
   assert.equal(result.quotes.find((quote) => quote.baseCurrencyCode === "PKR")?.rawUnit, "1K");
   assert.match(result.rawPayloadHash, /^[a-f0-9]{64}$/);
 });
 
-test("assisted capture treats a source clock later than capture time as the previous Kabul day", () => {
+test("assisted capture preserves displayed source clocks while using capture time for daily validation", () => {
   const html = MARKET_HTML.replace("08:10 AM", "04:30 PM");
   const result = parseSarafiAfSaraiShahzadaHtml({
     html,
@@ -56,7 +62,8 @@ test("assisted capture treats a source clock later than capture time as the prev
     fetchedAt: new Date("2026-08-28T04:00:00.000Z"),
   });
 
-  assert.equal(result.sourceTimestamp, "2026-08-27T12:00:00.000Z");
+  assert.equal(result.sourceTimestamp, "2026-08-28T04:00:00.000Z");
+  assert.equal(result.quotes.find((quote) => quote.baseCurrencyCode === "PKR")?.sourceTime, "04:30 PM");
 });
 
 test("assisted capture blocks wrong market pages and incomplete required quotes", () => {
@@ -71,6 +78,12 @@ test("assisted capture blocks wrong market pages and incomplete required quotes"
     sourceUrl: SARAFI_AF_ASSISTED_SOURCE_URL,
     fetchedAt: new Date("2026-08-28T04:00:00.000Z"),
   }), /Missing CNY\/AFN/);
+
+  assert.throws(() => parseSarafiAfSaraiShahzadaHtml({
+    html: MARKET_HTML.replace("/exchange-rates/sarai-shahzada/AED-AFN", "/missing/AED-AFN"),
+    sourceUrl: SARAFI_AF_ASSISTED_SOURCE_URL,
+    fetchedAt: new Date("2026-08-28T04:00:00.000Z"),
+  }), /Missing AED\/AFN/);
 });
 
 test("assisted capture requires a configured constant-time service token", () => {

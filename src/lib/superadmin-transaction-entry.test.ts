@@ -76,3 +76,18 @@ test("account transfer submission is idempotent across retries", () => {
   assert.match(route, /sync:\$\{SUPER_ADMIN_ACCOUNT_TRANSFER_SYNC_MODULE\}:\$\{syncMeta\.requestId\}/);
   assert.match(route, /if \(existingSync\?\.entityId\)/);
 });
+
+test("supplier payment entry is supplier-scoped and shows funding balances", () => {
+  const modal = read("src/components/transactions/SuperAdminTransactionModal.tsx");
+  const optionsRoute = read("src/app/api/v1/supplier-payments/options/route.ts");
+  const createRoute = read("src/app/api/v1/supplier-payments/route.ts");
+  const editRoute = read("src/app/api/v1/supplier-payments/[id]/route.ts");
+
+  assert.match(modal, /supplierLotOptions/);
+  assert.match(modal, /runningBalance/);
+  assert.match(modal, /runningBalanceByCurrency/);
+  assert.match(modal, /balances/);
+  assert.match(optionsRoute, /listSupplierLotPaymentOptions/);
+  assert.match(createRoute, /getSupplierLotPaymentCapacity/);
+  assert.match(editRoute, /getSupplierLotPaymentCapacity/);
+});

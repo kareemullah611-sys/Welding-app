@@ -117,7 +117,7 @@ export async function reviewSarafiAfCaptureDraft(input: {
     const approvalPreview = normalizeSarafiAfSnapshot({
       snapshotDate: draft.snapshotDate.toISOString().split("T")[0],
       fetchedAt: draft.fetchedAt,
-      sourceTimestamp: draft.sourceTimestamp,
+      sourceTimestamp: draft.fetchedAt,
       rawReference: draft.sourceUrl,
       rawPayload: { captureDraftId: draft.id, rawPayloadHash: draft.rawPayloadHash, quotes },
       providerMode: "HTML_FETCH",
@@ -129,14 +129,14 @@ export async function reviewSarafiAfCaptureDraft(input: {
       return {
         ok: false as const,
         code: "VALIDATION_FAILED",
-        message: "Capture is stale or failed validation and cannot be approved",
+        message: `Capture cannot be approved: ${warnings.join(" ") || approvalPreview.status}`,
         warnings,
       };
     }
     const result = await createSarafiAfFxSnapshot({
       snapshotDate: draft.snapshotDate.toISOString().split("T")[0],
       fetchedAt: draft.fetchedAt,
-      sourceTimestamp: draft.sourceTimestamp,
+      sourceTimestamp: draft.fetchedAt,
       rawReference: draft.sourceUrl,
       rawPayload: { captureDraftId: draft.id, rawPayloadHash: draft.rawPayloadHash, quotes },
       rawPayloadHash: draft.rawPayloadHash,
@@ -149,7 +149,7 @@ export async function reviewSarafiAfCaptureDraft(input: {
       return {
         ok: false as const,
         code: "VALIDATION_FAILED",
-        message: "Capture is stale or failed validation and cannot be approved",
+        message: `Capture cannot be approved: ${result.snapshot.validationWarnings.join(" ") || result.snapshot.status}`,
         warnings: result.snapshot.validationWarnings,
       };
     }

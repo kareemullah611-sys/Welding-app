@@ -5,6 +5,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { generateToken } from "@/lib/auth";
 import { POST as createSupplierPayment } from "@/app/api/v1/supplier-payments/route";
+import { DELETE as deleteSupplierPayment, PUT as updateSupplierPayment } from "@/app/api/v1/supplier-payments/[id]/route";
 
 test("supplier payment create is idempotent for repeated sync request id", async () => {
   const marker = `sync-supplier-payment-${Date.now()}`;
@@ -60,7 +61,7 @@ test("supplier payment create is idempotent for repeated sync request id", async
     data: {
       intermediaryId: intermediary.id,
       depositDate: new Date("2026-04-21"),
-      amount: 2000,
+      amount: 3000,
       currencyId: usd.id,
       sourceType: "city_cash",
       cityId: city.id,
@@ -74,10 +75,10 @@ test("supplier payment create is idempotent for repeated sync request id", async
       sourceType: "sync_test_supplier",
       sourceId: deposit.id,
       acquiredDate: new Date("2026-04-21"),
-      originalAmountUsd: 2000,
-      remainingAmountUsd: 2000,
-      originalCostPkr: 564000,
-      remainingCostPkr: 564000,
+      originalAmountUsd: 3000,
+      remainingAmountUsd: 3000,
+      originalCostPkr: 846000,
+      remainingCostPkr: 846000,
       ratePkr: 282,
     },
   });
@@ -134,6 +135,49 @@ test("supplier payment create is idempotent for repeated sync request id", async
       },
     });
     assert.equal(createdRows.length, 1, "Only one supplier payment row should exist for replayed request");
+    const journalBeforeRejectedPayment = await prisma.journalEntry.findMany({ where: { transactionId: `SUPPPAY-${firstId}` } });
+    assert.ok(journalBeforeRejectedPayment.length >= 2);
+    assert.equal(
+      journalBeforeRejectedPayment.reduce((sum, row) => sum + Number(row.debit), 0),
+      journalBeforeRejectedPayment.reduce((sum, row) => sum + Number(row.credit), 0),
+    );
+    const layerBeforeRejectedPayment = await prisma.intermediaryUsdCostLayer.findUniqueOrThrow({ where: { id: layer.id } });
+
+    const overpaymentRequest = new NextRequest("http://localhost/api/v1/supplier-payments", {
+      method: "POST",
+      headers: { ...headers, "x-sync-request-id": `${syncRequestId}-overpayment` },
+      body: JSON.stringify({ ...payload, amountUsd: 800, reference: "capacity-test" }),
+    });
+    const overpaymentResponse = await createSupplierPayment(overpaymentRequest, { params: {} });
+    const overpaymentJson = (await overpaymentResponse.json()) as any;
+    assert.equal(overpaymentResponse.status, 400);
+    assert.match(overpaymentJson.error?.message, /exceeds this supplier's outstanding purchase amount/i);
+    assert.equal(await prisma.supplierPayment.count({ where: { supplierId: supplier.id } }), 1);
+    assert.equal(await prisma.journalEntry.count({ where: { transactionId: `SUPPPAY-${firstId}` } }), journalBeforeRejectedPayment.length);
+    const layerAfterRejectedPayment = await prisma.intermediaryUsdCostLayer.findUniqueOrThrow({ where: { id: layer.id } });
+    assert.equal(Number(layerAfterRejectedPayment.remainingAmountUsd), Number(layerBeforeRejectedPayment.remainingAmountUsd));
+
+    const rejectedEdit = new NextRequest(`http://localhost/api/v1/supplier-payments/${firstId}`, {
+      method: "PUT",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ amountUsd: 2100 }),
+    });
+    const rejectedEditResponse = await updateSupplierPayment(rejectedEdit, { params: { id: String(firstId) } });
+    const rejectedEditJson = (await rejectedEditResponse.json()) as any;
+    assert.equal(rejectedEditResponse.status, 400);
+    assert.match(rejectedEditJson.error?.message, /exceeds this supplier's outstanding purchase amount/i);
+    assert.equal(Number((await prisma.supplierPayment.findUniqueOrThrow({ where: { id: firstId } })).amountUsd), 1234);
+    assert.equal(await prisma.journalEntry.count({ where: { transactionId: `SUPPPAY-${firstId}` } }), journalBeforeRejectedPayment.length);
+    assert.equal(Number((await prisma.intermediaryUsdCostLayer.findUniqueOrThrow({ where: { id: layer.id } })).remainingAmountUsd), Number(layerBeforeRejectedPayment.remainingAmountUsd));
+
+    const deleteRequest = new NextRequest(`http://localhost/api/v1/supplier-payments/${firstId}`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const deleteResponse = await deleteSupplierPayment(deleteRequest, { params: { id: String(firstId) } });
+    assert.equal(deleteResponse.status, 200);
+    assert.ok((await prisma.supplierPayment.findUniqueOrThrow({ where: { id: firstId } })).deletedAt);
+    assert.equal(Number((await prisma.intermediaryUsdCostLayer.findUniqueOrThrow({ where: { id: layer.id } })).remainingAmountUsd), 3000);
   } finally {
     await prisma.syncRequest.deleteMany({
       where: {

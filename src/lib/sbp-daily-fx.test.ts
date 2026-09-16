@@ -44,16 +44,20 @@ test("SBP daily capture blocks stale published rates", () => {
 
 test("daily FX workflow captures both sources and retains evidence for seven days", () => {
   const workflow = read(".github/workflows/sarafi-af-assisted-capture.yml");
+  const sbpCapture = read("scripts/capture-sbp-fx.ts");
   const schema = read("prisma/schema.prisma");
   const bucket = read("src/lib/railway-bucket.ts");
 
   assert.match(workflow, /fx:sbp:capture/);
+  assert.match(workflow, /SARAFI_AF_CAPTURE_ENDPOINT/);
+  assert.match(workflow, /SARAFI_AF_CAPTURE_TOKEN/);
   assert.match(workflow, /FX_EVIDENCE_CLEANUP_ENDPOINT/);
   assert.match(workflow, /retention-days: 7/);
   assert.match(schema, /model SbpDailyFxSnapshot/);
   assert.match(schema, /evidenceExpiresAt\s+DateTime/);
   assert.match(schema, /evidenceDeletedAt\s+DateTime\?/);
   assert.match(bucket, /DeleteObjectCommand/);
+  assert.match(sbpCapture, /deriveSbpCaptureEndpoint/);
 });
 
 test("SBP snapshots use an accurate source name and never overwrite an existing daily rate", () => {

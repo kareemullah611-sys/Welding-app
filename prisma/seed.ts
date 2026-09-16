@@ -61,7 +61,13 @@ async function main() {
     create: { code: "CNY", name: "Chinese Yuan", symbol: "¥" },
   });
 
-  console.log("✅ Currencies: PKR, AFN, USD, CNY");
+  await prisma.currency.upsert({
+    where: { code: "AED" },
+    update: {},
+    create: { code: "AED", name: "UAE Dirham", symbol: "د.إ" },
+  });
+
+  console.log("✅ Currencies: PKR, AFN, USD, CNY, AED");
 
   // 3. Cities (all 6)
   const existingKarachi = await prisma.city.findUnique({

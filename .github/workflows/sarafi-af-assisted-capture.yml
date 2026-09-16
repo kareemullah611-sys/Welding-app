@@ -56,6 +56,8 @@ jobs:
         env:
           SBP_FX_CAPTURE_ENDPOINT: ${{ secrets.SBP_FX_CAPTURE_ENDPOINT }}
           DAILY_FX_CAPTURE_TOKEN: ${{ secrets.DAILY_FX_CAPTURE_TOKEN }}
+          SARAFI_AF_CAPTURE_ENDPOINT: ${{ secrets.SARAFI_AF_CAPTURE_ENDPOINT }}
+          SARAFI_AF_CAPTURE_TOKEN: ${{ secrets.SARAFI_AF_CAPTURE_TOKEN }}
       - name: Retain SBP source evidence for seven days
         if: always()
         uses: actions/upload-artifact@v4
@@ -72,7 +74,11 @@ jobs:
         env:
           FX_EVIDENCE_CLEANUP_ENDPOINT: ${{ secrets.FX_EVIDENCE_CLEANUP_ENDPOINT }}
           DAILY_FX_CAPTURE_TOKEN: ${{ secrets.DAILY_FX_CAPTURE_TOKEN }}
-        run: >-
-          curl --fail --silent --show-error
-          -X POST "$FX_EVIDENCE_CLEANUP_ENDPOINT"
-          -H "x-daily-fx-capture-token: $DAILY_FX_CAPTURE_TOKEN"
+          SARAFI_AF_CAPTURE_ENDPOINT: ${{ secrets.SARAFI_AF_CAPTURE_ENDPOINT }}
+          SARAFI_AF_CAPTURE_TOKEN: ${{ secrets.SARAFI_AF_CAPTURE_TOKEN }}
+        run: |
+          CLEANUP_ENDPOINT="${FX_EVIDENCE_CLEANUP_ENDPOINT:-${SARAFI_AF_CAPTURE_ENDPOINT%/sarafi-af/captures}/evidence-retention}"
+          CAPTURE_TOKEN="${DAILY_FX_CAPTURE_TOKEN:-$SARAFI_AF_CAPTURE_TOKEN}"
+          curl --fail --silent --show-error \
+            -X POST "$CLEANUP_ENDPOINT" \
+            -H "x-daily-fx-capture-token: $CAPTURE_TOKEN"

@@ -10,9 +10,12 @@ import { validateSupplierPaymentSettlement } from "@/lib/settlement-validation";
 import { consumeIntermediaryUsdFifo, getLotFallbackUsdToPkrRate } from "@/lib/intermediary-usd-fifo";
 import { resolveSupplierSettlementContext } from "@/lib/liability-settlement-context";
 import { LiabilityFxValidationError } from "@/lib/realized-liability-fx";
+import { getSupplierLotPaymentCapacity } from "@/lib/supplier-payment-capacity";
 
 const SUPPLIER_PAYMENT_SYNC_MODULE = "supplier_payments";
 const SUPERADMIN_SYNC_CITY_ID = 0;
+
+class SupplierPaymentCapacityError extends Error {}
 
 function round2(value: number) {
   return Math.round(value * 100) / 100;
@@ -119,6 +122,21 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
         `supplier-liability:${parsed.data.supplierId}:${parsed.data.lotId || "none"}`,
       );
+      if (parsed.data.lotId) {
+        const capacity = await getSupplierLotPaymentCapacity({
+          supplierId: parsed.data.supplierId,
+          lotId: parsed.data.lotId,
+          db: tx,
+        });
+        if (capacity.purchaseTotalUsd <= 0) {
+          throw new SupplierPaymentCapacityError("Selected lot is not linked to this supplier");
+        }
+        if (amountUsd > capacity.outstandingUsd + 0.001) {
+          throw new SupplierPaymentCapacityError(
+            `Payment exceeds this supplier's outstanding purchase amount for the lot. Available: USD ${capacity.outstandingUsd.toLocaleString("en-US")}`,
+          );
+        }
+      }
       const created = await tx.supplierPayment.create({
         data: {
           supplierId: parsed.data.supplierId, lotId: parsed.data.lotId,
@@ -210,6 +228,9 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
 
     return successResponse({ id: payment.id }, "Payment recorded", 201);
   } catch (error) {
+    if (error instanceof SupplierPaymentCapacityError) {
+      return validationError(error.message);
+    }
     if (error instanceof LiabilityFxValidationError) {
       return errorResponse("FX_BASIS_REQUIRED", error.message, 400);
     }
