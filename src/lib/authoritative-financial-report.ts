@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { buildDateRange, buildYearDateRange } from "@/lib/date-range";
+import { REVENUE_SALE_STATUSES } from "@/lib/sale-status";
 
 export const AUTHORITATIVE_REPORTING_CURRENCY = "PKR";
 
@@ -218,7 +219,7 @@ export async function buildAuthoritativeFinancialReportResult(input: {
     prisma.sale.findMany({
       where: {
         saleDate: { gte: dateFrom, lt: dateToExclusive },
-        status: "active",
+        status: { in: REVENUE_SALE_STATUSES },
         fxPkrEquivalent: { not: null },
         ...(input.cityId ? { cityId: input.cityId } : {}),
       },
@@ -235,7 +236,7 @@ export async function buildAuthoritativeFinancialReportResult(input: {
       where: {
         sale: {
           saleDate: { gte: dateFrom, lt: dateToExclusive },
-          status: "active",
+          status: { in: REVENUE_SALE_STATUSES },
           isOpeningImport: false,
           ...(input.cityId ? { cityId: input.cityId } : {}),
         },

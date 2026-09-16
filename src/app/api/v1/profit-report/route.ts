@@ -9,6 +9,8 @@ import {
 } from "@/lib/landed-cost-pkr";
 import { getCountryFallbackRateToPkr } from "@/lib/intermediary-usd-fifo";
 import { buildPeriodProfitReportData } from "@/lib/period-profit-report-data";
+import { allocateMoneyByWeights } from "@/lib/lot-profit-reconciliation";
+import { REVENUE_SALE_STATUSES } from "@/lib/sale-status";
 
 const REPORTING_CURRENCY = "PKR";
 
@@ -43,29 +45,9 @@ function stockQtyToReportCartons(qty: unknown, product?: { unitOfMeasure?: strin
   return num(qty);
 }
 
-function supplierPaymentPkrAmount(payment: { amountUsd: unknown; amountLocal?: unknown; exchangeRate?: unknown }): number {
-  const local = num(payment.amountLocal);
-  if (local > 0) return local;
-  const rate = num(payment.exchangeRate);
-  return rate > 0 ? num(payment.amountUsd) * rate : 0;
-}
-
-function purchasePkrFromLinkedSupplierPayments(
-  totalPurchaseUsd: number,
-  fallbackUsdPkrRate: number,
-  supplierPayments: Array<{ amountUsd: unknown; amountLocal?: unknown; exchangeRate?: unknown }>
-): number | null {
-  const actualUsd = supplierPayments.reduce((sum, payment) => sum + num(payment.amountUsd), 0);
-  const actualPkr = supplierPayments.reduce((sum, payment) => sum + supplierPaymentPkrAmount(payment), 0);
-  if (actualUsd <= 0 || actualPkr <= 0 || totalPurchaseUsd <= 0) return null;
-  if (actualUsd >= totalPurchaseUsd) return actualPkr;
-  return actualPkr + ((totalPurchaseUsd - actualUsd) * fallbackUsdPkrRate);
-}
-
 type LotProfitInputs = {
   lotId: number;
   pkrExchangeRate: number | null;
-  purchasePkrOverride?: number | null;
   purchases: Array<{
     productId: number;
     qty: unknown;
@@ -93,14 +75,11 @@ function buildLotProfitMetrics(input: LotProfitInputs) {
     lotExpensesByCurrency: input.lotExpensesByCurrency,
     usdPkrRate,
   });
-  const purchasePkr = num(input.purchasePkrOverride) > 0 ? num(input.purchasePkrOverride) : baseLanded.purchasePkr;
-  const purchaseDelta = purchasePkr - baseLanded.purchasePkr;
-  const totalLandedCostPkr = baseLanded.totalLandedCostPkr + purchaseDelta;
   const landed = {
     ...baseLanded,
-    purchasePkr: round2(purchasePkr),
-    totalLandedCostPkr: round2(totalLandedCostPkr),
-    landedCostPerCartonPkr: input.totalCartonsBought > 0 ? round2(totalLandedCostPkr / input.totalCartonsBought) : 0,
+    purchasePkr: round2(baseLanded.purchasePkr),
+    totalLandedCostPkr: round2(baseLanded.totalLandedCostPkr),
+    landedCostPerCartonPkr: input.totalCartonsBought > 0 ? round2(baseLanded.totalLandedCostPkr / input.totalCartonsBought) : 0,
   };
 
   const additionalCostPkr =
@@ -115,7 +94,7 @@ function buildLotProfitMetrics(input: LotProfitInputs) {
   const productCosts = input.purchases.map((p) => {
     const cartons = cartonsFromPurchase(p);
     const purchaseCostPkr = totalPurchaseUsd > 0
-      ? (num(p.totalPriceUsd) / totalPurchaseUsd) * purchasePkr
+      ? (num(p.totalPriceUsd) / totalPurchaseUsd) * baseLanded.purchasePkr
       : num(p.totalPriceUsd) * usdPkrRate;
     const additionalCostShare =
       input.totalCartonsBought > 0 ? (cartons / input.totalCartonsBought) * additionalCostPkr : 0;
@@ -178,16 +157,12 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
     ? num(lot.pkrExchangeRate)
     : num(await getCountryFallbackRateToPkr({ countryId: lot.countryId, fromCurrencyCode: "USD", asOf: lot.lotDate }));
 
-  const [purchases, costs, lotExpenses, supplierPayments] = await Promise.all([
+  const [purchases, costs, lotExpenses] = await Promise.all([
     prisma.lotPurchase.findMany({ where: { lotId }, include: { product: true, supplier: true } }),
     prisma.lotCost.findMany({ where: { lotId } }),
     prisma.expense.findMany({
       where: { lotId, deletedAt: null },
       include: { currency: true },
-    }),
-    prisma.supplierPayment.findMany({
-      where: { lotId, deletedAt: null },
-      select: { amountUsd: true, amountLocal: true, exchangeRate: true },
     }),
   ]);
 
@@ -195,11 +170,6 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
   const metrics = buildLotProfitMetrics({
     lotId,
     pkrExchangeRate: usdPkrRate,
-    purchasePkrOverride: purchasePkrFromLinkedSupplierPayments(
-      purchases.reduce((sum, purchase) => sum + num(purchase.totalPriceUsd), 0),
-      usdPkrRate,
-      supplierPayments
-    ),
     purchases,
     lotCosts: costs.map((c) => ({
       amount: c.amount,
@@ -211,7 +181,7 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
     totalCartonsBought,
   });
 
-  const salesWhere: any = { OR: [{ lotId }, { items: { some: { lotId } } }], status: "active" };
+  const salesWhere: any = { OR: [{ lotId }, { items: { some: { lotId } } }], status: { in: REVENUE_SALE_STATUSES } };
   if (user.role === "city_admin") salesWhere.cityId = user.cityId;
 
   const sales = await prisma.sale.findMany({
@@ -219,7 +189,6 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
     include: { items: { include: { product: true } }, currency: true, city: true },
   });
 
-  let totalRevenue = 0;
   const salesByProduct: Record<number, { qty: number; revenue: number; productName: string }> = {};
   for (const sale of sales) {
     for (const item of sale.items) {
@@ -230,35 +199,41 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
       }
       salesByProduct[pid].qty += stockQtyToReportCartons(item.qty, item.product);
       salesByProduct[pid].revenue += num(item.amount);
-      totalRevenue += num(item.amount);
     }
   }
-
-  const discountWhere: any = { appliedToLotId: lotId };
-  if (user.role === "city_admin") discountWhere.sale = { cityId: user.cityId };
-  const discountsAgg = await prisma.saleDiscount.aggregate({
-    where: discountWhere,
-    _sum: { discountAmount: true },
-  });
-  const totalDiscounts = num(discountsAgg._sum.discountAmount);
-  const netRevenue = totalRevenue - totalDiscounts;
 
   const unsupportedExpenseCurrencies = Array.from(new Set(
     lotExpenses
       .filter((expense) => String(expense.currency.code).toUpperCase() !== "PKR")
       .map((expense) => String(expense.currency.code).toUpperCase()),
   ));
-  const totalOperationalExpenses = lotExpenses
-    .filter((expense) => String(expense.currency.code).toUpperCase() === "PKR")
-    .reduce((sum, expense) => sum + num(expense.amount), 0);
+  const allTimeReport = await buildPeriodProfitReportData(
+    user,
+    undefined,
+    "1900-01-01",
+    new Date().toISOString().slice(0, 10),
+  );
+  const recognizedLot = allTimeReport.lotBreakdown.find((row) => row.lotId === lotId);
+  const recognizedGrossRevenue = num(recognizedLot?.grossRevenue);
+  const recognizedDiscounts = num(recognizedLot?.discounts);
+  const recognizedRevenue = num(recognizedLot?.revenue);
+  const recognizedCogs = num(recognizedLot?.cogs);
+  const recognizedExpenses = num(recognizedLot?.expenses);
+  const revenueWeights = metrics.productCosts.map((pc) => num(salesByProduct[pc.productId]?.revenue));
+  const cogsWeights = metrics.productCosts.map((pc) => (
+    num(salesByProduct[pc.productId]?.qty) * pc.landedCostPerCartonPkr
+  ));
+  const productGrossRevenue = allocateMoneyByWeights(recognizedGrossRevenue, revenueWeights);
+  const productDiscounts = allocateMoneyByWeights(recognizedDiscounts, revenueWeights);
+  const productCogs = allocateMoneyByWeights(recognizedCogs, cogsWeights);
 
-  const productProfits = metrics.productCosts.map((pc) => {
+  const productProfits = metrics.productCosts.map((pc, index) => {
     const soldData = salesByProduct[pc.productId];
     const cartonsSold = soldData?.qty || 0;
-    const grossRevenue = soldData?.revenue || 0;
-    const discountShare = totalRevenue > 0 ? (grossRevenue / totalRevenue) * totalDiscounts : 0;
+    const grossRevenue = productGrossRevenue[index] || 0;
+    const discountShare = productDiscounts[index] || 0;
     const revenue = grossRevenue - discountShare;
-    const costOfSold = cartonsSold * pc.landedCostPerCartonPkr;
+    const costOfSold = productCogs[index] || 0;
     const grossProfit = revenue - costOfSold;
     return {
       ...pc,
@@ -271,8 +246,8 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
     };
   });
 
-  const totalGrossProfit = productProfits.reduce((s, p) => s + p.grossProfit, 0);
-  const netProfit = totalGrossProfit - totalOperationalExpenses;
+  const totalGrossProfit = recognizedRevenue - recognizedCogs;
+  const netProfit = totalGrossProfit - recognizedExpenses;
 
   return successResponse({
     reportingCurrency: REPORTING_CURRENCY,
@@ -302,18 +277,28 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
     },
     productCosts: productProfits,
       profitSummary: {
-      grossRevenue: round2(totalRevenue),
-      totalDiscounts: round2(totalDiscounts),
-      netRevenue: round2(netRevenue),
-      totalCOGS: round2(productProfits.reduce((s, p) => s + p.costOfGoodsSold, 0)),
+      grossRevenue: round2(recognizedGrossRevenue),
+      totalDiscounts: round2(recognizedDiscounts),
+      netRevenue: round2(recognizedRevenue),
+      totalCOGS: round2(recognizedCogs),
       totalGrossProfit: round2(totalGrossProfit),
-      totalExpenses: round2(totalOperationalExpenses),
+      totalExpenses: round2(recognizedExpenses),
       lotExpensesInLandedCost: round2(metrics.landed.lotExpensesPkr),
       netProfit: round2(netProfit),
       unsoldInventoryValue: round2(productProfits.reduce((s, p) => s + p.unsoldValue, 0)),
-        totalRevenue: round2(netRevenue),
+        totalRevenue: round2(recognizedRevenue),
       },
-      warnings: unsupportedExpenseCurrencies.map((currency) => `${currency} expenses require stored PKR recognition metadata and are excluded from this lot preview.`),
+      lotReconciliation: allTimeReport.lotReconciliation,
+      warnings: [
+        ...unsupportedExpenseCurrencies.map((currency) => `${currency} expenses require stored PKR recognition metadata and are excluded from this lot preview.`),
+        ...(!recognizedLot ? ["No posted PKR revenue or COGS was found for this lot."] : []),
+        ...(revenueWeights.reduce((sum, weight) => sum + weight, 0) <= 0 && recognizedGrossRevenue !== 0
+          ? ["Recognized lot revenue could not be allocated to product rows because product sale weights are unavailable."]
+          : []),
+        ...(cogsWeights.reduce((sum, weight) => sum + weight, 0) <= 0 && recognizedCogs !== 0
+          ? ["Posted lot COGS could not be allocated to product rows because product cost weights are unavailable."]
+          : []),
+      ],
     });
 }
 

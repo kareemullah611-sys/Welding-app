@@ -161,6 +161,7 @@ function pkr(value: number | string | null | undefined) {
 function PeriodReport({ data, onTraceLot }: { data: any; onTraceLot: (lotId: number) => void }) {
   const { t } = useLang();
   const pl = data.profitAndLoss;
+  const reconciliation = data.lotReconciliation;
   const currency = data.reportingCurrency || "PKR";
   return (
     <>
@@ -177,6 +178,35 @@ function PeriodReport({ data, onTraceLot }: { data: any; onTraceLot: (lotId: num
         <StatsCard title={t("cartons_sold_label")} value={formatNumber(data.cartonsSold)} icon="📦" color="blue" />
         <StatsCard title={t("expenses")} value={pkr(pl.totalExpenses)} icon="💸" color="red" />
       </div>
+
+      {reconciliation && (
+        <div className={`card mb-6 border ${reconciliation.status === "RECONCILED" ? "border-emerald-200" : "border-red-300"}`}>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+            <div>
+              <h3 className="text-sm font-semibold">Lotwise reconciliation</h3>
+              <p className="text-xs text-gray-500">Posted PKR revenue and COGS, bridged to the authoritative Financial Report.</p>
+            </div>
+            <span className={`rounded-full px-3 py-1 text-xs font-bold ${reconciliation.status === "RECONCILED" ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}`}>
+              {reconciliation.status}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+            <div><div className="text-xs text-gray-500">Lot revenue</div><div className="font-semibold">{pkr(reconciliation.lotRevenuePkr)}</div></div>
+            <div><div className="text-xs text-gray-500">Lot COGS</div><div className="font-semibold">{pkr(reconciliation.lotCogsPkr)}</div></div>
+            <div><div className="text-xs text-gray-500">Lot gross profit</div><div className="font-semibold">{pkr(reconciliation.lotGrossProfitPkr)}</div></div>
+            <div><div className="text-xs text-gray-500">Direct lot expenses</div><div className="font-semibold">{pkr(reconciliation.directLotExpensesPkr)}</div></div>
+            <div><div className="text-xs text-gray-500">Unallocated operating expenses</div><div className="font-semibold">{pkr(reconciliation.unallocatedExpensesPkr)}</div></div>
+            <div><div className="text-xs text-gray-500">Net FX</div><div className="font-semibold">{pkr(reconciliation.fxGainsPkr - reconciliation.fxLossesPkr)}</div></div>
+            <div><div className="text-xs text-gray-500">Bridged net profit</div><div className="font-semibold">{pkr(reconciliation.bridgedNetProfitPkr)}</div></div>
+            <div><div className="text-xs text-gray-500">Final difference</div><div className={`font-bold ${Math.abs(reconciliation.netProfitDifferencePkr) <= 0.01 ? "text-emerald-700" : "text-red-700"}`}>{pkr(reconciliation.netProfitDifferencePkr)}</div></div>
+          </div>
+          {reconciliation.status !== "RECONCILED" && (
+            <div className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-800">
+              Revenue difference: {pkr(reconciliation.revenueDifferencePkr)} · COGS difference: {pkr(reconciliation.cogsDifferencePkr)} · Gross-profit difference: {pkr(reconciliation.grossProfitDifferencePkr)}
+            </div>
+          )}
+        </div>
+      )}
 
       {data.supplierAccount && (
         <div className="card mb-6">

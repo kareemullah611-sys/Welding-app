@@ -1055,17 +1055,23 @@ test("inter funds transfer cheque picker uses payment cheque fields and formatte
   assert.doesNotMatch(bankDepositsPage, /ch\.person/);
 });
 
-test("superadmin profit reports handle PCS cartons and scoped financial cash", () => {
+test("superadmin profit reports reconcile posted lot PKR results and scoped financial cash", () => {
   const profitRoute = readFileSync("src/app/api/v1/profit-report/route.ts", "utf8");
   const periodProfitHelper = readFileSync("src/lib/period-profit-report-data.ts", "utf8");
   const financialRoute = readFileSync("src/app/api/v1/financial-reports/route.ts", "utf8");
+  const profitPage = readFileSync("src/app/(dashboard)/profit-report/page.tsx", "utf8");
 
   assert.match(profitRoute, /function stockQtyToReportCartons/);
   assert.match(profitRoute, /p\.product\?\.unitOfMeasure === "PCS"/);
   assert.match(profitRoute, /num\(p\.qty\) \/ piecesPerCarton/);
   assert.match(profitRoute, /stockQtyToReportCartons\(lp\.totalQty, lp\.product\)/);
-  assert.match(periodProfitHelper, /lotPurchases: \{ include: \{ product: true, supplier: true \} \}/);
-  assert.match(periodProfitHelper, /stockQtyToReportCartons\(lotProduct\.totalQty, lotProduct\.product\)/);
+  assert.match(periodProfitHelper, /buildLotProfitReconciliation/);
+  assert.match(periodProfitHelper, /prisma\.journalEntry\.findMany/);
+  assert.match(periodProfitHelper, /lotId: item\.lotId/);
+  assert.match(periodProfitHelper, /fxPkrEquivalent/);
+  assert.match(periodProfitHelper, /lotReconciliation: lotProfit\.reconciliation/);
+  assert.doesNotMatch(periodProfitHelper, /getCountryFallbackRateToPkr|computeLotLandedCostPkr/);
+  assert.match(profitPage, /Lotwise reconciliation/);
   assert.match(financialRoute, /where: \{ accountId: \{ in: accountIds \}, \.\.\.\(cityId \? \{ cityId \} : \{\}\) \}/);
 });
 
@@ -1137,7 +1143,8 @@ test("country fallback rates and intermediary FIFO costing are wired", () => {
   assert.match(exchangeCreate, /createIntermediaryUsdLayerFromExchange\(/);
   assert.match(exchangeUpdate, /assertIntermediaryUsdLayerUnused\("intermediary_exchange", id\)/);
   assert.match(profitRoute, /getCountryFallbackRateToPkr/);
-  assert.match(profitRoute, /purchasePkrFromLinkedSupplierPayments/);
+  assert.doesNotMatch(profitRoute, /purchasePkrFromLinkedSupplierPayments|purchasePkrOverride/);
+  assert.match(profitRoute, /recognizedLot = allTimeReport\.lotBreakdown\.find/);
 });
 
 test("cheque register paginates rows while showing server-wide status totals", () => {

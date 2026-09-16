@@ -1,12 +1,9 @@
 import prisma from "@/lib/prisma";
 import { buildAuthoritativeFinancialReportResult } from "@/lib/authoritative-financial-report";
-import {
-  computeLotLandedCostPkr,
-  type LotCostLike,
-} from "@/lib/landed-cost-pkr";
-import { getCountryFallbackRateToPkr } from "@/lib/intermediary-usd-fifo";
 import { JWTPayload } from "@/lib/auth";
 import { buildDateRange, buildYearDateRange } from "@/lib/date-range";
+import { REVENUE_SALE_STATUSES } from "@/lib/sale-status";
+import { buildLotProfitReconciliation } from "@/lib/lot-profit-reconciliation";
 
 const REPORTING_CURRENCY = "PKR";
 
@@ -27,27 +24,6 @@ function stockQtyToReportCartons(qty: unknown, product?: { unitOfMeasure?: strin
   return num(qty);
 }
 
-function buildLotProfitMetrics(input: {
-  pkrExchangeRate: number | null;
-  purchases: Array<{ totalPriceUsd: unknown }>;
-  lotCosts: LotCostLike[];
-  lotExpensesByCurrency: Record<string, number>;
-  totalCartonsBought: number;
-}) {
-  const usdPkrRate = num(input.pkrExchangeRate);
-  const totalPurchaseUsd = input.purchases.reduce((sum, purchase) => sum + num(purchase.totalPriceUsd), 0);
-  const baseLanded = computeLotLandedCostPkr({
-    totalPurchaseUsd,
-    totalCartons: input.totalCartonsBought,
-    lotCosts: input.lotCosts,
-    lotExpensesByCurrency: input.lotExpensesByCurrency,
-    usdPkrRate,
-  });
-  return {
-    landedCostPerCartonPkr: input.totalCartonsBought > 0 ? round2(baseLanded.totalLandedCostPkr / input.totalCartonsBought) : 0,
-  };
-}
-
 export async function buildPeriodProfitReportData(
   user: JWTPayload,
   year?: number,
@@ -60,102 +36,151 @@ export async function buildPeriodProfitReportData(
     dateTo,
     cityId: user.role === "city_admin" ? user.cityId || null : null,
   });
-  const saleWhere: any = { status: "active" };
-  if (user.role === "city_admin") saleWhere.cityId = user.cityId;
-  if (year) {
-    saleWhere.saleDate = buildYearDateRange(year);
-  } else if (dateFrom || dateTo) {
-    saleWhere.saleDate = buildDateRange(dateFrom, dateTo);
-  }
+  const today = new Date().toISOString().slice(0, 10);
+  const periodRange = year
+    ? buildYearDateRange(year)
+    : buildDateRange(dateFrom || "1900-01-01", dateTo || today);
+  const cityScope = user.role === "city_admin" ? { cityId: user.cityId! } : {};
 
-  const lots = await prisma.lot.findMany({
-    include: {
-      lotPurchases: { include: { product: true, supplier: true } },
-      lotProducts: { include: { product: true } },
-      lotCosts: true,
-      country: true,
-      sales: { where: saleWhere, include: { items: { include: { product: true } } } },
-      expenses: {
-        where: user.role === "city_admin" ? { cityId: user.cityId!, deletedAt: null } : { deletedAt: null },
-        include: { currency: true },
+  const pnlAccounts = await prisma.account.findMany({
+    where: {
+      OR: [
+        { accountType: { in: ["revenue", "cogs", "expense"] } },
+        { code: { in: ["FX-GAIN", "FX-LOSS"] } },
+      ],
+    },
+    select: { id: true, code: true, accountType: true },
+  });
+  const accountById = new Map(pnlAccounts.map((account) => [account.id, account]));
+  const journalRows = await prisma.journalEntry.findMany({
+    where: {
+      accountId: { in: pnlAccounts.map((account) => account.id) },
+      entryDate: periodRange,
+      ...cityScope,
+    },
+    select: {
+      accountId: true,
+      debit: true,
+      credit: true,
+      currencyCode: true,
+      entityType: true,
+      entityId: true,
+      lotId: true,
+    },
+  });
+  const pkrRevenueRows = journalRows.filter((row) => (
+    accountById.get(row.accountId)?.accountType === "revenue"
+      && String(row.currencyCode).toUpperCase() === REPORTING_CURRENCY
+  ));
+  const journalSaleIds = [...new Set(
+    pkrRevenueRows
+      .filter((row) => row.entityType === "sale" && row.entityId)
+      .map((row) => Number(row.entityId)),
+  )];
+  const postedPkrRevenueBySaleId = new Map<number, number>();
+  for (const row of pkrRevenueRows) {
+    if (row.entityType !== "sale" || !row.entityId) continue;
+    const saleId = Number(row.entityId);
+    postedPkrRevenueBySaleId.set(
+      saleId,
+      num(postedPkrRevenueBySaleId.get(saleId)) + num(row.credit) - num(row.debit),
+    );
+  }
+  const sales = await prisma.sale.findMany({
+    where: {
+      ...cityScope,
+      isOpeningImport: false,
+      OR: [
+        { saleDate: periodRange, status: { in: REVENUE_SALE_STATUSES } },
+        ...(journalSaleIds.length ? [{ id: { in: journalSaleIds } }] : []),
+      ],
+    },
+    select: {
+      id: true,
+      saleDate: true,
+      status: true,
+      fxPkrEquivalent: true,
+      currency: { select: { code: true } },
+      items: {
+        select: {
+          lotId: true,
+          amount: true,
+          qty: true,
+          product: { select: { unitOfMeasure: true, piecesPerCarton: true } },
+        },
       },
     },
   });
-
-  let totalRevenue = 0;
-  let totalCOGS = 0;
-  let totalCartonsSold = 0;
-  const lotSummaries = [];
-
-  const allDiscounts = await prisma.saleDiscount.findMany({
-    where: user.role === "city_admin" ? { sale: { cityId: user.cityId! } } : {},
-    select: { appliedToLotId: true, discountAmount: true },
-  });
-  const discountByLot: Record<number, number> = {};
-  for (const discount of allDiscounts) {
-    discountByLot[discount.appliedToLotId] = (discountByLot[discount.appliedToLotId] || 0) + num(discount.discountAmount);
-  }
-
-  for (const lot of lots) {
-    if (!lot.sales.length && !lot.lotPurchases.length) continue;
-
-    const totalCartons = lot.lotProducts.reduce((sum, lotProduct) => (
-      sum + stockQtyToReportCartons(lotProduct.totalQty, lotProduct.product)
-    ), 0);
-    const usdPkrRate = lot.pkrExchangeRate
-      ? num(lot.pkrExchangeRate)
-      : num(await getCountryFallbackRateToPkr({ countryId: lot.countryId, fromCurrencyCode: "USD", asOf: lot.lotDate }));
-    const metrics = buildLotProfitMetrics({
-      pkrExchangeRate: usdPkrRate,
-      purchases: lot.lotPurchases,
-      lotCosts: lot.lotCosts.map((cost) => ({
-        amount: cost.amount,
-        currencyCode: cost.currencyCode,
-        exchangeRate: cost.exchangeRate,
-        costType: cost.costType,
+  const periodStartMs = periodRange.gte?.getTime() ?? Number.NEGATIVE_INFINITY;
+  const periodEndMs = periodRange.lt?.getTime() ?? Number.POSITIVE_INFINITY;
+  const saleInputs = sales.map((sale) => {
+    const currencyCode = String(sale.currency.code).toUpperCase();
+    const saleDateMs = sale.saleDate.getTime();
+    const isRecognizedCurrentSale = REVENUE_SALE_STATUSES.includes(sale.status)
+      && saleDateMs >= periodStartMs
+      && saleDateMs < periodEndMs;
+    const postedPkrRevenue = num(postedPkrRevenueBySaleId.get(sale.id));
+    const recognizedRevenuePkr = currencyCode === REPORTING_CURRENCY
+      ? postedPkrRevenue
+      : isRecognizedCurrentSale ? num(sale.fxPkrEquivalent) : 0;
+    return {
+      saleId: sale.id,
+      recognizedRevenuePkr,
+      items: sale.items.map((item) => ({
+        lotId: item.lotId,
+        revenueWeight: num(item.amount),
+        cartons: isRecognizedCurrentSale ? stockQtyToReportCartons(item.qty, item.product) : 0,
       })),
-      lotExpensesByCurrency: {},
-      totalCartonsBought: totalCartons,
-    });
-
-    let grossLotRevenue = 0;
-    let lotCartonsSold = 0;
-    for (const sale of lot.sales) {
-      for (const item of sale.items) {
-        grossLotRevenue += num(item.amount);
-        lotCartonsSold += stockQtyToReportCartons(item.qty, item.product);
-      }
-    }
-
-    const lotDiscounts = discountByLot[lot.id] || 0;
-    const lotRevenue = grossLotRevenue - lotDiscounts;
-    const lotCOGS = lotCartonsSold * metrics.landedCostPerCartonPkr;
-    const lotExpensesPkr = lot.expenses
-      .filter((expense) => String(expense.currency.code).toUpperCase() === "PKR")
-      .reduce((sum, expense) => sum + num(expense.amount), 0);
-
-    totalRevenue += lotRevenue;
-    totalCOGS += lotCOGS;
-    totalCartonsSold += lotCartonsSold;
-
-    if (grossLotRevenue > 0 || lotCartonsSold > 0) {
-      lotSummaries.push({
-        lotId: lot.id,
-        lotNumber: lot.lotNumber,
-        country: lot.country.name,
-        landedCostPerCarton: metrics.landedCostPerCartonPkr,
-        landedCostPerCartonPkr: metrics.landedCostPerCartonPkr,
-        cartonsSold: lotCartonsSold,
-        grossRevenue: round2(grossLotRevenue),
-        discounts: round2(lotDiscounts),
-        revenue: round2(lotRevenue),
-        cogs: round2(lotCOGS),
-        expenses: round2(lotExpensesPkr),
-        grossProfit: round2(lotRevenue - lotCOGS),
-        netProfit: round2(lotRevenue - lotCOGS - lotExpensesPkr),
-      });
-    }
-  }
+    };
+  });
+  const revenueAdjustments = pkrRevenueRows
+    .filter((row) => row.entityType !== "sale")
+    .map((row) => ({
+      lotId: row.lotId,
+      amountPkr: num(row.credit) - num(row.debit),
+      kind: row.entityType === "sale_discount" ? "discount" as const : "other" as const,
+    }));
+  const cogsEntries = journalRows
+    .filter((row) => accountById.get(row.accountId)?.accountType === "cogs" && String(row.currencyCode).toUpperCase() === REPORTING_CURRENCY)
+    .map((row) => ({ lotId: row.lotId, amountPkr: num(row.debit) - num(row.credit) }));
+  const expenseEntries = journalRows
+    .filter((row) => (
+      accountById.get(row.accountId)?.accountType === "expense"
+        && !["FX-GAIN", "FX-LOSS"].includes(accountById.get(row.accountId)?.code || "")
+        && String(row.currencyCode).toUpperCase() === REPORTING_CURRENCY
+    ))
+    .map((row) => ({ lotId: row.lotId, amountPkr: num(row.debit) - num(row.credit) }));
+  const lotProfit = buildLotProfitReconciliation({
+    sales: saleInputs,
+    revenueAdjustments,
+    cogsEntries,
+    expenseEntries,
+    authoritative: authoritativeReport.profitAndLoss,
+  });
+  const lotIds = [...lotProfit.byLot.keys()];
+  const lots = lotIds.length
+    ? await prisma.lot.findMany({
+      where: { id: { in: lotIds } },
+      select: { id: true, lotNumber: true, country: { select: { name: true } } },
+    })
+    : [];
+  const lotMeta = new Map(lots.map((lot) => [lot.id, lot]));
+  const lotSummaries = [...lotProfit.byLot.values()].map((lot) => ({
+    lotId: lot.lotId,
+    lotNumber: lotMeta.get(lot.lotId)?.lotNumber || `Lot #${lot.lotId}`,
+    country: lotMeta.get(lot.lotId)?.country.name || "—",
+    landedCostPerCarton: lot.cartonsSold ? round2(lot.cogsPkr / lot.cartonsSold) : 0,
+    landedCostPerCartonPkr: lot.cartonsSold ? round2(lot.cogsPkr / lot.cartonsSold) : 0,
+    cartonsSold: lot.cartonsSold,
+    grossRevenue: lot.grossRevenuePkr,
+    discounts: lot.discountsPkr,
+    revenue: lot.revenuePkr,
+    cogs: lot.cogsPkr,
+    expenses: lot.directExpensesPkr,
+    grossProfit: lot.grossProfitPkr,
+    netProfit: lot.netProfitBeforeFxPkr,
+  })).sort((a, b) => a.lotNumber.localeCompare(b.lotNumber, undefined, { numeric: true }));
+  const totalCartonsSold = round2(lotSummaries.reduce((sum, lot) => sum + lot.cartonsSold, 0));
 
   const totalPurchased = await prisma.lotPurchase.aggregate({ _sum: { totalPriceUsd: true } });
   const totalPaid = await prisma.supplierPayment.aggregate({ where: { deletedAt: null }, _sum: { amountUsd: true } });
@@ -172,5 +197,6 @@ export async function buildPeriodProfitReportData(
       balanceOwedUsd: num(totalPurchased._sum.totalPriceUsd) - num(totalPaid._sum.amountUsd),
     },
     lotBreakdown: lotSummaries,
+    lotReconciliation: lotProfit.reconciliation,
   };
 }
