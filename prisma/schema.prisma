@@ -171,6 +171,13 @@ enum LotCostType {
   other
 }
 
+enum LotCostAllocationBasis {
+  purchase_value
+  weight
+  cartons
+  specific_product
+}
+
 enum OpeningLiabilityType {
   supplier
   shipping_line
@@ -720,6 +727,7 @@ model Product {
   cityTransfers              CityTransfer[]
   openingStocks              OpeningStock[]
   openingInventoryValuations OpeningInventoryValuation[]
+  allocatedLotCosts          LotCost[]                  @relation("LotCostAllocatedProduct")
 
   @@map("products")
 }
@@ -2016,6 +2024,8 @@ model LotCost {
   id                      Int         @id @default(autoincrement())
   lotId                   Int         @map("lot_id")
   costType                LotCostType @map("cost_type")
+  allocationBasis         LotCostAllocationBasis @default(cartons) @map("allocation_basis")
+  allocatedProductId      Int?        @map("allocated_product_id")
   description             String      @db.VarChar(500)
   amount                  Decimal     @db.Decimal(15, 2)
   currencyCode            String      @default("USD") @map("currency_code") @db.VarChar(10)
@@ -2041,6 +2051,7 @@ model LotCost {
   bankAccount           BankAccount?           @relation(fields: [bankAccountId], references: [id])
   superAdminBankAccount SuperAdminBankAccount? @relation(fields: [superAdminBankAccountId], references: [id])
   intermediary          Intermediary?          @relation(fields: [intermediaryId], references: [id])
+  allocatedProduct      Product?               @relation("LotCostAllocatedProduct", fields: [allocatedProductId], references: [id])
   creator               User                   @relation("CostCreatedBy", fields: [createdBy], references: [id])
 
   @@index([lotId])
@@ -2050,6 +2061,7 @@ model LotCost {
   @@index([bankAccountId])
   @@index([superAdminBankAccountId])
   @@index([intermediaryId])
+  @@index([allocatedProductId])
   @@map("lot_costs")
 }
 

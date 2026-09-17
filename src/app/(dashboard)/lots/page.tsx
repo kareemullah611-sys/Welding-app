@@ -122,7 +122,7 @@ export default function LotsPage() {
   const [pkrRateReason, setPkrRateReason] = useState("");
   const [pkrRateConfirmation, setPkrRateConfirmation] = useState("");
   const [showAddCost,   setShowAddCost]   = useState(false);
-  const [costForm,      setCostForm]      = useState({ costType: "freight", description: "", amount: "", currencyCode: "USD", exchangeRate: "", costDate: new Date().toISOString().split("T")[0], notes: "" });
+  const [costForm,      setCostForm]      = useState({ costType: "freight", allocationBasis: "weight", allocatedProductId: 0, description: "", amount: "", currencyCode: "USD", exchangeRate: "", costDate: new Date().toISOString().split("T")[0], notes: "" });
   const [shippingLines,   setShippingLines]   = useState<any[]>([]);
   const [bankAccounts,    setBankAccounts]    = useState<any[]>([]);
   const [intermediaries,  setIntermediaries]  = useState<any[]>([]);
@@ -715,6 +715,8 @@ export default function LotsPage() {
   const openAddCost = () => {
     setCostForm({
       costType: "freight",
+      allocationBasis: "weight",
+      allocatedProductId: 0,
       description: "",
       amount: "",
       currencyCode: "USD",
@@ -736,6 +738,8 @@ export default function LotsPage() {
   const handleAddCost = async () => {
     if (!costForm.description || !costForm.amount || Number(costForm.amount) <= 0) { setFormError("Description and amount required"); return; }
     const isFreight = costForm.costType === "freight";
+    if (!costForm.allocationBasis) { setFormError("Select a product allocation basis"); return; }
+    if (costForm.allocationBasis === "specific_product" && costForm.allocatedProductId <= 0) { setFormError("Select the product for this cost"); return; }
     const currencyCode = String(costForm.currencyCode || (isFreight ? "USD" : isAfgLot ? "AFN" : "PKR")).toUpperCase();
     if (isFreight && costShippingLineId <= 0) {
       setFormError("Shipping line is required for freight cost");
@@ -771,6 +775,8 @@ export default function LotsPage() {
     const body: Record<string, unknown> = {
       lotId:            selectedLot.id,
       costType:         costForm.costType,
+      allocationBasis:  costForm.allocationBasis,
+      allocatedProductId: costForm.allocationBasis === "specific_product" ? costForm.allocatedProductId : null,
       description:      costForm.description,
       amount:           Number(costForm.amount),
       currencyCode,
@@ -1416,6 +1422,11 @@ export default function LotsPage() {
                 setCostForm(f => ({
                   ...f,
                   costType: type,
+                  allocationBasis: type === "customs_duty" ? "purchase_value"
+                    : type === "freight" || type === "transport" ? "weight"
+                    : type === "loading_unloading" ? "cartons"
+                    : "",
+                  allocatedProductId: 0,
                   currencyCode: defaultCurrency,
                   exchangeRate: costNeedsRate(defaultCurrency) ? f.exchangeRate : "",
                 }));
@@ -1457,6 +1468,35 @@ export default function LotsPage() {
                 <input value="PKR" disabled className="input-field bg-gray-50 text-gray-500" />
               )}
             </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Allocate Cost By *</label>
+              <select
+                value={costForm.allocationBasis}
+                onChange={e => setCostForm(f => ({ ...f, allocationBasis: e.target.value, allocatedProductId: 0 }))}
+                className="select-field"
+                disabled={["customs_duty", "freight", "transport", "loading_unloading"].includes(costForm.costType)}
+              >
+                <option value="">Select basis</option>
+                <option value="purchase_value">Product purchase value</option>
+                <option value="weight">Product weight</option>
+                <option value="cartons">Cartons</option>
+                <option value="specific_product">Specific product only</option>
+              </select>
+            </div>
+            {costForm.allocationBasis === "specific_product" && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Product *</label>
+                <select value={costForm.allocatedProductId} onChange={e => setCostForm(f => ({ ...f, allocatedProductId: Number(e.target.value) }))} className="select-field">
+                  <option value={0}>Select product</option>
+                  {(selectedLot?.products || selectedLot?.lotProducts || []).map((row: any) => {
+                    const product = row.product || row;
+                    return <option key={product.id || row.productId} value={product.id || row.productId}>{product.name || row.productName}</option>;
+                  })}
+                </select>
+              </div>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Description *</label>

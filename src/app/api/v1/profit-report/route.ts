@@ -11,6 +11,7 @@ import { getCountryFallbackRateToPkr } from "@/lib/intermediary-usd-fifo";
 import { buildPeriodProfitReportData } from "@/lib/period-profit-report-data";
 import { allocateMoneyByWeights } from "@/lib/lot-profit-reconciliation";
 import { REVENUE_SALE_STATUSES } from "@/lib/sale-status";
+import { calculateLotProductLandedCosts, type LotCostAllocationBasis } from "@/lib/lot-product-cost-allocation";
 
 const REPORTING_CURRENCY = "PKR";
 
@@ -54,10 +55,12 @@ type LotProfitInputs = {
     weightPerCartonKg: unknown;
     unitPriceUsd: unknown;
     totalPriceUsd: unknown;
-    product: { name: string; unitOfMeasure?: string | null; piecesPerCarton?: number | null };
+    carryingAmountPkr?: unknown;
+    carryingRatePkr?: unknown;
+    product: { name: string; unitOfMeasure?: string | null; piecesPerCarton?: number | null; defaultWeightPerCartonKg?: unknown };
     supplier: { name: string };
   }>;
-  lotCosts: LotCostLike[];
+  lotCosts: Array<LotCostLike & { allocationBasis?: string | null; allocatedProductId?: number | null }>;
   lotExpensesByCurrency: Record<string, number>;
   totalCartonsBought: number;
 };
@@ -91,30 +94,60 @@ function buildLotProfitMetrics(input: LotProfitInputs) {
     costBreakdown[key] = (costBreakdown[key] || 0) + num(c.amount);
   }
 
-  const productCosts = input.purchases.map((p) => {
-    const cartons = cartonsFromPurchase(p);
-    const purchaseCostPkr = totalPurchaseUsd > 0
-      ? (num(p.totalPriceUsd) / totalPurchaseUsd) * baseLanded.purchasePkr
-      : num(p.totalPriceUsd) * usdPkrRate;
-    const additionalCostShare =
-      input.totalCartonsBought > 0 ? (cartons / input.totalCartonsBought) * additionalCostPkr : 0;
-    const totalLandedCostPkr = purchaseCostPkr + additionalCostShare;
-    const landedPerCarton = cartons > 0 ? totalLandedCostPkr / cartons : 0;
+  const purchaseByProduct = new Map<number, typeof input.purchases>();
+  for (const purchase of input.purchases) {
+    purchaseByProduct.set(purchase.productId, [...(purchaseByProduct.get(purchase.productId) || []), purchase]);
+  }
+  const productInputs = Array.from(purchaseByProduct.entries()).map(([productId, purchases]) => {
+    const first = purchases[0];
+    const cartons = purchases.reduce((sum, purchase) => sum + cartonsFromPurchase(purchase), 0);
+    const purchaseValuePkr = purchases.reduce((sum, purchase) => {
+      const carrying = num(purchase.carryingAmountPkr);
+      return sum + (carrying > 0 ? carrying : num(purchase.totalPriceUsd) * num(purchase.carryingRatePkr || usdPkrRate));
+    }, 0);
+    const weightKg = first.product.unitOfMeasure === "PCS"
+      ? cartons * num(first.product.defaultWeightPerCartonKg)
+      : purchases.reduce((sum, purchase) => sum + num(purchase.qty) * 1000, 0);
     return {
-      productId: p.productId,
-      productName: p.product.name,
-      supplierName: p.supplier.name,
-      qtyMt: num(p.qty),
-      cartons,
-      unitPriceUsd: num(p.unitPriceUsd),
-      purchaseCostUsd: num(p.totalPriceUsd),
-      purchaseCostPkr: round2(purchaseCostPkr),
-      additionalCostShare: round2(additionalCostShare),
-      totalLandedCostUsd: round2(num(p.totalPriceUsd)),
-      totalLandedCostPkr: round2(totalLandedCostPkr),
-      landedCostPerCartonUsd: round2(landedPerCarton / (usdPkrRate || 1)),
-      landedCostPerCartonPkr: round2(landedPerCarton),
-      landedCostPerCarton: round2(landedPerCarton),
+      productId,
+      productName: first.product.name,
+      purchaseValuePkr,
+      weightKg,
+      cartonQty: cartons,
+      totalStockQty: cartons,
+      operatingSoldStockQty: 0,
+      openingSoldStockQty: 0,
+    };
+  });
+  const landedByProduct = calculateLotProductLandedCosts({
+    products: productInputs,
+    costs: input.lotCosts.map((cost) => ({
+      amountPkr: num(cost.amount) * (String(cost.currencyCode || "PKR").toUpperCase() === "PKR" ? 1 : num(cost.exchangeRate)),
+      basis: (cost.allocationBasis || "cartons") as LotCostAllocationBasis,
+      allocatedProductId: cost.allocatedProductId,
+    })),
+  });
+  const productCosts = landedByProduct.map((landedProduct) => {
+    const purchases = purchaseByProduct.get(landedProduct.productId) || [];
+    const first = purchases[0];
+    const purchaseCostUsd = purchases.reduce((sum, purchase) => sum + num(purchase.totalPriceUsd), 0);
+    const qtyMt = purchases.reduce((sum, purchase) => sum + num(purchase.qty), 0);
+    const weightedUnitPriceUsd = qtyMt > 0 ? purchaseCostUsd / qtyMt : 0;
+    return {
+      productId: landedProduct.productId,
+      productName: landedProduct.productName,
+      supplierName: Array.from(new Set(purchases.map((purchase) => purchase.supplier.name))).join(", "),
+      qtyMt,
+      cartons: landedProduct.cartonQty,
+      unitPriceUsd: weightedUnitPriceUsd,
+      purchaseCostUsd,
+      purchaseCostPkr: round2(landedProduct.purchaseValuePkr),
+      additionalCostShare: round2(landedProduct.additionalCostPkr),
+      totalLandedCostUsd: round2(purchaseCostUsd),
+      totalLandedCostPkr: round2(landedProduct.totalLandedCostPkr),
+      landedCostPerCartonUsd: round2(landedProduct.unitCostPkr / (usdPkrRate || 1)),
+      landedCostPerCartonPkr: round2(landedProduct.unitCostPkr),
+      landedCostPerCarton: round2(landedProduct.unitCostPkr),
     };
   });
 
@@ -176,6 +209,8 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
       currencyCode: c.currencyCode,
       exchangeRate: c.exchangeRate,
       costType: c.costType,
+      allocationBasis: c.allocationBasis,
+      allocatedProductId: c.allocatedProductId,
     })),
     lotExpensesByCurrency: {},
     totalCartonsBought,

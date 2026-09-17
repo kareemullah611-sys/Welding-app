@@ -35,11 +35,19 @@ const emptyReferenceData: ReferenceData = {
 };
 
 const today = () => new Date().toISOString().split("T")[0];
+const lotCostTypes: SuperAdminTransactionType[] = ["lot_customs_duty", "lot_transport_cost", "lot_other_cost"];
+const isLotCostTransaction = (type: SuperAdminTransactionType | null) => Boolean(type && lotCostTypes.includes(type));
+const lotCostTypeByTransaction: Partial<Record<SuperAdminTransactionType, "customs_duty" | "transport" | "other">> = {
+  lot_customs_duty: "customs_duty",
+  lot_transport_cost: "transport",
+  lot_other_cost: "other",
+};
 
 const emptyForm = () => ({
   date: today(), partyId: 0, lotId: 0, amount: "", sourceAccountId: "", destinationAccountId: "",
   intermediaryId: 0, currencyId: 0, toCurrencyId: 0, exchangeRate: "", rateSource: "",
-  reference: "", notes: "", paymentMethod: "bank_transfer", paidVia: "account", counterAccountId: 0, cityId: 0,
+  reference: "", notes: "", description: "", paymentMethod: "bank_transfer", paidVia: "account", costChannel: "bank", counterAccountId: 0, cityId: 0,
+  allocationBasis: "", allocatedProductId: 0,
 });
 
 function amountValue(value: unknown) {
@@ -73,6 +81,19 @@ function partyLabel(rows: any[], id: number) {
   return rows.find((row) => Number(row.id) === Number(id))?.name || "selected party";
 }
 
+async function loadAllLots() {
+  const first = await apiCall("/api/v1/lots", { params: { page: 1, limit: 100 } });
+  if (!first.success) return first;
+  const totalPages = Number((first.pagination as any)?.totalPages || 1);
+  if (totalPages <= 1) return first;
+  const remaining = await Promise.all(Array.from({ length: totalPages - 1 }, (_, index) => (
+    apiCall("/api/v1/lots", { params: { page: index + 2, limit: 100 } })
+  )));
+  const failed = remaining.find((result) => !result.success);
+  if (failed) return failed;
+  return { ...first, data: [first.data, ...remaining.map((result) => result.data)].flat() };
+}
+
 export default function SuperAdminTransactionModal() {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>("choose");
@@ -88,6 +109,7 @@ export default function SuperAdminTransactionModal() {
   const [successMessage, setSuccessMessage] = useState("");
   const [onSuccess, setOnSuccess] = useState<SuperAdminTransactionOpenDetail["onSuccess"]>();
   const transferRequestRef = useRef<{ signature: string; requestId: string } | null>(null);
+  const lotCostRequestRef = useRef<{ signature: string; requestId: string } | null>(null);
 
   const loadReferenceData = useCallback(async () => {
     setLoadingOptions(true);
@@ -96,7 +118,7 @@ export default function SuperAdminTransactionModal() {
       apiCall("/api/v1/shipping-lines", { params: { page: 1, limit: 100 } }),
       apiCall("/api/v1/agents", { params: { page: 1, limit: 100 } }),
       apiCall("/api/v1/intermediaries", { params: { include_balances: 1 } }),
-      apiCall("/api/v1/lots", { params: { page: 1, limit: 100 } }),
+      loadAllLots(),
       apiCall("/api/v1/super-admin-liabilities", { params: { page: 1, limit: 100 } }),
       apiCall("/api/v1/super-admin-liabilities/options"),
       apiCall("/api/v1/bank-accounts", { params: { scope: "super_admin" } }),
@@ -128,6 +150,7 @@ export default function SuperAdminTransactionModal() {
 
   const selectType = useCallback((nextType: SuperAdminTransactionType, nextPrefill: SuperAdminTransactionPrefill = prefill) => {
     transferRequestRef.current = null;
+    lotCostRequestRef.current = null;
     setType(nextType);
     setForm({
       ...emptyForm(),
@@ -137,6 +160,7 @@ export default function SuperAdminTransactionModal() {
       intermediaryId: ["intermediary_deposit", "intermediary_exchange", "intermediary_receipt"].includes(nextType) ? Number(nextPrefill.partyId || 0) : 0,
       lotId: Number(nextPrefill.lotId || 0),
       paidVia: nextType === "intermediary_exchange" ? "intermediary" : "account",
+      allocationBasis: nextType === "lot_customs_duty" ? "purchase_value" : nextType === "lot_transport_cost" ? "weight" : "",
     });
     setError("");
     setStep("form");
@@ -196,6 +220,8 @@ export default function SuperAdminTransactionModal() {
   const selectedLiability = referenceData.liabilities.find((row) => Number(row.id) === Number(form.partyId));
   const selectedAgent = referenceData.agents.find((row) => Number(row.id) === Number(form.partyId));
   const selectedSupplierLot = supplierLotOptions.find((row) => Number(row.id) === Number(form.lotId));
+  const selectedLot = referenceData.lots.find((row) => Number(row.id) === Number(form.lotId));
+  const lotCostBankAccounts = referenceData.superAdminAccounts.filter((row) => row.accountKind !== "cash" && (!selectedCurrency || Number(row.currencyId) === Number(selectedCurrency.id)));
   const liabilityAccountOptions = selectedLiability?.partyType === "creditor" && type === "liability_payment"
     ? referenceData.allFundingAccounts
     : referenceData.superAdminAccounts;
@@ -236,6 +262,18 @@ export default function SuperAdminTransactionModal() {
     if (["liability_payment", "liability_receive"].includes(type) && form.paidVia === "intermediary" && !form.intermediaryId) return "Select the intermediary";
     if (type === "liability_incurred" && !form.counterAccountId) return "Select the counterpart account";
     if (["liability_payment", "liability_receive", "liability_incurred"].includes(type) && selectedCurrency?.code !== "PKR" && (!(exchangeRate > 0) || !form.rateSource.trim())) return "Rate to PKR and rate source are required";
+    if (isLotCostTransaction(type)) {
+      if (!form.lotId) return "Select the related lot";
+      if (!form.description.trim()) return "Cost detail is required";
+      if (!form.allocationBasis) return "Select how this cost should be allocated across products";
+      if (form.allocationBasis === "specific_product" && !form.allocatedProductId) return "Select the product for this cost";
+      if (!form.currencyId) return "Select the cost currency";
+      if (selectedCurrency?.code !== "PKR" && !(exchangeRate > 0)) return "Documented PKR exchange rate is required";
+      if (form.costChannel === "bank" && !form.sourceAccountId) return "Select the Superadmin bank account";
+      if (form.costChannel === "intermediary" && !form.intermediaryId) return "Select the intermediary";
+      if (form.costChannel === "supplier" && !form.partyId) return "Select the supplier";
+      if (form.costChannel === "agent" && !form.partyId) return "Select the agent";
+    }
     return "";
   };
 
@@ -255,8 +293,12 @@ export default function SuperAdminTransactionModal() {
     if (type === "liability_receive") return `${selectedCurrency?.code || ""} ${formattedAmount} will enter ${form.paidVia === "intermediary" ? partyLabel(referenceData.intermediaries, form.intermediaryId) : sourceAccount?.bankName || "the selected account"} and increase principal owed to ${partyLabel(referenceData.liabilities, form.partyId)}.`;
     if (type === "liability_incurred") return `The amount owed to ${partyLabel(referenceData.liabilities, form.partyId)} will increase by ${selectedCurrency?.code || ""} ${formattedAmount}. No cash or bank balance changes now.`;
     if (type === "home_expense") return `${sourceAccount?.currency?.code || ""} ${formattedAmount} will leave ${sourceAccount?.bankName || "the selected account"} and be recorded as a home expense.`;
+    if (isLotCostTransaction(type)) {
+      const source = form.costChannel === "bank" ? sourceAccount?.bankName : form.costChannel === "intermediary" ? partyLabel(referenceData.intermediaries, form.intermediaryId) : form.costChannel === "supplier" ? partyLabel(referenceData.suppliers, form.partyId) : partyLabel(referenceData.agents, form.partyId);
+      return `${selectedCurrency?.code || ""} ${formattedAmount} will be added to lot ${selectedLot?.lotNumber || ""} through ${source || "the selected source"}. The sold share will reduce profit through Cost of Goods Sold or Historical Stock Adjustment; the remaining share will stay in Inventory.`;
+    }
     return "";
-  }, [amount, crossCurrencyTransfer, destinationAccount, exchangeRate, exchangeToAmount, form, referenceData, selectedCurrency, sourceAccount, toCurrency, type]);
+  }, [amount, crossCurrencyTransfer, destinationAccount, exchangeRate, exchangeToAmount, form, referenceData, selectedCurrency, selectedLot, sourceAccount, toCurrency, type]);
 
   const fundingPayload = (accountId: string) => {
     const account = findAccount(referenceData.allFundingAccounts, accountId);
@@ -344,10 +386,37 @@ export default function SuperAdminTransactionModal() {
       result = await apiCall("/api/v1/super-admin-personal-expenses", { method: "POST", body: {
         expenseDate: form.date, detail: form.notes.trim(), amount, bankAccountId: sourceAccount?.id, notes: form.reference || undefined,
       } });
+    } else if (isLotCostTransaction(type)) {
+      const lotCostPayload = {
+        lotId: form.lotId,
+        costType: lotCostTypeByTransaction[type],
+        allocationBasis: form.allocationBasis,
+        allocatedProductId: form.allocationBasis === "specific_product" ? form.allocatedProductId : null,
+        description: form.description.trim(),
+        amount,
+        currencyCode: selectedCurrency?.code,
+        exchangeRate: selectedCurrency?.code === "PKR" ? undefined : exchangeRate,
+        costDate: form.date,
+        ...(form.costChannel === "bank" ? { superAdminBankAccountId: sourceAccount?.id } : {}),
+        ...(form.costChannel === "intermediary" ? { intermediaryId: form.intermediaryId } : {}),
+        ...(form.costChannel === "supplier" ? { supplierId: form.partyId } : {}),
+        ...(form.costChannel === "agent" ? { agentId: form.partyId } : {}),
+        notes: [form.reference ? `Reference: ${form.reference}` : "", form.notes].filter(Boolean).join(" · ") || undefined,
+      };
+      const signature = JSON.stringify(lotCostPayload);
+      if (lotCostRequestRef.current?.signature !== signature) {
+        lotCostRequestRef.current = { signature, requestId: `browser-${crypto.randomUUID()}` };
+      }
+      result = await apiCall("/api/v1/lot-costs", {
+        method: "POST",
+        headers: { "x-sync-request-id": lotCostRequestRef.current.requestId },
+        body: lotCostPayload,
+      });
     }
     setSubmitting(false);
     if (!result?.success) return setError(result?.error || "Unable to record transaction");
     if (type === "account_transfer") transferRequestRef.current = null;
+    if (isLotCostTransaction(type)) lotCostRequestRef.current = null;
     setSuccessMessage(result.message || `${getSuperAdminTransactionLabel(type)} recorded successfully`);
     setStep("success");
     await onSuccess?.();
@@ -367,6 +436,7 @@ export default function SuperAdminTransactionModal() {
     setType(null);
     setForm(emptyForm());
     transferRequestRef.current = null;
+    lotCostRequestRef.current = null;
     setOnSuccess(undefined);
   };
 
@@ -378,7 +448,7 @@ export default function SuperAdminTransactionModal() {
   return (
     <>
       <button type="button" onClick={() => {
-        setOpen(true); setStep("choose"); setType(null); setSearch(""); setError(""); setForm(emptyForm()); setOnSuccess(undefined); transferRequestRef.current = null; void loadReferenceData();
+        setOpen(true); setStep("choose"); setType(null); setSearch(""); setError(""); setForm(emptyForm()); setOnSuccess(undefined); transferRequestRef.current = null; lotCostRequestRef.current = null; void loadReferenceData();
       }} className="btn-primary inline-flex items-center gap-2 text-sm">
         <Plus className="h-4 w-4" /> New Transaction
       </button>
@@ -425,8 +495,25 @@ export default function SuperAdminTransactionModal() {
               {["liability_payment", "liability_receive", "liability_incurred"].includes(type) && <PartySelect label="Lender / payable" rows={referenceData.liabilities} value={form.partyId} onChange={(partyId) => setForm({ ...form, partyId })} />}
               {type === "supplier_payment" && <Field label="Related lot" required><select className="select-field" value={form.lotId} onChange={(event) => setForm({ ...form, lotId: Number(event.target.value) })}><option value={0}>Select supplier lot</option>{supplierLotOptions.map((lot) => <option key={lot.id} value={lot.id}>{lot.lotNumber} · {lot.products.map((product: any) => `${product.productName}: USD ${Number(product.amountUsd).toLocaleString("en-US")}`).join("; ")} · Outstanding USD {Number(lot.outstandingUsd).toLocaleString("en-US")}</option>)}</select></Field>}
               {type === "shipping_payment" && <Field label="Related lot" required><select className="select-field" value={form.lotId} onChange={(event) => setForm({ ...form, lotId: Number(event.target.value) })}><option value={0}>Select lot</option>{referenceData.lots.map((lot) => <option key={lot.id} value={lot.id}>{lot.lotNumber}</option>)}</select></Field>}
+              {isLotCostTransaction(type) && <Field label="Related lot" required><select className="select-field" value={form.lotId} onChange={(event) => {
+                const lotId = Number(event.target.value);
+                const lot = referenceData.lots.find((row) => Number(row.id) === lotId);
+                const defaultCurrencyCode = lot?.countryCode === "AF" ? "AFN" : "PKR";
+                const currencyId = referenceData.currencies.find((row) => row.code === defaultCurrencyCode)?.id || form.currencyId;
+                setForm({ ...form, lotId, currencyId, sourceAccountId: "", intermediaryId: 0, partyId: 0, allocatedProductId: 0 });
+              }}><option value={0}>Select lot</option>{referenceData.lots.map((lot) => <option key={lot.id} value={lot.id}>{lot.lotNumber} · {lot.countryName}</option>)}</select></Field>}
 
               <Field label={["supplier_payment", "shipping_payment"].includes(type) ? "Liability amount (USD)" : "Amount"} required><FormattedNumberInput className="input-field" value={form.amount} maxDecimalPlaces={2} onValueChange={(_, raw) => setForm({ ...form, amount: raw })} /></Field>
+
+              {isLotCostTransaction(type) && <CurrencySelect rows={referenceData.currencies.filter((currency) => selectedLot?.countryCode === "PK" ? currency.code === "PKR" : ["PKR", "USD", "CNY", "AFN"].includes(currency.code))} value={form.currencyId} onChange={(currencyId) => setForm({ ...form, currencyId, sourceAccountId: "", intermediaryId: 0 })} />}
+              {isLotCostTransaction(type) && <Field label="Cost detail" required><input className="input-field" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="e.g. Customs duty for GD 123" /></Field>}
+              {isLotCostTransaction(type) && <Field label="Allocate cost by" required><select className="select-field" value={form.allocationBasis} onChange={(event) => setForm({ ...form, allocationBasis: event.target.value, allocatedProductId: 0 })} disabled={type !== "lot_other_cost"}><option value="">Select basis</option><option value="purchase_value">Product purchase value</option><option value="weight">Product weight</option><option value="cartons">Cartons</option><option value="specific_product">Specific product only</option></select></Field>}
+              {isLotCostTransaction(type) && form.allocationBasis === "specific_product" && <Field label="Product" required><select className="select-field" value={form.allocatedProductId} onChange={(event) => setForm({ ...form, allocatedProductId: Number(event.target.value) })}><option value={0}>Select product</option>{(selectedLot?.products || []).map((product: any) => <option key={product.productId} value={product.productId}>{product.productName}</option>)}</select></Field>}
+              {isLotCostTransaction(type) && <Field label="Cost source" required><select className="select-field" value={form.costChannel} onChange={(event) => setForm({ ...form, costChannel: event.target.value, sourceAccountId: "", intermediaryId: 0, partyId: 0 })}><option value="bank">Superadmin bank</option><option value="intermediary">Intermediary</option><option value="supplier">Supplier payable</option><option value="agent">Agent payable</option></select></Field>}
+              {isLotCostTransaction(type) && form.costChannel === "bank" && <AccountSelect label="Paid from" rows={lotCostBankAccounts} value={form.sourceAccountId} onChange={(sourceAccountId) => setForm({ ...form, sourceAccountId })} />}
+              {isLotCostTransaction(type) && form.costChannel === "intermediary" && <PartySelect label="Intermediary" rows={referenceData.intermediaries} value={form.intermediaryId} onChange={(intermediaryId) => setForm({ ...form, intermediaryId })} />}
+              {isLotCostTransaction(type) && form.costChannel === "supplier" && <PartySelect label="Supplier" rows={referenceData.suppliers} value={form.partyId} onChange={(partyId) => setForm({ ...form, partyId })} />}
+              {isLotCostTransaction(type) && form.costChannel === "agent" && <PartySelect label="Agent" rows={referenceData.agents} value={form.partyId} onChange={(partyId) => setForm({ ...form, partyId })} />}
 
               {type === "account_transfer" && <><AccountSelect label="From" rows={referenceData.superAdminAccounts} value={form.sourceAccountId} onChange={(sourceAccountId) => setForm({ ...form, sourceAccountId })} /><AccountSelect label="To" rows={referenceData.superAdminAccounts.filter((row) => accountKey(row) !== form.sourceAccountId)} value={form.destinationAccountId} onChange={(destinationAccountId) => setForm({ ...form, destinationAccountId })} /></>}
 
@@ -450,7 +537,7 @@ export default function SuperAdminTransactionModal() {
               {type === "home_expense" && <AccountSelect label="Paid from" rows={referenceData.superAdminAccounts} value={form.sourceAccountId} onChange={(sourceAccountId) => setForm({ ...form, sourceAccountId })} />}
               {type === "home_expense" && <Field label="Expense detail" required><input className="input-field" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></Field>}
 
-              {(crossCurrencyTransfer || type === "intermediary_exchange" || (["supplier_payment", "shipping_payment"].includes(type) && form.paidVia === "account") || (["liability_payment", "liability_receive", "liability_incurred"].includes(type) && selectedCurrency?.code !== "PKR")) && <Field label={type === "intermediary_exchange" ? `Rate (${toCurrency?.code || "received"} for 1 ${selectedCurrency?.code || "given"})` : "Exchange rate"} required><FormattedNumberInput className="input-field" value={form.exchangeRate} maxDecimalPlaces={6} onValueChange={(_, raw) => setForm({ ...form, exchangeRate: raw })} /></Field>}
+              {(crossCurrencyTransfer || type === "intermediary_exchange" || (isLotCostTransaction(type) && selectedCurrency?.code !== "PKR") || (["supplier_payment", "shipping_payment"].includes(type) && form.paidVia === "account") || (["liability_payment", "liability_receive", "liability_incurred"].includes(type) && selectedCurrency?.code !== "PKR")) && <Field label={type === "intermediary_exchange" ? `Rate (${toCurrency?.code || "received"} for 1 ${selectedCurrency?.code || "given"})` : "Exchange rate"} required><FormattedNumberInput className="input-field" value={form.exchangeRate} maxDecimalPlaces={6} onValueChange={(_, raw) => setForm({ ...form, exchangeRate: raw })} /></Field>}
               {(crossCurrencyTransfer || (["liability_payment", "liability_receive", "liability_incurred"].includes(type) && selectedCurrency?.code !== "PKR")) && <Field label="Rate source" required><input className="input-field" value={form.rateSource} onChange={(event) => setForm({ ...form, rateSource: event.target.value })} /></Field>}
 
               {type !== "home_expense" && <Field label="Reference"><input className="input-field" value={form.reference} onChange={(event) => setForm({ ...form, reference: event.target.value })} /></Field>}
@@ -477,7 +564,7 @@ export default function SuperAdminTransactionModal() {
             <CheckCircle2 className="h-16 w-16 text-emerald-600" />
             <h2 className="mt-4 text-2xl font-semibold text-gray-900">Transaction recorded</h2>
             <p className="mt-2 max-w-md text-sm text-gray-500">{successMessage}. It now appears in its existing professional ledger or module.</p>
-            <div className="mt-6 flex gap-3"><button type="button" className="btn-secondary text-sm" onClick={close}>Close</button><button type="button" className="btn-primary text-sm" onClick={() => { setStep("choose"); setType(null); setForm(emptyForm()); setSearch(""); transferRequestRef.current = null; }}>Record another</button></div>
+            <div className="mt-6 flex gap-3"><button type="button" className="btn-secondary text-sm" onClick={close}>Close</button><button type="button" className="btn-primary text-sm" onClick={() => { setStep("choose"); setType(null); setForm(emptyForm()); setSearch(""); transferRequestRef.current = null; lotCostRequestRef.current = null; }}>Record another</button></div>
           </div>
         )}
       </Modal>

@@ -2378,7 +2378,7 @@ export default function PaymentsPage() {
                       allowNegative
                       value={form.amount || ""}
                       onValueChange={(value, rawValue) => setForm((f: any) => ({ ...f, amount: preserveSignedPaymentAmount(value, rawValue) }))}
-                      className="input-field"
+                      className="input-field font-semibold tabular-nums"
                     />
                   </div>
                   <div className="min-w-0">
@@ -2409,7 +2409,7 @@ export default function PaymentsPage() {
                     allowNegative
                     value={form.amount || ""}
                     onValueChange={(value, rawValue) => setForm((f: any) => ({ ...f, amount: preserveSignedPaymentAmount(value, rawValue) }))}
-                    className="input-field"
+                    className="input-field font-semibold tabular-nums"
                   />
                 </div>
               )}
@@ -2519,7 +2519,7 @@ export default function PaymentsPage() {
                 min="0.01"
                 value={form.amount || ""}
                 onValueChange={(value) => setForm((f: any) => ({ ...f, amount: value || 0 }))}
-                className="input-field"
+                className="input-field font-semibold tabular-nums"
               />
             </div>
           )}
@@ -2722,7 +2722,7 @@ export default function PaymentsPage() {
                     allowNegative
                     value={form.amount || ""}
                     onValueChange={(value, rawValue) => setForm((f: any) => ({ ...f, amount: preserveSignedPaymentAmount(value, rawValue) }))}
-                    className="input-field"
+                    className="input-field font-semibold tabular-nums"
                   />
                 </div>
                 <div className="min-w-0">
@@ -2739,7 +2739,7 @@ export default function PaymentsPage() {
                   allowNegative
                   value={form.amount || ""}
                   onValueChange={(value, rawValue) => setForm((f: any) => ({ ...f, amount: preserveSignedPaymentAmount(value, rawValue) }))}
-                  className="input-field"
+                  className="input-field font-semibold tabular-nums"
                 />
               </div>
             )
@@ -2945,7 +2945,7 @@ export default function PaymentsPage() {
                     {form.sourceType === "cheque" ? <span className="font-normal text-gray-400">(auto)</span> : "*"}
                   </label>
                   {form.sourceType === "cheque" ? (
-                    <div className="input-field bg-gray-50 tabular-nums text-gray-800">
+                    <div className="input-field bg-gray-50 font-semibold tabular-nums text-gray-800">
                       {selectedHajiChequeTotal > 0 ? selectedHajiChequeTotal.toLocaleString("en-US") : "—"}
                     </div>
                   ) : (
@@ -2955,7 +2955,7 @@ export default function PaymentsPage() {
                       onValueChange={(value) => setForm((f: any) => form.sourceType === "mixed_cash_cheque"
                         ? ({ ...f, cashAmount: value || 0 })
                         : ({ ...f, amount: value || 0 }))}
-                      className="input-field"
+                      className="input-field font-semibold tabular-nums"
                     />
                   )}
                 </div>
@@ -3030,8 +3030,8 @@ export default function PaymentsPage() {
                   <span className="text-xs font-semibold text-blue-900 truncate">{q.customerName}</span>
                   <span className="text-[10px] text-blue-500 truncate">{q.voucherNo || "—"}</span>
                   <span className="text-xs font-bold text-blue-800 text-right whitespace-nowrap">{q.currencySymbol} {q.amount.toLocaleString("en-US")}</span>
-                  <button onClick={() => setPaymentQueue(prev => prev.filter(p => p.tempId !== q.tempId))}
-                    className="text-blue-300 hover:text-red-400 transition-colors text-center">✕</button>
+                  <button type="button" onClick={() => setPaymentQueue(prev => prev.filter(p => p.tempId !== q.tempId))}
+                    className="flex h-6 w-6 items-center justify-center rounded-md text-blue-300 transition-colors hover:bg-blue-100 hover:text-red-500" aria-label="Remove from queue">✕</button>
                 </div>
               ))}
             </div>
@@ -3050,7 +3050,7 @@ export default function PaymentsPage() {
           ) : createType === "payment" ? (
             <>
               <button onClick={addToQueue} disabled={submitting}
-                className="bg-gray-700 hover:bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-medium">
+                className="btn-secondary text-sm">
                 + Add to Queue
               </button>
               {paymentQueue.length > 0 && (
@@ -3202,7 +3202,7 @@ export default function PaymentsPage() {
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="min-w-0">
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
-                    <FormattedNumberInput min={createType === "payment" ? undefined : "0.01"} allowNegative={createType === "payment"} value={form.amount || ""} onValueChange={(value, rawValue) => setForm((f: any) => ({ ...f, amount: preserveSignedPaymentAmount(value, rawValue) }))} className="input-field" />
+                    <FormattedNumberInput min={createType === "payment" ? undefined : "0.01"} allowNegative={createType === "payment"} value={form.amount || ""} onValueChange={(value, rawValue) => setForm((f: any) => ({ ...f, amount: preserveSignedPaymentAmount(value, rawValue) }))} className="input-field font-semibold tabular-nums" />
                   </div>
                   <div className="min-w-0">
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
@@ -3214,7 +3214,7 @@ export default function PaymentsPage() {
               ) : (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
-                  <FormattedNumberInput min={createType === "payment" ? undefined : "0.01"} allowNegative={createType === "payment"} value={form.amount || ""} onValueChange={(value, rawValue) => setForm((f: any) => ({ ...f, amount: preserveSignedPaymentAmount(value, rawValue) }))} className="input-field" />
+                  <FormattedNumberInput min={createType === "payment" ? undefined : "0.01"} allowNegative={createType === "payment"} value={form.amount || ""} onValueChange={(value, rawValue) => setForm((f: any) => ({ ...f, amount: preserveSignedPaymentAmount(value, rawValue) }))} className="input-field font-semibold tabular-nums" />
                 </div>
               )}
 
@@ -3271,7 +3271,7 @@ export default function PaymentsPage() {
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="min-w-0">
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label>
-                    <FormattedNumberInput min={createType === "payment" ? undefined : "0.01"} allowNegative={createType === "payment"} value={form.amount || ""} onValueChange={(value, rawValue) => setForm((f: any) => ({ ...f, amount: preserveSignedPaymentAmount(value, rawValue) }))} className="input-field" />
+                    <FormattedNumberInput min={createType === "payment" ? undefined : "0.01"} allowNegative={createType === "payment"} value={form.amount || ""} onValueChange={(value, rawValue) => setForm((f: any) => ({ ...f, amount: preserveSignedPaymentAmount(value, rawValue) }))} className="input-field font-semibold tabular-nums" />
                   </div>
                   <div className="min-w-0">
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t("currency")}</label>
@@ -3281,7 +3281,7 @@ export default function PaymentsPage() {
                   </div>
                 </div>
               ) : createType !== "haji_transfer" ? (
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label><FormattedNumberInput min={createType === "payment" ? undefined : "0.01"} allowNegative={createType === "payment"} value={form.amount || ""} onValueChange={(value, rawValue) => setForm((f: any) => ({ ...f, amount: preserveSignedPaymentAmount(value, rawValue) }))} className="input-field" /></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("amount")} *</label><FormattedNumberInput min={createType === "payment" ? undefined : "0.01"} allowNegative={createType === "payment"} value={form.amount || ""} onValueChange={(value, rawValue) => setForm((f: any) => ({ ...f, amount: preserveSignedPaymentAmount(value, rawValue) }))} className="input-field font-semibold tabular-nums" /></div>
               ) : null}
 
               {createType === "expense" && (
@@ -3546,7 +3546,7 @@ export default function PaymentsPage() {
                         {form.sourceType === "cheque" ? <span className="font-normal text-gray-400">(auto)</span> : "*"}
                       </label>
                       {form.sourceType === "cheque" ? (
-                        <div className="input-field bg-gray-50 tabular-nums text-gray-800">
+                        <div className="input-field bg-gray-50 font-semibold tabular-nums text-gray-800">
                           {selectedHajiChequeTotal > 0 ? selectedHajiChequeTotal.toLocaleString("en-US") : "—"}
                         </div>
                       ) : (
@@ -3556,7 +3556,7 @@ export default function PaymentsPage() {
                           onValueChange={(value) => setForm((f: any) => form.sourceType === "mixed_cash_cheque"
                             ? ({ ...f, cashAmount: value || 0 })
                             : ({ ...f, amount: value || 0 }))}
-                          className="input-field"
+                          className="input-field font-semibold tabular-nums"
                         />
                       )}
                     </div>

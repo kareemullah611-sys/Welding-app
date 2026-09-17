@@ -9,7 +9,9 @@ import { buildCityLotAssignmentDetail } from "@/lib/city-lot-assignment";
 import { updateLotSchema } from "@/lib/validations";
 import {
   buildLotPurchasePkrBasis,
-  journalLotPurchase,
+  calculateLotProductLandedCostsForLot,
+  journalLotPurchaseCorrection,
+  loadLotSupplierPurchaseBalances,
   lotPurchaseJournalTransactionId,
   reverseJournalEntries,
 } from "@/lib/accounting";
@@ -474,6 +476,17 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     const additionalLandedCostPkr = ledgerBuilt.rows
       .filter((row) => row.sourceType !== "purchase")
       .reduce((sum, row) => sum + Number(row.amountPkr || 0), 0);
+    let additionalLandedCostByProductPkr: Record<number, number> | undefined;
+    if (openingValuations.length === 0) {
+      try {
+        const productCosts = await calculateLotProductLandedCostsForLot(id);
+        additionalLandedCostByProductPkr = Object.fromEntries(
+          productCosts.map((product) => [product.productId, product.additionalCostPkr]),
+        );
+      } catch {
+        additionalLandedCostByProductPkr = undefined;
+      }
+    }
     const stockTrace = buildLotStockTrace({
       lotProducts: lotProducts.map((lotProduct: any) => ({
         productId: lotProduct.productId,
@@ -497,6 +510,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       godownTransfers: godownTransfers.map((transfer) => ({ productId: transfer.productId, qty: Number(transfer.qty || 0) })),
       cityTransfers: cityTransfers.map((transfer) => ({ productId: transfer.productId, qty: Number(transfer.qty || 0), status: transfer.status })),
       additionalLandedCostPkr,
+      additionalLandedCostByProductPkr,
     });
     const journalRows = traceJournals.map((entry) => ({
       id: entry.id,
@@ -816,6 +830,10 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
 
       await prisma.$transaction(async (tx) => {
         await lockLotProductReclassification(tx, id);
+        const [beforeProducts, beforeSupplierBalances] = await Promise.all([
+          calculateLotProductLandedCostsForLot(id, tx),
+          loadLotSupplierPurchaseBalances(id, tx),
+        ]);
         await tx.lot.update({
           where: { id },
           data: {
@@ -899,7 +917,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
             where: { id: { in: distributionIds } },
             data: { productId: toProductId },
           });
-          const [saleItems, godownTransfers, cityTransfers] = await Promise.all([
+          const [saleItems, godownTransfers, cityTransfers, allocatedLotCosts] = await Promise.all([
             tx.saleItem.updateMany({
               where: { lotId: id, productId: fromProductId },
               data: { productId: toProductId },
@@ -911,6 +929,10 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
             tx.cityTransfer.updateMany({
               where: { lotId: id, productId: fromProductId },
               data: { productId: toProductId },
+            }),
+            tx.lotCost.updateMany({
+              where: { lotId: id, allocatedProductId: fromProductId },
+              data: { allocatedProductId: toProductId },
             }),
           ]);
           await createAuditLog(
@@ -929,6 +951,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
                 saleItems: saleItems.count,
                 godownTransfers: godownTransfers.count,
                 cityTransfers: cityTransfers.count,
+                allocatedLotCosts: allocatedLotCosts.count,
               },
               distributions: sourceDistributions.map((distribution) => ({
                 ...distribution,
@@ -942,7 +965,6 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
 
         for (const existing of existingPurchases) {
           if (incomingIds.has(existing.id)) continue;
-          await reverseJournalEntries(lotPurchaseJournalTransactionId(existing.lotId, existing.id, existing.journalVersion), user.userId, tx);
           await tx.lotPurchase.delete({ where: { id: existing.id } });
         }
 
@@ -955,7 +977,6 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
             if (!existing) throw new Error(`Purchase item #${item.id} not found on this lot`);
             const carryingRatePkr = Number(existing.carryingRatePkr || lot.pkrExchangeRate || 0);
             const basis = buildLotPurchasePkrBasis({ totalUsd: totalPriceUsd, carryingRatePkr });
-            await reverseJournalEntries(lotPurchaseJournalTransactionId(existing.lotId, existing.id, existing.journalVersion), user.userId, tx);
             const updatedPurchase = await tx.lotPurchase.update({
               where: { id: item.id },
               data: {
@@ -972,18 +993,9 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
                 journalVersion: { increment: 1 },
               },
             });
-            await journalLotPurchase(
-              {
-                id: item.id, supplierId: item.supplierId, lotId: id, totalUsd: totalPriceUsd,
-                carryingRatePkr: basis.carryingRatePkr, carryingAmountPkr: basis.carryingAmountPkr,
-                recognitionDate: updatedPurchase.recognitionDate || lot.lotDate,
-                journalVersion: updatedPurchase.journalVersion, createdBy: user.userId,
-              },
-              tx,
-            );
           } else {
             const basis = buildLotPurchasePkrBasis({ totalUsd: totalPriceUsd, carryingRatePkr: Number(lot.pkrExchangeRate || 0) });
-            const purchase = await tx.lotPurchase.create({
+            await tx.lotPurchase.create({
               data: {
                 lotId: id,
                 supplierId: item.supplierId,
@@ -999,20 +1011,16 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
                 createdBy: user.userId,
               },
             });
-            await journalLotPurchase(
-              {
-                id: purchase.id, supplierId: item.supplierId, lotId: id, totalUsd: totalPriceUsd,
-                carryingRatePkr: basis.carryingRatePkr, carryingAmountPkr: basis.carryingAmountPkr,
-                recognitionDate: lot.lotDate, journalVersion: purchase.journalVersion, createdBy: user.userId,
-              },
-              tx,
-            );
           }
         }
 
         const currentProducts = await tx.lotProduct.findMany({ where: { lotId: id } });
         for (const row of currentProducts) {
           if (!nextProductIds.has(row.productId)) {
+            const soldCount = await tx.saleItem.count({
+              where: { lotId: id, productId: row.productId, sale: { status: { in: ["active", "marked_short"] } } },
+            });
+            if (soldCount > 0) throw new Error("PRODUCT_WITH_SALES_REMOVED");
             await tx.lotProduct.delete({ where: { id: row.id } });
           }
         }
@@ -1023,6 +1031,20 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
             update: { totalQty },
           });
         }
+        const [afterProducts, afterSupplierBalances] = await Promise.all([
+          calculateLotProductLandedCostsForLot(id, tx),
+          loadLotSupplierPurchaseBalances(id, tx),
+        ]);
+        await journalLotPurchaseCorrection({
+          lotId: id,
+          correctionReference: `PURCHCORR-LOT-${id}-${Date.now()}`,
+          correctionDate: new Date(),
+          createdBy: user.userId,
+          beforeProducts,
+          afterProducts,
+          beforeSupplierBalances,
+          afterSupplierBalances,
+        }, tx);
       });
     } else {
       await prisma.lot.update({
@@ -1077,6 +1099,12 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     }
     if (error?.message === "PRODUCT_RECLASSIFICATION_EXCEEDS_QUANTITY") {
       return errorResponse("VALIDATION_ERROR", "The corrected product quantity is less than the quantity already distributed", 400);
+    }
+    if (error?.message === "PRODUCT_WITH_SALES_REMOVED") {
+      return errorResponse("VALIDATION_ERROR", "A product with recorded sales cannot be removed; reclassify it to the corrected product instead", 400);
+    }
+    if (/sold quantities exceed corrected product quantity/i.test(error?.message || "")) {
+      return errorResponse("VALIDATION_ERROR", error.message, 400);
     }
     console.error("Update lot error:", error);
     return serverError();

@@ -32,11 +32,37 @@ test("intermediary FIFO consumption locks the intermediary pool", () => {
   assert.ok(fifo.indexOf("lockIntermediaryUsdFifo") < fifo.indexOf("intermediaryUsdCostLayer.findMany"));
 });
 
-test("lot costs capitalize inventory instead of charging operating expense", () => {
+test("lot costs allocate sold shares without charging an operating-expense account", () => {
   const accounting = read("src/lib/accounting.ts");
   const block = accounting.slice(accounting.indexOf("export async function journalLotCost"), accounting.indexOf("// AGENT PAID"));
   assert.match(block, /getInventoryAccountId/);
+  assert.match(block, /getCOGSAccountId/);
+  assert.match(block, /getHistoricalStockAdjustmentAccountId/);
+  assert.match(block, /calculateLateLotCostAllocation/);
+  assert.match(block, /product\.productName/);
   assert.doesNotMatch(block, /getExpenseAccountId/);
+});
+
+test("lot cost edits and deletes post current allocation deltas instead of reversing stale allocations", () => {
+  const route = read("src/app/api/v1/lot-costs/[id]/route.ts");
+  assert.doesNotMatch(route, /reverseJournalEntries/);
+  assert.match(route, /amountPkrDelta/);
+  assert.match(route, /amountPkr: amountPkrDelta/);
+  assert.match(route, /amountPkr: -currentAmountPkr/);
+  assert.match(route, /journalVersion: \{ increment: 1 \}/);
+  assert.match(route, /recognitionDate: new Date\(\)/);
+});
+
+test("post-sale purchase corrections use immutable delta journals", () => {
+  const lotRoute = read("src/app/api/v1/lots/[id]/route.ts");
+  const purchaseRoute = read("src/app/api/v1/lot-purchases/[id]/route.ts");
+  for (const route of [lotRoute, purchaseRoute]) {
+    assert.match(route, /calculateLotProductLandedCostsForLot/);
+    assert.match(route, /journalLotPurchaseCorrection/);
+  }
+  const purchaseUpdateBlock = purchaseRoute.slice(0, purchaseRoute.indexOf("// DELETE"));
+  assert.doesNotMatch(purchaseUpdateBlock, /reverseJournalEntries/);
+  assert.doesNotMatch(purchaseUpdateBlock, /journalLotPurchase\(/);
 });
 
 test("visible profit report includes expenses and converts stock units to cartons", () => {

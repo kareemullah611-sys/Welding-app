@@ -24,6 +24,7 @@ test("superadmin transaction entry stays a frontend orchestration layer", () => 
     "/api/v1/haji-cash-receipts",
     "/api/v1/super-admin-liabilities/",
     "/api/v1/super-admin-personal-expenses",
+    "/api/v1/lot-costs",
   ]) {
     assert.match(modal, new RegExp(endpoint.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
@@ -33,6 +34,13 @@ test("superadmin transaction entry stays a frontend orchestration layer", () => 
   assert.match(modal, /function accountKey/);
   assert.doesNotMatch(definitions, /transaction history/i);
   assert.match(definitions, /investor_capital_withdrawal/);
+  assert.match(definitions, /lot_customs_duty/);
+  assert.match(definitions, /lot_transport_cost/);
+  assert.match(definitions, /lot_other_cost/);
+  assert.match(modal, /costChannel/);
+  assert.match(modal, /allocationBasis/);
+  assert.match(modal, /allocatedProductId/);
+  assert.match(modal, /Historical Stock Adjustment/);
   assert.match(definitions, /implementationStatus: "deferred"/);
 });
 

@@ -32,8 +32,29 @@ test("lot cost create is idempotent for repeated sync request id", async () => {
       status: "ongoing",
     },
   });
+  const product = await prisma.product.create({
+    data: { name: `${marker}-product`, unitOfMeasure: "MT", defaultWeightPerCartonKg: 25 },
+  });
+  await prisma.lotProduct.create({
+    data: { lotId: lot.id, productId: product.id, totalQty: 100 },
+  });
   const supplier = await prisma.supplier.create({
     data: { name: `${marker}-supplier`, country: "Pakistan", contact: "sync test" },
+  });
+  const purchase = await prisma.lotPurchase.create({
+    data: {
+      lotId: lot.id,
+      supplierId: supplier.id,
+      productId: product.id,
+      qty: 2.5,
+      weightPerCartonKg: 25,
+      unitPriceUsd: 1_000,
+      totalPriceUsd: 2_500,
+      carryingRatePkr: 280,
+      carryingAmountPkr: 700_000,
+      recognitionDate: lot.lotDate,
+      createdBy: superAdmin.id,
+    },
   });
 
   const syncRequestId = `req-lot-cost-${Date.now()}`;
@@ -100,8 +121,11 @@ test("lot cost create is idempotent for repeated sync request id", async () => {
       });
     }
     await prisma.lotCost.deleteMany({ where: { lotId: lot.id, description: marker } });
+    await prisma.lotPurchase.deleteMany({ where: { id: purchase.id } });
     await prisma.supplier.deleteMany({ where: { id: supplier.id } });
+    await prisma.lotProduct.deleteMany({ where: { lotId: lot.id } });
     await prisma.lot.deleteMany({ where: { id: lot.id } });
+    await prisma.product.deleteMany({ where: { id: product.id } });
   }
 
   if (createdCostId) {

@@ -4,9 +4,9 @@ import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import {
   buildLotPurchasePkrBasis,
-  journalLotPurchase,
-  lotPurchaseJournalTransactionId,
-  reverseJournalEntries,
+  calculateLotProductLandedCostsForLot,
+  journalLotPurchaseCorrection,
+  loadLotSupplierPurchaseBalances,
 } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 
@@ -30,7 +30,11 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     const basis = buildLotPurchasePkrBasis({ totalUsd: totalPriceUsd, carryingRatePkr });
 
     await prisma.$transaction(async (tx) => {
-      await reverseJournalEntries(lotPurchaseJournalTransactionId(existing.lotId, id, existing.journalVersion), user.userId, tx);
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`lot-purchase:${existing.lotId}`}::text)::bigint)`;
+      const [beforeProducts, beforeSupplierBalances] = await Promise.all([
+        calculateLotProductLandedCostsForLot(existing.lotId, tx),
+        loadLotSupplierPurchaseBalances(existing.lotId, tx),
+      ]);
       const updated = await tx.lotPurchase.update({
         where: { id },
         data: {
@@ -45,17 +49,6 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
           journalVersion: { increment: 1 },
         },
       });
-      await journalLotPurchase({
-        id,
-        supplierId: existing.supplierId,
-        lotId: existing.lotId,
-        totalUsd: totalPriceUsd,
-        carryingRatePkr: basis.carryingRatePkr,
-        carryingAmountPkr: basis.carryingAmountPkr,
-        recognitionDate: updated.recognitionDate || lot.lotDate,
-        journalVersion: updated.journalVersion,
-        createdBy: user.userId,
-      }, tx);
 
       if (newCartons !== null) {
         const allPurchases = await tx.lotPurchase.findMany({
@@ -71,6 +64,20 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
           data: { totalQty: totalCartons },
         });
       }
+      const [afterProducts, afterSupplierBalances] = await Promise.all([
+        calculateLotProductLandedCostsForLot(existing.lotId, tx),
+        loadLotSupplierPurchaseBalances(existing.lotId, tx),
+      ]);
+      await journalLotPurchaseCorrection({
+        lotId: existing.lotId,
+        correctionReference: `PURCHCORR-${existing.lotId}-${id}-V${updated.journalVersion}`,
+        correctionDate: new Date(),
+        createdBy: user.userId,
+        beforeProducts,
+        afterProducts,
+        beforeSupplierBalances,
+        afterSupplierBalances,
+      }, tx);
 
       await createAuditLog(user.userId, null, "lot_purchases", id, "update",
         { qty: Number(existing.qty), unitPriceUsd: Number(existing.unitPriceUsd) },
@@ -78,7 +85,13 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     });
 
     return successResponse({ id, qtyMt, unitPriceUsdPerMt, totalPriceUsd, weightPerCartonKg }, "Purchase item updated");
-  } catch (error) { console.error("Update lot purchase:", error); return serverError(); }
+  } catch (error) {
+    if (error instanceof Error && /sold quantities exceed corrected product quantity/i.test(error.message)) {
+      return errorResponse("VALIDATION_ERROR", error.message, 400);
+    }
+    console.error("Update lot purchase:", error);
+    return serverError();
+  }
 });
 
 // DELETE /api/v1/lot-purchases/[id] — delete a purchase line item
@@ -93,7 +106,11 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
     if (count <= 1) return errorResponse("VALIDATION_ERROR", "Cannot delete the only purchase item in a lot", 400);
 
     await prisma.$transaction(async (tx) => {
-      await reverseJournalEntries(lotPurchaseJournalTransactionId(existing.lotId, id, existing.journalVersion), user.userId, tx);
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`lot-purchase:${existing.lotId}`}::text)::bigint)`;
+      const [beforeProducts, beforeSupplierBalances] = await Promise.all([
+        calculateLotProductLandedCostsForLot(existing.lotId, tx),
+        loadLotSupplierPurchaseBalances(existing.lotId, tx),
+      ]);
       await tx.lotPurchase.delete({ where: { id } });
 
       const remaining = await tx.lotPurchase.findMany({
@@ -110,15 +127,39 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
           data: { totalQty: totalCartons },
         });
       } else {
+        const soldCount = await tx.saleItem.count({
+          where: { lotId: existing.lotId, productId: existing.productId, sale: { status: { in: ["active", "marked_short"] } } },
+        });
+        if (soldCount > 0) throw new Error("PRODUCT_WITH_SALES_REMOVED");
         await tx.lotProduct.deleteMany({
           where: { lotId: existing.lotId, productId: existing.productId },
         });
       }
+      const [afterProducts, afterSupplierBalances] = await Promise.all([
+        calculateLotProductLandedCostsForLot(existing.lotId, tx),
+        loadLotSupplierPurchaseBalances(existing.lotId, tx),
+      ]);
+      await journalLotPurchaseCorrection({
+        lotId: existing.lotId,
+        correctionReference: `PURCHCORR-${existing.lotId}-${id}-DELETE-V${existing.journalVersion + 1}`,
+        correctionDate: new Date(),
+        createdBy: user.userId,
+        beforeProducts,
+        afterProducts,
+        beforeSupplierBalances,
+        afterSupplierBalances,
+      }, tx);
 
       await createAuditLog(user.userId, null, "lot_purchases", id, "delete",
         { qty: Number(existing.qty), supplierId: existing.supplierId, lotId: existing.lotId }, undefined, getClientIP(request), tx);
     });
 
     return successResponse({ id }, "Purchase item deleted");
-  } catch (error) { console.error("Delete lot purchase:", error); return serverError(); }
+  } catch (error) {
+    if (error instanceof Error && error.message === "PRODUCT_WITH_SALES_REMOVED") {
+      return errorResponse("VALIDATION_ERROR", "A purchase product with recorded sales cannot be removed", 400);
+    }
+    console.error("Delete lot purchase:", error);
+    return serverError();
+  }
 });

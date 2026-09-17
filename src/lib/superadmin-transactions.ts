@@ -10,6 +10,9 @@ export type SuperAdminTransactionType =
   | "liability_receive"
   | "liability_incurred"
   | "home_expense"
+  | "lot_customs_duty"
+  | "lot_transport_cost"
+  | "lot_other_cost"
   | "investor_capital_withdrawal"
   | "manager_capital_withdrawal";
 
@@ -67,10 +70,13 @@ export const SUPERADMIN_TRANSACTION_GROUPS = [
   },
   {
     key: "expense",
-    label: "Spending",
-    description: "Record Superadmin spending",
+    label: "Spending and lot costs",
+    description: "Record Superadmin spending or an attributable landed cost",
     items: [
       { type: "home_expense", label: "Record a Home Expense", description: "Pay from a Superadmin cash or bank account" },
+      { type: "lot_customs_duty", label: "Pay Customs Duty", description: "Add customs duty to a lot's landed cost" },
+      { type: "lot_transport_cost", label: "Pay Lot Transport", description: "Add transport to a lot's landed cost" },
+      { type: "lot_other_cost", label: "Add Other Lot Cost", description: "Add another attributable landed cost to a lot" },
     ],
   },
 ] as const satisfies ReadonlyArray<{

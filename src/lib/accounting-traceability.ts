@@ -63,6 +63,7 @@ export function buildLotStockTrace(input: {
   godownTransfers: QuantityMovement[];
   cityTransfers: CityQuantityMovement[];
   additionalLandedCostPkr: number;
+  additionalLandedCostByProductPkr?: Record<number, number>;
 }): LotStockTraceRow[] {
   const totalOriginalQuantity = input.lotProducts.reduce(
     (sum, product) => sum + displayQuantity(Number(product.originalQty || 0), product),
@@ -85,8 +86,11 @@ export function buildLotStockTrace(input: {
       : hasPurchaseBasis
       ? productPurchases.reduce((sum, purchase) => sum + Number(purchase.carryingAmountPkr || 0), 0)
       : null;
+    const productSpecificAdditionalCost = input.additionalLandedCostByProductPkr?.[product.productId];
     const allocatedAdditionalCostPkr = purchaseCarryingPkr == null
       ? null
+      : productSpecificAdditionalCost != null
+      ? Number(productSpecificAdditionalCost)
       : totalOriginalQuantity > 0
       ? Number(input.additionalLandedCostPkr || 0) * (originalQuantity / totalOriginalQuantity)
       : 0;

@@ -89,6 +89,23 @@ test("stock trace exposes missing carrying basis instead of guessing", () => {
   assert.deepEqual(row.blockers, ["Missing authoritative PKR purchase carrying basis"]);
 });
 
+test("stock trace uses audited child-product landed-cost allocation when supplied", () => {
+  const rows = buildLotStockTrace({
+    lotProducts: [
+      { productId: 1, productName: "A", originalQty: 100 },
+      { productId: 2, productName: "B", originalQty: 100 },
+    ],
+    purchases: [
+      { id: 1, productId: 1, supplierName: "S", originalAmountUsd: 1, carryingAmountPkr: 1_000 },
+      { id: 2, productId: 2, supplierName: "S", originalAmountUsd: 1, carryingAmountPkr: 1_000 },
+    ],
+    distributed: [], sales: [], godownTransfers: [], cityTransfers: [],
+    additionalLandedCostPkr: 1_000,
+    additionalLandedCostByProductPkr: { 1: 900, 2: 100 },
+  });
+  assert.deepEqual(rows.map((row) => row.allocatedAdditionalCostPkr), [900, 100]);
+});
+
 test("stock trace reports oversold quantity rather than hiding it", () => {
   const [row] = buildLotStockTrace({
     lotProducts: [{ productId: 12, productName: "6013", unitOfMeasure: "MT", originalQty: 10 }],

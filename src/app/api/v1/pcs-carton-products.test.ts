@@ -88,9 +88,9 @@ test("PCS carton products are modeled from product master through purchase and s
   assert.match(historicalSaleImport, /ratePerPieceLocal/);
   assert.match(openingsRoute, /i\.product\.unitOfMeasure === "PCS"/);
   assert.match(openingsRoute, /i\.cartonQty/);
-  assert.match(accounting, /pcsSaleItems/);
-  assert.match(accounting, /averageUsdPerPiece/);
-  assert.match(accounting, /Number\(item\.qty \|\| 0\) \* averageUsdPerPiece \* usdPkrRate/);
+  assert.match(accounting, /calculateLotProductLandedCostsForLot/);
+  assert.match(accounting, /unitCostByProduct/);
+  assert.match(accounting, /Number\(item\.qty \|\| 0\) \* Number\(unitCostByProduct\.get\(item\.productId\)/);
 
   assert.match(settingsPage, /unitOfMeasure/);
   assert.match(settingsPage, /defaultWeightPerCartonKg/);

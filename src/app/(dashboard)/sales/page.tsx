@@ -1480,9 +1480,18 @@ export default function SalesPage() {
             </div>
           )}
 
-          <div className={isEmbed ? "quickform-panel space-y-2" : "rounded-lg border border-gray-200 bg-gray-50/70 p-3 space-y-2"}>
+          <div className={isEmbed ? "quickform-panel space-y-2" : "rounded-xl border border-gray-200 bg-gray-50/70 p-3 space-y-2"}>
             <div className="module-scroll-x overflow-x-auto -mx-1 px-1 py-1">
-              <div className="min-w-[590px] space-y-2">
+              <div className="min-w-[620px] space-y-2">
+                <div className="grid grid-cols-[minmax(0,1fr)_84px_72px_56px_88px_92px_28px] gap-2 border-b border-gray-200/80 pb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                  <span>{t("product")}</span>
+                  <span>{t("lot")}</span>
+                  <span className="text-right">{t("qty")}</span>
+                  <span className="text-center">{t("available")}</span>
+                  <span className="text-right truncate" title={t("rate_per_carton")}>Rate</span>
+                  <span className="text-right">{t("amount")}</span>
+                  <span />
+                </div>
                 {form.items.map((item, idx) => {
                   const avail = getAvailable(item.productId);
                   const pcsItem = isPcsItem(item);
@@ -1491,19 +1500,7 @@ export default function SalesPage() {
                   const lotAvailability = autoLotAllocationPreview(item);
                   return (
                     <div key={idx} className="space-y-1">
-                    <div className="grid grid-cols-[minmax(0,1fr)_78px_68px_52px_80px_84px_24px] gap-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                      <span>{t("product")}</span>
-                      <span className="flex items-center justify-between gap-1">
-                        <span>{t("lot")}</span>
-                        {lotAvailability && <span data-testid={`sale-lot-availability-${idx}`} className="truncate normal-case tracking-normal text-blue-700" title={lotAvailability}>{lotAvailability}</span>}
-                      </span>
-                      <span className="text-right">{t("qty")}</span>
-                      <span className="text-center">{t("available")}</span>
-                      <span className="text-right truncate" title={t("rate_per_carton")}>Rate</span>
-                      <span className="text-right">{t("amount")}</span>
-                      <span />
-                    </div>
-                    <div className="grid grid-cols-[minmax(0,1fr)_78px_68px_52px_80px_84px_24px] gap-2 items-center">
+                    <div className="grid grid-cols-[minmax(0,1fr)_84px_72px_56px_88px_92px_28px] gap-2 items-center">
                       <select
                         value={item.productId}
                         onChange={(e) => updateItem(idx, "productId", parseInt(e.target.value))}
@@ -1550,29 +1547,34 @@ export default function SalesPage() {
                         {pcsItem && isAfghanistanSale && Number(item.ratePerPieceUsd || 0) > 0 && <span className="block text-[10px] text-gray-500">${itemUsdAmount(item).toLocaleString("en-US")}</span>}
                       </p>
                       {form.items.length > 1 ? (
-                        <button type="button" onClick={() => removeItem(idx)} className="text-red-500 hover:text-red-700 text-lg leading-none" aria-label="Remove item">×</button>
+                        <button type="button" onClick={() => removeItem(idx)} className="flex h-8 w-7 items-center justify-center rounded-lg text-lg leading-none text-gray-300 transition-colors hover:bg-red-50 hover:text-red-500" aria-label="Remove item">×</button>
                       ) : (
                         <span />
                       )}
-                      {remainderQty > 0 && (
-                        <div className="col-span-7 flex items-center gap-2 text-[11px] text-blue-700">
-                          <span className="shrink-0">Remaining {remainderQty.toLocaleString("en-US")} from</span>
-                          <select value={item.remainingLotId || 0} onChange={(e) => updateItem(idx, "remainingLotId", parseInt(e.target.value))} className="select-field h-7 max-w-[170px] text-xs">
-                            <option value={0}>Auto oldest lot</option>
-                            {remainingLotOptionsForItem(item).map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}{l.status === "completed" ? " ✓" : ""}</option>)}
-                          </select>
-                        </div>
-                      )}
                     </div>
+                    {lotAvailability && (
+                      <div className="min-w-0">
+                        <span data-testid={`sale-lot-availability-${idx}`} className="block truncate text-[11px] text-blue-700" title={lotAvailability}>{lotAvailability}</span>
+                      </div>
+                    )}
+                    {remainderQty > 0 && (
+                      <div className="flex items-center gap-2 text-[11px] text-blue-700">
+                        <span className="shrink-0">Remaining {remainderQty.toLocaleString("en-US")} from</span>
+                        <select value={item.remainingLotId || 0} onChange={(e) => updateItem(idx, "remainingLotId", parseInt(e.target.value))} className="select-field h-7 max-w-[170px] text-xs">
+                          <option value={0}>Auto oldest lot</option>
+                          {remainingLotOptionsForItem(item).map((l: any) => <option key={l.id} value={l.id}>{l.lotNumber}{l.status === "completed" ? " ✓" : ""}</option>)}
+                        </select>
+                      </div>
+                    )}
                     </div>
                   );
                 })}
-                <button type="button" onClick={addItem} aria-label="Add another sale item" className="text-xs font-semibold text-primary-700 hover:text-primary-800">+ {t("add_item")}</button>
+                <button type="button" onClick={addItem} aria-label="Add another sale item" className="flex w-full items-center justify-center rounded-lg border border-dashed border-gray-300 py-2 text-xs font-semibold text-primary-700 transition-colors hover:border-primary-400 hover:bg-white hover:text-primary-800">+ {t("add_item")}</button>
               </div>
             </div>
-            <div className="flex justify-end border-t border-gray-200/80 pt-2">
-              <span className="text-xs uppercase tracking-wide text-gray-500">{t("total")}: </span>
-              <span className="ml-2 text-base font-bold tabular-nums text-gray-900">{amountPrefix}{totalAmount.toLocaleString("en-US")}</span>
+            <div className="mt-1 flex items-baseline justify-end gap-2 border-t border-gray-200 pt-2.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{t("total")}</span>
+              <span className="text-lg font-bold tabular-nums text-gray-900">{amountPrefix}{totalAmount.toLocaleString("en-US")}</span>
             </div>
           </div>
 

@@ -1,9 +1,16 @@
 import prisma from "@/lib/prisma";
 import { AccountType, Prisma, PrismaClient } from "@prisma/client";
-import { computeLotLandedCostPkr } from "@/lib/landed-cost-pkr";
-import { getCountryFallbackRateToPkr } from "@/lib/intermediary-usd-fifo";
 import { buildRealizedFxPostingAmounts, settlementJournalTransactionId } from "@/lib/realized-liability-fx";
 import { historicalOpeningAdjustmentTransactionId } from "@/lib/historical-opening-accounting";
+import {
+  allocateLotCostAcrossProducts,
+  calculateLotProductLandedCosts,
+  type LotCostAllocationBasis,
+  type LotProductCostInput,
+  type LotProductLandedCost,
+} from "@/lib/lot-product-cost-allocation";
+import { REVENUE_SALE_STATUSES } from "@/lib/sale-status";
+import { buildLotPurchaseCorrectionDeltas } from "@/lib/lot-purchase-correction";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -599,11 +606,173 @@ export async function journalSupplierPaid(
     { currencyCode: "PKR", entityType: "supplier_payment", entityId: p.id, entryDate: p.paymentDate, createdBy: p.createdBy }, db);
 }
 
-// LOT COST (customs, freight, transport - on agent credit or cash)
+function stockQuantityToCartons(qty: unknown, product: { unitOfMeasure?: string | null; piecesPerCarton?: number | null }) {
+  const quantity = Number(qty || 0);
+  const piecesPerCarton = Number(product.piecesPerCarton || 0);
+  return product.unitOfMeasure === "PCS" && piecesPerCarton > 0 ? quantity / piecesPerCarton : quantity;
+}
+
+export async function loadLotProductCostInputs(
+  lotId: number,
+  db: DbClient = prisma,
+): Promise<LotProductCostInput[]> {
+  const [lotProducts, purchases, soldItems] = await Promise.all([
+    db.lotProduct.findMany({
+      where: { lotId },
+      select: {
+        productId: true,
+        totalQty: true,
+        product: { select: { name: true, unitOfMeasure: true, piecesPerCarton: true, defaultWeightPerCartonKg: true } },
+      },
+    }),
+    db.lotPurchase.findMany({
+      where: { lotId },
+      select: { productId: true, qty: true, totalPriceUsd: true, carryingAmountPkr: true, carryingRatePkr: true, weightPerCartonKg: true },
+    }),
+    db.saleItem.findMany({
+      where: { lotId, sale: { status: { in: REVENUE_SALE_STATUSES } } },
+      select: { productId: true, qty: true, sale: { select: { isOpeningImport: true } } },
+    }),
+  ]);
+
+  return lotProducts.map((row) => {
+    const productPurchases = purchases.filter((purchase) => purchase.productId === row.productId);
+    const purchaseValuePkr = productPurchases.reduce((sum, purchase) => {
+      const carryingAmount = Number(purchase.carryingAmountPkr || 0);
+      if (carryingAmount > 0) return sum + carryingAmount;
+      return sum + Number(purchase.totalPriceUsd || 0) * Number(purchase.carryingRatePkr || 0);
+    }, 0);
+    const weightKg = row.product.unitOfMeasure === "PCS"
+      ? stockQuantityToCartons(row.totalQty, row.product) * Number(row.product.defaultWeightPerCartonKg || 0)
+      : productPurchases.reduce((sum, purchase) => sum + Number(purchase.qty || 0) * 1000, 0);
+    const productSales = soldItems.filter((item) => item.productId === row.productId);
+    return {
+      productId: row.productId,
+      productName: row.product.name,
+      purchaseValuePkr,
+      weightKg,
+      cartonQty: stockQuantityToCartons(row.totalQty, row.product),
+      totalStockQty: Number(row.totalQty || 0),
+      operatingSoldStockQty: productSales.filter((item) => !item.sale.isOpeningImport).reduce((sum, item) => sum + Number(item.qty || 0), 0),
+      openingSoldStockQty: productSales.filter((item) => item.sale.isOpeningImport).reduce((sum, item) => sum + Number(item.qty || 0), 0),
+    };
+  });
+}
+
+export async function calculateLotProductLandedCostsForLot(
+  lotId: number,
+  db: DbClient = prisma,
+): Promise<LotProductLandedCost[]> {
+  const [products, costs] = await Promise.all([
+    loadLotProductCostInputs(lotId, db),
+    db.lotCost.findMany({
+      where: { lotId },
+      select: { amount: true, currencyCode: true, exchangeRate: true, allocationBasis: true, allocatedProductId: true },
+    }),
+  ]);
+  return calculateLotProductLandedCosts({
+    products,
+    costs: costs.map((cost) => {
+      const currencyCode = String(cost.currencyCode || "PKR").toUpperCase();
+      const exchangeRate = currencyCode === "PKR" ? 1 : Number(cost.exchangeRate || 0);
+      if (exchangeRate <= 0) throw new Error(`Missing PKR exchange rate for ${currencyCode} lot cost on lot ${lotId}`);
+      return {
+        amountPkr: Number(cost.amount || 0) * exchangeRate,
+        basis: cost.allocationBasis as LotCostAllocationBasis,
+        allocatedProductId: cost.allocatedProductId,
+      };
+    }),
+  });
+}
+
+export async function loadLotSupplierPurchaseBalances(
+  lotId: number,
+  db: DbClient = prisma,
+): Promise<Map<number, number>> {
+  const purchases = await db.lotPurchase.findMany({
+    where: { lotId },
+    select: { supplierId: true, totalPriceUsd: true, carryingAmountPkr: true, carryingRatePkr: true },
+  });
+  const balances = new Map<number, number>();
+  for (const purchase of purchases) {
+    const carryingAmount = Number(purchase.carryingAmountPkr || 0) > 0
+      ? Number(purchase.carryingAmountPkr)
+      : Number(purchase.totalPriceUsd || 0) * Number(purchase.carryingRatePkr || 0);
+    balances.set(purchase.supplierId, roundMoney((balances.get(purchase.supplierId) || 0) + carryingAmount));
+  }
+  return balances;
+}
+
+export async function journalLotPurchaseCorrection(input: {
+  lotId: number;
+  correctionReference: string;
+  correctionDate: Date;
+  createdBy: number;
+  beforeProducts: LotProductLandedCost[];
+  afterProducts: LotProductLandedCost[];
+  beforeSupplierBalances: Map<number, number>;
+  afterSupplierBalances: Map<number, number>;
+}, db: DbClient = prisma) {
+  const correction = buildLotPurchaseCorrectionDeltas(input);
+  if (Math.abs(correction.reconciliationDifferencePkr) > 0.01) {
+    throw new Error(`Lot purchase correction does not reconcile: PKR ${correction.reconciliationDifferencePkr}`);
+  }
+  if (correction.productDeltas.length === 0 && correction.supplierDeltas.length === 0) return correction;
+
+  const [cogsAccountId, historicalAccountId, inventoryAccountId] = await Promise.all([
+    getCOGSAccountId(db),
+    getHistoricalStockAdjustmentAccountId(db),
+    getInventoryAccountId(db),
+  ]);
+  const lines: JournalLine[] = [];
+  const addDelta = (accountId: number, amount: number, description: string) => {
+    if (amount === 0) return;
+    lines.push({
+      accountId,
+      debit: amount > 0 ? amount : 0,
+      credit: amount < 0 ? Math.abs(amount) : 0,
+      description,
+      lotId: input.lotId,
+    });
+  };
+  for (const product of correction.productDeltas) {
+    addDelta(cogsAccountId, product.operatingCogsPkr, `${product.productName} · sold COGS correction`);
+    addDelta(historicalAccountId, product.historicalAdjustmentPkr, `${product.productName} · opening-stock correction`);
+    addDelta(inventoryAccountId, product.inventoryPkr, `${product.productName} · remaining inventory correction`);
+  }
+  for (const supplier of correction.supplierDeltas) {
+    const accountId = await getSupplierAccountId(supplier.supplierId, db);
+    addDelta(accountId, -supplier.payablePkr, `Supplier payable correction · Supplier #${supplier.supplierId}`);
+  }
+  await createJournalEntries(input.correctionReference, lines, {
+    currencyCode: "PKR",
+    entityType: "lot_purchase_correction",
+    entityId: input.lotId,
+    lotId: input.lotId,
+    entryDate: input.correctionDate,
+    createdBy: input.createdBy,
+  }, db);
+  return correction;
+}
+
+export async function calculateLateLotCostAllocation(
+  lotId: number,
+  amountPkr: number,
+  allocationBasis: LotCostAllocationBasis,
+  allocatedProductId: number | null | undefined,
+  db: DbClient = prisma,
+): Promise<ReturnType<typeof allocateLotCostAcrossProducts>> {
+  const products = await loadLotProductCostInputs(lotId, db);
+  return allocateLotCostAcrossProducts({ amountPkr, basis: allocationBasis, allocatedProductId, products });
+}
+
+// LOT COST (customs, freight, transport - on agent credit or bank/intermediary)
 export async function journalLotCost(c: {
   id: number;
   lotId: number;
   costType: string;
+  allocationBasis: LotCostAllocationBasis;
+  allocatedProductId?: number | null;
   amountPkr: number;
   originalAmount: number;
   originalCurrencyCode: string;
@@ -619,7 +788,7 @@ export async function journalLotCost(c: {
   intermediaryId?: number | null;
   paidFromCash?: boolean;
 }, db: DbClient = prisma) {
-  const inventoryAccountId = await getInventoryAccountId(db);
+  if (c.amountPkr === 0) return;
   let creditAccId: number;
   if (c.shippingLineId) { creditAccId = await getShippingLineAccountId(c.shippingLineId, db); }
   else if (c.supplierId) { creditAccId = await getSupplierAccountId(c.supplierId, db); }
@@ -631,11 +800,35 @@ export async function journalLotCost(c: {
   else if (c.paidFromCash) { creditAccId = await getOrCreateAccount("1001-GENERAL", "Cash in Hand - General", "asset", undefined, db); }
   else if (c.cityId) { creditAccId = await getCashAccountId(c.cityId, db); }
   else { creditAccId = await getOrCreateAccount("2999", "General Payable", "liability", undefined, db); }
+  const amountPkr = Math.abs(c.amountPkr);
+  const allocation = await calculateLateLotCostAllocation(c.lotId, amountPkr, c.allocationBasis, c.allocatedProductId, db);
   const source = `${c.originalCurrencyCode} ${c.originalAmount}`;
+  const [cogsAccountId, historicalAccountId, inventoryAccountId] = await Promise.all([
+    getCOGSAccountId(db),
+    getHistoricalStockAdjustmentAccountId(db),
+    getInventoryAccountId(db),
+  ]);
+  const allocations = allocation.flatMap((product) => [
+    { amount: product.operatingCogsPkr, accountId: cogsAccountId, label: `${product.productName} sold share` },
+    { amount: product.historicalAdjustmentPkr, accountId: historicalAccountId, label: `${product.productName} opening sold share` },
+    { amount: product.inventoryPkr, accountId: inventoryAccountId, label: `${product.productName} remaining inventory share` },
+  ]).filter((row) => row.amount > 0);
+  const isIncrease = c.amountPkr > 0;
   await createJournalEntries(lotCostJournalTransactionId(c.id, c.journalVersion), [
-    { accountId: inventoryAccountId, debit: c.amountPkr, credit: 0, description: `${c.costType} Lot #${c.lotId} · ${source}` },
-    { accountId: creditAccId, debit: 0, credit: c.amountPkr, description: `${c.costType} · ${source}` },
+    ...allocations.map((row) => ({
+      accountId: row.accountId,
+      debit: isIncrease ? row.amount : 0,
+      credit: isIncrease ? 0 : row.amount,
+      description: `${c.costType} Lot #${c.lotId} · ${row.label} · ${source}`,
+    })),
+    {
+      accountId: creditAccId,
+      debit: isIncrease ? 0 : amountPkr,
+      credit: isIncrease ? amountPkr : 0,
+      description: `${c.costType} · ${source}`,
+    },
   ], { currencyCode: "PKR", entityType: "lot_cost", entityId: c.id, lotId: c.lotId, cityId: c.cityId, entryDate: c.recognitionDate, createdBy: c.createdBy }, db);
+  return allocation;
 }
 
 // AGENT PAID
@@ -1316,20 +1509,11 @@ export async function calculateSaleCogsPkr(params: {
   totalQtySold: number;
   usdPkrRateOverride?: number;
 }, db: DbClient = prisma): Promise<number> {
-  const { saleId, lotId, totalQtySold, usdPkrRateOverride } = params;
-  const [lot, costs, lotProducts, saleItems, openingValuations] = await Promise.all([
-    db.lot.findUnique({ where: { id: lotId }, select: { pkrExchangeRate: true, countryId: true, lotDate: true } }),
-    db.lotCost.findMany({
-      where: { lotId },
-      select: { amount: true, currencyCode: true, exchangeRate: true, costType: true },
-    }),
-    db.lotProduct.findMany({
-      where: { lotId },
-      select: { productId: true, totalQty: true, product: { select: { unitOfMeasure: true } } },
-    }),
+  const { saleId, lotId } = params;
+  const [saleItems, openingValuations] = await Promise.all([
     db.saleItem.findMany({
       where: { saleId, lotId },
-      select: { productId: true, qty: true, product: { select: { unitOfMeasure: true } } },
+      select: { productId: true, qty: true },
     }),
     db.openingInventoryValuation.findMany({
       where: { lotId },
@@ -1347,60 +1531,16 @@ export async function calculateSaleCogsPkr(params: {
     }
     return roundMoney(saleItems.reduce((sum, item) => sum + Number(item.qty || 0) * Number(unitCostByProduct.get(item.productId) || 0), 0));
   }
-
-  const usdPkrRate = Number(usdPkrRateOverride || 0) > 0
-    ? Number(usdPkrRateOverride)
-    : Number(lot?.pkrExchangeRate || 0) > 0
-    ? Number(lot?.pkrExchangeRate || 0)
-    : Number(lot ? await getCountryFallbackRateToPkr({ countryId: lot.countryId, fromCurrencyCode: "USD", asOf: lot.lotDate }, db) : 0);
-  if (totalQtySold === 0 || usdPkrRate <= 0) return 0;
-
-  const mtProductIds = lotProducts
-    .filter((lp) => lp.product.unitOfMeasure !== "PCS")
-    .map((lp) => lp.productId);
-  const pcsSaleItems = saleItems.filter((item) => item.product.unitOfMeasure === "PCS");
-  const mtQtySold = saleItems
-    .filter((item) => item.product.unitOfMeasure !== "PCS")
-    .reduce((sum, item) => sum + Number(item.qty || 0), 0);
-
-  let cogsAmount = 0;
-  if (mtQtySold > 0) {
-    const mtTotalQty = lotProducts
-      .filter((lp) => lp.product.unitOfMeasure !== "PCS")
-      .reduce((sum, lp) => sum + Number(lp.totalQty || 0), 0);
-    const mtPurchases = mtProductIds.length
-      ? await db.lotPurchase.aggregate({
-          where: { lotId, productId: { in: mtProductIds } },
-          _sum: { totalPriceUsd: true },
-        })
-      : null;
-    if (mtTotalQty > 0) {
-      const landed = computeLotLandedCostPkr({
-        totalPurchaseUsd: Number(mtPurchases?._sum.totalPriceUsd || 0),
-        totalCartons: mtTotalQty,
-        lotCosts: costs,
-        lotExpensesByCurrency: {},
-        usdPkrRate,
-      });
-      if (landed.landedCostPerCartonPkr > 0) {
-        cogsAmount += mtQtySold * landed.landedCostPerCartonPkr;
-      }
-    }
+  const landedCosts = await calculateLotProductLandedCostsForLot(lotId, db);
+  const unitCostByProduct = new Map(landedCosts.map((row) => [row.productId, row.unitCostPkr]));
+  const missingProductIds = saleItems.filter((item) => !unitCostByProduct.has(item.productId)).map((item) => item.productId);
+  if (missingProductIds.length > 0) {
+    throw new Error(`Lot ${lotId} has no landed-cost basis for product(s): ${Array.from(new Set(missingProductIds)).join(", ")}`);
   }
-
-  for (const item of pcsSaleItems) {
-    const pcsPurchases = await db.lotPurchase.aggregate({
-      where: { lotId, productId: item.productId },
-      _sum: { qty: true, totalPriceUsd: true },
-    });
-    const purchasedPieces = Number(pcsPurchases._sum.qty || 0);
-    if (purchasedPieces <= 0) continue;
-    const averageUsdPerPiece = Number(pcsPurchases._sum.totalPriceUsd || 0) / purchasedPieces;
-    cogsAmount += Number(item.qty || 0) * averageUsdPerPiece * usdPkrRate;
-  }
-
-  cogsAmount = Math.round(cogsAmount * 100) / 100;
-  return cogsAmount > 0 ? cogsAmount : 0;
+  return roundMoney(saleItems.reduce(
+    (sum, item) => sum + Number(item.qty || 0) * Number(unitCostByProduct.get(item.productId) || 0),
+    0,
+  ));
 }
 
 export async function journalSaleCOGS(params: {

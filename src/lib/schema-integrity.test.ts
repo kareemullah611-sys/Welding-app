@@ -2,6 +2,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+test("lot product allocation migration is additive and non-destructive", () => {
+  const migration = readFileSync("prisma/migrations/20260917150000_lot_cost_product_allocation/migration.sql", "utf8");
+  assert.match(migration, /ADD COLUMN "allocation_basis"/);
+  assert.match(migration, /ADD COLUMN "allocated_product_id"/);
+  assert.doesNotMatch(migration, /DROP TABLE|DROP COLUMN|TRUNCATE|DELETE FROM/i);
+});
+
 const schema = readFileSync("prisma/schema.prisma", "utf8");
 
 function modelBlock(name: string) {

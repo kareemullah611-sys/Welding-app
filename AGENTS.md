@@ -86,3 +86,13 @@ Every finance final report must include this trace table:
 
 | Flow | Form | API | DB | Journal | Ledger | Running Balance | Dashboard | Edit | Delete | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+
+## LOT PRODUCT COST CORRECTION RULE
+
+- Lot purchase value and every landed cost must be attributable to child products, not only to the parent lot.
+- Default allocation policy: customs duty by product purchase value; freight/transport by product weight; loading/unloading by cartons; product-specific costs only to the selected product; other costs require an explicit allocation basis.
+- A late lot cost or post-sale purchase correction must affect product carrying cost, sold COGS/profit, opening-stock adjustment, and remaining inventory according to the corrected product quantities.
+- Never rewrite or delete original purchase/COGS journals to apply a correction. Post an immutable, current-period delta with an audit reference to the source lot/purchase/cost.
+- Normal sold quantity posts to COGS, opening-import sold quantity posts to Historical Stock Adjustment, and remaining quantity stays in Inventory.
+- Block quantity reductions below sold/distributed/transferred quantities. Never guess missing weight, FX, or allocation basis.
+- Do not silently rewrite a closed/finalized period; use the approved post-finalization historical-pool adjustment path.

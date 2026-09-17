@@ -12,6 +12,7 @@ import {
   resolveLotCostExchangeRate,
 } from "@/lib/lot-cost-currency";
 import { validateLotCostSettlement } from "@/lib/settlement-validation";
+import { defaultLotCostAllocationBasis, type LotCostAllocationBasis } from "@/lib/lot-product-cost-allocation";
 
 const LOT_COST_SYNC_MODULE = "lot_costs";
 const SUPERADMIN_SYNC_CITY_ID = 0;
@@ -29,6 +30,7 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
     return successResponse(costs.map((c) => ({
       id: c.id, lotId: c.lotId, lotNumber: c.lot.lotNumber,
       costType: c.costType, description: c.description,
+      allocationBasis: c.allocationBasis, allocatedProductId: c.allocatedProductId,
       amount: Number(c.amount), currencyCode: c.currencyCode,
       exchangeRate: c.exchangeRate ? Number(c.exchangeRate) : null,
       costDate: c.costDate?.toISOString().split("T")[0] || null, notes: c.notes,
@@ -54,6 +56,18 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     if (!lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
 
     const costType = String(input.costType || "");
+    const allocationBasis = (input.allocationBasis || defaultLotCostAllocationBasis(costType)) as LotCostAllocationBasis | null;
+    if (!allocationBasis) return validationError("Select how this cost should be allocated across lot products");
+    const allocatedProductId = input.allocatedProductId ? Number(input.allocatedProductId) : null;
+    if (allocationBasis === "specific_product" && !allocatedProductId) return validationError("Select the product for this cost");
+    if (allocationBasis !== "specific_product" && allocatedProductId) return validationError("A product may only be selected for product-specific allocation");
+    if (allocatedProductId) {
+      const lotProduct = await prisma.lotProduct.findUnique({
+        where: { lotId_productId: { lotId: input.lotId, productId: allocatedProductId } },
+        select: { id: true },
+      });
+      if (!lotProduct) return validationError("Selected product does not belong to this lot");
+    }
     const isFreight = costType === "freight";
     const supplierId = input.supplierId ? Number(input.supplierId) : null;
     const agentId = input.agentId ? Number(input.agentId) : null;
@@ -161,6 +175,8 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       const createdCost = await tx.lotCost.create({
         data: {
           lotId: input.lotId, costType: input.costType as any,
+          allocationBasis: allocationBasis as any,
+          allocatedProductId,
           description: input.description, amount,
           currencyCode,
           exchangeRate,
@@ -181,6 +197,8 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         id: createdCost.id,
         lotId: input.lotId,
         costType: input.costType,
+        allocationBasis,
+        allocatedProductId,
         amountPkr,
         originalAmount: amount,
         originalCurrencyCode: currencyCode,
@@ -226,6 +244,9 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       if (existingSync?.entityId) {
         return successResponse({ id: existingSync.entityId }, "Cost already synced");
       }
+    }
+    if (error instanceof Error && /quantity|sold|weight|allocation basis|specific product/i.test(error.message)) {
+      return validationError(error.message);
     }
     console.error("Create lot cost error:", error);
     return serverError();

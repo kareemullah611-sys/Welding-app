@@ -418,6 +418,8 @@ export const createLotCostSchema = z.object({
     "insurance",
     "other",
   ]),
+  allocationBasis: z.enum(["purchase_value", "weight", "cartons", "specific_product"]).optional(),
+  allocatedProductId: z.number().int().positive().optional().nullable(),
   description: z.string().min(1).max(500),
   amount: z.number().positive(),
   currencyCode: z.string().max(10).default("USD"),
@@ -431,6 +433,13 @@ export const createLotCostSchema = z.object({
   intermediaryId: z.number().int().positive().optional().nullable(),
   paidFromCash: z.boolean().optional(),
   notes: z.string().nullish(),
+}).superRefine((value, context) => {
+  if (value.allocationBasis === "specific_product" && !value.allocatedProductId) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["allocatedProductId"], message: "Product is required for product-specific cost allocation" });
+  }
+  if (value.allocationBasis !== "specific_product" && value.allocatedProductId) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["allocatedProductId"], message: "Product may only be selected for product-specific cost allocation" });
+  }
 });
 
 // ============================================================
