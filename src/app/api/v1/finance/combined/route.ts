@@ -269,6 +269,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         where: {
           ...cityWhere,
           ...dateWhere("transferDate"),
+          ...(!isSuperAdminHajiView ? { withdrawalSource: null } : {}),
           ...(shouldApplySearch && !isNumericLikeQuery
             ? {
                 OR: [

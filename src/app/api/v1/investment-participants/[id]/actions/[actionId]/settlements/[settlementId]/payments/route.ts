@@ -262,6 +262,7 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
       const account = await tx.superAdminBankAccount.findFirst({ where: { id: accountId, isActive: true }, include: { currency: true } });
       if (!account) throw new Error("ACCOUNT_NOT_FOUND");
       if (Number(account.currencyId) !== currencyId) throw new Error("ACCOUNT_CURRENCY_MISMATCH");
+      if (String(account.currency.code).toUpperCase() !== "PKR") throw new Error("FOREIGN_CARRYING_LAYER_REQUIRED");
 
       const fx = await resolvePkrEquivalent({
         tx,
@@ -339,6 +340,7 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
     if (message === "PAYMENT_METHOD_REQUIRED") return errorResponse("VALIDATION", "Payment method is required", 400);
     if (message === "ACCOUNT_NOT_FOUND") return errorResponse("VALIDATION", "Selected superadmin bank/cash account not found", 400);
     if (message === "ACCOUNT_CURRENCY_MISMATCH") return errorResponse("VALIDATION", "Selected account currency must match payment currency", 400);
+    if (message === "FOREIGN_CARRYING_LAYER_REQUIRED") return errorResponse("FOREIGN_CARRYING_LAYER_REQUIRED", "Foreign-currency investor settlements are blocked until the funding-asset carrying layer is settled atomically.", 409);
     if (message === "CURRENCY_NOT_FOUND") return errorResponse("VALIDATION", "Currency not found", 400);
     if (message === "PKR_CURRENCY_NOT_FOUND") return errorResponse("VALIDATION", "PKR currency is required for settlement payment valuation", 400);
     if (message === "MISSING_FX_RATE") return errorResponse("VALIDATION", "Missing required settlement payment FX rate", 400);

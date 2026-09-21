@@ -2,16 +2,23 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, validationError, errorResponse, serverError } from "@/lib/api-response";
-import { journalShippingLinePayment } from "@/lib/accounting";
+import { journalForeignFundingAssetAdjustments, journalShippingLinePayment } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { validatePaymentSource } from "@/lib/payment-source-validation";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 import { consumeIntermediaryUsdFifo, getLotFallbackUsdToPkrRate } from "@/lib/intermediary-usd-fifo";
 import { resolveShippingSettlementContext } from "@/lib/liability-settlement-context";
-import { LiabilityFxValidationError } from "@/lib/realized-liability-fx";
+import { LiabilityFxValidationError, settlementJournalTransactionId } from "@/lib/realized-liability-fx";
+import {
+  assertForeignLiabilitySettlementReconciles,
+  foreignCurrencyOwnerKey,
+  settleForeignCurrencyOutflow,
+  settleForeignCurrencyLiability,
+} from "@/lib/foreign-currency-carrying-db";
 
 const SHIPPING_LINE_PAYMENT_SYNC_MODULE = "shipping_line_payments";
 const SUPERADMIN_SYNC_CITY_ID = 0;
+const round2 = (value: number) => Math.round(value * 100) / 100;
 
 export const POST = withSuperAdmin(async (request: NextRequest, _context: any, user: JWTPayload) => {
   const syncMeta = getSyncRequestMeta(request);
@@ -20,7 +27,6 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
     const { shippingLineId, lotId, paymentDate, amountUsd, settlementCurrency, exchangeRate, reference, notes, bankAccountId, superAdminBankAccountId, intermediaryId, superAdminCashAccountId } = body;
     const parsedShippingLineId = Number(shippingLineId);
     const parsedLotId = lotId ? Number(lotId) : null;
-    const parsedCashAccountId = superAdminCashAccountId ? Number(superAdminCashAccountId) : null;
 
     if (!parsedShippingLineId || !paymentDate || !amountUsd) return validationError("shippingLineId, paymentDate, and amountUsd are required");
     if (Number(amountUsd) <= 0) return validationError("Amount must be greater than 0");
@@ -64,7 +70,9 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
     if (!source.ok) return errorResponse(source.code, source.message, source.status);
     const resolvedBankAccountId = source.bankAccountId;
     const resolvedSuperAdminBankAccountId = source.superAdminBankAccountId;
+    const resolvedSuperAdminCashAccountId = source.superAdminCashAccountId;
     const resolvedIntermediaryId = source.intermediaryId;
+    const normalizedSettlementCurrency = String(settlementCurrency || "USD").trim().toUpperCase();
     const documentedRate = exchangeRate ? Number(exchangeRate) : 0;
     if (!resolvedIntermediaryId && (!Number.isFinite(documentedRate) || documentedRate <= 0)) {
       return validationError("Documented USD → PKR settlement rate is required");
@@ -88,7 +96,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
           bankAccountId: resolvedBankAccountId,
           superAdminBankAccountId: resolvedSuperAdminBankAccountId,
           intermediaryId: resolvedIntermediaryId,
-          superAdminCashAccountId: parsedCashAccountId,
+          superAdminCashAccountId: resolvedSuperAdminCashAccountId,
           paymentDate: new Date(paymentDate),
           amountUsd: Number(amountUsd),
           exchangeRate: exchangeRate ? Number(exchangeRate) : null,
@@ -100,7 +108,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
       });
 
       await createAuditLog(user.userId, null, "shipping_line_payments", created.id, "create", undefined,
-        { shippingLineId: parsedShippingLineId, amountUsd, bankAccountId: resolvedBankAccountId, superAdminBankAccountId: resolvedSuperAdminBankAccountId, intermediaryId: resolvedIntermediaryId, superAdminCashAccountId: parsedCashAccountId }, getClientIP(request), tx);
+        { shippingLineId: parsedShippingLineId, amountUsd, bankAccountId: resolvedBankAccountId, superAdminBankAccountId: resolvedSuperAdminBankAccountId, intermediaryId: resolvedIntermediaryId, superAdminCashAccountId: resolvedSuperAdminCashAccountId }, getClientIP(request), tx);
 
       if (syncMeta) {
         await tx.syncRequest.create({
@@ -156,6 +164,29 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
           fxPoolDate: new Date(fx.originalPoolDate),
         },
       });
+      const fundingAssetSettlement = normalizedSettlementCurrency === "USD"
+        ? await settleForeignCurrencyOutflow(tx, {
+            sourceOwnerKey: resolvedIntermediaryId
+              ? foreignCurrencyOwnerKey.intermediary(resolvedIntermediaryId)
+              : resolvedSuperAdminCashAccountId
+                ? foreignCurrencyOwnerKey.superAdminCash(resolvedSuperAdminCashAccountId)
+                : resolvedSuperAdminBankAccountId
+                  ? foreignCurrencyOwnerKey.superAdminBank(resolvedSuperAdminBankAccountId)
+                  : foreignCurrencyOwnerKey.cityBank(resolvedBankAccountId!),
+            currencyCode: "USD",
+            amount: Number(amountUsd),
+            sourceType: "shipping_line_payment",
+            sourceId: created.id,
+            settlementDate: paymentForJournal.paymentDate,
+            settlementRate: {
+              ratePkr: round2(actualSettlementPkr / Number(amountUsd)),
+              rateType: "actual_shipping_settlement",
+              provider: resolvedIntermediaryId ? "INTERMEDIARY_USD_FIFO" : "DOCUMENTED_SETTLEMENT_RATE",
+              reference: `shipping_line_payment:${created.id}`,
+            },
+            createdBy: user.userId,
+          })
+        : null;
       await journalShippingLinePayment({
         id: paymentForJournal.id,
         shippingLineId: parsedShippingLineId,
@@ -165,11 +196,49 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
         bankAccountId: resolvedBankAccountId,
         superAdminBankAccountId: resolvedSuperAdminBankAccountId,
         intermediaryId: resolvedIntermediaryId,
-        superAdminCashAccountId: parsedCashAccountId,
+        superAdminCashAccountId: resolvedSuperAdminCashAccountId,
         carryingAmountPkr: fx.carryingAmountPkr,
         actualSettlementPkr,
         journalVersion: paymentForJournal.journalVersion,
       }, tx);
+      if (fundingAssetSettlement) {
+        await journalForeignFundingAssetAdjustments({
+          entityPrefix: "FXSHIPASSET",
+          entityType: "shipping_line_payment",
+          entityId: created.id,
+          date: paymentForJournal.paymentDate,
+          createdBy: user.userId,
+          bankAccountId: resolvedBankAccountId,
+          superAdminBankAccountId: resolvedSuperAdminBankAccountId,
+          superAdminCashAccountId: resolvedSuperAdminCashAccountId,
+          intermediaryId: resolvedIntermediaryId,
+          movements: fundingAssetSettlement.movements,
+        }, tx);
+      }
+      const liabilitySettlement = await settleForeignCurrencyLiability(tx, {
+        sourceOwnerKey: foreignCurrencyOwnerKey.shippingPayable(parsedShippingLineId, parsedLotId),
+        currencyCode: "USD",
+        amount: Number(amountUsd),
+        sourceType: "shipping_line_payment",
+        sourceId: created.id,
+        settlementDate: paymentForJournal.paymentDate,
+        settlementRate: {
+          ratePkr: round2(actualSettlementPkr / Number(amountUsd)),
+          rateType: "actual_shipping_settlement",
+          provider: resolvedIntermediaryId ? "INTERMEDIARY_USD_FIFO" : "DOCUMENTED_SETTLEMENT_RATE",
+          reference: `shipping_line_payment:${created.id}`,
+        },
+        journalTransactionId: settlementJournalTransactionId("SLPAY", created.id, paymentForJournal.journalVersion),
+        createdBy: user.userId,
+      });
+      assertForeignLiabilitySettlementReconciles({
+        expectedCarryingAmountPkr: fx.carryingAmountPkr,
+        expectedSettlementAmountPkr: actualSettlementPkr,
+        expectedRealizedFxPkr: fx.realizedFxPkr,
+        actualCarryingAmountPkr: liabilitySettlement.carryingAmountPkr,
+        actualSettlementAmountPkr: liabilitySettlement.settlementAmountPkr,
+        actualRealizedFxPkr: liabilitySettlement.realizedFxPkr,
+      });
       return paymentForJournal;
     });
 

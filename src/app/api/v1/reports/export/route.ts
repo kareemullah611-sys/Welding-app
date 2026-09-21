@@ -295,7 +295,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
       if (selectedType === "all" || selectedType === "haji_transfer") {
         const transfers = await prisma.hajiTransfer.findMany({
-          where: { ...cityFilter, ...dateWhere("transferDate") },
+          where: {
+            ...cityFilter,
+            ...dateWhere("transferDate"),
+            ...(selectedType === "all" ? { withdrawalSource: null } : {}),
+          },
           include: { currency: true },
           orderBy: [{ transferDate: "asc" }, { id: "asc" }],
         });
@@ -552,7 +556,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         prisma.payment.findMany({ where: { cityId }, include: { customer: { select: { name: true } }, currency: true }, orderBy: { paymentDate: "asc" } }),
         prisma.expense.findMany({ where: { cityId, deletedAt: null }, include: { currency: true }, orderBy: { expenseDate: "asc" } }),
         prisma.personalWithdrawal.findMany({ where: { cityId }, include: { currency: true }, orderBy: { withdrawalDate: "asc" } }),
-        prisma.hajiTransfer.findMany({ where: { cityId }, include: { currency: true }, orderBy: { transferDate: "asc" } }),
+        prisma.hajiTransfer.findMany({
+          where: { cityId, withdrawalSource: null },
+          include: { currency: true },
+          orderBy: { transferDate: "asc" },
+        }),
       ]);
 
       let entries: any[] = [];

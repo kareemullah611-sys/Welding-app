@@ -32,13 +32,12 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       }),
       prisma.hajiTransfer.groupBy({
         by: ["currencyId", "transferType"],
-        where: cityFilter,
+        where: { ...cityFilter, withdrawalSource: null },
         _sum: { amount: true },
       }),
       prisma.personalWithdrawal.groupBy({
         by: ["currencyId"],
-        // Fix C7: only count APPROVED withdrawals.
-        where: { ...cityFilter, approvedAt: { not: null } } as any,
+        where: cityFilter,
         _sum: { amount: true },
       }),
       prisma.expense.groupBy({
@@ -100,7 +99,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       expenseByCurrency[currCode[e.currencyId]] = Number(e._sum.amount || 0);
     }
 
-    // Owed to Haji = opening payable/receivable plus net unsettled activity on ongoing lots.
+    // Owed to Haji = opening payable/receivable plus city-wide recognized activity.
     const hajiByCurrency = cityId
       ? await computeOngoingLotHajiOwedForCity(cityId)
       : {};
@@ -207,11 +206,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         }),
         prisma.hajiTransfer.groupBy({
           by: ["cityId", "currencyId", "transferType"],
+          where: { withdrawalSource: null },
           _sum: { amount: true },
         }),
         prisma.personalWithdrawal.groupBy({
           by: ["cityId", "currencyId"],
-          where: { approvedAt: { not: null } } as any,
           _sum: { amount: true },
         }),
         prisma.openingCash.groupBy({

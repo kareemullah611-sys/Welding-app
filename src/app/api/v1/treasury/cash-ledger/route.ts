@@ -71,7 +71,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           },
         }),
         prisma.hajiTransfer.findMany({
-          where: { cityId, sourceType: "cash_office" },
+          where: { cityId, sourceType: "cash_office", withdrawalSource: null },
           select: { id: true, transferDate: true, createdAt: true, amount: true, currencyId: true, detail: true },
         }),
         prisma.expense.findMany({
@@ -93,7 +93,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           },
         }),
         prisma.personalWithdrawal.findMany({
-          where: { cityId, sourceType: "cash_office", approvedAt: { not: null } } as any,
+          where: { cityId, sourceType: "cash_office" } as any,
           select: { id: true, withdrawalDate: true, createdAt: true, amount: true, currencyId: true, detail: true },
         }),
         prisma.superAdminLiabilityEntry.findMany({

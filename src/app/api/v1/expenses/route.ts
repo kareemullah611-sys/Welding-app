@@ -1,12 +1,19 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { journalExpenseCreated, journalPaymentReceived } from "@/lib/accounting";
+import { journalExpenseCreated, journalForeignCustomerReceiptMovements, journalForeignExpenseMovements, journalPaymentReceived } from "@/lib/accounting";
 import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middleware";
 import { createExpenseSchema } from "@/lib/validations";
 import { successResponse, paginatedResponse, validationError, errorResponse, serverError, getPaginationParams, getDateRange } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { isAfghanistanCountry } from "@/lib/country-code";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import { isSupportedForeignCurrency } from "@/lib/foreign-currency-carrying";
+import {
+  foreignCurrencyOwnerKey,
+  settleForeignCurrencyAsset,
+  settleForeignCurrencyOutflow,
+} from "@/lib/foreign-currency-carrying-db";
+import { resolveAfghanistanFxRateFromDb } from "@/lib/sarafi-af-snapshot-db";
 
 const EXPENSE_SYNC_MODULE = "expenses.create";
 
@@ -164,6 +171,20 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
     const city = await prisma.city.findUnique({ where: { id: cityId }, include: { country: true } });
     const { expenseDate, amount, currencyId, detail, notes, paidFrom, customerId, bankAccountId, chequePaymentId } = parsed.data;
+    if (!currencyId) return errorResponse("VALIDATION_ERROR", "Currency is required", 400);
+    const expenseCurrency = await prisma.currency.findUnique({ where: { id: currencyId } });
+    if (!expenseCurrency) return errorResponse("NOT_FOUND", "Currency not found", 404);
+    const foreignExpenseRate = isAfghanistanCountry(city?.country) && isSupportedForeignCurrency(expenseCurrency.code)
+      ? await resolveAfghanistanFxRateFromDb({
+          currencyCode: expenseCurrency.code,
+          transactionDate: new Date(expenseDate),
+          purpose: "settlement",
+          positionKind: "asset",
+        })
+      : null;
+    if (foreignExpenseRate && !foreignExpenseRate.ok) {
+      return errorResponse("FX_RATE_REQUIRED", foreignExpenseRate.missingReason, 400);
+    }
 
     let expensePaymentFifoLotId: number | null = null;
     if (paidFrom === "customer" && city?.country) {
@@ -263,18 +284,48 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       }) as any;
 
       if (paidFrom === "customer" && customerId && customerPaymentId) {
-        await journalPaymentReceived({
-          id: customerPaymentId,
-          customerId,
-          cityId,
-          lotId: expensePaymentFifoLotId,
-          amount: Number(createdExpense.amount),
-          currencyCode: createdExpense.currency.code,
-          paymentDate: createdExpense.expenseDate,
-          createdBy: user.userId,
-          destination: "our_account",
-          paymentMethod: "cash",
-        }, tx);
+        if (foreignExpenseRate?.ok) {
+          const receipt = await settleForeignCurrencyAsset(tx, {
+            sourceOwnerKey: foreignCurrencyOwnerKey.customerReceivable(customerId),
+            targetOwnerKey: foreignCurrencyOwnerKey.cityCash(cityId),
+            targetPositionType: "city_cash",
+            currencyCode: createdExpense.currency.code,
+            amount: Number(createdExpense.amount),
+            sourceType: "expense_customer_payment",
+            sourceId: customerPaymentId,
+            settlementDate: createdExpense.expenseDate,
+            settlementRate: {
+              ratePkr: foreignExpenseRate.rate,
+              rateType: foreignExpenseRate.selectedRateType,
+              provider: foreignExpenseRate.provider,
+              reference: foreignExpenseRate.providerReference,
+              conversionPath: foreignExpenseRate.conversionPath,
+            },
+            createdBy: user.userId,
+          });
+          await journalForeignCustomerReceiptMovements({
+            paymentId: customerPaymentId,
+            customerId,
+            cityId,
+            lotId: expensePaymentFifoLotId,
+            paymentDate: createdExpense.expenseDate,
+            createdBy: user.userId,
+            movements: receipt.movements,
+          }, tx);
+        } else {
+          await journalPaymentReceived({
+            id: customerPaymentId,
+            customerId,
+            cityId,
+            lotId: expensePaymentFifoLotId,
+            amount: Number(createdExpense.amount),
+            currencyCode: createdExpense.currency.code,
+            paymentDate: createdExpense.expenseDate,
+            createdBy: user.userId,
+            destination: "our_account",
+            paymentMethod: "cash",
+          }, tx);
+        }
       }
 
       await createAuditLog(user.userId, cityId, "expenses", createdExpense.id, "create", undefined, {
@@ -284,7 +335,35 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         ...(notes ? { notes } : {}),
       }, getClientIP(request), tx);
 
-      await journalExpenseCreated({ id: createdExpense.id, cityId, lotId: null, amount: Number(createdExpense.amount), currencyCode: createdExpense.currency.code, detail, expenseDate: createdExpense.expenseDate, createdBy: user.userId, paidFrom: paidFrom ?? "cash_office", bankAccountId: bankAccountId ?? null }, tx);
+      if (foreignExpenseRate?.ok) {
+        const outflow = await settleForeignCurrencyOutflow(tx, {
+          sourceOwnerKey: foreignCurrencyOwnerKey.cityCash(cityId),
+          currencyCode: createdExpense.currency.code,
+          amount: Number(createdExpense.amount),
+          sourceType: "expense",
+          sourceId: createdExpense.id,
+          settlementDate: createdExpense.expenseDate,
+          settlementRate: {
+            ratePkr: foreignExpenseRate.rate,
+            rateType: foreignExpenseRate.selectedRateType,
+            provider: foreignExpenseRate.provider,
+            reference: foreignExpenseRate.providerReference,
+            conversionPath: foreignExpenseRate.conversionPath,
+          },
+          createdBy: user.userId,
+        });
+        await journalForeignExpenseMovements({
+          expenseId: createdExpense.id,
+          cityId,
+          expenseDate: createdExpense.expenseDate,
+          detail,
+          createdBy: user.userId,
+          paidFrom: "cash_office",
+          movements: outflow.movements,
+        }, tx);
+      } else {
+        await journalExpenseCreated({ id: createdExpense.id, cityId, lotId: null, amount: Number(createdExpense.amount), currencyCode: createdExpense.currency.code, detail, expenseDate: createdExpense.expenseDate, createdBy: user.userId, paidFrom: paidFrom ?? "cash_office", bankAccountId: bankAccountId ?? null }, tx);
+      }
 
       if (syncMeta) {
         await tx.syncRequest.create({

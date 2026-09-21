@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
-import { reverseJournalEntries, journalShippingLinePayment } from "@/lib/accounting";
+import { journalForeignFundingAssetAdjustments, reverseJournalEntries, journalShippingLinePayment } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { validatePaymentSource } from "@/lib/payment-source-validation";
 import {
@@ -12,6 +12,15 @@ import {
 } from "@/lib/intermediary-usd-fifo";
 import { resolveShippingSettlementContext } from "@/lib/liability-settlement-context";
 import { LiabilityFxValidationError, settlementJournalTransactionId } from "@/lib/realized-liability-fx";
+import {
+  assertForeignLiabilitySettlementReconciles,
+  foreignCurrencyOwnerKey,
+  reverseForeignCurrencyMovements,
+  settleForeignCurrencyOutflow,
+  settleForeignCurrencyLiability,
+} from "@/lib/foreign-currency-carrying-db";
+
+const round2 = (value: number) => Math.round(value * 100) / 100;
 
 export const PUT = withSuperAdmin(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -42,6 +51,14 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     const fallbackUsdToPkrRate = source.intermediaryId
       ? await getLotFallbackUsdToPkrRate(existing.lotId || null)
       : null;
+    const settlementCurrency = source.intermediaryId
+      ? "USD"
+      : source.superAdminBankAccountId || source.superAdminCashAccountId
+        ? String((await prisma.superAdminBankAccount.findUnique({
+            where: { id: (source.superAdminBankAccountId || source.superAdminCashAccountId)! },
+            include: { currency: { select: { code: true } } },
+          }))?.currency.code || "").toUpperCase()
+        : "PKR";
 
     await prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(
@@ -53,6 +70,8 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
       if (lockedExisting.journalVersion !== existing.journalVersion) {
         throw Object.assign(new Error("Shipping payment changed while this edit was open"), { code: "PAYMENT_CHANGED_RETRY" });
       }
+      const reversedForeign = await reverseForeignCurrencyMovements(tx, { sourceType: "shipping_line_payment", sourceId: id, reversalDate: new Date(), createdBy: user.userId });
+      for (const transactionId of reversedForeign.journalTransactionIds) await reverseJournalEntries(transactionId, user.userId, tx);
       await reverseJournalEntries(settlementJournalTransactionId("SLPAY", id, lockedExisting.journalVersion), user.userId, tx);
       await reverseIntermediaryUsdCostUsages({ shippingLinePaymentId: id }, tx);
       const updated = await tx.shippingLinePayment.update({
@@ -114,6 +133,29 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
           fxPoolDate: new Date(fx.originalPoolDate),
         },
       });
+      const fundingAssetSettlement = settlementCurrency === "USD"
+        ? await settleForeignCurrencyOutflow(tx, {
+            sourceOwnerKey: source.intermediaryId
+              ? foreignCurrencyOwnerKey.intermediary(source.intermediaryId)
+              : source.superAdminCashAccountId
+                ? foreignCurrencyOwnerKey.superAdminCash(source.superAdminCashAccountId)
+                : source.superAdminBankAccountId
+                  ? foreignCurrencyOwnerKey.superAdminBank(source.superAdminBankAccountId)
+                  : foreignCurrencyOwnerKey.cityBank(source.bankAccountId!),
+            currencyCode: "USD",
+            amount: Number(journalPayment.amountUsd),
+            sourceType: "shipping_line_payment",
+            sourceId: id,
+            settlementDate: journalPayment.paymentDate,
+            settlementRate: {
+              ratePkr: round2(actualSettlementPkr / Number(journalPayment.amountUsd)),
+              rateType: "actual_shipping_settlement",
+              provider: source.intermediaryId ? "INTERMEDIARY_USD_FIFO" : "DOCUMENTED_SETTLEMENT_RATE",
+              reference: `shipping_line_payment:${id}`,
+            },
+            createdBy: user.userId,
+          })
+        : null;
       await journalShippingLinePayment({
         id,
         shippingLineId: existing.shippingLineId,
@@ -128,6 +170,44 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
         actualSettlementPkr,
         journalVersion: journalPayment.journalVersion,
       }, tx);
+      if (fundingAssetSettlement) {
+        await journalForeignFundingAssetAdjustments({
+          entityPrefix: "FXSHIPASSET",
+          entityType: "shipping_line_payment",
+          entityId: id,
+          date: journalPayment.paymentDate,
+          createdBy: user.userId,
+          bankAccountId: source.bankAccountId,
+          superAdminBankAccountId: source.superAdminBankAccountId,
+          superAdminCashAccountId: source.superAdminCashAccountId,
+          intermediaryId: source.intermediaryId,
+          movements: fundingAssetSettlement.movements,
+        }, tx);
+      }
+      const liabilitySettlement = await settleForeignCurrencyLiability(tx, {
+        sourceOwnerKey: foreignCurrencyOwnerKey.shippingPayable(existing.shippingLineId, existing.lotId),
+        currencyCode: "USD",
+        amount: Number(journalPayment.amountUsd),
+        sourceType: "shipping_line_payment",
+        sourceId: id,
+        settlementDate: journalPayment.paymentDate,
+        settlementRate: {
+          ratePkr: round2(actualSettlementPkr / Number(journalPayment.amountUsd)),
+          rateType: "actual_shipping_settlement",
+          provider: source.intermediaryId ? "INTERMEDIARY_USD_FIFO" : "DOCUMENTED_SETTLEMENT_RATE",
+          reference: `shipping_line_payment:${id}`,
+        },
+        journalTransactionId: settlementJournalTransactionId("SLPAY", id, journalPayment.journalVersion),
+        createdBy: user.userId,
+      });
+      assertForeignLiabilitySettlementReconciles({
+        expectedCarryingAmountPkr: fx.carryingAmountPkr,
+        expectedSettlementAmountPkr: actualSettlementPkr,
+        expectedRealizedFxPkr: fx.realizedFxPkr,
+        actualCarryingAmountPkr: liabilitySettlement.carryingAmountPkr,
+        actualSettlementAmountPkr: liabilitySettlement.settlementAmountPkr,
+        actualRealizedFxPkr: liabilitySettlement.realizedFxPkr,
+      });
       await createAuditLog(user.userId, null, "shipping_line_payments", id, "update",
         { amountUsd: Number(existing.amountUsd) }, { amountUsd: Number(updated.amountUsd) }, getClientIP(request), tx);
     });
@@ -153,6 +233,8 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
       );
       const lockedExisting = await tx.shippingLinePayment.findUnique({ where: { id } });
       if (!lockedExisting || lockedExisting.deletedAt) throw Object.assign(new Error("Shipping payment no longer exists"), { code: "PAYMENT_CHANGED_RETRY" });
+      const reversedForeign = await reverseForeignCurrencyMovements(tx, { sourceType: "shipping_line_payment", sourceId: id, reversalDate: new Date(), createdBy: user.userId });
+      for (const transactionId of reversedForeign.journalTransactionIds) await reverseJournalEntries(transactionId, user.userId, tx);
       await reverseJournalEntries(settlementJournalTransactionId("SLPAY", id, lockedExisting.journalVersion), user.userId, tx);
       await reverseIntermediaryUsdCostUsages({ shippingLinePaymentId: id }, tx);
       await tx.shippingLinePayment.update({ where: { id }, data: { deletedAt: new Date(), deletedBy: user.userId } });

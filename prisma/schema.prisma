@@ -320,6 +320,8 @@ model Currency {
   superAdminLiabilityEntries              SuperAdminLiabilityEntry[]
   superAdminTransfersFrom                 SuperAdminAccountTransfer[]              @relation("SuperAdminTransferFromCurrency")
   superAdminTransfersTo                   SuperAdminAccountTransfer[]              @relation("SuperAdminTransferToCurrency")
+  foreignCurrencyCarryingLayers           ForeignCurrencyCarryingLayer[]
+  foreignCurrencyMovements                ForeignCurrencyMovement[]
 
   @@map("currencies")
 }
@@ -327,6 +329,39 @@ model Currency {
 enum ExchangeRateEntryMethod {
   manual
   api
+}
+
+enum ForeignCurrencyPositionKind {
+  asset
+  liability
+}
+
+enum ForeignCurrencyPositionType {
+  customer_receivable
+  city_cash
+  city_bank
+  super_admin_cash
+  super_admin_bank
+  intermediary_balance
+  supplier_payable
+  shipping_payable
+  other_receivable
+  other_payable
+}
+
+enum ForeignCurrencyLayerStatus {
+  open
+  closed
+  reversed
+}
+
+enum ForeignCurrencyMovementType {
+  recognition
+  transfer
+  settlement
+  exchange
+  revaluation
+  reversal
 }
 
 model ExchangeRate {
@@ -353,6 +388,84 @@ model ExchangeRate {
   @@unique([rateDate, fromCurrencyId, toCurrencyId, source], map: "exchange_rates_date_currency_source_key")
   @@index([fromCurrencyId, toCurrencyId, rateDate], map: "exchange_rates_currency_date_idx")
   @@map("exchange_rates")
+}
+
+model ForeignCurrencyCarryingLayer {
+  id                         Int                         @id @default(autoincrement())
+  positionKind               ForeignCurrencyPositionKind @map("position_kind")
+  positionType               ForeignCurrencyPositionType @map("position_type")
+  ownerKey                   String                      @map("owner_key") @db.VarChar(160)
+  currencyId                 Int                         @map("currency_id")
+  sourceType                 String                      @map("source_type") @db.VarChar(80)
+  sourceId                   Int                         @map("source_id")
+  sourceLineKey              String                      @default("main") @map("source_line_key") @db.VarChar(80)
+  recognitionDate            DateTime                    @map("recognition_date") @db.Date
+  historicalPoolDate         DateTime                    @map("historical_pool_date") @db.Date
+  originalForeignAmount      Decimal                     @map("original_foreign_amount") @db.Decimal(18, 4)
+  remainingForeignAmount     Decimal                     @map("remaining_foreign_amount") @db.Decimal(18, 4)
+  originalCarryingAmountPkr  Decimal                     @map("original_carrying_amount_pkr") @db.Decimal(18, 2)
+  remainingCarryingAmountPkr Decimal                     @map("remaining_carrying_amount_pkr") @db.Decimal(18, 2)
+  recognitionRatePkr         Decimal                     @map("recognition_rate_pkr") @db.Decimal(18, 8)
+  rateType                    String                      @map("rate_type") @db.VarChar(40)
+  rateProvider                String                      @map("rate_provider") @db.VarChar(120)
+  rateReference               String?                     @map("rate_reference") @db.VarChar(240)
+  conversionPathJson         Json?                        @map("conversion_path_json")
+  parentLayerId              Int?                        @map("parent_layer_id")
+  status                     ForeignCurrencyLayerStatus  @default(open)
+  createdBy                  Int?                        @map("created_by")
+  createdAt                  DateTime                    @default(now()) @map("created_at")
+  updatedAt                  DateTime                    @updatedAt @map("updated_at")
+
+  currency      Currency                       @relation(fields: [currencyId], references: [id], onDelete: Restrict)
+  parentLayer   ForeignCurrencyCarryingLayer?  @relation("ForeignCurrencyLayerLineage", fields: [parentLayerId], references: [id], onDelete: Restrict)
+  childLayers   ForeignCurrencyCarryingLayer[] @relation("ForeignCurrencyLayerLineage")
+  sourceMovements ForeignCurrencyMovement[]   @relation("ForeignCurrencyMovementSourceLayer")
+  targetMovements ForeignCurrencyMovement[]   @relation("ForeignCurrencyMovementTargetLayer")
+
+  @@unique([sourceType, sourceId, sourceLineKey], map: "foreign_currency_layers_source_key")
+  @@index([ownerKey, currencyId, status, recognitionDate], map: "foreign_currency_layers_owner_balance_idx")
+  @@index([historicalPoolDate], map: "foreign_currency_layers_pool_date_idx")
+  @@index([parentLayerId], map: "foreign_currency_layers_parent_idx")
+  @@map("foreign_currency_carrying_layers")
+}
+
+model ForeignCurrencyMovement {
+  id                  Int                         @id @default(autoincrement())
+  movementType        ForeignCurrencyMovementType @map("movement_type")
+  sourceType          String                      @map("source_type") @db.VarChar(80)
+  sourceId            Int                         @map("source_id")
+  sourceLineKey       String                      @default("main") @map("source_line_key") @db.VarChar(80)
+  movementDate        DateTime                    @map("movement_date") @db.Date
+  currencyId          Int                         @map("currency_id")
+  sourceLayerId       Int?                        @map("source_layer_id")
+  targetLayerId       Int?                        @map("target_layer_id")
+  foreignAmount       Decimal                     @map("foreign_amount") @db.Decimal(18, 4)
+  carryingAmountPkr   Decimal                     @map("carrying_amount_pkr") @db.Decimal(18, 2)
+  settlementAmountPkr Decimal?                    @map("settlement_amount_pkr") @db.Decimal(18, 2)
+  realizedFxPkr       Decimal                     @default(0) @map("realized_fx_pkr") @db.Decimal(18, 2)
+  historicalPoolDate  DateTime                    @map("historical_pool_date") @db.Date
+  ratePkr             Decimal?                    @map("rate_pkr") @db.Decimal(18, 8)
+  rateType            String?                     @map("rate_type") @db.VarChar(40)
+  rateProvider        String?                     @map("rate_provider") @db.VarChar(120)
+  rateReference       String?                     @map("rate_reference") @db.VarChar(240)
+  conversionPathJson  Json?                        @map("conversion_path_json")
+  journalTransactionId String?                    @map("journal_transaction_id") @db.VarChar(120)
+  reversalOfId        Int?                        @map("reversal_of_id")
+  createdBy           Int?                        @map("created_by")
+  createdAt           DateTime                    @default(now()) @map("created_at")
+
+  currency    Currency                      @relation(fields: [currencyId], references: [id], onDelete: Restrict)
+  sourceLayer ForeignCurrencyCarryingLayer? @relation("ForeignCurrencyMovementSourceLayer", fields: [sourceLayerId], references: [id], onDelete: Restrict)
+  targetLayer ForeignCurrencyCarryingLayer? @relation("ForeignCurrencyMovementTargetLayer", fields: [targetLayerId], references: [id], onDelete: Restrict)
+  reversalOf  ForeignCurrencyMovement?      @relation("ForeignCurrencyMovementReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversals   ForeignCurrencyMovement[]      @relation("ForeignCurrencyMovementReversal")
+
+  @@unique([sourceType, sourceId, sourceLineKey, movementType], map: "foreign_currency_movements_source_key")
+  @@index([sourceLayerId], map: "foreign_currency_movements_source_layer_idx")
+  @@index([targetLayerId], map: "foreign_currency_movements_target_layer_idx")
+  @@index([historicalPoolDate], map: "foreign_currency_movements_pool_date_idx")
+  @@index([journalTransactionId], map: "foreign_currency_movements_journal_idx")
+  @@map("foreign_currency_movements")
 }
 
 model SarafiAfFxSnapshot {

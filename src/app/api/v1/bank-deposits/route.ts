@@ -13,6 +13,7 @@ import { journalBankDeposit } from "@/lib/accounting";
 import { getCityBankAccountAvailableBalance } from "@/lib/city-bank-balance";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 import { buildDateRange } from "@/lib/date-range";
+import { applyForeignCityTreasuryTransfer } from "@/lib/foreign-city-treasury";
 
 type TreasuryTransferType =
   | "cheque_to_bank"
@@ -474,6 +475,18 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           tx
         );
       }
+      await applyForeignCityTreasuryTransfer(tx, {
+        depositId: sourceDeposit.id,
+        transferType,
+        cityId,
+        bankAccountId: parsedBankAccountId,
+        destinationBankAccountId: destinationBankAccountId || null,
+        currencyCode: depositCurrency?.code || "PKR",
+        cashAmount: transferType === "bank_to_bank" ? -Math.abs(transferAmount) : signedCashAmount,
+        chequeAmount: chequeTotal,
+        movementDate: parsedDepositDate,
+        createdBy: user.userId,
+      });
 
       if (syncMeta) {
         await tx.syncRequest.create({

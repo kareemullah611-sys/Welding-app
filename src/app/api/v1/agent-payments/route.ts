@@ -48,6 +48,9 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     }
 
     const currencyCode = String(body.currencyCode || "PKR").toUpperCase();
+    if (currencyCode !== "PKR") {
+      return errorResponse("FOREIGN_CARRYING_LAYER_REQUIRED", "Foreign-currency agent payments are blocked until their payable and funding-asset carrying layers are recorded atomically.", 409);
+    }
     const source = await validatePaymentSource({
       bankAccountId: body.bankAccountId,
       superAdminBankAccountId: body.superAdminBankAccountId,

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { journalSupplierPaid } from "@/lib/accounting";
+import { journalForeignFundingAssetAdjustments, journalSupplierPaid } from "@/lib/accounting";
 import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { createSupplierPaymentSchema } from "@/lib/validations";
 import { successResponse, validationError, errorResponse, serverError, paginatedResponse, getPaginationParams } from "@/lib/api-response";
@@ -9,8 +9,14 @@ import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idem
 import { validateSupplierPaymentSettlement } from "@/lib/settlement-validation";
 import { consumeIntermediaryUsdFifo, getLotFallbackUsdToPkrRate } from "@/lib/intermediary-usd-fifo";
 import { resolveSupplierSettlementContext } from "@/lib/liability-settlement-context";
-import { LiabilityFxValidationError } from "@/lib/realized-liability-fx";
+import { LiabilityFxValidationError, settlementJournalTransactionId } from "@/lib/realized-liability-fx";
 import { getSupplierLotPaymentCapacity } from "@/lib/supplier-payment-capacity";
+import {
+  assertForeignLiabilitySettlementReconciles,
+  foreignCurrencyOwnerKey,
+  settleForeignCurrencyOutflow,
+  settleForeignCurrencyLiability,
+} from "@/lib/foreign-currency-carrying-db";
 
 const SUPPLIER_PAYMENT_SYNC_MODULE = "supplier_payments";
 const SUPERADMIN_SYNC_CITY_ID = 0;
@@ -212,6 +218,30 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         },
       });
 
+      const fundingAssetSettlement = settlement.settlementCurrency === "USD"
+        ? await settleForeignCurrencyOutflow(tx, {
+            sourceOwnerKey: intermediaryId
+              ? foreignCurrencyOwnerKey.intermediary(intermediaryId)
+              : superAdminCashAccountId
+                ? foreignCurrencyOwnerKey.superAdminCash(superAdminCashAccountId)
+                : superAdminBankAccountId
+                  ? foreignCurrencyOwnerKey.superAdminBank(superAdminBankAccountId)
+                  : foreignCurrencyOwnerKey.cityBank(bankAccountId!),
+            currencyCode: "USD",
+            amount: amountUsd,
+            sourceType: "supplier_payment",
+            sourceId: created.id,
+            settlementDate: paymentForJournal.paymentDate,
+            settlementRate: {
+              ratePkr: round2(actualSettlementPkr / amountUsd),
+              rateType: "actual_supplier_settlement",
+              provider: intermediaryId ? "INTERMEDIARY_USD_FIFO" : "DOCUMENTED_SETTLEMENT_RATE",
+              reference: `supplier_payment:${created.id}`,
+            },
+            createdBy: user.userId,
+          })
+        : null;
+
       await journalSupplierPaid({
         id: created.id, supplierId: parsed.data.supplierId, amountUsd: amountUsd,
         carryingAmountPkr: fx.carryingAmountPkr,
@@ -223,6 +253,44 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         superAdminCashAccountId,
         intermediaryId,
       }, tx);
+      if (fundingAssetSettlement) {
+        await journalForeignFundingAssetAdjustments({
+          entityPrefix: "FXSUPASSET",
+          entityType: "supplier_payment",
+          entityId: created.id,
+          date: paymentForJournal.paymentDate,
+          createdBy: user.userId,
+          bankAccountId,
+          superAdminBankAccountId,
+          superAdminCashAccountId,
+          intermediaryId,
+          movements: fundingAssetSettlement.movements,
+        }, tx);
+      }
+      const liabilitySettlement = await settleForeignCurrencyLiability(tx, {
+        sourceOwnerKey: foreignCurrencyOwnerKey.supplierPayable(parsed.data.supplierId, parsed.data.lotId),
+        currencyCode: "USD",
+        amount: amountUsd,
+        sourceType: "supplier_payment",
+        sourceId: created.id,
+        settlementDate: paymentForJournal.paymentDate,
+        settlementRate: {
+          ratePkr: round2(actualSettlementPkr / amountUsd),
+          rateType: "actual_supplier_settlement",
+          provider: intermediaryId ? "INTERMEDIARY_USD_FIFO" : "DOCUMENTED_SETTLEMENT_RATE",
+          reference: `supplier_payment:${created.id}`,
+        },
+        journalTransactionId: settlementJournalTransactionId("SUPPPAY", created.id, paymentForJournal.journalVersion),
+        createdBy: user.userId,
+      });
+      assertForeignLiabilitySettlementReconciles({
+        expectedCarryingAmountPkr: fx.carryingAmountPkr,
+        expectedSettlementAmountPkr: actualSettlementPkr,
+        expectedRealizedFxPkr: fx.realizedFxPkr,
+        actualCarryingAmountPkr: liabilitySettlement.carryingAmountPkr,
+        actualSettlementAmountPkr: liabilitySettlement.settlementAmountPkr,
+        actualRealizedFxPkr: liabilitySettlement.realizedFxPkr,
+      });
       return paymentForJournal;
     });
 

@@ -1,6 +1,5 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { journalHajiTransfer } from "@/lib/accounting";
 import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middleware";
 import { createHajiTransferSchema } from "@/lib/validations";
 import { successResponse, paginatedResponse, validationError, errorResponse, serverError, getPaginationParams, getDateRange } from "@/lib/api-response";
@@ -11,6 +10,7 @@ import { PAKISTAN_HAJI_TARGET, resolvePakistanDestinationAccount } from "@/lib/p
 import { getHajiTransferAuditStateMap, isAfghanistanHajiSettlementEligible } from "@/lib/haji-transfer-audit";
 import { groupHajiTransferSlipRows } from "@/lib/haji-transfer-slip-group";
 import { isAfghanistanCountry, isPakistanCountry } from "@/lib/country-code";
+import { recordHajiTransferAccounting } from "@/lib/haji-transfer-accounting";
 
 const HAJI_TRANSFER_SYNC_MODULE = "haji_transfers.create";
 
@@ -51,23 +51,6 @@ function mapTransferRow(t: any, auditById: Record<number, any>) {
   };
 }
 
-function journalInputFromTransfer(transfer: any, createdBy: number) {
-  return {
-    id: transfer.id,
-    cityId: transfer.cityId,
-    lotId: transfer.lotId,
-    amount: Number(transfer.amount),
-    currencyCode: transfer.currency.code,
-    date: transfer.transferDate,
-    createdBy,
-    sourceType: transfer.sourceType ?? null,
-    bankAccountId: transfer.bankAccountId ?? null,
-    settlementDestination: transfer.settlementDestination ?? "standard",
-    intermediaryId: transfer.intermediaryId ?? null,
-    superAdminCashAccountId: transfer.superAdminCashAccountId ?? null,
-    superAdminBankAccountId: transfer.superAdminBankAccountId ?? null,
-  };
-}
 
 export const GET = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
@@ -378,19 +361,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
             transferType: cashTransfer.transferType,
             sourceType: cashTransfer.sourceType,
           }, getClientIP(request), tx);
-          await journalHajiTransfer({
-            id: cashTransfer.id,
-            cityId,
-            amount: Number(cashTransfer.amount),
-            currencyCode: cashTransfer.currency.code,
-            date: cashTransfer.transferDate,
-            createdBy: user.userId,
-            sourceType: cashTransfer.sourceType,
-            bankAccountId: (cashTransfer as any).bankAccountId ?? null,
-            settlementDestination: (cashTransfer as any).settlementDestination ?? "standard",
-            superAdminCashAccountId: (cashTransfer as any).superAdminCashAccountId ?? null,
-            superAdminBankAccountId: (cashTransfer as any).superAdminBankAccountId ?? null,
-          }, tx);
+          await recordHajiTransferAccounting(tx, cashTransfer, user.userId);
           created.push(cashTransfer);
         }
 
@@ -426,19 +397,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
             transferType: chequeTransfer.transferType,
             sourceType: chequeTransfer.sourceType,
           }, getClientIP(request), tx);
-          await journalHajiTransfer({
-            id: chequeTransfer.id,
-            cityId,
-            amount: Number(chequeTransfer.amount),
-            currencyCode: chequeTransfer.currency.code,
-            date: chequeTransfer.transferDate,
-            createdBy: user.userId,
-            sourceType: chequeTransfer.sourceType,
-            bankAccountId: (chequeTransfer as any).bankAccountId ?? null,
-            settlementDestination: (chequeTransfer as any).settlementDestination ?? "standard",
-            superAdminCashAccountId: (chequeTransfer as any).superAdminCashAccountId ?? null,
-            superAdminBankAccountId: (chequeTransfer as any).superAdminBankAccountId ?? null,
-          }, tx);
+          await recordHajiTransferAccounting(tx, chequeTransfer, user.userId);
           created.push(chequeTransfer);
         }
 
@@ -599,7 +558,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       }) as any;
 
       await createAuditLog(user.userId, cityId, "haji_transfers", createdTransfer.id, "create", undefined, { lotId, amount, transferType, sourceType, settlementDestination }, getClientIP(request), tx);
-      await journalHajiTransfer(journalInputFromTransfer(createdTransfer, user.userId), tx);
+      await recordHajiTransferAccounting(tx, createdTransfer, user.userId);
       if (syncMeta) {
         await tx.syncRequest.create({
           data: {

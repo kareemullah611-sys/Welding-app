@@ -44,6 +44,17 @@ Format every fix as:
 - Never assume currency conversion
 - Verify every calculation with source data
 
+## FOREIGN-CURRENCY ACCOUNTING (MANDATORY)
+- Read and preserve `docs/foreign-currency-accounting-policy.md` before changing any non-PKR transaction path.
+- Supported canonical currencies are USD, AFN, CNY and AED; normalize RMB to CNY.
+- Every foreign monetary asset/liability requires an immutable PKR carrying layer and historical-pool date.
+- This applies to both Superadmin and City Admin transaction paths, including newly added routes.
+- Same-currency transfers preserve carrying basis and create no FX result.
+- Exchanges and settlements recognize FX exactly once against carrying PKR.
+- Prior-FY FX remains attributed to the original historical pool; an exited investor's residual gain or loss belongs to the manager.
+- Never guess missing rates or carrying values. Block unsafe settlement/finalization instead.
+- If a transaction path is not yet wired end to end, reject its non-PKR write with `FOREIGN_CARRYING_LAYER_REQUIRED`; never journal raw foreign units as PKR.
+
 ## RULE 5: E2E VERIFICATION BEFORE "DONE"
 For any change touching payments, haji transfers, customer/supplier ledger, bank accounts, running balance, or treasury:
 

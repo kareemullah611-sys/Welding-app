@@ -3,7 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
-import { reverseJournalEntries, journalPaymentReceived, journalChequeReceived, journalHajiTransfer } from "@/lib/accounting";
+import { reverseJournalEntries, journalPaymentReceived, journalChequeReceived, journalHajiTransfer, journalForeignCustomerReceiptMovements } from "@/lib/accounting";
 import { getPaymentHajiAuditStateMap, isHajiAuditEligible } from "@/lib/payment-audit";
 import { getSaCheckAuditStateMap, isSaCheckConfirmed } from "@/lib/sa-check-audit";
 import { paymentActionSchema, updatePaymentSchema } from "@/lib/validations";
@@ -11,6 +11,9 @@ import { formatSuperAdminBankLabel } from "@/lib/haji-transfer-detail";
 import { resolveAfghanistanSettlement, type ResolvedAfghanistanSettlement } from "@/lib/afghanistan-haji-settlement";
 import { formatAfghanistanCityPaymentDetail } from "@/lib/payment-module-detail";
 import { isAfghanistanCountry } from "@/lib/country-code";
+import { resolveAfghanistanFxRateFromDb } from "@/lib/sarafi-af-snapshot-db";
+import { isSupportedForeignCurrency } from "@/lib/foreign-currency-carrying";
+import { foreignCurrencyOwnerKey, reverseForeignCurrencyMovements, settleForeignCurrencyAsset } from "@/lib/foreign-currency-carrying-db";
 
 function linkedHajiTransferDetail(payment: { paymentMethod?: string | null; superAdminBankAccount?: any }) {
   const accountLabel = payment.superAdminBankAccount
@@ -321,6 +324,18 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     });
     if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported in your city");
 
+    const foreignPaymentRate = isAfghanistanCity && isSupportedForeignCurrency(cityCurrency.currency.code)
+      ? await resolveAfghanistanFxRateFromDb({
+          currencyCode: cityCurrency.currency.code,
+          transactionDate: nextPaymentDate,
+          purpose: "settlement",
+          positionKind: "asset",
+        })
+      : null;
+    if (foreignPaymentRate && !foreignPaymentRate.ok) {
+      return errorResponse("FX_RATE_REQUIRED", foreignPaymentRate.missingReason, 400);
+    }
+
     if (isAfghanistanCity && nextPaymentMethod !== "cash") {
       return errorResponse("VALIDATION_ERROR", "Afghanistan cities can record cash payments only");
     }
@@ -432,7 +447,17 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         } as any,
       });
 
+      let foreignReceipt: Awaited<ReturnType<typeof settleForeignCurrencyAsset>> | null = null;
       if (accountingChanged) {
+        const reversedFx = await reverseForeignCurrencyMovements(tx, {
+          sourceType: "customer_payment",
+          sourceId: id,
+          reversalDate: nextPaymentDate,
+          createdBy: user.userId,
+        });
+        for (const transactionId of reversedFx.journalTransactionIds) {
+          await reverseJournalEntries(transactionId, user.userId, tx);
+        }
         await tx.journalEntry.deleteMany({
           where: {
             transactionId: {
@@ -440,22 +465,72 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
             },
           },
         });
-        const isCheque = nextPaymentMethod === "cheque" && nextDestination === "our_account";
-        const journalFn = isCheque ? journalChequeReceived : journalPaymentReceived;
-        await journalFn({
-          id,
-          customerId: nextCustomerId,
-          cityId: payment.cityId,
-          lotId: payment.lotId,
-          amount: Number(nextAmount),
-          currencyCode: cityCurrency.currency.code,
-          paymentDate: nextPaymentDate,
-          createdBy: user.userId,
-          destination: nextDestination,
-          superAdminBankAccountId: nextSuperAdminBankAccountId,
-          bankAccountId: nextBankAccountId,
-          paymentMethod: nextPaymentMethod,
-        }, tx);
+        if (foreignPaymentRate?.ok) {
+          const targetOwnerKey = afghanistanSettlement?.intermediaryId
+            ? foreignCurrencyOwnerKey.intermediary(afghanistanSettlement.intermediaryId)
+            : afghanistanSettlement?.superAdminCashAccountId
+              ? foreignCurrencyOwnerKey.superAdminCash(afghanistanSettlement.superAdminCashAccountId)
+              : nextPaymentMethod === "cheque"
+                ? foreignCurrencyOwnerKey.cityCheque(payment.cityId)
+                : nextBankAccountId
+                  ? foreignCurrencyOwnerKey.cityBank(nextBankAccountId)
+                  : foreignCurrencyOwnerKey.cityCash(payment.cityId);
+          const targetPositionType = afghanistanSettlement?.intermediaryId
+            ? "intermediary_balance" as const
+            : afghanistanSettlement?.superAdminCashAccountId
+              ? "super_admin_cash" as const
+              : nextPaymentMethod === "cheque"
+                ? "other_receivable" as const
+                : nextBankAccountId
+                  ? "city_bank" as const
+                  : "city_cash" as const;
+          foreignReceipt = await settleForeignCurrencyAsset(tx, {
+            sourceOwnerKey: foreignCurrencyOwnerKey.customerReceivable(nextCustomerId),
+            targetOwnerKey,
+            targetPositionType,
+            currencyCode: cityCurrency.currency.code,
+            amount: Number(nextAmount),
+            sourceType: "customer_payment",
+            sourceId: id,
+            settlementDate: nextPaymentDate,
+            settlementRate: {
+              ratePkr: foreignPaymentRate.rate,
+              rateType: foreignPaymentRate.selectedRateType,
+              provider: foreignPaymentRate.provider,
+              reference: foreignPaymentRate.providerReference,
+              conversionPath: foreignPaymentRate.conversionPath,
+            },
+            createdBy: user.userId,
+          });
+          await journalForeignCustomerReceiptMovements({
+            paymentId: id,
+            customerId: nextCustomerId,
+            cityId: payment.cityId,
+            lotId: payment.lotId,
+            paymentDate: nextPaymentDate,
+            createdBy: user.userId,
+            movements: foreignReceipt.movements,
+            intermediaryId: afghanistanSettlement?.intermediaryId ?? null,
+            superAdminCashAccountId: afghanistanSettlement?.superAdminCashAccountId ?? null,
+          }, tx);
+        } else {
+          const isCheque = nextPaymentMethod === "cheque" && nextDestination === "our_account";
+          const journalFn = isCheque ? journalChequeReceived : journalPaymentReceived;
+          await journalFn({
+            id,
+            customerId: nextCustomerId,
+            cityId: payment.cityId,
+            lotId: payment.lotId,
+            amount: Number(nextAmount),
+            currencyCode: cityCurrency.currency.code,
+            paymentDate: nextPaymentDate,
+            createdBy: user.userId,
+            destination: nextDestination,
+            superAdminBankAccountId: nextSuperAdminBankAccountId,
+            bankAccountId: nextBankAccountId,
+            paymentMethod: nextPaymentMethod,
+          }, tx);
+        }
       }
 
       const linkedHajiTransfer = await tx.hajiTransfer.findUnique({
@@ -520,7 +595,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
             },
           },
         });
-        await journalHajiTransfer({
+        if (!foreignReceipt) await journalHajiTransfer({
           id: hajiTransfer.id,
           cityId: hajiTransfer.cityId,
           lotId: hajiTransfer.lotId,

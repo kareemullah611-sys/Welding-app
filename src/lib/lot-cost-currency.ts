@@ -1,15 +1,15 @@
 /** Currency rules for lot costs (non-purchase charges). */
 
-export const FREIGHT_CURRENCIES = ["USD", "CNY"] as const;
-export const AFG_NON_FREIGHT_CURRENCIES = ["USD", "CNY", "AFN", "PKR"] as const;
+export const FREIGHT_CURRENCIES = ["USD", "CNY", "AED"] as const;
+export const AFG_NON_FREIGHT_CURRENCIES = ["USD", "CNY", "AED", "AFN", "PKR"] as const;
 export const PK_NON_FREIGHT_CURRENCIES = ["PKR"] as const;
-export const FOREIGN_TO_PKR = ["USD", "CNY", "AFN"] as const;
+export const FOREIGN_TO_PKR = ["USD", "CNY", "AED", "AFN"] as const;
 
-export type LotCostCurrencyCode = "USD" | "CNY" | "AFN" | "PKR";
+export type LotCostCurrencyCode = "USD" | "CNY" | "AED" | "AFN" | "PKR";
 
 export function normalizeCurrencyCode(value: unknown): LotCostCurrencyCode | null {
   const code = String(value || "").toUpperCase();
-  if (code === "USD" || code === "CNY" || code === "AFN" || code === "PKR") return code;
+  if (code === "USD" || code === "CNY" || code === "AED" || code === "AFN" || code === "PKR") return code;
   return null;
 }
 
@@ -28,7 +28,7 @@ export function resolveLotCostCurrency(args: {
   if (args.isFreight) {
     const code = normalizeCurrencyCode(args.requestedCurrency || "USD");
     if (!code || !(FREIGHT_CURRENCIES as readonly string[]).includes(code)) {
-      return { ok: false, message: "Freight must be recorded in USD or CNY" };
+      return { ok: false, message: "Freight must be recorded in USD, CNY, or AED" };
     }
     return { ok: true, currencyCode: code };
   }
@@ -36,7 +36,7 @@ export function resolveLotCostCurrency(args: {
   const allowed = isAfg ? AFG_NON_FREIGHT_CURRENCIES : PK_NON_FREIGHT_CURRENCIES;
   const code = normalizeCurrencyCode(args.requestedCurrency || (isAfg ? "AFN" : "PKR"));
   if (!code || !(allowed as readonly string[]).includes(code)) {
-    const label = isAfg ? "USD, CNY, AFN, or PKR" : "PKR";
+    const label = isAfg ? "USD, CNY, AED, AFN, or PKR" : "PKR";
     return { ok: false, message: `Non-freight costs for this lot must be in ${label}` };
   }
   return { ok: true, currencyCode: code };

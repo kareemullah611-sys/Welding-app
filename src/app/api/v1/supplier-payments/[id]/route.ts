@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError, validationError } from "@/lib/api-response";
-import { reverseJournalEntries, journalSupplierPaid } from "@/lib/accounting";
+import { journalForeignFundingAssetAdjustments, reverseJournalEntries, journalSupplierPaid } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { validateSupplierPaymentSettlement } from "@/lib/settlement-validation";
 import {
@@ -13,6 +13,13 @@ import {
 import { resolveSupplierSettlementContext } from "@/lib/liability-settlement-context";
 import { LiabilityFxValidationError, settlementJournalTransactionId } from "@/lib/realized-liability-fx";
 import { getSupplierLotPaymentCapacity } from "@/lib/supplier-payment-capacity";
+import {
+  assertForeignLiabilitySettlementReconciles,
+  foreignCurrencyOwnerKey,
+  reverseForeignCurrencyMovements,
+  settleForeignCurrencyOutflow,
+  settleForeignCurrencyLiability,
+} from "@/lib/foreign-currency-carrying-db";
 
 function round2(value: number) {
   return Math.round(value * 100) / 100;
@@ -93,6 +100,8 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
           );
         }
       }
+      const reversedForeign = await reverseForeignCurrencyMovements(tx, { sourceType: "supplier_payment", sourceId: id, reversalDate: new Date(), createdBy: user.userId });
+      for (const transactionId of reversedForeign.journalTransactionIds) await reverseJournalEntries(transactionId, user.userId, tx);
       await reverseJournalEntries(settlementJournalTransactionId("SUPPPAY", id, lockedExisting.journalVersion), user.userId, tx);
       await reverseIntermediaryUsdCostUsages({ supplierPaymentId: id }, tx);
 
@@ -153,6 +162,29 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
           fxPoolDate: new Date(fx.originalPoolDate),
         },
       });
+      const fundingAssetSettlement = settlement.settlementCurrency === "USD"
+        ? await settleForeignCurrencyOutflow(tx, {
+            sourceOwnerKey: intermediaryId
+              ? foreignCurrencyOwnerKey.intermediary(intermediaryId)
+              : superAdminCashAccountId
+                ? foreignCurrencyOwnerKey.superAdminCash(superAdminCashAccountId)
+                : superAdminBankAccountId
+                  ? foreignCurrencyOwnerKey.superAdminBank(superAdminBankAccountId)
+                  : foreignCurrencyOwnerKey.cityBank(bankAccountId!),
+            currencyCode: "USD",
+            amount: Number(journalPayment.amountUsd),
+            sourceType: "supplier_payment",
+            sourceId: id,
+            settlementDate: journalPayment.paymentDate,
+            settlementRate: {
+              ratePkr: round2(actualSettlementPkr / Number(journalPayment.amountUsd)),
+              rateType: "actual_supplier_settlement",
+              provider: intermediaryId ? "INTERMEDIARY_USD_FIFO" : "DOCUMENTED_SETTLEMENT_RATE",
+              reference: `supplier_payment:${id}`,
+            },
+            createdBy: user.userId,
+          })
+        : null;
 
       await journalSupplierPaid({
         id,
@@ -168,6 +200,44 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
         superAdminCashAccountId,
         intermediaryId,
       }, tx);
+      if (fundingAssetSettlement) {
+        await journalForeignFundingAssetAdjustments({
+          entityPrefix: "FXSUPASSET",
+          entityType: "supplier_payment",
+          entityId: id,
+          date: journalPayment.paymentDate,
+          createdBy: user.userId,
+          bankAccountId,
+          superAdminBankAccountId,
+          superAdminCashAccountId,
+          intermediaryId,
+          movements: fundingAssetSettlement.movements,
+        }, tx);
+      }
+      const liabilitySettlement = await settleForeignCurrencyLiability(tx, {
+        sourceOwnerKey: foreignCurrencyOwnerKey.supplierPayable(existing.supplierId, existing.lotId),
+        currencyCode: "USD",
+        amount: Number(journalPayment.amountUsd),
+        sourceType: "supplier_payment",
+        sourceId: id,
+        settlementDate: journalPayment.paymentDate,
+        settlementRate: {
+          ratePkr: round2(actualSettlementPkr / Number(journalPayment.amountUsd)),
+          rateType: "actual_supplier_settlement",
+          provider: intermediaryId ? "INTERMEDIARY_USD_FIFO" : "DOCUMENTED_SETTLEMENT_RATE",
+          reference: `supplier_payment:${id}`,
+        },
+        journalTransactionId: settlementJournalTransactionId("SUPPPAY", id, journalPayment.journalVersion),
+        createdBy: user.userId,
+      });
+      assertForeignLiabilitySettlementReconciles({
+        expectedCarryingAmountPkr: fx.carryingAmountPkr,
+        expectedSettlementAmountPkr: actualSettlementPkr,
+        expectedRealizedFxPkr: fx.realizedFxPkr,
+        actualCarryingAmountPkr: liabilitySettlement.carryingAmountPkr,
+        actualSettlementAmountPkr: liabilitySettlement.settlementAmountPkr,
+        actualRealizedFxPkr: liabilitySettlement.realizedFxPkr,
+      });
 
       await createAuditLog(user.userId, null, "supplier_payments", id, "update",
         { amountUsd: Number(existing.amountUsd) }, { amountUsd: Number(payment.amountUsd) }, getClientIP(request), tx);
@@ -196,6 +266,8 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
       );
       const lockedExisting = await tx.supplierPayment.findUnique({ where: { id } });
       if (!lockedExisting || lockedExisting.deletedAt) throw Object.assign(new Error("Supplier payment no longer exists"), { code: "PAYMENT_CHANGED_RETRY" });
+      const reversedForeign = await reverseForeignCurrencyMovements(tx, { sourceType: "supplier_payment", sourceId: id, reversalDate: new Date(), createdBy: user.userId });
+      for (const transactionId of reversedForeign.journalTransactionIds) await reverseJournalEntries(transactionId, user.userId, tx);
       await reverseJournalEntries(settlementJournalTransactionId("SUPPPAY", id, lockedExisting.journalVersion), user.userId, tx);
       await reverseIntermediaryUsdCostUsages({ supplierPaymentId: id }, tx);
       await tx.supplierPayment.update({ where: { id }, data: { deletedAt: new Date(), deletedBy: user.userId } });

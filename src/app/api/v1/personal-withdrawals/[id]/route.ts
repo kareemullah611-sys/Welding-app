@@ -2,11 +2,11 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
-import { reverseJournalEntries } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { updateWithdrawalSchema } from "@/lib/validations";
 import { getSaCheckAuditStateMap, isSaCheckConfirmed } from "@/lib/sa-check-audit";
 import { isAfghanistanCountry } from "@/lib/country-code";
+import { recordHajiTransferAccounting, reverseHajiTransferAccounting } from "@/lib/haji-transfer-accounting";
 
 export const PATCH = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -64,7 +64,11 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     const data = parsed.data;
     const w = await prisma.personalWithdrawal.findUnique({
       where: { id },
-      include: { currency: true, city: { include: { country: true } } },
+      include: {
+        currency: true,
+        city: { include: { country: true } },
+        hajiTransfer: { include: { currency: true } },
+      },
     });
     if (!w) return errorResponse("NOT_FOUND", "Not found", 404);
     if (user.role === "city_admin" && w.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
@@ -107,15 +111,9 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     }
 
     await prisma.$transaction(async (tx) => {
-      // Fix C7+C8: pending withdrawals have no WDRAW journal. We do NOT call
-      // journalWithdrawal here — the journal is only posted at approval time.
-      await tx.journalEntry.deleteMany({
-        where: {
-          transactionId: {
-            in: [`WDRAW-${id}`, `REV-WDRAW-${id}`],
-          },
-        },
-      });
+      if (w.hajiTransfer) {
+        await reverseHajiTransferAccounting(tx, w.hajiTransfer, user.userId, "edit");
+      }
 
       const updated = await tx.personalWithdrawal.update({
         where: { id },
@@ -130,6 +128,41 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           updatedAt: new Date(),
         } as any,
       });
+
+      const hajiTransfer = w.hajiTransfer
+        ? await tx.hajiTransfer.update({
+            where: { id: w.hajiTransfer.id },
+            data: {
+              transferDate: nextWithdrawalDate,
+              amount: data.amount || w.amount,
+              detail: `Withdrawal — ${data.withdrawnBy ?? w.withdrawnBy ?? data.detail ?? w.detail}`,
+              transferType: nextSourceType === "bank_account" ? "direct" : "from_in_hand",
+              sourceType: nextSourceType === "bank_account" ? "bank_transfer" : "cash_office",
+              bankAccountId: nextBankAccountId,
+              notes: data.notes !== undefined ? data.notes : w.notes,
+            },
+            include: { currency: true },
+          })
+        : await tx.hajiTransfer.create({
+            data: {
+              cityId: w.cityId,
+              transferDate: nextWithdrawalDate,
+              amount: data.amount || w.amount,
+              currencyId: w.currencyId,
+              detail: `Withdrawal — ${data.withdrawnBy ?? w.withdrawnBy ?? data.detail ?? w.detail}`,
+              transferType: nextSourceType === "bank_account" ? "direct" : "from_in_hand",
+              transferredTo: "Super Admin Account",
+              sourceType: nextSourceType === "bank_account" ? "bank_transfer" : "cash_office",
+              bankAccountId: nextBankAccountId,
+              notes: data.notes !== undefined ? data.notes : w.notes,
+              createdBy: user.userId,
+            },
+            include: { currency: true },
+          });
+      await recordHajiTransferAccounting(tx, hajiTransfer, user.userId);
+      if (!w.hajiTransferId) {
+        await tx.personalWithdrawal.update({ where: { id }, data: { hajiTransferId: hajiTransfer.id } });
+      }
 
       await createAuditLog(
         user.userId,
@@ -161,13 +194,21 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     });
 
     return successResponse({ id }, "Updated");
-  } catch (error) { return serverError(); }
+  } catch (error: any) {
+    if (typeof error?.message === "string" && error.message.includes("Insufficient foreign-currency carrying layers")) {
+      return errorResponse("FOREIGN_CARRYING_LAYER_REQUIRED", error.message, 409);
+    }
+    return serverError();
+  }
 });
 
 export const DELETE = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
     const id = parseInt(context.params.id);
-    const w = await prisma.personalWithdrawal.findUnique({ where: { id } });
+    const w = await prisma.personalWithdrawal.findUnique({
+      where: { id },
+      include: { hajiTransfer: { include: { currency: true } } },
+    });
     if (!w) return errorResponse("NOT_FOUND", "Not found", 404);
     if (user.role === "city_admin" && w.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
 
@@ -181,9 +222,6 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
     }
 
     await prisma.$transaction(async (tx) => {
-      // Reverse any WDRAW journal (defensive — pending withdrawals don't have one).
-      await reverseJournalEntries(`WDRAW-${id}`, user.userId, tx);
-
       if ((w as any).chequePaymentId) {
         await tx.payment.update({
           where: { id: (w as any).chequePaymentId },
@@ -191,12 +229,14 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
         });
       }
 
-      // If this withdrawal was approved and linked to a haji transfer, also reverse that
-      // haji transfer's journal and delete the record so no orphan exists.
-      const hajiTransferId = (w as any).hajiTransferId;
-      if (hajiTransferId) {
-        await reverseJournalEntries(`HAJI-${hajiTransferId}`, user.userId, tx);
-        await tx.hajiTransfer.delete({ where: { id: hajiTransferId } });
+      if (w.hajiTransfer) {
+        await reverseHajiTransferAccounting(tx, w.hajiTransfer, user.userId, "delete");
+        await tx.personalWithdrawal.update({ where: { id }, data: { hajiTransferId: null } });
+        await tx.hajiTransfer.delete({ where: { id: w.hajiTransfer.id } });
+        await createAuditLog(user.userId, w.cityId, "haji_transfers", w.hajiTransfer.id, "delete", {
+          withdrawalId: w.id,
+          amount: Number(w.hajiTransfer.amount),
+        }, undefined, getClientIP(request), tx);
       }
 
       await tx.personalWithdrawal.delete({ where: { id } });

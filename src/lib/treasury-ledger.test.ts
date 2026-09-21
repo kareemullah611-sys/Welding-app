@@ -89,6 +89,23 @@ describe("buildPaymentCancellationReversalRow", () => {
 });
 
 describe("computeRunningBalances", () => {
+  it("deducts a withdrawal immediately while approval remains audit-only", () => {
+    const { itemsWithBalance } = computeRunningBalances(
+      [{
+        id: 90,
+        type: "withdrawal",
+        date: "2026-09-20",
+        amount: 4000,
+        currencyCode: "PKR",
+        status: "pending",
+        raw: { sourceType: "bank_account", createdAt: "2026-09-20T10:00:00.000Z" },
+      }],
+      { PKR: 10000 },
+    );
+
+    assert.equal(itemsWithBalance[0].runningBalance, 6000);
+  });
+
   it("keeps used cheque receipts in historical running balance", () => {
     const { itemsWithBalance } = computeRunningBalances(
       [

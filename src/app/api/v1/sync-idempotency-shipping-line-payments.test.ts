@@ -5,6 +5,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { generateToken } from "@/lib/auth";
 import { POST as createShippingLinePayment } from "@/app/api/v1/shipping-line-payments/route";
+import { foreignCurrencyOwnerKey, recordForeignCurrencyRecognition } from "@/lib/foreign-currency-carrying-db";
 
 test("shipping line payment create is idempotent for repeated sync request id", async () => {
   const marker = `sync-shipping-payment-${Date.now()}`;
@@ -79,6 +80,34 @@ test("shipping line payment create is idempotent for repeated sync request id", 
       ratePkr: 282,
     },
   });
+  const carryingLayer = await prisma.$transaction((tx) => recordForeignCurrencyRecognition(tx, {
+    positionKind: "asset",
+    positionType: "intermediary_balance",
+    ownerKey: foreignCurrencyOwnerKey.intermediary(intermediary.id),
+    currencyCode: "USD",
+    sourceType: "test_shipping_payment_funding",
+    sourceId: deposit.id,
+    recognitionDate: new Date("2026-04-21"),
+    historicalPoolDate: new Date("2026-04-21"),
+    foreignAmount: 5000,
+    carryingAmountPkr: 1410000,
+    rate: { ratePkr: 282, rateType: "test", provider: "LOCAL_TEST" },
+    createdBy: superAdmin.id,
+  }));
+  const payableLayer = await prisma.$transaction((tx) => recordForeignCurrencyRecognition(tx, {
+    positionKind: "liability",
+    positionType: "shipping_payable",
+    ownerKey: foreignCurrencyOwnerKey.shippingPayable(shippingLine.id, lot.id),
+    currencyCode: "USD",
+    sourceType: "test_shipping_payment_liability",
+    sourceId: freight.id,
+    recognitionDate: new Date("2026-04-20"),
+    historicalPoolDate: new Date("2026-04-20"),
+    foreignAmount: 5000,
+    carryingAmountPkr: 1400000,
+    rate: { ratePkr: 280, rateType: "test", provider: "LOCAL_TEST" },
+    createdBy: superAdmin.id,
+  }));
 
   const syncRequestId = `req-shipping-payment-${Date.now()}`;
   const headers = {
@@ -143,7 +172,13 @@ test("shipping line payment create is idempotent for repeated sync request id", 
     if (createdPaymentId) {
       await prisma.auditLog.deleteMany({ where: { entityType: "shipping_line_payments", entityId: createdPaymentId } });
       await prisma.journalEntry.deleteMany({ where: { entityType: "shipping_line_payment", entityId: createdPaymentId } });
+      await prisma.foreignCurrencyMovement.deleteMany({ where: { sourceType: "shipping_line_payment", sourceId: createdPaymentId } });
+      await prisma.foreignCurrencyCarryingLayer.deleteMany({ where: { sourceType: "shipping_line_payment", sourceId: createdPaymentId } });
     }
+    await prisma.foreignCurrencyMovement.deleteMany({ where: { sourceType: "test_shipping_payment_liability", sourceId: freight.id } });
+    await prisma.foreignCurrencyCarryingLayer.deleteMany({ where: { id: payableLayer.id } });
+    await prisma.foreignCurrencyMovement.deleteMany({ where: { sourceType: "test_shipping_payment_funding", sourceId: deposit.id } });
+    await prisma.foreignCurrencyCarryingLayer.deleteMany({ where: { id: carryingLayer.id } });
     await prisma.shippingLinePayment.deleteMany({ where: { shippingLineId: shippingLine.id, reference: "sync-test" } });
     await prisma.intermediaryUsdCostLayer.deleteMany({ where: { id: layer.id } });
     await prisma.intermediaryDeposit.deleteMany({ where: { id: deposit.id } });

@@ -11,6 +11,13 @@ import { listLotGodownStockForCity, setLotGodownStock } from "@/lib/lot-godown-s
 import { createHistoricalSale } from "@/lib/historical-sale-import";
 import { autoActivateShortSales } from "@/lib/stock-activation";
 import { canEditOpenings, isOpeningsLocked } from "@/lib/openings-lock";
+import { isSupportedForeignCurrency } from "@/lib/foreign-currency-carrying";
+import {
+  foreignCurrencyOwnerKey,
+  nextForeignCurrencyRecognitionLineKey,
+  recordForeignCurrencyRecognition,
+  reverseForeignCurrencyRecognition,
+} from "@/lib/foreign-currency-carrying-db";
 
 function dateOnly(value?: string | null): Date {
   if (!value) return new Date();
@@ -60,6 +67,56 @@ function openingFxData(body: any, currencyCode: string, amount: number) {
       source: String(body.fxRateSource || "").trim(),
     },
   };
+}
+
+async function recordOpeningForeignPosition(tx: Prisma.TransactionClient, input: {
+  sourceType: string;
+  sourceId: number;
+  positionKind: Parameters<typeof recordForeignCurrencyRecognition>[1]["positionKind"];
+  positionType: Parameters<typeof recordForeignCurrencyRecognition>[1]["positionType"];
+  ownerKey: string;
+  currencyCode: string;
+  amount: number;
+  carryingAmountPkr: number;
+  fxRateToPkr: number;
+  fxRateDate: Date | null;
+  fxRateSource: string | null;
+  openingDate: Date;
+  createdBy: number;
+}) {
+  if (!isSupportedForeignCurrency(input.currencyCode)) return;
+  await reverseForeignCurrencyRecognition(tx, {
+    sourceType: input.sourceType,
+    sourceId: input.sourceId,
+    reversalDate: new Date(),
+    createdBy: input.createdBy,
+  });
+  const sourceLineKey = await nextForeignCurrencyRecognitionLineKey(tx, input.sourceType, input.sourceId);
+  await recordForeignCurrencyRecognition(tx, {
+    positionKind: input.positionKind,
+    positionType: input.positionType,
+    ownerKey: input.ownerKey,
+    currencyCode: input.currencyCode,
+    sourceType: input.sourceType,
+    sourceId: input.sourceId,
+    sourceLineKey,
+    recognitionDate: input.openingDate,
+    historicalPoolDate: input.openingDate,
+    foreignAmount: Math.abs(input.amount),
+    carryingAmountPkr: Math.abs(input.carryingAmountPkr),
+    rate: {
+      ratePkr: input.fxRateToPkr,
+      rateType: "historical_opening",
+      provider: input.fxRateSource || "MANUAL_OPENING",
+      reference: input.fxRateDate ? `opening-rate:${input.fxRateDate.toISOString().slice(0, 10)}` : null,
+      conversionPath: {
+        from: input.currencyCode,
+        to: "PKR",
+        rateDate: input.fxRateDate?.toISOString().slice(0, 10) || null,
+      },
+    },
+    createdBy: input.createdBy,
+  });
 }
 const SUPERADMIN_SYNC_CITY_ID = 0;
 
@@ -566,6 +623,12 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           id: saved.id, cityId: scopedCityId, amount, carryingAmountPkr: fxData.carryingAmountPkr, fxRateToPkr: fxData.fxRateToPkr, currencyCode: cityCurrency.currency.code,
           openingDate: saved.openingDate, createdBy: user.userId, journalVersion: previousVersions + 1,
         }, tx);
+        await recordOpeningForeignPosition(tx, {
+          sourceType: "opening_cash", sourceId: saved.id, positionKind: "asset", positionType: "city_cash",
+          ownerKey: foreignCurrencyOwnerKey.cityCash(scopedCityId), currencyCode: cityCurrency.currency.code,
+          amount, carryingAmountPkr: fxData.carryingAmountPkr, fxRateToPkr: fxData.fxRateToPkr,
+          fxRateDate: fxData.fxRateDate, fxRateSource: fxData.fxRateSource, openingDate: saved.openingDate, createdBy: user.userId,
+        });
         return saved;
       });
 
@@ -638,6 +701,14 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           createdBy: user.userId,
           journalVersion: previousVersions + 1,
         }, tx);
+        await recordOpeningForeignPosition(tx, {
+          sourceType: "opening_customer_balance", sourceId: saved.id,
+          positionKind: amount >= 0 ? "asset" : "liability",
+          positionType: amount >= 0 ? "customer_receivable" : "other_payable",
+          ownerKey: amount >= 0 ? foreignCurrencyOwnerKey.customerReceivable(customerId) : foreignCurrencyOwnerKey.customerAdvance(customerId),
+          currencyCode: currency.code, amount, carryingAmountPkr: fxData.carryingAmountPkr, fxRateToPkr: fxData.fxRateToPkr,
+          fxRateDate: fxData.fxRateDate, fxRateSource: fxData.fxRateSource, openingDate: saved.openingDate, createdBy: user.userId,
+        });
         return saved;
       });
 
@@ -920,6 +991,12 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           id: saved.id, cityId: scopedCityId, bankAccountId, amount, carryingAmountPkr: fxData.carryingAmountPkr, fxRateToPkr: fxData.fxRateToPkr, currencyCode: cityCurrency.currency.code,
           openingDate: saved.openingDate, createdBy: user.userId, journalVersion: previousVersions + 1,
         }, tx);
+        await recordOpeningForeignPosition(tx, {
+          sourceType: "opening_bank_balance", sourceId: saved.id, positionKind: "asset", positionType: "city_bank",
+          ownerKey: foreignCurrencyOwnerKey.cityBank(bankAccountId), currencyCode: cityCurrency.currency.code,
+          amount, carryingAmountPkr: fxData.carryingAmountPkr, fxRateToPkr: fxData.fxRateToPkr,
+          fxRateDate: fxData.fxRateDate, fxRateSource: fxData.fxRateSource, openingDate: saved.openingDate, createdBy: user.userId,
+        });
         return saved;
       });
 
@@ -1099,6 +1176,25 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           createdBy: user.userId,
           journalVersion: previousVersions + 1,
         }, tx);
+        const openingLiabilityOwner = liabilityType === "supplier"
+          ? (balanceSide === "payable" ? foreignCurrencyOwnerKey.supplierPayable(partyId) : foreignCurrencyOwnerKey.supplierAdvance(partyId))
+          : liabilityType === "shipping_line"
+            ? (balanceSide === "payable" ? foreignCurrencyOwnerKey.shippingPayable(partyId) : foreignCurrencyOwnerKey.shippingAdvance(partyId))
+            : liabilityType === "agent"
+              ? (balanceSide === "payable" ? foreignCurrencyOwnerKey.agentPayable(partyId) : foreignCurrencyOwnerKey.agentAdvance(partyId))
+              : (balanceSide === "payable" ? foreignCurrencyOwnerKey.intermediaryPayable(partyId) : foreignCurrencyOwnerKey.intermediary(partyId));
+        await recordOpeningForeignPosition(tx, {
+          sourceType: "opening_liability", sourceId: saved.id,
+          positionKind: balanceSide === "payable" ? "liability" : "asset",
+          positionType: liabilityType === "supplier" && balanceSide === "payable"
+            ? "supplier_payable"
+            : liabilityType === "shipping_line" && balanceSide === "payable"
+              ? "shipping_payable"
+              : balanceSide === "payable" ? "other_payable" : "other_receivable",
+          ownerKey: openingLiabilityOwner, currencyCode: currency.code, amount,
+          carryingAmountPkr: fxData.carryingAmountPkr, fxRateToPkr: fxData.fxRateToPkr,
+          fxRateDate: fxData.fxRateDate, fxRateSource: fxData.fxRateSource, openingDate: saved.openingDate, createdBy: user.userId,
+        });
 
         if (syncMeta) {
           await tx.syncRequest.create({
@@ -1279,6 +1375,13 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           ? await tx.openingSuperAdminAccountBalance.update({ where: { id: current.id }, data: { amount, ...fxData, openingDate: dateOnly(body.openingDate), notes: body.notes || null, journalVersion: nextVersion, createdBy: user.userId } })
           : await tx.openingSuperAdminAccountBalance.create({ data: { accountId, currencyId: account.currencyId, amount, ...fxData, openingDate: dateOnly(body.openingDate), notes: body.notes || null, journalVersion: 1, createdBy: user.userId } });
         await journalOpeningSuperAdminAccountBalance({ id: saved.id, accountId, accountKind: account.accountKind, amount, carryingAmountPkr: fxData.carryingAmountPkr, fxRateToPkr: fxData.fxRateToPkr, currencyCode: account.currency.code, openingDate: saved.openingDate, createdBy: user.userId, journalVersion: saved.journalVersion }, tx);
+        await recordOpeningForeignPosition(tx, {
+          sourceType: "opening_super_admin_account", sourceId: saved.id, positionKind: "asset",
+          positionType: account.accountKind === "cash" ? "super_admin_cash" : "super_admin_bank",
+          ownerKey: account.accountKind === "cash" ? foreignCurrencyOwnerKey.superAdminCash(accountId) : foreignCurrencyOwnerKey.superAdminBank(accountId),
+          currencyCode: account.currency.code, amount, carryingAmountPkr: fxData.carryingAmountPkr, fxRateToPkr: fxData.fxRateToPkr,
+          fxRateDate: fxData.fxRateDate, fxRateSource: fxData.fxRateSource, openingDate: saved.openingDate, createdBy: user.userId,
+        });
         return saved;
       });
       await createAuditLog(user.userId, null, "opening_super_admin_account_balances", row.id, existing ? "update" : "create", existing || undefined, { accountId, amount, carryingAmountPkr: fxData.carryingAmountPkr }, getClientIP(request));

@@ -235,7 +235,12 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       }),
       prisma.hajiTransfer.groupBy({
         by: ["bankAccountId", "currencyId"],
-        where: { bankAccountId: { not: null }, sourceType: "bank_transfer", ...(cityId ? { cityId } : {}) } as any,
+        where: {
+          bankAccountId: { not: null },
+          sourceType: "bank_transfer",
+          withdrawalSource: null,
+          ...(cityId ? { cityId } : {}),
+        } as any,
         _sum: { amount: true },
       }),
       prisma.supplierPayment.findMany({
@@ -308,7 +313,6 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
             ? { in: scopedBankAccountIds.length > 0 ? scopedBankAccountIds : [-1] }
             : { not: null },
           sourceType: "bank_account",
-          approvedAt: { not: null },
         } as any,
         _sum: { amount: true },
       }),

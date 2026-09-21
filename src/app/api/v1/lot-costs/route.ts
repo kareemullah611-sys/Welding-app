@@ -13,6 +13,7 @@ import {
 } from "@/lib/lot-cost-currency";
 import { validateLotCostSettlement } from "@/lib/settlement-validation";
 import { defaultLotCostAllocationBasis, type LotCostAllocationBasis } from "@/lib/lot-product-cost-allocation";
+import { foreignCurrencyOwnerKey, recordForeignCurrencyRecognition } from "@/lib/foreign-currency-carrying-db";
 
 const LOT_COST_SYNC_MODULE = "lot_costs";
 const SUPERADMIN_SYNC_CITY_ID = 0;
@@ -89,6 +90,9 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
     });
     if (!currencyResult.ok) return validationError(currencyResult.message);
     const currencyCode = currencyResult.currencyCode;
+    if (currencyCode !== "PKR" && !shippingLineId) {
+      return errorResponse("FOREIGN_CARRYING_LAYER_REQUIRED", "This foreign-currency lot-cost channel is blocked until its payable or funding-asset carrying layer is recorded atomically.", 409);
+    }
 
     const rateResult = resolveLotCostExchangeRate({
       currencyCode,
@@ -213,6 +217,27 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         intermediaryId,
         paidFromCash,
       }, tx);
+      if (shippingLineId && currencyCode === "USD") {
+        await recordForeignCurrencyRecognition(tx, {
+          positionKind: "liability",
+          positionType: "shipping_payable",
+          ownerKey: foreignCurrencyOwnerKey.shippingPayable(shippingLineId, input.lotId),
+          currencyCode,
+          sourceType: "lot_shipping_cost",
+          sourceId: createdCost.id,
+          recognitionDate: costDate,
+          historicalPoolDate: costDate,
+          foreignAmount: amount,
+          carryingAmountPkr: amountPkr,
+          rate: {
+            ratePkr: Number(exchangeRate),
+            rateType: "documented_lot_cost_rate",
+            provider: "LOT_COST_RECOGNITION_RATE",
+            reference: `lot_cost:${createdCost.id}`,
+          },
+          createdBy: user.userId,
+        });
+      }
       if (syncMeta) {
         await tx.syncRequest.create({
           data: {

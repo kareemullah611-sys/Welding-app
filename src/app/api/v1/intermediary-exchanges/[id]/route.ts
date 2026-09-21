@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withSuperAdmin } from "@/lib/middleware";
 import { successResponse, errorResponse } from "@/lib/api-response";
-import { journalIntermediaryExchange, reverseJournalEntries } from "@/lib/accounting";
+import { journalForeignIntermediaryExchangeMovements, journalIntermediaryExchange, reverseJournalEntries } from "@/lib/accounting";
 import { getIntermediaryBalances } from "@/lib/intermediary-balance";
 import {
   assertIntermediaryUsdLayerUnused,
@@ -10,6 +10,11 @@ import {
   removeUnusedIntermediaryUsdLayer,
 } from "@/lib/intermediary-usd-fifo";
 import { JWTPayload } from "@/lib/auth";
+import {
+  exchangeForeignCurrencyLayers,
+  foreignCurrencyOwnerKey,
+  reverseForeignCurrencyMovements,
+} from "@/lib/foreign-currency-carrying-db";
 
 function parsePositive(value: unknown): number | null {
   const parsed = Number(String(value ?? "").replace(/,/g, "").trim());
@@ -74,6 +79,15 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
   if (!(toAmount > 0)) return errorResponse("VALIDATION", "Calculated toAmount must be > 0", 400);
 
   const updated = await prisma.$transaction(async (tx) => {
+    const reversedCarrying = await reverseForeignCurrencyMovements(tx, {
+      sourceType: "intermediary_exchange",
+      sourceId: id,
+      reversalDate: new Date(),
+      createdBy: user.userId,
+    });
+    for (const journalTransactionId of reversedCarrying.journalTransactionIds) {
+      await reverseJournalEntries(journalTransactionId, user.userId, tx);
+    }
     await reverseJournalEntries(`INTFX-OUT-${id}`, user.userId, tx);
     await reverseJournalEntries(`INTFX-IN-${id}`, user.userId, tx);
     await removeUnusedIntermediaryUsdLayer("intermediary_exchange", id, tx);
@@ -103,6 +117,27 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
       toAmount: Number(next.toAmount),
       createdBy: user.userId,
     }, tx);
+    const carryingExchange = await exchangeForeignCurrencyLayers(tx, {
+      ownerKey: foreignCurrencyOwnerKey.intermediary(next.intermediaryId),
+      positionType: "intermediary_balance",
+      fromCurrencyCode: fromCurrency.code,
+      fromAmount: Number(next.fromAmount),
+      toCurrencyCode: toCurrency.code,
+      toAmount: Number(next.toAmount),
+      sourceType: "intermediary_exchange",
+      sourceId: next.id,
+      exchangeDate: next.exchangeDate,
+      createdBy: user.userId,
+    });
+    await journalForeignIntermediaryExchangeMovements({
+      exchangeId: next.id,
+      intermediaryId: next.intermediaryId,
+      exchangeDate: next.exchangeDate,
+      fromCurrencyCode: fromCurrency.code,
+      toCurrencyCode: toCurrency.code,
+      createdBy: user.userId,
+      movements: carryingExchange.movements,
+    }, tx);
     await createIntermediaryUsdLayerFromExchange({
       exchangeId: next.id,
       intermediaryId: next.intermediaryId,
@@ -131,6 +166,15 @@ export const DELETE = withSuperAdmin(async (_request: NextRequest, context: any,
   }
 
   await prisma.$transaction(async (tx) => {
+    const reversedCarrying = await reverseForeignCurrencyMovements(tx, {
+      sourceType: "intermediary_exchange",
+      sourceId: id,
+      reversalDate: new Date(),
+      createdBy: user.userId,
+    });
+    for (const journalTransactionId of reversedCarrying.journalTransactionIds) {
+      await reverseJournalEntries(journalTransactionId, user.userId, tx);
+    }
     await reverseJournalEntries(`INTFX-OUT-${id}`, user.userId, tx);
     await reverseJournalEntries(`INTFX-IN-${id}`, user.userId, tx);
     await removeUnusedIntermediaryUsdLayer("intermediary_exchange", id, tx);

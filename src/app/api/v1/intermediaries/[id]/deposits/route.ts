@@ -6,6 +6,8 @@ import { journalIntermediaryDeposit } from "@/lib/accounting";
 import { assertSuperAdminCashHasFunds } from "@/lib/haji-cash-balance";
 import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import { isSupportedForeignCurrency } from "@/lib/foreign-currency-carrying";
+import { foreignCurrencyOwnerKey, transferForeignCurrencyLayers } from "@/lib/foreign-currency-carrying-db";
 
 const INTERMEDIARY_DEPOSIT_SYNC_MODULE = "intermediary_deposits";
 const SUPERADMIN_SYNC_CITY_ID = 0;
@@ -136,6 +138,21 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
         superAdminCashAccountId: superAdminCashAccountId || null,
         journalVersion: created.journalVersion,
       }, tx);
+      if (isSupportedForeignCurrency(currency.code)) {
+        await transferForeignCurrencyLayers(tx, {
+          sourceOwnerKey: superAdminCashAccountId
+            ? foreignCurrencyOwnerKey.superAdminCash(superAdminCashAccountId)
+            : foreignCurrencyOwnerKey.superAdminBank(superAdminBankAccountId),
+          targetOwnerKey: foreignCurrencyOwnerKey.intermediary(intermediaryId),
+          targetPositionType: "intermediary_balance",
+          currencyCode: currency.code,
+          amount,
+          sourceType: "intermediary_deposit",
+          sourceId: created.id,
+          movementDate: created.depositDate,
+          createdBy: user.userId,
+        });
+      }
       return created;
     });
 

@@ -5,6 +5,12 @@ import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { journalLotCost } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
+import {
+  foreignCurrencyOwnerKey,
+  nextForeignCurrencyRecognitionLineKey,
+  recordForeignCurrencyRecognition,
+  reverseForeignCurrencyRecognition,
+} from "@/lib/foreign-currency-carrying-db";
 
 export const PUT = withSuperAdmin(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -15,6 +21,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`lot-cost:${id}`}::text)::bigint)`;
       const existing = await tx.lotCost.findUnique({ where: { id } });
       if (!existing) throw new Error("LOT_COST_NOT_FOUND");
+      if (existing.currencyCode !== "PKR" && !existing.shippingLineId) throw new Error("FOREIGN_CARRYING_LAYER_REQUIRED");
       const nextAmount = body.amount !== undefined ? Number(body.amount) : Number(existing.amount);
       if (!Number.isFinite(nextAmount) || nextAmount <= 0) throw new Error("INVALID_AMOUNT");
       const nextExchangeRate = body.exchangeRate !== undefined ? Number(body.exchangeRate) : Number(existing.exchangeRate || 0);
@@ -29,6 +36,15 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
         .toDecimalPlaces(2)
         .toString());
       const amountPkrDelta = Number(new Prisma.Decimal(newAmountPkr).minus(oldAmountPkr).toDecimalPlaces(2).toString());
+
+      if (amountPkrDelta !== 0 && existing.shippingLineId && existing.currencyCode === "USD") {
+        await reverseForeignCurrencyRecognition(tx, {
+          sourceType: "lot_shipping_cost",
+          sourceId: id,
+          reversalDate: recognitionDate,
+          createdBy: user.userId,
+        });
+      }
 
       const updated = await tx.lotCost.update({
         where: { id },
@@ -62,6 +78,29 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
           intermediaryId: (existing as any).intermediaryId || null,
           paidFromCash: (existing as any).paidFromCash === true,
         }, tx);
+        if (existing.shippingLineId && existing.currencyCode === "USD") {
+          const sourceLineKey = await nextForeignCurrencyRecognitionLineKey(tx, "lot_shipping_cost", id);
+          await recordForeignCurrencyRecognition(tx, {
+            positionKind: "liability",
+            positionType: "shipping_payable",
+            ownerKey: foreignCurrencyOwnerKey.shippingPayable(existing.shippingLineId, existing.lotId),
+            currencyCode: "USD",
+            sourceType: "lot_shipping_cost",
+            sourceId: id,
+            sourceLineKey,
+            recognitionDate: existing.costDate || recognitionDate,
+            historicalPoolDate: existing.costDate || recognitionDate,
+            foreignAmount: nextAmount,
+            carryingAmountPkr: newAmountPkr,
+            rate: {
+              ratePkr: nextExchangeRate,
+              rateType: "documented_lot_cost_rate",
+              provider: "LOT_COST_RECOGNITION_RATE",
+              reference: `lot_cost:${id}`,
+            },
+            createdBy: user.userId,
+          });
+        }
       }
 
       await createAuditLog(user.userId, null, "lot_costs", id, "update",
@@ -74,7 +113,9 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     if (error instanceof Error && error.message === "LOT_COST_NOT_FOUND") return errorResponse("NOT_FOUND", "Lot cost not found", 404);
     if (error instanceof Error && error.message === "INVALID_AMOUNT") return errorResponse("VALIDATION_ERROR", "Amount must be greater than 0", 400);
     if (error instanceof Error && error.message === "INVALID_EXCHANGE_RATE") return errorResponse("VALIDATION_ERROR", "A positive PKR exchange rate is required", 400);
+    if (error instanceof Error && error.message === "FOREIGN_CARRYING_LAYER_REQUIRED") return errorResponse("FOREIGN_CARRYING_LAYER_REQUIRED", "This foreign-currency lot-cost channel cannot be edited until its immutable carrying layers are recorded atomically.", 409);
     if (error instanceof Error && /quantity|sold|weight|allocation basis|specific product/i.test(error.message)) return errorResponse("VALIDATION_ERROR", error.message, 400);
+    if (error instanceof Error && /downstream receipts or transfers/i.test(error.message)) return errorResponse("VALIDATION_ERROR", error.message, 400);
     return serverError();
   }
 });
@@ -90,6 +131,14 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
         .mul(existing.currencyCode === "PKR" ? 1 : Number(existing.exchangeRate || 0))
         .toDecimalPlaces(2)
         .toString());
+      if (existing.shippingLineId && existing.currencyCode === "USD") {
+        await reverseForeignCurrencyRecognition(tx, {
+          sourceType: "lot_shipping_cost",
+          sourceId: id,
+          reversalDate: new Date(),
+          createdBy: user.userId,
+        });
+      }
       const versioned = await tx.lotCost.update({
         where: { id },
         data: { journalVersion: { increment: 1 } },
@@ -124,6 +173,7 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
   } catch (error) {
     if (error instanceof Error && error.message === "LOT_COST_NOT_FOUND") return errorResponse("NOT_FOUND", "Lot cost not found", 404);
     if (error instanceof Error && /quantity|sold|weight|allocation basis|specific product/i.test(error.message)) return errorResponse("VALIDATION_ERROR", error.message, 400);
+    if (error instanceof Error && /downstream receipts or transfers/i.test(error.message)) return errorResponse("VALIDATION_ERROR", error.message, 400);
     return serverError();
   }
 });

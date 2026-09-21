@@ -113,9 +113,8 @@ export function getCombinedItemNetDelta(item: CombinedItem): number {
   }
 
   if (item.type === "withdrawal") {
-    if (item.status !== "approved") return 0;
     const source = item.raw?.sourceType || "cash_office";
-    if (source === "cash_office" || source === "cheque") return -amount;
+    if (source === "cash_office" || source === "bank_account" || source === "cheque") return -amount;
     return 0;
   }
 
@@ -235,7 +234,7 @@ export async function computeCityTreasuryNet(
     }),
     prisma.hajiTransfer.groupBy({
       by: ["currencyId"],
-      where: { cityId, sourceType: "cash_office" },
+      where: { cityId, sourceType: "cash_office", withdrawalSource: null },
       _sum: { amount: true },
     }),
     prisma.expense.groupBy({
@@ -246,7 +245,7 @@ export async function computeCityTreasuryNet(
     prisma.bankDeposit.groupBy({ by: ["currencyId"], where: { cityId }, _sum: { cashAmount: true } }),
     prisma.personalWithdrawal.groupBy({
       by: ["currencyId"],
-      where: { cityId, sourceType: "cash_office", approvedAt: { not: null } } as any,
+      where: { cityId, sourceType: "cash_office" } as any,
       _sum: { amount: true },
     }),
     prisma.payment.groupBy({
@@ -285,7 +284,7 @@ export async function computeCityTreasuryNet(
     }),
     prisma.hajiTransfer.groupBy({
       by: ["currencyId"],
-      where: { cityId, sourceType: "bank_transfer", bankAccountId: { not: null } },
+      where: { cityId, sourceType: "bank_transfer", bankAccountId: { not: null }, withdrawalSource: null },
       _sum: { amount: true },
     }),
     prisma.expense.groupBy({
@@ -295,7 +294,7 @@ export async function computeCityTreasuryNet(
     }),
     prisma.personalWithdrawal.groupBy({
       by: ["currencyId"],
-      where: { cityId, sourceType: "bank_account", bankAccountId: { not: null }, approvedAt: { not: null } } as any,
+      where: { cityId, sourceType: "bank_account", bankAccountId: { not: null } } as any,
       _sum: { amount: true },
     }),
     prisma.bankAccount.findMany({ where: { cityId }, select: { id: true } }),

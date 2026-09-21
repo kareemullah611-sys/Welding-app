@@ -6,6 +6,7 @@ import { successResponse, paginatedResponse, validationError, errorResponse, ser
 import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 import { isAfghanistanCountry } from "@/lib/country-code";
+import { recordHajiTransferAccounting } from "@/lib/haji-transfer-accounting";
 
 const WITHDRAWAL_SYNC_MODULE = "personal_withdrawals.create";
 
@@ -181,7 +182,10 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       }
 
       const resolvedCurrencyId = currencyId;
-      const cityCurrency = await tx.cityCurrency.findFirst({ where: { cityId, currencyId: resolvedCurrencyId } });
+      const cityCurrency = await tx.cityCurrency.findFirst({
+        where: { cityId, currencyId: resolvedCurrencyId },
+        include: { currency: true },
+      });
       if (!cityCurrency) throw new Error("CURRENCY_NOT_SUPPORTED");
 
       const createdWithdrawal = await tx.personalWithdrawal.create({
@@ -204,8 +208,39 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         },
       }) as any;
 
+      const createdHajiTransfer = await tx.hajiTransfer.create({
+        data: {
+          cityId,
+          transferDate: new Date(withdrawalDate),
+          amount,
+          currencyId: resolvedCurrencyId,
+          detail: `Withdrawal — ${withdrawnBy || detail}`,
+          transferType: sourceType === "bank_account" ? "direct" : "from_in_hand",
+          transferredTo: "Super Admin Account",
+          notes,
+          sourceType: sourceType === "bank_account" ? "bank_transfer" : "cash_office",
+          bankAccountId: sourceType === "bank_account" ? bankAccountId : null,
+          createdBy: user.userId,
+        },
+        include: { currency: true },
+      });
+      await recordHajiTransferAccounting(tx, createdHajiTransfer, user.userId);
+      const linkedWithdrawal = await tx.personalWithdrawal.update({
+        where: { id: createdWithdrawal.id },
+        data: { hajiTransferId: createdHajiTransfer.id },
+        include: {
+          currency: true,
+          bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+          creator: { select: { id: true, fullName: true } },
+        },
+      });
+
       await createAuditLog(user.userId, cityId, "personal_withdrawals", createdWithdrawal.id, "create", undefined, { amount, detail, withdrawnBy, sourceType, bankAccountId }, getClientIP(request), tx);
-      // Fix C7: do NOT post the WDRAW journal at create-time. Posted at approval time.
+      await createAuditLog(user.userId, cityId, "haji_transfers", createdHajiTransfer.id, "create", undefined, {
+        withdrawalId: createdWithdrawal.id,
+        amount,
+        sourceType: createdHajiTransfer.sourceType,
+      }, getClientIP(request), tx);
 
       if (syncMeta) {
         await tx.syncRequest.create({
@@ -221,7 +256,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         });
       }
 
-      return createdWithdrawal;
+      return linkedWithdrawal;
     });
 
     return successResponse(formatWithdrawalCreateResponse(withdrawal), "Withdrawal recorded", 201);
@@ -266,6 +301,9 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       return errorResponse("VALIDATION_ERROR", `Withdrawal amount must match the selected cheque amount of ${chequeAmount}`);
     }
     if (error?.message === "CURRENCY_NOT_SUPPORTED") return errorResponse("VALIDATION_ERROR", "Currency not supported");
+    if (typeof error?.message === "string" && error.message.includes("Insufficient foreign-currency carrying layers")) {
+      return errorResponse("FOREIGN_CARRYING_LAYER_REQUIRED", error.message, 409);
+    }
     return serverError();
   }
 });

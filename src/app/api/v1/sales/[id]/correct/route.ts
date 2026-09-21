@@ -8,6 +8,15 @@ import { JWTPayload } from "@/lib/auth";
 import { canAccessGodown } from "@/lib/godown-access";
 import { allocateSaleItemAcrossLots, consolidateSaleLotAllocationItems, AvailableSaleLot, SaleLotAllocationItem } from "@/lib/sale-lot-allocation";
 import { lockGodownProductStock } from "@/lib/financial-locks";
+import { isAfghanistanCountry } from "@/lib/country-code";
+import { resolveAfghanistanFxRateFromDb } from "@/lib/sarafi-af-snapshot-db";
+import { isSupportedForeignCurrency } from "@/lib/foreign-currency-carrying";
+import {
+  foreignCurrencyOwnerKey,
+  nextForeignCurrencyRecognitionLineKey,
+  recordForeignCurrencyRecognition,
+  reverseForeignCurrencyRecognition,
+} from "@/lib/foreign-currency-carrying-db";
 
 async function getLockedGodownStock(
   tx: Prisma.TransactionClient,
@@ -48,7 +57,11 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 
     const sale = await prisma.sale.findUnique({
       where: { id: saleId },
-      include: { items: { include: { lot: { select: { id: true, status: true } } } }, currency: { select: { code: true } } },
+      include: {
+        items: { include: { lot: { select: { id: true, status: true } } } },
+        currency: { select: { code: true } },
+        city: { include: { country: { select: { code: true } } } },
+      },
     });
     if (!sale) return errorResponse("NOT_FOUND", "Sale not found", 404);
     if (sale.status !== "active") return errorResponse("VALIDATION_ERROR", "Can only correct active sales");
@@ -67,6 +80,17 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     }
     const nextSaleDate = body.saleDate ? new Date(body.saleDate) : sale.saleDate;
     if (Number.isNaN(nextSaleDate.getTime())) return errorResponse("VALIDATION_ERROR", "Invalid sale date");
+    const foreignSaleRate = isAfghanistanCountry(sale.city.country) && isSupportedForeignCurrency(sale.currency.code)
+      ? await resolveAfghanistanFxRateFromDb({
+          currencyCode: sale.currency.code,
+          transactionDate: nextSaleDate,
+          purpose: "sale_recognition",
+          positionKind: "asset",
+        })
+      : null;
+    if (foreignSaleRate && !foreignSaleRate.ok) {
+      return errorResponse("FX_RATE_REQUIRED", foreignSaleRate.missingReason, 400);
+    }
     const nextGodownId = Number(body.godownId || sale.godownId || 0);
     const godown = await prisma.godown.findFirst({
       where: { id: nextGodownId, isActive: true, city: { countryId: user.countryId! } },
@@ -245,6 +269,14 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         ...newItemData.map((item) => ({ godownId: nextGodownId, productId: item.productId })),
       ];
       await lockGodownProductStock(tx, lockScopes);
+      if (foreignSaleRate?.ok) {
+        await reverseForeignCurrencyRecognition(tx, {
+          sourceType: "sale",
+          sourceId: saleId,
+          reversalDate: nextSaleDate,
+          createdBy: user.userId,
+        });
+      }
       for (const item of newItemData) {
         const available = await getLockedGodownStock(tx, nextGodownId, item.productId, item.lotId);
         const ownExistingQty = nextGodownId === sale.godownId ? Number(oldQtyByLotProduct[stockKey(item.lotId, item.productId)] || 0) : 0;
@@ -282,8 +314,43 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 	          lotId: nextSaleLotId,
 	          totalAmount,
 	          notes: `${sale.notes || ""}\n[CORRECTION: ${reason}]`.trim(),
+	          ...(foreignSaleRate?.ok ? {
+	            fxSnapshotId: foreignSaleRate.provider === "SARAFI_AF" ? foreignSaleRate.snapshotId || null : null,
+	            fxOriginalCurrencyCode: sale.currency.code,
+	            fxOriginalAmount: totalAmount,
+	            fxSelectedRate: foreignSaleRate.rate,
+	            fxSelectedRateType: foreignSaleRate.selectedRateType,
+	            fxProvider: foreignSaleRate.provider,
+	            fxProviderReference: foreignSaleRate.providerReference,
+	            fxPkrEquivalent: roundMoney(totalAmount * foreignSaleRate.rate),
+	            fxConversionPathJson: foreignSaleRate.conversionPath,
+	          } : {}),
 	        },
 	      });
+
+      if (foreignSaleRate?.ok) {
+        await recordForeignCurrencyRecognition(tx, {
+          positionKind: "asset",
+          positionType: "customer_receivable",
+          ownerKey: foreignCurrencyOwnerKey.customerReceivable(sale.customerId),
+          currencyCode: sale.currency.code,
+          sourceType: "sale",
+          sourceId: saleId,
+          sourceLineKey: await nextForeignCurrencyRecognitionLineKey(tx, "sale", saleId),
+          recognitionDate: nextSaleDate,
+          historicalPoolDate: nextSaleDate,
+          foreignAmount: totalAmount,
+          carryingAmountPkr: roundMoney(totalAmount * foreignSaleRate.rate),
+          rate: {
+            ratePkr: foreignSaleRate.rate,
+            rateType: foreignSaleRate.selectedRateType,
+            provider: foreignSaleRate.provider,
+            reference: foreignSaleRate.providerReference,
+            conversionPath: foreignSaleRate.conversionPath,
+          },
+          createdBy: user.userId,
+        });
+      }
 
 	      await journalSaleCreated({
 	        id: saleId, customerId: sale.customerId, cityId: sale.cityId,

@@ -75,6 +75,9 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
     if (entryType === "liability_incurred" && account.partyType !== "creditor") return validationError("Liability charges are allowed only for creditor accounts");
 
     const currencyCode = String(currency.code).toUpperCase();
+    if (currencyCode !== "PKR") {
+      return errorResponse("FOREIGN_CARRYING_LAYER_REQUIRED", "Foreign-currency superadmin liabilities are blocked until liability and funding-asset carrying layers are recorded atomically.", 409);
+    }
     const exchangeRateToPkr = currencyCode === "PKR" ? 1 : Number(body.exchangeRateToPkr);
     if (!Number.isFinite(exchangeRateToPkr) || exchangeRateToPkr <= 0) return validationError(`${currencyCode} → PKR rate is required`);
     const rateSource = currencyCode === "PKR" ? "PKR" : String(body.rateSource || "").trim();

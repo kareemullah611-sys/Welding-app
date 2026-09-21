@@ -4,6 +4,7 @@ import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, validationError, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { reverseJournalEntries } from "@/lib/accounting";
+import { reverseForeignCurrencyMovements, reverseForeignCurrencyRecognition } from "@/lib/foreign-currency-carrying-db";
 
 // PUT /api/v1/sales/:id/cancel
 export const PUT = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
@@ -38,9 +39,6 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         ...(sale.notes ? { notes: sale.notes } : {}),
       }, { reason: body.reason }, getClientIP(request), tx);
 
-      await reverseJournalEntries(`SALE-${id}`, user.userId, tx);
-      await reverseJournalEntries(`COGS-${id}`, user.userId, tx);
-
       // If walk-in sale, cancel the auto-created payment and reverse its journal.
       // Fix C1: drop manualVoucherNo fallback — saleId is the only reliable link.
       if (sale.customer.name === "Walk-in Customer") {
@@ -51,6 +49,15 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           },
         });
         if (walkinPayment) {
+          const reversedFx = await reverseForeignCurrencyMovements(tx, {
+            sourceType: "walkin_sale_payment",
+            sourceId: walkinPayment.id,
+            reversalDate: new Date(),
+            createdBy: user.userId,
+          });
+          for (const transactionId of reversedFx.journalTransactionIds) {
+            await reverseJournalEntries(transactionId, user.userId, tx);
+          }
           await tx.payment.update({
             where: { id: walkinPayment.id },
             data: { status: "cancelled", notes: `${walkinPayment.notes || ""}\n[Auto-cancelled: linked sale #${sale.voucherNo} was cancelled. Reason: ${body.reason}]`.trim() },
@@ -58,6 +65,15 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           await reverseJournalEntries(`PAY-${walkinPayment.id}`, user.userId, tx);
         }
       }
+
+      await reverseForeignCurrencyRecognition(tx, {
+        sourceType: "sale",
+        sourceId: id,
+        reversalDate: new Date(),
+        createdBy: user.userId,
+      });
+      await reverseJournalEntries(`SALE-${id}`, user.userId, tx);
+      await reverseJournalEntries(`COGS-${id}`, user.userId, tx);
     });
 
     return successResponse({ id, status: "cancelled" }, "Sale cancelled");

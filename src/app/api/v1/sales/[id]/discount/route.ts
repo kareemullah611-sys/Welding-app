@@ -15,10 +15,13 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
 
     if (!discountAmount || discountAmount <= 0) return validationError("Discount amount must be positive");
 
-    const sale = await prisma.sale.findUnique({ where: { id: saleId }, include: { lot: true } });
+    const sale = await prisma.sale.findUnique({ where: { id: saleId }, include: { lot: true, currency: { select: { code: true } } } });
     if (!sale) return errorResponse("NOT_FOUND", "Sale not found", 404);
     if (sale.status !== "active") return errorResponse("VALIDATION_ERROR", "Can only discount active sales");
     if (user.role === "city_admin" && sale.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
+    if (String(sale.currency.code).toUpperCase() !== "PKR") {
+      return errorResponse("FOREIGN_CARRYING_LAYER_REQUIRED", "Foreign-currency sale discounts are blocked until the original receivable carrying layer can be reduced without revaluing the sale.", 409);
+    }
 
     // Always apply discount to the current ongoing FIFO lot for that city/country.
     const fifoLot = await prisma.lot.findFirst({

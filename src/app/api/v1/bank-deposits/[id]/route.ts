@@ -5,6 +5,8 @@ import { successResponse, errorResponse, serverError } from "@/lib/api-response"
 import { JWTPayload } from "@/lib/auth";
 import { journalBankDeposit } from "@/lib/accounting";
 import { getCityBankAccountAvailableBalance } from "@/lib/city-bank-balance";
+import { applyForeignCityTreasuryTransfer } from "@/lib/foreign-city-treasury";
+import { reverseForeignCurrencyMovements } from "@/lib/foreign-currency-carrying-db";
 
 const allowed = new Set(["cheque_to_bank", "bank_to_cash", "cheque_to_cash", "bank_to_bank"]);
 
@@ -65,12 +67,25 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       const pairId = existing.transferPairId || crypto.randomUUID();
       const notes = body.notes ? String(body.notes).trim() : "";
       await prisma.$transaction(async (tx) => {
+        await reverseForeignCurrencyMovements(tx, { sourceType: "bank_deposit", sourceId: oldSource.id, reversalDate: new Date(), createdBy: user.userId });
         await clearDepositJournal(tx, oldSource.id);
         await clearDepositJournal(tx, oldDestination.id);
         await tx.bankDeposit.update({ where: { id: oldSource.id }, data: { bankAccountId: sourceBankAccountId, transferPairId: pairId, depositDate: date, slipNumber: body.slipNumber || null, cashAmount: -amount, currencyId, notes: [notes, "[B2B-OUT]"].filter(Boolean).join(" ") } });
         await tx.bankDeposit.update({ where: { id: oldDestination.id }, data: { bankAccountId: destinationBankAccountId, transferPairId: pairId, depositDate: date, slipNumber: body.slipNumber || null, cashAmount: amount, currencyId, notes: [notes, "[B2B-IN]"].filter(Boolean).join(" ") } });
         await journalBankDeposit({ id: oldSource.id, bankAccountId: sourceBankAccountId, cityId: existing.cityId, cashAmount: -amount, currencyCode: currency.code, depositDate: date, createdBy: user.userId, transferType, transactionKeySuffix: "B2B-OUT", cheques: [] }, tx);
         await journalBankDeposit({ id: oldDestination.id, bankAccountId: destinationBankAccountId, cityId: existing.cityId, cashAmount: amount, currencyCode: currency.code, depositDate: date, createdBy: user.userId, transferType, transactionKeySuffix: "B2B-IN", cheques: [] }, tx);
+        await applyForeignCityTreasuryTransfer(tx, {
+          depositId: oldSource.id,
+          transferType: "bank_to_bank",
+          cityId: existing.cityId,
+          bankAccountId: sourceBankAccountId,
+          destinationBankAccountId,
+          currencyCode: currency.code,
+          cashAmount: -amount,
+          chequeAmount: 0,
+          movementDate: date,
+          createdBy: user.userId,
+        });
       });
       await createAuditLog(user.userId, existing.cityId, "bank_deposits", oldSource.id, "update", { pairIds: pair.map((row: any) => row.id) }, body, getClientIP(request));
       return successResponse({ id: oldSource.id, destinationId: oldDestination.id }, "Bank transfer updated");
@@ -90,12 +105,24 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     if (!currency) return errorResponse("VALIDATION_ERROR", "Currency not found");
 
     await prisma.$transaction(async (tx) => {
+      await reverseForeignCurrencyMovements(tx, { sourceType: "bank_deposit", sourceId: id, reversalDate: new Date(), createdBy: user.userId });
       await clearDepositJournal(tx, id);
       await tx.payment.updateMany({ where: { bankDepositId: id }, data: { bankDepositId: null, bankAccountId: null, chequeStatus: "in_hand" } });
       const updatedCheques = await tx.payment.updateMany({ where: { id: { in: chequeIds }, chequeStatus: "in_hand" }, data: { bankDepositId: id, bankAccountId, chequeStatus: "deposited_to_bank" } });
       if (updatedCheques.count !== chequeIds.length) throw new Error("One or more cheques were used by another transfer");
       await tx.bankDeposit.update({ where: { id }, data: { transferType, bankAccountId, depositDate: date, slipNumber: body.slipNumber || null, cashAmount: amount, currencyId: Number(body.currencyId), notes: body.notes || null } });
       await journalBankDeposit({ id, bankAccountId, cityId: existing.cityId, cashAmount: amount, currencyCode: currency.code, depositDate: date, createdBy: user.userId, transferType, cheques: cheques.map((c) => ({ paymentId: c.id, amount: Number(c.amount) })) }, tx);
+      await applyForeignCityTreasuryTransfer(tx, {
+        depositId: id,
+        transferType: transferType as "cheque_to_bank" | "bank_to_cash" | "cheque_to_cash",
+        cityId: existing.cityId,
+        bankAccountId,
+        currencyCode: currency.code,
+        cashAmount: amount,
+        chequeAmount: cheques.reduce((sum, cheque) => sum + Number(cheque.amount), 0),
+        movementDate: date,
+        createdBy: user.userId,
+      });
     });
     await createAuditLog(user.userId, existing.cityId, "bank_deposits", id, "update", undefined, body, getClientIP(request));
     return successResponse({ id }, "Transfer updated");
@@ -115,6 +142,8 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
       const pair = await resolveBankToBankPair(prisma, existing);
       const pairIds = pair.map((row: any) => row.id);
       await prisma.$transaction(async (tx) => {
+        const oldSource = pair.find((row: any) => Number(row.cashAmount) < 0) || pair[0];
+        await reverseForeignCurrencyMovements(tx, { sourceType: "bank_deposit", sourceId: oldSource.id, reversalDate: new Date(), createdBy: user.userId });
         for (const pairId of pairIds) await clearDepositJournal(tx, pairId);
         await tx.bankDeposit.deleteMany({ where: { id: { in: pairIds } } });
       });
@@ -122,6 +151,7 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
       return successResponse({ ids: pairIds }, "Bank transfer deleted");
     }
     await prisma.$transaction(async (tx) => {
+      await reverseForeignCurrencyMovements(tx, { sourceType: "bank_deposit", sourceId: id, reversalDate: new Date(), createdBy: user.userId });
       await clearDepositJournal(tx, id);
       await tx.payment.updateMany({ where: { bankDepositId: id }, data: { bankDepositId: null, bankAccountId: null, chequeStatus: "in_hand" } });
       await tx.bankDeposit.delete({ where: { id } });

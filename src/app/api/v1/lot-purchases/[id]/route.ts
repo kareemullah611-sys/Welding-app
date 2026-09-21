@@ -9,6 +9,12 @@ import {
   loadLotSupplierPurchaseBalances,
 } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
+import {
+  foreignCurrencyOwnerKey,
+  nextForeignCurrencyRecognitionLineKey,
+  recordForeignCurrencyRecognition,
+  reverseForeignCurrencyRecognition,
+} from "@/lib/foreign-currency-carrying-db";
 
 // PUT /api/v1/lot-purchases/[id] — edit a purchase line item
 export const PUT = withSuperAdmin(async (request: NextRequest, context: any, user: JWTPayload) => {
@@ -35,6 +41,12 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
         calculateLotProductLandedCostsForLot(existing.lotId, tx),
         loadLotSupplierPurchaseBalances(existing.lotId, tx),
       ]);
+      await reverseForeignCurrencyRecognition(tx, {
+        sourceType: "lot_purchase",
+        sourceId: id,
+        reversalDate: new Date(),
+        createdBy: user.userId,
+      });
       const updated = await tx.lotPurchase.update({
         where: { id },
         data: {
@@ -78,6 +90,28 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
         beforeSupplierBalances,
         afterSupplierBalances,
       }, tx);
+      const sourceLineKey = await nextForeignCurrencyRecognitionLineKey(tx, "lot_purchase", id);
+      await recordForeignCurrencyRecognition(tx, {
+        positionKind: "liability",
+        positionType: "supplier_payable",
+        ownerKey: foreignCurrencyOwnerKey.supplierPayable(existing.supplierId, existing.lotId),
+        currencyCode: "USD",
+        sourceType: "lot_purchase",
+        sourceId: id,
+        sourceLineKey,
+        recognitionDate: existing.recognitionDate || lot.lotDate,
+        historicalPoolDate: existing.recognitionDate || lot.lotDate,
+        foreignAmount: totalPriceUsd,
+        carryingAmountPkr: basis.carryingAmountPkr,
+        rate: {
+          ratePkr: basis.carryingRatePkr,
+          rateType: "lot_initial_recognition",
+          provider: "LOT_RECOGNITION_RATE",
+          reference: `lot:${existing.lotId}`,
+          conversionPath: existing.recognitionRateMetadata || lot.pkrExchangeRateMetadata,
+        },
+        createdBy: user.userId,
+      });
 
       await createAuditLog(user.userId, null, "lot_purchases", id, "update",
         { qty: Number(existing.qty), unitPriceUsd: Number(existing.unitPriceUsd) },
@@ -87,6 +121,9 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     return successResponse({ id, qtyMt, unitPriceUsdPerMt, totalPriceUsd, weightPerCartonKg }, "Purchase item updated");
   } catch (error) {
     if (error instanceof Error && /sold quantities exceed corrected product quantity/i.test(error.message)) {
+      return errorResponse("VALIDATION_ERROR", error.message, 400);
+    }
+    if (error instanceof Error && /downstream receipts or transfers/i.test(error.message)) {
       return errorResponse("VALIDATION_ERROR", error.message, 400);
     }
     console.error("Update lot purchase:", error);
@@ -111,6 +148,12 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
         calculateLotProductLandedCostsForLot(existing.lotId, tx),
         loadLotSupplierPurchaseBalances(existing.lotId, tx),
       ]);
+      await reverseForeignCurrencyRecognition(tx, {
+        sourceType: "lot_purchase",
+        sourceId: id,
+        reversalDate: new Date(),
+        createdBy: user.userId,
+      });
       await tx.lotPurchase.delete({ where: { id } });
 
       const remaining = await tx.lotPurchase.findMany({
@@ -158,6 +201,9 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
   } catch (error) {
     if (error instanceof Error && error.message === "PRODUCT_WITH_SALES_REMOVED") {
       return errorResponse("VALIDATION_ERROR", "A purchase product with recorded sales cannot be removed", 400);
+    }
+    if (error instanceof Error && /downstream receipts or transfers/i.test(error.message)) {
+      return errorResponse("VALIDATION_ERROR", error.message, 400);
     }
     console.error("Delete lot purchase:", error);
     return serverError();

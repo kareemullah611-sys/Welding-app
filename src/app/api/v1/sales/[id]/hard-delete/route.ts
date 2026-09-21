@@ -25,10 +25,14 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
       where: { id },
       include: {
         customer: { select: { name: true } },
+        currency: { select: { code: true } },
         items: { include: { product: { select: { name: true } } }, take: 5 },
       },
     });
     if (!sale) return errorResponse("NOT_FOUND", "Sale not found", 404);
+    if (String(sale.currency.code).toUpperCase() !== "PKR") {
+      return errorResponse("FOREIGN_CARRYING_LAYER_REQUIRED", "Foreign-currency sales cannot be permanently deleted because their immutable carrying history must be preserved; use audited cancellation.", 409);
+    }
 
     await prisma.$transaction(async (tx) => {
       // Fix: also remove COGS-* entries — sale creation posts SALE-* AND COGS-* journals

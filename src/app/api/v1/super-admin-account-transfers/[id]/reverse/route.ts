@@ -4,6 +4,7 @@ import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { errorResponse, serverError, successResponse, validationError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { reverseJournalEntries } from "@/lib/accounting";
+import { reverseForeignCurrencyMovements } from "@/lib/foreign-currency-carrying-db";
 
 export const POST = withSuperAdmin(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -16,6 +17,12 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
       const row = await tx.superAdminAccountTransfer.findUnique({ where: { id } });
       if (!row) throw Object.assign(new Error("Transfer not found"), { code: "NOT_FOUND" });
       if (row.reversedAt) throw Object.assign(new Error("Transfer is already reversed"), { code: "ALREADY_REVERSED" });
+      await reverseForeignCurrencyMovements(tx, {
+        sourceType: "super_admin_account_transfer",
+        sourceId: id,
+        reversalDate: new Date(),
+        createdBy: user.userId,
+      });
       if (row.transferType === "same_currency") {
         await reverseJournalEntries(`SATRANS-${id}`, user.userId, tx);
       } else {

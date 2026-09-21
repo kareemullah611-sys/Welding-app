@@ -2,11 +2,15 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withSuperAdmin } from "@/lib/middleware";
 import { successResponse, errorResponse } from "@/lib/api-response";
-import { journalIntermediaryExchange } from "@/lib/accounting";
+import { journalForeignIntermediaryExchangeMovements, journalIntermediaryExchange } from "@/lib/accounting";
 import { getIntermediaryBalances } from "@/lib/intermediary-balance";
 import { createIntermediaryUsdLayerFromExchange } from "@/lib/intermediary-usd-fifo";
 import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import {
+  exchangeForeignCurrencyLayers,
+  foreignCurrencyOwnerKey,
+} from "@/lib/foreign-currency-carrying-db";
 
 const INTERMEDIARY_EXCHANGE_SYNC_MODULE = "intermediary_exchanges";
 const SUPERADMIN_SYNC_CITY_ID = 0;
@@ -124,6 +128,27 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
         toCurrencyCode: toCurrency.code,
         toAmount: Number(created.toAmount),
         createdBy: user.userId,
+      }, tx);
+      const carryingExchange = await exchangeForeignCurrencyLayers(tx, {
+        ownerKey: foreignCurrencyOwnerKey.intermediary(intermediaryId),
+        positionType: "intermediary_balance",
+        fromCurrencyCode: fromCurrency.code,
+        fromAmount: Number(created.fromAmount),
+        toCurrencyCode: toCurrency.code,
+        toAmount: Number(created.toAmount),
+        sourceType: "intermediary_exchange",
+        sourceId: created.id,
+        exchangeDate: created.exchangeDate,
+        createdBy: user.userId,
+      });
+      await journalForeignIntermediaryExchangeMovements({
+        exchangeId: created.id,
+        intermediaryId,
+        exchangeDate: created.exchangeDate,
+        fromCurrencyCode: fromCurrency.code,
+        toCurrencyCode: toCurrency.code,
+        createdBy: user.userId,
+        movements: carryingExchange.movements,
       }, tx);
       await createIntermediaryUsdLayerFromExchange({
         exchangeId: created.id,

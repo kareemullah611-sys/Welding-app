@@ -23,7 +23,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     };
 
     // Fetch all financial transactions for this city
-    const [sales, payments, expenses, withdrawals, hajiTransfers, bankDeposits] = await Promise.all([
+    const [sales, payments, expenses, withdrawals, hajiTransfers, bankDeposits, openingHaji] = await Promise.all([
       prisma.sale.findMany({
         where: { cityId, status: { in: ["active", "marked_short"] }, ...dateFilter("saleDate") },
         include: { customer: { select: { name: true } }, currency: true, lot: { select: { lotNumber: true, status: true } } },
@@ -40,13 +40,17 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         orderBy: { expenseDate: "asc" },
       }),
       prisma.personalWithdrawal.findMany({
-        where: { cityId, approvedAt: { not: null }, ...dateFilter("withdrawalDate") },
+        where: { cityId, ...dateFilter("withdrawalDate") },
         include: { currency: true, bankAccount: { select: { bankName: true } } },
         orderBy: { withdrawalDate: "asc" },
       }),
       prisma.hajiTransfer.findMany({
         where: { cityId, ...dateFilter("transferDate") },
-        include: { currency: true, lot: { select: { lotNumber: true, status: true } } },
+        include: {
+          currency: true,
+          lot: { select: { lotNumber: true, status: true } },
+          withdrawalSource: { select: { id: true } },
+        },
         orderBy: { transferDate: "asc" },
       }),
       prisma.bankDeposit.findMany({
@@ -54,10 +58,42 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         include: { currency: true, bankAccount: { select: { bankName: true } }, cheques: { select: { id: true, amount: true } } },
         orderBy: { depositDate: "asc" },
       }),
+      prisma.openingHajiBalance.findMany({
+        where: { cityId },
+        include: { currency: true },
+        orderBy: { openingDate: "asc" },
+      }),
     ]);
 
     // Build ledger entries
     const entries: any[] = [];
+    const openingHajiCutoff = new Map(
+      openingHaji.map((row) => [row.currencyId, row.openingDate.getTime()])
+    );
+    const isLiabilityActivity = (currencyId: number, date: Date) => {
+      const cutoff = openingHajiCutoff.get(currencyId);
+      return cutoff === undefined || date.getTime() >= cutoff;
+    };
+
+    for (const opening of openingHaji) {
+      if (range.gte && opening.openingDate < range.gte) continue;
+      if (range.lt && opening.openingDate >= range.lt) continue;
+      const amount = Number(opening.amount);
+      entries.push({
+        date: opening.openingDate.toISOString().split("T")[0],
+        type: "opening_haji",
+        category: "Opening Haji Balance",
+        description: opening.notes || "Opening liability to Superadmin",
+        debit: 0,
+        credit: 0,
+        hajiDebit: opening.balanceSide === "payable" ? amount : 0,
+        hajiCredit: opening.balanceSide === "receivable" ? amount : 0,
+        currency: opening.currency.code,
+        lot: null,
+        account: "Haji Account",
+        counterAccount: "Opening Equity",
+      });
+    }
 
     for (const s of sales) {
       const isOpeningImport = Boolean((s as any).isOpeningImport);
@@ -67,7 +103,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         description: `Sale to ${s.customer.name} (V# ${s.voucherNo})`,
         debit: isOpeningImport ? 0 : Number(s.totalAmount),
         credit: 0,
-        hajiDebit: s.lot.status === "ongoing" ? Number(s.totalAmount) : 0,
+        hajiDebit: isLiabilityActivity(s.currencyId, s.saleDate) ? Number(s.totalAmount) : 0,
         currency: s.currency.code, lot: s.lot.lotNumber,
         account: "Receivables", counterAccount: "Revenue",
         lotStatus: s.lot.status,
@@ -76,7 +112,9 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     for (const p of payments) {
       const isInHand = p.destination === "our_account";
-      const hajiCredit = p.destination === "haji" && p.lot?.status === "ongoing" ? Number(p.amount) : 0;
+      const hajiCredit = p.destination === "haji" && isLiabilityActivity(p.currencyId, p.paymentDate)
+        ? Number(p.amount)
+        : 0;
       entries.push({
         date: p.paymentDate.toISOString().split("T")[0],
         type: "payment", category: isInHand ? "Cash In" : "Direct to Haji",
@@ -97,7 +135,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         type: "expense", category: "Expense",
         description: e.detail,
         debit: Number(e.amount), credit: 0,
-        hajiCredit: e.lot?.status === "ongoing" ? Number(e.amount) : 0,
+        hajiCredit: isLiabilityActivity(e.currencyId, e.expenseDate) ? Number(e.amount) : 0,
         currency: e.currency.code, lot: e.lot?.lotNumber ?? null,
         lotStatus: e.lot?.status ?? null,
         account: "Expenses", counterAccount: "Cash In Hand",
@@ -110,6 +148,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         type: "withdrawal", category: "Personal Withdrawal",
         description: w.detail,
         debit: Number(w.amount), credit: 0,
+        hajiCredit: isLiabilityActivity(w.currencyId, w.withdrawalDate) ? Number(w.amount) : 0,
         currency: w.currency.code, lot: null,
         account: "Personal Drawings", counterAccount: (w as any).sourceType === "bank_account" ? "Bank" : "Cash In Hand",
         method: (w as any).sourceType,
@@ -118,12 +157,16 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     for (const h of hajiTransfers) {
       const isLinkedPaymentTransfer = Boolean((h as any).paymentId);
+      const isLinkedWithdrawalTransfer = Boolean(h.withdrawalSource);
+      if (isLinkedWithdrawalTransfer) continue;
       entries.push({
         date: h.transferDate.toISOString().split("T")[0],
         type: "haji_transfer", category: "Transfer to Haji",
         description: `${h.detail} (${h.transferType === "direct" ? "Direct" : "From In-Hand"})`,
         debit: Number(h.amount), credit: 0,
-        hajiCredit: !isLinkedPaymentTransfer && h.lot?.status === "ongoing" ? Number(h.amount) : 0,
+        hajiCredit: !isLinkedPaymentTransfer && isLiabilityActivity(h.currencyId, h.transferDate)
+          ? Number(h.amount)
+          : 0,
         currency: h.currency.code, lot: h.lot?.lotNumber ?? null,
         lotStatus: h.lot?.status ?? null,
         account: "Haji Account", counterAccount: h.transferType === "from_in_hand" ? "Cash In Hand" : "Bank",
@@ -170,6 +213,9 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         receivablesByCurr[cc] += Number(e.debit || 0);
         hajiOwedByCurr[cc] += Number(e.hajiDebit || 0);
       }
+      if (e.type === "opening_haji") {
+        hajiOwedByCurr[cc] += Number(e.hajiDebit || 0) - Number(e.hajiCredit || 0);
+      }
       if (e.type === "payment" && e.destination === "our_account") { cashByCurr[cc] += e.credit; receivablesByCurr[cc] -= e.credit; }
       if (e.type === "payment" && e.destination === "haji") {
         receivablesByCurr[cc] -= e.credit;
@@ -179,7 +225,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         cashByCurr[cc] -= e.debit;
         hajiOwedByCurr[cc] -= Number(e.hajiCredit || 0);
       }
-      if (e.type === "withdrawal" && e.method !== "bank_account") { cashByCurr[cc] -= e.debit; }
+      if (e.type === "withdrawal") {
+        if (e.method !== "bank_account") cashByCurr[cc] -= e.debit;
+        hajiOwedByCurr[cc] -= Number(e.hajiCredit || 0);
+      }
       if (e.type === "haji_transfer" && e.transferType === "from_in_hand") {
         cashByCurr[cc] -= e.debit;
         hajiOwedByCurr[cc] -= Number(e.hajiCredit || 0);
@@ -205,7 +254,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     for (const x of payments) { const cc = x.currency.code; summaryPayments[cc] = r2((summaryPayments[cc] || 0) + Number(x.amount)); }
     for (const x of expenses) { const cc = x.currency.code; summaryExpenses[cc] = r2((summaryExpenses[cc] || 0) + Number(x.amount)); }
     for (const x of withdrawals) { const cc = x.currency.code; summaryWithdrawals[cc] = r2((summaryWithdrawals[cc] || 0) + Number(x.amount)); }
-    for (const x of hajiTransfers) { const cc = x.currency.code; summaryHaji[cc] = r2((summaryHaji[cc] || 0) + Number(x.amount)); }
+    for (const x of hajiTransfers) {
+      if (x.withdrawalSource) continue;
+      const cc = x.currency.code;
+      summaryHaji[cc] = r2((summaryHaji[cc] || 0) + Number(x.amount));
+    }
     const summaryBankCashTransfers: Record<string, number> = {};
     for (const x of bankDeposits) {
       const cc = x.currency.code;

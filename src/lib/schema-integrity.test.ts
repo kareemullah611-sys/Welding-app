@@ -225,9 +225,10 @@ test("Haji openings stay historical and customer-to-Haji payments get linked tra
   assert.match(paymentUpdateRoute, /journalHajiTransfer\(/);
   assert.match(paymentUpdateRoute, /else if \(linkedHajiTransfer\)/);
   assert.match(paymentUpdateRoute, /await tx\.hajiTransfer\.delete\(\{ where: \{ id: linkedHajiTransfer\.id \} \}\)/);
-  assert.match(owedHelper, /where: \{ \.\.\.cityFilter, \.\.\.lotFilter, paymentId: null \}/);
+  assert.match(owedHelper, /where: \{ \.\.\.cityFilter, paymentId: null \}/);
+  assert.doesNotMatch(owedHelper, /status: "ongoing"/);
   assert.match(cityLedgerRoute, /const isLinkedPaymentTransfer = Boolean\(\(h as any\)\.paymentId\)/);
-  assert.match(cityLedgerRoute, /hajiCredit: !isLinkedPaymentTransfer && h\.lot\?\.status === "ongoing"/);
+  assert.match(cityLedgerRoute, /hajiCredit: !isLinkedPaymentTransfer && isLiabilityActivity/);
   assert.match(migration, /NULLIF\(p\."manual_voucher_no", ''\)/);
   assert.match(migration, /p\."payment_method" = 'online' THEN ' online' ELSE ' transfer'/);
 
@@ -1005,7 +1006,7 @@ test("dashboard bank balance only counts movements tied to city bank accounts", 
   assert.match(depositedChequesBlock![0], /bankDepositId: \{ not: null \}/);
 
   assert.doesNotMatch(treasuryLedger, /hajiDirectPaymentsRaw/);
-  assert.match(treasuryLedger, /where: \{ cityId, sourceType: "bank_transfer", bankAccountId: \{ not: null \} \}/);
+  assert.match(treasuryLedger, /where: \{ cityId, sourceType: "bank_transfer", bankAccountId: \{ not: null \}, withdrawalSource: null \}/);
   assert.match(treasuryLedger, /where: \{ cityId, paidFrom: "bank_account", bankAccountId: \{ not: null \}, deletedAt: null \}/);
 });
 
@@ -1235,6 +1236,23 @@ test("haji party account destination feature remains removed", () => {
   assert.doesNotMatch(accounting, /getSuperAdminPartiesAccountId/);
   assert.doesNotMatch(hajiRoute, /resolvePartyDestination/);
   assert.doesNotMatch(hajiUpdateRoute, /resolvePartyDestination/);
+});
+
+test("Afghanistan foreign Haji transfers preserve carrying layers through create edit and delete", () => {
+  const accounting = readFileSync("src/lib/accounting.ts", "utf8");
+  const hajiAccounting = readFileSync("src/lib/haji-transfer-accounting.ts", "utf8");
+  const createRoute = readFileSync("src/app/api/v1/haji-transfers/route.ts", "utf8");
+  const itemRoute = readFileSync("src/app/api/v1/haji-transfers/[id]/route.ts", "utf8");
+
+  assert.match(accounting, /journalForeignCarryingTransfers/);
+  assert.match(hajiAccounting, /transferForeignCurrencyLayers\(/);
+  assert.match(hajiAccounting, /journalForeignCarryingTransfers\(/);
+  assert.match(hajiAccounting, /foreignCurrencyOwnerKey\.cityCash/);
+  assert.match(hajiAccounting, /reverseForeignCurrencyMovements\(/);
+  assert.match(hajiAccounting, /reverseJournalEntries\(journalTransactionId/);
+  assert.match(createRoute, /recordHajiTransferAccounting\(/);
+  assert.match(itemRoute, /recordHajiTransferAccounting\(/);
+  assert.match(itemRoute, /reverseHajiTransferAccounting\(/);
 });
 
 test("customer ledger supports transaction type filtering", () => {

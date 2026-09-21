@@ -22,6 +22,9 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       include: { bankAccount: { include: { currency: true } } },
     });
     if (!expense || expense.deletedAt !== null) return errorResponse("NOT_FOUND", "Expense not found", 404);
+    if (String(expense.bankAccount.currency.code).toUpperCase() !== "PKR") {
+      return errorResponse("FOREIGN_CARRYING_LAYER_REQUIRED", "Foreign-currency home expenses cannot be edited until their PKR expense basis and funding-asset carrying layers are recorded atomically.", 409);
+    }
 
     const amount = body.amount !== undefined ? Number(body.amount) : Number(expense.amount);
     const detail = body.detail !== undefined ? String(body.detail || "").trim() : expense.detail;

@@ -18,6 +18,9 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     if (!existing || existing.deletedAt) return errorResponse("NOT_FOUND", "Payment not found", 404);
 
     if (!existing.agent.isActive) return errorResponse("VALIDATION_ERROR", "Cannot update payments for an inactive agent");
+    if (String(existing.currencyCode).toUpperCase() !== "PKR") {
+      return errorResponse("FOREIGN_CARRYING_LAYER_REQUIRED", "Foreign-currency agent payments cannot be edited until their payable and funding-asset carrying layers are recorded atomically.", 409);
+    }
 
     const amount = body.amount !== undefined ? Number(body.amount) : Number(existing.amount);
     if (!Number.isFinite(amount) || amount <= 0) return errorResponse("VALIDATION_ERROR", "Amount must be greater than 0");

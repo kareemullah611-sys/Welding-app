@@ -141,6 +141,9 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
     if (!bankAccount || !bankAccount.isActive) {
       return errorResponse("NOT_FOUND", "Active super admin bank account not found", 404);
     }
+    if (String(bankAccount.currency.code).toUpperCase() !== "PKR") {
+      return errorResponse("FOREIGN_CARRYING_LAYER_REQUIRED", "Foreign-currency home expenses are blocked until their PKR expense basis and funding-asset carrying layers are recorded atomically.", 409);
+    }
 
     const expense = await prisma.$transaction(async (tx) => {
       const created = await tx.superAdminPersonalExpense.create({

@@ -26,6 +26,9 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
       include: { customer: { select: { name: true } }, currency: { select: { code: true, symbol: true } } },
     });
     if (!payment) return errorResponse("NOT_FOUND", "Payment not found", 404);
+    if (String(payment.currency.code).toUpperCase() !== "PKR") {
+      return errorResponse("FOREIGN_CARRYING_LAYER_REQUIRED", "Foreign-currency payments cannot be permanently deleted because their immutable carrying history must be preserved; use audited cancellation.", 409);
+    }
 
     await prisma.$transaction(async (tx) => {
       const linkedHajiTransfers = await tx.hajiTransfer.findMany({

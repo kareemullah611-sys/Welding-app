@@ -13,7 +13,13 @@ export function openingHajiOwedDelta(amount: number, balanceSide: "payable" | "r
   return balanceSide === "payable" ? amount : -amount;
 }
 
-/** Net unsettled owed to Haji from ongoing lots only (per city, per currency code). */
+/**
+ * Net city liability to Superadmin/Haji by currency.
+ *
+ * The historical export name is retained for compatibility. The calculation is
+ * deliberately city-wide: lot status and lot allocation do not change the
+ * city's recognized liability.
+ */
 export async function computeOngoingLotHajiOwedByCity(
   db: Db = prisma,
   options: { cityId?: number } = {}
@@ -21,45 +27,34 @@ export async function computeOngoingLotHajiOwedByCity(
   const currencies = await db.currency.findMany({ select: { id: true, code: true } });
   const currCode = Object.fromEntries(currencies.map((c) => [c.id, c.code]));
 
-  const ongoingLots = await db.lot.findMany({
-    where: { status: "ongoing" },
-    select: { id: true, lotCityDistributions: { select: { cityId: true } } },
-  });
-  const ongoingLotIds = ongoingLots.map((l) => l.id);
   const result = new Map<number, Record<string, number>>();
-  if (!ongoingLotIds.length) return result;
-
   const cityFilter = options.cityId ? { cityId: options.cityId } : {};
-  const lotFilter = { lotId: { in: ongoingLotIds } };
 
-  const [sales, expenses, hajiTransfers, hajiPayments, overflowCredits, openingHaji] = await Promise.all([
+  const [sales, expenses, hajiTransfers, hajiPayments, legacyWithdrawals, openingHaji] = await Promise.all([
     db.sale.groupBy({
       by: ["cityId", "currencyId", "saleDate"],
-      where: { ...cityFilter, ...lotFilter, status: { in: [...ACTIVE_SALE_STATUSES] } },
+      where: { ...cityFilter, status: { in: [...ACTIVE_SALE_STATUSES] } },
       _sum: { totalAmount: true },
     }),
     db.expense.groupBy({
       by: ["cityId", "currencyId", "expenseDate"],
-      where: { ...cityFilter, ...lotFilter, deletedAt: null },
+      where: { ...cityFilter, deletedAt: null },
       _sum: { amount: true },
     }),
     db.hajiTransfer.groupBy({
       by: ["cityId", "currencyId", "transferDate"],
-      where: { ...cityFilter, ...lotFilter, paymentId: null },
+      where: { ...cityFilter, paymentId: null },
       _sum: { amount: true },
     }),
     db.payment.groupBy({
       by: ["cityId", "currencyId", "paymentDate"],
-      where: { ...cityFilter, ...lotFilter, status: "active", destination: "haji" },
+      where: { ...cityFilter, status: "active", destination: "haji" },
       _sum: { amount: true },
     }),
-    db.lotSettlementOverflow.groupBy({
-      by: ["cityId", "currencyId", "createdAt"],
-      where: {
-        ...cityFilter,
-        toLotId: { in: ongoingLotIds },
-      },
-      _sum: { overflowAmount: true },
+    db.personalWithdrawal.groupBy({
+      by: ["cityId", "currencyId", "withdrawalDate"],
+      where: { ...cityFilter, hajiTransferId: null },
+      _sum: { amount: true },
     }),
     db.openingHajiBalance.findMany({
       where: cityFilter,
@@ -105,19 +100,20 @@ export async function computeOngoingLotHajiOwedByCity(
     if (!isAfterOpening(row.cityId, row.currencyId, row.paymentDate)) continue;
     add(row.cityId, row.currencyId, -Number(row._sum.amount || 0));
   }
-  for (const row of overflowCredits) {
-    if (!isAfterOpening(row.cityId, row.currencyId, row.createdAt)) continue;
-    // Overflow credits into ongoing lots are not real remittances — add back
-    add(row.cityId, row.currencyId, Number(row._sum.overflowAmount || 0));
+  for (const row of legacyWithdrawals) {
+    if (!isAfterOpening(row.cityId, row.currencyId, row.withdrawalDate)) continue;
+    // New withdrawals are represented by their linked Haji transfer. This is
+    // only a compatibility path for historical withdrawals created before the
+    // atomic linkage existed.
+    add(row.cityId, row.currencyId, -Number(row._sum.amount || 0));
   }
   for (const row of openingHaji) {
     add(row.cityId, row.currencyId, openingHajiOwedDelta(Number(row.amount || 0), row.balanceSide));
   }
 
-  // Discounts: need cityId from sale join
+  // Discounts/returns reduce recognized city revenue and therefore liability.
   const discountRows = await db.saleDiscount.findMany({
     where: {
-      appliedToLotId: { in: ongoingLotIds },
       ...(options.cityId ? { sale: { cityId: options.cityId } } : {}),
     },
     select: {
@@ -135,7 +131,7 @@ export async function computeOngoingLotHajiOwedByCity(
   return result;
 }
 
-/** Single-city owed-to-Haji by currency code (ongoing lots only). */
+/** Single-city liability to Superadmin/Haji by currency code. */
 export async function computeOngoingLotHajiOwedForCity(
   cityId: number,
   db: Db = prisma

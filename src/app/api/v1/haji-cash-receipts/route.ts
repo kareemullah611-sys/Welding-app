@@ -5,6 +5,8 @@ import { successResponse, errorResponse } from "@/lib/api-response";
 import { journalHajiCashReceipt } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { getIntermediaryBalances } from "@/lib/intermediary-balance";
+import { isSupportedForeignCurrency } from "@/lib/foreign-currency-carrying";
+import { foreignCurrencyOwnerKey, transferForeignCurrencyLayers } from "@/lib/foreign-currency-carrying-db";
 
 function parsePositiveAmount(value: unknown): number | null {
   const normalized = String(value ?? "").replace(/,/g, "").trim();
@@ -85,6 +87,21 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: any, u
       },
       tx,
     );
+    if (isSupportedForeignCurrency(currencyCode)) {
+      await transferForeignCurrencyLayers(tx, {
+        sourceOwnerKey: foreignCurrencyOwnerKey.intermediary(intermediaryId),
+        targetOwnerKey: destinationAccount.accountKind === "cash"
+          ? foreignCurrencyOwnerKey.superAdminCash(destinationAccountId)
+          : foreignCurrencyOwnerKey.superAdminBank(destinationAccountId),
+        targetPositionType: destinationAccount.accountKind === "cash" ? "super_admin_cash" : "super_admin_bank",
+        currencyCode,
+        amount,
+        sourceType: "haji_cash_receipt",
+        sourceId: row.id,
+        movementDate: row.receiptDate,
+        createdBy: user.userId,
+      });
+    }
 
     await createAuditLog(
       user.userId,

@@ -4,6 +4,7 @@ import { reverseJournalEntries } from "@/lib/accounting";
 import { errorResponse, successResponse } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { createAuditLog, getClientIP, withSuperAdmin } from "@/lib/middleware";
+import { reverseForeignCurrencyMovements } from "@/lib/foreign-currency-carrying-db";
 
 export const POST = withSuperAdmin(async (request: NextRequest, context: any, user: JWTPayload) => {
   const id = Number(context.params.id);
@@ -15,6 +16,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
     if (!existing) return { error: "NOT_FOUND" as const };
     if (existing.reversedAt) return { error: "ALREADY_REVERSED" as const };
 
+    await reverseForeignCurrencyMovements(tx, { sourceType: "haji_cash_receipt", sourceId: id, reversalDate: new Date(), createdBy: user.userId });
     await reverseJournalEntries(`HAJIREC-${id}`, user.userId, tx);
     const reversed = await tx.hajiCashReceipt.update({
       where: { id },

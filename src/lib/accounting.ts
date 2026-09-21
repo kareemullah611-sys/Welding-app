@@ -480,6 +480,85 @@ export async function journalPaymentReceived(
   await createJournalEntries(`PAY-${p.id}`, [treasuryLine, customerLine], { currencyCode: p.currencyCode, entityType: "payment", entityId: p.id, lotId: p.lotId, cityId: p.cityId, entryDate: p.paymentDate, createdBy: p.createdBy }, db);
 }
 
+export async function journalForeignCustomerReceiptMovements(p: {
+  paymentId: number;
+  customerId: number;
+  cityId: number;
+  lotId: number | null;
+  paymentDate: Date;
+  createdBy: number;
+  movements: Array<{ id: number; carryingAmountPkr: unknown; settlementAmountPkr: unknown; realizedFxPkr: unknown }>;
+  bankAccountId?: number | null;
+  superAdminBankAccountId?: number | null;
+  superAdminCashAccountId?: number | null;
+  intermediaryId?: number | null;
+}, db: DbClient = prisma) {
+  let receiptAccountId: number;
+  if (p.intermediaryId) receiptAccountId = await getIntermediaryAccountId(p.intermediaryId, db);
+  else if (p.superAdminCashAccountId) receiptAccountId = await getSuperAdminCashGLAccountId(p.superAdminCashAccountId, db);
+  else if (p.superAdminBankAccountId) receiptAccountId = await getSuperAdminBankGLAccountId(p.superAdminBankAccountId, db);
+  else if (p.bankAccountId) receiptAccountId = await getBankGLAccountId(p.bankAccountId, db);
+  else receiptAccountId = await getCashAccountId(p.cityId, db);
+  const customerAccountId = await getCustomerAccountId(p.customerId, db);
+  const fxGainAccountId = await getForeignExchangeGainAccountId(db);
+  const fxLossAccountId = await getForeignExchangeLossAccountId(db);
+
+  for (const movement of p.movements) {
+    const carryingAmountPkr = Number(movement.carryingAmountPkr);
+    const settlementAmountPkr = Number(movement.settlementAmountPkr);
+    const realizedFxPkr = Number(movement.realizedFxPkr);
+    const transactionId = `FXPAY-${p.paymentId}-${movement.id}`;
+    const lines: JournalLine[] = [
+      { accountId: receiptAccountId, debit: settlementAmountPkr, credit: 0, description: `Foreign receipt #${p.paymentId}` },
+      { accountId: customerAccountId, debit: 0, credit: carryingAmountPkr, description: `Foreign receivable settled #${p.paymentId}` },
+    ];
+    if (realizedFxPkr > 0) lines.push({ accountId: fxGainAccountId, debit: 0, credit: realizedFxPkr, description: `Realized customer receipt FX gain #${p.paymentId}` });
+    if (realizedFxPkr < 0) lines.push({ accountId: fxLossAccountId, debit: Math.abs(realizedFxPkr), credit: 0, description: `Realized customer receipt FX loss #${p.paymentId}` });
+    await createJournalEntries(transactionId, lines, {
+      currencyCode: "PKR", entityType: "payment", entityId: p.paymentId, lotId: p.lotId,
+      cityId: p.cityId, entryDate: p.paymentDate, createdBy: p.createdBy,
+    }, db);
+    await db.foreignCurrencyMovement.update({ where: { id: movement.id }, data: { journalTransactionId: transactionId } });
+  }
+}
+
+export async function journalForeignCarryingTransfers(p: {
+  transferId: number;
+  cityId: number;
+  lotId: number | null;
+  transferDate: Date;
+  createdBy: number;
+  movements: Array<{ id: number; carryingAmountPkr: unknown }>;
+  intermediaryId?: number | null;
+  superAdminCashAccountId?: number | null;
+  superAdminBankAccountId?: number | null;
+  bankAccountId?: number | null;
+  sourceType?: string | null;
+}, db: DbClient = prisma) {
+  const sourceAccountId = p.sourceType === "cheque"
+    ? await getChequesInHandAccountId(p.cityId, db)
+    : p.bankAccountId
+    ? await getBankGLAccountId(p.bankAccountId, db)
+    : await getCashAccountId(p.cityId, db);
+  let targetAccountId: number;
+  if (p.intermediaryId) targetAccountId = await getIntermediaryAccountId(p.intermediaryId, db);
+  else if (p.superAdminCashAccountId) targetAccountId = await getSuperAdminCashGLAccountId(p.superAdminCashAccountId, db);
+  else if (p.superAdminBankAccountId) targetAccountId = await getSuperAdminBankGLAccountId(p.superAdminBankAccountId, db);
+  else targetAccountId = await getHajiAccountId(db);
+  for (const movement of p.movements) {
+    const carryingAmountPkr = Number(movement.carryingAmountPkr);
+    const transactionId = `FXHAJI-${p.transferId}-${movement.id}`;
+    await createJournalEntries(transactionId, [
+      { accountId: targetAccountId, debit: carryingAmountPkr, credit: 0, description: `Foreign carrying transfer #${p.transferId}` },
+      { accountId: sourceAccountId, debit: 0, credit: carryingAmountPkr, description: `Foreign carrying transfer #${p.transferId}` },
+    ], {
+      currencyCode: "PKR", entityType: "haji_transfer", entityId: p.transferId, lotId: p.lotId,
+      cityId: p.cityId, entryDate: p.transferDate, createdBy: p.createdBy,
+    }, db);
+    await db.foreignCurrencyMovement.update({ where: { id: movement.id }, data: { journalTransactionId: transactionId } });
+  }
+}
+
 // CHEQUE RECEIVED — stages into Cheques in Hand first, not Cash
 // DR Cheques in Hand | CR AR - Customer
 export async function journalChequeReceived(p: { id: number; customerId: number; cityId: number; lotId: number | null; amount: number; currencyCode: string; paymentDate: Date; createdBy: number; }, db: DbClient = prisma) {
@@ -887,6 +966,143 @@ export async function journalWithdrawal(w: { id: number; cityId: number; amount:
   ], { currencyCode: w.currencyCode, entityType: "withdrawal", entityId: w.id, cityId: w.cityId, entryDate: w.date, createdBy: w.createdBy }, db);
 }
 
+async function journalForeignAssetOutflowMovements(p: {
+  entityPrefix: "FXEXP" | "FXWDRAW";
+  entityType: "expense" | "withdrawal";
+  entityId: number;
+  cityId: number;
+  date: Date;
+  detail: string;
+  createdBy: number;
+  debitAccountId: number;
+  sourceType: string;
+  bankAccountId?: number | null;
+  movements: Array<{ id: number; carryingAmountPkr: unknown; settlementAmountPkr: unknown; realizedFxPkr: unknown }>;
+}, db: DbClient) {
+  const sourceAccountId = p.sourceType === "bank_account" && p.bankAccountId
+    ? await getBankGLAccountId(p.bankAccountId, db)
+    : await getCashAccountId(p.cityId, db);
+  for (const movement of p.movements) {
+    const carryingAmountPkr = Number(movement.carryingAmountPkr);
+    const settlementAmountPkr = Number(movement.settlementAmountPkr);
+    const realizedFxPkr = Number(movement.realizedFxPkr);
+    const transactionId = `${p.entityPrefix}-${p.entityId}-${movement.id}`;
+    const lines: JournalLine[] = [
+      { accountId: p.debitAccountId, debit: settlementAmountPkr, credit: 0, description: p.detail },
+      { accountId: sourceAccountId, debit: 0, credit: carryingAmountPkr, description: p.detail },
+    ];
+    if (realizedFxPkr > 0) {
+      lines.push({ accountId: await getForeignExchangeGainAccountId(db), debit: 0, credit: realizedFxPkr, description: `${p.detail} — realized FX gain` });
+    } else if (realizedFxPkr < 0) {
+      lines.push({ accountId: await getForeignExchangeLossAccountId(db), debit: Math.abs(realizedFxPkr), credit: 0, description: `${p.detail} — realized FX loss` });
+    }
+    await createJournalEntries(transactionId, lines, {
+      currencyCode: "PKR",
+      entityType: p.entityType,
+      entityId: p.entityId,
+      cityId: p.cityId,
+      entryDate: p.date,
+      createdBy: p.createdBy,
+    }, db);
+    await db.foreignCurrencyMovement.update({ where: { id: movement.id }, data: { journalTransactionId: transactionId } });
+  }
+}
+
+export async function journalForeignExpenseMovements(p: {
+  expenseId: number;
+  cityId: number;
+  expenseDate: Date;
+  detail: string;
+  createdBy: number;
+  paidFrom: string;
+  bankAccountId?: number | null;
+  movements: Array<{ id: number; carryingAmountPkr: unknown; settlementAmountPkr: unknown; realizedFxPkr: unknown }>;
+}, db: DbClient = prisma) {
+  await journalForeignAssetOutflowMovements({
+    entityPrefix: "FXEXP",
+    entityType: "expense",
+    entityId: p.expenseId,
+    cityId: p.cityId,
+    date: p.expenseDate,
+    detail: p.detail,
+    createdBy: p.createdBy,
+    debitAccountId: await getExpenseAccountId("general", db),
+    sourceType: p.paidFrom,
+    bankAccountId: p.bankAccountId,
+    movements: p.movements,
+  }, db);
+}
+
+export async function journalForeignWithdrawalMovements(p: {
+  withdrawalId: number;
+  cityId: number;
+  withdrawalDate: Date;
+  createdBy: number;
+  sourceType: string;
+  bankAccountId?: number | null;
+  movements: Array<{ id: number; carryingAmountPkr: unknown; settlementAmountPkr: unknown; realizedFxPkr: unknown }>;
+}, db: DbClient = prisma) {
+  await journalForeignAssetOutflowMovements({
+    entityPrefix: "FXWDRAW",
+    entityType: "withdrawal",
+    entityId: p.withdrawalId,
+    cityId: p.cityId,
+    date: p.withdrawalDate,
+    detail: `Owner withdrawal #${p.withdrawalId}`,
+    createdBy: p.createdBy,
+    debitAccountId: await getOwnerWithdrawalAccountId(db),
+    sourceType: p.sourceType,
+    bankAccountId: p.bankAccountId,
+    movements: p.movements,
+  }, db);
+}
+
+export async function journalForeignFundingAssetAdjustments(p: {
+  entityPrefix: "FXSUPASSET" | "FXSHIPASSET";
+  entityType: "supplier_payment" | "shipping_line_payment";
+  entityId: number;
+  date: Date;
+  createdBy: number;
+  bankAccountId?: number | null;
+  superAdminBankAccountId?: number | null;
+  superAdminCashAccountId?: number | null;
+  intermediaryId?: number | null;
+  movements: Array<{ id: number; carryingAmountPkr: unknown; settlementAmountPkr: unknown; realizedFxPkr: unknown }>;
+}, db: DbClient = prisma) {
+  const sourceAccountId = p.intermediaryId
+    ? await getIntermediaryAccountId(p.intermediaryId, db)
+    : p.superAdminCashAccountId
+      ? await getSuperAdminCashGLAccountId(p.superAdminCashAccountId, db)
+      : p.superAdminBankAccountId
+        ? await getSuperAdminBankGLAccountId(p.superAdminBankAccountId, db)
+        : p.bankAccountId
+          ? await getBankGLAccountId(p.bankAccountId, db)
+          : null;
+  if (!sourceAccountId) throw new Error("A foreign-currency funding account is required.");
+  for (const movement of p.movements) {
+    const realizedFxPkr = Number(movement.realizedFxPkr);
+    if (Math.abs(realizedFxPkr) <= 0.01) continue;
+    const transactionId = `${p.entityPrefix}-${p.entityId}-${movement.id}`;
+    const lines: JournalLine[] = realizedFxPkr > 0
+      ? [
+          { accountId: sourceAccountId, debit: realizedFxPkr, credit: 0, description: `Foreign funding carrying-value adjustment #${p.entityId}` },
+          { accountId: await getForeignExchangeGainAccountId(db), debit: 0, credit: realizedFxPkr, description: `Realized funding-asset FX gain #${p.entityId}` },
+        ]
+      : [
+          { accountId: await getForeignExchangeLossAccountId(db), debit: Math.abs(realizedFxPkr), credit: 0, description: `Realized funding-asset FX loss #${p.entityId}` },
+          { accountId: sourceAccountId, debit: 0, credit: Math.abs(realizedFxPkr), description: `Foreign funding carrying-value adjustment #${p.entityId}` },
+        ];
+    await createJournalEntries(transactionId, lines, {
+      currencyCode: "PKR",
+      entityType: p.entityType,
+      entityId: p.entityId,
+      entryDate: p.date,
+      createdBy: p.createdBy,
+    }, db);
+    await db.foreignCurrencyMovement.update({ where: { id: movement.id }, data: { journalTransactionId: transactionId } });
+  }
+}
+
 export async function journalCityLiabilityCharge(e: {
   id: number;
   accountId: number;
@@ -1229,6 +1445,65 @@ export async function journalIntermediaryExchange(e: {
     entryDate: e.exchangeDate,
     createdBy: e.createdBy,
   }, db);
+}
+
+export async function journalForeignIntermediaryExchangeMovements(e: {
+  exchangeId: number;
+  intermediaryId: number;
+  exchangeDate: Date;
+  fromCurrencyCode: string;
+  toCurrencyCode: string;
+  createdBy: number;
+  movements: Array<{
+    id: number;
+    carryingAmountPkr: unknown;
+    settlementAmountPkr: unknown;
+    realizedFxPkr: unknown;
+  }>;
+}, db: DbClient = prisma) {
+  const intermediaryAccountId = await getIntermediaryAccountId(e.intermediaryId, db);
+  const fxClearingAccountId = await getIntermediaryFxClearingAccountId(e.intermediaryId, db);
+  const fromCode = e.fromCurrencyCode.toUpperCase() === "RMB" ? "CNY" : e.fromCurrencyCode.toUpperCase();
+  const toCode = e.toCurrencyCode.toUpperCase() === "RMB" ? "CNY" : e.toCurrencyCode.toUpperCase();
+
+  for (const movement of e.movements) {
+    const carryingAmountPkr = Number(movement.carryingAmountPkr);
+    const settlementAmountPkr = Number(movement.settlementAmountPkr);
+    const realizedFxPkr = Number(movement.realizedFxPkr);
+    const transactionId = `FXINT-${e.exchangeId}-${movement.id}`;
+    const lines: JournalLine[] = [];
+
+    if (fromCode === "PKR") {
+      lines.push(
+        { accountId: intermediaryAccountId, debit: carryingAmountPkr, credit: 0, description: `Foreign currency acquired #${e.exchangeId}` },
+        { accountId: fxClearingAccountId, debit: 0, credit: carryingAmountPkr, description: `Foreign currency acquired #${e.exchangeId}` },
+      );
+    } else if (toCode === "PKR") {
+      lines.push(
+        { accountId: fxClearingAccountId, debit: settlementAmountPkr, credit: 0, description: `Foreign currency converted to PKR #${e.exchangeId}` },
+        { accountId: intermediaryAccountId, debit: 0, credit: carryingAmountPkr, description: `Foreign carrying value released #${e.exchangeId}` },
+      );
+      if (realizedFxPkr > 0) {
+        lines.push({ accountId: await getForeignExchangeGainAccountId(db), debit: 0, credit: realizedFxPkr, description: `Realized intermediary FX gain #${e.exchangeId}` });
+      } else if (realizedFxPkr < 0) {
+        lines.push({ accountId: await getForeignExchangeLossAccountId(db), debit: Math.abs(realizedFxPkr), credit: 0, description: `Realized intermediary FX loss #${e.exchangeId}` });
+      }
+    } else {
+      lines.push(
+        { accountId: intermediaryAccountId, debit: carryingAmountPkr, credit: 0, description: `${toCode} carrying value acquired #${e.exchangeId}` },
+        { accountId: intermediaryAccountId, debit: 0, credit: carryingAmountPkr, description: `${fromCode} carrying value released #${e.exchangeId}` },
+      );
+    }
+
+    await createJournalEntries(transactionId, lines, {
+      currencyCode: "PKR",
+      entityType: "intermediary_exchange",
+      entityId: e.exchangeId,
+      entryDate: e.exchangeDate,
+      createdBy: e.createdBy,
+    }, db);
+    await db.foreignCurrencyMovement.update({ where: { id: movement.id }, data: { journalTransactionId: transactionId } });
+  }
 }
 
 // OPENING LIABILITY — pre-go-live payables flow into party GL accounts

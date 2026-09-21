@@ -5,6 +5,12 @@ import { errorResponse, getPaginationParams, paginatedResponse, serverError, suc
 import { JWTPayload } from "@/lib/auth";
 import { journalSuperAdminAccountTransfer } from "@/lib/accounting";
 import { getSyncRequestMeta } from "@/lib/sync-idempotency";
+import { canonicalForeignCurrencyCode, isSupportedForeignCurrency } from "@/lib/foreign-currency-carrying";
+import {
+  exchangeForeignCurrencyLayers,
+  foreignCurrencyOwnerKey,
+  transferForeignCurrencyLayers,
+} from "@/lib/foreign-currency-carrying-db";
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
 const SUPER_ADMIN_ACCOUNT_TRANSFER_SYNC_MODULE = "super_admin_account_transfers";
@@ -130,6 +136,44 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: unknow
         transferDate: row.transferDate,
         createdBy: user.userId,
       }, tx);
+      const fromCode = canonicalForeignCurrencyCode(source.currency.code);
+      const toCode = canonicalForeignCurrencyCode(destination.currency.code);
+      const sourceOwnerKey = source.accountKind === "cash"
+        ? foreignCurrencyOwnerKey.superAdminCash(sourceAccountId)
+        : foreignCurrencyOwnerKey.superAdminBank(sourceAccountId);
+      const targetOwnerKey = destination.accountKind === "cash"
+        ? foreignCurrencyOwnerKey.superAdminCash(destinationAccountId)
+        : foreignCurrencyOwnerKey.superAdminBank(destinationAccountId);
+      const targetPositionType = destination.accountKind === "cash" ? "super_admin_cash" : "super_admin_bank";
+      if (sameCurrency && isSupportedForeignCurrency(fromCode)) {
+        await transferForeignCurrencyLayers(tx, {
+          sourceOwnerKey,
+          targetOwnerKey,
+          targetPositionType,
+          currencyCode: fromCode,
+          amount: fromAmount,
+          sourceType: "super_admin_account_transfer",
+          sourceId: row.id,
+          movementDate: row.transferDate,
+          createdBy: user.userId,
+        });
+      } else if (!sameCurrency && (fromCode === "PKR" || isSupportedForeignCurrency(fromCode)) && (toCode === "PKR" || isSupportedForeignCurrency(toCode))) {
+        await exchangeForeignCurrencyLayers(tx, {
+          ownerKey: sourceOwnerKey,
+          targetOwnerKey,
+          positionType: targetPositionType,
+          fromCurrencyCode: fromCode,
+          fromAmount,
+          toCurrencyCode: toCode,
+          toAmount,
+          sourceType: "super_admin_account_transfer",
+          sourceId: row.id,
+          exchangeDate: row.transferDate,
+          rateProvider: rateSource || "DOCUMENTED_ACCOUNT_TRANSFER_RATE",
+          rateReference: `super_admin_account_transfer:${row.id}`,
+          createdBy: user.userId,
+        });
+      }
       await createAuditLog(user.userId, null, "super_admin_account_transfers", row.id, "create", undefined, { sourceAccountId, destinationAccountId, fromAmount, toAmount, exchangeRate, rateSource }, getClientIP(request), tx);
       if (syncMeta) {
         await tx.syncRequest.create({

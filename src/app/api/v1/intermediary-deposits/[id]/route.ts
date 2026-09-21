@@ -4,6 +4,12 @@ import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { intermediaryDepositJournalTransactionId, journalIntermediaryDeposit, reverseJournalEntries } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
+import { isSupportedForeignCurrency } from "@/lib/foreign-currency-carrying";
+import {
+  foreignCurrencyOwnerKey,
+  reverseForeignCurrencyMovements,
+  transferForeignCurrencyLayers,
+} from "@/lib/foreign-currency-carrying-db";
 
 function parsePositiveAmount(value: unknown): number | null {
   const normalized = String(value ?? "").replace(/,/g, "").trim();
@@ -60,6 +66,7 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
     await tx.$executeRawUnsafe("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)", `intermediary-deposit:${id}`);
     const locked = await tx.intermediaryDeposit.findUnique({ where: { id } });
     if (!locked || locked.deletedAt) throw Object.assign(new Error("Deposit changed; reload and retry"), { code: "DEPOSIT_CHANGED_RETRY" });
+    await reverseForeignCurrencyMovements(tx, { sourceType: "intermediary_deposit", sourceId: id, reversalDate: new Date(), createdBy: user.userId });
     await reverseJournalEntries(intermediaryDepositJournalTransactionId(id, locked.journalVersion), user.userId, tx);
     const nextVersion = locked.journalVersion + 1;
     const row = await tx.intermediaryDeposit.update({
@@ -86,6 +93,21 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
       superAdminCashAccountId: row.superAdminCashAccountId,
       journalVersion: row.journalVersion,
     }, tx);
+    if (isSupportedForeignCurrency(currency.code)) {
+      await transferForeignCurrencyLayers(tx, {
+        sourceOwnerKey: row.superAdminCashAccountId
+          ? foreignCurrencyOwnerKey.superAdminCash(row.superAdminCashAccountId)
+          : foreignCurrencyOwnerKey.superAdminBank(row.superAdminBankAccountId!),
+        targetOwnerKey: foreignCurrencyOwnerKey.intermediary(row.intermediaryId),
+        targetPositionType: "intermediary_balance",
+        currencyCode: currency.code,
+        amount: Number(row.amount),
+        sourceType: "intermediary_deposit",
+        sourceId: row.id,
+        movementDate: row.depositDate,
+        createdBy: user.userId,
+      });
+    }
     await createAuditLog(user.userId, null, "intermediary_deposits", id, "update", existing, row, getClientIP(request), tx);
     return row;
   });
@@ -102,6 +124,7 @@ export const DELETE = withSuperAdmin(async (_req: NextRequest, context: any, use
     await tx.$executeRawUnsafe("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)", `intermediary-deposit:${id}`);
     const locked = await tx.intermediaryDeposit.findUnique({ where: { id } });
     if (!locked || locked.deletedAt) return;
+    await reverseForeignCurrencyMovements(tx, { sourceType: "intermediary_deposit", sourceId: id, reversalDate: new Date(), createdBy: user.userId });
     await reverseJournalEntries(intermediaryDepositJournalTransactionId(id, locked.journalVersion), user.userId, tx);
     await tx.intermediaryDeposit.update({ where: { id }, data: { deletedAt: new Date(), deletedBy: user.userId } });
     await createAuditLog(user.userId, null, "intermediary_deposits", id, "delete", existing, undefined, getClientIP(_req), tx);

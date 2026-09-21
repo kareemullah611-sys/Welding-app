@@ -5,6 +5,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { generateToken } from "@/lib/auth";
 import { POST as createIntermediaryDeposit } from "@/app/api/v1/intermediaries/[id]/deposits/route";
+import { foreignCurrencyOwnerKey, recordForeignCurrencyRecognition } from "@/lib/foreign-currency-carrying-db";
 
 test("intermediary deposit create is idempotent for repeated sync request id", async () => {
   const marker = `sync-int-deposit-${Date.now()}`;
@@ -34,6 +35,21 @@ test("intermediary deposit create is idempotent for repeated sync request id", a
       isActive: true,
     },
   });
+  const seedLayer = await prisma.$transaction((tx) => recordForeignCurrencyRecognition(tx, {
+    positionKind: "asset",
+    positionType: "super_admin_bank",
+    ownerKey: foreignCurrencyOwnerKey.superAdminBank(bank.id),
+    currencyCode: "USD",
+    sourceType: "test_intermediary_deposit_funding",
+    sourceId: bank.id,
+    recognitionDate: new Date("2026-04-27"),
+    historicalPoolDate: new Date("2026-04-27"),
+    foreignAmount: 1200,
+    carryingAmountPkr: 338400,
+    rate: { ratePkr: 282, rateType: "test", provider: "LOCAL_TEST" },
+    createdBy: superAdmin.id,
+  }));
+  let createdDepositId: number | null = null;
 
   const syncRequestId = `req-int-deposit-${Date.now()}`;
   const headers = {
@@ -63,6 +79,7 @@ test("intermediary deposit create is idempotent for repeated sync request id", a
     assert.equal(firstJson.success, true);
     const firstId = firstJson.data?.id;
     assert.ok(firstId, "First call should return created id");
+    createdDepositId = firstId;
 
     const secondRequest = new NextRequest(`http://localhost/api/v1/intermediaries/${intermediary.id}/deposits`, {
       method: "POST",
@@ -79,6 +96,13 @@ test("intermediary deposit create is idempotent for repeated sync request id", a
     });
     assert.equal(createdRows.length, 1, "Only one intermediary deposit row should exist for replayed request");
   } finally {
+    if (createdDepositId) {
+      await prisma.foreignCurrencyMovement.deleteMany({ where: { sourceType: "intermediary_deposit", sourceId: createdDepositId } });
+      await prisma.foreignCurrencyMovement.deleteMany({ where: { sourceType: "intermediary_deposit_target", sourceId: createdDepositId } });
+      await prisma.foreignCurrencyCarryingLayer.deleteMany({ where: { sourceType: "intermediary_deposit_target", sourceId: createdDepositId } });
+    }
+    await prisma.foreignCurrencyMovement.deleteMany({ where: { sourceType: "test_intermediary_deposit_funding", sourceId: bank.id } });
+    await prisma.foreignCurrencyCarryingLayer.deleteMany({ where: { id: seedLayer.id } });
     await prisma.syncRequest.deleteMany({
       where: {
         cityId: 0,

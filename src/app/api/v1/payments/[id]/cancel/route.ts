@@ -4,6 +4,7 @@ import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, validationError, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { reverseJournalEntries } from "@/lib/accounting";
+import { reverseForeignCurrencyMovements } from "@/lib/foreign-currency-carrying-db";
 
 export const PUT = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -47,6 +48,15 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       }, { reason: body.reason }, getClientIP(request), tx);
 
       await reverseJournalEntries(`PAY-${id}`, user.userId, tx);
+      const reversedFx = await reverseForeignCurrencyMovements(tx, {
+        sourceType: "customer_payment",
+        sourceId: id,
+        reversalDate: new Date(),
+        createdBy: user.userId,
+      });
+      for (const transactionId of reversedFx.journalTransactionIds) {
+        await reverseJournalEntries(transactionId, user.userId, tx);
+      }
     });
 
     return successResponse({ id, status: "cancelled" }, "Payment cancelled");

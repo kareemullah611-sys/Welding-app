@@ -6,6 +6,7 @@ import prisma from "@/lib/prisma";
 import { generateToken } from "@/lib/auth";
 import { POST as createSupplierPayment } from "@/app/api/v1/supplier-payments/route";
 import { DELETE as deleteSupplierPayment, PUT as updateSupplierPayment } from "@/app/api/v1/supplier-payments/[id]/route";
+import { foreignCurrencyOwnerKey, recordForeignCurrencyRecognition } from "@/lib/foreign-currency-carrying-db";
 
 test("supplier payment create is idempotent for repeated sync request id", async () => {
   const marker = `sync-supplier-payment-${Date.now()}`;
@@ -82,6 +83,34 @@ test("supplier payment create is idempotent for repeated sync request id", async
       ratePkr: 282,
     },
   });
+  const carryingLayer = await prisma.$transaction((tx) => recordForeignCurrencyRecognition(tx, {
+    positionKind: "asset",
+    positionType: "intermediary_balance",
+    ownerKey: foreignCurrencyOwnerKey.intermediary(intermediary.id),
+    currencyCode: "USD",
+    sourceType: "test_supplier_payment_funding",
+    sourceId: deposit.id,
+    recognitionDate: new Date("2026-04-21"),
+    historicalPoolDate: new Date("2026-04-21"),
+    foreignAmount: 3000,
+    carryingAmountPkr: 846000,
+    rate: { ratePkr: 282, rateType: "test", provider: "LOCAL_TEST" },
+    createdBy: superAdmin.id,
+  }));
+  const payableLayer = await prisma.$transaction((tx) => recordForeignCurrencyRecognition(tx, {
+    positionKind: "liability",
+    positionType: "supplier_payable",
+    ownerKey: foreignCurrencyOwnerKey.supplierPayable(supplier.id, lot.id),
+    currencyCode: "USD",
+    sourceType: "test_supplier_payment_liability",
+    sourceId: purchase.id,
+    recognitionDate: new Date("2026-04-20"),
+    historicalPoolDate: new Date("2026-04-20"),
+    foreignAmount: 2000,
+    carryingAmountPkr: 560000,
+    rate: { ratePkr: 280, rateType: "test", provider: "LOCAL_TEST" },
+    createdBy: superAdmin.id,
+  }));
 
   const syncRequestId = `req-supplier-payment-${Date.now()}`;
   const headers = {
@@ -189,7 +218,13 @@ test("supplier payment create is idempotent for repeated sync request id", async
     if (createdPaymentId) {
       await prisma.auditLog.deleteMany({ where: { entityType: "supplier_payments", entityId: createdPaymentId } });
       await prisma.journalEntry.deleteMany({ where: { entityType: "supplier_payment", entityId: createdPaymentId } });
+      await prisma.foreignCurrencyMovement.deleteMany({ where: { sourceType: "supplier_payment", sourceId: createdPaymentId } });
+      await prisma.foreignCurrencyCarryingLayer.deleteMany({ where: { sourceType: "supplier_payment", sourceId: createdPaymentId } });
     }
+    await prisma.foreignCurrencyMovement.deleteMany({ where: { sourceType: "test_supplier_payment_liability", sourceId: purchase.id } });
+    await prisma.foreignCurrencyCarryingLayer.deleteMany({ where: { id: payableLayer.id } });
+    await prisma.foreignCurrencyMovement.deleteMany({ where: { sourceType: "test_supplier_payment_funding", sourceId: deposit.id } });
+    await prisma.foreignCurrencyCarryingLayer.deleteMany({ where: { id: carryingLayer.id } });
     await prisma.supplierPayment.deleteMany({ where: { supplierId: supplier.id, reference: "sync-test" } });
     await prisma.intermediaryUsdCostLayer.deleteMany({ where: { id: layer.id } });
     await prisma.intermediaryDeposit.deleteMany({ where: { id: deposit.id } });

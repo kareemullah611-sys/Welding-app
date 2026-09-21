@@ -14,6 +14,11 @@ import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idem
 import { allocateSaleItemAcrossLots, consolidateSaleLotAllocationItems, AvailableSaleLot, SaleLotAllocationItem } from "@/lib/sale-lot-allocation";
 import { resolveAfghanistanFxRateFromDb } from "@/lib/sarafi-af-snapshot-db";
 import { isAfghanistanCountry } from "@/lib/country-code";
+import {
+  foreignCurrencyOwnerKey,
+  recordForeignCurrencyRecognition,
+  settleForeignCurrencyAsset,
+} from "@/lib/foreign-currency-carrying-db";
 import { lockGodownProductStock } from "@/lib/financial-locks";
 
 const SALE_SYNC_MODULE = "sales.create";
@@ -484,7 +489,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const totalAmount = roundMoney(normalizedItems.reduce((sum, i) => sum + Number(i.amount || 0), 0));
     const country = await prisma.country.findUnique({ where: { id: user.countryId! }, select: { code: true, name: true } });
     const isAfghanistan = isAfghanistanCountry(country);
-    const saleFx = isAfghanistan && ["AFN", "USD", "CNY"].includes(String(resolvedCurrency.code || "").toUpperCase())
+    const saleFx = isAfghanistan && ["AFN", "USD", "CNY", "AED"].includes(String(resolvedCurrency.code || "").toUpperCase())
       ? await resolveAfghanistanFxRateFromDb({
           currencyCode: resolvedCurrency.code,
           transactionDate: new Date(saleDate),
@@ -565,6 +570,29 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         },
       }) as any;
 
+      if (saleFx?.ok) {
+        await recordForeignCurrencyRecognition(tx, {
+          positionKind: "asset",
+          positionType: "customer_receivable",
+          ownerKey: foreignCurrencyOwnerKey.customerReceivable(createdSale.customerId),
+          currencyCode: createdSale.currency.code,
+          sourceType: "sale",
+          sourceId: createdSale.id,
+          recognitionDate: createdSale.saleDate,
+          historicalPoolDate: createdSale.saleDate,
+          foreignAmount: Number(createdSale.totalAmount),
+          carryingAmountPkr: roundMoney(Number(createdSale.totalAmount) * saleFx.rate),
+          rate: {
+            ratePkr: saleFx.rate,
+            rateType: saleFx.selectedRateType,
+            provider: saleFx.provider,
+            reference: saleFx.providerReference,
+            conversionPath: saleFx.conversionPath,
+          },
+          createdBy: user.userId,
+        });
+      }
+
       await createAuditLog(user.userId, cityId, "sales", createdSale.id, "create", undefined, {
         voucher: `#${voucherNo}`,
         date: saleDate,
@@ -612,6 +640,26 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           paymentDate: createdSale.saleDate,
           createdBy: user.userId,
         }, tx);
+        if (saleFx?.ok) {
+          await settleForeignCurrencyAsset(tx, {
+            sourceOwnerKey: foreignCurrencyOwnerKey.customerReceivable(createdSale.customerId),
+            targetOwnerKey: foreignCurrencyOwnerKey.cityCash(cityId),
+            targetPositionType: "city_cash",
+            currencyCode: createdSale.currency.code,
+            amount: Number(createdSale.totalAmount),
+            sourceType: "walkin_sale_payment",
+            sourceId: walkinPayment.id,
+            settlementDate: createdSale.saleDate,
+            settlementRate: {
+              ratePkr: saleFx.rate,
+              rateType: saleFx.selectedRateType,
+              provider: saleFx.provider,
+              reference: saleFx.providerReference,
+              conversionPath: saleFx.conversionPath,
+            },
+            createdBy: user.userId,
+          });
+        }
       }
 
       await journalSaleCreated({

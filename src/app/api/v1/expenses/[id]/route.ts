@@ -2,10 +2,19 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
-import { reverseJournalEntries, journalExpenseCreated, journalPaymentReceived } from "@/lib/accounting";
+import { journalExpenseCreated, journalForeignCustomerReceiptMovements, journalForeignExpenseMovements, journalPaymentReceived, reverseJournalEntries } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { updateExpenseSchema } from "@/lib/validations";
 import { getSaCheckAuditStateMap, isSaCheckConfirmed } from "@/lib/sa-check-audit";
+import { isAfghanistanCountry } from "@/lib/country-code";
+import { isSupportedForeignCurrency } from "@/lib/foreign-currency-carrying";
+import {
+  foreignCurrencyOwnerKey,
+  reverseForeignCurrencyMovements,
+  settleForeignCurrencyAsset,
+  settleForeignCurrencyOutflow,
+} from "@/lib/foreign-currency-carrying-db";
+import { resolveAfghanistanFxRateFromDb } from "@/lib/sarafi-af-snapshot-db";
 
 export const GET = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -91,6 +100,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       where: { id },
       include: {
         currency: true,
+        city: { include: { country: true } },
         customerPayment: { include: { customer: { select: { id: true, name: true } } } },
       },
     } as any);
@@ -112,6 +122,17 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       : null;
     const nextExpenseDate = data.expenseDate ? new Date(data.expenseDate) : expense.expenseDate;
     if (Number.isNaN(nextExpenseDate.getTime())) return errorResponse("VALIDATION_ERROR", "Invalid expense date");
+    const foreignExpenseRate = isAfghanistanCountry((expense as any).city.country) && isSupportedForeignCurrency((expense as any).currency.code)
+      ? await resolveAfghanistanFxRateFromDb({
+          currencyCode: (expense as any).currency.code,
+          transactionDate: nextExpenseDate,
+          purpose: "settlement",
+          positionKind: "asset",
+        })
+      : null;
+    if (foreignExpenseRate && !foreignExpenseRate.ok) {
+      return errorResponse("FX_RATE_REQUIRED", foreignExpenseRate.missingReason, 400);
+    }
 
     if ((expense as any).paidFrom === "cheque") {
       const amountChanged = data.amount !== undefined && Number(data.amount) !== Number(expense.amount);
@@ -159,20 +180,34 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     };
 
     await prisma.$transaction(async (tx) => {
-      await tx.journalEntry.deleteMany({
-        where: {
-          transactionId: {
-            in: [`EXP-${id}`, `REV-EXP-${id}`],
-          },
-        },
-      });
+      if (foreignExpenseRate?.ok) {
+        const reversedExpense = await reverseForeignCurrencyMovements(tx, {
+          sourceType: "expense", sourceId: id, reversalDate: new Date(), createdBy: user.userId,
+        });
+        for (const journalTransactionId of reversedExpense.journalTransactionIds) {
+          await reverseJournalEntries(journalTransactionId, user.userId, tx);
+        }
+      } else {
+        await tx.journalEntry.deleteMany({
+          where: { transactionId: { in: [`EXP-${id}`, `REV-EXP-${id}`] } },
+        });
+      }
 
       let nextCustomerPaymentId: number | null = null;
       const linkedCustomerPayment = (expense as any).customerPayment;
       if (linkedCustomerPayment) {
-        await tx.journalEntry.deleteMany({
-          where: { transactionId: { in: [`PAY-${linkedCustomerPayment.id}`, `REV-PAY-${linkedCustomerPayment.id}`] } },
-        });
+        if (foreignExpenseRate?.ok) {
+          const reversedReceipt = await reverseForeignCurrencyMovements(tx, {
+            sourceType: "expense_customer_payment", sourceId: linkedCustomerPayment.id, reversalDate: new Date(), createdBy: user.userId,
+          });
+          for (const journalTransactionId of reversedReceipt.journalTransactionIds) {
+            await reverseJournalEntries(journalTransactionId, user.userId, tx);
+          }
+        } else {
+          await tx.journalEntry.deleteMany({
+            where: { transactionId: { in: [`PAY-${linkedCustomerPayment.id}`, `REV-PAY-${linkedCustomerPayment.id}`] } },
+          });
+        }
       }
       if (nextPaidFrom === "customer" && nextCustomerId) {
         if (linkedCustomerPayment && linkedCustomerPayment.status !== "active") {
@@ -201,18 +236,42 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           ? await tx.payment.update({ where: { id: linkedCustomerPayment.id }, data: paymentData })
           : await tx.payment.create({ data: { ...paymentData, createdBy: user.userId } });
         nextCustomerPaymentId = payment.id;
-        await journalPaymentReceived({
-          id: payment.id,
-          customerId: nextCustomerId,
-          cityId: expense.cityId,
-          lotId: customerPaymentFifoLotId,
-          amount: Number(payment.amount),
-          currencyCode: (expense as any).currency.code,
-          paymentDate: payment.paymentDate,
-          createdBy: user.userId,
-          destination: "our_account",
-          paymentMethod: "cash",
-        }, tx);
+        if (foreignExpenseRate?.ok) {
+          const receipt = await settleForeignCurrencyAsset(tx, {
+            sourceOwnerKey: foreignCurrencyOwnerKey.customerReceivable(nextCustomerId),
+            targetOwnerKey: foreignCurrencyOwnerKey.cityCash(expense.cityId),
+            targetPositionType: "city_cash",
+            currencyCode: (expense as any).currency.code,
+            amount: Number(payment.amount),
+            sourceType: "expense_customer_payment",
+            sourceId: payment.id,
+            settlementDate: payment.paymentDate,
+            settlementRate: {
+              ratePkr: foreignExpenseRate.rate, rateType: foreignExpenseRate.selectedRateType,
+              provider: foreignExpenseRate.provider, reference: foreignExpenseRate.providerReference,
+              conversionPath: foreignExpenseRate.conversionPath,
+            },
+            createdBy: user.userId,
+          });
+          await journalForeignCustomerReceiptMovements({
+            paymentId: payment.id, customerId: nextCustomerId, cityId: expense.cityId,
+            lotId: customerPaymentFifoLotId, paymentDate: payment.paymentDate,
+            createdBy: user.userId, movements: receipt.movements,
+          }, tx);
+        } else {
+          await journalPaymentReceived({
+            id: payment.id,
+            customerId: nextCustomerId,
+            cityId: expense.cityId,
+            lotId: customerPaymentFifoLotId,
+            amount: Number(payment.amount),
+            currencyCode: (expense as any).currency.code,
+            paymentDate: payment.paymentDate,
+            createdBy: user.userId,
+            destination: "our_account",
+            paymentMethod: "cash",
+          }, tx);
+        }
       } else if (linkedCustomerPayment) {
         await tx.payment.delete({ where: { id: linkedCustomerPayment.id } });
       }
@@ -233,18 +292,37 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         } as any,
       });
 
-      await journalExpenseCreated({
-        id,
-        cityId: expense.cityId,
-        lotId: null,
-        amount: Number(next.amount),
-        currencyCode: (expense as any).currency.code,
-        detail: next.detail,
-        expenseDate: next.expenseDate,
-        createdBy: user.userId,
-        paidFrom: nextPaidFrom,
-        bankAccountId: nextBankAccountId,
-      }, tx);
+      if (foreignExpenseRate?.ok) {
+        const outflow = await settleForeignCurrencyOutflow(tx, {
+          sourceOwnerKey: foreignCurrencyOwnerKey.cityCash(expense.cityId),
+          currencyCode: (expense as any).currency.code,
+          amount: Number(next.amount), sourceType: "expense", sourceId: id,
+          settlementDate: next.expenseDate,
+          settlementRate: {
+            ratePkr: foreignExpenseRate.rate, rateType: foreignExpenseRate.selectedRateType,
+            provider: foreignExpenseRate.provider, reference: foreignExpenseRate.providerReference,
+            conversionPath: foreignExpenseRate.conversionPath,
+          },
+          createdBy: user.userId,
+        });
+        await journalForeignExpenseMovements({
+          expenseId: id, cityId: expense.cityId, expenseDate: next.expenseDate,
+          detail: next.detail, createdBy: user.userId, paidFrom: "cash_office", movements: outflow.movements,
+        }, tx);
+      } else {
+        await journalExpenseCreated({
+          id,
+          cityId: expense.cityId,
+          lotId: null,
+          amount: Number(next.amount),
+          currencyCode: (expense as any).currency.code,
+          detail: next.detail,
+          expenseDate: next.expenseDate,
+          createdBy: user.userId,
+          paidFrom: nextPaidFrom,
+          bankAccountId: nextBankAccountId,
+        }, tx);
+      }
 
       await createAuditLog(
         user.userId,
@@ -277,17 +355,40 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 export const DELETE = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
     const id = parseInt(context.params.id);
-    const expense = await prisma.expense.findUnique({ where: { id }, include: { customerPayment: true } as any });
+    const expense = await prisma.expense.findUnique({
+      where: { id },
+      include: { currency: true, city: { include: { country: true } }, customerPayment: true } as any,
+    });
     if (!expense || expense.deletedAt !== null) return errorResponse("NOT_FOUND", "Expense not found", 404);
     if (user.role === "city_admin" && expense.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
 
     await prisma.$transaction(async (tx) => {
-      await reverseJournalEntries(`EXP-${id}`, user.userId, tx);
+      const tracesForeign = isAfghanistanCountry((expense as any).city.country) && isSupportedForeignCurrency((expense as any).currency.code);
+      if (tracesForeign) {
+        const reversedExpense = await reverseForeignCurrencyMovements(tx, {
+          sourceType: "expense", sourceId: id, reversalDate: new Date(), createdBy: user.userId,
+        });
+        for (const journalTransactionId of reversedExpense.journalTransactionIds) {
+          await reverseJournalEntries(journalTransactionId, user.userId, tx);
+        }
+      } else {
+        await reverseJournalEntries(`EXP-${id}`, user.userId, tx);
+      }
       const linkedCustomerPayment = (expense as any).customerPayment;
       if (linkedCustomerPayment) {
-        await tx.journalEntry.deleteMany({
-          where: { transactionId: { in: [`PAY-${linkedCustomerPayment.id}`, `REV-PAY-${linkedCustomerPayment.id}`] } },
-        });
+        if (tracesForeign) {
+          const reversedReceipt = await reverseForeignCurrencyMovements(tx, {
+            sourceType: "expense_customer_payment", sourceId: linkedCustomerPayment.id,
+            reversalDate: new Date(), createdBy: user.userId,
+          });
+          for (const journalTransactionId of reversedReceipt.journalTransactionIds) {
+            await reverseJournalEntries(journalTransactionId, user.userId, tx);
+          }
+        } else {
+          await tx.journalEntry.deleteMany({
+            where: { transactionId: { in: [`PAY-${linkedCustomerPayment.id}`, `REV-PAY-${linkedCustomerPayment.id}`] } },
+          });
+        }
         await tx.payment.delete({ where: { id: linkedCustomerPayment.id } });
       }
 

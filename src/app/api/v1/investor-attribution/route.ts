@@ -592,7 +592,7 @@ function assertFinalizationEligible(input: Awaited<ReturnType<typeof buildAttrib
 
 async function loadHistoricalPoolTransactions(periodStart: string, periodEnd: string) {
   const periodRange = buildDateRange(periodStart, periodEnd);
-  const [journalLines, recognizedForeignSales, supplierFxSettlements, shippingFxSettlements] = await Promise.all([
+  const [journalLines, recognizedForeignSales, supplierFxSettlements, shippingFxSettlements, foreignCurrencyFxMovements] = await Promise.all([
     prisma.journalEntry.findMany({
       where: {
         entryDate: periodRange,
@@ -624,6 +624,14 @@ async function loadHistoricalPoolTransactions(periodStart: string, periodEnd: st
       where: { paymentDate: periodRange, fxPoolDate: { not: null }, deletedAt: null },
       select: { id: true, journalVersion: true, fxPoolDate: true },
     }),
+    prisma.foreignCurrencyMovement.findMany({
+      where: {
+        movementDate: periodRange,
+        realizedFxPkr: { not: 0 },
+        journalTransactionId: { not: null },
+      },
+      select: { journalTransactionId: true, historicalPoolDate: true },
+    }),
   ]);
   const originalPoolDateByTransactionId = new Map<string, string>();
   for (const payment of supplierFxSettlements) {
@@ -636,6 +644,12 @@ async function loadHistoricalPoolTransactions(periodStart: string, periodEnd: st
     originalPoolDateByTransactionId.set(
       settlementJournalTransactionId("SLPAY", payment.id, payment.journalVersion),
       dateOnly(payment.fxPoolDate!),
+    );
+  }
+  for (const movement of foreignCurrencyFxMovements) {
+    originalPoolDateByTransactionId.set(
+      movement.journalTransactionId!,
+      dateOnly(movement.historicalPoolDate),
     );
   }
   return buildAuthoritativePoolTransactions({
@@ -738,7 +752,7 @@ async function loadLiveFxCoverage(periodEnd: string) {
     valuationRate: usdRate,
   }));
   const nonPkrCurrencyIds = currencies
-    .filter((currency) => ["AFN", "RMB", "CNY", "USD"].includes(currency.code.toUpperCase()) && currency.code.toUpperCase() !== "PKR")
+    .filter((currency) => ["AFN", "RMB", "CNY", "USD", "AED"].includes(currency.code.toUpperCase()) && currency.code.toUpperCase() !== "PKR")
     .map((currency) => currency.id);
   const deposits = await prisma.intermediaryDeposit.findMany({
     where: {
@@ -761,7 +775,7 @@ async function loadLiveFxCoverage(periodEnd: string) {
       currencyCode: codeById.get(deposit.currencyId) || "UNKNOWN",
       foreignAmount: Number(deposit.amount || 0),
       date: dateOnly(deposit.depositDate),
-      reason: `Existing ${deposit.intermediary.name} deposit is recorded, but there is no source-layer remaining-balance table for this currency yet; preview will not invent an outstanding AFN/RMB balance.`,
+      reason: `Existing ${deposit.intermediary.name} deposit is recorded, but there is no verified remaining carrying layer for this currency yet; preview will not invent an outstanding ${codeById.get(deposit.currencyId) || "foreign-currency"} balance.`,
     }));
   return buildLiveFxCoveragePreview({ supportedPositions, unsupportedPositions });
 }

@@ -33,6 +33,9 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
     if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported");
     const currency = await prisma.currency.findUnique({ where: { id: currencyId } });
     if (!currency) return errorResponse("NOT_FOUND", "Currency not found");
+    if (String(currency.code).toUpperCase() !== "PKR") {
+      return errorResponse("FOREIGN_CARRYING_LAYER_REQUIRED", "Foreign-currency city liabilities are blocked until liability and settlement carrying layers are available.", 409);
+    }
 
     let lotId: number | null = null;
     if (entryType === "charge") {

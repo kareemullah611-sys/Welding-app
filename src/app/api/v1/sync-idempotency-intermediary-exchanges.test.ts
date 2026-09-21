@@ -5,6 +5,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { generateToken } from "@/lib/auth";
 import { POST as createIntermediaryExchange } from "@/app/api/v1/intermediaries/[id]/exchanges/route";
+import { foreignCurrencyOwnerKey, recordForeignCurrencyRecognition } from "@/lib/foreign-currency-carrying-db";
 
 test("intermediary exchange create is idempotent for repeated sync request id", async () => {
   const marker = `sync-int-exchange-${Date.now()}`;
@@ -51,6 +52,21 @@ test("intermediary exchange create is idempotent for repeated sync request id", 
       createdBy: superAdmin.id,
     },
   });
+  const seedLayer = await prisma.$transaction((tx) => recordForeignCurrencyRecognition(tx, {
+    positionKind: "asset",
+    positionType: "intermediary_balance",
+    ownerKey: foreignCurrencyOwnerKey.intermediary(intermediary.id),
+    currencyCode: "USD",
+    sourceType: "test_intermediary_exchange_funding",
+    sourceId: intermediary.id,
+    recognitionDate: new Date("2026-04-27"),
+    historicalPoolDate: new Date("2026-04-27"),
+    foreignAmount: 500,
+    carryingAmountPkr: 140000,
+    rate: { ratePkr: 280, rateType: "test", provider: "LOCAL_TEST" },
+    createdBy: superAdmin.id,
+  }));
+  let createdExchangeId: number | null = null;
 
   const syncRequestId = `req-int-exchange-${Date.now()}`;
   const headers = {
@@ -83,6 +99,7 @@ test("intermediary exchange create is idempotent for repeated sync request id", 
     assert.equal(firstJson.success, true);
     const firstId = firstJson.data?.id;
     assert.ok(firstId, "First call should return created id");
+    createdExchangeId = firstId;
 
     const secondRequest = new NextRequest(`http://localhost/api/v1/intermediaries/${intermediary.id}/exchanges`, {
       method: "POST",
@@ -99,6 +116,13 @@ test("intermediary exchange create is idempotent for repeated sync request id", 
     });
     assert.equal(createdRows.length, 1, "Only one intermediary exchange row should exist for replayed request");
   } finally {
+    if (createdExchangeId) {
+      await prisma.foreignCurrencyMovement.deleteMany({ where: { sourceType: "intermediary_exchange", sourceId: createdExchangeId } });
+      await prisma.foreignCurrencyMovement.deleteMany({ where: { sourceType: "intermediary_exchange_target", sourceId: createdExchangeId } });
+      await prisma.foreignCurrencyCarryingLayer.deleteMany({ where: { sourceType: "intermediary_exchange_target", sourceId: createdExchangeId } });
+    }
+    await prisma.foreignCurrencyMovement.deleteMany({ where: { sourceType: "test_intermediary_exchange_funding", sourceId: intermediary.id } });
+    await prisma.foreignCurrencyCarryingLayer.deleteMany({ where: { id: seedLayer.id } });
     await prisma.syncRequest.deleteMany({
       where: {
         cityId: 0,

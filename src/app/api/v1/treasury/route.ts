@@ -83,6 +83,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       where: {
         cityId,
         sourceType: "cash_office",
+        withdrawalSource: null,
       },
       _sum: { amount: true },
     });
@@ -105,12 +106,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       _sum: { cashAmount: true },
     });
 
-    // Fix P1: personal withdrawals reduce physical cash on hand — previously missing from
-    // the formula so treasury was overstating cash in office by every withdrawal ever recorded.
-    // Fix C7: only count APPROVED withdrawals.
+    // Personal withdrawals are immediate movements; approval is audit-only.
     const withdrawalsRaw = await prisma.personalWithdrawal.groupBy({
       by: ["currencyId"],
-      where: { cityId, sourceType: "cash_office", approvedAt: { not: null } } as any,
+      where: { cityId, sourceType: "cash_office" } as any,
       _sum: { amount: true },
     });
     const liabilityCashEntriesRaw = await prisma.superAdminLiabilityEntry.groupBy({
@@ -279,6 +278,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         cityId,
         sourceType: "bank_transfer",
         bankAccountId: { not: null },
+        withdrawalSource: null,
       },
       _sum: { amount: true },
     });
@@ -296,7 +296,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     });
     const withdrawalsFromBankRaw = await prisma.personalWithdrawal.groupBy({
       by: ["currencyId"],
-      where: { cityId, sourceType: "bank_account", bankAccountId: { not: null }, approvedAt: { not: null } } as any,
+      where: { cityId, sourceType: "bank_account", bankAccountId: { not: null } } as any,
       _sum: { amount: true },
     });
 
@@ -502,7 +502,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       // Haji transfers from this bank account
       const acctHajiRaw = await prisma.hajiTransfer.groupBy({
         by: ["currencyId"],
-        where: { cityId, bankAccountId: acct.id },
+        where: { cityId, bankAccountId: acct.id, withdrawalSource: null },
         _sum: { amount: true },
       });
 
@@ -514,7 +514,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       });
       const acctWithdrawalsRaw = await prisma.personalWithdrawal.groupBy({
         by: ["currencyId"],
-        where: { cityId, bankAccountId: acct.id, sourceType: "bank_account", approvedAt: { not: null } } as any,
+        where: { cityId, bankAccountId: acct.id, sourceType: "bank_account" } as any,
         _sum: { amount: true },
       });
 

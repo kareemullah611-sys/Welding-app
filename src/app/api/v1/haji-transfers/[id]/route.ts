@@ -2,7 +2,6 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
-import { reverseJournalEntries, journalHajiTransfer } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { resolveAfghanistanSettlement } from "@/lib/afghanistan-haji-settlement";
 import {
@@ -16,24 +15,8 @@ import {
 } from "@/lib/pakistan-haji-destination";
 import { getSaCheckAuditStateMap, isSaCheckConfirmed } from "@/lib/sa-check-audit";
 import { isAfghanistanCountry, isPakistanCountry } from "@/lib/country-code";
+import { recordHajiTransferAccounting, reverseHajiTransferAccounting } from "@/lib/haji-transfer-accounting";
 
-function journalInputFromTransfer(transfer: any, createdBy: number) {
-  return {
-    id: transfer.id,
-    cityId: transfer.cityId,
-    lotId: transfer.lotId,
-    amount: Number(transfer.amount),
-    currencyCode: transfer.currency.code,
-    date: transfer.transferDate,
-    createdBy,
-    sourceType: transfer.sourceType ?? null,
-    bankAccountId: transfer.bankAccountId ?? null,
-    settlementDestination: transfer.settlementDestination ?? "standard",
-    intermediaryId: transfer.intermediaryId ?? null,
-    superAdminCashAccountId: transfer.superAdminCashAccountId ?? null,
-    superAdminBankAccountId: transfer.superAdminBankAccountId ?? null,
-  };
-}
 
 export const PUT = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -41,7 +24,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     const body = await request.json();
     const h = await prisma.hajiTransfer.findUnique({
       where: { id },
-      include: { currency: true, city: { include: { country: true } } },
+      include: { currency: true, city: { include: { country: true } }, withdrawalSource: true },
     });
     if (!h) return errorResponse("NOT_FOUND", "Not found", 404);
     if (user.role === "city_admin" && h.cityId !== user.cityId) {
@@ -124,6 +107,10 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           confirmedBy: { id: user.userId, fullName: user.username, username: user.username },
         },
       }, confirmed ? "Settlement audit confirmed" : "Settlement audit unconfirmed");
+    }
+
+    if (h.withdrawalSource) {
+      return errorResponse("CONFLICT", "This Haji transfer belongs to a linked withdrawal; edit the withdrawal instead.", 409);
     }
 
     if (await isHajiTransferAuditConfirmed(id) || await isSaCheckConfirmed("haji_transfers", id)) {
@@ -210,13 +197,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     }
 
     await prisma.$transaction(async (tx) => {
-      await tx.journalEntry.deleteMany({
-        where: {
-          transactionId: {
-            in: [`HAJI-${id}`, `REV-HAJI-${id}`],
-          },
-        },
-      });
+      await reverseHajiTransferAccounting(tx, h, user.userId, "edit");
 
       const updated = await tx.hajiTransfer.update({
         where: { id },
@@ -241,7 +222,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         include: { currency: true },
       });
 
-      await journalHajiTransfer(journalInputFromTransfer(updated, user.userId), tx);
+      await recordHajiTransferAccounting(tx, updated, user.userId);
 
       await createAuditLog(
         user.userId,
@@ -265,7 +246,10 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 export const DELETE = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
     const id = parseInt(context.params.id);
-    const h = await prisma.hajiTransfer.findUnique({ where: { id } });
+    const h = await prisma.hajiTransfer.findUnique({
+      where: { id },
+      include: { currency: true, city: { include: { country: true } }, withdrawalSource: true },
+    });
     if (!h) return errorResponse("NOT_FOUND", "Not found", 404);
     if (user.role === "city_admin" && h.cityId !== user.cityId) {
       return errorResponse("FORBIDDEN", "Not your city", 403);
@@ -273,9 +257,12 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
     if (await isHajiTransferAuditConfirmed(id)) {
       return errorResponse("FORBIDDEN", "Cannot delete a settlement after audit confirmation", 403);
     }
+    if (h.withdrawalSource) {
+      return errorResponse("CONFLICT", "This Haji transfer belongs to a linked withdrawal; edit or delete the withdrawal instead.", 409);
+    }
 
     await prisma.$transaction(async (tx) => {
-      await reverseJournalEntries(`HAJI-${id}`, user.userId, tx);
+      await reverseHajiTransferAccounting(tx, h, user.userId, "delete");
 
       const chequePaymentId = (h as any).chequePaymentId;
       if (chequePaymentId) {

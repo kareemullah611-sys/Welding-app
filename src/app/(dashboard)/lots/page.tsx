@@ -146,7 +146,7 @@ export default function LotsPage() {
   const [openActionId, setOpenActionId] = useState<number | null>(null);
   const selectedLotCountryCode = String(selectedLot?.country?.code || selectedLot?.countryCode || "").toUpperCase();
   const isAfgLot = selectedLotCountryCode === "AFG";
-  const costNeedsRate = (cc: string) => ["USD", "CNY", "AFN"].includes(String(cc || "").toUpperCase());
+  const costNeedsRate = (cc: string) => ["USD", "CNY", "AED", "AFN"].includes(String(cc || "").toUpperCase());
   const getPendingQueueId = (id: unknown) => {
     const str = String(id || "");
     if (!str.startsWith("pending-")) return null;
@@ -1456,12 +1456,14 @@ export default function LotsPage() {
                 <select value={costForm.currencyCode} onChange={e => setCostForm(f => ({ ...f, currencyCode: e.target.value }))} className="select-field">
                   <option value="USD">USD</option>
                   <option value="CNY">CNY (Yuan)</option>
+                  <option value="AED">AED</option>
                 </select>
               ) : isAfgLot ? (
                 <select value={costForm.currencyCode} onChange={e => setCostForm(f => ({ ...f, currencyCode: e.target.value, exchangeRate: costNeedsRate(e.target.value) ? f.exchangeRate : "" }))} className="select-field">
                   <option value="PKR">PKR</option>
                   <option value="USD">USD</option>
                   <option value="CNY">CNY</option>
+                  <option value="AED">AED</option>
                   <option value="AFN">AFN</option>
                 </select>
               ) : (

@@ -546,7 +546,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     if (!account) return errorResponse("NOT_FOUND", "Bank account not found", 404);
     if (user.role === "city_admin" && account.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
 
-    const [paymentsIn, deposits, depositedCheques, expenses, hajiTransfers, supplierPayments, shippingLinePayments, agentPayments, lotCosts, intermediaryDeposits, liabilityEntries] =
+    const [paymentsIn, deposits, depositedCheques, expenses, hajiTransfers, personalWithdrawals, supplierPayments, shippingLinePayments, agentPayments, lotCosts, intermediaryDeposits, liabilityEntries] =
       await Promise.all([
         prisma.payment.findMany({
           where: { bankAccountId: id, destination: "our_account", status: "active", cityId: account.cityId },
@@ -588,9 +588,19 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           orderBy: [{ expenseDate: "asc" }, { createdAt: "asc" }],
         }),
         prisma.hajiTransfer.findMany({
-          where: { bankAccountId: id, cityId: account.cityId, sourceType: "bank_transfer" },
+          where: {
+            bankAccountId: id,
+            cityId: account.cityId,
+            sourceType: "bank_transfer",
+            withdrawalSource: null,
+          },
           select: { id: true, transferDate: true, createdAt: true, amount: true, detail: true, currencyId: true },
           orderBy: [{ transferDate: "asc" }, { createdAt: "asc" }],
+        }),
+        prisma.personalWithdrawal.findMany({
+          where: { bankAccountId: id, cityId: account.cityId, sourceType: "bank_account" },
+          select: { id: true, withdrawalDate: true, createdAt: true, amount: true, detail: true, currencyId: true },
+          orderBy: [{ withdrawalDate: "asc" }, { createdAt: "asc" }],
         }),
         prisma.supplierPayment.findMany({
           where: { bankAccountId: id, deletedAt: null },
@@ -693,6 +703,19 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         currencyCode: toCurrencyCode(h.currencyId, currencyCodeById),
         credit: 0,
         debit: Number(h.amount),
+      });
+    }
+    for (const withdrawal of personalWithdrawals) {
+      rows.push({
+        key: `withdrawal-${withdrawal.id}`,
+        date: new Date(withdrawal.withdrawalDate),
+        createdAt: new Date(withdrawal.createdAt),
+        type: "Personal Withdrawal",
+        detail: withdrawal.detail || "Personal withdrawal",
+        reference: null,
+        currencyCode: toCurrencyCode(withdrawal.currencyId, currencyCodeById),
+        credit: 0,
+        debit: Number(withdrawal.amount),
       });
     }
     for (const s of supplierPayments) {

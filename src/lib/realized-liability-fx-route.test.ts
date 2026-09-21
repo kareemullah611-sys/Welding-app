@@ -28,9 +28,9 @@ test("shipping settlement persists documented carrying basis and realized FX ato
 });
 
 test("settlement edits and deletes reverse the current journal revision", () => {
-  assert.match(supplierEdit, /settlementJournalTransactionId\("SUPPPAY", id, existing\.journalVersion\)/);
+  assert.match(supplierEdit, /settlementJournalTransactionId\("SUPPPAY", id, lockedExisting\.journalVersion\)/);
   assert.match(supplierEdit, /journalVersion: \{ increment: 1 \}/);
-  assert.match(shippingEdit, /settlementJournalTransactionId\("SLPAY", id, existing\.journalVersion\)/);
+  assert.match(shippingEdit, /settlementJournalTransactionId\("SLPAY", id, lockedExisting\.journalVersion\)/);
   assert.match(shippingEdit, /journalVersion: \{ increment: 1 \}/);
 });
 
@@ -44,10 +44,10 @@ test("realized FX journals use separate P&L accounts and remain PKR-only", () =>
 });
 
 test("realized supplier and shipping FX enter the historical pool from original pool dates", () => {
-  assert.match(attribution, /sourceId: `supplier-payment:\$\{payment\.id\}`/);
-  assert.match(attribution, /sourceId: `shipping-payment:\$\{payment\.id\}`/);
-  assert.match(attribution, /originalPoolDate: dateOnly\(payment\.fxPoolDate!\)/);
-  assert.match(attribution, /amountPkr: Number\(payment\.realizedFxPkr\)/);
+  assert.match(attribution, /originalPoolDateByTransactionId\.set/);
+  assert.match(attribution, /settlementJournalTransactionId\("SUPPPAY", payment\.id, payment\.journalVersion\)/);
+  assert.match(attribution, /settlementJournalTransactionId\("SLPAY", payment\.id, payment\.journalVersion\)/);
+  assert.match(attribution, /dateOnly\(payment\.fxPoolDate!\)/);
 });
 
 test("later supplier payments do not rewrite original lot inventory or COGS basis", () => {

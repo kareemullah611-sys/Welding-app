@@ -6,6 +6,7 @@ import { createLotPurchaseSchema } from "@/lib/validations";
 import { successResponse, validationError, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import { foreignCurrencyOwnerKey, recordForeignCurrencyRecognition } from "@/lib/foreign-currency-carrying-db";
 
 const LOT_PURCHASE_SYNC_MODULE = "lot_purchases";
 const SUPERADMIN_SYNC_CITY_ID = 0;
@@ -106,6 +107,26 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
           carryingRatePkr, carryingAmountPkr: item.carryingAmountPkr,
           recognitionDate: lot.lotDate, journalVersion: item.journalVersion, createdBy: user.userId,
         }, tx);
+        await recordForeignCurrencyRecognition(tx, {
+          positionKind: "liability",
+          positionType: "supplier_payable",
+          ownerKey: foreignCurrencyOwnerKey.supplierPayable(supplierId, lotId),
+          currencyCode: "USD",
+          sourceType: "lot_purchase",
+          sourceId: item.id,
+          recognitionDate: lot.lotDate,
+          historicalPoolDate: lot.lotDate,
+          foreignAmount: item.totalPriceUsd,
+          carryingAmountPkr: item.carryingAmountPkr,
+          rate: {
+            ratePkr: carryingRatePkr,
+            rateType: "lot_initial_recognition",
+            provider: "LOT_RECOGNITION_RATE",
+            reference: `lot:${lotId}`,
+            conversionPath: lot.pkrExchangeRateMetadata,
+          },
+          createdBy: user.userId,
+        });
       }
 
       return itemsCreated;
