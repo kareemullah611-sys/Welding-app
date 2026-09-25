@@ -345,3 +345,16 @@ test("production investor feature flags default closed and can be enabled indepe
   assert.equal(isInvestorFxSettlementEnabled({ INVESTOR_FX_SETTLEMENT_ENABLED: "yes" }), true);
   assert.equal(isInvestorSettlementEnabled({ INVESTOR_SETTLEMENT_ENABLED: "false" }), false);
 });
+
+test("finalized opening profit is available without being capitalized", () => {
+  const balance = buildParticipantBalance({
+    participantId: 7,
+    capitalEvents: [{ eventType: "opening", amountPkr: 10_000_000 }],
+    finalizationLedgerEntries: [],
+    actionLedgerEntries: [],
+    openingProfitBalances: [{ id: 91, currentYearProfitPkr: 1_200_000, ongoingLotRealizedProfitPkr: 300_000 }],
+  });
+  assert.equal(balance.currentParticipatingCapitalPkr, 10_000_000);
+  assert.equal(balance.currentAvailableProfitPkr, 1_500_000);
+  assert.equal(balance.finalizedProfitSources[0].sourceType, "opening_participant_balance");
+});

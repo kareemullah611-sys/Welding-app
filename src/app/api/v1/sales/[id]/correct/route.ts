@@ -65,6 +65,13 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     });
     if (!sale) return errorResponse("NOT_FOUND", "Sale not found", 404);
     if (sale.status !== "active") return errorResponse("VALIDATION_ERROR", "Can only correct active sales");
+    if (body.currencyId !== undefined && Number(body.currencyId) !== sale.currencyId) {
+      return errorResponse(
+        "FOREIGN_CARRYING_LAYER_REQUIRED",
+        "Sale recognition currency cannot be changed. Cancel or reverse the original sale and record a new sale in the correct currency.",
+        409,
+      );
+    }
 
     if (user.role === "city_admin" && sale.cityId !== user.cityId) {
       return errorResponse("FORBIDDEN", "Not your city", 403);

@@ -323,6 +323,16 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       include: { currency: true },
     });
     if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not supported in your city");
+    if (
+      nextCurrencyId !== payment.currencyId
+      && (isSupportedForeignCurrency(payment.currency.code) || isSupportedForeignCurrency(cityCurrency.currency.code))
+    ) {
+      return errorResponse(
+        "FOREIGN_CARRYING_LAYER_REQUIRED",
+        "Foreign-currency payment currency cannot be changed. Cancel or reverse the original payment and record a new payment in the correct currency.",
+        409,
+      );
+    }
 
     const foreignPaymentRate = isAfghanistanCity && isSupportedForeignCurrency(cityCurrency.currency.code)
       ? await resolveAfghanistanFxRateFromDb({
@@ -639,6 +649,13 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
   } catch (error) {
     if ((error as any)?.code === "CHEQUE_DUPLICATE") {
       return errorResponse("VALIDATION_ERROR", (error as Error).message);
+    }
+    const message = error instanceof Error ? error.message : "";
+    if (
+      message.startsWith("Insufficient foreign-currency carrying layers")
+      || message.startsWith("Foreign-currency proceeds have already moved")
+    ) {
+      return errorResponse("FOREIGN_CARRYING_LAYER_REQUIRED", message, 409);
     }
     return serverError();
   }

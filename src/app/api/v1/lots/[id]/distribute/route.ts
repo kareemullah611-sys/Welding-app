@@ -51,35 +51,65 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
       }
     }
 
-    // Fix P2: delete stale rows not in this payload before upserting — previously an upsert-only
-    // approach let old city/product rows persist, causing stored totals to silently exceed
-    // the intended distribution when callers send a replacement set.
     const incomingKeys = new Set(distributions.map((d: any) => `${d.cityId}:${d.productId}`));
-    const existingRows = await prisma.lotCityDistribution.findMany({
-      where: { lotId },
-      select: { cityId: true, productId: true },
-    });
-    for (const row of existingRows) {
-      if (!incomingKeys.has(`${row.cityId}:${row.productId}`)) {
-        await prisma.lotCityDistribution.delete({
-          where: { lotId_cityId_productId: { lotId, cityId: row.cityId, productId: row.productId } },
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(32001, ${lotId}::int)`;
+      const existingRows = await tx.lotCityDistribution.findMany({
+        where: { lotId },
+        include: { godownAllocations: { select: { qty: true } } },
+      });
+
+      for (const row of existingRows) {
+        if (incomingKeys.has(`${row.cityId}:${row.productId}`)) continue;
+        const [saleCount, transferCount] = await Promise.all([
+          tx.saleItem.count({
+            where: {
+              lotId,
+              productId: row.productId,
+              sale: { cityId: row.cityId, status: { in: ["active", "marked_short"] } },
+            },
+          }),
+          tx.cityTransfer.count({
+            where: {
+              lotId,
+              productId: row.productId,
+              status: { in: ["pending", "approved"] },
+              OR: [{ fromCityId: row.cityId }, { toCityId: row.cityId }],
+            },
+          }),
+        ]);
+        if (saleCount > 0 || transferCount > 0) {
+          throw new Error(`DISTRIBUTION_HAS_MOVEMENTS:${row.cityId}:${row.productId}`);
+        }
+        await tx.lotCityGodownAllocation.deleteMany({ where: { lotCityDistributionId: row.id } });
+        await tx.lotCityDistribution.delete({ where: { id: row.id } });
+      }
+
+      for (const d of distributions) {
+        const existing = existingRows.find((row) => row.cityId === d.cityId && row.productId === d.productId);
+        const assignedQty = existing?.godownAllocations.reduce((sum, allocation) => sum + Number(allocation.qty), 0) || 0;
+        if (assignedQty > Number(d.allocatedQty)) {
+          throw new Error(`DISTRIBUTION_BELOW_GODOWN_ASSIGNMENTS:${d.cityId}:${d.productId}:${assignedQty}`);
+        }
+        await tx.lotCityDistribution.upsert({
+          where: { lotId_cityId_productId: { lotId, cityId: d.cityId, productId: d.productId } },
+          create: { lotId, cityId: d.cityId, productId: d.productId, allocatedQty: d.allocatedQty },
+          update: { allocatedQty: d.allocatedQty, updatedAt: new Date() },
         });
       }
-    }
 
-    // Upsert distributions (no transaction - avoids Neon timeout)
-    for (const d of distributions) {
-      await prisma.lotCityDistribution.upsert({
-        where: { lotId_cityId_productId: { lotId, cityId: d.cityId, productId: d.productId } },
-        create: { lotId, cityId: d.cityId, productId: d.productId, allocatedQty: d.allocatedQty },
-        update: { allocatedQty: d.allocatedQty, updatedAt: new Date() },
-      });
-    }
-
-    await createAuditLog(user.userId, null, "lots", lotId, "update", undefined, { action: "distribute", distributions }, getClientIP(request));
+      await createAuditLog(user.userId, null, "lots", lotId, "update", undefined, { action: "distribute", distributions }, getClientIP(request), tx);
+    });
 
     return successResponse({ lotId, distributed: distributions.length }, "Lot distributed to cities");
   } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message.startsWith("DISTRIBUTION_HAS_MOVEMENTS:")) {
+      return errorResponse("VALIDATION_ERROR", "Cannot remove a distribution after sales or city transfers exist. Reverse those movements first.", 400);
+    }
+    if (message.startsWith("DISTRIBUTION_BELOW_GODOWN_ASSIGNMENTS:")) {
+      return errorResponse("VALIDATION_ERROR", "City distribution cannot be lower than its existing godown assignments. Adjust godown assignments first.", 400);
+    }
     console.error("Distribute error:", error);
     return serverError();
   }

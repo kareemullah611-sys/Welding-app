@@ -48,10 +48,11 @@ test("inventory value, superadmin funds, Haji direction and opening equity are j
   assert.match(route, /kind === "equity"/);
 });
 
-test("opening UI exposes the missing accounting openings without replacing physical stock", () => {
+test("opening UI exposes controlled cutover accounting without replacing physical stock", () => {
   assert.match(page, /Opening inventory valuation/);
   assert.match(page, /Superadmin cash and bank openings/);
-  assert.match(page, /Opening equity reconciliation/);
+  assert.match(page, /One-time cutover control/);
+  assert.match(page, /Participant opening capital and retained profit/);
   assert.match(page, /Owed to Haji/);
   assert.match(page, /Due from Haji/);
   assert.match(page, /Opening godown stock \(ongoing lots\)/);

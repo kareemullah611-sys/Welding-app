@@ -266,9 +266,6 @@ export default function BalanceHub({ user, treasury, glass = true, netRevealed =
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500">Net Balance</p>
           <p className="text-xl font-bold leading-tight tabular-nums text-emerald-700">{netRevealed ? formatCityPot(user, net) : "•••"}</p>
-          <p className="truncate text-xs text-gray-400">
-            Cash in Office{showCheques ? " · Cheques in Hand" : ""}{showBank ? " · Bank Balance" : ""}
-          </p>
         </div>
         <ChevronDown
           className={`ml-auto h-5 w-5 flex-shrink-0 text-gray-400 transition-transform duration-300 ${expanded ? "" : "-rotate-90"}`}

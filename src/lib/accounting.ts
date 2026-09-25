@@ -1719,6 +1719,41 @@ export async function journalOpeningEquityAllocation(p: {
   }, db);
 }
 
+export async function journalOpeningParticipantBalance(p: {
+  id: number;
+  participantId: number;
+  participantName: string;
+  capitalPkr: number;
+  currentYearProfitPkr: number;
+  ongoingLotRealizedProfitPkr: number;
+  openingDate: Date;
+  createdBy: number;
+  journalVersion: number;
+}, db: DbClient = prisma) {
+  const capital = Math.abs(roundMoney(p.capitalPkr));
+  const currentProfit = Math.abs(roundMoney(p.currentYearProfitPkr));
+  const ongoingProfit = Math.abs(roundMoney(p.ongoingLotRealizedProfitPkr));
+  const total = roundMoney(capital + currentProfit + ongoingProfit);
+  if (total <= 0) throw new Error("Participant opening balance must be greater than zero.");
+  const openingAccountId = await getOpeningBalanceAccountId(db);
+  const capitalAccountId = await getOrCreateAccount(`3905-P${p.participantId}`, `Participant Capital - ${p.participantName}`, "equity", undefined, db);
+  const currentProfitAccountId = await getOrCreateAccount(`3906-P${p.participantId}`, `Participant Current-Year Profit - ${p.participantName}`, "equity", undefined, db);
+  const ongoingProfitAccountId = await getOrCreateAccount(`3907-P${p.participantId}`, `Participant Ongoing-Lot Realized Profit - ${p.participantName}`, "equity", undefined, db);
+  const lines = [
+    { accountId: openingAccountId, debit: total, credit: 0, description: `Opening participant balance · ${p.participantName}` },
+    ...(capital > 0 ? [{ accountId: capitalAccountId, debit: 0, credit: capital, description: `Opening participating capital · ${p.participantName}` }] : []),
+    ...(currentProfit > 0 ? [{ accountId: currentProfitAccountId, debit: 0, credit: currentProfit, description: `Opening current-year retained profit · ${p.participantName}` }] : []),
+    ...(ongoingProfit > 0 ? [{ accountId: ongoingProfitAccountId, debit: 0, credit: ongoingProfit, description: `Opening ongoing-lot realized profit · ${p.participantName}` }] : []),
+  ];
+  await createJournalEntries(`OPENPART-${p.id}-V${p.journalVersion}`, lines, {
+    currencyCode: "PKR",
+    entityType: "opening_participant_balance",
+    entityId: p.id,
+    entryDate: p.openingDate,
+    createdBy: p.createdBy,
+  }, db);
+}
+
 // SUPER ADMIN PERSONAL / HOME EXPENSE — debited from SA bank GL
 export async function journalSuperAdminPersonalExpense(
   e: {

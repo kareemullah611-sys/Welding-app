@@ -1052,6 +1052,16 @@ test("dashboard metric and quick action cards collapse the balance hub", () => {
   assert.match(dashboardPage, /collapseBalanceHub\(\); setRevealedMetric\("haji"\)/);
 });
 
+test("city dashboard net balance card omits the component balance subtitle", () => {
+  const balanceHub = readFileSync("src/components/dashboard/BalanceHub.tsx", "utf8");
+  const netBalanceHeader = balanceHub.slice(
+    balanceHub.indexOf(">Net Balance</p>"),
+    balanceHub.indexOf("<ChevronDown", balanceHub.indexOf(">Net Balance</p>"))
+  );
+
+  assert.doesNotMatch(netBalanceHeader, /Cash in Office|Cheques in Hand|Bank Balance/);
+});
+
 test("inter funds transfer cheque picker uses payment cheque fields and formatted cash input", () => {
   const bankDepositsPage = readFileSync("src/app/(dashboard)/bank-deposits/page.tsx", "utf8");
 

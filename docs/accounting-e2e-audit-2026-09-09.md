@@ -167,3 +167,7 @@ Investor/manager capital events currently update the participation ledger only. 
 ## Verdict
 
 **DO NOT SHIP as “fully reconciled.”** The controlled scenario and the remaining Haji, cheque, liability, and treasury variants reconcile, including their tested reversals/deletions. Release blockers remain: the balance sheet omits current profit, a clean migration deployment fails, and super-admin account openings return HTTP 500. Investor/manager participation arithmetic passes, but real cash settlement is feature-disabled; liability edit/delete and the stale browser flows remain explicitly not verified.
+
+## Current mandatory deployment gate
+
+Authenticated production-like browser entry and opening-cutover finalization were verified on the disposable local rehearsal database on 2026-09-26, including entry, exact reconciliation, atomic finalization, lock behavior, and post-finalization write rejection. See `docs/client-readiness-accounting-e2e-2026-09-26.md`. Production remains blocked by the separate migration-bootstrap and operational gaps recorded there.

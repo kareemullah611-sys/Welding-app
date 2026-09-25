@@ -94,3 +94,13 @@ test("payment edit prefill submits raw ISO dates instead of display dates", () =
   assert.match(route, /new Date\(`20\$\{display\[3\]\}-\$\{display\[2\]\}-\$\{display\[1\]\}`\)/);
   assert.match(route, /const nextPaymentDate = parsePaymentEditDate\(data\.paymentDate, payment\.paymentDate\)/);
 });
+
+test("payment edit blocks cross-currency changes before foreign carrying layers are mutated", () => {
+  const route = readFileSync("src/app/api/v1/payments/[id]/route.ts", "utf8");
+
+  assert.match(route, /FOREIGN_CARRYING_LAYER_REQUIRED/);
+  assert.match(route, /nextCurrencyId !== payment\.currencyId/);
+  assert.match(route, /Foreign-currency payment currency cannot be changed/);
+  assert.match(route, /Insufficient foreign-currency carrying layers/);
+  assert.match(route, /Foreign-currency proceeds have already moved/);
+});

@@ -285,11 +285,18 @@ async function findMissingRequiredRates(periodStart: string, periodEnd: string) 
   const [sales, payments, expenses, withdrawals, hajiTransfers, lotCosts, supplierPayments, shippingPayments, agentPayments, intermediaryDeposits] = await Promise.all([
     prisma.sale.findMany({
       where: { saleDate: periodRange, status: "active" },
-      select: { saleDate: true, currencyId: true, city: { select: { countryId: true } } },
+      select: {
+        id: true,
+        saleDate: true,
+        currencyId: true,
+        fxSelectedRate: true,
+        fxProviderReference: true,
+        city: { select: { countryId: true } },
+      },
     }),
     prisma.payment.findMany({
       where: { paymentDate: periodRange, status: "active" },
-      select: { paymentDate: true, currencyId: true, city: { select: { countryId: true } } },
+      select: { id: true, paymentDate: true, currencyId: true, city: { select: { countryId: true } } },
     }),
     prisma.expense.findMany({
       where: { expenseDate: periodRange, deletedAt: null },
@@ -325,8 +332,24 @@ async function findMissingRequiredRates(periodStart: string, periodEnd: string) 
     }),
   ]);
 
-  for (const row of sales) addNeed(row.city.countryId, currencyById.get(row.currencyId), row.saleDate, "sale");
-  for (const row of payments) addNeed(row.city.countryId, currencyById.get(row.currencyId), row.paymentDate, "customer collection");
+  const carriedPaymentIds = new Set((await prisma.foreignCurrencyMovement.findMany({
+    where: {
+      sourceType: "customer_payment",
+      sourceId: { in: payments.map((payment) => payment.id) },
+      movementType: "settlement",
+      ratePkr: { not: null },
+      rateProvider: { not: null },
+    },
+    select: { sourceId: true },
+  })).map((movement) => movement.sourceId));
+
+  for (const row of sales) {
+    const hasImmutableRateEvidence = Number(row.fxSelectedRate || 0) > 0 && Boolean(row.fxProviderReference);
+    if (!hasImmutableRateEvidence) addNeed(row.city.countryId, currencyById.get(row.currencyId), row.saleDate, "sale");
+  }
+  for (const row of payments) {
+    if (!carriedPaymentIds.has(row.id)) addNeed(row.city.countryId, currencyById.get(row.currencyId), row.paymentDate, "customer collection");
+  }
   for (const row of expenses) addNeed(row.city.countryId, currencyById.get(row.currencyId), row.expenseDate, "expense");
   for (const row of withdrawals) addNeed(row.city.countryId, currencyById.get(row.currencyId), row.withdrawalDate, "withdrawal");
   for (const row of hajiTransfers) addNeed(row.city.countryId, currencyById.get(row.currencyId), row.transferDate, "haji transfer");

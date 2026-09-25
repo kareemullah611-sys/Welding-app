@@ -70,6 +70,7 @@ export async function buildPeriodProfitReportData(
   });
   const pkrRevenueRows = journalRows.filter((row) => (
     accountById.get(row.accountId)?.accountType === "revenue"
+      && accountById.get(row.accountId)?.code !== "FX-GAIN"
       && String(row.currencyCode).toUpperCase() === REPORTING_CURRENCY
   ));
   const journalSaleIds = [...new Set(

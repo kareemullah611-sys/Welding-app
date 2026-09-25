@@ -201,6 +201,12 @@ enum OpeningEquityType {
   other
 }
 
+enum OpeningCutoverStatus {
+  draft
+  finalized
+  reversed
+}
+
 enum CityLiabilityEntryType {
   charge
   payment
@@ -1155,6 +1161,61 @@ model OpeningEquityAllocation {
   @@unique([equityType, label], name: "unique_opening_equity_type_label")
   @@index([openingDate])
   @@map("opening_equity_allocations")
+}
+
+model OpeningCutover {
+  id                          Int                  @id @default(autoincrement())
+  revision                    Int                  @unique
+  status                      OpeningCutoverStatus @default(draft)
+  cutoverDate                 DateTime             @map("cutover_date") @db.Date
+  fiscalYearStart             DateTime             @map("fiscal_year_start") @db.Date
+  fiscalYearEnd               DateTime             @map("fiscal_year_end") @db.Date
+  backupReference             String               @map("backup_reference") @db.VarChar(240)
+  backupAcknowledged          Boolean              @default(false) @map("backup_acknowledged")
+  backupVerifiedBy            Int?                 @map("backup_verified_by")
+  backupVerifiedAt            DateTime?            @map("backup_verified_at")
+  reconciliationDifferencePkr Decimal?             @map("reconciliation_difference_pkr") @db.Decimal(15, 2)
+  readinessSnapshotJson       Json?                @map("readiness_snapshot_json")
+  finalSnapshotJson           Json?                @map("final_snapshot_json")
+  finalizedBy                 Int?                 @map("finalized_by")
+  finalizedAt                 DateTime?            @map("finalized_at")
+  reversedBy                  Int?                 @map("reversed_by")
+  reversedAt                  DateTime?            @map("reversed_at")
+  reversalReason              String?              @map("reversal_reason") @db.Text
+  supersedesCutoverId         Int?                 @map("supersedes_cutover_id")
+  createdBy                   Int                  @map("created_by")
+  createdAt                   DateTime             @default(now()) @map("created_at")
+  updatedAt                   DateTime             @updatedAt @map("updated_at")
+
+  participantBalances OpeningParticipantBalance[]
+
+  @@index([status])
+  @@index([cutoverDate])
+  @@index([supersedesCutoverId])
+  @@map("opening_cutovers")
+}
+
+model OpeningParticipantBalance {
+  id                          Int      @id @default(autoincrement())
+  cutoverId                   Int      @map("cutover_id")
+  participantId               Int      @map("participant_id")
+  capitalPkr                  Decimal  @default(0) @map("capital_pkr") @db.Decimal(15, 2)
+  currentYearProfitPkr        Decimal  @default(0) @map("current_year_profit_pkr") @db.Decimal(15, 2)
+  ongoingLotRealizedProfitPkr Decimal  @default(0) @map("ongoing_lot_realized_profit_pkr") @db.Decimal(15, 2)
+  openingDate                 DateTime @map("opening_date") @db.Date
+  notes                       String?  @db.Text
+  journalVersion              Int      @default(1) @map("journal_version")
+  createdBy                   Int      @map("created_by")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  cutover     OpeningCutover        @relation(fields: [cutoverId], references: [id], onDelete: Restrict)
+  participant InvestmentParticipant @relation(fields: [participantId], references: [id], onDelete: Restrict)
+
+  @@unique([cutoverId, participantId], name: "opening_participant_cutover_participant_key")
+  @@index([participantId])
+  @@index([openingDate])
+  @@map("opening_participant_balances")
 }
 
 // ============================================================
@@ -2557,6 +2618,7 @@ model InvestmentParticipant {
   participantActionLedgerEntries InvestmentParticipantActionLedgerEntry[]
   participantSettlements         InvestmentParticipantSettlement[]
   participantSettlementPayments  InvestmentParticipantSettlementPayment[]
+  openingBalances                OpeningParticipantBalance[]
 
   @@index([investorId])
   @@index([type])

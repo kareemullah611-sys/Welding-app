@@ -182,6 +182,23 @@ type OpeningData = {
   openingEquityReconciliation: { clearingAccountCode: string; unallocatedPkr: number; reconciled: boolean };
 };
 
+type OpeningCutoverData = {
+  cutover: null | {
+    id: number;
+    revision: number;
+    status: "draft" | "finalized" | "reversed";
+    cutoverDate: string;
+    fiscalYearStart: string;
+    fiscalYearEnd: string;
+    backupReference: string;
+    backupAcknowledged: boolean;
+    finalizedAt?: string | null;
+    participantBalances: Array<{ id: number; participantId: number; participantName: string; participantType: "manager" | "investor"; capitalPkr: number; currentYearProfitPkr: number; ongoingLotRealizedProfitPkr: number; openingDate: string; notes?: string | null }>;
+  };
+  participants: Array<{ id: number; name: string; type: "manager" | "investor"; isActive: boolean }>;
+  readiness: null | { ready: boolean; blockers: string[]; openingClearingPkr: number; totalParticipatingCapitalPkr: number };
+};
+
 type CityCurrency = { id: number; code: string; symbol?: string };
 
 function resolveCityCurrencyId(currencies: CityCurrency[], currentId: number): number {
@@ -285,6 +302,7 @@ export default function OpeningsPage() {
   const [data, setData] = useState<OpeningData | null>(null);
   const [selectedCityId, setSelectedCityId] = useState<number>(0);
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
+  const [cutoverData, setCutoverData] = useState<OpeningCutoverData | null>(null);
 
   const cashRef = useRef<HTMLFormElement>(null);
   const customerRef = useRef<HTMLFormElement>(null);
@@ -297,7 +315,6 @@ export default function OpeningsPage() {
   const liabilityRef = useRef<HTMLFormElement>(null);
   const inventoryValueRef = useRef<HTMLFormElement>(null);
   const superAdminAccountRef = useRef<HTMLFormElement>(null);
-  const equityRef = useRef<HTMLFormElement>(null);
 
   const today = new Date().toISOString().split("T")[0];
   const emptyFx = { carryingAmountPkr: "", fxRateToPkr: "", fxRateDate: today, fxRateSource: "" };
@@ -308,7 +325,6 @@ export default function OpeningsPage() {
     currencyId: 0,
     amount: "",
     chequeNumber: "",
-    chequeBank: "",
     chequeDueDate: "",
     openingDate: today,
     notes: "",
@@ -361,7 +377,10 @@ export default function OpeningsPage() {
   });
   const [inventoryValueForm, setInventoryValueForm] = useState({ lotId: 0, productId: 0, quantity: "", unitCostPkr: "", originalCurrencyId: 0, originalAmount: "", openingDate: today, notes: "", ...emptyFx });
   const [superAdminAccountForm, setSuperAdminAccountForm] = useState({ accountId: 0, amount: "", openingDate: today, notes: "", ...emptyFx });
-  const [equityForm, setEquityForm] = useState({ equityType: "manager_capital" as "manager_capital" | "retained_earnings" | "other", label: "Manager opening capital", amountPkr: "", openingDate: today, notes: "" });
+  const [cutoverForm, setCutoverForm] = useState({ cutoverDate: today, fiscalYearStart: today, fiscalYearEnd: today, backupReference: "", backupAcknowledged: false });
+  const [participantOpeningForm, setParticipantOpeningForm] = useState({ participantId: 0, capitalPkr: "", currentYearProfitPkr: "", ongoingLotRealizedProfitPkr: "", openingDate: today, notes: "" });
+  const [finalizeConfirmation, setFinalizeConfirmation] = useState("");
+  const [reversalForm, setReversalForm] = useState({ confirmation: "", reason: "" });
 
   const cityReady = !isSuperAdmin || selectedCityId > 0;
   const canEdit = data?.canEditOpenings !== false;
@@ -427,8 +446,26 @@ export default function OpeningsPage() {
     setLoading(false);
   };
 
+  const loadCutover = async () => {
+    if (!isSuperAdmin) return;
+    const result = await apiCall<OpeningCutoverData>("/api/v1/opening-cutover");
+    if (!result.success || !result.data) return toast.error(result.error || "Failed to load cutover control");
+    setCutoverData(result.data);
+    if (result.data.cutover) {
+      setCutoverForm({
+        cutoverDate: result.data.cutover.cutoverDate,
+        fiscalYearStart: result.data.cutover.fiscalYearStart,
+        fiscalYearEnd: result.data.cutover.fiscalYearEnd,
+        backupReference: result.data.cutover.backupReference,
+        backupAcknowledged: result.data.cutover.backupAcknowledged,
+      });
+      setParticipantOpeningForm((prev) => ({ ...prev, openingDate: result.data!.cutover!.cutoverDate, participantId: prev.participantId || result.data!.participants[0]?.id || 0 }));
+    }
+  };
+
   useEffect(() => {
     load();
+    loadCutover();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -550,7 +587,6 @@ export default function OpeningsPage() {
         amount: Number(chequeForm.amount || 0),
         ...fxPayload(chequeForm),
         chequeNumber: chequeForm.chequeNumber.trim(),
-        chequeBank: chequeForm.chequeBank.trim() || null,
         chequeDueDate: chequeForm.chequeDueDate || null,
         openingDate: chequeForm.openingDate,
         notes: chequeForm.notes || null,
@@ -562,11 +598,57 @@ export default function OpeningsPage() {
       ...prev,
       amount: "",
       chequeNumber: "",
-      chequeBank: "",
       chequeDueDate: "",
       notes: "",
     }));
     load();
+  };
+
+  const saveCutoverSetup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const result = await apiCall("/api/v1/opening-cutover", { method: "POST", body: { action: "save_setup", ...cutoverForm } });
+    if (!result.success) return toast.error(result.error || "Failed to save cutover setup");
+    toast.success("Cutover setup saved");
+    await Promise.all([loadCutover(), load()]);
+  };
+
+  const saveParticipantOpening = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const result = await apiCall("/api/v1/opening-cutover", { method: "POST", body: {
+      action: "save_participant_balance", participantId: participantOpeningForm.participantId,
+      capitalPkr: Number(participantOpeningForm.capitalPkr || 0), currentYearProfitPkr: Number(participantOpeningForm.currentYearProfitPkr || 0),
+      ongoingLotRealizedProfitPkr: Number(participantOpeningForm.ongoingLotRealizedProfitPkr || 0), openingDate: participantOpeningForm.openingDate,
+      notes: participantOpeningForm.notes || null,
+    } });
+    if (!result.success) return toast.error(result.error || "Failed to save participant opening");
+    toast.success("Participant opening saved");
+    setParticipantOpeningForm((prev) => ({ ...prev, capitalPkr: "", currentYearProfitPkr: "", ongoingLotRealizedProfitPkr: "", notes: "" }));
+    await Promise.all([loadCutover(), load()]);
+  };
+
+  const deleteParticipantOpening = async (id: number) => {
+    if (!window.confirm("Remove this draft participant opening?")) return;
+    const result = await apiCall("/api/v1/opening-cutover", { method: "POST", body: { action: "delete_participant_balance", id } });
+    if (!result.success) return toast.error(result.error || "Failed to remove participant opening");
+    toast.success("Participant opening removed");
+    await Promise.all([loadCutover(), load()]);
+  };
+
+  const finalizeCutover = async () => {
+    if (!window.confirm("Finalize and permanently lock all opening entries?")) return;
+    const result = await apiCall("/api/v1/opening-cutover", { method: "POST", body: { action: "finalize", confirmation: finalizeConfirmation } });
+    if (!result.success) return toast.error(result.error || "Opening cutover could not be finalized");
+    toast.success("Opening cutover finalized and locked");
+    await Promise.all([loadCutover(), load()]);
+  };
+
+  const reverseCutover = async () => {
+    if (!window.confirm("Reverse the finalized opening cutover and create a correction draft?")) return;
+    const result = await apiCall("/api/v1/opening-cutover", { method: "POST", body: { action: "reverse", ...reversalForm } });
+    if (!result.success) return toast.error(result.error || "Opening reversal failed");
+    toast.success("Opening cutover reversed; correction draft created");
+    setReversalForm({ confirmation: "", reason: "" });
+    await Promise.all([loadCutover(), load()]);
   };
 
   const submitHaji = async (e: React.FormEvent) => {
@@ -749,16 +831,6 @@ export default function OpeningsPage() {
     load();
   };
 
-  const submitEquity = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!canEdit) return toast.error("Opening entries are locked");
-    const result = await apiCall("/api/v1/openings", { method: "POST", body: { kind: "equity", ...equityForm, amountPkr: Number(equityForm.amountPkr || 0) } });
-    if (!result.success) return toast.error(result.error || "Failed");
-    toast.success("Opening equity allocation saved");
-    setEquityForm((prev) => ({ ...prev, amountPkr: "", notes: "" }));
-    load();
-  };
-
   const currencyCodeFor = (currencies: CityCurrency[] | undefined, currencyId: number) => currencies?.find((currency) => currency.id === currencyId)?.code || "";
   const selectedSuperAdminAccount = data?.superAdminAccounts.find((account) => account.id === superAdminAccountForm.accountId);
   const selectedInventoryCurrency = data?.liabilityOptions.currencies.find((currency) => currency.id === inventoryValueForm.originalCurrencyId);
@@ -787,6 +859,56 @@ export default function OpeningsPage() {
             ? "Go-live lock is active — only super admin can edit opening entries."
             : "Opening entries are locked after go-live. Contact super admin to make changes."}
         </div>
+      )}
+
+      {isSuperAdmin && (
+        <section className="card space-y-5">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-neutral-500">One-time cutover control</h2>
+            <p className="mt-1 text-xs text-neutral-500">Enter verified book openings, reconcile account 3900 exactly, then finalize once. Finalization locks every opening API.</p>
+          </div>
+          <form onSubmit={saveCutoverSetup} className="space-y-3">
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3">
+              <label className="text-xs text-neutral-500">Cutover date<input className="input mt-1" type="date" value={cutoverForm.cutoverDate} onChange={(e) => setCutoverForm((prev) => ({ ...prev, cutoverDate: e.target.value }))} required disabled={cutoverData?.cutover?.status === "finalized"} /></label>
+              <label className="text-xs text-neutral-500">Financial year start<input className="input mt-1" type="date" value={cutoverForm.fiscalYearStart} onChange={(e) => setCutoverForm((prev) => ({ ...prev, fiscalYearStart: e.target.value }))} required disabled={cutoverData?.cutover?.status === "finalized"} /></label>
+              <label className="text-xs text-neutral-500">Financial year end<input className="input mt-1" type="date" value={cutoverForm.fiscalYearEnd} onChange={(e) => setCutoverForm((prev) => ({ ...prev, fiscalYearEnd: e.target.value }))} required disabled={cutoverData?.cutover?.status === "finalized"} /></label>
+              <label className="text-xs text-neutral-500">Verified backup reference<input className="input mt-1" value={cutoverForm.backupReference} onChange={(e) => setCutoverForm((prev) => ({ ...prev, backupReference: e.target.value }))} required disabled={cutoverData?.cutover?.status === "finalized"} /></label>
+            </div>
+            <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={cutoverForm.backupAcknowledged} onChange={(e) => setCutoverForm((prev) => ({ ...prev, backupAcknowledged: e.target.checked }))} disabled={cutoverData?.cutover?.status === "finalized"} /><span>I verified this backup can restore the pre-cutover books.</span></label>
+            {cutoverData?.cutover?.status !== "finalized" && <button className="btn-primary" type="submit">Save cutover setup</button>}
+          </form>
+
+          {cutoverData?.cutover && (
+            <>
+              <div className="border-t pt-4">
+                <h3 className="text-sm font-semibold">Participant opening capital and retained profit</h3>
+                <p className="mt-1 text-xs text-neutral-500">Create participants with zero initial capital in Investors first. Capital participates in future results; current-year and ongoing-lot realized profit remain separate and are not capitalized.</p>
+              </div>
+              {cutoverData.participants.length === 0 ? <Link href="/investors" className="text-sm text-primary-600 hover:underline">Add manager and investors first</Link> : cutoverData.cutover.status !== "finalized" && (
+                <form onSubmit={saveParticipantOpening} className="space-y-3">
+                  <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <select className="input" value={participantOpeningForm.participantId} onChange={(e) => setParticipantOpeningForm((prev) => ({ ...prev, participantId: Number(e.target.value) }))} required><option value={0}>Participant</option>{cutoverData.participants.map((participant) => <option key={participant.id} value={participant.id}>{participant.name} · {participant.type}</option>)}</select>
+                    <input className="input" type="number" min="0" step="0.01" placeholder="Participating capital PKR" value={participantOpeningForm.capitalPkr} onChange={(e) => setParticipantOpeningForm((prev) => ({ ...prev, capitalPkr: e.target.value }))} />
+                    <input className="input" type="number" min="0" step="0.01" placeholder="Current-year profit PKR" value={participantOpeningForm.currentYearProfitPkr} onChange={(e) => setParticipantOpeningForm((prev) => ({ ...prev, currentYearProfitPkr: e.target.value }))} />
+                    <input className="input" type="number" min="0" step="0.01" placeholder="Ongoing-lot realized profit PKR" value={participantOpeningForm.ongoingLotRealizedProfitPkr} onChange={(e) => setParticipantOpeningForm((prev) => ({ ...prev, ongoingLotRealizedProfitPkr: e.target.value }))} />
+                    <input className="input" type="date" value={participantOpeningForm.openingDate} onChange={(e) => setParticipantOpeningForm((prev) => ({ ...prev, openingDate: e.target.value }))} required />
+                    <input className="input lg:col-span-2" placeholder="Book reference / notes" value={participantOpeningForm.notes} onChange={(e) => setParticipantOpeningForm((prev) => ({ ...prev, notes: e.target.value }))} />
+                    {cutoverData.participants.find((participant) => participant.id === participantOpeningForm.participantId)?.type === "manager" && Number(cutoverData.readiness?.openingClearingPkr || 0) > 0 && <button type="button" className="btn-secondary" onClick={() => setParticipantOpeningForm((prev) => ({ ...prev, capitalPkr: String(cutoverData.readiness?.openingClearingPkr || 0) }))}>Use remaining equity</button>}
+                  </div>
+                  <button className="btn-primary" type="submit">Save participant opening</button>
+                </form>
+              )}
+              <SavedTable title="Saved participant openings" emptyLabel="No participant openings saved." headers={["Participant", "Capital", "Current-year profit", "Ongoing-lot profit", "Date", ""]} rows={cutoverData.cutover.participantBalances.map((row) => <tr key={row.id} className="border-b last:border-0"><td className="py-2 px-3">{row.participantName} · {row.participantType}</td><td className="py-2 px-3">{row.capitalPkr.toLocaleString("en-US")}</td><td className="py-2 px-3">{row.currentYearProfitPkr.toLocaleString("en-US")}</td><td className="py-2 px-3">{row.ongoingLotRealizedProfitPkr.toLocaleString("en-US")}</td><td className="py-2 px-3">{row.openingDate}</td><td className="py-2 px-3">{cutoverData.cutover?.status === "draft" && <button type="button" className="text-xs text-red-600 hover:underline" onClick={() => deleteParticipantOpening(row.id)}>Delete</button>}</td></tr>)} />
+              <div className={`rounded-lg border px-3 py-3 text-sm ${cutoverData.readiness?.ready ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+                <p className="font-semibold">{cutoverData.cutover.status === "finalized" ? "Finalized and locked" : cutoverData.readiness?.ready ? "Ready to finalize" : "Not ready"}</p>
+                <p>Opening reconciliation: PKR {(cutoverData.readiness?.openingClearingPkr || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}</p>
+                {(cutoverData.readiness?.blockers || []).map((blocker) => <p key={blocker} className="mt-1">• {blocker}</p>)}
+              </div>
+              {cutoverData.cutover.status === "draft" && <div className="flex flex-col md:flex-row gap-3"><input className="input md:max-w-xs" placeholder="Type FINALIZE OPENINGS" value={finalizeConfirmation} onChange={(e) => setFinalizeConfirmation(e.target.value)} /><button type="button" className="btn-primary" disabled={!cutoverData.readiness?.ready || finalizeConfirmation !== "FINALIZE OPENINGS"} onClick={finalizeCutover}>Finalize openings</button></div>}
+              {cutoverData.cutover.status === "finalized" && <div className="rounded-lg border border-red-200 p-3 space-y-3"><p className="text-sm font-semibold text-red-800">Audited reversal and re-entry only</p><div className="grid md:grid-cols-2 gap-3"><input className="input" placeholder="Reason for correction" value={reversalForm.reason} onChange={(e) => setReversalForm((prev) => ({ ...prev, reason: e.target.value }))} /><input className="input" placeholder="Type REVERSE OPENINGS" value={reversalForm.confirmation} onChange={(e) => setReversalForm((prev) => ({ ...prev, confirmation: e.target.value }))} /></div><button type="button" className="btn-secondary" disabled={!reversalForm.reason.trim() || reversalForm.confirmation !== "REVERSE OPENINGS"} onClick={reverseCutover}>Reverse for correction</button></div>}
+            </>
+          )}
+        </section>
       )}
 
       {isSuperAdmin && (
@@ -852,23 +974,6 @@ export default function OpeningsPage() {
             ))} />
           </form>
 
-          <form ref={equityRef} onSubmit={submitEquity} className="card space-y-3">
-            <div><h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-neutral-500">Opening equity reconciliation</h2><p className="mt-1 text-xs text-neutral-500">Classifies the opening-balance clearing account into manager capital, retained earnings, or another approved equity reserve.</p></div>
-            <div className={`rounded-lg border px-3 py-2 text-sm ${data?.openingEquityReconciliation?.reconciled ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
-              Account {data?.openingEquityReconciliation?.clearingAccountCode || "3900"} remaining to classify: PKR {(data?.openingEquityReconciliation?.unallocatedPkr || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
-            </div>
-            <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-3">
-              <select className="input" value={equityForm.equityType} onChange={(e) => setEquityForm((prev) => ({ ...prev, equityType: e.target.value as typeof prev.equityType }))} required disabled={!canEdit}><option value="manager_capital">Manager capital</option><option value="retained_earnings">Retained earnings</option><option value="other">Other opening equity</option></select>
-              <input className="input" placeholder="Label / reference" value={equityForm.label} onChange={(e) => setEquityForm((prev) => ({ ...prev, label: e.target.value }))} required disabled={!canEdit} />
-              <input className="input" type="number" step="0.01" placeholder="PKR amount" value={equityForm.amountPkr} onChange={(e) => setEquityForm((prev) => ({ ...prev, amountPkr: e.target.value }))} required disabled={!canEdit} />
-              <input className="input" type="date" value={equityForm.openingDate} onChange={(e) => setEquityForm((prev) => ({ ...prev, openingDate: e.target.value }))} required disabled={!canEdit} />
-              <input className="input" placeholder="Notes (optional)" value={equityForm.notes} onChange={(e) => setEquityForm((prev) => ({ ...prev, notes: e.target.value }))} disabled={!canEdit} />
-            </div>
-            <button className="btn-primary" type="submit" disabled={!canEdit}>Save opening equity</button>
-            <SavedTable title="Saved opening equity allocations" emptyLabel="No opening equity allocation recorded." headers={["Type", "Label", "PKR amount", "Date", ""]} rows={(data?.openingEquityAllocations || []).map((row) => (
-              <tr key={row.id} className="border-b last:border-0"><td className="py-2 px-3">{row.equityType.replaceAll("_", " ")}</td><td className="py-2 px-3">{row.label}</td><td className="py-2 px-3">{row.amountPkr.toLocaleString("en-US")}</td><td className="py-2 px-3">{row.openingDate}</td><td className="py-2 px-3"><button type="button" className="text-xs text-red-600 hover:underline" onClick={() => deleteOpening("equity", row.id)}>Delete</button></td></tr>
-            ))} />
-          </form>
         </>
       )}
 
@@ -1445,13 +1550,6 @@ export default function OpeningsPage() {
           />
           <input
             className="input"
-            placeholder="Drawee bank"
-            value={chequeForm.chequeBank}
-            onChange={(e) => setChequeForm((prev) => ({ ...prev, chequeBank: e.target.value }))}
-            disabled={formsDisabled}
-          />
-          <input
-            className="input"
             type="date"
             value={chequeForm.chequeDueDate}
             onChange={(e) => setChequeForm((prev) => ({ ...prev, chequeDueDate: e.target.value }))}
@@ -1479,11 +1577,10 @@ export default function OpeningsPage() {
         <SavedTable
           title="Saved opening cheques"
           emptyLabel="No opening cheques recorded for this city yet."
-          headers={["Cheque #", "Bank", "Currency", "Amount", "Due", "Date", "Notes", ""]}
+          headers={["Cheque #", "Currency", "Amount", "Due", "Date", "Notes", ""]}
           rows={(data?.openingCheques || []).map((row) => (
             <tr key={String(row.id)} className={`border-b last:border-0 ${row._pending ? "bg-amber-50/60" : ""}`}>
               <td className="py-2 px-3">{row.chequeNumber}{row._pending ? " (pending sync)" : ""}</td>
-              <td className="py-2 px-3">{row.chequeBank || "—"}</td>
               <td className="py-2 px-3">{row.currencyCode}</td>
               <td className="py-2 px-3">{row.amount.toLocaleString("en-US")}</td>
               <td className="py-2 px-3">{row.chequeDueDate || "—"}</td>

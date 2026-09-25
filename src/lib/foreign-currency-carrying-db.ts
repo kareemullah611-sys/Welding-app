@@ -19,6 +19,7 @@ export const foreignCurrencyOwnerKey = {
   cityBank: (bankAccountId: number) => `city_bank:${bankAccountId}`,
   cityCheque: (cityId: number) => `city_cheque:${cityId}`,
   haji: (cityId: number) => `haji:${cityId}`,
+  cityLiability: (accountId: number) => `city_liability:${accountId}`,
   superAdminCash: (accountId: number) => `super_admin_cash:${accountId}`,
   superAdminBank: (accountId: number) => `super_admin_bank:${accountId}`,
   intermediary: (intermediaryId: number) => `intermediary:${intermediaryId}`,

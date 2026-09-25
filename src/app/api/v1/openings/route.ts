@@ -10,7 +10,7 @@ import { setLegacyGodownStock, listLegacyStockForCity, purgeLegacyOpeningStockDa
 import { listLotGodownStockForCity, setLotGodownStock } from "@/lib/lot-godown-stock";
 import { createHistoricalSale } from "@/lib/historical-sale-import";
 import { autoActivateShortSales } from "@/lib/stock-activation";
-import { canEditOpenings, isOpeningsLocked } from "@/lib/openings-lock";
+import { getOpeningEditState } from "@/lib/openings-lock";
 import { isSupportedForeignCurrency } from "@/lib/foreign-currency-carrying";
 import {
   foreignCurrencyOwnerKey,
@@ -304,9 +304,10 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
       : null;
     const openingBalanceClearingPkr = Math.round((Number(openingBalanceTotals?._sum.credit || 0) - Number(openingBalanceTotals?._sum.debit || 0)) * 100) / 100;
 
+    const editState = await getOpeningEditState(user.role);
     return successResponse({
-      openingsLocked: isOpeningsLocked(),
-      canEditOpenings: canEditOpenings(user.role),
+      openingsLocked: editState.openingsLocked,
+      canEditOpenings: editState.canEditOpenings,
       cities,
       selectedCityId: cityId,
       currencies: currenciesRaw.map((c) => c.currency),
@@ -550,7 +551,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       return errorResponse("FORBIDDEN", "Only admins can manage openings", 403);
     }
 
-    if (!canEditOpenings(user.role)) {
+    if (!(await getOpeningEditState(user.role)).canEditOpenings) {
       return errorResponse("FORBIDDEN", "Opening entries are locked after go-live", 403);
     }
 
@@ -787,6 +788,14 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           createdBy: user.userId,
           journalVersion: previousVersions + 1,
         }, tx);
+        await recordOpeningForeignPosition(tx, {
+          sourceType: "opening_haji_balance", sourceId: saved.id,
+          positionKind: balanceSide === "receivable" ? "asset" : "liability",
+          positionType: balanceSide === "receivable" ? "other_receivable" : "other_payable",
+          ownerKey: foreignCurrencyOwnerKey.haji(scopedCityId), currencyCode: currency.code,
+          amount, carryingAmountPkr: fxData.carryingAmountPkr, fxRateToPkr: fxData.fxRateToPkr,
+          fxRateDate: fxData.fxRateDate, fxRateSource: fxData.fxRateSource, openingDate: saved.openingDate, createdBy: user.userId,
+        });
         // Opening Haji is historical bookkeeping only, not a cash-office transfer.
         await tx.hajiTransfer.deleteMany({
           where: {
@@ -1062,6 +1071,12 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           id: saved.id, cityId: scopedCityId, amount, carryingAmountPkr: fxData.carryingAmountPkr, fxRateToPkr: fxData.fxRateToPkr, currencyCode: cityCurrency.currency.code,
           openingDate: saved.openingDate, createdBy: user.userId, journalVersion: 1,
         }, tx);
+        await recordOpeningForeignPosition(tx, {
+          sourceType: "opening_cheque", sourceId: saved.id, positionKind: "asset", positionType: "other_receivable",
+          ownerKey: foreignCurrencyOwnerKey.cityCheque(scopedCityId), currencyCode: cityCurrency.currency.code,
+          amount, carryingAmountPkr: fxData.carryingAmountPkr, fxRateToPkr: fxData.fxRateToPkr,
+          fxRateDate: fxData.fxRateDate, fxRateSource: fxData.fxRateSource, openingDate: saved.openingDate, createdBy: user.userId,
+        });
         return saved;
       });
 
@@ -1281,6 +1296,12 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           createdBy: user.userId,
           journalVersion: previousVersions + 1,
         }, tx);
+        await recordOpeningForeignPosition(tx, {
+          sourceType: "opening_city_liability", sourceId: saved.id, positionKind: "liability", positionType: "other_payable",
+          ownerKey: foreignCurrencyOwnerKey.cityLiability(accountId), currencyCode: currency.code,
+          amount, carryingAmountPkr: fxData.carryingAmountPkr, fxRateToPkr: fxData.fxRateToPkr,
+          fxRateDate: fxData.fxRateDate, fxRateSource: fxData.fxRateSource, openingDate: saved.openingDate, createdBy: user.userId,
+        });
         return saved;
       });
 
@@ -1458,7 +1479,7 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
     if (user.role !== "city_admin" && user.role !== "super_admin") {
       return errorResponse("FORBIDDEN", "Only admins can manage openings", 403);
     }
-    if (!canEditOpenings(user.role)) {
+    if (!(await getOpeningEditState(user.role)).canEditOpenings) {
       return errorResponse("FORBIDDEN", "Opening entries are locked after go-live", 403);
     }
 
@@ -1475,6 +1496,7 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       if (!row) return errorResponse("NOT_FOUND", "Opening cash not found");
       await prisma.$transaction(async (tx) => {
         await reverseOpeningJournals("opening_cash", row.id, `OPENCASH-${row.id}`, user.userId, tx);
+        await reverseForeignCurrencyRecognition(tx, { sourceType: "opening_cash", sourceId: row.id, reversalDate: new Date(), createdBy: user.userId });
         await tx.openingCash.delete({ where: { id: row.id } });
       });
       await createAuditLog(user.userId, cityId, "opening_cashes", row.id, "delete", { amount: Number(row.amount) }, undefined, getClientIP(request));
@@ -1489,6 +1511,7 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       if (!row) return errorResponse("NOT_FOUND", "Opening customer balance not found");
       await prisma.$transaction(async (tx) => {
         await reverseOpeningCustomerBalanceJournals(row.id, user.userId, tx);
+        await reverseForeignCurrencyRecognition(tx, { sourceType: "opening_customer_balance", sourceId: row.id, reversalDate: new Date(), createdBy: user.userId });
         await tx.openingCustomerBalance.delete({ where: { id: row.id } });
       });
       await createAuditLog(user.userId, cityId, "opening_customer_balances", row.id, "delete", { amount: Number(row.amount) }, undefined, getClientIP(request));
@@ -1501,6 +1524,7 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       if (!row) return errorResponse("NOT_FOUND", "Opening Haji balance not found");
       await prisma.$transaction(async (tx) => {
         await reverseOpeningJournals("opening_haji_balance", row.id, `OPENHAJI-${row.id}`, user.userId, tx);
+        await reverseForeignCurrencyRecognition(tx, { sourceType: "opening_haji_balance", sourceId: row.id, reversalDate: new Date(), createdBy: user.userId });
         await tx.hajiTransfer.deleteMany({
           where: {
             cityId,
@@ -1583,6 +1607,7 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       if (!row) return errorResponse("NOT_FOUND", "Opening bank balance not found");
       await prisma.$transaction(async (tx) => {
         await reverseOpeningJournals("opening_bank_balance", row.id, `OPENBANK-${row.id}`, user.userId, tx);
+        await reverseForeignCurrencyRecognition(tx, { sourceType: "opening_bank_balance", sourceId: row.id, reversalDate: new Date(), createdBy: user.userId });
         await tx.openingBankBalance.delete({ where: { id: row.id } });
       });
       await createAuditLog(user.userId, cityId, "opening_bank_balances", row.id, "delete", { amount: Number(row.amount) }, undefined, getClientIP(request));
@@ -1595,6 +1620,7 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       if (!row) return errorResponse("NOT_FOUND", "Opening cheque not found");
       await prisma.$transaction(async (tx) => {
         await reverseOpeningJournals("opening_cheque", row.id, `OPENCHEQUE-${row.id}`, user.userId, tx);
+        await reverseForeignCurrencyRecognition(tx, { sourceType: "opening_cheque", sourceId: row.id, reversalDate: new Date(), createdBy: user.userId });
         await tx.openingCheque.delete({ where: { id: row.id } });
       });
       await createAuditLog(user.userId, cityId, "opening_cheques", row.id, "delete", { amount: Number(row.amount), chequeNumber: row.chequeNumber }, undefined, getClientIP(request));
@@ -1607,6 +1633,7 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       if (!row) return errorResponse("NOT_FOUND", "Opening liability not found");
       await prisma.$transaction(async (tx) => {
         await reverseOpeningJournals("opening_liability", row.id, `OPENLIAB-${row.id}`, user.userId, tx);
+        await reverseForeignCurrencyRecognition(tx, { sourceType: "opening_liability", sourceId: row.id, reversalDate: new Date(), createdBy: user.userId });
         await tx.openingLiability.delete({ where: { id: row.id } });
       });
       await createAuditLog(user.userId, null, "opening_liabilities", row.id, "delete", { amount: Number(row.amount) }, undefined, getClientIP(request));
@@ -1619,6 +1646,7 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       if (!row) return errorResponse("NOT_FOUND", "Opening city liability not found");
       await prisma.$transaction(async (tx) => {
         await reverseOpeningJournals("opening_city_liability", row.id, `OPENCITYLIAB-${row.id}`, user.userId, tx);
+        await reverseForeignCurrencyRecognition(tx, { sourceType: "opening_city_liability", sourceId: row.id, reversalDate: new Date(), createdBy: user.userId });
         await tx.openingCityLiability.delete({ where: { id: row.id } });
       });
       await createAuditLog(user.userId, cityId, "opening_city_liabilities", row.id, "delete", { amount: Number(row.amount) }, undefined, getClientIP(request));
@@ -1643,6 +1671,7 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       if (!row) return errorResponse("NOT_FOUND", "Superadmin account opening not found");
       await prisma.$transaction(async (tx) => {
         await reverseOpeningJournals("opening_super_admin_account_balance", row.id, `OPENSA-${row.id}`, user.userId, tx);
+        await reverseForeignCurrencyRecognition(tx, { sourceType: "opening_super_admin_account", sourceId: row.id, reversalDate: new Date(), createdBy: user.userId });
         await tx.openingSuperAdminAccountBalance.delete({ where: { id: row.id } });
       });
       await createAuditLog(user.userId, null, "opening_super_admin_account_balances", row.id, "delete", { amount: Number(row.amount) }, undefined, getClientIP(request));

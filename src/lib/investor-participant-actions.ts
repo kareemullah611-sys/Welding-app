@@ -20,7 +20,7 @@ export type ParticipantBalance = {
   profitReinvestedPkr: number;
   currentAvailableProfitPkr: number;
   currentParticipatingCapitalPkr: number;
-  finalizedProfitSources: Array<{ periodId: number; category: string; postingType: string; availablePkr: number }>;
+  finalizedProfitSources: Array<{ periodId: number; category: string; postingType: string; sourceType?: string; sourceId?: number; availablePkr: number }>;
   capitalReconciliation: {
     openingCapitalPkr: number;
     capitalAddedAndReinvestedPkr: number;
@@ -68,6 +68,7 @@ export function buildParticipantBalance(input: {
   capitalEvents: any[];
   finalizationLedgerEntries: any[];
   actionLedgerEntries: any[];
+  openingProfitBalances?: any[];
 }): ParticipantBalance {
   const openingCapitalPkr = round2(input.capitalEvents.filter((event) => event.eventType === "opening").reduce((sum, event) => sum + amount(event.amountPkr), 0));
   const capitalAddedPkr = round2(input.capitalEvents
@@ -80,18 +81,36 @@ export function buildParticipantBalance(input: {
     if (!["finalized_profit_withdrawal", "profit_reinvestment", "full_exit_profit"].includes(String(entry.category))) continue;
     const sources = Array.isArray(entry.sourceFinalizationIds) ? entry.sourceFinalizationIds : [];
     for (const source of sources) {
-      const key = `${source.periodId}:${source.category}:${source.postingType}`;
+      const key = `${source.periodId}:${source.category}:${source.postingType}:${source.sourceType || "finalization"}:${source.sourceId || 0}`;
       consumedBySource.set(key, round2((consumedBySource.get(key) || 0) + amount(source.amountPkr)));
     }
   }
-  const finalizedProfitTotalPkr = round2(input.finalizationLedgerEntries.filter(isProfitLedgerEntry).reduce((sum, entry) => sum + amount(entry.amountPkr), 0));
-  const finalizedProfitSources = input.finalizationLedgerEntries
-    .filter(isProfitLedgerEntry)
+  const openingProfitSources = (input.openingProfitBalances || []).map((row) => ({
+    periodId: 0,
+    category: "opening_retained_profit",
+    postingType: "opening_retained_profit",
+    sourceType: "opening_participant_balance",
+    sourceId: Number(row.id),
+    amountPkr: round2(amount(row.currentYearProfitPkr) + amount(row.ongoingLotRealizedProfitPkr)),
+  })).filter((row) => row.amountPkr > 0);
+  const finalizedProfitTotalPkr = round2(
+    input.finalizationLedgerEntries.filter(isProfitLedgerEntry).reduce((sum, entry) => sum + amount(entry.amountPkr), 0)
+    + openingProfitSources.reduce((sum, entry) => sum + entry.amountPkr, 0),
+  );
+  const finalizedProfitSources = [
+    ...input.finalizationLedgerEntries.filter(isProfitLedgerEntry).map((entry) => ({
+      periodId: Number(entry.periodId), category: String(entry.category), postingType: String(entry.postingType),
+      sourceType: "finalization", sourceId: 0, amountPkr: amount(entry.amountPkr),
+    })),
+    ...openingProfitSources,
+  ]
     .map((entry) => ({
       periodId: Number(entry.periodId),
       category: String(entry.category),
       postingType: String(entry.postingType),
-      availablePkr: round2(amount(entry.amountPkr) - (consumedBySource.get(`${entry.periodId}:${entry.category}:${entry.postingType}`) || 0)),
+      sourceType: entry.sourceType,
+      sourceId: entry.sourceId,
+      availablePkr: round2(amount(entry.amountPkr) - (consumedBySource.get(`${entry.periodId}:${entry.category}:${entry.postingType}:${entry.sourceType || "finalization"}:${entry.sourceId || 0}`) || 0)),
     }))
     .filter((entry) => entry.availablePkr > 0);
   const currentAvailableProfitFromSourcesPkr = round2(finalizedProfitSources.reduce((sum, row) => sum + row.availablePkr, 0));
@@ -143,7 +162,7 @@ export function buildParticipantBalance(input: {
 }
 
 export async function loadParticipantBalance(participantId: number, client: any = prisma): Promise<ParticipantBalance> {
-  const [capitalEvents, finalizationLedgerEntries, actionLedgerEntries] = await Promise.all([
+  const [capitalEvents, finalizationLedgerEntries, actionLedgerEntries, openingProfitBalances] = await Promise.all([
     client.investmentCapitalEvent.findMany({ where: { participantId }, orderBy: { effectiveDate: "asc" } }),
     (client as any).investorAttributionLedgerEntry.findMany({
       where: { participantId, period: { status: "finalized" } },
@@ -155,13 +174,18 @@ export async function loadParticipantBalance(participantId: number, client: any 
       include: { action: { select: { id: true, actionType: true, status: true } } },
       orderBy: [{ id: "asc" }],
     }),
+    (client as any).openingParticipantBalance.findMany({
+      where: { participantId, cutover: { status: "finalized" } },
+      select: { id: true, currentYearProfitPkr: true, ongoingLotRealizedProfitPkr: true },
+      orderBy: [{ openingDate: "asc" }, { id: "asc" }],
+    }),
   ]);
-  return buildParticipantBalance({ participantId, capitalEvents, finalizationLedgerEntries, actionLedgerEntries });
+  return buildParticipantBalance({ participantId, capitalEvents, finalizationLedgerEntries, actionLedgerEntries, openingProfitBalances });
 }
 
 export function consumeProfitSources(sources: ParticipantBalance["finalizedProfitSources"], requestedPkr: number) {
   let remaining = round2(requestedPkr);
-  const consumed: Array<{ periodId: number; category: string; postingType: string; amountPkr: number }> = [];
+  const consumed: Array<{ periodId: number; category: string; postingType: string; sourceType?: string; sourceId?: number; amountPkr: number }> = [];
   for (const source of sources) {
     if (remaining <= 0) break;
     const take = round2(Math.min(source.availablePkr, remaining));
