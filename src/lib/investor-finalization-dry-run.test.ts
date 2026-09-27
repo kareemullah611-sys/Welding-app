@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildFinalizationDryRun } from "./investor-finalization-dry-run";
+import { buildInvestorFinalizationIdempotencyKey } from "./investor-finalization-idempotency";
 import { buildHistoricalFxTransaction, buildHistoricalPoolPreview } from "./historical-pool-attribution";
 import {
   buildInvestorAttributionPreview,
@@ -293,4 +294,18 @@ test("phase 2.1 posting simulation supports partial withdrawal full exit and rei
   assert.ok(postingTypes.includes("full_exit_capital_portion"));
   assert.ok(postingTypes.includes("full_exit_profit_portion"));
   assert.equal(dryRun.postingSimulation.reconciliation.debitCreditDifferencePkr, 0);
+});
+
+test("initial finalization keeps the stable period idempotency key", () => {
+  assert.equal(
+    buildInvestorFinalizationIdempotencyKey("2026-01-01", "2026-12-31", 0),
+    "investor-finalization:2026-01-01:2026-12-31"
+  );
+});
+
+test("corrected finalization receives a new audited revision key after reversal", () => {
+  assert.equal(
+    buildInvestorFinalizationIdempotencyKey("2026-01-01", "2026-12-31", 1),
+    "investor-finalization:2026-01-01:2026-12-31:revision:2"
+  );
 });

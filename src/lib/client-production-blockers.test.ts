@@ -80,6 +80,9 @@ test("investor finalization blocks overlaps and reversal after entitlement consu
   assert.match(route, /investor-finalization-timeline/);
   assert.match(route, /OVERLAPPING_FINALIZATION/);
   assert.match(route, /FINALIZATION_ENTITLEMENT_CONSUMED/);
+  assert.match(route, /existingFinalizationCount/);
+  assert.match(route, /buildInvestorFinalizationIdempotencyKey/);
+  assert.match(route, /FINALIZATION_IDEMPOTENCY_CONFLICT/);
   assert.match(route, /findSourceChangesAfterFinalization/);
   assert.match(route, /sourceChangesAfterFinalization/);
   assert.match(dryRun, /BLOCKED_OVERLAPPING_FINALIZATION/);

@@ -23,6 +23,7 @@ import {
   type NormalizedExchangeRateResult,
 } from "@/lib/exchange-rate-provider";
 import { buildFinalizationDryRun } from "@/lib/investor-finalization-dry-run";
+import { buildInvestorFinalizationIdempotencyKey } from "@/lib/investor-finalization-idempotency";
 import {
   buildLiveFxCoveragePreview,
   type ReliableLiveFxPosition,
@@ -919,6 +920,19 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           throw new Error(samePeriod ? "ALREADY_FINALIZED" : "OVERLAPPING_FINALIZATION");
         }
 
+        const existingFinalizationCount = await tx.profitAttributionPeriod.count({
+          where: {
+            periodStart: new Date(periodStart),
+            periodEnd: new Date(periodEnd),
+            reversalOfPeriodId: null,
+          },
+        });
+        const finalizationIdempotencyKey = buildInvestorFinalizationIdempotencyKey(
+          periodStart,
+          periodEnd,
+          existingFinalizationCount
+        );
+
         const period = await txAny.profitAttributionPeriod.create({
           data: {
             periodStart: new Date(periodStart),
@@ -939,8 +953,8 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
             postingSimulationJson: built.finalizationDryRun.postingSimulation,
             finalizedBy: user.userId,
             finalizedAt: new Date(),
-            reconciliationReference: built.finalizationDryRun.concurrencyDesign.idempotencyKey,
-            idempotencyKey: built.finalizationDryRun.concurrencyDesign.idempotencyKey,
+            reconciliationReference: finalizationIdempotencyKey,
+            idempotencyKey: finalizationIdempotencyKey,
             createdBy: user.userId,
           },
         });
@@ -998,7 +1012,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           }));
         if (ledgerRows.length > 0) await txAny.investorAttributionLedgerEntry.createMany({ data: ledgerRows });
 
-        return { periodId: period.id, ledgerEntries: ledgerRows.length };
+        return { periodId: period.id, ledgerEntries: ledgerRows.length, idempotencyKey: finalizationIdempotencyKey };
       });
 
       return successResponse({
@@ -1101,6 +1115,12 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
     }
     if (String(error?.message || "") === "NOT_FINALIZED") {
       return errorResponse("NOT_FINALIZED", "Only finalized investor attribution periods can be reversed.", 409);
+    }
+    const uniqueTarget = Array.isArray(error?.meta?.target)
+      ? error.meta.target.join(",")
+      : String(error?.meta?.target || "");
+    if (error?.code === "P2002" && uniqueTarget.includes("idempotency")) {
+      return errorResponse("FINALIZATION_IDEMPOTENCY_CONFLICT", "This finalization request was already recorded. Refresh the preview before trying again.", 409);
     }
     console.error("Investor attribution action error:", error);
     return serverError();
