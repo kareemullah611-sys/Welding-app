@@ -483,7 +483,7 @@ async function findSourceChangesAfterFinalization(finalizations: any[]) {
 }
 
 async function buildAttributionFinalizationPreview(user: JWTPayload, periodStart: string, periodEnd: string) {
-  const [capital, missingRequiredRates, legacyCapitalReview, liveFxCoverage, existingFinalizations] = await Promise.all([
+  const [capital, missingRequiredRates, legacyCapitalReview, liveFxCoverage, existingFinalizations, finalizationHistory] = await Promise.all([
     loadCapitalEvents(),
     findMissingRequiredRates(periodStart, periodEnd),
     loadLegacyCapitalReview(),
@@ -495,6 +495,27 @@ async function buildAttributionFinalizationPreview(user: JWTPayload, periodStart
         periodEnd: { gte: new Date(periodStart) },
       },
       select: { id: true, periodStart: true, periodEnd: true, status: true, finalizedAt: true, reversedAt: true },
+    }),
+    (prisma as any).profitAttributionPeriod.findMany({
+      where: {
+        status: { in: ["finalized", "reversed"] },
+        periodStart: { lte: new Date(periodEnd) },
+        periodEnd: { gte: new Date(periodStart) },
+      },
+      select: {
+        id: true,
+        periodStart: true,
+        periodEnd: true,
+        status: true,
+        businessProfitPkr: true,
+        totalAttributedPkr: true,
+        reconciliationDifferencePkr: true,
+        finalizedAt: true,
+        reversedAt: true,
+        reversalReason: true,
+        reversalOfPeriodId: true,
+      },
+      orderBy: [{ periodStart: "desc" }, { id: "desc" }],
     }),
   ]);
   const sourceChangesAfterFinalization = await findSourceChangesAfterFinalization(existingFinalizations);
@@ -565,6 +586,19 @@ async function buildAttributionFinalizationPreview(user: JWTPayload, periodStart
     historicalMissingRates,
     readiness: authoritativeReadiness,
     finalizationDryRun,
+    finalizedPeriods: finalizationHistory.map((row: any) => ({
+      id: row.id,
+      periodStart: dateOnly(row.periodStart),
+      periodEnd: dateOnly(row.periodEnd),
+      status: String(row.status).toUpperCase(),
+      businessProfitPkr: Number(row.businessProfitPkr || 0),
+      totalAttributedPkr: Number(row.totalAttributedPkr || 0),
+      reconciliationDifferencePkr: Number(row.reconciliationDifferencePkr || 0),
+      finalizedAt: row.finalizedAt?.toISOString() || null,
+      reversedAt: row.reversedAt?.toISOString() || null,
+      reversalReason: row.reversalReason || null,
+      reversalOfPeriodId: row.reversalOfPeriodId || null,
+    })),
   };
 }
 
@@ -816,6 +850,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
       historicalPoolPreview,
       readiness,
       finalizationDryRun,
+      finalizedPeriods,
     } = await buildAttributionFinalizationPreview(user, periodStart, periodEnd);
 
     return successResponse({
@@ -844,6 +879,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
       liveFxCoverage,
       unsupportedFxPositions: liveFxCoverage.unsupportedPositions,
       finalizationDryRun,
+      finalizedPeriods,
       phase: "preview_only",
     });
   } catch (error) {

@@ -1595,8 +1595,15 @@ test("investor attribution phase 2.2 controlled finalization is atomic and attri
   assert.match(attributionRoute, /entryType: "reversal"/);
   assert.match(attributionRoute, /reverse_\$\{entry\.postingType\}/);
   assert.match(attributionRoute, /Only finalized investor attribution periods can be reversed/);
+  assert.match(attributionRoute, /finalizedPeriods/);
+  assert.match(attributionRoute, /id: row\.id/);
   assert.match(investorsPage, /Finalize Period/);
   assert.match(investorsPage, /Type FINALIZE/);
+  assert.match(investorsPage, /Finalization History/);
+  assert.match(investorsPage, /Reverse Finalization/);
+  assert.match(investorsPage, /action: "reverse"/);
+  assert.match(investorsPage, /Reversal reason is required/);
+  assert.match(investorsPage, /Type REVERSE/);
 
   assert.doesNotMatch(attributionRoute, /journalEntry\.(create|createMany|update|delete)/);
   assert.doesNotMatch(attributionRoute, /bankDeposit\.(create|createMany|update|delete)/);

@@ -68,6 +68,11 @@ export default function InvestorsPage() {
   const [attributionLoading, setAttributionLoading] = useState(false);
   const [attributionError, setAttributionError] = useState("");
   const [finalizationSaving, setFinalizationSaving] = useState(false);
+  const [reversalTarget, setReversalTarget] = useState<any>(null);
+  const [reversalReason, setReversalReason] = useState("");
+  const [reversalConfirmation, setReversalConfirmation] = useState("");
+  const [reversalSaving, setReversalSaving] = useState(false);
+  const [reversalError, setReversalError] = useState("");
   const [participants, setParticipants] = useState<any[]>([]);
   const [currencies, setCurrencies] = useState<any[]>([]);
   const [superAdminAccounts, setSuperAdminAccounts] = useState<any[]>([]);
@@ -346,6 +351,42 @@ export default function InvestorsPage() {
       setAttributionError((res as any).error?.message || (res as any).error || "Failed to finalize investor attribution period");
       return;
     }
+    await loadAttributionPreview();
+  };
+
+  const openFinalizationReversal = (period: any) => {
+    setReversalTarget(period);
+    setReversalReason("");
+    setReversalConfirmation("");
+    setReversalError("");
+  };
+
+  const reverseFinalization = async () => {
+    const reason = reversalReason.trim();
+    if (!reason) {
+      setReversalError("Reversal reason is required.");
+      return;
+    }
+    if (reversalConfirmation.trim().toUpperCase() !== "REVERSE") {
+      setReversalError("Type REVERSE to confirm this audited reversal.");
+      return;
+    }
+    setReversalSaving(true);
+    setReversalError("");
+    const res = await apiCall("/api/v1/investor-attribution", {
+      method: "POST",
+      body: {
+        action: "reverse",
+        periodId: reversalTarget.id,
+        reason,
+      },
+    });
+    setReversalSaving(false);
+    if ((res as any).success === false) {
+      setReversalError((res as any).error?.message || (res as any).error || "Failed to reverse investor attribution period");
+      return;
+    }
+    setReversalTarget(null);
     await loadAttributionPreview();
   };
 
@@ -1047,6 +1088,43 @@ export default function InvestorsPage() {
                     {finalizationSaving ? "Finalizing…" : "Finalize Period"}
                   </button>
                 </div>
+                <div className="mb-2 rounded-lg border border-slate-200 bg-white/80 p-2">
+                  <p className="font-semibold text-slate-800">Finalization History</p>
+                  <p className="mb-2 text-slate-500">Finalized ownership snapshots are immutable. Corrections require an audited reversal followed by a new finalization.</p>
+                  <div className="space-y-2">
+                    {(attributionPreview.finalizedPeriods || []).map((period: any) => (
+                      <div key={period.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 px-3 py-2">
+                        <div>
+                          <p className="font-medium text-slate-800">{period.periodStart} → {period.periodEnd}</p>
+                          <p className="text-slate-500">
+                            {period.reversalOfPeriodId ? `Reversal of #${period.reversalOfPeriodId}` : `Snapshot #${period.id}`}
+                            {" · "}PKR {formatNumber(period.totalAttributedPkr)}
+                            {" · "}Recon PKR {formatNumber(period.reconciliationDifferencePkr)}
+                          </p>
+                          {period.reversalReason && <p className="mt-0.5 text-red-600">Reason: {period.reversalReason}</p>}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={period.status === "FINALIZED" ? "rounded-full bg-emerald-50 px-2 py-1 font-semibold text-emerald-700" : "rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-600"}>
+                            {period.status}
+                          </span>
+                          {period.status === "FINALIZED" && !period.reversalOfPeriodId && (
+                            <button
+                              type="button"
+                              onClick={() => openFinalizationReversal(period)}
+                              disabled={!isOnline}
+                              className="rounded-lg border border-red-200 px-2.5 py-1.5 font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Reverse Finalization
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {(!attributionPreview.finalizedPeriods || attributionPreview.finalizedPeriods.length === 0) && (
+                      <p className="rounded-lg bg-slate-50 px-3 py-2 text-slate-500">No finalized periods in this reporting range.</p>
+                    )}
+                  </div>
+                </div>
                 {attributionPreview.finalizationDryRun.blockers?.length > 0 && (
                   <div className="mb-2 rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-red-700">
                     {attributionPreview.finalizationDryRun.blockers.map((blocker: any) => <p key={`${blocker.code}-${blocker.message}`}>{blocker.code}: {blocker.message}</p>)}
@@ -1375,6 +1453,62 @@ export default function InvestorsPage() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {reversalTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 p-4">
+          <div className="my-auto w-full max-w-md space-y-4 rounded-2xl bg-white p-6 shadow-xl">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Reverse Finalization</h3>
+              <p className="mt-1 text-sm text-gray-500">
+                Period {reversalTarget.periodStart} → {reversalTarget.periodEnd}. The original snapshot remains in the audit trail and reversing attribution entries will be created.
+              </p>
+            </div>
+            <div className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">
+              This does not delete the finalization. Any dependent investor action must be reversed first.
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-500">Reversal reason *</label>
+              <textarea
+                rows={3}
+                value={reversalReason}
+                onChange={(event) => setReversalReason(event.target.value)}
+                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-red-400"
+                placeholder="Explain why this finalized period must be corrected"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-500">Type REVERSE to confirm *</label>
+              <input
+                type="text"
+                value={reversalConfirmation}
+                onChange={(event) => setReversalConfirmation(event.target.value)}
+                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-red-400"
+                placeholder="REVERSE"
+              />
+            </div>
+            {reversalError && <p className="text-xs text-red-600">{reversalError}</p>}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setReversalTarget(null)}
+                disabled={reversalSaving}
+                className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={reverseFinalization}
+                disabled={reversalSaving || !isOnline}
+                className="flex-1 rounded-xl bg-red-600 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {reversalSaving ? "Reversing…" : "Confirm Reversal"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
