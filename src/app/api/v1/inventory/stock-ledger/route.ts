@@ -83,7 +83,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
         UNION ALL
 
-        -- 6. CITY TRANSFER OUT (approved — deducted from sending godown)
+        -- 6. CITY TRANSFER OUT (pending/approved — deducted from sending godown at submit)
         SELECT
           COALESCE(ct.approved_at, ct.transfer_date) AS date,
           ct.product_id,
@@ -91,7 +91,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           gf.city_id
         FROM city_transfers ct
         JOIN godowns gf ON gf.id = ct.from_godown_id
-        WHERE ct.status = 'approved'
+        WHERE ct.status IN ('pending', 'approved')
 
         UNION ALL
 
@@ -135,7 +135,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
             + COALESCE((
                 SELECT SUM(ct.qty)
                 FROM city_transfers ct
-                WHERE ct.status = 'approved'
+                WHERE (ct.status = 'approved' OR (ct.status = 'pending' AND ct.batch_id IS NOT NULL))
                   AND ct.from_godown_id = lcga.godown_id
                   AND ct.product_id = lcd.product_id
                   AND ct.lot_id = lcd.lot_id
@@ -224,9 +224,9 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
         UNION ALL
 
-        -- 6. CITY TRANSFER OUT (approved — deducted from sending godown)
+        -- 6. CITY TRANSFER OUT (pending/approved — deducted from sending godown at submit)
         SELECT
-          COALESCE(ct.approved_at, ct.transfer_date) AS date,
+          ct.transfer_date                           AS date,
           'city_out'                               AS type,
           CONCAT('CTR-', ct.id)                    AS reference,
           ct.product_id,
@@ -242,7 +242,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         JOIN products p ON p.id  = ct.product_id
         JOIN godowns gf ON gf.id = ct.from_godown_id
         JOIN cities c   ON c.id  = gf.city_id
-        WHERE ct.status = 'approved'
+        WHERE ct.status IN ('pending', 'approved')
 
         UNION ALL
 

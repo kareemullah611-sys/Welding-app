@@ -283,6 +283,9 @@ interface DataTableProps<T> {
   searchColumnKeys?: string[];
   searchValue?: string;
   onSearchChange?: (value: string) => void;
+  sortOptions?: Array<{ value: string; label: string }>;
+  sortValue?: string;
+  onSortChange?: (value: string) => void;
   pagination?: PaginationConfig;
   stripedRows?: boolean;
   compact?: boolean;
@@ -302,6 +305,9 @@ export function DataTable<T extends Record<string, any>>({
   searchColumnKeys,
   searchValue,
   onSearchChange,
+  sortOptions,
+  sortValue,
+  onSortChange,
   pagination,
   stripedRows = false,
   compact = false,
@@ -497,6 +503,21 @@ export function DataTable<T extends Record<string, any>>({
                 </button>
               )}
             </div>
+            {sortOptions && sortOptions.length > 0 && sortValue !== undefined && onSortChange && (
+              <select
+                value={sortValue}
+                onChange={(event) => onSortChange(event.target.value)}
+                className="input-field h-8 w-auto min-w-[8.5rem] max-w-[13rem] shrink-0 text-sm"
+                aria-label="Sort rows"
+                title="Sort customers"
+              >
+                {sortOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            )}
             {showColumnSelector && (
               <select
                 value={selectedSearchColumn}

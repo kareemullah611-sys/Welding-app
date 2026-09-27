@@ -13,9 +13,10 @@ import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { getEmbedQuickformPath, shouldSimplifyCityModals } from "@/lib/quickform-embed";
-import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import { DEFAULT_LIST_PAGE_SIZE, SALES_PAYMENTS_PAGE_SIZE } from "@/lib/pagination";
 import { LedgerExportButtons } from "@/components/LedgerExportButtons";
 import { formatCurrencySelectLabel } from "@/lib/city-money-format";
+import { buildSaleDisplayRows } from "@/lib/sale-list-pagination";
 
 const SALES_FORM_CACHE_KEY = "mrf-sales-form-cache-v1";
 const SALES_READ_CACHE_KEY = "mrf-sales-read-cache-v1";
@@ -90,23 +91,26 @@ function buildLatestSaleSummaryFromRow(
   currencies: any[],
 ): LatestSaleSummary | null {
   if (!sale) return null;
+  const summarySale = sale.sourceItems?.length
+    ? { ...sale, items: sale.sourceItems, totalAmount: sale.sourceTotalAmount }
+    : sale;
   return buildLatestSaleSummary(
-    sale,
+    summarySale,
     {
-      customerId: sale.customerId || 0,
-      godownId: sale.godownId || sale.godown?.id || 0,
-      lotId: sale.lotId || sale.lot?.id || 0,
-      saleDate: sale.saleDate || "",
-      currencyId: sale.currencyId || sale.currency?.id || 0,
-      totalAmount: sale.totalAmount || 0,
-      items: sale.items || [],
+      customerId: summarySale.customerId || 0,
+      godownId: summarySale.godownId || summarySale.godown?.id || 0,
+      lotId: summarySale.lotId || summarySale.lot?.id || 0,
+      saleDate: summarySale.saleDate || "",
+      currencyId: summarySale.currencyId || summarySale.currency?.id || 0,
+      totalAmount: summarySale.totalAmount || 0,
+      items: summarySale.items || [],
     },
-    sale.customer?.name || "",
+    summarySale.customer?.name || "",
     products,
     godowns,
     lots,
     currencies,
-    Boolean(sale._pending),
+    Boolean(summarySale._pending),
   );
 }
 
@@ -282,7 +286,7 @@ export default function SalesPage() {
       return;
     }
     setLoading(true);
-    const params: any = { page, limit: DEFAULT_LIST_PAGE_SIZE };
+    const params: any = { page, limit: SALES_PAYMENTS_PAGE_SIZE, row_mode: "items" };
     if (filters.status) params.status = filters.status;
     if (filters.lot_id) params.lot_id = filters.lot_id;
     if (filters.date_from) params.date_from = filters.date_from;
@@ -1131,54 +1135,16 @@ export default function SalesPage() {
     ),
   };
   const displaySales = useMemo(() => {
-    const mergeDisplayItems = (items: any[]) => {
-      const itemMap = new Map<string, any>();
-      for (const item of items) {
-        if (!item) continue;
-        const lotId = Number(item.lotId || item.lot?.id || 0);
-        const key = [
-          item.productId || item.product?.id,
-          lotId,
-          item.ratePerCarton || item.rate || 0,
-          item.ratePerPieceLocal || 0,
-          item.ratePerPieceUsd || 0,
-        ].join(":");
-        const current = itemMap.get(key);
-        if (current) {
-          current.qty = Math.round((Number(current.qty || 0) + Number(item.qty || 0)) * 100) / 100;
-          current.cartonQty = item.cartonQty == null && current.cartonQty == null
-            ? current.cartonQty
-            : Math.round((Number(current.cartonQty || 0) + Number(item.cartonQty || 0)) * 100) / 100;
-          current.amount = Math.round((Number(current.amount || 0) + Number(item.amount || 0)) * 100) / 100;
-          current.amountUsd = item.amountUsd == null && current.amountUsd == null
-            ? current.amountUsd
-            : Math.round((Number(current.amountUsd || 0) + Number(item.amountUsd || 0)) * 100) / 100;
-        } else {
-          itemMap.set(key, { ...item });
-        }
-      }
-      return Array.from(itemMap.values());
-    };
-    return sales.flatMap((sale: any) => {
-      const selectedLotId = Number(filters.lot_id || 0);
-      const sourceItems = Array.isArray(sale.items) && sale.items.length > 0 ? sale.items : [null];
-      const filteredItems = selectedLotId > 0
-        ? sourceItems.filter((item: any) => item && Number(item.lotId || item.lot?.id || sale.lot?.id || 0) === selectedLotId)
-        : sourceItems;
-      const items = filteredItems[0] ? mergeDisplayItems(filteredItems) : filteredItems;
-      return items.map((item: any, index: number) => {
-        if (!item) return { ...sale, rowActionId: `${sale.id}:sale`, sourceSale: sale };
-        const qty = Number(item.qty || item.cartonQty || 0);
-        const rate = Number(item.ratePerCarton || item.rate || item.ratePerPieceLocal || 0);
-        return {
-          ...sale,
-          rowActionId: `${sale.id}:item:${item.id || index}`,
-          sourceSale: sale,
-          items: [item],
-          lot: item.lot || sale.lot,
-          totalAmount: Number(item.amount ?? qty * rate),
-        };
-      });
+    return buildSaleDisplayRows(sales, Number(filters.lot_id || 0)).map((sale: any, index: number) => {
+      const item = sale.items?.[0];
+      const sourceSale = sale.sourceItems?.length
+        ? { ...sale, items: sale.sourceItems, totalAmount: sale.sourceTotalAmount }
+        : sale;
+      return {
+        ...sale,
+        rowActionId: item ? `${sale.id}:item:${item.id || index}` : `${sale.id}:sale`,
+        sourceSale,
+      };
     });
   }, [filters.lot_id, sales]);
   const salesProductColumn = {
@@ -1378,7 +1344,7 @@ export default function SalesPage() {
         />
       </div>
 
-      <DataTable searchable={false} compact columns={salesColumns} data={displaySales} loading={loading} emptyMessage={t("no_data")} pagination={{ page, totalPages, total, visibleCount: displaySales.length, onPageChange: setPage }} />
+      <DataTable searchable={false} compact columns={salesColumns} data={displaySales} loading={loading} emptyMessage={t("no_data")} pagination={{ page, totalPages, total, pageSize: SALES_PAYMENTS_PAGE_SIZE, onPageChange: setPage }} />
 
       </>
       )}

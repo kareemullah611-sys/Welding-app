@@ -312,14 +312,16 @@ test("city sale modal shows compact latest sale summary after save", () => {
 
 test("city sales list expands multi-item sales into separate display rows", () => {
   const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
+  const salesRows = readFileSync("src/lib/sale-list-pagination.ts", "utf8");
 
   assert.match(salesPage, /const displaySales = useMemo\(\(\) => \{/);
-  assert.match(salesPage, /return sales\.flatMap\(\(sale: any\) => \{/);
-  assert.match(salesPage, /const mergeDisplayItems = \(items: any\[\]\) => \{/);
+  assert.match(salesPage, /buildSaleDisplayRows\(sales, Number\(filters\.lot_id \|\| 0\)\)/);
+  assert.match(salesRows, /return sales\.flatMap\(\(sale\) => \{/);
+  assert.match(salesRows, /function mergeDisplayItems\(items: any\[\]\): any\[\]/);
   assert.match(salesPage, /Number\(filters\.lot_id \|\| 0\)/);
-  assert.match(salesPage, /Number\(item\.lotId \|\| item\.lot\?\.id \|\| sale\.lot\?\.id \|\| 0\) === selectedLotId/);
-  assert.match(salesPage, /items: \[item\]/);
-  assert.match(salesPage, /sourceSale: sale/);
+  assert.match(salesRows, /Number\(item\.lotId \|\| item\.lot\?\.id \|\| sale\.lot\?\.id \|\| 0\) === selectedLotId/);
+  assert.match(salesRows, /items: \[item\]/);
+  assert.match(salesPage, /sourceSale,/);
   assert.match(salesPage, /data=\{displaySales\}/);
   assert.match(salesPage, /openCorrect\(s\.sourceSale \|\| s\)/);
   assert.match(salesPage, /openDiscount\(s\.sourceSale \|\| s\)/);
@@ -622,14 +624,15 @@ test("city sales auto lot selection expands sale items across FIFO lot availabil
   assert.match(salesRoute, /Lot is required for each product/);
   assert.match(salesRoute, /exceeds available stock/);
   assert.match(salesRoute, /db\.cityTransfer\.aggregate/);
-  assert.match(salesRoute, /status: "pending"/);
+  assert.match(salesRoute, /status: "pending", batchId: null/);
   assert.match(salesRoute, /availableLots: await getAvailableLotsForProduct\(cityId, user\.countryId!, godownId, item\.productId\)/);
   assert.match(godownStockRoute, /lotBreakdown/);
-  assert.match(godownStockRoute, /city_transferred_out/);
-  assert.match(godownStockRoute, /ct\.status = 'pending'/);
+  assert.match(godownStockRoute, /legacy_city_transferred_out/);
+  assert.match(godownStockRoute, /ct\.batch_id IS NULL/);
   assert.doesNotMatch(godownStockRoute, /city_transferred_in/);
   const saleCorrectRoute = readFileSync("src/app/api/v1/sales/[id]/correct/route.ts", "utf8");
   assert.match(saleCorrectRoute, /ct\.status = 'pending'/);
+  assert.match(saleCorrectRoute, /ct\.batch_id IS NULL/);
   assert.match(salesPage, /const saleGodownId = Number\(sale\.godownId \|\| sale\.godown\?\.id \|\| 0\)/);
   assert.match(salesPage, /if \(saleGodownId\) await loadGodownStock\(saleGodownId\)/);
   assert.match(salesPage, /const expandedItems = expandAutoLotItems\(validItems, true\)/);
@@ -737,13 +740,16 @@ test("sales lot filter uses sale item lots for pagination", () => {
   assert.doesNotMatch(salesRoute, /baseWhere\.OR = \[\{ lotId \}, \{ items: \{ some: \{ lotId \} \} \}\]/);
 });
 
-test("sales pagination footer uses visible expanded row count", () => {
+test("sales and payments paginate exactly twenty visible rows", () => {
   const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
-  const ui = readFileSync("src/components/ui/index.tsx", "utf8");
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+  const salesRoute = readFileSync("src/app/api/v1/sales/route.ts", "utf8");
 
-  assert.match(salesPage, /visibleCount: displaySales\.length/);
-  assert.match(ui, /visibleCount\?: number/);
-  assert.match(ui, /Showing \$\{pagination\.visibleCount\} of \$\{pagination\.total\} transactions/);
+  assert.match(salesPage, /limit: SALES_PAYMENTS_PAGE_SIZE, row_mode: "items"/);
+  assert.match(salesPage, /pageSize: SALES_PAYMENTS_PAGE_SIZE/);
+  assert.match(paymentsPage, /limit: SALES_PAYMENTS_PAGE_SIZE/);
+  assert.match(paymentsPage, /pageSize: SALES_PAYMENTS_PAGE_SIZE/);
+  assert.match(salesRoute, /paginateSaleDisplayRows\(filtered\.map\(formatSale\), page, limit, lotId \|\| 0\)/);
 });
 
 test("customer ledger sale details stay complete with at-rate display across table and PDF", () => {
@@ -1351,16 +1357,14 @@ test("GLM critical audit fixes remain wired", () => {
   assert.match(sale, /@@unique\(\[cityId, voucherNo\], name: "unique_sale_city_voucher"\)/);
   assert.match(unresolved, /@@map\("lot_settlement_unresolved_overflows"\)/);
   assert.match(cityTransferCreate, /INSUFFICIENT_STOCK/);
-  assert.match(cityTransferCreate, /pg_advisory_xact_lock\(31001, \$\{parsedFromGodownId \* 100000 \+ parsedProductId\}::int\)/);
+  assert.match(cityTransferCreate, /lockGodownProductStock/);
   assert.match(cityTransferCreate, /si\.lot_id = lcd\.lot_id/);
   assert.match(cityTransferCreate, /ORDER BY l\.lot_date ASC, l\.id ASC/);
   assert.doesNotMatch(cityTransferCreate, /pg_advisory_xact_lock\(\$\{31001\},/);
-  assert.match(cityTransferApprove, /pg_advisory_xact_lock/);
-  assert.match(cityTransferApprove, /pg_advisory_xact_lock\(31001, \$\{transfer\.fromGodownId \* 100000 \+ transfer\.productId\}::int\)/);
-  assert.match(cityTransferApprove, /ct\.id <> \$\{id\}/);
-  assert.match(cityTransferApprove, /lotId: effectiveLotId/);
-  assert.doesNotMatch(cityTransferApprove, /pg_advisory_xact_lock\(\$\{31001\},/);
-  assert.match(cityTransferApprove, /SENDER_INSUFFICIENT_STOCK/);
+  assert.match(cityTransferApprove, /lockGodownProductStock/);
+  assert.match(cityTransferApprove, /allocatedQty: \{ increment: transferQty \}/);
+  assert.match(cityTransferApprove, /qty: \{ increment: transferQty \}/);
+  assert.match(cityTransferApprove, /if \(!row\.batchId\)/);
   assert.doesNotMatch(withdrawalsCreate, /journalWithdrawal\(/);
   assert.doesNotMatch(withdrawalsApprove, /journalWithdrawal\(/);
   assert.doesNotMatch(withdrawalsApprove, /hajiTransfer\.create\(/);
@@ -1379,11 +1383,11 @@ test("city transfer send modal uses available source godowns", () => {
   const cityTransfersPage = readFileSync("src/app/(dashboard)/city-transfers/page.tsx", "utf8");
 
   assert.match(cityTransfersPage, /apiCall\("\/api\/v1\/inventory\/godown-stock"\)/);
-  assert.match(cityTransfersPage, /const sourceGodownOptions = useMemo/);
-  assert.match(cityTransfersPage, /Number\(row\.available \|\| 0\)/);
+  assert.match(cityTransfersPage, /const getSourceGodownOptions/);
+  assert.match(cityTransfersPage, /Number\(stockRow\?\.available \|\| 0\)/);
   assert.match(cityTransfersPage, /Source Godown \*/);
-  assert.match(cityTransfersPage, /getSourceGodownAvailable\(g\.id\)/);
-  assert.match(cityTransfersPage, /No source godown has available stock for this product\./);
+  assert.match(cityTransfersPage, /getSourceGodownAvailable\(item\.productId, godown\.id\)/);
+  assert.match(cityTransfersPage, /addTransferSource/);
 });
 
 test("investor attribution phase 1 foundation reconciles to existing profit report", () => {

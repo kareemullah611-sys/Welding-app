@@ -19,7 +19,7 @@ import { buildSettlementTargetValue, parseSettlementTargetValue } from "@/lib/ha
 import { buildCityHajiTransferDetail, formatSuperAdminBankLabel } from "@/lib/haji-transfer-detail";
 import { buildPaymentCancellationReversalRow } from "@/lib/treasury-ledger";
 import { formatPaymentModuleDetail, buildPaymentSubmitPayload, validatePakistanPaymentForm, formatSuperAdminPaymentDetail, formatPakistanCityPaymentDetail, getPakistanPaymentAccountSelectValue, parsePakistanPaymentAccountSelectValue, buildPakistanPaymentAccountOptions, sanitizePaymentSubmitPayload, formatAfghanistanCityPaymentDetail } from "@/lib/payment-module-detail";
-import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import { DEFAULT_LIST_PAGE_SIZE, SALES_PAYMENTS_PAGE_SIZE } from "@/lib/pagination";
 import { LedgerExportButtons } from "@/components/LedgerExportButtons";
 import type { LedgerExportType } from "@/lib/ledger-export";
 
@@ -440,7 +440,7 @@ export default function PaymentsPage() {
       return;
     }
     setLoading(true);
-    const params: any = { page, limit: DEFAULT_LIST_PAGE_SIZE };
+    const params: any = { page, limit: SALES_PAYMENTS_PAGE_SIZE };
     if (fromDate) params.from_date = fromDate;
     if (toDate) params.to_date = toDate;
     const normalizedQuery = searchQuery.trim();
@@ -2195,7 +2195,7 @@ export default function PaymentsPage() {
         columns={columns}
         data={items}
         loading={loading}
-        pagination={{ page, totalPages, total, onPageChange: setPage }}
+        pagination={{ page, totalPages, total, pageSize: SALES_PAYMENTS_PAGE_SIZE, onPageChange: setPage }}
         rowClassName={!isSuperAdmin ? paymentListRowClassName : undefined}
       />}
 

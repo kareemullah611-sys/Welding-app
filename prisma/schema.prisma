@@ -2102,6 +2102,7 @@ model AgentPayment {
 
 model CityTransfer {
   id            Int                @id @default(autoincrement())
+  batchId       String?            @map("batch_id") @db.VarChar(64)
   fromCityId    Int                @map("from_city_id")
   toCityId      Int                @map("to_city_id")
   fromGodownId  Int                @map("from_godown_id")
@@ -2131,6 +2132,7 @@ model CityTransfer {
   @@index([fromCityId])
   @@index([toCityId])
   @@index([status])
+  @@index([batchId])
   @@map("city_transfers")
 }
 

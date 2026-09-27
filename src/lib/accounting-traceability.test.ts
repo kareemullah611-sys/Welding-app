@@ -69,6 +69,21 @@ test("stock trace reconciles source quantity, sales, remaining stock, and carryi
   assert.equal(rows[0].quantityDifference, 0);
 });
 
+test("stock trace includes pending city transfers as in-transit movement", () => {
+  const [row] = buildLotStockTrace({
+    lotProducts: [{ productId: 10, productName: "3.2mm", originalQty: 100, openingUnitCostPkr: 800 }],
+    purchases: [],
+    distributed: [{ productId: 10, qty: 100 }],
+    sales: [],
+    godownTransfers: [],
+    cityTransfers: [{ productId: 10, qty: 8, status: "pending" }],
+    additionalLandedCostPkr: 0,
+  });
+
+  assert.equal(row.internalTransferQuantity, 8);
+  assert.equal(row.remainingQuantity, 100);
+});
+
 test("stock trace exposes missing carrying basis instead of guessing", () => {
   const [row] = buildLotStockTrace({
     lotProducts: [

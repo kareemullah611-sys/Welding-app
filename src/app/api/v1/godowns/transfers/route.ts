@@ -110,8 +110,11 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           ), 0) as transferred_in,
           COALESCE((
             SELECT SUM(ct.qty) FROM city_transfers ct
-            WHERE ct.from_godown_id = ${fromGodownId} AND ct.product_id = ${productId} AND ct.status IN ('approved','pending')
-          ), 0) as city_out
+            WHERE ct.from_godown_id = ${fromGodownId}
+              AND ct.product_id = ${productId}
+              AND ct.status = 'pending'
+              AND ct.batch_id IS NULL
+          ), 0) as legacy_city_out
         FROM lot_city_godown_allocations lcga
         JOIN lot_city_distributions lcd ON lcd.id = lcga.lot_city_distribution_id
         WHERE lcga.godown_id = ${fromGodownId} AND lcd.product_id = ${productId}
@@ -119,7 +122,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       const stock = stockRows[0];
       const available = Number(stock?.received || 0) - Number(stock?.sold || 0)
         - Number(stock?.transferred_out || 0) + Number(stock?.transferred_in || 0)
-        - Number(stock?.city_out || 0);
+        - Number(stock?.legacy_city_out || 0);
       if (baseQty > available) throw new Error(`STOCK_SHORT:${Math.max(0, available)}`);
 
       const created = await tx.godownTransfer.create({

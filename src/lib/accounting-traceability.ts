@@ -104,9 +104,9 @@ export function buildLotStockTrace(input: {
     const remainingQuantity = originalQuantity - soldQuantity;
     if (remainingQuantity < 0) blockers.push("Sales exceed original lot quantity");
     const distributedQuantity = sumMovements(input.distributed, product.productId, product);
-    const approvedCityTransfers = input.cityTransfers.filter((row) => row.status === "approved");
+    const activeCityTransfers = input.cityTransfers.filter((row) => row.status === "pending" || row.status === "approved");
     const internalTransferQuantity = sumMovements(input.godownTransfers, product.productId, product)
-      + sumMovements(approvedCityTransfers, product.productId, product);
+      + sumMovements(activeCityTransfers, product.productId, product);
 
     return {
       productId: product.productId,

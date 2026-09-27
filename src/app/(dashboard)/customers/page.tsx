@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
@@ -18,6 +18,7 @@ import { formatLedgerMoneyAmount } from "@/lib/city-money-format";
 import { GlassButton } from "@/components/ui/GlassButton";
 import { LedgerExportButtons } from "@/components/LedgerExportButtons";
 import { Play } from "lucide-react";
+import { sortCustomersForDisplay, type CustomerListSort } from "@/lib/customer-list-sort";
 
 function compactCustomerLedgerDetail(entry: { type?: string; detail?: string; voucherNo?: string }) {
   const detail = String(entry.detail || entry.voucherNo || "").trim();
@@ -93,6 +94,8 @@ export default function CustomersPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
+  const [customerSort, setCustomerSort] = useState<CustomerListSort>("newest");
+  const [customerSortCurrency, setCustomerSortCurrency] = useState("");
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -121,6 +124,22 @@ export default function CustomersPage() {
   const [hardDeleteError, setHardDeleteError] = useState("");
   const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
   const [openActionId, setOpenActionId] = useState<number | string | null>(null);
+  const customerSortCurrencies = useMemo(() => Array.from(new Set(
+    (user?.currencies || []).map((currency) => String(currency.code || "").trim().toUpperCase()).filter(Boolean),
+  )), [user?.currencies]);
+  const customerSortOptions = useMemo(() => [
+    { value: "newest", label: "Newest" },
+    { value: "oldest", label: "Oldest" },
+    { value: "name_asc", label: "Name A–Z" },
+    { value: "name_desc", label: "Name Z–A" },
+    ...customerSortCurrencies.flatMap((currencyCode) => [
+      { value: `balance_desc:${currencyCode}`, label: `${currencyCode} balance high–low` },
+      { value: `balance_asc:${currencyCode}`, label: `${currencyCode} balance low–high` },
+    ]),
+  ], [customerSortCurrencies]);
+  const customerSortValue = customerSort.startsWith("balance_") && customerSortCurrency
+    ? `${customerSort}:${customerSortCurrency}`
+    : customerSort;
   const getPendingQueueId = useCallback((row: any): string | null => {
     if (!row) return null;
     if (typeof row._queueId === "string" && row._queueId) return row._queueId;
@@ -157,6 +176,10 @@ export default function CustomersPage() {
     const params: any = { page, limit: DEFAULT_LIST_PAGE_SIZE };
     const normalizedQuery = searchQuery.trim();
     if (normalizedQuery.length >= 2) params.q = normalizedQuery;
+    if (user?.role === "city_admin") params.sort = customerSort;
+    if (user?.role === "city_admin" && customerSort.startsWith("balance_") && customerSortCurrency) {
+      params.balance_currency = customerSortCurrency;
+    }
     const result = await apiCall("/api/v1/customers", { params });
     if (result.success) {
       let nextCustomers = (result.data as any[]) || [];
@@ -172,10 +195,11 @@ export default function CustomersPage() {
             address: parsed?.address || "",
             cityId: Number(parsed?.cityId || user?.cityId || 0),
             isActive: true,
+            createdAt: new Date(q.timestamp).toISOString(),
             _pending: true,
           };
         });
-      nextCustomers = [...pendingCustomers, ...nextCustomers];
+      nextCustomers = sortCustomersForDisplay([...pendingCustomers, ...nextCustomers], customerSort, customerSortCurrency);
       nextCustomers = applyQueuedMutationsToCustomers(nextCustomers, queuedItems as any[]);
       setCustomers(nextCustomers);
       setTotalPages((result.pagination as any)?.totalPages || 1);
@@ -187,19 +211,19 @@ export default function CustomersPage() {
       if (snapshot?.customers?.length) {
         const cleanedCustomers = pruneStalePendingRows(snapshot.customers as any[], queuedItems as any[], "/customers");
         const mergedSnapshotCustomers = applyQueuedMutationsToCustomers(cleanedCustomers, queuedItems as any[]);
-        setCustomers(mergedSnapshotCustomers);
+        setCustomers(sortCustomersForDisplay(mergedSnapshotCustomers, customerSort, customerSortCurrency));
         setTotalPages(1);
         setTotal(mergedSnapshotCustomers.length);
         setShowOfflineSnapshot(true);
       }
     }
     setLoading(false);
-  }, [isEmbed, isOnline, mergeSnapshot, page, queuedItems, readSnapshot, searchQuery, user?.cityId]);
+  }, [customerSort, customerSortCurrency, isEmbed, isOnline, mergeSnapshot, page, queuedItems, readSnapshot, searchQuery, user?.cityId]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (lastSyncResult && lastSyncResult.synced > 0) load();
   }, [lastSyncResult, load]);
-  useEffect(() => { setPage(1); }, [searchQuery]);
+  useEffect(() => { setPage(1); }, [customerSort, customerSortCurrency, searchQuery]);
   useEffect(() => {
     if (prefillHandled || user?.role !== "city_admin") return;
     if (searchParams.get("create") !== "1") return;
@@ -675,6 +699,14 @@ export default function CustomersPage() {
       {!isEmbed && <DataTable
         searchValue={searchQuery}
         onSearchChange={(value) => { setSearchQuery(value); setPage(1); }}
+        sortOptions={user?.role === "city_admin" ? customerSortOptions : undefined}
+        sortValue={user?.role === "city_admin" ? customerSortValue : undefined}
+        onSortChange={user?.role === "city_admin" ? (value) => {
+          const [nextSort, nextCurrency = ""] = value.split(":");
+          setCustomerSort(nextSort as CustomerListSort);
+          setCustomerSortCurrency(nextCurrency);
+          setPage(1);
+        } : undefined}
         columns={customerColumns} data={customers} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />}
 
       {/* CREATE */}

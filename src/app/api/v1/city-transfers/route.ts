@@ -4,6 +4,9 @@ import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middl
 import { successResponse, paginatedResponse, errorResponse, validationError, serverError, getPaginationParams } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import { groupCityTransferRows, normalizeCityTransferRequest } from "@/lib/city-transfer-batch";
+import { lockGodownProductStock } from "@/lib/financial-locks";
+import { randomUUID } from "node:crypto";
 
 const CITY_TRANSFER_SYNC_MODULE = "city_transfers";
 
@@ -47,27 +50,29 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       ];
     }
 
-    const [transfers, total] = await Promise.all([
-      prisma.cityTransfer.findMany({
+    const transfers = await prisma.cityTransfer.findMany({
         where, include: {
           fromCity: { select: { id: true, name: true } }, toCity: { select: { id: true, name: true } },
           fromGodown: { select: { id: true, name: true } }, toGodown: { select: { id: true, name: true } },
-          product: { select: { id: true, name: true } }, lot: { select: { id: true, lotNumber: true } },
+          product: { select: { id: true, name: true, unitOfMeasure: true, piecesPerCarton: true } }, lot: { select: { id: true, lotNumber: true } },
           sender: { select: { id: true, fullName: true } }, approver: { select: { id: true, fullName: true } },
         },
-        orderBy: { createdAt: "desc" }, skip, take: limit,
-      }),
-      prisma.cityTransfer.count({ where }),
-    ]);
+        orderBy: { createdAt: "desc" },
+      });
 
-    return paginatedResponse(transfers.map(t => ({
-      id: t.id, fromCity: t.fromCity, toCity: t.toCity, fromGodown: t.fromGodown, toGodown: t.toGodown,
+    const grouped = groupCityTransferRows(transfers.map(t => ({
+      id: t.id, batchId: t.batchId, fromCity: t.fromCity, toCity: t.toCity, fromGodown: t.fromGodown, toGodown: t.toGodown,
       product: t.product, lot: { id: t.lot.id, lotNumber: t.lot.lotNumber },
-      qty: Number(t.qty), status: t.status, notes: t.notes, approvalNotes: t.approvalNotes,
+      qty: t.product.unitOfMeasure === "PCS" && Number(t.product.piecesPerCarton || 0) > 0
+        ? Number(t.qty) / Number(t.product.piecesPerCarton)
+        : Number(t.qty),
+      status: t.status, notes: t.notes, approvalNotes: t.approvalNotes,
       transferDate: t.transferDate.toISOString().split("T")[0],
       sentBy: t.sender, approvedBy: t.approver,
       approvedAt: t.approvedAt?.toISOString() || null,
-    })), total, page, limit);
+    })));
+    const total = grouped.length;
+    return paginatedResponse(grouped.slice(skip, skip + limit), total, page, limit);
   } catch (error) { console.error("List city transfers:", error); return serverError(); }
 });
 
@@ -77,12 +82,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
   try {
     if (user.role !== "city_admin") return errorResponse("FORBIDDEN", "Only city admins can send", 403);
     const body = await request.json();
-    const { toCityId, fromGodownId, productId, lotId, qty, notes, transferDate } = body;
-    const parsedToCityId = Number(toCityId);
-    const parsedFromGodownId = Number(fromGodownId);
-    const parsedProductId = Number(productId);
-    const parsedLotId = lotId ? Number(lotId) : null;
-    const parsedQty = Number(qty);
+    const requestData = normalizeCityTransferRequest(body);
 
     if (syncMeta) {
       const existingSync = await prisma.syncRequest.findUnique({
@@ -96,106 +96,136 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       });
       if (existingSync?.entityId) {
         const existingTransfer = await prisma.cityTransfer.findUnique({ where: { id: existingSync.entityId } });
-        if (existingTransfer) return successResponse({ id: existingTransfer.id }, "Transfer already synced");
+        if (existingTransfer) return successResponse({ id: existingTransfer.id, batchId: existingTransfer.batchId }, "Transfer already synced");
       }
     }
 
-    if (!parsedToCityId || !parsedFromGodownId || !parsedProductId || !parsedQty) return validationError("Missing required fields");
-    if (!Number.isFinite(parsedQty) || parsedQty <= 0) return validationError("Quantity must be greater than 0");
-    if (parsedToCityId === user.cityId) return errorResponse("VALIDATION_ERROR", "Cannot transfer to same city");
-    const product = await prisma.product.findUnique({
-      where: { id: parsedProductId },
-      select: { unitOfMeasure: true, piecesPerCarton: true, name: true },
-    });
-    if (!product) return errorResponse("NOT_FOUND", "Product not found", 404);
-    if (product.unitOfMeasure === "PCS" && !product.piecesPerCarton) {
-      return errorResponse("VALIDATION_ERROR", `${product.name}: PCS/CTN is required on product master`);
+    if (!requestData.toCityId || requestData.items.length === 0) return validationError("Destination city and transfer items are required");
+    if (requestData.toCityId === user.cityId) return errorResponse("VALIDATION_ERROR", "Cannot transfer to same city");
+    const productIds = requestData.items.map((item) => item.productId);
+    if (productIds.some((id) => !id) || new Set(productIds).size !== productIds.length) {
+      return validationError("Select each product once");
     }
-    const baseQty = product.unitOfMeasure === "PCS" ? parsedQty * Number(product.piecesPerCarton || 0) : parsedQty;
+    for (const item of requestData.items) {
+      if (item.sources.length === 0) return validationError("Each product requires at least one source godown");
+      const sourceGodownIds = item.sources.map((source) => source.fromGodownId);
+      if (sourceGodownIds.some((id) => !id) || new Set(sourceGodownIds).size !== sourceGodownIds.length) {
+        return validationError("A source godown can only be selected once per product");
+      }
+      if (item.sources.some((source) => !Number.isFinite(source.qty) || source.qty <= 0)) {
+        return validationError("Every source quantity must be greater than 0");
+      }
+    }
+
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds }, isActive: true },
+      select: { id: true, unitOfMeasure: true, piecesPerCarton: true, name: true },
+    });
+    if (products.length !== productIds.length) return errorResponse("NOT_FOUND", "One or more products were not found", 404);
+    const productById = new Map(products.map((product) => [product.id, product]));
+    for (const product of products) {
+      if (product.unitOfMeasure === "PCS" && !product.piecesPerCarton) {
+        return errorResponse("VALIDATION_ERROR", `${product.name}: PCS/CTN is required on product master`);
+      }
+    }
 
     const destinationCity = await prisma.city.findUnique({
-      where: { id: parsedToCityId },
+      where: { id: requestData.toCityId },
       select: { id: true, isActive: true },
     });
     if (!destinationCity || !destinationCity.isActive) {
       return errorResponse("NOT_FOUND", "Destination city not found", 404);
     }
-    // Verify godown belongs to sender
-    const godown = await prisma.godown.findFirst({ where: { id: parsedFromGodownId, cityId: user.cityId!, isActive: true } });
-    if (!godown) return errorResponse("NOT_FOUND", "Godown not found in your city");
+    const sourceGodownIds = Array.from(new Set(requestData.items.flatMap((item) => item.sources.map((source) => source.fromGodownId))));
+    const sourceGodowns = await prisma.godown.findMany({
+      where: { id: { in: sourceGodownIds }, cityId: user.cityId!, isActive: true },
+      select: { id: true },
+    });
+    if (sourceGodowns.length !== sourceGodownIds.length) return errorResponse("NOT_FOUND", "One or more source godowns were not found in your city", 404);
 
-    const transfer = await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(31001, ${parsedFromGodownId * 100000 + parsedProductId}::int)`;
+    const batchId = randomUUID();
+    const createdTransfers = await prisma.$transaction(async (tx) => {
+      await lockGodownProductStock(tx, requestData.items.flatMap((item) =>
+        item.sources.map((source) => ({ godownId: source.fromGodownId, productId: item.productId }))
+      ));
+      const created: any[] = [];
+      for (const item of requestData.items) {
+        const product = productById.get(item.productId)!;
+        const piecesPerCarton = Number(product.piecesPerCarton || 0);
+        for (const source of item.sources) {
+          const requestedBaseQty = product.unitOfMeasure === "PCS" ? source.qty * piecesPerCarton : source.qty;
+          const requestedLotId = source.lotId || null;
+          const stockRows: any[] = await tx.$queryRaw`
+            SELECT
+              lcd.id AS distribution_id,
+              lcd.lot_id,
+              lcga.id AS allocation_id,
+              COALESCE(lcga.qty, 0)
+                - COALESCE((
+                    SELECT SUM(si.qty) FROM sale_items si
+                    JOIN sales s ON s.id = si.sale_id AND s.status IN ('active','marked_short')
+                    WHERE s.godown_id = ${source.fromGodownId} AND si.product_id = ${item.productId} AND si.lot_id = lcd.lot_id
+                  ), 0)
+                - COALESCE((
+                    SELECT SUM(gt.qty) FROM godown_transfers gt
+                    WHERE gt.from_godown_id = ${source.fromGodownId} AND gt.product_id = ${item.productId} AND gt.lot_id = lcd.lot_id
+                  ), 0)
+                + COALESCE((
+                    SELECT SUM(gt.qty) FROM godown_transfers gt
+                    WHERE gt.to_godown_id = ${source.fromGodownId} AND gt.product_id = ${item.productId} AND gt.lot_id = lcd.lot_id
+                  ), 0) AS available
+            FROM lot_city_godown_allocations lcga
+            JOIN lot_city_distributions lcd ON lcd.id = lcga.lot_city_distribution_id
+            JOIN lots l ON l.id = lcd.lot_id
+            WHERE lcga.godown_id = ${source.fromGodownId}
+              AND lcd.city_id = ${user.cityId!}
+              AND lcd.product_id = ${item.productId}
+              AND l.status = 'ongoing'
+              AND (${requestedLotId}::int IS NULL OR lcd.lot_id = ${requestedLotId}::int)
+            ORDER BY l.lot_date ASC, l.id ASC
+          `;
+          const available = stockRows.reduce((sum, row) => sum + Math.max(0, Number(row.available || 0)), 0);
+          if (available < requestedBaseQty) {
+            const displayAvailable = product.unitOfMeasure === "PCS" && piecesPerCarton > 0 ? available / piecesPerCarton : available;
+            throw new Error(`INSUFFICIENT_STOCK:${product.name}:${source.fromGodownId}:${displayAvailable}`);
+          }
 
-      const requestedLotId = parsedLotId || null;
-      const stockRows: any[] = await tx.$queryRaw`
-        SELECT
-          lcd.lot_id,
-          COALESCE(lcga.qty, 0) - COALESCE((
-            SELECT SUM(si.qty) FROM sale_items si
-            JOIN sales s ON s.id = si.sale_id AND s.status IN ('active','marked_short')
-            WHERE s.godown_id = ${parsedFromGodownId} AND si.product_id = ${parsedProductId} AND si.lot_id = lcd.lot_id
-          ), 0) - COALESCE((
-            SELECT SUM(ct.qty) FROM city_transfers ct
-            WHERE ct.from_godown_id = ${parsedFromGodownId} AND ct.product_id = ${parsedProductId} AND ct.lot_id = lcd.lot_id AND ct.status = 'approved'
-          ), 0) - COALESCE((
-            SELECT SUM(ct.qty) FROM city_transfers ct
-            WHERE ct.from_godown_id = ${parsedFromGodownId} AND ct.product_id = ${parsedProductId} AND ct.lot_id = lcd.lot_id AND ct.status = 'pending'
-          ), 0) as available
-        FROM lot_city_godown_allocations lcga
-        JOIN lot_city_distributions lcd ON lcd.id = lcga.lot_city_distribution_id
-        JOIN lots l ON l.id = lcd.lot_id
-        WHERE lcga.godown_id = ${parsedFromGodownId}
-          AND lcd.city_id = ${user.cityId!}
-          AND lcd.product_id = ${parsedProductId}
-          AND l.status = 'ongoing'
-          AND (${requestedLotId}::int IS NULL OR lcd.lot_id = ${requestedLotId}::int)
-          AND COALESCE(lcga.qty, 0) - COALESCE((
-            SELECT SUM(si.qty) FROM sale_items si
-            JOIN sales s ON s.id = si.sale_id AND s.status IN ('active','marked_short')
-            WHERE s.godown_id = ${parsedFromGodownId} AND si.product_id = ${parsedProductId} AND si.lot_id = lcd.lot_id
-          ), 0) - COALESCE((
-            SELECT SUM(ct.qty) FROM city_transfers ct
-            WHERE ct.from_godown_id = ${parsedFromGodownId} AND ct.product_id = ${parsedProductId} AND ct.lot_id = lcd.lot_id AND ct.status = 'approved'
-          ), 0) - COALESCE((
-            SELECT SUM(ct.qty) FROM city_transfers ct
-            WHERE ct.from_godown_id = ${parsedFromGodownId} AND ct.product_id = ${parsedProductId} AND ct.lot_id = lcd.lot_id AND ct.status = 'pending'
-          ), 0) >= ${baseQty}
-        ORDER BY l.lot_date ASC, l.id ASC
-        LIMIT 1
-      `;
-      const row = stockRows[0];
-      const effectiveLotId = Number(row?.lot_id || 0);
-      if (!effectiveLotId) {
-        const availableRows: any[] = await tx.$queryRaw`
-          SELECT COALESCE(SUM(lcga.qty), 0) as received
-          FROM lot_city_godown_allocations lcga
-          JOIN lot_city_distributions lcd ON lcd.id = lcga.lot_city_distribution_id
-          JOIN lots l ON l.id = lcd.lot_id
-          WHERE lcga.godown_id = ${parsedFromGodownId}
-            AND lcd.city_id = ${user.cityId!}
-            AND lcd.product_id = ${parsedProductId}
-            AND l.status = 'ongoing'
-        `;
-        const available = Number(availableRows[0]?.received || 0);
-        throw new Error(`INSUFFICIENT_STOCK:${available}`);
+          let remaining = requestedBaseQty;
+          for (const row of stockRows) {
+            if (remaining <= 0) break;
+            const allocation = { qty: Math.min(remaining, Math.max(0, Number(row.available || 0))) };
+            if (allocation.qty <= 0) continue;
+            await tx.lotCityGodownAllocation.update({
+              where: { id: Number(row.allocation_id) },
+              data: { qty: { decrement: allocation.qty } },
+            });
+            await tx.lotCityDistribution.update({
+              where: { id: Number(row.distribution_id) },
+              data: { allocatedQty: { decrement: allocation.qty } },
+            });
+            const transfer = await tx.cityTransfer.create({
+              data: {
+                batchId,
+                fromCityId: user.cityId!,
+                toCityId: requestData.toCityId,
+                fromGodownId: source.fromGodownId,
+                productId: item.productId,
+                lotId: Number(row.lot_id),
+                qty: allocation.qty,
+                notes: requestData.notes,
+                transferDate: requestData.transferDate ? new Date(requestData.transferDate) : new Date(),
+                sentBy: user.userId,
+              },
+            });
+            created.push(transfer);
+            remaining = Math.round((remaining - allocation.qty) * 100) / 100;
+            await createAuditLog(user.userId, user.cityId, "city_transfers", transfer.id, "create", undefined, {
+              batchId, toCityId: requestData.toCityId, productId: item.productId,
+              fromGodownId: source.fromGodownId, lotId: Number(row.lot_id), qty: allocation.qty,
+            }, getClientIP(request), tx);
+          }
+        }
       }
-
-      const createdTransfer = await tx.cityTransfer.create({
-        data: {
-          fromCityId: user.cityId!,
-          toCityId: parsedToCityId,
-          fromGodownId: parsedFromGodownId,
-          productId: parsedProductId,
-          lotId: effectiveLotId,
-          qty: baseQty,
-          notes,
-          transferDate: transferDate ? new Date(transferDate) : new Date(),
-          sentBy: user.userId,
-        },
-      });
-
-      await createAuditLog(user.userId, user.cityId, "city_transfers", createdTransfer.id, "create", undefined, body, getClientIP(request), tx);
       if (syncMeta) {
         await tx.syncRequest.create({
           data: {
@@ -204,15 +234,15 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
             requestId: syncMeta.requestId,
             deviceId: syncMeta.deviceId,
             entityType: "city_transfers",
-            entityId: createdTransfer.id,
+            entityId: created[0].id,
             createdBy: user.userId,
           },
         });
       }
-      return createdTransfer;
+      return created;
     });
 
-    return successResponse({ id: transfer.id }, "Transfer sent — waiting for approval", 201);
+    return successResponse({ id: createdTransfers[0].id, batchId, transferIds: createdTransfers.map((transfer) => transfer.id) }, "Transfer sent — source stock deducted, waiting for approval", 201);
   } catch (error: any) {
     if (syncMeta && user.cityId && isSyncRequestDuplicateError(error)) {
       const existingSync = await prisma.syncRequest.findUnique({
@@ -226,13 +256,13 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       });
       if (existingSync?.entityId) {
         const existingTransfer = await prisma.cityTransfer.findUnique({ where: { id: existingSync.entityId } });
-        if (existingTransfer) return successResponse({ id: existingTransfer.id }, "Transfer already synced");
+        if (existingTransfer) return successResponse({ id: existingTransfer.id, batchId: existingTransfer.batchId }, "Transfer already synced");
       }
     }
     console.error("Create city transfer:", error);
     if (typeof error?.message === "string" && error.message.startsWith("INSUFFICIENT_STOCK:")) {
-      const available = Number(error.message.split(":")[1] || 0);
-      return errorResponse("VALIDATION_ERROR", `Insufficient stock: only ${available} available (including pending transfers) in this godown`);
+      const [, productName, godownId, available] = error.message.split(":");
+      return errorResponse("VALIDATION_ERROR", `${productName}: only ${Number(available || 0)} available in source godown #${godownId}`);
     }
     return serverError();
   }

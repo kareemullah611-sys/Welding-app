@@ -9,6 +9,7 @@ import {
 import { JWTPayload } from "@/lib/auth";
 import { hashPassword } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import { normalizeCustomerListSort, sortCustomersForDisplay } from "@/lib/customer-list-sort";
 
 const CUSTOMER_SYNC_MODULE = "customers.create";
 
@@ -24,6 +25,18 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const numericQuery = Number(normalizedQuery.replace(/,/g, ""));
     const hasNumericQuery = Number.isFinite(numericQuery);
     const isActive = searchParams.get("is_active");
+    const requestedSort = normalizeCustomerListSort(searchParams.get("sort"));
+    const requestedBalanceCurrency = String(searchParams.get("balance_currency") || "").trim().toUpperCase();
+    const balanceCurrency = /^[A-Z]{3}$/.test(requestedBalanceCurrency) ? requestedBalanceCurrency : "";
+    const requiresBalanceSort = requestedSort.startsWith("balance_") && Boolean(balanceCurrency);
+    const sort = requestedSort.startsWith("balance_") && !balanceCurrency ? "newest" : requestedSort;
+    const orderBy = sort === "name_asc"
+      ? [{ name: "asc" as const }, { id: "asc" as const }]
+      : sort === "name_desc"
+        ? [{ name: "desc" as const }, { id: "desc" as const }]
+        : sort === "oldest"
+          ? [{ createdAt: "asc" as const }, { id: "asc" as const }]
+          : [{ createdAt: "desc" as const }, { id: "desc" as const }];
 
     const where: any = {};
     if (cityId) where.cityId = cityId;
@@ -42,9 +55,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       prisma.customer.findMany({
         where,
         include: { city: { select: { id: true, name: true } } },
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-        skip,
-        take: limit,
+        orderBy,
+        ...(requiresBalanceSort ? {} : { skip, take: limit }),
       }),
       prisma.customer.count({ where }),
     ]);
@@ -100,8 +112,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       balanceMap[p.customerId][code] = (balanceMap[p.customerId][code] || 0) - Number(p._sum.amount ?? 0);
     }
 
-    return paginatedResponse(
-      customers.map((c) => {
+    const rows = customers.map((c) => {
         const raw = balanceMap[c.id] || {};
         const balanceByCurrency = Object.fromEntries(
           Object.entries(raw).map(([cc, amt]) => [cc, Math.round(amt * 100) / 100])
@@ -112,10 +123,16 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           portalAccessEnabled: c.portalAccessEnabled,
           portalUsername: c.portalUsername,
           portalLastLoginAt: c.portalLastLoginAt,
+          createdAt: c.createdAt,
           balanceByCurrency,
           balance: Math.round(Object.values(raw).reduce((s, v) => s + v, 0) * 100) / 100,
         };
-      }),
+      });
+    const sortedRows = sortCustomersForDisplay(rows, sort, balanceCurrency);
+    const responseRows = requiresBalanceSort ? sortedRows.slice(skip, skip + limit) : sortedRows;
+
+    return paginatedResponse(
+      responseRows,
       total, page, limit
     );
   } catch (error) {

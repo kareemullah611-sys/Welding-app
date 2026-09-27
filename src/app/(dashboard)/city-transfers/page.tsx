@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate } from "@/components/ui";
@@ -29,6 +29,27 @@ type CityTransfersReadSnapshot = {
   totalPages: number;
   total: number;
 };
+
+type TransferSourceDraft = { fromGodownId: number; qty: number };
+type TransferItemDraft = { productId: number; sources: TransferSourceDraft[] };
+type TransferForm = {
+  toCityId: number;
+  transferDate: string;
+  notes: string;
+  items: TransferItemDraft[];
+};
+
+const emptyTransferItem = (): TransferItemDraft => ({
+  productId: 0,
+  sources: [{ fromGodownId: 0, qty: 0 }],
+});
+
+const emptyTransferForm = (): TransferForm => ({
+  toCityId: 0,
+  transferDate: new Date().toISOString().split("T")[0],
+  notes: "",
+  items: [emptyTransferItem()],
+});
 
 function applyQueuedMutationsToCityTransfers(baseRows: any[], queueItems: any[], myGodowns: any[]) {
   if (!Array.isArray(baseRows) || !Array.isArray(queueItems) || queueItems.length === 0) return baseRows;
@@ -94,7 +115,7 @@ export default function CityTransfersPage() {
   const [lots, setLots] = useState<any[]>([]);
   const [sourceStockRows, setSourceStockRows] = useState<any[]>([]);
   const [sourceStockLoading, setSourceStockLoading] = useState(false);
-  const [form, setForm] = useState({ toCityId: 0, fromGodownId: 0, productId: 0, lotId: 0, qty: 0, notes: "", transferDate: new Date().toISOString().split("T")[0] });
+  const [form, setForm] = useState<TransferForm>(emptyTransferForm);
   const [approveForm, setApproveForm] = useState({ toGodownId: 0, approvalNotes: "" });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -138,7 +159,7 @@ export default function CityTransfersPage() {
   }, [lastSyncResult, load]);
   useEffect(() => { setPage(1); }, [searchQuery]);
 
-  const openSend = async (preset?: Partial<typeof form>) => {
+  const openSend = async (preset?: Partial<TransferForm>) => {
     if (!isOnline) {
       const cached = readOfflineFormCache<CityTransfersFormCache>(CITY_TRANSFERS_FORM_CACHE_KEY, [
         "cities",
@@ -163,16 +184,7 @@ export default function CityTransfersPage() {
       setLots(cached.lots);
       setSourceStockRows([]);
       setSourceStockLoading(false);
-      setForm({
-        toCityId: 0,
-        fromGodownId: 0,
-        productId: 0,
-        lotId: 0,
-        qty: 0,
-        notes: "",
-        transferDate: new Date().toISOString().split("T")[0],
-        ...preset,
-      });
+      setForm({ ...emptyTransferForm(), ...preset });
       setShowSend(true);
       setError("");
       return;
@@ -199,14 +211,18 @@ export default function CityTransfersPage() {
         lots: nextLots,
       });
     }
-    setForm({ toCityId: 0, fromGodownId: 0, productId: 0, lotId: 0, qty: 0, notes: "", transferDate: new Date().toISOString().split("T")[0], ...preset });
+    setForm({ ...emptyTransferForm(), ...preset });
     setShowSend(true); setError("");
   };
 
   const handleSend = async () => {
-    if (!form.toCityId || !form.fromGodownId || !form.productId || !form.qty) { setError(t("fill_required_fields")); return; }
-    const body: any = { ...form };
-    if (!body.lotId) delete body.lotId;
+    const validItems = form.items.length > 0 && form.items.every((item) =>
+      item.productId > 0
+      && item.sources.length > 0
+      && item.sources.every((source) => source.fromGodownId > 0 && source.qty > 0)
+    );
+    if (!form.toCityId || !validItems) { setError(t("fill_required_fields")); return; }
+    const body = { ...form };
 
     if (resolvingQueueId) {
       const ok = await updateQueuedItem(resolvingQueueId, { body: JSON.stringify(body) });
@@ -226,9 +242,7 @@ export default function CityTransfersPage() {
 
     if (!isOnline) {
       const toCity = cities.find((c: any) => c.id === form.toCityId);
-      const fromGodown = godowns.find((g: any) => g.id === form.fromGodownId);
-      const product = products.find((p: any) => p.id === form.productId);
-      const lot = lots.find((l: any) => l.id === form.lotId);
+      const totalQty = form.items.reduce((sum, item) => sum + item.sources.reduce((itemSum, source) => itemSum + Number(source.qty || 0), 0), 0);
       const queueId = await enqueue({
         url: "/api/v1/city-transfers",
         method: "POST",
@@ -239,7 +253,7 @@ export default function CityTransfersPage() {
           action: "create",
           entityType: "city_transfer",
           entityLabel: "City Transfer (Pending)",
-          entityDetail: `${product?.name || "Product"} × ${Number(form.qty || 0).toLocaleString("en-US")}`,
+          entityDetail: `${form.items.length} product${form.items.length === 1 ? "" : "s"} × ${totalQty.toLocaleString("en-US")}`,
         },
       });
       setTransfers((prev) => [{
@@ -247,11 +261,16 @@ export default function CityTransfersPage() {
         transferDate: form.transferDate,
         fromCity: { id: user?.cityId, name: user?.cityName },
         toCity: toCity ? { id: toCity.id, name: toCity.name } : null,
-        fromGodown: fromGodown ? { id: fromGodown.id, name: fromGodown.name } : null,
+        fromGodown: { name: `${new Set(form.items.flatMap((item) => item.sources.map((source) => source.fromGodownId))).size} godown(s)` },
         toGodown: null,
-        product: product ? { id: product.id, name: product.name } : null,
-        lot: lot ? { id: lot.id, lotNumber: lot.lotNumber } : null,
-        qty: Number(form.qty || 0),
+        product: { name: `${form.items.length} product${form.items.length === 1 ? "" : "s"}` },
+        items: form.items.map((item) => ({
+          product: products.find((product: any) => Number(product.id) === Number(item.productId)),
+          qty: item.sources.reduce((sum, source) => sum + Number(source.qty || 0), 0),
+          sources: item.sources,
+        })),
+        lot: null,
+        qty: totalQty,
         status: "pending",
         _pending: true,
       }, ...prev]);
@@ -274,12 +293,12 @@ export default function CityTransfersPage() {
     if (!target) return;
     const parsed = safeParseQueuedBody(target.body);
     if (!parsed) return;
+    const parsedItems = Array.isArray(parsed.items) && parsed.items.length > 0
+      ? parsed.items
+      : [{ productId: Number(parsed.productId || 0), sources: [{ fromGodownId: Number(parsed.fromGodownId || 0), qty: Number(parsed.qty || 0) }] }];
     openSend({
       toCityId: Number(parsed.toCityId || 0),
-      fromGodownId: Number(parsed.fromGodownId || 0),
-      productId: Number(parsed.productId || 0),
-      lotId: Number(parsed.lotId || 0),
-      qty: Number(parsed.qty || 0),
+      items: parsedItems,
       notes: String(parsed.notes || ""),
       transferDate: String(parsed.transferDate || new Date().toISOString().split("T")[0]),
     });
@@ -386,41 +405,69 @@ export default function CityTransfersPage() {
     load();
   };
 
-  const sourceGodownOptions = useMemo(() => {
-    if (!sourceStockRows.length) return godowns;
-
-    const eligibleGodownIds = new Set<number>();
-    for (const row of sourceStockRows) {
-      const available = Number(row.available || 0);
-      if (available <= 0) continue;
-      if (form.productId && Number(row.productId) !== Number(form.productId)) continue;
-      if (form.lotId) {
-        const lotRows = Array.isArray(row.lotBreakdown) ? row.lotBreakdown : [];
-        const hasSelectedLot = lotRows.some((lotRow: any) => Number(lotRow.lotId) === Number(form.lotId) && Number(lotRow.available || 0) > 0);
-        if (!hasSelectedLot) continue;
-      }
-      eligibleGodownIds.add(Number(row.godownId));
-    }
-
-    return godowns.filter((godown: any) => eligibleGodownIds.has(Number(godown.id)));
-  }, [form.lotId, form.productId, godowns, sourceStockRows]);
-
-  const getSourceGodownAvailable = (godownId: number) => {
-    if (!form.productId) return null;
-    const stockRow = sourceStockRows.find((row: any) => Number(row.godownId) === Number(godownId) && Number(row.productId) === Number(form.productId));
-    if (!stockRow) return 0;
-    if (!form.lotId) return Number(stockRow.available || 0);
-    const lotRow = Array.isArray(stockRow.lotBreakdown)
-      ? stockRow.lotBreakdown.find((row: any) => Number(row.lotId) === Number(form.lotId))
-      : null;
-    return Number(lotRow?.available || 0);
+  const getSourceGodownAvailable = (productId: number, godownId: number) => {
+    if (!productId) return null;
+    const stockRow = sourceStockRows.find((row: any) =>
+      Number(row.godownId) === Number(godownId) && Number(row.productId) === Number(productId)
+    );
+    return Number(stockRow?.available || 0);
   };
 
-  useEffect(() => {
-    if (!form.fromGodownId) return;
-    const stillAvailable = sourceGodownOptions.some((godown: any) => Number(godown.id) === Number(form.fromGodownId));
-    if (!stillAvailable) setForm((current) => ({ ...current, fromGodownId: 0 }));
-  }, [form.fromGodownId, sourceGodownOptions]);
+  const getSourceGodownOptions = (productId: number, itemIndex: number, sourceIndex: number) => {
+    if (!sourceStockRows.length || !productId) return godowns;
+    const selectedElsewhere = new Set(
+      form.items[itemIndex].sources
+        .filter((_, index) => index !== sourceIndex)
+        .map((source) => Number(source.fromGodownId))
+        .filter(Boolean),
+    );
+    return godowns.filter((godown: any) =>
+      !selectedElsewhere.has(Number(godown.id))
+      && Number(getSourceGodownAvailable(productId, Number(godown.id)) || 0) > 0
+    );
+  };
+
+  const updateTransferItem = (itemIndex: number, patch: Partial<TransferItemDraft>) => {
+    setForm((current) => ({
+      ...current,
+      items: current.items.map((item, index) => index === itemIndex ? { ...item, ...patch } : item),
+    }));
+  };
+
+  const updateTransferSource = (itemIndex: number, sourceIndex: number, patch: Partial<TransferSourceDraft>) => {
+    setForm((current) => ({
+      ...current,
+      items: current.items.map((item, index) => index === itemIndex
+        ? { ...item, sources: item.sources.map((source, innerIndex) => innerIndex === sourceIndex ? { ...source, ...patch } : source) }
+        : item),
+    }));
+  };
+
+  const addTransferProduct = () => {
+    setForm((current) => ({ ...current, items: [...current.items, emptyTransferItem()] }));
+  };
+
+  const addTransferSource = (itemIndex: number) => {
+    setForm((current) => ({
+      ...current,
+      items: current.items.map((item, index) => index === itemIndex
+        ? { ...item, sources: [...item.sources, { fromGodownId: 0, qty: 0 }] }
+        : item),
+    }));
+  };
+
+  const removeTransferProduct = (itemIndex: number) => {
+    setForm((current) => ({ ...current, items: current.items.filter((_, index) => index !== itemIndex) }));
+  };
+
+  const removeTransferSource = (itemIndex: number, sourceIndex: number) => {
+    setForm((current) => ({
+      ...current,
+      items: current.items.map((item, index) => index === itemIndex
+        ? { ...item, sources: item.sources.filter((_, innerIndex) => innerIndex !== sourceIndex) }
+        : item),
+    }));
+  };
 
   const pendingIncoming = transfers.filter(tr => tr.status === "pending" && tr.toCity?.id === user?.cityId);
 
@@ -438,7 +485,12 @@ export default function CityTransfersPage() {
           <p className="text-sm font-semibold text-yellow-800 mb-2">⏳ {pendingIncoming.length} {t("incoming_transfers")}</p>
           {pendingIncoming.map(tr => (
             <div key={tr.id} className="flex items-center justify-between bg-white p-2 rounded border mb-1 text-sm">
-              <span>{tr.product?.name} × {tr.qty} {t("from")} <strong>{tr.fromCity?.name}</strong> ({tr.fromGodown?.name})</span>
+              <div>
+                <strong>{tr.fromCity?.name}</strong>
+                <div className="text-xs text-gray-600">
+                  {(tr.items || []).map((item: any) => `${item.product?.name} × ${formatNumber(item.qty)}`).join(" · ") || `${tr.product?.name} × ${formatNumber(tr.qty)}`}
+                </div>
+              </div>
               <div className="flex gap-2">
                 <button onClick={() => openApprove(tr)} className="text-xs bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700">✓ {t("approve")}</button>
                 <button onClick={() => handleReject(tr)} className="text-xs bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700">✗ {t("reject")}</button>
@@ -455,10 +507,10 @@ export default function CityTransfersPage() {
         { key: "transferDate", label: t("date"), render: (tr: any) => formatDate(tr.transferDate) },
         { key: "fromCity", label: t("from"), render: (tr: any) => <span>{tr.fromCity?.name} <span className="text-xs text-gray-400">({tr.fromGodown?.name})</span></span> },
         { key: "toCity", label: t("to"), render: (tr: any) => <span>{tr.toCity?.name} {tr.toGodown ? <span className="text-xs text-gray-400">({tr.toGodown.name})</span> : ""}</span> },
-        { key: "product", label: t("product"), render: (tr: any) => tr.product?.name },
-        { key: "qty", label: t("cartons"), render: (tr: any) => <span className="font-medium">{tr.qty}</span> },
+        { key: "product", label: t("product"), render: (tr: any) => <div className="space-y-0.5">{(tr.items || [{ product: tr.product, qty: tr.qty }]).map((item: any, index: number) => <div key={`${item.product?.id || index}`}>{item.product?.name}</div>)}</div> },
+        { key: "qty", label: t("cartons"), render: (tr: any) => <div className="space-y-0.5 font-medium">{(tr.items || [{ product: tr.product, qty: tr.qty }]).map((item: any, index: number) => <div key={`${item.product?.id || index}`}>{formatNumber(item.qty)}</div>)}</div> },
         { key: "lot", label: t("lot"), render: (tr: any) => tr.lot?.lotNumber || "-" },
-        { key: "status", label: t("status"), render: (tr: any) => <span className={`text-xs px-2 py-0.5 rounded font-medium ${tr.status === "approved" ? "bg-green-50 text-green-700" : tr.status === "rejected" ? "bg-red-50 text-red-700" : "bg-yellow-50 text-yellow-700"}`}>{tr.status}</span> },
+        { key: "status", label: t("status"), render: (tr: any) => <span className={`text-xs px-2 py-0.5 rounded font-medium ${tr.status === "approved" ? "bg-green-50 text-green-700" : tr.status === "rejected" ? "bg-red-50 text-red-700" : "bg-yellow-50 text-yellow-700"}`}>{tr.status === "pending" ? "In Transit" : tr.status}</span> },
         { key: "sentBy", label: t("sent_by"), render: (tr: any) => tr.sentBy?.fullName },
         { key: "actions", label: "", render: (tr: any) => (
           tr.status === "pending" && tr.toCity?.id === user?.cityId ? (
@@ -468,26 +520,55 @@ export default function CityTransfersPage() {
       ]} data={transfers} loading={loading} pagination={{ page, totalPages, total, onPageChange: setPage }} />
 
       {/* Send Modal */}
-      <Modal open={showSend} onClose={() => setShowSend(false)} title={t("send_goods_to_city")} size="md">
+      <Modal open={showSend} onClose={() => setShowSend(false)} title={t("send_goods_to_city")} size="lg">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
         <div className="space-y-3">
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("to_city_label")} *</label><select value={form.toCityId} onChange={e => setForm(f => ({ ...f, toCityId: parseInt(e.target.value) }))} className="select-field"><option value={0}>{t("select_city")}</option>{cities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">Source Godown *</label><select value={form.fromGodownId} onChange={e => setForm(f => ({ ...f, fromGodownId: parseInt(e.target.value) }))} className="select-field"><option value={0}>{sourceStockLoading ? "Loading source godowns..." : t("select_godown")}</option>{sourceGodownOptions.map(g => { const available = getSourceGodownAvailable(g.id); return <option key={g.id} value={g.id}>{g.name}{available !== null ? ` — ${formatNumber(available)} available` : ""}</option>; })}</select>{!sourceStockLoading && form.productId > 0 && sourceGodownOptions.length === 0 && <p className="mt-1 text-xs text-red-600">No source godown has available stock for this product.</p>}</div>
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("product")} *</label><select value={form.productId} onChange={e => setForm(f => ({ ...f, productId: parseInt(e.target.value) }))} className="select-field"><option value={0}>{t("select")}</option>{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("cartons")} *</label><input type="number" value={form.qty || ""} onChange={e => setForm(f => ({ ...f, qty: parseFloat(e.target.value) || 0 }))} className="input-field" /></div>
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("date")}</label><input type="date" value={form.transferDate} onChange={e => setForm(f => ({ ...f, transferDate: e.target.value }))} className="input-field" /></div>
-          </div>
+          {form.items.map((item, itemIndex) => (
+            <div key={itemIndex} className="rounded-xl border border-gray-200 p-3 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <label className="text-sm font-semibold text-gray-700">Product {itemIndex + 1}</label>
+                {form.items.length > 1 && <button type="button" onClick={() => removeTransferProduct(itemIndex)} className="text-xs text-red-600 hover:underline">Remove product</button>}
+              </div>
+              <select value={item.productId} onChange={e => updateTransferItem(itemIndex, { productId: parseInt(e.target.value), sources: [{ fromGodownId: 0, qty: 0 }] })} className="select-field">
+                <option value={0}>{t("select")}</option>
+                {products.filter((product: any) => !form.items.some((other, otherIndex) => otherIndex !== itemIndex && Number(other.productId) === Number(product.id))).map((product: any) => <option key={product.id} value={product.id}>{product.name}</option>)}
+              </select>
+              {item.sources.map((source, sourceIndex) => {
+                const options = getSourceGodownOptions(item.productId, itemIndex, sourceIndex);
+                const available = getSourceGodownAvailable(item.productId, source.fromGodownId);
+                return (
+                  <div key={sourceIndex} className="grid grid-cols-1 sm:grid-cols-[1fr_9rem_auto] gap-2 items-end">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Source Godown *</label>
+                      <select value={source.fromGodownId} onChange={e => updateTransferSource(itemIndex, sourceIndex, { fromGodownId: parseInt(e.target.value), qty: 0 })} className="select-field">
+                        <option value={0}>{sourceStockLoading ? "Loading source godowns..." : t("select_godown")}</option>
+                        {options.map((godown: any) => <option key={godown.id} value={godown.id}>{godown.name} — {formatNumber(getSourceGodownAvailable(item.productId, godown.id) || 0)} available</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">{t("cartons")} *</label>
+                      <input type="number" min="0" max={available ?? undefined} value={source.qty || ""} onChange={e => updateTransferSource(itemIndex, sourceIndex, { qty: parseFloat(e.target.value) || 0 })} className="input-field" />
+                    </div>
+                    {item.sources.length > 1 && <button type="button" onClick={() => removeTransferSource(itemIndex, sourceIndex)} className="h-10 px-2 text-xs text-red-600 hover:underline">Remove</button>}
+                  </div>
+                );
+              })}
+              <button type="button" onClick={() => addTransferSource(itemIndex)} disabled={!item.productId} className="text-xs font-medium text-[#6B0F1A] disabled:opacity-40">+ Add source godown</button>
+            </div>
+          ))}
+          <button type="button" onClick={addTransferProduct} className="text-sm font-semibold text-[#6B0F1A]">+ Add product</button>
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("date")}</label><input type="date" value={form.transferDate} onChange={e => setForm(f => ({ ...f, transferDate: e.target.value }))} className="input-field" /></div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label><input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} className="input-field" /></div>
         </div>
-        <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700">📦 {t("send_goods_note")}</div>
+        <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700">📦 Source stock is deducted immediately and remains visible as In Transit until the receiving city approves or rejects it.</div>
         <div className="flex justify-end gap-3 pt-4 mt-4 border-t"><button onClick={handleSend} disabled={submitting} className="btn-primary text-sm">{submitting ? "..." : t("send")}</button></div>
       </Modal>
 
       {/* Approve Modal */}
       <Modal open={showApprove} onClose={() => setShowApprove(false)} title={t("approve_transfer")} size="md">
         {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
-        {selected && <div className="mb-3 p-2 bg-gray-50 rounded text-sm">{t("received")} <strong>{selected.qty} {t("cartons")}</strong> {t("of")} <strong>{selected.product?.name}</strong> {t("from")} <strong>{selected.fromCity?.name}</strong></div>}
+        {selected && <div className="mb-3 p-2 bg-gray-50 rounded text-sm"><div>{t("from")} <strong>{selected.fromCity?.name}</strong></div><div className="mt-1 text-xs text-gray-600">{(selected.items || [{ product: selected.product, qty: selected.qty }]).map((item: any) => `${item.product?.name} × ${formatNumber(item.qty)}`).join(" · ")}</div></div>}
         <div className="space-y-3">
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("store_in_godown")} *</label><select value={approveForm.toGodownId} onChange={e => setApproveForm(f => ({ ...f, toGodownId: parseInt(e.target.value) }))} className="select-field"><option value={0}>{t("select_godown")}</option>{myGodowns.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}</select></div>
           <div><label className="block text-sm font-medium text-gray-700 mb-1">{t("notes")}</label><input value={approveForm.approvalNotes} onChange={e => setApproveForm(f => ({ ...f, approvalNotes: e.target.value }))} className="input-field" /></div>

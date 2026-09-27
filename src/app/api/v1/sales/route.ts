@@ -20,6 +20,7 @@ import {
   settleForeignCurrencyAsset,
 } from "@/lib/foreign-currency-carrying-db";
 import { lockGodownProductStock } from "@/lib/financial-locks";
+import { paginateSaleDisplayRows } from "@/lib/sale-list-pagination";
 
 const SALE_SYNC_MODULE = "sales.create";
 
@@ -77,10 +78,10 @@ async function getGodownStock(
     _sum: { qty: true },
   });
 
-  // Approved city transfers already mutate the godown allocation. Only pending
-  // transfers need an additional reservation while awaiting approval.
-  const cityTransferredOut = await db.cityTransfer.aggregate({
-    where: { fromGodownId: godownId, productId, status: "pending", ...(lotId ? { lotId } : {}) },
+  // Legacy pending transfers (created before batch reservations) have not yet
+  // reduced the allocation row. New batched transfers already have.
+  const legacyCityTransferredOut = await db.cityTransfer.aggregate({
+    where: { fromGodownId: godownId, productId, status: "pending", batchId: null, ...(lotId ? { lotId } : {}) },
     _sum: { qty: true },
   });
 
@@ -93,9 +94,9 @@ async function getGodownStock(
   const rcv = Number(received._sum.qty || 0);
   const sld = Number(sold._sum.qty || 0);
   const out = Number(transferredOut._sum.qty || 0);
-  const cityOut = Number(cityTransferredOut._sum.qty || 0);
+  const legacyCityOut = Number(legacyCityTransferredOut._sum.qty || 0);
   const inn = Number(transferredIn._sum.qty || 0);
-  return rcv - sld - out - cityOut + inn;
+  return rcv - sld - out - legacyCityOut + inn;
 }
 
 async function getAvailableLotsForProduct(
@@ -164,6 +165,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
   try {
     const searchParams = request.nextUrl.searchParams;
     const { page, limit, skip } = getPaginationParams(searchParams);
+    const paginateByDisplayRow = searchParams.get("row_mode") === "items";
     const { dateFrom, dateToExclusive } = getDateRange(searchParams);
 
     const cityId = getCityScope(user, searchParams.get("city_id") ? parseInt(searchParams.get("city_id")!) : undefined);
@@ -242,7 +244,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     });
 
     // Fast path: no search query -> fully DB paginated
-    if (!query) {
+    if (!query && !paginateByDisplayRow) {
       const [sales, total] = await Promise.all([
         prisma.sale.findMany({
           where: baseWhere,
@@ -312,6 +314,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       if (hasNumericQuery && numericFields.some(inNumericWindow)) return true;
       return false;
     });
+
+    if (paginateByDisplayRow) {
+      const paginated = paginateSaleDisplayRows(filtered.map(formatSale), page, limit, lotId || 0);
+      return paginatedResponse(paginated.items, paginated.total, page, limit);
+    }
 
     const total = filtered.length;
     const pageItems = filtered.slice(skip, skip + limit);

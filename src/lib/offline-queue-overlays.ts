@@ -18,16 +18,28 @@ export function getPendingCityTransfers(queuedItems: QueuedRequestLike[]) {
     .filter((q) => q.method === "POST" && q.url === "/api/v1/city-transfers")
     .map((q) => {
       const parsed = safeParse(q.body);
+      const items = Array.isArray(parsed?.items) && parsed.items.length > 0
+        ? parsed.items.map((item: any) => ({
+            product: { id: Number(item.productId || 0), name: `Product #${Number(item.productId || 0)}` },
+            qty: (Array.isArray(item.sources) ? item.sources : []).reduce((sum: number, source: any) => sum + Number(source.qty || 0), 0),
+            sources: Array.isArray(item.sources) ? item.sources : [],
+          }))
+        : [{
+            product: { id: Number(parsed?.productId || 0), name: "Pending Product" },
+            qty: Number(parsed?.qty || 0),
+            sources: [{ fromGodownId: Number(parsed?.fromGodownId || 0), qty: Number(parsed?.qty || 0) }],
+          }];
       return {
         id: `pending-${q.id}`,
         transferDate: parsed?.transferDate || new Date().toISOString().split("T")[0],
-        qty: Number(parsed?.qty || 0),
+        qty: items.reduce((sum: number, item: any) => sum + Number(item.qty || 0), 0),
         status: "pending",
         _pending: true,
         fromCity: { name: "Current City" },
         toCity: { name: "Pending" },
-        fromGodown: { name: "Pending" },
-        product: { name: "Pending Product" },
+        fromGodown: { name: "Pending source" },
+        product: items.length === 1 ? items[0].product : { name: `${items.length} products` },
+        items,
         lot: parsed?.lotId ? { lotNumber: `#${parsed.lotId}` } : null,
         sentBy: null,
       };

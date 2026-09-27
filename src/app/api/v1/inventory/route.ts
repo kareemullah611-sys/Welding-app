@@ -75,6 +75,20 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       WHERE p.is_active = true
         AND (${cityId}::int IS NULL OR lcd.city_id = ${cityId})
         AND (lcd.allocated_qty - COALESCE(a.qty, 0)) > 0
+      UNION ALL
+      SELECT
+        NULL::int as godown_id, 'In Transit' as godown_name, c.id as city_id, c.name as city_name,
+        co.id as country_id, co.name as country_name,
+        p.id as product_id, p.name as product_name,
+        p.unit_of_measure, p.pieces_per_carton,
+        SUM(ct.qty) as qty
+      FROM city_transfers ct
+      JOIN cities c ON c.id = ct.from_city_id
+      JOIN countries co ON co.id = c.country_id
+      JOIN products p ON p.id = ct.product_id
+      WHERE ct.status = 'pending'
+        AND (${cityId}::int IS NULL OR ct.from_city_id = ${cityId})
+      GROUP BY c.id, c.name, co.id, co.name, p.id, p.name, p.unit_of_measure, p.pieces_per_carton
       ORDER BY godown_name, product_name
     `;
 
@@ -102,7 +116,9 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       if (!cityTotals[row.city_id]) cityTotals[row.city_id] = { cityId: row.city_id, cityName: row.city_name, countryName: row.country_name, totalQty: 0 };
       cityTotals[row.city_id].totalQty += qty;
 
-      const godownKey = row.godown_id === null ? `unassigned:${row.city_id}` : String(row.godown_id);
+      const godownKey = row.godown_id === null
+        ? `${row.godown_name === "In Transit" ? "in-transit" : "unassigned"}:${row.city_id}`
+        : String(row.godown_id);
       if (!godownTotals[godownKey]) godownTotals[godownKey] = { godownId: row.godown_id, godownName: row.godown_name, cityName: row.city_name, totalQty: 0 };
       godownTotals[godownKey].totalQty += qty;
 

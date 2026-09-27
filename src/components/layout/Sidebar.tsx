@@ -398,7 +398,7 @@ export default function Sidebar() {
               )}
             />
           </span>
-          {item.href === "/city-transfers" && pendingTransfers > 0 && !item.locked && (
+          {((item.href === "/inventory" && pendingTransfers > 0) || (item.href === "/city-transfers" && pendingTransfers > 0)) && !item.locked && (
             <span className="absolute -top-1.5 -right-1.5 min-w-[14px] h-[14px] bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
               {pendingTransfers > 9 ? "9+" : pendingTransfers}
             </span>
@@ -410,7 +410,7 @@ export default function Sidebar() {
         {!collapsed && item.locked && (
           <Lock className="ml-auto h-3.5 w-3.5 flex-shrink-0 text-[#71717a]" aria-hidden />
         )}
-        {!collapsed && item.href === "/city-transfers" && pendingTransfers > 0 && !item.locked && (
+        {!collapsed && ((item.href === "/inventory" && pendingTransfers > 0) || (item.href === "/city-transfers" && pendingTransfers > 0)) && !item.locked && (
           <span className="ml-auto bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none flex-shrink-0">
             {pendingTransfers > 99 ? "99+" : pendingTransfers}
           </span>
@@ -520,14 +520,6 @@ export default function Sidebar() {
               >
                 <span className="flex-1 text-[11px] font-bold uppercase tracking-[0.14em] truncate">
                   {group.label}
-                </span>
-                <span
-                  className={cn(
-                    "flex h-5 min-w-[1.25rem] items-center justify-center rounded-md px-1 text-[10px] font-semibold tabular-nums transition-colors duration-200",
-                    sectionActive ? "bg-[#6B0F1A] text-white shadow-sm" : "bg-white/60 text-[#52525b] ring-1 ring-white/70"
-                  )}
-                >
-                  {group.items.length}
                 </span>
                 <ChevronDown
                   className={cn(

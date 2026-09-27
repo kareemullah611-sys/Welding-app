@@ -24,7 +24,7 @@ async function getLockedGodownStock(
   productId: number,
   lotId: number,
 ): Promise<number> {
-  const [received, sold, transferredOut, transferredIn, cityTransferredOut] = await Promise.all([
+  const [received, sold, transferredOut, transferredIn, legacyCityTransferredOut] = await Promise.all([
     tx.lotCityGodownAllocation.aggregate({
       where: { godownId, productId, lotCityDistribution: { lotId } },
       _sum: { qty: true },
@@ -35,13 +35,13 @@ async function getLockedGodownStock(
     }),
     tx.godownTransfer.aggregate({ where: { fromGodownId: godownId, productId, lotId }, _sum: { qty: true } }),
     tx.godownTransfer.aggregate({ where: { toGodownId: godownId, productId, lotId }, _sum: { qty: true } }),
-    tx.cityTransfer.aggregate({ where: { fromGodownId: godownId, productId, lotId, status: "pending" }, _sum: { qty: true } }),
+    tx.cityTransfer.aggregate({ where: { fromGodownId: godownId, productId, lotId, status: "pending", batchId: null }, _sum: { qty: true } }),
   ]);
   return Number(received._sum.qty || 0)
     - Number(sold._sum.qty || 0)
     - Number(transferredOut._sum.qty || 0)
-    + Number(transferredIn._sum.qty || 0)
-    - Number(cityTransferredOut._sum.qty || 0);
+    - Number(legacyCityTransferredOut._sum.qty || 0)
+    + Number(transferredIn._sum.qty || 0);
 }
 
 // PUT /api/v1/sales/:id/correct - Correct items on a sale (wrong product given)
@@ -185,11 +185,12 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           AND si.lot_id IN (${Prisma.join(candidateLotIds)})
         GROUP BY si.lot_id, si.product_id
       ),
-      city_out AS (
+      legacy_city_out AS (
         SELECT ct.lot_id, ct.product_id, COALESCE(SUM(ct.qty), 0) as qty
         FROM city_transfers ct
         WHERE ct.from_godown_id = ${nextGodownId}
           AND ct.status = 'pending'
+          AND ct.batch_id IS NULL
           AND ct.product_id IN (${Prisma.join(productIds)})
           AND ct.lot_id IN (${Prisma.join(candidateLotIds)})
         GROUP BY ct.lot_id, ct.product_id
@@ -197,12 +198,12 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       SELECT
         lcd.lot_id,
         p.id as product_id,
-        COALESCE(r.qty, 0) - COALESCE(s.qty, 0) - COALESCE(co.qty, 0) as available
+        COALESCE(r.qty, 0) - COALESCE(s.qty, 0) - COALESCE(lco.qty, 0) as available
       FROM products p
       CROSS JOIN (SELECT UNNEST(ARRAY[${Prisma.join(candidateLotIds)}])::int AS lot_id) lcd
       LEFT JOIN received r ON r.product_id = p.id AND r.lot_id = lcd.lot_id
       LEFT JOIN sold s ON s.product_id = p.id AND s.lot_id = lcd.lot_id
-      LEFT JOIN city_out co ON co.product_id = p.id AND co.lot_id = lcd.lot_id
+      LEFT JOIN legacy_city_out lco ON lco.product_id = p.id AND lco.lot_id = lcd.lot_id
       WHERE p.id IN (${Prisma.join(productIds)})
     `;
     const availableByLotProduct = Object.fromEntries(

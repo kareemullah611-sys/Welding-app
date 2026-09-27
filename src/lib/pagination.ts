@@ -3,6 +3,9 @@ export type PaginationItem = number | "...";
 /** Default rows per page for city/super-admin list tables. */
 export const DEFAULT_LIST_PAGE_SIZE = 15;
 
+/** Visible rows per page in city Sales and Payments modules. */
+export const SALES_PAYMENTS_PAGE_SIZE = 20;
+
 export function buildPaginationItems(page: number, totalPages: number): PaginationItem[] {
   const safeTotal = Math.max(1, Math.floor(totalPages || 1));
   const safePage = Math.min(Math.max(1, Math.floor(page || 1)), safeTotal);
