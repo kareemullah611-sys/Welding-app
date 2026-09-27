@@ -211,7 +211,7 @@ function buildPostingSimulation(input: {
         reconciliationReference: `finalization:${sourceFinalizationPeriod}:investor-profit:${effect.participantId}`,
       });
     }
-    if (effect.lossAllocationPkr < 0) {
+    if (effect.lossAllocationPkr < 0 && effect.participantType !== "manager") {
       addPosting(entries, {
         debitAccount: "Investor Capital",
         creditAccount: "Loss Attribution Clearing",
@@ -464,24 +464,42 @@ export function buildFinalizationDryRun(input: {
     );
   }
 
+  const managers = input.attribution.participantSummary.filter((participant) => participant.participantType === "manager");
+  if (managers.length !== 1) {
+    addBlocker(blockers, "BLOCKED_CAPITAL_SEGMENTS", `Exactly one participating manager is required; found ${managers.length}.`);
+  }
+  const manager = managers[0] || null;
+  const totalManagerProfitSharePkr = round2(input.attribution.participantSummary.reduce(
+    (sum, participant) => sum + participant.managerSharePkr,
+    0,
+  ));
+  const periodIsLoss = input.attribution.totalBusinessProfitPkr < 0;
   const proposedBalanceEffects = input.attribution.participantSummary.map((participant) => {
     const managerExitedInvestorResidualPkr = residualByManager.get(participant.participantId) || 0;
-    const investorEntitlementPkr = participant.participantType === "manager" ? 0 : participant.investorEntitlementPkr;
+    const investorEntitlementPkr = periodIsLoss || participant.participantType === "manager" ? 0 : participant.investorEntitlementPkr;
+    const managerOwnCapitalResultPkr = participant.participantType === "manager"
+      ? (periodIsLoss ? participant.allocatedLossPkr : participant.managerOwnCapitalProfitPkr)
+      : 0;
+    const managerProfitSharePkr = participant.participantId === manager?.participantId && !periodIsLoss
+      ? totalManagerProfitSharePkr
+      : 0;
+    const lossAllocationPkr = periodIsLoss ? participant.allocatedLossPkr : 0;
     const netEffect = round2(
       investorEntitlementPkr +
-      participant.managerSharePkr +
-      participant.managerOwnCapitalProfitPkr +
-      managerExitedInvestorResidualPkr
+      managerProfitSharePkr +
+      managerOwnCapitalResultPkr +
+      managerExitedInvestorResidualPkr +
+      (participant.participantType === "manager" ? 0 : lossAllocationPkr)
     );
     return {
       participantId: participant.participantId,
       participantName: participant.participantName,
       participantType: participant.participantType,
       investorEntitlementPkr: round2(investorEntitlementPkr),
-      managerOwnCapitalResultPkr: round2(participant.managerOwnCapitalProfitPkr),
-      managerProfitSharePkr: round2(participant.managerSharePkr),
+      managerOwnCapitalResultPkr: round2(managerOwnCapitalResultPkr),
+      managerProfitSharePkr: round2(managerProfitSharePkr),
       managerExitedInvestorResidualPkr,
-      lossAllocationPkr: round2(participant.allocatedLossPkr),
+      lossAllocationPkr: round2(lossAllocationPkr),
       netEffectPkr: netEffect,
     };
   });
@@ -512,13 +530,11 @@ export function buildFinalizationDryRun(input: {
     snapshotDesign: {
       immutable: true,
       tables: [
-        "InvestorAttributionFinalization",
-        "InvestorAttributionFinalizationPoolSnapshot",
-        "InvestorAttributionFinalizationParticipantSnapshot",
-        "InvestorAttributionFinalizationSourceSnapshot",
-        "InvestorAttributionFinalizationFxSnapshot",
-        "InvestorAttributionFinalizationResidualSnapshot",
-        "InvestorAttributionFinalizationReversal",
+        "ProfitAttributionPeriod",
+        "ProfitAttributionLine",
+        "InvestorResidualAttribution",
+        "InvestorAttributionLedgerEntry",
+        "ProfitAttributionPeriod.snapshotJson",
       ],
       fields: [
         "source financial report result/reference",

@@ -7,6 +7,10 @@ import { JWTPayload } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 import { isAfghanistanCountry } from "@/lib/country-code";
 import { recordHajiTransferAccounting } from "@/lib/haji-transfer-accounting";
+import { journalForeignCustomerReceiptMovements, journalPaymentReceived } from "@/lib/accounting";
+import { isSupportedForeignCurrency } from "@/lib/foreign-currency-carrying";
+import { foreignCurrencyOwnerKey, settleForeignCurrencyAsset } from "@/lib/foreign-currency-carrying-db";
+import { resolveAfghanistanFxRateFromDb } from "@/lib/sarafi-af-snapshot-db";
 
 const WITHDRAWAL_SYNC_MODULE = "personal_withdrawals.create";
 
@@ -21,6 +25,8 @@ function formatWithdrawalCreateResponse(withdrawal: any) {
     chequePaymentId: (withdrawal as any).chequePaymentId ?? null,
     bankAccountId: (withdrawal as any).bankAccountId ?? null,
     bankAccount: (withdrawal as any).bankAccount ?? null,
+    customerPaymentId: (withdrawal as any).customerPaymentId ?? null,
+    customerPayment: (withdrawal as any).customerPayment ?? null,
     approvedBy: withdrawal.approver ? { id: withdrawal.approver.id, fullName: withdrawal.approver.fullName } : null,
     approvedAt: withdrawal.approvedAt ? withdrawal.approvedAt.toISOString() : null,
     hajiTransferId: withdrawal.hajiTransferId ?? null,
@@ -48,7 +54,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       : NaN;
     const queryWantsPending = shouldApplySearch && normalizedQuery === "pending";
     const queryWantsApproved = shouldApplySearch && normalizedQuery === "approved";
-    const sourceTypeQuery = ["cash_office", "cheque", "bank_account"].includes(normalizedQuery) ? normalizedQuery : null;
+    const sourceTypeQuery = ["cash_office", "cheque", "bank_account", "customer"].includes(normalizedQuery) ? normalizedQuery : null;
 
     const where: any = {};
     if (cityId) where.cityId = cityId;
@@ -85,6 +91,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         include: {
           currency: true,
           bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+          customerPayment: { include: { customer: { select: { id: true, name: true } } } },
           creator: { select: { id: true, fullName: true } },
           approver: { select: { id: true, fullName: true } },
         },
@@ -106,6 +113,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         chequePaymentId: (w as any).chequePaymentId ?? null,
         bankAccountId: (w as any).bankAccountId ?? null,
         bankAccount: (w as any).bankAccount ?? null,
+        customerPaymentId: (w as any).customerPaymentId ?? null,
+        customerPayment: (w as any).customerPayment ?? null,
         approvedBy: w.approver ? { id: w.approver.id, fullName: w.approver.fullName } : null,
         approvedAt: w.approvedAt ? w.approvedAt.toISOString() : null,
         hajiTransferId: w.hajiTransferId,
@@ -147,6 +156,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           include: {
             currency: true,
             bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+            customerPayment: { include: { customer: { select: { id: true, name: true } } } },
             creator: { select: { id: true, fullName: true } },
             approver: { select: { id: true, fullName: true } },
           },
@@ -158,12 +168,12 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     }
 
     const city = await prisma.city.findUnique({ where: { id: cityId }, include: { country: true } });
-    const { withdrawalDate, amount, currencyId, detail, withdrawnBy, notes } = parsed.data;
-    const sourceType: "cash_office" | "bank_account" = parsed.data.sourceType ?? "cash_office";
+    const { withdrawalDate, amount, currencyId, detail, withdrawnBy, notes, customerId } = parsed.data;
+    const sourceType: "cash_office" | "bank_account" | "customer" = parsed.data.sourceType ?? "cash_office";
     const bankAccountId = parsed.data.bankAccountId ?? undefined;
 
-    if (isAfghanistanCountry(city?.country) && sourceType !== "cash_office") {
-      return errorResponse("VALIDATION_ERROR", "Afghanistan city withdrawals can only use office cash");
+    if (isAfghanistanCountry(city?.country) && !["cash_office", "customer"].includes(sourceType)) {
+      return errorResponse("VALIDATION_ERROR", "Afghanistan city withdrawals can only use office cash or a customer");
     }
 
     if (sourceType === "bank_account" && !bankAccountId) {
@@ -171,6 +181,33 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     }
     if (sourceType !== "bank_account" && bankAccountId) {
       return errorResponse("VALIDATION_ERROR", "Bank account can only be selected when source is bank account");
+    }
+    if (sourceType === "customer" && !customerId) {
+      return errorResponse("VALIDATION_ERROR", "Customer is required when source is customer");
+    }
+
+    const currency = await prisma.currency.findUnique({ where: { id: currencyId } });
+    if (!currency) return errorResponse("NOT_FOUND", "Currency not found", 404);
+    const foreignReceiptRate = isAfghanistanCountry(city?.country) && isSupportedForeignCurrency(currency.code)
+      ? await resolveAfghanistanFxRateFromDb({
+          currencyCode: currency.code,
+          transactionDate: new Date(withdrawalDate),
+          purpose: "settlement",
+          positionKind: "asset",
+        })
+      : null;
+    if (foreignReceiptRate && !foreignReceiptRate.ok) {
+      return errorResponse("FX_RATE_REQUIRED", foreignReceiptRate.missingReason, 400);
+    }
+
+    let customerPaymentFifoLotId: number | null = null;
+    if (sourceType === "customer" && city?.country) {
+      const fifoLot = await prisma.lot.findFirst({
+        where: { status: "ongoing", countryId: city.country.id, lotCityDistributions: { some: { cityId } } },
+        orderBy: [{ lotDate: "asc" }, { id: "asc" }],
+        select: { id: true },
+      });
+      customerPaymentFifoLotId = fifoLot?.id ?? null;
     }
 
     const withdrawal = await prisma.$transaction(async (tx) => {
@@ -180,6 +217,10 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         if (bankAccount.cityId !== cityId) throw new Error("BANK_FORBIDDEN");
         if (!bankAccount.isActive) throw new Error("BANK_INACTIVE");
       }
+      if (sourceType === "customer" && customerId) {
+        const customer = await tx.customer.findFirst({ where: { id: customerId, cityId, isActive: true } });
+        if (!customer) throw new Error("CUSTOMER_NOT_FOUND");
+      }
 
       const resolvedCurrencyId = currencyId;
       const cityCurrency = await tx.cityCurrency.findFirst({
@@ -187,6 +228,68 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         include: { currency: true },
       });
       if (!cityCurrency) throw new Error("CURRENCY_NOT_SUPPORTED");
+
+      let customerPaymentId: number | null = null;
+      if (sourceType === "customer" && customerId) {
+        const customerPayment = await tx.payment.create({
+          data: {
+            cityId,
+            customerId,
+            lotId: customerPaymentFifoLotId,
+            paymentDate: new Date(withdrawalDate),
+            amount,
+            currencyId: resolvedCurrencyId,
+            detail: "cash- withdrawal",
+            paymentMethod: "cash",
+            destination: "our_account",
+            notes,
+            createdBy: user.userId,
+          } as any,
+        });
+        customerPaymentId = customerPayment.id;
+        if (foreignReceiptRate?.ok) {
+          const receipt = await settleForeignCurrencyAsset(tx, {
+            sourceOwnerKey: foreignCurrencyOwnerKey.customerReceivable(customerId),
+            targetOwnerKey: foreignCurrencyOwnerKey.cityCash(cityId),
+            targetPositionType: "city_cash",
+            currencyCode: currency.code,
+            amount: Number(amount),
+            sourceType: "withdrawal_customer_payment",
+            sourceId: customerPayment.id,
+            settlementDate: new Date(withdrawalDate),
+            settlementRate: {
+              ratePkr: foreignReceiptRate.rate,
+              rateType: foreignReceiptRate.selectedRateType,
+              provider: foreignReceiptRate.provider,
+              reference: foreignReceiptRate.providerReference,
+              conversionPath: foreignReceiptRate.conversionPath,
+            },
+            createdBy: user.userId,
+          });
+          await journalForeignCustomerReceiptMovements({
+            paymentId: customerPayment.id,
+            customerId,
+            cityId,
+            lotId: customerPaymentFifoLotId,
+            paymentDate: new Date(withdrawalDate),
+            createdBy: user.userId,
+            movements: receipt.movements,
+          }, tx);
+        } else {
+          await journalPaymentReceived({
+            id: customerPayment.id,
+            customerId,
+            cityId,
+            lotId: customerPaymentFifoLotId,
+            amount: Number(amount),
+            currencyCode: currency.code,
+            paymentDate: new Date(withdrawalDate),
+            createdBy: user.userId,
+            destination: "our_account",
+            paymentMethod: "cash",
+          }, tx);
+        }
+      }
 
       const createdWithdrawal = await tx.personalWithdrawal.create({
         data: {
@@ -199,11 +302,13 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           notes,
           sourceType,
           ...(bankAccountId !== undefined ? { bankAccountId } : {}),
+          ...(customerPaymentId !== null ? { customerPaymentId } : {}),
           createdBy: user.userId,
         } as any,
         include: {
           currency: true,
           bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+          customerPayment: { include: { customer: { select: { id: true, name: true } } } },
           creator: { select: { id: true, fullName: true } },
         },
       }) as any;
@@ -231,11 +336,12 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         include: {
           currency: true,
           bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+          customerPayment: { include: { customer: { select: { id: true, name: true } } } },
           creator: { select: { id: true, fullName: true } },
         },
       });
 
-      await createAuditLog(user.userId, cityId, "personal_withdrawals", createdWithdrawal.id, "create", undefined, { amount, detail, withdrawnBy, sourceType, bankAccountId }, getClientIP(request), tx);
+      await createAuditLog(user.userId, cityId, "personal_withdrawals", createdWithdrawal.id, "create", undefined, { amount, detail, withdrawnBy, sourceType, bankAccountId, customerId }, getClientIP(request), tx);
       await createAuditLog(user.userId, cityId, "haji_transfers", createdHajiTransfer.id, "create", undefined, {
         withdrawalId: createdWithdrawal.id,
         amount,
@@ -279,6 +385,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           include: {
             currency: true,
             bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+            customerPayment: { include: { customer: { select: { id: true, name: true } } } },
             creator: { select: { id: true, fullName: true } },
             approver: { select: { id: true, fullName: true } },
           },
@@ -296,6 +403,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     if (error?.message === "BANK_NOT_FOUND") return errorResponse("NOT_FOUND", "Bank account not found", 404);
     if (error?.message === "BANK_FORBIDDEN") return errorResponse("FORBIDDEN", "Bank account does not belong to your city", 403);
     if (error?.message === "BANK_INACTIVE") return errorResponse("VALIDATION_ERROR", "Bank account is inactive");
+    if (error?.message === "CUSTOMER_NOT_FOUND") return errorResponse("NOT_FOUND", "Customer not found in your city", 404);
     if (typeof error?.message === "string" && error.message.startsWith("CHEQUE_AMOUNT_MISMATCH:")) {
       const chequeAmount = Number(error.message.split(":")[1] || 0);
       return errorResponse("VALIDATION_ERROR", `Withdrawal amount must match the selected cheque amount of ${chequeAmount}`);

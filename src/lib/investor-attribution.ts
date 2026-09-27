@@ -13,6 +13,7 @@ export type AttributionCapitalEvent = {
 
 export type AttributionBusinessResult = {
   netBusinessProfitPkr: number;
+  integrityWarnings?: string[];
 };
 
 export type AttributionProfitShareEvent = {
@@ -188,12 +189,25 @@ export async function buildInvestorAttributionPreview(input: {
     }
   }
 
-  for (let index = 0; index < boundaries.length - 1; index += 1) {
-    const segmentStart = boundaries[index];
+  const segmentResults = await Promise.all(boundaries.slice(0, -1).map(async (segmentStart, index) => {
     const segmentEnd = addDays(boundaries[index + 1], -1);
+    return {
+      segmentStart,
+      segmentEnd,
+      result: await input.getBusinessResult(segmentStart, segmentEnd),
+    };
+  }));
+  const consolidatedBusinessProfit = round2(segmentResults.reduce(
+    (sum, segment) => sum + Number(segment.result.netBusinessProfitPkr || 0),
+    0,
+  ));
+  const consolidatedPeriodIsLoss = consolidatedBusinessProfit < 0;
+
+  for (const segmentResult of segmentResults) {
+    const { segmentStart, segmentEnd, result } = segmentResult;
     const activeCapital = capitalAt(input.capitalEvents, profitShareEvents, segmentStart);
-    const result = await input.getBusinessResult(segmentStart, segmentEnd);
     const businessProfit = Number(result.netBusinessProfitPkr || 0);
+    for (const warning of result.integrityWarnings || []) disabledReasons.add(warning);
     const totalCapital = activeCapital.reduce((sum, row) => sum + row.capitalPkr, 0);
 
     if (totalCapital <= 0) {
@@ -213,7 +227,7 @@ export async function buildInvestorAttributionPreview(input: {
       const attributable = businessProfit * capitalPercent;
       const investorSharePercent = normalizeShare(participant.investorProfitSharePercent, participant.participantType);
       const managerSharePercent = participant.participantType === "manager" ? 0 : round6(100 - investorSharePercent);
-      const isLoss = businessProfit < 0;
+      const isLoss = consolidatedPeriodIsLoss;
       const investorEntitlement = isLoss
         ? attributable
         : participant.participantType === "manager"
@@ -248,7 +262,7 @@ export async function buildInvestorAttributionPreview(input: {
     if (Math.abs(roundingDifference) > 0 && lines.length > 0) {
       const managerLine = lines.find((line) => line.participantType === "manager") || lines[0];
       managerLine.totalAttributedPkr = round2(managerLine.totalAttributedPkr + roundingDifference);
-      if (businessProfit < 0) {
+      if (consolidatedPeriodIsLoss) {
         managerLine.investorEntitlementPkr = round2(managerLine.investorEntitlementPkr + roundingDifference);
         managerLine.allocatedLossPkr = round2(managerLine.allocatedLossPkr + roundingDifference);
       } else if (managerLine.participantType === "manager") {
@@ -292,7 +306,7 @@ export async function buildInvestorAttributionPreview(input: {
     }
   }
 
-  const totalBusinessProfit = round2(segments.reduce((sum, segment) => sum + segment.businessProfitPkr, 0));
+  const totalBusinessProfit = consolidatedBusinessProfit;
   const totalAttributed = round2(segments.reduce(
     (sum, segment) => sum + segment.lines.reduce((lineSum, line) => lineSum + line.totalAttributedPkr, 0),
     0

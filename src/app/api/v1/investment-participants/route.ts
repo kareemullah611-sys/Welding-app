@@ -142,6 +142,10 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
     if (!["manager", "investor"].includes(type)) return errorResponse("VALIDATION", "Participant type must be manager or investor", 400);
     if (!effectiveDate) return errorResponse("VALIDATION", "Effective date is required", 400);
     if (initialCapital < 0) return errorResponse("VALIDATION", "Initial capital cannot be negative", 400);
+    if (type === "manager") {
+      const activeManager = await prisma.investmentParticipant.findFirst({ where: { type: "manager", isActive: true }, select: { id: true } });
+      if (activeManager) return errorResponse("ACTIVE_MANAGER_EXISTS", "Exactly one active manager is allowed.", 409);
+    }
 
     const finalized = await hasFinalizedAttributionOnOrAfter(effectiveDate);
     if (finalized) return errorResponse("VALIDATION", "Cannot create participant inside or before a finalized attribution period", 400);

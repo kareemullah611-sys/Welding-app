@@ -43,7 +43,6 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
         const currencyId = saleCur.currencyId;
         const revenue = Number(saleCur._sum.totalAmount || 0);
 
-        const expenseSum = await prisma.expense.aggregate({ where: { cityId, lotId, currencyId, deletedAt: null }, _sum: { amount: true } });
         const overflowCreditsSum = await prisma.lotSettlementOverflow.aggregate({
           where: { cityId, toLotId: lotId, currencyId },
           _sum: { overflowAmount: true },
@@ -51,10 +50,9 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
         const hajiSum = await prisma.hajiTransfer.aggregate({ where: { cityId, lotId, currencyId }, _sum: { amount: true } });
         const discountSum = await prisma.saleDiscount.aggregate({ where: { appliedToLotId: lotId, currencyId, sale: { cityId } }, _sum: { discountAmount: true } });
 
-        const expenses = Number(expenseSum._sum.amount || 0);
         const hajiTransferred = Number(hajiSum._sum.amount || 0) - Number(overflowCreditsSum._sum.overflowAmount || 0);
         const discounts = Number(discountSum._sum.discountAmount || 0);
-        const netOwed = revenue - expenses - discounts;
+        const netOwed = revenue - discounts;
         const overflowAmount = hajiTransferred - netOwed;
 
         if (overflowAmount > 0) {

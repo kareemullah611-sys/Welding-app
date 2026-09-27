@@ -103,7 +103,6 @@ export function buildExpenseExportSearchWhere(search: ExportSearchContext): Pris
     OR: [
       { detail: { contains: search.rawQuery, mode: "insensitive" as const } },
       { notes: { contains: search.rawQuery, mode: "insensitive" as const } },
-      { lot: { lotNumber: { contains: search.rawQuery, mode: "insensitive" as const } } },
       { currency: { code: { contains: search.rawQuery, mode: "insensitive" as const } } },
       { creator: { fullName: { contains: search.rawQuery, mode: "insensitive" as const } } },
       { bankAccount: { bankName: { contains: search.rawQuery, mode: "insensitive" as const } } },

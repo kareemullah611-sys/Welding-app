@@ -123,10 +123,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       if (cityId) where.cityId = cityId;
       results.expenses = (await prisma.expense.findMany({
         where, take,
-        include: { currency: { select: { code: true, symbol: true } }, lot: { select: { lotNumber: true } }, city: { select: { name: true } } },
+        include: { currency: { select: { code: true, symbol: true } }, city: { select: { name: true } } },
       })).map((e) => ({
         id: e.id, detail: e.detail, amount: Number(e.amount), currency: e.currency.code,
-        date: e.expenseDate.toISOString().split("T")[0], lotNumber: e.lot?.lotNumber ?? null, city: e.city.name,
+        date: e.expenseDate.toISOString().split("T")[0], city: e.city.name,
       }));
     }
 

@@ -6,7 +6,7 @@ test("personal withdrawals support city bank account as a source of funds", () =
   const schema = readFileSync("prisma/schema.prisma", "utf8");
   const route = readFileSync("src/app/api/v1/personal-withdrawals/route.ts", "utf8");
   const approveRoute = readFileSync("src/app/api/v1/personal-withdrawals/[id]/approve/route.ts", "utf8");
-  const page = readFileSync("src/app/(dashboard)/personal-withdrawals/page.tsx", "utf8");
+  const page = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
   const accounting = readFileSync("src/lib/accounting.ts", "utf8");
   const validations = readFileSync("src/lib/validations.ts", "utf8");
 
@@ -21,12 +21,11 @@ test("personal withdrawals support city bank account as a source of funds", () =
   assert.doesNotMatch(approveRoute, /journalWithdrawal\(/);
   assert.match(accounting, /sourceType\?\:\s*string\s*\|\s*null;\s*bankAccountId\?\:\s*number\s*\|\s*null/);
   assert.match(accounting, /w\.sourceType === "bank_account" && w\.bankAccountId/);
-  assert.match(validations, /sourceType:\s*z\.enum\(\["cash_office", "bank_account"\]\)/);
-  assert.match(page, /bankAccounts/);
+  assert.match(validations, /sourceType:\s*z\.enum\(\["cash_office", "bank_account", "customer"\]\)/);
+  assert.match(page, /cityBankAccounts\.filter\(\(account: any\) => account\.isActive\)/);
   assert.match(page, /value=\{`bank_account:\$\{account\.id\}`\}/);
-  assert.match(page, /sourceValue\.startsWith\("bank_account:"\)/);
-  assert.doesNotMatch(page, /<option value="cheque">/);
-  assert.doesNotMatch(page, /form\.sourceType === "cheque"/);
+  assert.match(page, /value\.startsWith\("bank_account:"\)/);
+  assert.doesNotMatch(page, /createType === "withdrawal"[\s\S]{0,500}<option value="cheque">/);
   assert.doesNotMatch(page, /<option value="bank_account">Bank Account<\/option>/);
   assert.match(page, /bankAccountId/);
 });

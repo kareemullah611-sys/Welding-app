@@ -104,7 +104,6 @@ test("buildOfflineLotProfitFromModules returns lot profit summary", () => {
     lotPurchases: [{ lotId: 5, productId: 1, totalPriceUsd: 1000, qty: 1, product: { name: "Rod" }, supplier: { name: "Sup" } }],
     lotCosts: [],
     sales: [{ lotId: 5, status: "active", cityId: 1, items: [{ productId: 1, qty: 10, amount: 500 }] }],
-    expenses: [],
     cityScope: null,
   });
   assert.ok(report);

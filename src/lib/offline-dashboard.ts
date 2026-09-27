@@ -141,6 +141,14 @@ export function applyPendingDashboardMetrics(
 
     if (q.url === "/api/v1/personal-withdrawals") {
       const amount = Number(parsed?.amount || 0);
+      if (String(parsed?.sourceType || "cash_office") === "customer") {
+        if (data) data.outstandingByCurrency![currency] = Number(data.outstandingByCurrency![currency] || 0) - amount;
+        if (cashPosition) {
+          cashPosition.incomingToHand!.cash! += amount;
+          cashPosition.incomingToHand!.total! += amount;
+          cashPosition.netCashInHand! += amount;
+        }
+      }
       if (cashPosition) {
         cashPosition.outgoing!.personalWithdrawals! += amount;
         cashPosition.outgoing!.total! += amount;
@@ -163,4 +171,3 @@ export function applyPendingDashboardMetrics(
 
   return { data, cashPosition };
 }
-

@@ -383,16 +383,15 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           ...(expenseDate ? { expenseDate } : {}),
           ...(searchWhere || {}),
         },
-        include: { currency: true, lot: { select: { lotNumber: true } }, city: { select: { name: true } } },
+        include: { currency: true, city: { select: { name: true } } },
         orderBy: { expenseDate: "asc" },
       });
-      const headers = ["Date", "City", "Particulars", "Amount", "Lot", "Notes"];
+      const headers = ["Date", "City", "Particulars", "Amount", "Notes"];
       const dataRows = expenses.map((e) => [
         formatDate(e.expenseDate),
         cleanText(e.city.name),
         cleanText(e.detail),
         fmtReportMoney(Number(e.amount), e.currency.symbol, e.currency.code),
-        cleanText(e.lot?.lotNumber || ""),
         cleanText(e.notes || ""),
       ]);
       payload = { title, meta, headers, rows: dataRows };

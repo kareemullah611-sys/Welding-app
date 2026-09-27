@@ -214,7 +214,6 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         },
         include: {
           currency: { select: { id: true, code: true, symbol: true } },
-          lot: { select: { id: true, lotNumber: true } },
           bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
           chequePayment: {
             select: {
@@ -251,7 +250,6 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         raw: {
           ...e,
           amount: Number(e.amount),
-          lotNumber: e.lot?.lotNumber ?? null,
           bankAccount: (e as any).bankAccount ?? null,
           bankAccountId: (e as any).bankAccountId ?? null,
           chequePayment: (e as any).chequePayment ?? null,
@@ -359,6 +357,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
                   { detail: { contains: query, mode: "insensitive" } },
                   { notes: { contains: query, mode: "insensitive" } },
                   { withdrawnBy: { contains: query, mode: "insensitive" } },
+                  { customerPayment: { customer: { name: { contains: query, mode: "insensitive" } } } },
                   { city: { name: { contains: query, mode: "insensitive" } } },
                   { currency: { code: { contains: query, mode: "insensitive" } } },
                   { currency: { symbol: { contains: query, mode: "insensitive" } } },
@@ -388,6 +387,13 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
               currency: { select: { id: true, code: true, symbol: true } },
             },
           },
+          customerPayment: {
+            select: {
+              id: true,
+              customerId: true,
+              customer: { select: { id: true, name: true } },
+            },
+          },
         },
         orderBy: [{ withdrawalDate: "desc" }, { id: "desc" }],
       });
@@ -408,6 +414,8 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           bankAccount: (w as any).bankAccount ?? null,
           bankAccountId: (w as any).bankAccountId ?? null,
           chequePayment: (w as any).chequePayment ?? null,
+          customerPayment: (w as any).customerPayment ?? null,
+          customerPaymentId: (w as any).customerPaymentId ?? null,
           saCheck: saCheckStateById[w.id] || null,
         },
       })));

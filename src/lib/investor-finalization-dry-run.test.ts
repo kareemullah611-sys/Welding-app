@@ -103,13 +103,15 @@ test("phase 2 dry run preserves 50/50 1/3 and 100/0 profit-share outcomes", asyn
   const investorA = dryRun.proposedBalanceEffects.find((row) => row.participantId === "a")!;
   const investorB = dryRun.proposedBalanceEffects.find((row) => row.participantId === "b")!;
   const investorC = dryRun.proposedBalanceEffects.find((row) => row.participantId === "c")!;
+  const manager = dryRun.proposedBalanceEffects.find((row) => row.participantId === "manager")!;
 
   assert.equal(investorA.investorEntitlementPkr, 250_000);
-  assert.equal(investorA.managerProfitSharePkr, 250_000);
+  assert.equal(investorA.managerProfitSharePkr, 0);
   assert.equal(investorB.investorEntitlementPkr, 66_666.67);
-  assert.equal(investorB.managerProfitSharePkr, 133_333.33);
+  assert.equal(investorB.managerProfitSharePkr, 0);
   assert.equal(investorC.investorEntitlementPkr, 200_000);
   assert.equal(investorC.managerProfitSharePkr, 0);
+  assert.equal(manager.managerProfitSharePkr, 383_333.33);
 });
 
 test("phase 2 dry run treats actual loss by capital ratio only", async () => {
@@ -235,6 +237,35 @@ test("phase 2.1 posting simulation includes manager own-capital and manager prof
 
   assert.ok(postingTypes.includes("manager_own_capital_profit"));
   assert.ok(postingTypes.includes("manager_profit_share"));
+});
+
+test("manager profit share is credited to the manager participant, not the source investor", async () => {
+  const { attribution, historicalPoolPreview } = await makePreview({ profit: 1_000_000 });
+  const dryRun = buildFinalizationDryRun({ attribution, historicalPoolPreview });
+  const managerSharePostings = dryRun.postingSimulation.entries.filter((entry) => entry.postingType === "manager_profit_share");
+
+  assert.ok(managerSharePostings.length > 0);
+  assert.ok(managerSharePostings.every((entry) => entry.participantId === "manager"));
+  const managerEffect = dryRun.proposedBalanceEffects.find((row) => row.participantId === "manager")!;
+  assert.equal(managerEffect.managerProfitSharePkr, 479_166.67);
+});
+
+test("net period loss posts manager and investor capital losses and remains finalization-ready", async () => {
+  const capitalEvents: AttributionCapitalEvent[] = [
+    { participantId: "manager", participantName: "Manager", participantType: "manager", effectiveDate: "2026-01-01", amountPkr: 15_000_000, eventType: "opening" },
+    { participantId: "a", participantName: "Ali", participantType: "investor", effectiveDate: "2026-01-01", amountPkr: 10_000_000, eventType: "opening", investorProfitSharePercent: 50 },
+  ];
+  const { attribution, historicalPoolPreview } = await makePreview({ capitalEvents, profit: -1_000_000 });
+  const dryRun = buildFinalizationDryRun({ attribution, historicalPoolPreview });
+  const managerLoss = dryRun.postingSimulation.entries.find((entry) => entry.participantId === "manager");
+  const investorLoss = dryRun.postingSimulation.entries.find((entry) => entry.participantId === "a");
+
+  assert.equal(dryRun.status, "READY");
+  assert.equal(dryRun.postingSimulation.reconciliation.postingToSnapshotDifferencePkr, 0);
+  assert.equal(managerLoss?.postingType, "manager_own_capital_loss");
+  assert.equal(managerLoss?.amountPkr, 600_000);
+  assert.equal(investorLoss?.postingType, "investor_capital_loss");
+  assert.equal(investorLoss?.amountPkr, 400_000);
 });
 
 test("phase 2.1 posting simulation includes exited residual gain and loss postings", async () => {

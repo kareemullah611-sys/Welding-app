@@ -148,6 +148,7 @@ enum WithdrawalSourceType {
   cash_office
   cheque
   bank_account
+  customer
 }
 
 enum SupplierPaymentMethod {
@@ -412,21 +413,21 @@ model ForeignCurrencyCarryingLayer {
   originalCarryingAmountPkr  Decimal                     @map("original_carrying_amount_pkr") @db.Decimal(18, 2)
   remainingCarryingAmountPkr Decimal                     @map("remaining_carrying_amount_pkr") @db.Decimal(18, 2)
   recognitionRatePkr         Decimal                     @map("recognition_rate_pkr") @db.Decimal(18, 8)
-  rateType                    String                      @map("rate_type") @db.VarChar(40)
-  rateProvider                String                      @map("rate_provider") @db.VarChar(120)
-  rateReference               String?                     @map("rate_reference") @db.VarChar(240)
-  conversionPathJson         Json?                        @map("conversion_path_json")
+  rateType                   String                      @map("rate_type") @db.VarChar(40)
+  rateProvider               String                      @map("rate_provider") @db.VarChar(120)
+  rateReference              String?                     @map("rate_reference") @db.VarChar(240)
+  conversionPathJson         Json?                       @map("conversion_path_json")
   parentLayerId              Int?                        @map("parent_layer_id")
   status                     ForeignCurrencyLayerStatus  @default(open)
   createdBy                  Int?                        @map("created_by")
   createdAt                  DateTime                    @default(now()) @map("created_at")
   updatedAt                  DateTime                    @updatedAt @map("updated_at")
 
-  currency      Currency                       @relation(fields: [currencyId], references: [id], onDelete: Restrict)
-  parentLayer   ForeignCurrencyCarryingLayer?  @relation("ForeignCurrencyLayerLineage", fields: [parentLayerId], references: [id], onDelete: Restrict)
-  childLayers   ForeignCurrencyCarryingLayer[] @relation("ForeignCurrencyLayerLineage")
-  sourceMovements ForeignCurrencyMovement[]   @relation("ForeignCurrencyMovementSourceLayer")
-  targetMovements ForeignCurrencyMovement[]   @relation("ForeignCurrencyMovementTargetLayer")
+  currency        Currency                       @relation(fields: [currencyId], references: [id], onDelete: Restrict)
+  parentLayer     ForeignCurrencyCarryingLayer?  @relation("ForeignCurrencyLayerLineage", fields: [parentLayerId], references: [id], onDelete: Restrict)
+  childLayers     ForeignCurrencyCarryingLayer[] @relation("ForeignCurrencyLayerLineage")
+  sourceMovements ForeignCurrencyMovement[]      @relation("ForeignCurrencyMovementSourceLayer")
+  targetMovements ForeignCurrencyMovement[]      @relation("ForeignCurrencyMovementTargetLayer")
 
   @@unique([sourceType, sourceId, sourceLineKey], map: "foreign_currency_layers_source_key")
   @@index([ownerKey, currencyId, status, recognitionDate], map: "foreign_currency_layers_owner_balance_idx")
@@ -436,35 +437,35 @@ model ForeignCurrencyCarryingLayer {
 }
 
 model ForeignCurrencyMovement {
-  id                  Int                         @id @default(autoincrement())
-  movementType        ForeignCurrencyMovementType @map("movement_type")
-  sourceType          String                      @map("source_type") @db.VarChar(80)
-  sourceId            Int                         @map("source_id")
-  sourceLineKey       String                      @default("main") @map("source_line_key") @db.VarChar(80)
-  movementDate        DateTime                    @map("movement_date") @db.Date
-  currencyId          Int                         @map("currency_id")
-  sourceLayerId       Int?                        @map("source_layer_id")
-  targetLayerId       Int?                        @map("target_layer_id")
-  foreignAmount       Decimal                     @map("foreign_amount") @db.Decimal(18, 4)
-  carryingAmountPkr   Decimal                     @map("carrying_amount_pkr") @db.Decimal(18, 2)
-  settlementAmountPkr Decimal?                    @map("settlement_amount_pkr") @db.Decimal(18, 2)
-  realizedFxPkr       Decimal                     @default(0) @map("realized_fx_pkr") @db.Decimal(18, 2)
-  historicalPoolDate  DateTime                    @map("historical_pool_date") @db.Date
-  ratePkr             Decimal?                    @map("rate_pkr") @db.Decimal(18, 8)
-  rateType            String?                     @map("rate_type") @db.VarChar(40)
-  rateProvider        String?                     @map("rate_provider") @db.VarChar(120)
-  rateReference       String?                     @map("rate_reference") @db.VarChar(240)
-  conversionPathJson  Json?                        @map("conversion_path_json")
-  journalTransactionId String?                    @map("journal_transaction_id") @db.VarChar(120)
-  reversalOfId        Int?                        @map("reversal_of_id")
-  createdBy           Int?                        @map("created_by")
-  createdAt           DateTime                    @default(now()) @map("created_at")
+  id                   Int                         @id @default(autoincrement())
+  movementType         ForeignCurrencyMovementType @map("movement_type")
+  sourceType           String                      @map("source_type") @db.VarChar(80)
+  sourceId             Int                         @map("source_id")
+  sourceLineKey        String                      @default("main") @map("source_line_key") @db.VarChar(80)
+  movementDate         DateTime                    @map("movement_date") @db.Date
+  currencyId           Int                         @map("currency_id")
+  sourceLayerId        Int?                        @map("source_layer_id")
+  targetLayerId        Int?                        @map("target_layer_id")
+  foreignAmount        Decimal                     @map("foreign_amount") @db.Decimal(18, 4)
+  carryingAmountPkr    Decimal                     @map("carrying_amount_pkr") @db.Decimal(18, 2)
+  settlementAmountPkr  Decimal?                    @map("settlement_amount_pkr") @db.Decimal(18, 2)
+  realizedFxPkr        Decimal                     @default(0) @map("realized_fx_pkr") @db.Decimal(18, 2)
+  historicalPoolDate   DateTime                    @map("historical_pool_date") @db.Date
+  ratePkr              Decimal?                    @map("rate_pkr") @db.Decimal(18, 8)
+  rateType             String?                     @map("rate_type") @db.VarChar(40)
+  rateProvider         String?                     @map("rate_provider") @db.VarChar(120)
+  rateReference        String?                     @map("rate_reference") @db.VarChar(240)
+  conversionPathJson   Json?                       @map("conversion_path_json")
+  journalTransactionId String?                     @map("journal_transaction_id") @db.VarChar(120)
+  reversalOfId         Int?                        @map("reversal_of_id")
+  createdBy            Int?                        @map("created_by")
+  createdAt            DateTime                    @default(now()) @map("created_at")
 
   currency    Currency                      @relation(fields: [currencyId], references: [id], onDelete: Restrict)
   sourceLayer ForeignCurrencyCarryingLayer? @relation("ForeignCurrencyMovementSourceLayer", fields: [sourceLayerId], references: [id], onDelete: Restrict)
   targetLayer ForeignCurrencyCarryingLayer? @relation("ForeignCurrencyMovementTargetLayer", fields: [targetLayerId], references: [id], onDelete: Restrict)
   reversalOf  ForeignCurrencyMovement?      @relation("ForeignCurrencyMovementReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
-  reversals   ForeignCurrencyMovement[]      @relation("ForeignCurrencyMovementReversal")
+  reversals   ForeignCurrencyMovement[]     @relation("ForeignCurrencyMovementReversal")
 
   @@unique([sourceType, sourceId, sourceLineKey, movementType], map: "foreign_currency_movements_source_key")
   @@index([sourceLayerId], map: "foreign_currency_movements_source_layer_idx")
@@ -846,7 +847,7 @@ model Product {
   cityTransfers              CityTransfer[]
   openingStocks              OpeningStock[]
   openingInventoryValuations OpeningInventoryValuation[]
-  allocatedLotCosts          LotCost[]                  @relation("LotCostAllocatedProduct")
+  allocatedLotCosts          LotCost[]                   @relation("LotCostAllocatedProduct")
 
   @@map("products")
 }
@@ -1253,7 +1254,6 @@ model Lot {
   lotCityDistributions             LotCityDistribution[]
   sales                            Sale[]
   payments                         Payment[]
-  expenses                         Expense[]
   hajiTransfers                    HajiTransfer[]
   godownTransfers                  GodownTransfer[]
   saleDiscounts                    SaleDiscount[]
@@ -1575,6 +1575,7 @@ model Payment {
   hajiTransferPayment        HajiTransfer?        @relation("HajiPayment")
   expenseCheques             Expense[]            @relation("ExpenseCheque")
   customerPaidExpense        Expense?             @relation("ExpenseCustomerPayment")
+  customerFundedWithdrawal   PersonalWithdrawal?  @relation("WithdrawalCustomerPayment")
   withdrawalCheques          PersonalWithdrawal[] @relation("WithdrawalCheque")
   cityLiabilityChequeEntries CityLiabilityEntry[] @relation("CityLiabilityCheque")
 
@@ -1621,7 +1622,6 @@ model PaymentLotTransfer {
 model Expense {
   id                Int             @id @default(autoincrement())
   cityId            Int             @map("city_id")
-  lotId             Int?            @map("lot_id")
   expenseDate       DateTime        @map("expense_date") @db.Date
   amount            Decimal         @db.Decimal(15, 2)
   currencyId        Int             @map("currency_id")
@@ -1638,7 +1638,6 @@ model Expense {
   deletedAt         DateTime?       @map("deleted_at") // null = active; non-null = soft-deleted
 
   city            City         @relation(fields: [cityId], references: [id])
-  lot             Lot?         @relation(fields: [lotId], references: [id])
   currency        Currency     @relation(fields: [currencyId], references: [id])
   creator         User         @relation(fields: [createdBy], references: [id])
   bankAccount     BankAccount? @relation(fields: [bankAccountId], references: [id])
@@ -1647,7 +1646,6 @@ model Expense {
   attachments     Attachment[]
 
   @@index([cityId])
-  @@index([lotId])
   @@index([expenseDate])
   @@index([deletedAt])
   @@map("expenses")
@@ -1658,31 +1656,33 @@ model Expense {
 // ============================================================
 
 model PersonalWithdrawal {
-  id              Int                  @id @default(autoincrement())
-  cityId          Int                  @map("city_id")
-  withdrawalDate  DateTime             @map("withdrawal_date") @db.Date
-  amount          Decimal              @db.Decimal(15, 2)
-  currencyId      Int                  @map("currency_id")
-  detail          String               @db.VarChar(500)
-  withdrawnBy     String?              @map("withdrawn_by") @db.VarChar(100)
-  notes           String?              @db.Text
-  sourceType      WithdrawalSourceType @default(cash_office) @map("source_type")
-  chequePaymentId Int?                 @map("cheque_payment_id")
-  bankAccountId   Int?                 @map("bank_account_id")
-  approvedBy      Int?                 @map("approved_by")
-  approvedAt      DateTime?            @map("approved_at")
-  hajiTransferId  Int?                 @unique @map("haji_transfer_id")
-  createdBy       Int                  @map("created_by")
-  createdAt       DateTime             @default(now()) @map("created_at")
-  updatedAt       DateTime             @updatedAt @map("updated_at")
+  id                Int                  @id @default(autoincrement())
+  cityId            Int                  @map("city_id")
+  withdrawalDate    DateTime             @map("withdrawal_date") @db.Date
+  amount            Decimal              @db.Decimal(15, 2)
+  currencyId        Int                  @map("currency_id")
+  detail            String               @db.VarChar(500)
+  withdrawnBy       String?              @map("withdrawn_by") @db.VarChar(100)
+  notes             String?              @db.Text
+  sourceType        WithdrawalSourceType @default(cash_office) @map("source_type")
+  chequePaymentId   Int?                 @map("cheque_payment_id")
+  bankAccountId     Int?                 @map("bank_account_id")
+  customerPaymentId Int?                 @unique @map("customer_payment_id")
+  approvedBy        Int?                 @map("approved_by")
+  approvedAt        DateTime?            @map("approved_at")
+  hajiTransferId    Int?                 @unique @map("haji_transfer_id")
+  createdBy         Int                  @map("created_by")
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
 
-  city          City          @relation(fields: [cityId], references: [id])
-  currency      Currency      @relation(fields: [currencyId], references: [id])
-  creator       User          @relation("WithdrawalCreator", fields: [createdBy], references: [id])
-  approver      User?         @relation("WithdrawalApprover", fields: [approvedBy], references: [id])
-  hajiTransfer  HajiTransfer? @relation(fields: [hajiTransferId], references: [id])
-  chequePayment Payment?      @relation("WithdrawalCheque", fields: [chequePaymentId], references: [id])
-  bankAccount   BankAccount?  @relation(fields: [bankAccountId], references: [id])
+  city            City          @relation(fields: [cityId], references: [id])
+  currency        Currency      @relation(fields: [currencyId], references: [id])
+  creator         User          @relation("WithdrawalCreator", fields: [createdBy], references: [id])
+  approver        User?         @relation("WithdrawalApprover", fields: [approvedBy], references: [id])
+  hajiTransfer    HajiTransfer? @relation(fields: [hajiTransferId], references: [id])
+  chequePayment   Payment?      @relation("WithdrawalCheque", fields: [chequePaymentId], references: [id])
+  bankAccount     BankAccount?  @relation(fields: [bankAccountId], references: [id])
+  customerPayment Payment?      @relation("WithdrawalCustomerPayment", fields: [customerPaymentId], references: [id], onDelete: SetNull)
 
   @@index([cityId])
   @@index([bankAccountId])
@@ -2197,28 +2197,28 @@ model LotPurchase {
 // ============================================================
 
 model LotCost {
-  id                      Int         @id @default(autoincrement())
-  lotId                   Int         @map("lot_id")
-  costType                LotCostType @map("cost_type")
+  id                      Int                    @id @default(autoincrement())
+  lotId                   Int                    @map("lot_id")
+  costType                LotCostType            @map("cost_type")
   allocationBasis         LotCostAllocationBasis @default(cartons) @map("allocation_basis")
-  allocatedProductId      Int?        @map("allocated_product_id")
-  description             String      @db.VarChar(500)
-  amount                  Decimal     @db.Decimal(15, 2)
-  currencyCode            String      @default("USD") @map("currency_code") @db.VarChar(10)
-  exchangeRate            Decimal?    @map("exchange_rate") @db.Decimal(12, 4)
-  costDate                DateTime?   @map("cost_date") @db.Date
-  supplierId              Int?        @map("supplier_id") // liability charged to supplier
-  agentId                 Int?        @map("agent_id") // customs / transport agent
-  shippingLineId          Int?        @map("shipping_line_id") // for freight costs
-  bankAccountId           Int?        @map("bank_account_id") // for direct bank payment
-  superAdminBankAccountId Int?        @map("super_admin_bank_account_id") // super admin bank debit source
-  intermediaryId          Int?        @map("intermediary_id") // for intermediary settlement
-  paidFromCash            Boolean     @default(false) @map("paid_from_cash")
-  journalVersion          Int         @default(1) @map("journal_version")
-  notes                   String?     @db.Text
-  createdBy               Int         @map("created_by")
-  createdAt               DateTime    @default(now()) @map("created_at")
-  updatedAt               DateTime    @updatedAt @map("updated_at")
+  allocatedProductId      Int?                   @map("allocated_product_id")
+  description             String                 @db.VarChar(500)
+  amount                  Decimal                @db.Decimal(15, 2)
+  currencyCode            String                 @default("USD") @map("currency_code") @db.VarChar(10)
+  exchangeRate            Decimal?               @map("exchange_rate") @db.Decimal(12, 4)
+  costDate                DateTime?              @map("cost_date") @db.Date
+  supplierId              Int?                   @map("supplier_id") // liability charged to supplier
+  agentId                 Int?                   @map("agent_id") // customs / transport agent
+  shippingLineId          Int?                   @map("shipping_line_id") // for freight costs
+  bankAccountId           Int?                   @map("bank_account_id") // for direct bank payment
+  superAdminBankAccountId Int?                   @map("super_admin_bank_account_id") // super admin bank debit source
+  intermediaryId          Int?                   @map("intermediary_id") // for intermediary settlement
+  paidFromCash            Boolean                @default(false) @map("paid_from_cash")
+  journalVersion          Int                    @default(1) @map("journal_version")
+  notes                   String?                @db.Text
+  createdBy               Int                    @map("created_by")
+  createdAt               DateTime               @default(now()) @map("created_at")
+  updatedAt               DateTime               @updatedAt @map("updated_at")
 
   lot                   Lot                    @relation(fields: [lotId], references: [id])
   supplier              Supplier?              @relation(fields: [supplierId], references: [id])

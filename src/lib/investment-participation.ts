@@ -31,12 +31,27 @@ export async function hasFinalizedAttributionOnOrAfter(effectiveDate: Date) {
 }
 
 export async function currentParticipantCapitalPkr(participantId: number, asOf?: Date) {
-  const events = await prisma.investmentCapitalEvent.findMany({
-    where: {
-      participantId,
-      ...(asOf ? { effectiveDate: { lte: asOf } } : {}),
-    },
-    select: { amountPkr: true },
-  });
-  return events.reduce((sum, event) => sum + Number(event.amountPkr), 0);
+  const [events, finalizedLosses] = await Promise.all([
+    prisma.investmentCapitalEvent.findMany({
+      where: {
+        participantId,
+        ...(asOf ? { effectiveDate: { lte: asOf } } : {}),
+      },
+      select: { amountPkr: true },
+    }),
+    prisma.investorAttributionLedgerEntry.findMany({
+      where: {
+        participantId,
+        postingType: { in: ["investor_capital_loss", "manager_own_capital_loss"] },
+        period: {
+          status: "finalized",
+          ...(asOf ? { periodEnd: { lt: asOf } } : {}),
+        },
+      },
+      select: { amountPkr: true },
+    }),
+  ]);
+  const eventCapital = events.reduce((sum, event) => sum + Number(event.amountPkr), 0);
+  const allocatedLoss = finalizedLosses.reduce((sum, entry) => sum + Math.abs(Number(entry.amountPkr)), 0);
+  return eventCapital - allocatedLoss;
 }

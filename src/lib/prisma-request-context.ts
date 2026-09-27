@@ -14,6 +14,17 @@ export function getCurrentPrismaTransaction(): Prisma.TransactionClient | null {
   return prismaRequestContext.getStore()?.db ?? null;
 }
 
+export function runWithExistingPrismaTransaction<T>(
+  db: Prisma.TransactionClient,
+  user: Pick<JWTPayload, "role" | "cityId">,
+  callback: () => Promise<T>,
+): Promise<T> {
+  return prismaRequestContext.run(
+    { userRole: user.role, cityId: user.cityId ?? null, db },
+    callback,
+  );
+}
+
 export async function runWithPrismaRequestContext<T>(
   prismaClient: PrismaClient,
   user: Pick<JWTPayload, "role" | "cityId">,

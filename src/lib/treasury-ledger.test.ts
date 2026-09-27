@@ -106,6 +106,34 @@ describe("computeRunningBalances", () => {
     assert.equal(itemsWithBalance[0].runningBalance, 6000);
   });
 
+  it("nets a customer-funded withdrawal against its linked customer receipt", () => {
+    const { balanceByCurrency } = computeRunningBalances(
+      [
+        {
+          id: 101,
+          type: "payment",
+          date: "2026-09-27",
+          amount: 2500,
+          currencyCode: "PKR",
+          status: "active",
+          raw: { ...cashReceiptRaw, createdAt: "2026-09-27T10:00:00.000Z" },
+        },
+        {
+          id: 102,
+          type: "withdrawal",
+          date: "2026-09-27",
+          amount: 2500,
+          currencyCode: "PKR",
+          status: "pending",
+          raw: { sourceType: "customer", createdAt: "2026-09-27T10:00:01.000Z" },
+        },
+      ],
+      { PKR: 10000 },
+    );
+
+    assert.equal(balanceByCurrency.PKR, 10000);
+  });
+
   it("keeps used cheque receipts in historical running balance", () => {
     const { itemsWithBalance } = computeRunningBalances(
       [

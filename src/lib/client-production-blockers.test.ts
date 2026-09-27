@@ -85,8 +85,28 @@ test("investor finalization blocks overlaps and reversal after entitlement consu
   assert.match(route, /FINALIZATION_IDEMPOTENCY_CONFLICT/);
   assert.match(route, /findSourceChangesAfterFinalization/);
   assert.match(route, /sourceChangesAfterFinalization/);
+  assert.match(route, /journalEntry\.findMany/);
+  assert.match(route, /add\("journal_entry", journals\)/);
   assert.match(dryRun, /BLOCKED_OVERLAPPING_FINALIZATION/);
   assert.match(migration, /profit_attribution_periods_no_finalized_overlap/);
+});
+
+test("investor finalization rechecks authoritative readiness inside the locked transaction", () => {
+  const route = read("src/app/api/v1/investor-attribution/route.ts");
+  const transactionIndex = route.indexOf("prisma.$transaction(async (tx)");
+  const lockIndex = route.indexOf("investor-finalization-timeline", transactionIndex);
+  const rebuildIndex = route.indexOf("buildAttributionFinalizationPreview", lockIndex);
+  const createIndex = route.indexOf("profitAttributionPeriod.create", lockIndex);
+
+  assert.ok(transactionIndex >= 0 && lockIndex > transactionIndex);
+  assert.ok(rebuildIndex > lockIndex && rebuildIndex < createIndex);
+  assert.match(route, /isolationLevel:\s*"Serializable"/);
+});
+
+test("authoritative Financial Report integrity warnings block investor finalization", () => {
+  const route = read("src/app/api/v1/investor-attribution/route.ts");
+  assert.match(route, /report\.fxWarnings/);
+  assert.match(route, /BLOCKED_DATA_INTEGRITY/);
 });
 
 test("investor ledger classification and missing shares use explicit values", () => {

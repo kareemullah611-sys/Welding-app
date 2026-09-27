@@ -19,7 +19,7 @@ const EXPENSE_SYNC_MODULE = "expenses.create";
 
 function formatExpenseCreateResponse(expense: any) {
   return {
-    id: expense.id, lotNumber: expense.lot?.lotNumber ?? null,
+    id: expense.id,
     expenseDate: expense.expenseDate.toISOString().split("T")[0],
     amount: Number(expense.amount), detail: expense.detail,
     paidFrom: expense.paidFrom ?? "cash_office",
@@ -42,7 +42,6 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const { page, limit, skip } = getPaginationParams(searchParams);
     const { dateFrom, dateToExclusive } = getDateRange(searchParams);
     const cityId = getCityScope(user, searchParams.get("city_id") ? parseInt(searchParams.get("city_id")!) : undefined);
-    const lotId = searchParams.get("lot_id") ? parseInt(searchParams.get("lot_id")!) : undefined;
     const query = (searchParams.get("q") || "").trim();
     const normalizedQuery = query.toLowerCase();
     const shouldApplySearch = normalizedQuery.length >= 2;
@@ -61,7 +60,6 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       deletedAt: null, // exclude soft-deleted expenses
     };
     if (cityId) where.cityId = cityId;
-    if (lotId) where.lotId = lotId;
     if (dateFrom || dateToExclusive) {
       where.expenseDate = {};
       if (dateFrom) where.expenseDate.gte = dateFrom;
@@ -71,7 +69,6 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       where.OR = [
         { detail: { contains: query, mode: "insensitive" } },
         { notes: { contains: query, mode: "insensitive" } },
-        { lot: { lotNumber: { contains: query, mode: "insensitive" } } },
         { currency: { code: { contains: query, mode: "insensitive" } } },
         { creator: { fullName: { contains: query, mode: "insensitive" } } },
         { bankAccount: { bankName: { contains: query, mode: "insensitive" } } },
@@ -90,7 +87,6 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       prisma.expense.findMany({
         where,
         include: {
-          lot: { select: { id: true, lotNumber: true } },
           currency: true,
           creator: { select: { id: true, fullName: true } },
           attachments: { select: { id: true, fileName: true, filePath: true, fileType: true } },
@@ -111,8 +107,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     return paginatedResponse(
       expenses.map((e: any) => ({
-        id: e.id, cityId: e.cityId, lotId: e.lotId,
-        lotNumber: e.lot?.lotNumber ?? null,
+        id: e.id, cityId: e.cityId,
         expenseDate: e.expenseDate.toISOString().split("T")[0],
         amount: Number(e.amount), detail: e.detail, notes: e.notes,
         paidFrom: e.paidFrom ?? "cash_office",
@@ -158,7 +153,6 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         const existingExpense = await prisma.expense.findFirst({
           where: { id: existingSync.entityId, cityId },
           include: {
-            lot: { select: { id: true, lotNumber: true } },
             currency: true,
             creator: { select: { id: true, fullName: true } },
           } as any,
@@ -197,7 +191,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     }
 
     if (isAfghanistanCountry(city?.country) && !["cash_office", "customer"].includes(paidFrom)) {
-      return errorResponse("VALIDATION_ERROR", "Afghanistan city expenses can only be paid from office cash");
+      return errorResponse("VALIDATION_ERROR", "Afghanistan city expenses can only be paid from office cash or a customer");
     }
 
     if (paidFrom === "customer" && !customerId) {
@@ -268,7 +262,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
       const createdExpense = await tx.expense.create({
         data: {
-          cityId, lotId: null, expenseDate: new Date(expenseDate), amount: resolvedAmount,
+          cityId, expenseDate: new Date(expenseDate), amount: resolvedAmount,
           currencyId: (resolvedCurrencyId ?? cityCurrency.currencyId) as number, detail, notes, createdBy: user.userId,
           ...(paidFrom !== "cash_office" ? { paidFrom } : {}),
           ...(bankAccountId != null ? { bankAccountId } : {}),
@@ -276,7 +270,6 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           ...(customerPaymentId != null ? { customerPaymentId } : {}),
         } as any,
         include: {
-          lot: { select: { id: true, lotNumber: true } },
           currency: true,
           creator: { select: { id: true, fullName: true } },
           customerPayment: { include: { customer: { select: { id: true, name: true } } } },
@@ -362,7 +355,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           movements: outflow.movements,
         }, tx);
       } else {
-        await journalExpenseCreated({ id: createdExpense.id, cityId, lotId: null, amount: Number(createdExpense.amount), currencyCode: createdExpense.currency.code, detail, expenseDate: createdExpense.expenseDate, createdBy: user.userId, paidFrom: paidFrom ?? "cash_office", bankAccountId: bankAccountId ?? null }, tx);
+        await journalExpenseCreated({ id: createdExpense.id, cityId, amount: Number(createdExpense.amount), currencyCode: createdExpense.currency.code, detail, expenseDate: createdExpense.expenseDate, createdBy: user.userId, paidFrom: paidFrom ?? "cash_office", bankAccountId: bankAccountId ?? null }, tx);
       }
 
       if (syncMeta) {
@@ -400,7 +393,6 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         const existingExpense = await prisma.expense.findFirst({
           where: { id: existingSync.entityId, cityId },
           include: {
-            lot: { select: { id: true, lotNumber: true } },
             currency: true,
             creator: { select: { id: true, fullName: true } },
           } as any,

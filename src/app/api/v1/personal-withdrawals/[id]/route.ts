@@ -7,6 +7,10 @@ import { updateWithdrawalSchema } from "@/lib/validations";
 import { getSaCheckAuditStateMap, isSaCheckConfirmed } from "@/lib/sa-check-audit";
 import { isAfghanistanCountry } from "@/lib/country-code";
 import { recordHajiTransferAccounting, reverseHajiTransferAccounting } from "@/lib/haji-transfer-accounting";
+import { journalForeignCustomerReceiptMovements, journalPaymentReceived, reverseJournalEntries } from "@/lib/accounting";
+import { isSupportedForeignCurrency } from "@/lib/foreign-currency-carrying";
+import { foreignCurrencyOwnerKey, reverseForeignCurrencyMovements, settleForeignCurrencyAsset } from "@/lib/foreign-currency-carrying-db";
+import { resolveAfghanistanFxRateFromDb } from "@/lib/sarafi-af-snapshot-db";
 
 export const PATCH = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -68,6 +72,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         currency: true,
         city: { include: { country: true } },
         hajiTransfer: { include: { currency: true } },
+        customerPayment: { include: { customer: { select: { id: true, name: true } } } },
       },
     });
     if (!w) return errorResponse("NOT_FOUND", "Not found", 404);
@@ -90,6 +95,9 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     const nextBankAccountId = nextSourceType === "bank_account"
       ? (data.bankAccountId ?? ((w as any).bankAccountId ?? null))
       : null;
+    const nextCustomerId = nextSourceType === "customer"
+      ? (data.customerId ?? ((w as any).customerPayment?.customerId ?? null))
+      : null;
 
     if ((w as any).sourceType === "cheque") {
       const amountChanged = data.amount !== undefined && Number(data.amount) !== Number(w.amount);
@@ -98,8 +106,8 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         return errorResponse("VALIDATION_ERROR", "Cannot change amount or source for a withdrawal that was funded by a cheque");
       }
     }
-    if (isAfghanistanCountry(w.city.country) && nextSourceType !== "cash_office") {
-      return errorResponse("VALIDATION_ERROR", "Afghanistan city withdrawals can only use office cash");
+    if (isAfghanistanCountry(w.city.country) && !["cash_office", "customer"].includes(nextSourceType)) {
+      return errorResponse("VALIDATION_ERROR", "Afghanistan city withdrawals can only use office cash or a customer");
     }
     if (nextSourceType === "bank_account" && !nextBankAccountId) {
       return errorResponse("VALIDATION_ERROR", "Bank account is required when source is bank account");
@@ -109,10 +117,124 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       if (!bankAccount || !bankAccount.isActive) return errorResponse("NOT_FOUND", "Selected bank account not found", 404);
       if (bankAccount.cityId !== w.cityId) return errorResponse("FORBIDDEN", "Selected bank account does not belong to your city", 403);
     }
+    if (nextSourceType === "customer" && !nextCustomerId) {
+      return errorResponse("VALIDATION_ERROR", "Customer is required when source is customer");
+    }
+    if (nextSourceType === "customer" && nextCustomerId) {
+      const customer = await prisma.customer.findFirst({ where: { id: nextCustomerId, cityId: w.cityId, isActive: true } });
+      if (!customer) return errorResponse("NOT_FOUND", "Customer not found in your city", 404);
+    }
+
+    const foreignReceiptRate = isAfghanistanCountry(w.city.country) && isSupportedForeignCurrency(w.currency.code)
+      ? await resolveAfghanistanFxRateFromDb({
+          currencyCode: w.currency.code,
+          transactionDate: nextWithdrawalDate,
+          purpose: "settlement",
+          positionKind: "asset",
+        })
+      : null;
+    if (foreignReceiptRate && !foreignReceiptRate.ok) {
+      return errorResponse("FX_RATE_REQUIRED", foreignReceiptRate.missingReason, 400);
+    }
+
+    let customerPaymentFifoLotId: number | null = (w as any).customerPayment?.lotId ?? null;
+    if (nextSourceType === "customer" && nextCustomerId && !customerPaymentFifoLotId) {
+      const fifoLot = await prisma.lot.findFirst({
+        where: { status: "ongoing", countryId: w.city.countryId, lotCityDistributions: { some: { cityId: w.cityId } } },
+        orderBy: [{ lotDate: "asc" }, { id: "asc" }],
+        select: { id: true },
+      });
+      customerPaymentFifoLotId = fifoLot?.id ?? null;
+    }
 
     await prisma.$transaction(async (tx) => {
       if (w.hajiTransfer) {
         await reverseHajiTransferAccounting(tx, w.hajiTransfer, user.userId, "edit");
+      }
+
+      const linkedCustomerPayment = (w as any).customerPayment;
+      if (linkedCustomerPayment) {
+        if (foreignReceiptRate?.ok) {
+          const reversedReceipt = await reverseForeignCurrencyMovements(tx, {
+            sourceType: "withdrawal_customer_payment",
+            sourceId: linkedCustomerPayment.id,
+            reversalDate: new Date(),
+            createdBy: user.userId,
+          });
+          for (const journalTransactionId of reversedReceipt.journalTransactionIds) {
+            await reverseJournalEntries(journalTransactionId, user.userId, tx);
+          }
+        } else {
+          await tx.journalEntry.deleteMany({
+            where: { transactionId: { in: [`PAY-${linkedCustomerPayment.id}`, `REV-PAY-${linkedCustomerPayment.id}`] } },
+          });
+        }
+      }
+
+      let nextCustomerPaymentId: number | null = null;
+      if (nextSourceType === "customer" && nextCustomerId) {
+        if (linkedCustomerPayment && linkedCustomerPayment.status !== "active") throw new Error("CUSTOMER_PAYMENT_LOCKED");
+        const paymentData = {
+          cityId: w.cityId,
+          customerId: nextCustomerId,
+          lotId: customerPaymentFifoLotId,
+          paymentDate: nextWithdrawalDate,
+          amount: data.amount ?? w.amount,
+          currencyId: w.currencyId,
+          detail: "cash- withdrawal",
+          paymentMethod: "cash",
+          destination: "our_account",
+          notes: data.notes !== undefined ? data.notes : w.notes,
+          updatedAt: new Date(),
+        } as any;
+        const payment = linkedCustomerPayment
+          ? await tx.payment.update({ where: { id: linkedCustomerPayment.id }, data: paymentData })
+          : await tx.payment.create({ data: { ...paymentData, createdBy: user.userId } });
+        nextCustomerPaymentId = payment.id;
+        if (foreignReceiptRate?.ok) {
+          const receipt = await settleForeignCurrencyAsset(tx, {
+            sourceOwnerKey: foreignCurrencyOwnerKey.customerReceivable(nextCustomerId),
+            targetOwnerKey: foreignCurrencyOwnerKey.cityCash(w.cityId),
+            targetPositionType: "city_cash",
+            currencyCode: w.currency.code,
+            amount: Number(payment.amount),
+            sourceType: "withdrawal_customer_payment",
+            sourceId: payment.id,
+            settlementDate: payment.paymentDate,
+            settlementRate: {
+              ratePkr: foreignReceiptRate.rate,
+              rateType: foreignReceiptRate.selectedRateType,
+              provider: foreignReceiptRate.provider,
+              reference: foreignReceiptRate.providerReference,
+              conversionPath: foreignReceiptRate.conversionPath,
+            },
+            createdBy: user.userId,
+          });
+          await journalForeignCustomerReceiptMovements({
+            paymentId: payment.id,
+            customerId: nextCustomerId,
+            cityId: w.cityId,
+            lotId: customerPaymentFifoLotId,
+            paymentDate: payment.paymentDate,
+            createdBy: user.userId,
+            movements: receipt.movements,
+          }, tx);
+        } else {
+          await journalPaymentReceived({
+            id: payment.id,
+            customerId: nextCustomerId,
+            cityId: w.cityId,
+            lotId: customerPaymentFifoLotId,
+            amount: Number(payment.amount),
+            currencyCode: w.currency.code,
+            paymentDate: payment.paymentDate,
+            createdBy: user.userId,
+            destination: "our_account",
+            paymentMethod: "cash",
+          }, tx);
+        }
+      } else if (linkedCustomerPayment) {
+        await tx.payment.delete({ where: { id: linkedCustomerPayment.id } });
       }
 
       const updated = await tx.personalWithdrawal.update({
@@ -124,6 +246,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           withdrawnBy: data.withdrawnBy !== undefined ? data.withdrawnBy : w.withdrawnBy,
           sourceType: nextSourceType,
           bankAccountId: nextBankAccountId,
+          customerPaymentId: nextCustomerPaymentId,
           notes: data.notes !== undefined ? data.notes : w.notes,
           updatedAt: new Date(),
         } as any,
@@ -177,6 +300,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           detail: w.detail,
           sourceType: (w as any).sourceType ?? "cash_office",
           bankAccountId: (w as any).bankAccountId ?? null,
+          customerPaymentId: (w as any).customerPaymentId ?? null,
           notes: w.notes,
         },
         {
@@ -186,6 +310,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           detail: updated.detail,
           sourceType: nextSourceType,
           bankAccountId: nextBankAccountId,
+          customerPaymentId: nextCustomerPaymentId,
           notes: updated.notes,
         },
         getClientIP(request),
@@ -195,6 +320,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 
     return successResponse({ id }, "Updated");
   } catch (error: any) {
+    if (error?.message === "CUSTOMER_PAYMENT_LOCKED") return errorResponse("VALIDATION_ERROR", "Linked customer payment can no longer be edited");
     if (typeof error?.message === "string" && error.message.includes("Insufficient foreign-currency carrying layers")) {
       return errorResponse("FOREIGN_CARRYING_LAYER_REQUIRED", error.message, 409);
     }
@@ -207,7 +333,12 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
     const id = parseInt(context.params.id);
     const w = await prisma.personalWithdrawal.findUnique({
       where: { id },
-      include: { hajiTransfer: { include: { currency: true } } },
+      include: {
+        currency: true,
+        city: { include: { country: true } },
+        hajiTransfer: { include: { currency: true } },
+        customerPayment: true,
+      },
     });
     if (!w) return errorResponse("NOT_FOUND", "Not found", 404);
     if (user.role === "city_admin" && w.cityId !== user.cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
@@ -222,6 +353,27 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
     }
 
     await prisma.$transaction(async (tx) => {
+      const linkedCustomerPayment = (w as any).customerPayment;
+      if (linkedCustomerPayment) {
+        const tracesForeign = isAfghanistanCountry(w.city.country) && isSupportedForeignCurrency(w.currency.code);
+        if (tracesForeign) {
+          const reversedReceipt = await reverseForeignCurrencyMovements(tx, {
+            sourceType: "withdrawal_customer_payment",
+            sourceId: linkedCustomerPayment.id,
+            reversalDate: new Date(),
+            createdBy: user.userId,
+          });
+          for (const journalTransactionId of reversedReceipt.journalTransactionIds) {
+            await reverseJournalEntries(journalTransactionId, user.userId, tx);
+          }
+        } else {
+          await tx.journalEntry.deleteMany({
+            where: { transactionId: { in: [`PAY-${linkedCustomerPayment.id}`, `REV-PAY-${linkedCustomerPayment.id}`] } },
+          });
+        }
+        await tx.payment.delete({ where: { id: linkedCustomerPayment.id } });
+      }
+
       if ((w as any).chequePaymentId) {
         await tx.payment.update({
           where: { id: (w as any).chequePaymentId },

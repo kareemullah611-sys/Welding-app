@@ -202,13 +202,9 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
     ? num(lot.pkrExchangeRate)
     : num(await getCountryFallbackRateToPkr({ countryId: lot.countryId, fromCurrencyCode: "USD", asOf: lot.lotDate }));
 
-  const [purchases, costs, lotExpenses] = await Promise.all([
+  const [purchases, costs] = await Promise.all([
     prisma.lotPurchase.findMany({ where: { lotId }, include: { product: true, supplier: true } }),
     prisma.lotCost.findMany({ where: { lotId } }),
-    prisma.expense.findMany({
-      where: { lotId, deletedAt: null },
-      include: { currency: true },
-    }),
   ]);
 
   const totalCartonsBought = lot.lotProducts.reduce((s, lp) => s + stockQtyToReportCartons(lp.totalQty, lp.product), 0);
@@ -249,11 +245,6 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
     }
   }
 
-  const unsupportedExpenseCurrencies = Array.from(new Set(
-    lotExpenses
-      .filter((expense) => String(expense.currency.code).toUpperCase() !== "PKR")
-      .map((expense) => String(expense.currency.code).toUpperCase()),
-  ));
   const allTimeReport = await buildPeriodProfitReportData(
     user,
     undefined,
@@ -310,7 +301,6 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
     costSummary: {
       totalPurchaseUsd: round2(metrics.totalPurchaseUsd),
       totalLotCosts: round2(metrics.totalLotCostsNative),
-      totalLotExpenses: round2(metrics.totalLotExpensesNative),
       totalAdditionalCosts: round2(metrics.additionalCostPkr),
       costBreakdown: metrics.costBreakdown,
       totalLandedCostUsd: round2(metrics.totalPurchaseUsd + metrics.totalLotCostsNative),
@@ -330,14 +320,12 @@ async function lotProfitReport(lotId: number, user: JWTPayload) {
       totalCOGS: round2(recognizedCogs),
       totalGrossProfit: round2(totalGrossProfit),
       totalExpenses: round2(recognizedExpenses),
-      lotExpensesInLandedCost: round2(metrics.landed.lotExpensesPkr),
       netProfit: round2(netProfit),
       unsoldInventoryValue: round2(productProfits.reduce((s, p) => s + p.unsoldValue, 0)),
         totalRevenue: round2(recognizedRevenue),
       },
       lotReconciliation: allTimeReport.lotReconciliation,
       warnings: [
-        ...unsupportedExpenseCurrencies.map((currency) => `${currency} expenses require stored PKR recognition metadata and are excluded from this lot preview.`),
         ...(!recognizedLot ? ["No posted PKR revenue or COGS was found for this lot."] : []),
         ...(revenueWeights.reduce((sum, weight) => sum + weight, 0) <= 0 && recognizedGrossRevenue !== 0
           ? ["Recognized lot revenue could not be allocated to product rows because product sale weights are unavailable."]

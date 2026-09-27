@@ -114,7 +114,7 @@ export function getCombinedItemNetDelta(item: CombinedItem): number {
 
   if (item.type === "withdrawal") {
     const source = item.raw?.sourceType || "cash_office";
-    if (source === "cash_office" || source === "bank_account" || source === "cheque") return -amount;
+    if (source === "cash_office" || source === "bank_account" || source === "cheque" || source === "customer") return -amount;
     return 0;
   }
 

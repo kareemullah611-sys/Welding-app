@@ -22,7 +22,6 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     const expense = await prisma.expense.findUnique({
       where: { id },
       include: {
-        lot: { select: { lotNumber: true } },
         currency: true,
         customerPayment: { include: { customer: { select: { id: true, name: true } } } },
       } as any,
@@ -37,7 +36,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       chequePaymentId: (expense as any).chequePaymentId ?? null,
       customerPaymentId: (expense as any).customerPaymentId ?? null,
       customerPayment: (expense as any).customerPayment ?? null,
-      lotNumber: (expense as any).lot?.lotNumber ?? null, currency: (expense as any).currency.code,
+      currency: (expense as any).currency.code,
     });
   } catch (error) { return serverError(); }
 });
@@ -174,7 +173,6 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       date: expense.expenseDate.toISOString().split("T")[0],
       amount: Number(expense.amount),
       detail: expense.detail,
-      lotId: expense.lotId,
       paidFrom: (expense as any).paidFrom ?? "cash_office",
       bankAccountId: (expense as any).bankAccountId ?? null,
     };
@@ -279,7 +277,6 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       const next = await tx.expense.update({
         where: { id },
         data: {
-          lotId: null,
           expenseDate: nextExpenseDate,
           amount: data.amount ?? expense.amount,
           detail: data.detail || expense.detail,
@@ -313,7 +310,6 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         await journalExpenseCreated({
           id,
           cityId: expense.cityId,
-          lotId: null,
           amount: Number(next.amount),
           currencyCode: (expense as any).currency.code,
           detail: next.detail,
@@ -335,7 +331,6 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           date: next.expenseDate.toISOString().split("T")[0],
           amount: Number(next.amount),
           detail: next.detail,
-          lotId: null,
           paidFrom: nextPaidFrom,
           bankAccountId: nextBankAccountId,
         },

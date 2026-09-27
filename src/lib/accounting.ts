@@ -938,7 +938,7 @@ export function agentPaymentJournalTransactionId(id: number, journalVersion: num
 
 // EXPENSE
 // CR account depends on paidFrom: bank_account → specific bank GL, else city cash
-export async function journalExpenseCreated(e: { id: number; cityId: number; lotId: number | null; amount: number; currencyCode: string; detail: string; expenseDate: Date; createdBy: number; paidFrom?: string | null; bankAccountId?: number | null; }, db: DbClient = prisma) {
+export async function journalExpenseCreated(e: { id: number; cityId: number; amount: number; currencyCode: string; detail: string; expenseDate: Date; createdBy: number; paidFrom?: string | null; bankAccountId?: number | null; }, db: DbClient = prisma) {
   let creditAccId: number;
   if (e.paidFrom === "bank_account" && e.bankAccountId) {
     creditAccId = await getBankGLAccountId(e.bankAccountId, db);
@@ -950,7 +950,7 @@ export async function journalExpenseCreated(e: { id: number; cityId: number; lot
   await createJournalEntries(`EXP-${e.id}`, [
     { accountId: await getExpenseAccountId("general", db), debit: e.amount, credit: 0, description: e.detail },
     { accountId: creditAccId, debit: 0, credit: e.amount, description: `Expense: ${e.detail}` },
-  ], { currencyCode: e.currencyCode, entityType: "expense", entityId: e.id, lotId: e.lotId, cityId: e.cityId, entryDate: e.expenseDate, createdBy: e.createdBy }, db);
+  ], { currencyCode: e.currencyCode, entityType: "expense", entityId: e.id, cityId: e.cityId, entryDate: e.expenseDate, createdBy: e.createdBy }, db);
 }
 
 // WITHDRAWAL

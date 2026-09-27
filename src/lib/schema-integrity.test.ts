@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 test("lot product allocation migration is additive and non-destructive", () => {
@@ -16,6 +16,21 @@ function modelBlock(name: string) {
   assert.ok(match, `model ${name} should exist`);
   return match[1];
 }
+
+test("investor finalization enforces one active manager and carries finalized losses into future capital", () => {
+  const migration = readFileSync("prisma/migrations/20260927190000_single_active_investment_manager/migration.sql", "utf8");
+  const route = readFileSync("src/app/api/v1/investor-attribution/route.ts", "utf8");
+  const participantRoute = readFileSync("src/app/api/v1/investment-participants/route.ts", "utf8");
+  const participation = readFileSync("src/lib/investment-participation.ts", "utf8");
+
+  assert.match(migration, /single_active_manager/);
+  assert.doesNotMatch(migration, /\bDROP\s+(TABLE|COLUMN|INDEX)\b|\bTRUNCATE\b|\bDELETE\s+FROM\b/i);
+  assert.match(participantRoute, /ACTIVE_MANAGER_EXISTS/);
+  assert.match(route, /manager_own_capital_loss/);
+  assert.match(route, /nextDate\(entry\.period\.periodEnd\)/);
+  assert.doesNotMatch(route, /findSourceChangesAfterFinalization[\s\S]*?take:\s*100/);
+  assert.match(participation, /investor_capital_loss/);
+});
 
 test("SyncRequest supports global and city idempotency scopes with a creator relation", () => {
   const user = modelBlock("User");
@@ -237,26 +252,81 @@ test("Haji openings stay historical and customer-to-Haji payments get linked tra
   assert.doesNotMatch(hajiOpeningBlock![0], /hajiTransfer\.create/);
 });
 
-test("city expenses are not assigned to lots", () => {
+test("expenses have no lot relationship end to end", () => {
   const schema = readFileSync("prisma/schema.prisma", "utf8");
   const validations = readFileSync("src/lib/validations.ts", "utf8");
   const expenseCreateRoute = readFileSync("src/app/api/v1/expenses/route.ts", "utf8");
   const expenseUpdateRoute = readFileSync("src/app/api/v1/expenses/[id]/route.ts", "utf8");
   const expensesPage = readFileSync("src/app/(dashboard)/expenses/page.tsx", "utf8");
+  const accounting = readFileSync("src/lib/accounting.ts", "utf8");
+  const lotRoute = readFileSync("src/app/api/v1/lots/[id]/route.ts", "utf8");
+  const lotCompleteRoute = readFileSync("src/app/api/v1/lots/[id]/complete/route.ts", "utf8");
+  const profitReportRoute = readFileSync("src/app/api/v1/profit-report/route.ts", "utf8");
+  const migration = readFileSync("prisma/migrations/20260927200000_remove_expense_lot_relationship/migration.sql", "utf8");
 
-  assert.match(schema, /model Expense \{[\s\S]*?lotId\s+Int\?/);
+  const expenseModel = schema.match(/model Expense \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.doesNotMatch(expenseModel, /\blotId\b|\blot\s+Lot\?/);
   assert.match(schema, /model Payment \{[\s\S]*?lotId\s+Int\?/);
   assert.doesNotMatch(validations, /export const createExpenseSchema = z\.object\(\{\s+lotId:/);
   assert.doesNotMatch(validations, /export const updateExpenseSchema = z\.object\(\{\s+lotId:/);
-  assert.match(expenseCreateRoute, /cityId, lotId: null, expenseDate:/);
   assert.match(expenseCreateRoute, /lotId: expensePaymentFifoLotId/);
   assert.match(expenseCreateRoute, /pg_advisory_xact_lock\(\$\{32002\}::int, \$\{chequePaymentId\}::int\)/);
-  assert.match(expenseUpdateRoute, /lotId: null,/);
   assert.match(expenseUpdateRoute, /lotId: customerPaymentFifoLotId/);
+  assert.doesNotMatch(expenseCreateRoute, /where\.lotId|\{ lot:|expense\.lot|e\.lotId|lotNumber:/);
+  assert.doesNotMatch(expenseUpdateRoute, /expense\.lotId|lotNumber:|\n\s+lot:\s+\{/);
+  const expenseJournal = accounting.match(/export async function journalExpenseCreated[\s\S]*?\n\}/)?.[0] || "";
+  assert.doesNotMatch(expenseJournal, /\blotId\b/);
+  assert.doesNotMatch(lotRoute, /(?:tx|prisma)\.expense\.(?:findMany|deleteMany)\(\{ where: \{ lotId:/);
+  assert.doesNotMatch(lotCompleteRoute, /prisma\.expense\.aggregate\(\{ where: \{ cityId, lotId/);
+  assert.doesNotMatch(profitReportRoute, /prisma\.expense\.findMany\(\{\s+where: \{ lotId/);
+  assert.match(migration, /UPDATE "journal_entries"[\s\S]*WHERE "entity_type" = 'expense'/);
+  assert.match(migration, /ALTER TABLE "expenses" DROP COLUMN IF EXISTS "lot_id"/);
   assert.match(expensesPage, /const openEdit = async/);
   assert.doesNotMatch(expensesPage, /apiCall\("\/api\/v1\/lots"/);
   assert.doesNotMatch(expensesPage, /value=\{form\.lotId\}/);
   assert.doesNotMatch(expensesPage, /lotId: form\.lotId/);
+});
+
+test("Afghanistan expense validation names both allowed payment sources", () => {
+  const expenseCreateRoute = readFileSync("src/app/api/v1/expenses/route.ts", "utf8");
+
+  assert.match(expenseCreateRoute, /!\["cash_office", "customer"\]\.includes\(paidFrom\)/);
+  assert.match(expenseCreateRoute, /Afghanistan city expenses can only be paid from office cash or a customer/);
+});
+
+test("withdrawals support cash, customer, and active bank sources without cheques", () => {
+  const schema = readFileSync("prisma/schema.prisma", "utf8");
+  const validations = readFileSync("src/lib/validations.ts", "utf8");
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+  const withdrawalCreate = readFileSync("src/app/api/v1/personal-withdrawals/route.ts", "utf8");
+  const withdrawalUpdate = readFileSync("src/app/api/v1/personal-withdrawals/[id]/route.ts", "utf8");
+
+  const withdrawalModel = schema.match(/model PersonalWithdrawal \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.match(withdrawalModel, /customerPaymentId\s+Int\?\s+@unique/);
+  assert.match(withdrawalModel, /customerPayment\s+Payment\?\s+@relation\("WithdrawalCustomerPayment"/);
+  assert.match(validations, /sourceType: z\.enum\(\["cash_office", "bank_account", "customer"\]\)/);
+  assert.match(validations, /customerId: optionalPositiveInt/);
+  assert.match(paymentsPage, /createType === "withdrawal"[\s\S]*?<option value="customer">/);
+  assert.match(paymentsPage, /createType === "withdrawal"[\s\S]*?cityBankAccounts\.filter\(\(account: any\) => account\.isActive\)/);
+  assert.match(paymentsPage, /form\.sourceType === "customer"[\s\S]*?<CustomerFieldWithNew/);
+  assert.doesNotMatch(paymentsPage, /createType === "withdrawal"[\s\S]{0,2500}<option value="cheque">/);
+  assert.match(withdrawalCreate, /sourceType: "cash_office" \| "bank_account" \| "customer"/);
+  assert.match(withdrawalCreate, /customerPaymentId/);
+  assert.match(withdrawalCreate, /journalPaymentReceived\(/);
+  assert.match(withdrawalUpdate, /nextCustomerPaymentId/);
+  assert.match(withdrawalUpdate, /journalPaymentReceived\(/);
+  assert.match(withdrawalUpdate, /await tx\.payment\.delete\(/);
+});
+
+test("withdrawals are managed only inside Payments without a standalone page", () => {
+  const sidebar = readFileSync("src/components/layout/Sidebar.tsx", "utf8");
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
+
+  assert.equal(existsSync("src/app/(dashboard)/personal-withdrawals/page.tsx"), false);
+  assert.doesNotMatch(sidebar, /href:\s*"\/personal-withdrawals"/);
+  assert.match(paymentsPage, /endpoint:\s*"\/api\/v1\/personal-withdrawals"/);
+  assert.match(paymentsPage, /`\/api\/v1\/personal-withdrawals\/\$\{id\}`/);
+  assert.match(paymentsPage, /`\/api\/v1\/personal-withdrawals\/\$\{item\.id\}`/);
 });
 
 test("city payment modal owns haji expense and withdrawal creation", () => {
@@ -343,7 +413,9 @@ test("investor attribution phase 1.4 remains preview-only and collection-indepen
   assert.match(historicalPool, /managerAssumedAmountPkr/);
   assert.match(historicalPool, /reconciliationDifferencePkr/);
   assert.match(investorRoute, /loadLiveFxCoverage/);
-  assert.match(investorRoute, /intermediaryUsdCostLayer\.findMany/);
+  assert.match(investorRoute, /foreignCurrencyCarryingLayer\.findMany/);
+  assert.match(investorRoute, /remainingForeignAmount/);
+  assert.doesNotMatch(investorRoute, /foreignCurrencyCarryingLayer\.findMany\([\s\S]*?take:/);
   assert.match(investorRoute, /selectRateForPosition/);
   assert.match(provider, /MANUAL_OPEN_MARKET/);
   assert.match(provider, /SARAFI_AF/);
@@ -1486,10 +1558,11 @@ test("investor attribution phase 1.1 keeps participant management separate from 
   assert.match(investorsPage, /Participation segments/);
 });
 
-test("lot profit report only includes historical lot-linked expenses", () => {
+test("lot profit report does not treat expenses as lot costs", () => {
   const profitReportRoute = readFileSync("src/app/api/v1/profit-report/route.ts", "utf8");
 
-  assert.match(profitReportRoute, /prisma\.expense\.findMany\(\{\s+where: \{ lotId, deletedAt: null \}/);
+  assert.doesNotMatch(profitReportRoute, /prisma\.expense\.findMany\(\{\s+where: \{ lotId/);
+  assert.doesNotMatch(profitReportRoute, /lotExpensesInLandedCost/);
 });
 
 test("investor attribution follows financial report recognition without collection eligibility", () => {
@@ -1623,7 +1696,9 @@ test("investor attribution phase 2.2 controlled finalization is atomic and attri
   assert.doesNotMatch(attributionRoute, /journalEntry\.(create|createMany|update|delete)/);
   assert.doesNotMatch(attributionRoute, /bankDeposit\.(create|createMany|update|delete)/);
   assert.doesNotMatch(attributionRoute, /payment\.(create|createMany|update|delete)/);
-  assert.doesNotMatch(attributionRoute, /cash|bank settlement/i);
+  assert.doesNotMatch(attributionRoute, /investmentParticipantSettlementPayment\.(create|createMany|update|delete)/);
+  assert.doesNotMatch(attributionRoute, /superAdminBankAccount\.(create|createMany|update|delete)/);
+  assert.doesNotMatch(attributionRoute, /bankAccount\.(create|createMany|update|delete)/);
 });
 
 test("sarafi afghanistan daily FX snapshots are additive and audit-only", () => {
@@ -1782,7 +1857,6 @@ test("module filters use one shared filter menu while search remains visible", (
     "src/app/(dashboard)/sales/page.tsx",
     "src/app/(dashboard)/payments/page.tsx",
     "src/app/(dashboard)/cheques/page.tsx",
-    "src/app/(dashboard)/personal-withdrawals/page.tsx",
     "src/app/(dashboard)/haji-transfers/page.tsx",
     "src/app/(dashboard)/customers/page.tsx",
     "src/app/(dashboard)/inventory/page.tsx",
@@ -1802,8 +1876,8 @@ test("module filters use one shared filter menu while search remains visible", (
 
   assert.match(filterPages[0][1], /placeholder="Search…"/);
   assert.match(filterPages[1][1], /placeholder="Search…"/);
-  assert.match(filterPages[5][1], /placeholder="Search entries…"/);
-  assert.match(filterPages[10][1], /placeholder="Search entries…"/);
+  assert.match(filterPages[4][1], /placeholder="Search entries…"/);
+  assert.match(filterPages[9][1], /placeholder="Search entries…"/);
 });
 
 test("sale reference opens a read-only professional voucher modal", () => {

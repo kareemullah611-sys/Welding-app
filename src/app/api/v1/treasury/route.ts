@@ -109,7 +109,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     // Personal withdrawals are immediate movements; approval is audit-only.
     const withdrawalsRaw = await prisma.personalWithdrawal.groupBy({
       by: ["currencyId"],
-      where: { cityId, sourceType: "cash_office" } as any,
+      where: { cityId, sourceType: { in: ["cash_office", "customer"] } } as any,
       _sum: { amount: true },
     });
     const liabilityCashEntriesRaw = await prisma.superAdminLiabilityEntry.groupBy({

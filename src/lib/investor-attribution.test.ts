@@ -84,6 +84,20 @@ test("allocates losses by capital and ignores profit-sharing percentages", async
   assert.equal(investorB.managerSharePkr, 0);
 });
 
+test("individual negative segments do not reduce capital when the consolidated period result is profit", async () => {
+  const preview = await buildInvestorAttributionPreview({
+    periodStart: "2026-01-01",
+    periodEnd: "2026-01-31",
+    capitalEvents: baseEvents,
+    profitShareEvents: [{ participantId: "a", effectiveDate: "2026-01-16", investorProfitSharePercent: 50, managerProfitSharePercent: 50 }],
+    getBusinessResult: async (segmentStart) => ({ netBusinessProfitPkr: segmentStart === "2026-01-01" ? -1_000_000 : 3_000_000 }),
+  });
+
+  assert.equal(preview.totalBusinessProfitPkr, 2_000_000);
+  assert.ok(preview.participantSummary.every((row) => row.allocatedLossPkr === 0));
+  assert.equal(preview.reconciliationDifferencePkr, 0);
+});
+
 test("splits attribution into capital-effective segments after withdrawal", async () => {
   const preview = await buildInvestorAttributionPreview({
     periodStart: "2026-01-01",

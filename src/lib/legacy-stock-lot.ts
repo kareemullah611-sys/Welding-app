@@ -258,7 +258,6 @@ async function legacyLotHasDependencies(lotId: number, db: DbClient): Promise<bo
   const [
     sales,
     payments,
-    expenses,
     hajiTransfers,
     godownTransfers,
     lotPurchases,
@@ -267,7 +266,6 @@ async function legacyLotHasDependencies(lotId: number, db: DbClient): Promise<bo
   ] = await Promise.all([
     db.sale.count({ where: { lotId } }),
     db.payment.count({ where: { lotId } }),
-    db.expense.count({ where: { lotId } }),
     db.hajiTransfer.count({ where: { lotId } }),
     db.godownTransfer.count({ where: { lotId } }),
     db.lotPurchase.count({ where: { lotId } }),
@@ -275,7 +273,7 @@ async function legacyLotHasDependencies(lotId: number, db: DbClient): Promise<bo
     db.cityTransfer.count({ where: { lotId } }),
   ]);
   return (
-    sales + payments + expenses + hajiTransfers + godownTransfers + lotPurchases + lotCosts + cityTransfers
+    sales + payments + hajiTransfers + godownTransfers + lotPurchases + lotCosts + cityTransfers
   ) > 0;
 }
 

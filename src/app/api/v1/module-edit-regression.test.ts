@@ -8,7 +8,7 @@ test("expense withdrawal and haji edit forms preserve creation source fields", (
   const withdrawalRoute = readFileSync("src/app/api/v1/personal-withdrawals/[id]/route.ts", "utf8");
   const hajiRoute = readFileSync("src/app/api/v1/haji-transfers/[id]/route.ts", "utf8");
   const expensesPage = readFileSync("src/app/(dashboard)/expenses/page.tsx", "utf8");
-  const withdrawalsPage = readFileSync("src/app/(dashboard)/personal-withdrawals/page.tsx", "utf8");
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
   const hajiPage = readFileSync("src/app/(dashboard)/haji-transfers/page.tsx", "utf8");
 
   assert.match(validations, /expenseDate:\s*z\.string\(\)\.optional\(\)/);
@@ -27,8 +27,8 @@ test("expense withdrawal and haji edit forms preserve creation source fields", (
 
   assert.match(expensesPage, /expenseDate:\s*form\.expenseDate/);
   assert.match(expensesPage, /handleExpenseFromChange\(e\.target\.value\)/);
-  assert.match(withdrawalsPage, /withdrawalDate:\s*form\.withdrawalDate/);
-  assert.match(withdrawalsPage, /sourceType:\s*form\.sourceType/);
+  assert.match(paymentsPage, /endpoint:\s*"\/api\/v1\/personal-withdrawals"/);
+  assert.match(paymentsPage, /body:\s*\{\s*\.\.\.form,/);
   assert.match(hajiPage, /transferDate:\s*form\.transferDate/);
   assert.match(hajiPage, /sourceType:\s*form\.sourceType/);
 });

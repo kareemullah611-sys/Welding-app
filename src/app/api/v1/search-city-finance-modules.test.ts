@@ -28,20 +28,9 @@ test("city-admin amount search matches integer text in expenses and personal wit
     create: { cityId: city.id, currencyId: currency.id },
   });
 
-  const lot = await prisma.lot.create({
-    data: {
-      countryId: city.countryId,
-      lotNumber: `${marker}-lot`,
-      lotDate: new Date("2026-04-01"),
-      status: "ongoing",
-      createdBy: user.id,
-    },
-  });
-
   const expense = await prisma.expense.create({
     data: {
       cityId: city.id,
-      lotId: lot.id,
       expenseDate: new Date("2026-04-10"),
       amount: 456.78,
       currencyId: currency.id,
@@ -101,6 +90,5 @@ test("city-admin amount search matches integer text in expenses and personal wit
   } finally {
     await prisma.expense.deleteMany({ where: { id: expense.id } });
     await prisma.personalWithdrawal.deleteMany({ where: { id: withdrawal.id } });
-    await prisma.lot.deleteMany({ where: { id: lot.id } });
   }
 });

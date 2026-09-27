@@ -190,6 +190,7 @@ export async function buildPeriodProfitReportData(
     reportingCurrency: REPORTING_CURRENCY,
     period: authoritativeReport.period,
     profitAndLoss: authoritativeReport.profitAndLoss,
+    fxWarnings: authoritativeReport.fxWarnings,
     authoritativeFinancialReport: authoritativeReport,
     cartonsSold: totalCartonsSold,
     supplierAccount: {

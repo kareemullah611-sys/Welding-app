@@ -36,7 +36,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       }),
       prisma.expense.findMany({
         where: { cityId, deletedAt: null, ...dateFilter("expenseDate") },
-        include: { currency: true, lot: { select: { lotNumber: true, status: true } } },
+        include: { currency: true },
         orderBy: { expenseDate: "asc" },
       }),
       prisma.personalWithdrawal.findMany({
@@ -136,8 +136,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         description: e.detail,
         debit: Number(e.amount), credit: 0,
         hajiCredit: isLiabilityActivity(e.currencyId, e.expenseDate) ? Number(e.amount) : 0,
-        currency: e.currency.code, lot: e.lot?.lotNumber ?? null,
-        lotStatus: e.lot?.status ?? null,
+        currency: e.currency.code,
         account: "Expenses", counterAccount: "Cash In Hand",
       });
     }

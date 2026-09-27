@@ -807,6 +807,8 @@ export default function PaymentsPage() {
       notes: "",
       currencyId,
       sourceType: "cash_office",
+      customerId: 0,
+      customerName: "",
       bankAccountId: 0,
       ...preset,
     };
@@ -984,6 +986,7 @@ export default function PaymentsPage() {
     if (!(form.amount > 0) || !form.detail) return { error: t("amount") + " (must be > 0) and " + t("detail") + " required" };
     if (!String(form.withdrawnBy || "").trim()) return { error: "Withdrawn By is required" };
     if (form.sourceType === "bank_account" && !form.bankAccountId) return { error: t("select") + " " + t("bank_account").toLowerCase() };
+    if (form.sourceType === "customer" && !form.customerId) return { error: t("select") + " " + t("customer").toLowerCase() };
     return {
       endpoint: "/api/v1/personal-withdrawals",
       body: {
@@ -991,6 +994,7 @@ export default function PaymentsPage() {
         withdrawnBy: String(form.withdrawnBy || "").trim(),
         currencyId: resolvedCurrencyId,
         bankAccountId: form.sourceType === "bank_account" ? form.bankAccountId : undefined,
+        customerId: form.sourceType === "customer" ? form.customerId : undefined,
       },
     };
   };
@@ -1293,6 +1297,8 @@ export default function PaymentsPage() {
         currencyId: raw.currencyId || loadedCurrencies[0]?.id || currencies[0]?.id || 0,
         sourceType: raw.sourceType || "cash_office",
         bankAccountId: raw.bankAccountId || 0,
+        customerId: raw.customerPayment?.customerId || 0,
+        customerName: raw.customerPayment?.customer?.name || "",
       });
     }
     setCreateFormReady(true);
@@ -2574,7 +2580,7 @@ export default function PaymentsPage() {
             />
           )}
 
-          {createType === "withdrawal" && !isAfghanistanCity && (
+          {createType === "withdrawal" && (
             <div>
               <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("source_of_funds")}</label>
               <select
@@ -2582,21 +2588,35 @@ export default function PaymentsPage() {
                 onChange={e => {
                   const value = e.target.value;
                   if (value.startsWith("bank_account:")) {
-                    setForm((f: any) => ({ ...f, sourceType: "bank_account", bankAccountId: parseInt(value.split(":")[1] || "0", 10) || 0 }));
+                    setForm((f: any) => ({ ...f, sourceType: "bank_account", bankAccountId: parseInt(value.split(":")[1] || "0", 10) || 0, customerId: 0, customerName: "" }));
                     return;
                   }
-                  setForm((f: any) => ({ ...f, sourceType: "cash_office", bankAccountId: 0 }));
+                  if (value === "customer") {
+                    setForm((f: any) => ({ ...f, sourceType: "customer", bankAccountId: 0 }));
+                    return;
+                  }
+                  setForm((f: any) => ({ ...f, sourceType: "cash_office", bankAccountId: 0, customerId: 0, customerName: "" }));
                 }}
                 className="select-field"
               >
                 <option value="cash_office">{t("cash_from_office")}</option>
-                {cityBankAccounts.filter((account: any) => account.isActive).map((account: any) => (
+                <option value="customer">{t("customer")}</option>
+                {!isAfghanistanCity && cityBankAccounts.filter((account: any) => account.isActive).map((account: any) => (
                   <option key={account.id} value={`bank_account:${account.id}`}>
                     {account.bankName}{account.accountNumber ? ` · ${account.accountNumber}` : ""}
                   </option>
                 ))}
               </select>
             </div>
+          )}
+          {createType === "withdrawal" && form.sourceType === "customer" && (
+            <CustomerFieldWithNew
+              value={form.customerId || 0}
+              onChange={(id, name) => setForm((f: any) => ({ ...f, customerId: id, customerName: name }))}
+              placeholder={t("search_customer")}
+              showWalkInShortcut={false}
+              cityId={user?.cityId ?? undefined}
+            />
           )}
 
           {createType === "payment" && !isAfghanistanCity && createFormReady && (
@@ -3342,29 +3362,41 @@ export default function PaymentsPage() {
                     labelClassName="block text-sm font-medium text-gray-700 mb-1"
                     required={false}
                   />
-                  {!isAfghanistanCity && (
-                    <div>
+                  <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">{t("source_of_funds")}</label>
                       <select
                         value={form.sourceType === "bank_account" && form.bankAccountId ? `bank_account:${form.bankAccountId}` : form.sourceType || "cash_office"}
                         onChange={e => {
                           const value = e.target.value;
                           if (value.startsWith("bank_account:")) {
-                            setForm((f: any) => ({ ...f, sourceType: "bank_account", bankAccountId: parseInt(value.split(":")[1] || "0", 10) || 0 }));
+                            setForm((f: any) => ({ ...f, sourceType: "bank_account", bankAccountId: parseInt(value.split(":")[1] || "0", 10) || 0, customerId: 0, customerName: "" }));
                             return;
                           }
-                          setForm((f: any) => ({ ...f, sourceType: "cash_office", bankAccountId: 0 }));
+                          if (value === "customer") {
+                            setForm((f: any) => ({ ...f, sourceType: "customer", bankAccountId: 0 }));
+                            return;
+                          }
+                          setForm((f: any) => ({ ...f, sourceType: "cash_office", bankAccountId: 0, customerId: 0, customerName: "" }));
                         }}
                         className="select-field"
                       >
                         <option value="cash_office">{t("cash_from_office")}</option>
-                        {cityBankAccounts.filter((account: any) => account.isActive).map((account: any) => (
+                        <option value="customer">{t("customer")}</option>
+                        {!isAfghanistanCity && cityBankAccounts.filter((account: any) => account.isActive).map((account: any) => (
                           <option key={account.id} value={`bank_account:${account.id}`}>
                             {account.bankName}{account.accountNumber ? ` · ${account.accountNumber}` : ""}
                           </option>
                         ))}
                       </select>
-                    </div>
+                  </div>
+                  {form.sourceType === "customer" && (
+                    <CustomerFieldWithNew
+                      value={form.customerId || 0}
+                      onChange={(id, name) => setForm((f: any) => ({ ...f, customerId: id, customerName: name }))}
+                      placeholder={t("search_customer")}
+                      showWalkInShortcut={false}
+                      cityId={user?.cityId ?? undefined}
+                    />
                   )}
                 </>
               )}

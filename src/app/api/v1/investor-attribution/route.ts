@@ -34,9 +34,16 @@ import { isInvestorFinalizationEnabled } from "@/lib/investor-production-gate";
 import { buildDateRange } from "@/lib/date-range";
 import { buildAuthoritativePoolTransactions } from "@/lib/authoritative-pool-transactions";
 import { settlementJournalTransactionId } from "@/lib/realized-liability-fx";
+import { runWithExistingPrismaTransaction } from "@/lib/prisma-request-context";
 
 function dateOnly(date: Date | string): string {
   return (date instanceof Date ? date : new Date(date)).toISOString().slice(0, 10);
+}
+
+function nextDate(date: Date | string): string {
+  const value = new Date(`${dateOnly(date)}T00:00:00.000Z`);
+  value.setUTCDate(value.getUTCDate() + 1);
+  return value.toISOString().slice(0, 10);
 }
 
 function parsePeriod(searchParams: URLSearchParams) {
@@ -58,12 +65,25 @@ function parsePeriodFromBody(body: any) {
 }
 
 async function loadExplicitCapitalEvents(): Promise<AttributionCapitalEvent[]> {
-  const participants = await prisma.investmentParticipant.findMany({
-    include: { capitalEvents: { orderBy: { effectiveDate: "asc" } } },
-    orderBy: [{ type: "asc" }, { name: "asc" }],
-  });
+  const [participants, finalizedLosses] = await Promise.all([
+    prisma.investmentParticipant.findMany({
+      include: { capitalEvents: { orderBy: { effectiveDate: "asc" } } },
+      orderBy: [{ type: "asc" }, { name: "asc" }],
+    }),
+    prisma.investorAttributionLedgerEntry.findMany({
+      where: {
+        period: { status: "finalized" },
+        postingType: { in: ["investor_capital_loss", "manager_own_capital_loss"] },
+      },
+      include: {
+        participant: { select: { id: true, name: true, type: true } },
+        period: { select: { id: true, periodEnd: true } },
+      },
+      orderBy: [{ period: { periodEnd: "asc" } }, { id: "asc" }],
+    }),
+  ]);
 
-  return participants.flatMap((participant) =>
+  const explicitEvents = participants.flatMap((participant) =>
     participant.capitalEvents.map((event) => ({
       participantId: String(participant.id),
       participantName: participant.name,
@@ -76,6 +96,16 @@ async function loadExplicitCapitalEvents(): Promise<AttributionCapitalEvent[]> {
         : Number(event.investorProfitSharePercent),
     }))
   );
+  const finalizedLossEvents: AttributionCapitalEvent[] = finalizedLosses.map((entry) => ({
+    participantId: String(entry.participant.id),
+    participantName: entry.participant.name,
+    participantType: entry.participant.type,
+    effectiveDate: nextDate(entry.period.periodEnd),
+    amountPkr: -Math.abs(Number(entry.amountPkr)),
+    eventType: "capital_withdrawal",
+    investorProfitSharePercent: null,
+  }));
+  return [...explicitEvents, ...finalizedLossEvents];
 }
 
 async function loadExplicitProfitShareEvents(): Promise<AttributionProfitShareEvent[]> {
@@ -394,10 +424,7 @@ function buildReadiness(input: {
   if (input.capitalSource === "migration_incomplete" || input.unmappedLegacyInvestorIds.length > 0) {
     block("BLOCKED_INVESTOR_MIGRATION", `Active legacy investors remain unmapped: ${input.unmappedLegacyInvestorIds.join(", ") || "unknown"}.`);
   }
-  const dataIntegrityReasons = input.finalizationDisabledReasons.filter((reason) => (
-    !reason.includes("Missing ") &&
-    !reason.includes("investor/manager capital")
-  ));
+  const dataIntegrityReasons = input.finalizationDisabledReasons;
   if (dataIntegrityReasons.length > 0) {
     block("BLOCKED_DATA_INTEGRITY", dataIntegrityReasons.join(" "));
   }
@@ -422,10 +449,10 @@ async function findSourceChangesAfterFinalization(finalizations: any[]) {
     if (!finalization.finalizedAt) continue;
     const dateRange = { gte: finalization.periodStart, lte: finalization.periodEnd };
     const changedAfter = { gt: finalization.finalizedAt };
-    const [sales, discounts, expenses, lotCosts, supplierPayments, shippingPayments, fallbackRates, exchangeRates] = await Promise.all([
-      prisma.sale.findMany({ where: { saleDate: dateRange, updatedAt: changedAfter }, select: { id: true, updatedAt: true }, take: 100 }),
-      prisma.saleDiscount.findMany({ where: { discountDate: dateRange, createdAt: changedAfter }, select: { id: true, createdAt: true }, take: 100 }),
-      prisma.expense.findMany({ where: { expenseDate: dateRange, updatedAt: changedAfter }, select: { id: true, updatedAt: true }, take: 100 }),
+    const [sales, discounts, expenses, lotCosts, supplierPayments, shippingPayments, fallbackRates, exchangeRates, journals] = await Promise.all([
+      prisma.sale.findMany({ where: { saleDate: dateRange, updatedAt: changedAfter }, select: { id: true, updatedAt: true } }),
+      prisma.saleDiscount.findMany({ where: { discountDate: dateRange, createdAt: changedAfter }, select: { id: true, createdAt: true } }),
+      prisma.expense.findMany({ where: { expenseDate: dateRange, updatedAt: changedAfter }, select: { id: true, updatedAt: true } }),
       prisma.lotCost.findMany({
         where: {
           updatedAt: changedAfter,
@@ -435,12 +462,12 @@ async function findSourceChangesAfterFinalization(finalizations: any[]) {
           ],
         },
         select: { id: true, updatedAt: true },
-        take: 100,
       }),
-      prisma.supplierPayment.findMany({ where: { paymentDate: dateRange, updatedAt: changedAfter }, select: { id: true, updatedAt: true }, take: 100 }),
-      prisma.shippingLinePayment.findMany({ where: { paymentDate: dateRange, updatedAt: changedAfter }, select: { id: true, updatedAt: true }, take: 100 }),
-      prisma.countryFallbackExchangeRate.findMany({ where: { effectiveFrom: dateRange, updatedAt: changedAfter }, select: { id: true, updatedAt: true }, take: 100 }),
-      prisma.exchangeRate.findMany({ where: { rateDate: dateRange, createdAt: changedAfter }, select: { id: true, createdAt: true }, take: 100 }),
+      prisma.supplierPayment.findMany({ where: { paymentDate: dateRange, updatedAt: changedAfter }, select: { id: true, updatedAt: true } }),
+      prisma.shippingLinePayment.findMany({ where: { paymentDate: dateRange, updatedAt: changedAfter }, select: { id: true, updatedAt: true } }),
+      prisma.countryFallbackExchangeRate.findMany({ where: { effectiveFrom: dateRange, updatedAt: changedAfter }, select: { id: true, updatedAt: true } }),
+      prisma.exchangeRate.findMany({ where: { rateDate: dateRange, createdAt: changedAfter }, select: { id: true, createdAt: true } }),
+      prisma.journalEntry.findMany({ where: { entryDate: dateRange, createdAt: changedAfter }, select: { id: true, createdAt: true } }),
     ]);
     const add = (sourceType: string, rows: Array<{ id: number; updatedAt?: Date; createdAt?: Date }>) => {
       for (const row of rows) {
@@ -462,6 +489,7 @@ async function findSourceChangesAfterFinalization(finalizations: any[]) {
     add("shipping_line_payment", shippingPayments);
     add("country_fallback_exchange_rate", fallbackRates);
     add("exchange_rate", exchangeRates);
+    add("journal_entry", journals);
   }
   return changes;
 }
@@ -515,6 +543,7 @@ async function buildAttributionFinalizationPreview(user: JWTPayload, periodStart
       const report = await buildPeriodProfitReportData(user, undefined, segmentStart, segmentEnd);
       return {
         netBusinessProfitPkr: Number(report.profitAndLoss?.netProfit || 0),
+        integrityWarnings: report.fxWarnings || [],
       };
     },
   });
@@ -764,34 +793,46 @@ async function findOpenMarketRateToPkr(currencyCode: string, valuationDate: stri
 async function loadLiveFxCoverage(periodEnd: string) {
   const valuationDate = dateOnly(periodEnd);
   const periodEndExclusive = buildDateRange(null, periodEnd).lt!;
-  const usdRate = await findOpenMarketRateToPkr("USD", valuationDate, "asset");
-  const usdLayers = await prisma.intermediaryUsdCostLayer.findMany({
+  const layers = await prisma.foreignCurrencyCarryingLayer.findMany({
     where: {
-      acquiredDate: { lt: periodEndExclusive },
-      remainingAmountUsd: { gt: 0 },
+      recognitionDate: { lt: periodEndExclusive },
+      remainingForeignAmount: { gt: 0 },
+      status: "open",
+      currency: { code: { not: "PKR" } },
     },
-    include: {
-      intermediary: { select: { name: true } },
-      currency: { select: { code: true } },
-    },
-    orderBy: { acquiredDate: "asc" },
+    include: { currency: { select: { code: true } } },
+    orderBy: [{ recognitionDate: "asc" }, { id: "asc" }],
   });
+  const positionType = (value: string): ReliableLiveFxPosition["positionType"] => {
+    if (value === "customer_receivable") return "customer_receivable";
+    if (value === "supplier_payable") return "supplier_payable";
+    if (value === "shipping_payable") return "shipper_balance";
+    if (value === "intermediary_balance") return "intermediary_balance";
+    if (["city_cash", "city_bank", "super_admin_cash", "super_admin_bank"].includes(value)) return "foreign_cash";
+    return "other_monetary_position";
+  };
+  const rateCache = new Map<string, Promise<NormalizedExchangeRateResult>>();
+  const valuationRateFor = (currencyCode: string, kind: "asset" | "liability") => {
+    const key = `${currencyCode.toUpperCase()}:${kind}`;
+    if (!rateCache.has(key)) rateCache.set(key, findOpenMarketRateToPkr(currencyCode, valuationDate, kind));
+    return rateCache.get(key)!;
+  };
+  const supportedPositions: ReliableLiveFxPosition[] = await Promise.all(layers.map(async (layer) => ({
+    sourceRecord: `foreign_currency_carrying_layers:${layer.id}`,
+    sourcePosition: `${layer.positionType}:${layer.ownerKey}:layer:${layer.id}`,
+    positionType: positionType(layer.positionType),
+    positionKind: layer.positionKind,
+    currencyCode: layer.currency.code,
+    foreignAmount: Number(layer.remainingForeignAmount),
+    carryingPkrValue: Number(layer.remainingCarryingAmountPkr),
+    historicalRate: Number(layer.recognitionRatePkr),
+    historicalPoolDate: dateOnly(layer.historicalPoolDate),
+    valuationDate,
+    valuationRate: await valuationRateFor(layer.currency.code, layer.positionKind),
+  })));
 
   const currencies = await prisma.currency.findMany({ select: { id: true, code: true } });
   const codeById = new Map(currencies.map((currency) => [currency.id, currency.code.toUpperCase()]));
-  const supportedPositions: ReliableLiveFxPosition[] = usdLayers.map((layer) => ({
-    sourceRecord: `intermediary_usd_cost_layers:${layer.id}`,
-    sourcePosition: `${layer.intermediary.name} ${layer.currency.code.toUpperCase()} layer ${layer.id}`,
-    positionType: "intermediary_balance",
-    positionKind: "asset",
-    currencyCode: layer.currency.code,
-    foreignAmount: Number(layer.remainingAmountUsd),
-    carryingPkrValue: Number(layer.remainingCostPkr),
-    historicalRate: Number(layer.ratePkr),
-    historicalPoolDate: dateOnly(layer.acquiredDate),
-    valuationDate,
-    valuationRate: usdRate,
-  }));
   const nonPkrCurrencyIds = currencies
     .filter((currency) => ["AFN", "RMB", "CNY", "USD", "AED"].includes(currency.code.toUpperCase()) && currency.code.toUpperCase() !== "PKR")
     .map((currency) => currency.id);
@@ -802,12 +843,15 @@ async function loadLiveFxCoverage(periodEnd: string) {
       currencyId: { in: nonPkrCurrencyIds },
     },
     select: { id: true, currencyId: true, depositDate: true, amount: true, intermediary: { select: { name: true } } },
-    take: 25,
     orderBy: { depositDate: "asc" },
   });
+  const depositMovementIds = new Set((await prisma.foreignCurrencyMovement.findMany({
+    where: { sourceType: "intermediary_deposit", sourceId: { in: deposits.map((deposit) => deposit.id) } },
+    select: { sourceId: true },
+  })).map((movement) => movement.sourceId));
 
   const unsupportedPositions: UnsupportedLiveFxPosition[] = deposits
-    .filter((deposit) => codeById.get(deposit.currencyId) !== "USD")
+    .filter((deposit) => !depositMovementIds.has(deposit.id))
     .map((deposit) => ({
       sourceRecord: `intermediary_deposits:${deposit.id}`,
       sourcePosition: `intermediary_deposit:${deposit.id}`,
@@ -816,7 +860,7 @@ async function loadLiveFxCoverage(periodEnd: string) {
       currencyCode: codeById.get(deposit.currencyId) || "UNKNOWN",
       foreignAmount: Number(deposit.amount || 0),
       date: dateOnly(deposit.depositDate),
-      reason: `Existing ${deposit.intermediary.name} deposit is recorded, but there is no verified remaining carrying layer for this currency yet; preview will not invent an outstanding ${codeById.get(deposit.currencyId) || "foreign-currency"} balance.`,
+      reason: `Existing ${deposit.intermediary.name} deposit has no immutable foreign-currency movement/carrying evidence; preview will not invent an outstanding ${codeById.get(deposit.currencyId) || "foreign-currency"} balance.`,
     }));
   return buildLiveFxCoveragePreview({ supportedPositions, unsupportedPositions });
 }
@@ -885,14 +929,19 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       const confirmation = String(body.confirmation || "");
       if (confirmation !== "FINALIZE") return errorResponse("CONFIRMATION_REQUIRED", "Type FINALIZE to confirm period finalization.", 400);
       const { periodStart, periodEnd } = parsePeriodFromBody(body);
-      const built = await buildAttributionFinalizationPreview(user, periodStart, periodEnd);
-      const blockers = assertFinalizationEligible(built);
-      if (blockers.length > 0) return errorResponse("FINALIZATION_BLOCKED", "Investor attribution period is not eligible for finalization.", 409, blockers);
 
       const result = await prisma.$transaction(async (tx) => {
-        const txAny = tx as any;
-        const lockKey = "investor-finalization-timeline";
-        await tx.$executeRawUnsafe("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)", lockKey);
+        return runWithExistingPrismaTransaction(tx, user, async () => {
+          const txAny = tx as any;
+          const lockKey = "investor-finalization-timeline";
+          await tx.$executeRawUnsafe("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)", lockKey);
+          const built = await buildAttributionFinalizationPreview(user, periodStart, periodEnd);
+          const blockers = assertFinalizationEligible(built);
+          if (blockers.length > 0) {
+            const blocked = new Error("FINALIZATION_BLOCKED");
+            (blocked as any).blockers = blockers;
+            throw blocked;
+          }
         const existing = await tx.profitAttributionPeriod.findFirst({
           where: {
             status: "finalized",
@@ -998,15 +1047,20 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           }));
         if (ledgerRows.length > 0) await txAny.investorAttributionLedgerEntry.createMany({ data: ledgerRows });
 
-        return { periodId: period.id, ledgerEntries: ledgerRows.length, idempotencyKey: finalizationIdempotencyKey };
-      });
+          return {
+            periodId: period.id,
+            ledgerEntries: ledgerRows.length,
+            idempotencyKey: finalizationIdempotencyKey,
+            reconciliation: built.finalizationDryRun.postingSimulation.reconciliation,
+          };
+        });
+      }, { isolationLevel: "Serializable" });
 
       return successResponse({
         periodStart,
         periodEnd,
         status: "FINALIZED",
         ...result,
-        reconciliation: built.finalizationDryRun.postingSimulation.reconciliation,
       }, "Investor attribution period finalized.");
     }
 
@@ -1092,6 +1146,9 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
   } catch (error: any) {
     if (String(error?.message || "") === "INVALID_ATTRIBUTION_PERIOD") {
       return errorResponse("INVALID_ATTRIBUTION_PERIOD", "A valid From and To date are required, and From date must not be after To date.", 400);
+    }
+    if (String(error?.message || "") === "FINALIZATION_BLOCKED") {
+      return errorResponse("FINALIZATION_BLOCKED", "Investor attribution period is not eligible for finalization.", 409, error?.blockers || []);
     }
     if (String(error?.message || "") === "ALREADY_FINALIZED") {
       return errorResponse("ALREADY_FINALIZED", "This investor attribution period is already finalized.", 409);

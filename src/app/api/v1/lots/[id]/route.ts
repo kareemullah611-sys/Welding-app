@@ -115,10 +115,9 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       }));
     } catch (e) {}
 
-    let sales: any[] = [], payments: any[] = [], expenses: any[] = [], hajiTransfers: any[] = [];
+    let sales: any[] = [], payments: any[] = [], hajiTransfers: any[] = [];
     try { sales = await prisma.sale.findMany({ where: { OR: [{ lotId: id }, { items: { some: { lotId: id } } }], status: { in: ["active", "marked_short"] } }, select: { id: true, voucherNo: true, totalAmount: true, saleDate: true, status: true, isOpeningImport: true, fxOriginalCurrencyCode: true, fxOriginalAmount: true, fxSelectedRate: true, fxSelectedRateType: true, fxProvider: true, fxProviderReference: true, fxPkrEquivalent: true, fxConversionPathJson: true, customer: { select: { id: true, name: true } }, city: { select: { id: true, name: true } }, godown: { select: { id: true, name: true } }, currency: { select: { code: true } }, discounts: { where: { appliedToLotId: id }, select: { id: true, discountAmount: true, discountDate: true, notes: true, currency: { select: { code: true } } } }, items: { where: { lotId: id }, select: { lotId: true, qty: true, cartonQty: true, ratePerCarton: true, amount: true, product: { select: { id: true, name: true, unitOfMeasure: true, piecesPerCarton: true } } } } }, orderBy: { saleDate: "desc" } }); } catch (e) {}
     try { payments = await prisma.payment.findMany({ where: { lotId: id, status: "active" }, select: { id: true, amount: true, paymentDate: true, detail: true, customer: { select: { name: true } } }, orderBy: { paymentDate: "desc" }, take: 100 }); } catch (e) {}
-    try { expenses = await prisma.expense.findMany({ where: { lotId: id, deletedAt: null }, select: { id: true, amount: true, detail: true, expenseDate: true, currency: { select: { code: true } } }, orderBy: { expenseDate: "desc" } }); } catch (e) {}
     try { hajiTransfers = await prisma.hajiTransfer.findMany({ where: { lotId: id }, select: { id: true, amount: true, detail: true, transferDate: true, transferType: true }, orderBy: { transferDate: "desc" } }); } catch (e) {}
     let documents: any[] = [], statusHistory: any[] = [];
     try {
@@ -219,7 +218,6 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       sum + (sale.items || []).reduce((itemSum: number, item: any) => itemSum + Number(item.amount || 0), 0)
     ), 0);
     const totalPayments = payments.reduce((s: number, x: any) => s + Number(x.amount), 0);
-    const totalExpenses = expenses.reduce((s: number, x: any) => s + Number(x.amount), 0);
     const totalHaji = hajiTransfers.reduce((s: number, x: any) => s + Number(x.amount), 0);
     const totalPurchaseUsd = lotPurchases.reduce((s: number, x: any) => s + Number(x.totalPriceUsd || 0), 0);
     const soldQtyByProduct: Record<number, number> = {};
@@ -258,11 +256,6 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     for (const c of lotCosts) {
       const code = c.currencyCode || "PKR";
       costsByCurrency[code] = (costsByCurrency[code] || 0) + Number(c.amount);
-    }
-    const lotExpensesByCurrency: Record<string, number> = {};
-    for (const e of expenses) {
-      const code = e.currency?.code || "PKR";
-      lotExpensesByCurrency[code] = (lotExpensesByCurrency[code] || 0) + Number(e.amount);
     }
     const costBreakdown = lotCosts.map((c: any) => {
       let debitChannel = "payable";
@@ -449,7 +442,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         createdAt: c.createdAt,
         debitChannelLabel: c.debitChannelLabel,
       })),
-      lotExpensesByCurrency,
+      lotExpensesByCurrency: {},
       supplierPaymentsForLot: supplierPaymentsForLot.map((p) => ({
         amountUsd: Number(p.amountUsd),
         exchangeRate: p.exchangeRate,
@@ -467,7 +460,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
             exchangeRate: c.exchangeRate,
             costType: c.costType,
           })),
-          lotExpensesByCurrency,
+          lotExpensesByCurrency: {},
           usdPkrRate: Number(lot.pkrExchangeRate),
         })
       : null;
@@ -681,8 +674,6 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       costSummary: {
         totalPurchaseUsd: Math.round(totalPurchaseUsd * 100) / 100,
         costsByCurrency,
-        totalLotExpenses: totalExpenses,
-        lotExpensesByCurrency,
         costBreakdown,
         otherCostsByCurrency: ledgerBuilt.costSummary.otherCostsByCurrency,
         totalLandedCostPkr: ledgerBuilt.costSummary.totalLandedCostPkr,
@@ -690,14 +681,13 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       },
       costLedger: ledgerBuilt.rows,
       stockSummary: { totalCartons, soldCartons, remainingCartons, byProduct: stockByProduct },
-      summary: { totalSales, totalPayments, totalExpenses, totalHaji, outstanding: totalSales - totalPayments },
+      summary: { totalSales, totalPayments, totalHaji, outstanding: totalSales - totalPayments },
       recentSales: sales.map((s: any) => ({
         ...s,
         totalAmount: (s.items || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0),
         saleDate: s.saleDate.toISOString().split("T")[0],
       })),
       recentPayments: payments.map((p: any) => ({ ...p, amount: Number(p.amount), paymentDate: p.paymentDate.toISOString().split("T")[0] })),
-      expenses: expenses.map((e: any) => ({ ...e, amount: Number(e.amount), expenseDate: e.expenseDate.toISOString().split("T")[0] })),
       hajiTransfers: hajiTransfers.map((h: any) => ({ ...h, amount: Number(h.amount), transferDate: h.transferDate.toISOString().split("T")[0] })),
       documents: documents.map((d: any) => ({
         id: d.id,
@@ -1121,24 +1111,21 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
     if (salesCount > 0) return errorResponse("FORBIDDEN", `Cannot delete: lot has ${salesCount} active sales`, 403);
     // Delete all related data atomically — if any step fails the lot is NOT deleted
     await prisma.$transaction(async (tx) => {
-      const [purchases, costs, expenses, transfers] = await Promise.all([
+      const [purchases, costs, transfers] = await Promise.all([
         tx.lotPurchase.findMany({ where: { lotId: id } }),
         tx.lotCost.findMany({ where: { lotId: id }, select: { id: true } }),
-        tx.expense.findMany({ where: { lotId: id }, select: { id: true } }),
         tx.hajiTransfer.findMany({ where: { lotId: id }, select: { id: true } }),
       ]);
       for (const purchase of purchases) {
         await reverseJournalEntries(lotPurchaseJournalTransactionId(id, purchase.id, purchase.journalVersion), user.userId, tx);
       }
       for (const cost of costs) await reverseJournalEntries(`COST-${cost.id}`, user.userId, tx);
-      for (const expense of expenses) await reverseJournalEntries(`EXP-${expense.id}`, user.userId, tx);
       for (const transfer of transfers) await reverseJournalEntries(`HAJI-${transfer.id}`, user.userId, tx);
       await tx.lotCityGodownAllocation.deleteMany({ where: { lotCityDistribution: { lotId: id } } });
       await tx.lotCityDistribution.deleteMany({ where: { lotId: id } });
       await tx.lotProduct.deleteMany({ where: { lotId: id } });
       await tx.lotCost.deleteMany({ where: { lotId: id } });
       await tx.lotPurchase.deleteMany({ where: { lotId: id } });
-      await tx.expense.deleteMany({ where: { lotId: id } });
       await tx.hajiTransfer.deleteMany({ where: { lotId: id } });
       await tx.lotStatusHistory.deleteMany({ where: { lotId: id } });
       await tx.lot.delete({ where: { id } });

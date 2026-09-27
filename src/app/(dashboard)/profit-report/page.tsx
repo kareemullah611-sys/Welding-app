@@ -320,12 +320,6 @@ function LotReport({ data }: { data: any }) {
         <StatsCard title={t("net_profit_label")} value={pkr(ps.netProfit)} icon="💰" color={ps.netProfit >= 0 ? "green" : "red"} />
         <StatsCard title={t("unsold_value")} value={pkr(ps.unsoldInventoryValue)} icon="📋" color="yellow" />
       </div>
-      {ps.lotExpensesInLandedCost > 0 && (
-        <p className="mb-4 text-xs text-gray-500">
-          PKR {formatNumber(ps.lotExpensesInLandedCost)} of lot-tagged city expenses are included in landed cost (not subtracted again).
-        </p>
-      )}
-
       <div className="card">
         <h3 className="text-sm font-semibold text-gray-500 mb-3">{t("product_profitability")}</h3>
         <DataTable columns={[
