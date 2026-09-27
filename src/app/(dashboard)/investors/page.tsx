@@ -11,6 +11,7 @@ import { getPendingInvestors } from "@/lib/offline-queue-overlays";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 
 const INVESTORS_READ_CACHE_KEY = "mrf-investors-read-cache-v1";
+const TODAY = new Date().toISOString().split("T")[0];
 
 type InvestorsReadSnapshot = {
   investors: Investor[];
@@ -63,7 +64,9 @@ export default function InvestorsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
-  const [attributionYear, setAttributionYear] = useState(new Date().getFullYear());
+  const [attributionDateFrom, setAttributionDateFrom] = useState(`${new Date().getFullYear()}-01-01`);
+  const [attributionDateTo, setAttributionDateTo] = useState(TODAY);
+  const [attributionFinancialYearLabel, setAttributionFinancialYearLabel] = useState("");
   const [attributionPreview, setAttributionPreview] = useState<any>(null);
   const [attributionLoading, setAttributionLoading] = useState(false);
   const [attributionError, setAttributionError] = useState("");
@@ -219,6 +222,21 @@ export default function InvestorsPage() {
 
   useEffect(() => { if (user?.role === "super_admin" && isOnline) loadSuperAdminAccounts(); }, [user?.role, isOnline, loadSuperAdminAccounts]);
 
+  const loadAttributionFinancialYear = useCallback(async () => {
+    const res = await apiCall("/api/v1/financial-years");
+    if (!res.success) return;
+    const financialYears = (res.data as any[]) || [];
+    const selected = financialYears.find((row) => row.status === "open") || financialYears[0];
+    if (!selected) return;
+    setAttributionDateFrom(String(selected.startDate).slice(0, 10));
+    setAttributionDateTo(String(selected.endDate).slice(0, 10));
+    setAttributionFinancialYearLabel(selected.name || "Configured financial year");
+  }, []);
+
+  useEffect(() => {
+    if (user?.role === "super_admin" && isOnline) loadAttributionFinancialYear();
+  }, [user?.role, isOnline, loadAttributionFinancialYear]);
+
   useEffect(() => {
     if (!openActionId) return;
     const handleOutside = (event: PointerEvent) => {
@@ -321,9 +339,15 @@ export default function InvestorsPage() {
   };
 
   const loadAttributionPreview = async () => {
+    if (!attributionDateFrom || !attributionDateTo || attributionDateFrom > attributionDateTo) {
+      setAttributionError("Select a valid From and To date before loading the preview.");
+      return;
+    }
     setAttributionLoading(true);
     setAttributionError("");
-    const res = await apiCall("/api/v1/investor-attribution", { params: { year: attributionYear } });
+    const res = await apiCall("/api/v1/investor-attribution", {
+      params: { date_from: attributionDateFrom, date_to: attributionDateTo },
+    });
     setAttributionLoading(false);
     if ((res as any).success === false) {
       setAttributionError((res as any).error || "Failed to load attribution preview");
@@ -334,7 +358,7 @@ export default function InvestorsPage() {
 
   const finalizeAttributionPeriod = async () => {
     if (!attributionPreview?.finalizationDryRun) return;
-    const confirmation = window.prompt("Type FINALIZE to confirm investor attribution finalization. This freezes ownership only and creates no cash/bank distributions.");
+    const confirmation = window.prompt(`Finalize ${attributionDateFrom} to ${attributionDateTo}. Type FINALIZE to confirm. This freezes ownership only and creates no cash/bank distributions.`);
     if (confirmation !== "FINALIZE") return;
     setFinalizationSaving(true);
     setAttributionError("");
@@ -342,7 +366,8 @@ export default function InvestorsPage() {
       method: "POST",
       body: {
         action: "finalize",
-        year: attributionYear,
+        dateFrom: attributionDateFrom,
+        dateTo: attributionDateTo,
         confirmation,
       },
     });
@@ -943,13 +968,25 @@ export default function InvestorsPage() {
             <p className="text-sm font-semibold text-gray-900">Investor Profit/Loss Attribution</p>
             <p className="text-xs text-gray-400">Preview only — no distribution or finalization postings are created.</p>
           </div>
-          <div className="flex gap-2">
-            <input
-              type="number"
-              value={attributionYear}
-              onChange={(event) => setAttributionYear(parseInt(event.target.value) || new Date().getFullYear())}
-              className="w-24 rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-violet-400"
-            />
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="text-xs font-medium text-gray-500">
+              From
+              <input
+                type="date"
+                value={attributionDateFrom}
+                onChange={(event) => { setAttributionDateFrom(event.target.value); setAttributionPreview(null); }}
+                className="mt-1 block rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-800 outline-none focus:border-violet-400"
+              />
+            </label>
+            <label className="text-xs font-medium text-gray-500">
+              To
+              <input
+                type="date"
+                value={attributionDateTo}
+                onChange={(event) => { setAttributionDateTo(event.target.value); setAttributionPreview(null); }}
+                className="mt-1 block rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-800 outline-none focus:border-violet-400"
+              />
+            </label>
             <button
               onClick={loadAttributionPreview}
               disabled={attributionLoading || !isOnline}
@@ -959,6 +996,9 @@ export default function InvestorsPage() {
             </button>
           </div>
         </div>
+        {attributionFinancialYearLabel && (
+          <p className="mt-2 text-xs text-gray-400">Prefilled from {attributionFinancialYearLabel}. Dates remain editable until finalization.</p>
+        )}
         {attributionError && <p className="mt-3 text-xs text-red-500">{attributionError}</p>}
         {attributionPreview && (
           <div className="mt-4 space-y-3">

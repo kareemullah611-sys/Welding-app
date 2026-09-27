@@ -1096,6 +1096,13 @@ test("superadmin profit reports reconcile posted lot PKR results and scoped fina
   assert.match(periodProfitHelper, /lotReconciliation: lotProfit\.reconciliation/);
   assert.doesNotMatch(periodProfitHelper, /getCountryFallbackRateToPkr|computeLotLandedCostPkr/);
   assert.match(profitPage, /Lotwise reconciliation/);
+  assert.match(profitPage, /\/api\/v1\/financial-years/);
+  assert.match(profitPage, /params\.date_from = dateFrom/);
+  assert.match(profitPage, /params\.date_to = dateTo/);
+  assert.match(profitPage, /Prefilled from/);
+  assert.doesNotMatch(profitPage, /setYear\(/);
+  assert.match(profitRoute, /resolveAccountingPeriod/);
+  assert.match(profitRoute, /INVALID_PROFIT_REPORT_PERIOD/);
   assert.match(financialRoute, /where: \{ accountId: \{ in: accountIds \}, \.\.\.\(cityId \? \{ cityId \} : \{\}\) \}/);
 });
 
@@ -1604,6 +1611,14 @@ test("investor attribution phase 2.2 controlled finalization is atomic and attri
   assert.match(investorsPage, /action: "reverse"/);
   assert.match(investorsPage, /Reversal reason is required/);
   assert.match(investorsPage, /Type REVERSE/);
+  assert.match(investorsPage, /\/api\/v1\/financial-years/);
+  assert.match(investorsPage, /date_from: attributionDateFrom/);
+  assert.match(investorsPage, /date_to: attributionDateTo/);
+  assert.match(investorsPage, /dateFrom: attributionDateFrom/);
+  assert.match(investorsPage, /dateTo: attributionDateTo/);
+  assert.match(investorsPage, /Prefilled from/);
+  assert.doesNotMatch(investorsPage, /attributionYear/);
+  assert.match(attributionRoute, /resolveInvestorAttributionPeriod/);
 
   assert.doesNotMatch(attributionRoute, /journalEntry\.(create|createMany|update|delete)/);
   assert.doesNotMatch(attributionRoute, /bankDeposit\.(create|createMany|update|delete)/);

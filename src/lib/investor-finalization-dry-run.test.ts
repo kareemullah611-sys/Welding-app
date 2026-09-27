@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildFinalizationDryRun } from "./investor-finalization-dry-run";
 import { buildInvestorFinalizationIdempotencyKey } from "./investor-finalization-idempotency";
+import { resolveInvestorAttributionPeriod } from "./investor-attribution-period";
 import { buildHistoricalFxTransaction, buildHistoricalPoolPreview } from "./historical-pool-attribution";
 import {
   buildInvestorAttributionPreview,
@@ -307,5 +308,30 @@ test("corrected finalization receives a new audited revision key after reversal"
   assert.equal(
     buildInvestorFinalizationIdempotencyKey("2026-01-01", "2026-12-31", 1),
     "investor-finalization:2026-01-01:2026-12-31:revision:2"
+  );
+});
+
+test("investor attribution accepts an exact Ramadan financial-year range", () => {
+  assert.deepEqual(
+    resolveInvestorAttributionPeriod({ dateFrom: "2026-02-19", dateTo: "2027-02-08" }),
+    { year: undefined, periodStart: "2026-02-19", periodEnd: "2027-02-08" }
+  );
+});
+
+test("investor attribution rejects incomplete or reversed custom ranges", () => {
+  assert.throws(
+    () => resolveInvestorAttributionPeriod({ dateFrom: "2026-02-19" }),
+    /INVALID_ATTRIBUTION_PERIOD/
+  );
+  assert.throws(
+    () => resolveInvestorAttributionPeriod({ dateFrom: "2027-02-08", dateTo: "2026-02-19" }),
+    /INVALID_ATTRIBUTION_PERIOD/
+  );
+});
+
+test("legacy year requests remain calendar-year compatible", () => {
+  assert.deepEqual(
+    resolveInvestorAttributionPeriod({ year: 2026 }),
+    { year: 2026, periodStart: "2026-01-01", periodEnd: "2026-12-31" }
   );
 });

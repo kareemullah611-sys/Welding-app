@@ -10,13 +10,17 @@ import { useAuth } from "@/hooks/useAuth";
 import { LotAccountingTrace } from "@/components/lots/LotDetailTabs";
 
 const PROFIT_REPORT_READ_CACHE_KEY = "mrf-profit-report-read-cache-v1";
+const TODAY = new Date().toISOString().split("T")[0];
 
 type ProfitReportReadSnapshot = {
   lots: any[];
   data: any;
   mode: "lot" | "period";
   selectedLotId: number;
-  year: number;
+  dateFrom?: string;
+  dateTo?: string;
+  financialYearLabel?: string;
+  year?: number;
 };
 
 export default function ProfitReportPage() {
@@ -26,9 +30,12 @@ export default function ProfitReportPage() {
   const [mode, setMode] = useState<"lot" | "period">("period");
   const [lots, setLots] = useState<any[]>([]);
   const [selectedLotId, setSelectedLotId] = useState(0);
-  const [year, setYear] = useState(new Date().getFullYear());
+  const [dateFrom, setDateFrom] = useState(`${new Date().getFullYear()}-01-01`);
+  const [dateTo, setDateTo] = useState(TODAY);
+  const [financialYearLabel, setFinancialYearLabel] = useState("");
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [reportError, setReportError] = useState("");
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
 
   useEffect(() => {
@@ -39,7 +46,14 @@ export default function ProfitReportPage() {
     if (snapshot.data) setData(snapshot.data);
     if (snapshot.mode) setMode(snapshot.mode);
     if (snapshot.selectedLotId) setSelectedLotId(snapshot.selectedLotId);
-    if (snapshot.year) setYear(snapshot.year);
+    if (snapshot.dateFrom && snapshot.dateTo) {
+      setDateFrom(snapshot.dateFrom);
+      setDateTo(snapshot.dateTo);
+      setFinancialYearLabel(snapshot.financialYearLabel || "");
+    } else if (snapshot.year) {
+      setDateFrom(`${snapshot.year}-01-01`);
+      setDateTo(`${snapshot.year}-12-31`);
+    }
     setShowOfflineSnapshot(true);
   }, [isOnline]);
 
@@ -54,7 +68,9 @@ export default function ProfitReportPage() {
         data: existing?.data || null,
         mode: existing?.mode || mode,
         selectedLotId: existing?.selectedLotId || selectedLotId,
-        year: existing?.year || year,
+        dateFrom: existing?.dateFrom || dateFrom,
+        dateTo: existing?.dateTo || dateTo,
+        financialYearLabel: existing?.financialYearLabel || financialYearLabel,
       });
       setShowOfflineSnapshot(false);
     } else if (!isOnline) {
@@ -66,15 +82,36 @@ export default function ProfitReportPage() {
     }
   };
 
+  useEffect(() => {
+    if (!isOnline || user?.role !== "super_admin") return;
+    let cancelled = false;
+    apiCall("/api/v1/financial-years").then((response) => {
+      if (cancelled || !response.success) return;
+      const financialYears = (response.data as any[]) || [];
+      const selected = financialYears.find((row) => row.status === "open") || financialYears[0];
+      if (!selected) return;
+      setDateFrom(String(selected.startDate).slice(0, 10));
+      setDateTo(String(selected.endDate).slice(0, 10));
+      setFinancialYearLabel(selected.name || "Configured financial year");
+      setData(null);
+    });
+    return () => { cancelled = true; };
+  }, [isOnline, user?.role]);
+
   const generate = async () => {
+    if (mode === "period" && (!dateFrom || !dateTo || dateFrom > dateTo)) {
+      setReportError("Select a valid From and To date before generating the report.");
+      return;
+    }
+    setReportError("");
     setLoading(true); setData(null);
     const params: any = {};
     if (mode === "lot") { if (!selectedLotId) { alert("Select a lot"); setLoading(false); return; } params.lot_id = selectedLotId; }
-    else { params.year = year; }
+    else { params.date_from = dateFrom; params.date_to = dateTo; }
     const r = await apiCall("/api/v1/profit-report", { params });
     if (r.success) {
       let nextData = !isOnline && mode === "period"
-        ? applyPendingProfitReportPeriod(r.data, queuedItems as any, year)
+        ? applyPendingProfitReportPeriod(r.data, queuedItems as any, { dateFrom, dateTo })
         : r.data;
       if (mode === "lot" && selectedLotId) {
         const detailResponse = await apiCall(`/api/v1/lots/${selectedLotId}`);
@@ -88,14 +125,16 @@ export default function ProfitReportPage() {
         data: nextData,
         mode,
         selectedLotId,
-        year,
+        dateFrom,
+        dateTo,
+        financialYearLabel,
       });
       setShowOfflineSnapshot(false);
     } else if (!isOnline) {
       const snapshot = readOfflineReadSnapshot<ProfitReportReadSnapshot>(PROFIT_REPORT_READ_CACHE_KEY)?.data;
       if (snapshot?.data) {
         const nextData = mode === "period"
-          ? applyPendingProfitReportPeriod(snapshot.data, queuedItems as any, year)
+          ? applyPendingProfitReportPeriod(snapshot.data, queuedItems as any, { dateFrom, dateTo })
           : snapshot.data;
         setData(nextData);
         setShowOfflineSnapshot(true);
@@ -140,10 +179,16 @@ export default function ProfitReportPage() {
             <select value={selectedLotId} onChange={e => setSelectedLotId(parseInt(e.target.value))} className="select-field w-auto" onClick={loadLots}>
               <option value={0}>Select</option>{lots.map(l => <option key={l.id} value={l.id}>{l.lotNumber} ({l.countryName})</option>)}
             </select></div>}
-          {mode === "period" && <div><label className="block text-xs font-medium text-gray-500 mb-1">{t("year")}</label>
-            <input type="number" value={year} onChange={e => setYear(parseInt(e.target.value))} className="input-field w-24" /></div>}
+          {mode === "period" && <>
+            <div><label className="block text-xs font-medium text-gray-500 mb-1">From</label>
+              <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setData(null); }} className="input-field w-auto" /></div>
+            <div><label className="block text-xs font-medium text-gray-500 mb-1">To</label>
+              <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setData(null); }} className="input-field w-auto" /></div>
+          </>}
           <button onClick={generate} disabled={loading} className="btn-primary text-sm">{loading ? t("loading") : t("generate")}</button>
         </div>
+        {mode === "period" && financialYearLabel && <p className="mt-2 text-xs text-gray-400">Prefilled from {financialYearLabel}. Dates remain editable.</p>}
+        {reportError && <p className="mt-2 text-xs text-red-600">{reportError}</p>}
       </div>
 
       {data && mode === "period" && <PeriodReport data={data} onTraceLot={traceLot} />}

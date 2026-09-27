@@ -31,7 +31,18 @@ function getYearFromDate(value: unknown): number | null {
   return d.getFullYear();
 }
 
-export function applyPendingProfitReportPeriod(baseData: any, queuedItems: QueuedRequestLike[], year: number) {
+function isDateInPeriod(value: unknown, period: number | { dateFrom: string; dateTo: string }) {
+  if (!value) return true;
+  if (typeof period === "number") return getYearFromDate(value) === period;
+  const date = String(value).slice(0, 10);
+  return date >= period.dateFrom && date <= period.dateTo;
+}
+
+export function applyPendingProfitReportPeriod(
+  baseData: any,
+  queuedItems: QueuedRequestLike[],
+  period: number | { dateFrom: string; dateTo: string }
+) {
   if (!baseData?.profitAndLoss) return baseData;
   const next = JSON.parse(JSON.stringify(baseData));
   const pl = next.profitAndLoss || {};
@@ -45,30 +56,26 @@ export function applyPendingProfitReportPeriod(baseData: any, queuedItems: Queue
     const parsed = safeParse(q.body);
 
     if (q.url === "/api/v1/sales") {
-      const y = getYearFromDate(parsed?.saleDate || parsed?.date);
-      if (y !== null && y !== year) continue;
+      if (!isDateInPeriod(parsed?.saleDate || parsed?.date, period)) continue;
       salesDelta += resolveSaleAmount(parsed);
       cartonsDelta += resolveSaleCartons(parsed);
       continue;
     }
 
     if (q.url === "/api/v1/expenses") {
-      const y = getYearFromDate(parsed?.expenseDate || parsed?.date);
-      if (y !== null && y !== year) continue;
+      if (!isDateInPeriod(parsed?.expenseDate || parsed?.date, period)) continue;
       expenseDelta += Number(parsed?.amount || 0);
       continue;
     }
 
     if (q.url === "/api/v1/haji-transfers") {
-      const y = getYearFromDate(parsed?.transferDate || parsed?.date);
-      if (y !== null && y !== year) continue;
+      if (!isDateInPeriod(parsed?.transferDate || parsed?.date, period)) continue;
       expenseDelta += Number(parsed?.amount || 0);
       continue;
     }
 
     if (q.url === "/api/v1/personal-withdrawals") {
-      const y = getYearFromDate(parsed?.withdrawalDate || parsed?.date);
-      if (y !== null && y !== year) continue;
+      if (!isDateInPeriod(parsed?.withdrawalDate || parsed?.date, period)) continue;
       expenseDelta += Number(parsed?.amount || 0);
     }
   }

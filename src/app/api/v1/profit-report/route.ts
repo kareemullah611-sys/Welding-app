@@ -12,6 +12,7 @@ import { buildPeriodProfitReportData } from "@/lib/period-profit-report-data";
 import { allocateMoneyByWeights } from "@/lib/lot-profit-reconciliation";
 import { REVENUE_SALE_STATUSES } from "@/lib/sale-status";
 import { calculateLotProductLandedCosts, type LotCostAllocationBasis } from "@/lib/lot-product-cost-allocation";
+import { resolveAccountingPeriod } from "@/lib/accounting-period";
 
 const REPORTING_CURRENCY = "PKR";
 
@@ -168,13 +169,24 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
   try {
     const sp = request.nextUrl.searchParams;
     const lotId = sp.get("lot_id") ? parseInt(sp.get("lot_id")!) : undefined;
-    const year = sp.get("year") ? parseInt(sp.get("year")!) : undefined;
-    const dateFrom = sp.get("date_from");
-    const dateTo = sp.get("date_to");
-
     if (lotId) return await lotProfitReport(lotId, user);
-    return await periodProfitReport(user, year, dateFrom, dateTo);
+    const requestedYear = sp.get("year") ? parseInt(sp.get("year")!) : undefined;
+    const period = resolveAccountingPeriod({
+      year: Number.isFinite(requestedYear) ? requestedYear : undefined,
+      dateFrom: sp.get("date_from"),
+      dateTo: sp.get("date_to"),
+      errorCode: "INVALID_PROFIT_REPORT_PERIOD",
+    });
+    return await periodProfitReport(
+      user,
+      period.year,
+      period.year ? null : period.periodStart,
+      period.year ? null : period.periodEnd
+    );
   } catch (error) {
+    if (String((error as Error)?.message || "") === "INVALID_PROFIT_REPORT_PERIOD") {
+      return errorResponse("INVALID_PROFIT_REPORT_PERIOD", "A valid From and To date are required, and From date must not be after To date.", 400);
+    }
     console.error("Profit report error:", error);
     return serverError();
   }

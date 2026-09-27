@@ -24,6 +24,7 @@ import {
 } from "@/lib/exchange-rate-provider";
 import { buildFinalizationDryRun } from "@/lib/investor-finalization-dry-run";
 import { buildInvestorFinalizationIdempotencyKey } from "@/lib/investor-finalization-idempotency";
+import { resolveInvestorAttributionPeriod } from "@/lib/investor-attribution-period";
 import {
   buildLiveFxCoveragePreview,
   type ReliableLiveFxPosition,
@@ -40,38 +41,20 @@ function dateOnly(date: Date | string): string {
 
 function parsePeriod(searchParams: URLSearchParams) {
   const year = searchParams.get("year") ? parseInt(searchParams.get("year")!, 10) : undefined;
-  const dateFrom = searchParams.get("date_from");
-  const dateTo = searchParams.get("date_to");
-  if (dateFrom || dateTo) {
-    return {
-      year: undefined,
-      periodStart: dateFrom || "1900-01-01",
-      periodEnd: dateTo || new Date().toISOString().slice(0, 10),
-    };
-  }
-  const resolvedYear = Number.isFinite(year) ? year! : new Date().getFullYear();
-  return {
-    year: resolvedYear,
-    periodStart: `${resolvedYear}-01-01`,
-    periodEnd: `${resolvedYear}-12-31`,
-  };
+  return resolveInvestorAttributionPeriod({
+    dateFrom: searchParams.get("date_from"),
+    dateTo: searchParams.get("date_to"),
+    year: Number.isFinite(year) ? year : undefined,
+  });
 }
 
 function parsePeriodFromBody(body: any) {
-  if (body.dateFrom || body.dateTo) {
-    return {
-      year: undefined,
-      periodStart: String(body.dateFrom || "1900-01-01").slice(0, 10),
-      periodEnd: String(body.dateTo || new Date().toISOString().slice(0, 10)).slice(0, 10),
-    };
-  }
-  const year = Number(body.year || new Date().getFullYear());
-  const resolvedYear = Number.isFinite(year) ? year : new Date().getFullYear();
-  return {
-    year: resolvedYear,
-    periodStart: `${resolvedYear}-01-01`,
-    periodEnd: `${resolvedYear}-12-31`,
-  };
+  const year = Number(body.year);
+  return resolveInvestorAttributionPeriod({
+    dateFrom: body.dateFrom,
+    dateTo: body.dateTo,
+    year: Number.isFinite(year) ? year : undefined,
+  });
 }
 
 async function loadExplicitCapitalEvents(): Promise<AttributionCapitalEvent[]> {
@@ -884,6 +867,9 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
       phase: "preview_only",
     });
   } catch (error) {
+    if (String((error as Error)?.message || "") === "INVALID_ATTRIBUTION_PERIOD") {
+      return errorResponse("INVALID_ATTRIBUTION_PERIOD", "A valid From and To date are required, and From date must not be after To date.", 400);
+    }
     console.error("Investor attribution preview error:", error);
     return serverError();
   }
@@ -1104,6 +1090,9 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
 
     return errorResponse("VALIDATION", "Unsupported investor attribution action.", 400);
   } catch (error: any) {
+    if (String(error?.message || "") === "INVALID_ATTRIBUTION_PERIOD") {
+      return errorResponse("INVALID_ATTRIBUTION_PERIOD", "A valid From and To date are required, and From date must not be after To date.", 400);
+    }
     if (String(error?.message || "") === "ALREADY_FINALIZED") {
       return errorResponse("ALREADY_FINALIZED", "This investor attribution period is already finalized.", 409);
     }

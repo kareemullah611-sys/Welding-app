@@ -11,6 +11,7 @@ import {
   shouldUseOfflineApiCache,
 } from "@/lib/offline-cache";
 import { setPackagedServerReachable } from "@/lib/offline-reachability";
+import { applyPendingProfitReportPeriod } from "@/lib/offline-profit-report";
 
 test("buildApiCacheKey sorts params deterministically", () => {
   const keyA = buildApiCacheKey("/api/v1/sales", { limit: 20, page: 2, q: "abc" });
@@ -22,6 +23,23 @@ test("buildApiCacheKey sorts params deterministically", () => {
 test("buildApiCacheKey omits empty params", () => {
   const key = buildApiCacheKey("/api/v1/payments", { q: "", page: 1, status: undefined });
   assert.equal(key, "/api/v1/payments?page=1");
+});
+
+test("offline profit report overlays only queued transactions inside the selected financial-year dates", () => {
+  const base = {
+    profitAndLoss: { totalRevenue: 0, totalExpenses: 0, grossProfit: 0, netProfit: 0 },
+    cartonsSold: 0,
+  };
+  const result = applyPendingProfitReportPeriod(base, [
+    { url: "/api/v1/sales", method: "POST", body: JSON.stringify({ saleDate: "2026-03-01", totalAmount: 1_000, items: [{ qty: 2 }] }) },
+    { url: "/api/v1/sales", method: "POST", body: JSON.stringify({ saleDate: "2027-03-01", totalAmount: 9_000, items: [{ qty: 9 }] }) },
+    { url: "/api/v1/expenses", method: "POST", body: JSON.stringify({ expenseDate: "2026-04-01", amount: 100 }) },
+  ], { dateFrom: "2026-02-19", dateTo: "2027-02-08" });
+
+  assert.equal(result.profitAndLoss.totalRevenue, 1_000);
+  assert.equal(result.profitAndLoss.totalExpenses, 100);
+  assert.equal(result.profitAndLoss.netProfit, 900);
+  assert.equal(result.cartonsSold, 2);
 });
 
 test("shouldAutoQueueOfflineWrite only queues allowlisted POST create routes", () => {
