@@ -6,6 +6,7 @@ import { JWTPayload } from "@/lib/auth";
 import { finalizeLedgerForDisplay } from "@/lib/ledger-display";
 import { getLedgerPaginationParams, paginateList } from "@/lib/pagination";
 import { formatSuperAdminBankLabel } from "@/lib/haji-transfer-detail";
+import { formatBankTransferCounterparty } from "@/lib/bank-deposit-ledger";
 
 type LedgerRow = {
   key: string;
@@ -565,7 +566,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         }),
         prisma.bankDeposit.findMany({
           where: { bankAccountId: id, cityId: account.cityId },
-          select: { id: true, depositDate: true, createdAt: true, cashAmount: true, slipNumber: true, notes: true, currencyId: true },
+          select: { id: true, depositDate: true, createdAt: true, cashAmount: true, slipNumber: true, notes: true, currencyId: true, transferType: true, transferPairId: true },
           orderBy: [{ depositDate: "asc" }, { createdAt: "asc" }],
         }),
         prisma.payment.findMany({
@@ -634,6 +635,43 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         }),
       ]);
 
+    const bankTransferCounterparts = await prisma.bankDeposit.findMany({
+      where: {
+        cityId: account.cityId,
+        transferType: "bank_to_bank",
+        bankAccountId: { not: id },
+      },
+      select: {
+        id: true,
+        bankAccountId: true,
+        transferPairId: true,
+        depositDate: true,
+        cashAmount: true,
+        slipNumber: true,
+        notes: true,
+        currencyId: true,
+        bankAccount: { select: { bankName: true, accountNumber: true } },
+      },
+    });
+    const counterpartByPairId = new Map(
+      bankTransferCounterparts
+        .filter((row) => row.transferPairId && row.bankAccount)
+        .map((row) => [row.transferPairId!, row.bankAccount]),
+    );
+    const resolveTransferCounterpart = (deposit: (typeof deposits)[number]) => {
+      if (deposit.transferPairId) return counterpartByPairId.get(deposit.transferPairId) || null;
+      const cashAmount = Number(deposit.cashAmount || 0);
+      const oppositeMarker = cashAmount < 0 ? "[B2B-IN]" : "[B2B-OUT]";
+      const matches = bankTransferCounterparts.filter((candidate) => (
+        candidate.currencyId === deposit.currencyId
+        && candidate.depositDate.getTime() === deposit.depositDate.getTime()
+        && Number(candidate.cashAmount) === -cashAmount
+        && String(candidate.slipNumber || "") === String(deposit.slipNumber || "")
+        && String(candidate.notes || "").includes(oppositeMarker)
+      ));
+      return matches.length === 1 ? matches[0].bankAccount : null;
+    };
+
     const rows: LedgerRow[] = [];
     for (const p of paymentsIn) {
       const source = p.customer?.name || p.detail || "Customer";
@@ -654,12 +692,13 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
       const isWithdrawal = cash < 0;
       const isB2BOut = String(d.slipNumber || "").includes("[B2B-OUT]") || String(d.notes || "").includes("[B2B-OUT]");
       const isB2BIn = String(d.slipNumber || "").includes("[B2B-IN]") || String(d.notes || "").includes("[B2B-IN]");
+      const counterpartLabel = formatBankTransferCounterparty(resolveTransferCounterpart(d));
       rows.push({
         key: `dep-${d.id}`,
         date: new Date(d.depositDate),
         createdAt: new Date(d.createdAt),
         type: isB2BOut || isB2BIn ? "Bank Transfer" : isWithdrawal ? "Bank Withdrawal" : "Bank Deposit",
-        detail: withRef(isB2BOut ? "Transfer to another bank" : isB2BIn ? "Transfer from another bank" : isWithdrawal ? "Cash withdrawn to office" : "Cash deposit", d.slipNumber),
+        detail: withRef(isB2BOut ? `Transfer to ${counterpartLabel}` : isB2BIn ? `Transfer from ${counterpartLabel}` : isWithdrawal ? "Cash withdrawn to office" : "Cash deposit", d.slipNumber),
         reference: null,
         currencyCode: toCurrencyCode(d.currencyId, currencyCodeById),
         credit: cash > 0 ? cash : 0,

@@ -1062,7 +1062,8 @@ test("city bank balance particulars show transaction source instead of bank acco
 
   assert.match(bankAccountRoute, /customer: \{ select: \{ name: true \} \}/);
   assert.match(bankAccountRoute, /detail: withRef\(`\$\{source\} — \$\{paymentMethodLabel\(p\.paymentMethod\)\}`, p\.manualVoucherNo\)/);
-  assert.match(bankAccountRoute, /detail: withRef\(isB2BOut \? "Transfer to another bank" : isB2BIn \? "Transfer from another bank" : isWithdrawal \? "Cash withdrawn to office" : "Cash deposit", d\.slipNumber\)/);
+  assert.match(bankAccountRoute, /const counterpartLabel = formatBankTransferCounterparty\(resolveTransferCounterpart\(d\)\)/);
+  assert.match(bankAccountRoute, /isB2BOut \? `Transfer to \$\{counterpartLabel\}` : isB2BIn \? `Transfer from \$\{counterpartLabel\}`/);
   assert.match(bankAccountRoute, /detail: withRef\("Cheque deposit", c\.chequeNumber\)/);
 });
 
@@ -1413,6 +1414,8 @@ test("customer portal access is isolated from admin auth and ledger scoped", () 
 test("customer portal can print scoped ledger PDF", () => {
   const portalPage = readFileSync("src/app/customer-portal/page.tsx", "utf8");
   const portalLedger = readFileSync("src/app/api/v1/customer-portal/ledger/route.ts", "utf8");
+  const customerLedger = readFileSync("src/app/api/v1/customers/[id]/route.ts", "utf8");
+  const ledgerExport = readFileSync("src/lib/ledger-export.ts", "utf8");
 
   assert.match(portalPage, /printCustomerLedgerStatement/);
   assert.match(portalPage, /const printPdf = async \(\) =>/);
@@ -1422,6 +1425,11 @@ test("customer portal can print scoped ledger PDF", () => {
   assert.match(portalPage, /dateTo: toDate \|\| undefined/);
   assert.match(portalLedger, /getCustomerPortalCustomer/);
   assert.match(portalLedger, /customerId: customer\.id/);
+  assert.match(portalLedger, /bankAccount: \{ select: \{ bankName: true, accountNumber: true \} \}/);
+  assert.match(portalLedger, /superAdminBankAccount: \{ select: \{ bankName: true, accountNumber: true \} \}/);
+  assert.match(portalLedger, /formatCustomerFacingLedgerPaymentDetail\(p\)/);
+  assert.match(customerLedger, /customerFacingDetail:/);
+  assert.match(ledgerExport, /entry\.customerFacingDetail \|\| entry\.detail/);
   assert.doesNotMatch(portalPage, /\/api\/v1\/customers\/\$\{/);
 });
 

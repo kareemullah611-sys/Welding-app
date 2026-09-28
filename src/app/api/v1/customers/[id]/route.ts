@@ -6,6 +6,7 @@ import { JWTPayload } from "@/lib/auth";
 import { hashPassword } from "@/lib/auth";
 import { updateCustomerSchema } from "@/lib/validations";
 import {
+  formatCustomerFacingLedgerPaymentDetail,
   formatCustomerLedgerPaymentDetail,
   formatCustomerLedgerSaleItemDetail,
   formatCustomerLedgerSaleItemRate,
@@ -94,6 +95,9 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           detail: (p as any).customerPaidExpense
             ? "cash- expense"
             : amount < 0 ? `Returned — ${formatCustomerLedgerPaymentDetail(p)}` : formatCustomerLedgerPaymentDetail(p),
+          customerFacingDetail: (p as any).customerPaidExpense
+            ? "cash- expense"
+            : amount < 0 ? `Returned — ${formatCustomerFacingLedgerPaymentDetail(p)}` : formatCustomerFacingLedgerPaymentDetail(p),
           perCartonPrice: "-",
           debit: amount < 0 ? Math.abs(amount) : 0,
           credit: amount > 0 ? amount : 0,

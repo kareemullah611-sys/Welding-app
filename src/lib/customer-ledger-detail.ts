@@ -1,12 +1,14 @@
-/** Customer ledger payment detail: cash-office (879) */
-export function formatCustomerLedgerPaymentDetail(payment: {
+type CustomerLedgerPayment = {
   paymentMethod?: string | null;
   destination?: string | null;
   manualVoucherNo?: string | null;
   chequeNumber?: string | null;
   bankAccount?: { bankName?: string | null; accountNumber?: string | null } | null;
   superAdminBankAccount?: { bankName?: string | null; accountNumber?: string | null } | null;
-}): string {
+};
+
+/** Customer ledger payment detail: cash-office (879) */
+export function formatCustomerLedgerPaymentDetail(payment: CustomerLedgerPayment): string {
   const method = String(payment.paymentMethod || "cash").replace(/_/g, "-");
   const account = payment.destination === "haji" ? payment.superAdminBankAccount : payment.bankAccount;
   const accountName = [account?.bankName, account?.accountNumber].map((part) => String(part || "").trim()).filter(Boolean).join("-");
@@ -15,6 +17,19 @@ export function formatCustomerLedgerPaymentDetail(payment: {
     : String(payment.destination || "").replace(/_/g, "-"));
   const ref = String(payment.manualVoucherNo || payment.chequeNumber || "").trim();
   const core = accountName ? `${destination}-${method}` : `${method}-${destination}`;
+  return ref ? `${core} (${ref})` : core;
+}
+
+/** Customer-visible detail omits internal office/Haji destinations. */
+export function formatCustomerFacingLedgerPaymentDetail(payment: CustomerLedgerPayment): string {
+  const method = String(payment.paymentMethod || "cash").replace(/_/g, "-");
+  const account = payment.destination === "haji" ? payment.superAdminBankAccount : payment.bankAccount;
+  const accountName = [account?.bankName, account?.accountNumber]
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .join("-");
+  const ref = String(payment.manualVoucherNo || payment.chequeNumber || "").trim();
+  const core = accountName ? `${accountName}-${method}` : method;
   return ref ? `${core} (${ref})` : core;
 }
 

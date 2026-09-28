@@ -3,6 +3,17 @@ export type ChequeLedgerRef = {
   chequeBank: string | null;
 };
 
+export function formatBankTransferCounterparty(account?: {
+  bankName?: string | null;
+  accountNumber?: string | null;
+} | null): string {
+  const bankName = String(account?.bankName || "").trim();
+  const accountDigits = String(account?.accountNumber || "").replace(/\D/g, "");
+  const lastFour = accountDigits.slice(-4);
+  if (bankName && lastFour) return `${bankName} •••• ${lastFour}`;
+  return bankName || (lastFour ? `Account •••• ${lastFour}` : "another bank");
+}
+
 /** Cash-in-office ledger line for a bank deposit row (signed cashAmount). */
 export function formatBankDepositCashLedgerLine(deposit: {
   slipNumber: string | null;

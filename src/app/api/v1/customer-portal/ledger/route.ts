@@ -3,7 +3,7 @@ import prisma from "@/lib/prisma";
 import { errorResponse, serverError, successResponse } from "@/lib/api-response";
 import { getCustomerPortalCustomer } from "@/lib/customer-portal-auth";
 import {
-  formatCustomerLedgerPaymentDetail,
+  formatCustomerFacingLedgerPaymentDetail,
   formatCustomerLedgerSaleItemDetail,
   formatCustomerLedgerSaleItemRate,
 } from "@/lib/customer-ledger-detail";
@@ -36,7 +36,12 @@ export async function GET(request: NextRequest) {
       }),
       prisma.payment.findMany({
         where: { customerId: customer.id, ...(Object.keys(paymentDateFilter).length ? { paymentDate: paymentDateFilter } : {}) },
-        include: { currency: true, lot: { select: { lotNumber: true } } },
+        include: {
+          currency: true,
+          lot: { select: { lotNumber: true } },
+          bankAccount: { select: { bankName: true, accountNumber: true } },
+          superAdminBankAccount: { select: { bankName: true, accountNumber: true } },
+        },
         orderBy: { paymentDate: "asc" },
       }),
       prisma.openingCustomerBalance.findMany({
@@ -79,7 +84,7 @@ export async function GET(request: NextRequest) {
           type: "payment" as const,
           date: p.paymentDate.toISOString().split("T")[0],
           voucherNo: p.manualVoucherNo || "-",
-          detail: amount < 0 ? `Returned — ${formatCustomerLedgerPaymentDetail(p)}` : formatCustomerLedgerPaymentDetail(p),
+          detail: amount < 0 ? `Returned — ${formatCustomerFacingLedgerPaymentDetail(p)}` : formatCustomerFacingLedgerPaymentDetail(p),
           perCartonPrice: "-",
           debit: amount < 0 ? Math.abs(amount) : 0,
           credit: amount > 0 ? amount : 0,

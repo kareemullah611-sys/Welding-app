@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  formatCustomerFacingLedgerPaymentDetail,
   formatCustomerLedgerPaymentDetail,
   formatCustomerLedgerSaleDetail,
   formatCustomerLedgerSaleRate,
@@ -36,6 +37,26 @@ test("formatCustomerLedgerPaymentDetail shows account before online transfer met
       bankAccount: { bankName: "Malik Mzn", accountNumber: "8235" },
     }),
     "Malik Mzn-8235-online (5521)",
+  );
+});
+
+test("customer-facing payment detail shows the account and hides internal destinations", () => {
+  assert.equal(
+    formatCustomerFacingLedgerPaymentDetail({
+      paymentMethod: "online",
+      destination: "haji",
+      manualVoucherNo: "5521",
+      superAdminBankAccount: { bankName: "Malik Mzn", accountNumber: "8235" },
+    }),
+    "Malik Mzn-8235-online (5521)",
+  );
+  assert.equal(
+    formatCustomerFacingLedgerPaymentDetail({
+      paymentMethod: "cash",
+      destination: "our_account",
+      manualVoucherNo: "879",
+    }),
+    "cash (879)",
   );
 });
 

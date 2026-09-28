@@ -1,6 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatBankDepositCashLedgerLine } from "./bank-deposit-ledger";
+import { formatBankDepositCashLedgerLine, formatBankTransferCounterparty } from "./bank-deposit-ledger";
+
+test("bank transfer counterpart shows bank name and masked last four digits", () => {
+  assert.equal(
+    formatBankTransferCounterparty({ bankName: "Meezan Bank", accountNumber: "PK12-MEEZ-0012-3456" }),
+    "Meezan Bank •••• 3456",
+  );
+});
+
+test("bank transfer counterpart remains useful when the account number is absent", () => {
+  assert.equal(formatBankTransferCounterparty({ bankName: "Meezan Bank", accountNumber: null }), "Meezan Bank");
+});
 
 test("cheque withdrawal shows cheque number and bank, not slip", () => {
   const row = formatBankDepositCashLedgerLine({
