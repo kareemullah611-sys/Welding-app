@@ -21,7 +21,7 @@ fi
 
 if [[ ! -f "${ENV_FILE}" ]]; then
   cat > "${ENV_FILE}" <<'ENV'
-# Use DIRECT_URL for Neon/Railway direct Postgres backup connections.
+# Use DIRECT_URL for Railway direct Postgres backup connections.
 # Do not commit this file.
 DIRECT_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE?sslmode=require"
 BACKUP_DIR="./backups"

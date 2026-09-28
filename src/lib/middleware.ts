@@ -96,7 +96,7 @@ function trustProxyHeaders(): boolean {
   return (
     process.env.TRUST_PROXY_HEADERS === "true" ||
     process.env.VERCEL === "1" ||
-    process.env.RENDER === "true"
+    Boolean(process.env.RAILWAY_ENVIRONMENT)
   );
 }
 

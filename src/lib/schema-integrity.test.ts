@@ -609,7 +609,7 @@ test("payment create replays sync request before side-effect validation", () => 
   assert.match(replayBlock, /return successResponse\(formatPaymentCreateResponse\(existingPayment\), "Payment already synced"\)/);
 });
 
-test("payment create transaction has Railway Neon-safe timeout", () => {
+test("payment create transaction has Railway-safe timeout", () => {
   const paymentsRoute = readFileSync("src/app/api/v1/payments/route.ts", "utf8");
 
   assert.match(paymentsRoute, /PAYMENT_CREATE_TRANSACTION_OPTIONS = \{ maxWait: 15_000, timeout: 30_000 \}/);

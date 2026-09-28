@@ -85,7 +85,7 @@ test("client-facing source must not reference server secrets or third-party API 
 
 test("NEXT_PUBLIC env vars must not carry secret-like names", () => {
   const violations: string[] = [];
-  const scanRoots = [path.join(ROOT, "src"), path.join(ROOT, ".env.example"), path.join(ROOT, "render.yaml")];
+  const scanRoots = [path.join(ROOT, "src"), path.join(ROOT, ".env.example")];
 
   for (const root of scanRoots) {
     if (!fs.existsSync(root)) continue;

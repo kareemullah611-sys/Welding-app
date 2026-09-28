@@ -4,13 +4,13 @@ This guide creates a city-specific Kandahar package while keeping superadmin as 
 
 ## 1. Deploy Kandahar Service (separate backend)
 
-Create a dedicated Render service for Kandahar with its own database.
+Create a dedicated Railway service for Kandahar with its own database.
 
 Set required env vars:
 
 - `DATABASE_URL=...`
 - `JWT_SECRET=...`
-- `NEXT_PUBLIC_APP_URL=https://<kandahar-service>.onrender.com`
+- `NEXT_PUBLIC_APP_URL=https://<kandahar-service>.up.railway.app`
 - `CITY_LOCK_NAMES=Kandahar`
 - `CITY_LOCK_ALLOW_SUPER_ADMIN=true` (set `false` to disallow superadmin login in this package)
 
@@ -30,7 +30,7 @@ npm run package:android:init
 Sync Kandahar URL into Android shell:
 
 ```bash
-CAPACITOR_SERVER_URL=https://<kandahar-service>.onrender.com npm run package:android:sync
+CAPACITOR_SERVER_URL=https://<kandahar-service>.up.railway.app npm run package:android:sync
 npm run package:android:open
 ```
 
@@ -48,7 +48,7 @@ Example:
 
 ```json
 {
-  "startUrl": "https://<kandahar-service>.onrender.com"
+  "startUrl": "https://<kandahar-service>.up.railway.app"
 }
 ```
 

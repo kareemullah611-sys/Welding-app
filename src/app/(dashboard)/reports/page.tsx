@@ -41,7 +41,7 @@ const escapeHtml = (value: unknown) =>
     .replace(/'/g, "&#39;");
 
 const stripLegacyReportUrl = (value: unknown) =>
-  String(value ?? "").replace(/https?:\/\/welding-app-jhhc\.onrender\.com\/reports/gi, "").trim();
+  String(value ?? "").replace(/https?:\/\/[^/]+\/reports/gi, "").trim();
 
 export default function ReportsPage() {
   const { user } = useAuth();

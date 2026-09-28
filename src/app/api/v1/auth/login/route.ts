@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
         },
       });
     } catch (dbError) {
-      // DB is unavailable (e.g. Neon sleeping) — don't count this as a failed
+      // DB is unavailable (e.g. database sleeping) — don't count this as a failed
       // login attempt so the user isn't locked out when the DB comes back.
       console.error("Login DB error:", dbError);
       return errorResponse("SERVER_ERROR", "Database unavailable, please try again in a moment", 503);
@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
         },
       });
     } catch (sessionError) {
-      // Neon cold start / transient DB errors — retry before rejecting login.
+      // Cold start / transient DB errors — retry before rejecting login.
       let sessionCreated = false;
       for (let attempt = 0; attempt < 3; attempt++) {
         await sleep(800 * (attempt + 1));

@@ -172,23 +172,24 @@ welding-app/
 
 ## Deployment
 
-### Recommended: Render
+### Recommended: Railway
 
-This repo now includes a [render.yaml](/Users/kareemullah/Desktop/welding-app/render.yaml) blueprint for deploying both the web app and PostgreSQL on Render.
+Deploy the web app on Railway with the repository connected as the service source.
 
 ```bash
 # 1. Push code to GitHub
 
-# 2. In Render, create a new Blueprint and select this repo
+# 2. In Railway, create a service from this repo
 
-# 3. Render will read render.yaml and create:
-#    - a free Node web service
-#    - a free PostgreSQL database
+# 3. Build command: npm ci --include=dev && npm run verify && npx prisma generate && npx prisma migrate deploy
+#    Start command:  npm run start
 
-# 4. In the Render dashboard, set these environment variables:
+# 4. In Railway service variables, set:
 #    JWT_SECRET
 #    DATA_ENCRYPTION_KEY
 #    NEXT_PUBLIC_APP_URL
+#    DATABASE_URL
+#    DIRECT_URL
 #    REDIS_URL
 #    ENABLE_PRISMA_RLS_CONTEXT (keep "false" until RLS policies are verified)
 #    CSP_REPORT_URI
@@ -202,11 +203,9 @@ This repo now includes a [render.yaml](/Users/kareemullah/Desktop/welding-app/re
 
 Notes:
 - The app starts with `npm run start`, which runs `scripts/bootstrap.ts` (production uses `prisma migrate deploy` with fallback handling) before `next start`.
-- Update the service and database names in [render.yaml](/Users/kareemullah/Desktop/welding-app/render.yaml) if you want different names on Render.
-- Free Render services can sleep; use `/api/ping` keep-alive (see operations doc) for ~24/7 within 750 h/month.
-- Render build gate now uses `npm run verify`. Full health: `/api/health`. Keep-alive: `/api/ping`.
+- `DIRECT_URL` must be the direct (non-pooler) database URL; migrations cannot run through the pooler.
+- Build gate uses `npm run verify`. Full health: `/api/health`. Keep-alive: `/api/ping`.
 - Operational runbook: [docs/operations-hardening.md](/Users/kareemullah/Desktop/welding-app/docs/operations-hardening.md)
-- Set GitHub secret `PING_URL` to `https://welding-app-jhhc.onrender.com/api/ping` for keep-alive every 5 min (`.github/workflows/uptime-monitor.yml`).
 - Offline-first migration spec: [docs/offline-first-architecture.md](/Users/kareemullah/Desktop/welding-app/docs/offline-first-architecture.md)
 - Offline feature gate: [docs/offline-feature-gate.md](/Users/kareemullah/Desktop/welding-app/docs/offline-feature-gate.md)
 

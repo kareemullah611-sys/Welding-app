@@ -177,10 +177,8 @@ test("RLS operator actions are guarded by an explicit admin script", () => {
 });
 
 test("deployment pipeline audits production dependencies", () => {
-  const render = readFileSync("render.yaml", "utf8");
   const pkg = JSON.parse(readFileSync("package.json", "utf8"));
 
-  assert.match(render, /npm run audit:prod:report/);
   assert.ok(pkg.scripts["audit:prod"]);
   assert.match(pkg.scripts["audit:prod"], /npm audit --omit=dev --audit-level=high/);
   assert.ok(pkg.scripts["audit:prod:report"]);

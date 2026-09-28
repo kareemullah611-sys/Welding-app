@@ -11,7 +11,7 @@ Single reference for how the app is structured, how it should look, and how new 
 | **Name** | MRF Hardware Management System |
 | **Desktop app** | MRF Hardware (`productName` in `package.json`) |
 | **Business** | Multi-city welding materials import — lots, godowns, sales, payments, Haji settlement |
-| **Production URL** | `https://welding-app-jhhc.onrender.com` |
+| **Production URL** | `https://welding-app-production.up.railway.app` |
 | **Brand mark** | Shield badge + “MRF” wordmark (login, sidebar) |
 
 **Tone:** Professional business software for daily counter work — not a consumer app. City staff are the primary daily users; super admin uses the same shell with more modules.
@@ -256,7 +256,7 @@ src/
 
 | Surface | Build | Config |
 |---------|-------|--------|
-| **Web** | `npm run build` | Render + Postgres |
+| **Web** | `npm run build` | Railway + Postgres |
 | **Desktop** | `npm run package:mac:dist` | `electron/app-config.json`, `out/` static export |
 | **Android** | Capacitor (optional) | `CAPACITOR_SERVER_URL` |
 

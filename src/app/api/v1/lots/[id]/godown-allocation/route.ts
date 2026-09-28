@@ -49,7 +49,7 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
       }
     }
 
-    // Upsert godown allocations one by one (no transaction - avoids Neon timeout)
+    // Upsert godown allocations one by one (no transaction - avoids DB timeout)
     for (const a of allocations) {
       if (a.qty <= 0) continue;
       await prisma.lotCityGodownAllocation.upsert({

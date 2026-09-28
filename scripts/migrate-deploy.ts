@@ -17,18 +17,18 @@ export function isPrismaP1002(error: unknown): boolean {
 
 export function assertProductionDatabaseEnv(): void {
   const isProduction =
-    process.env.NODE_ENV === "production" || process.env.RENDER === "true";
+    process.env.NODE_ENV === "production" || Boolean(process.env.RAILWAY_ENVIRONMENT);
   if (!isProduction) return;
 
   const direct = (process.env.DIRECT_URL || "").trim();
   if (!direct) {
     throw new Error(
-      "DIRECT_URL is required in production. Set Neon direct URL (non-pooler) in Render secrets."
+      "DIRECT_URL is required in production. Set the direct (non-pooler) Postgres URL in Railway service variables."
     );
   }
   if (direct.includes("-pooler.") || /[?&]pgbouncer=true/i.test(direct)) {
     throw new Error(
-      "DIRECT_URL must use Neon direct host (no -pooler, no pgbouncer). Migrations cannot run through the pooler."
+      "DIRECT_URL must use a direct host (no -pooler, no pgbouncer). Migrations cannot run through the pooler."
     );
   }
 }

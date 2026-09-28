@@ -1,5 +1,5 @@
 const { app, BrowserWindow, shell, ipcMain, dialog } = require("electron");
-// shell used to wake Render in the system browser
+// shell used to wake the remote server in the system browser
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
@@ -374,8 +374,8 @@ app.whenReady().then(async () => {
       message: "Cannot reach the welding-app server",
       detail:
         REMOTE_URL +
-        " is not responding (Render may be waking, suspended, or the last deploy failed).\n\n" +
-        "1. Open Render Dashboard → welding-app → confirm Latest Deploy is Live\n" +
+        " is not responding (the server may be waking, suspended, or the last deploy failed).\n\n" +
+        "1. Open the Railway Dashboard → welding-app-production → confirm the latest deploy is live\n" +
         "2. Set JWT_SECRET and DATABASE_URL\n" +
         "3. Open the URL in Safari until login works, then reopen this app",
       buttons: ["Open in Browser", "Continue Offline Shell"],
