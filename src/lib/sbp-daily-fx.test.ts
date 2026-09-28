@@ -48,6 +48,12 @@ test("SBP parser reads the current official open-market closing PDF", () => {
   assert.equal(isSbpDailyRateCurrent(parsed), true);
 });
 
+test("SBP PDF extraction loads the worker in the server bundle", () => {
+  const provider = read("src/lib/sbp-daily-fx.ts");
+
+  assert.match(provider, /pdfjs-dist\/legacy\/build\/pdf\.worker\.mjs/);
+});
+
 test("SBP parser rejects non-official sources and missing rates", () => {
   assert.throws(() => parseSbpUsdPkrDailyHtml({
     html: "USD PKR 280",

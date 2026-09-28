@@ -107,6 +107,8 @@ export function parseSbpOpenMarketClosingText(input: { text: string; sourceUrl: 
 }
 
 export async function extractPdfText(data: Uint8Array) {
+  // @ts-expect-error pdfjs-dist does not publish declarations for its worker entry.
+  await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
   const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const document = await getDocument({ data: data.slice() }).promise;
   const pages: string[] = [];
