@@ -271,6 +271,7 @@ export function printCustomerLedgerStatement(options: {
     <tr class="${index % 2 === 1 ? "alt-row" : ""}${entry.status === "cancelled" ? " cancelled" : ""}">
       <td>${escapeHtml(formatExportDateShort(entry.date))}</td>
       <td>${escapeHtml(entry.type === "sale" ? `Sale · ${entry.detail || entry.voucherNo || ""}` : entry.type === "opening" ? entry.detail || "Opening" : customerDetail || entry.voucherNo || "Receipt")}</td>
+      <td>${escapeHtml(entry.voucherNo || "—")}</td>
       <td class="debit">${entry.debit > 0 ? escapeHtml(formatLedgerMoneyAmount(Number(entry.debit), sym, entry.currency)) : "—"}</td>
       <td class="credit">${entry.credit > 0 ? escapeHtml(formatLedgerMoneyAmount(Number(entry.credit), sym, entry.currency)) : "—"}</td>
       <td class="balance">${typeof entry.balance === "number" && !Number.isNaN(entry.balance) ? escapeHtml(formatLedgerMoneyAmount(Number(entry.balance), sym, entry.currency)) : "—"}</td>
@@ -305,7 +306,7 @@ export function printCustomerLedgerStatement(options: {
         <table>
           <thead>
             <tr>
-              <th>Date</th><th>Detail</th>
+              <th>Date</th><th>Detail</th><th>Ref</th>
               <th>Debit</th><th>Credit</th><th>Balance</th>
             </tr>
           </thead>

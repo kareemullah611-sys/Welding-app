@@ -28,9 +28,7 @@ export function formatCustomerFacingLedgerPaymentDetail(payment: CustomerLedgerP
     .map((part) => String(part || "").trim())
     .filter(Boolean)
     .join("-");
-  const ref = String(payment.manualVoucherNo || payment.chequeNumber || "").trim();
-  const core = accountName ? `${accountName}-${method}` : method;
-  return ref ? `${core} (${ref})` : core;
+  return accountName ? `${accountName}-${method}` : method;
 }
 
 type CustomerLedgerSaleItem = {

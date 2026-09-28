@@ -1428,8 +1428,12 @@ test("customer portal can print scoped ledger PDF", () => {
   assert.match(portalLedger, /bankAccount: \{ select: \{ bankName: true, accountNumber: true \} \}/);
   assert.match(portalLedger, /superAdminBankAccount: \{ select: \{ bankName: true, accountNumber: true \} \}/);
   assert.match(portalLedger, /formatCustomerFacingLedgerPaymentDetail\(p\)/);
+  assert.match(portalLedger, /voucherNo: p\.manualVoucherNo \|\| p\.chequeNumber \|\| "-"/);
   assert.match(customerLedger, /customerFacingDetail:/);
+  assert.match(customerLedger, /voucherNo: p\.manualVoucherNo \|\| p\.chequeNumber \|\| "-"/);
   assert.match(ledgerExport, /entry\.customerFacingDetail \|\| entry\.detail/);
+  assert.match(ledgerExport, /<th>Ref<\/th>/);
+  assert.match(ledgerExport, /escapeHtml\(entry\.voucherNo \|\| "—"\)/);
   assert.doesNotMatch(portalPage, /\/api\/v1\/customers\/\$\{/);
 });
 

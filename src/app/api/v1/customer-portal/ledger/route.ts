@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
         return {
           type: "payment" as const,
           date: p.paymentDate.toISOString().split("T")[0],
-          voucherNo: p.manualVoucherNo || "-",
+          voucherNo: p.manualVoucherNo || p.chequeNumber || "-",
           detail: amount < 0 ? `Returned — ${formatCustomerFacingLedgerPaymentDetail(p)}` : formatCustomerFacingLedgerPaymentDetail(p),
           perCartonPrice: "-",
           debit: amount < 0 ? Math.abs(amount) : 0,

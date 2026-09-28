@@ -48,7 +48,7 @@ test("customer-facing payment detail shows the account and hides internal destin
       manualVoucherNo: "5521",
       superAdminBankAccount: { bankName: "Malik Mzn", accountNumber: "8235" },
     }),
-    "Malik Mzn-8235-online (5521)",
+    "Malik Mzn-8235-online",
   );
   assert.equal(
     formatCustomerFacingLedgerPaymentDetail({
@@ -56,7 +56,18 @@ test("customer-facing payment detail shows the account and hides internal destin
       destination: "our_account",
       manualVoucherNo: "879",
     }),
-    "cash (879)",
+    "cash",
+  );
+});
+
+test("customer-facing payment detail never duplicates cheque or reference numbers", () => {
+  assert.equal(
+    formatCustomerFacingLedgerPaymentDetail({
+      paymentMethod: "cheque",
+      destination: "our_account",
+      chequeNumber: "hbl-168",
+    }),
+    "cheque",
   );
 });
 

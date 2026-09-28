@@ -91,7 +91,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         return {
           type: "payment" as const,
           date: p.paymentDate.toISOString().split("T")[0],
-          voucherNo: p.manualVoucherNo || "-",
+          voucherNo: p.manualVoucherNo || p.chequeNumber || "-",
           detail: (p as any).customerPaidExpense
             ? "cash- expense"
             : amount < 0 ? `Returned — ${formatCustomerLedgerPaymentDetail(p)}` : formatCustomerLedgerPaymentDetail(p),
