@@ -147,6 +147,16 @@ test("customer hard-delete cannot erase accounting history", () => {
   assert.doesNotMatch(route, /payment\.deleteMany/);
 });
 
+test("sale hard-delete blocks cancelled sales and clears discount journals", () => {
+  const route = read("src/app/api/v1/sales/[id]/hard-delete/route.ts");
+  // A cancelled sale carries REV-SALE/REV-COGS reversal journals that this
+  // destructive path does not remove — deleting the sale would orphan them.
+  assert.match(route, /sale\.status === "cancelled"/);
+  // Discount journals (DISCOUNT-{discountId}) must be removed together with
+  // the sale_discounts rows, or they remain as orphaned AR credits.
+  assert.match(route, /DISCOUNT-\$\{/);
+});
+
 test("supplier and shipping edits reread journal versions after locking", () => {
   for (const path of [
     "src/app/api/v1/supplier-payments/[id]/route.ts",

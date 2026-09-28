@@ -30,6 +30,13 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
       },
     });
     if (!sale) return errorResponse("NOT_FOUND", "Sale not found", 404);
+    if (sale.status === "cancelled") {
+      return errorResponse(
+        "CONFLICT",
+        "Cancelled sales cannot be permanently deleted: their reversal journals are audit history. Keep the cancelled record.",
+        409
+      );
+    }
     if (String(sale.currency.code).toUpperCase() !== "PKR") {
       return errorResponse("FOREIGN_CARRYING_LAYER_REQUIRED", "Foreign-currency sales cannot be permanently deleted because their immutable carrying history must be preserved; use audited cancellation.", 409);
     }
@@ -38,6 +45,10 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
       // Fix: also remove COGS-* entries — sale creation posts SALE-* AND COGS-* journals
       await tx.journalEntry.deleteMany({ where: { transactionId: `SALE-${id}` } });
       await tx.journalEntry.deleteMany({ where: { transactionId: `COGS-${id}` } });
+      const discountIds = await tx.saleDiscount.findMany({ where: { saleId: id }, select: { id: true } });
+      for (const { id: discountId } of discountIds) {
+        await tx.journalEntry.deleteMany({ where: { transactionId: `DISCOUNT-${discountId}` } });
+      }
       await tx.saleDiscount.deleteMany({ where: { saleId: id } });
       await tx.saleItem.deleteMany({ where: { saleId: id } });
 
