@@ -102,6 +102,7 @@ const superAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
     items: [
       { label: "Analytics",        key: "analytics",        href: "/analytics",     icon: BarChart2,  roles: ["super_admin", "city_admin"] },
       { label: "Profit Report",    key: "profit_report",    href: "/profit-report", icon: TrendingUp, roles: ["super_admin"] },
+      { label: "Trial Balance",    key: "trial_balance",    href: "/trial-balance", icon: BookOpen,   roles: ["super_admin"] },
       { label: "Financial Reports",key: "financial_reports",href: "/accounts",      icon: BookOpen,   roles: ["super_admin"] },
       { label: "Reports",          key: "reports",          href: "/reports",       icon: FileText,   roles: ["super_admin", "city_admin"] },
     ],
