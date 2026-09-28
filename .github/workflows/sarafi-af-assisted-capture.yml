@@ -7,10 +7,19 @@ on:
     # 18:30 Asia/Karachi on Pakistan business days for the published SBP daily rate.
     - cron: "30 13 * * 1-5"
   workflow_dispatch:
+    inputs:
+      capture_target:
+        description: Capture source to run
+        required: true
+        default: sbp
+        type: choice
+        options:
+          - sbp
+          - sarafi
 
 jobs:
   capture:
-    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 4 * * *'
+    if: github.event.schedule == '0 4 * * *' || inputs.capture_target == 'sarafi'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -38,7 +47,7 @@ jobs:
           retention-days: 7
 
   capture-sbp:
-    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '30 13 * * 1-5'
+    if: github.event.schedule == '30 13 * * 1-5' || inputs.capture_target == 'sbp'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

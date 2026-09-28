@@ -74,6 +74,9 @@ test("daily FX workflow captures both sources and retains evidence for seven day
   const bucket = read("src/lib/railway-bucket.ts");
 
   assert.match(workflow, /fx:sbp:capture/);
+  assert.match(workflow, /capture_target:/);
+  assert.match(workflow, /inputs\.capture_target == 'sarafi'/);
+  assert.match(workflow, /inputs\.capture_target == 'sbp'/);
   assert.match(workflow, /SARAFI_AF_CAPTURE_ENDPOINT/);
   assert.match(workflow, /SARAFI_AF_CAPTURE_TOKEN/);
   assert.match(workflow, /FX_EVIDENCE_CLEANUP_ENDPOINT/);
