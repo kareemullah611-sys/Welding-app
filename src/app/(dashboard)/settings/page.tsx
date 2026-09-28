@@ -1488,7 +1488,7 @@ function CountryFallbackRatesTab() {
             render: (row: any) => row.evidenceAvailable ? (
               <div className="flex gap-2">
                 <button type="button" className="text-xs text-primary-600 hover:underline" onClick={() => window.open(`/api/v1/fx-snapshots/sbp/${row.id}/evidence?type=screenshot`, "_blank", "noopener,noreferrer")}>Screenshot</button>
-                <button type="button" className="text-xs text-primary-600 hover:underline" onClick={() => window.open(`/api/v1/fx-snapshots/sbp/${row.id}/evidence?type=html`, "_blank", "noopener,noreferrer")}>HTML</button>
+                <button type="button" className="text-xs text-primary-600 hover:underline" onClick={() => window.open(`/api/v1/fx-snapshots/sbp/${row.id}/evidence?type=${row.market === "open_market_closing" ? "pdf" : "html"}`, "_blank", "noopener,noreferrer")}>{row.market === "open_market_closing" ? "PDF" : "HTML"}</button>
               </div>
             ) : <span className="text-xs text-gray-400">Expired</span>,
           },

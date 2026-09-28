@@ -3,6 +3,9 @@ import { createHash, timingSafeEqual } from "node:crypto";
 export const SBP_DAILY_RATE_SOURCE = "SBP_WEIGHTED_AVERAGE_CUSTOMER_RATE";
 export const SBP_DAILY_MARKET = "weighted_average_customer";
 export const SBP_DAILY_SOURCE_URL = "https://www.sbp.org.pk/ecodata/rates/war/WAR-Current.asp";
+export const SBP_OPEN_MARKET_RATE_SOURCE = "SBP_OPEN_MARKET_CLOSING_RATE";
+export const SBP_OPEN_MARKET = "open_market_closing";
+export const SBP_OPEN_MARKET_SOURCE_URL = "https://www.sbp.org.pk/economic-data/open-market-closing-exchange-rates";
 export const SBP_MAX_SOURCE_AGE_DAYS = 4;
 
 const MONTHS: Record<string, string> = {
@@ -63,6 +66,56 @@ export function parseSbpUsdPkrDailyHtml(input: { html: string; sourceUrl: string
     rawPayloadHash: createHash("sha256").update(input.html).digest("hex"),
     sourceAgeDays,
   };
+}
+
+export function parseSbpOpenMarketClosingText(input: { text: string; sourceUrl: string; fetchedAt: Date; rawPayload?: Uint8Array }) {
+  const source = new URL(input.sourceUrl);
+  if (source.protocol !== "https:" || !["sbp.org.pk", "www.sbp.org.pk"].includes(source.hostname.toLowerCase())) {
+    throw new Error("An official SBP HTTPS source is required");
+  }
+  if (!Number.isFinite(input.fetchedAt.getTime())) throw new Error("Invalid SBP fetch timestamp");
+  const normalized = input.text.replace(/\s+/g, " ").trim();
+  if (!/Open Market Closing Exchange Rates/i.test(normalized)) throw new Error("SBP open-market closing rate heading was not found");
+  const dateMatch = normalized.match(/as\s+on\s+([A-Za-z]+)\s+(\d(?:\s*\d)?)\s*,\s*(\d{4})/i);
+  if (!dateMatch) throw new Error("SBP open-market closing date was not found");
+  const month = MONTHS[dateMatch[1].slice(0, 3).toLowerCase()];
+  if (!month) throw new Error("SBP open-market closing month is invalid");
+  const day = dateMatch[2].replace(/\s+/g, "").padStart(2, "0");
+  const rateDate = `${dateMatch[3]}-${month}-${day}`;
+  const usdMatch = normalized.match(/(?:^|\s)USD\s+([0-9]+(?:\.[0-9]+)?)\s+([0-9]+(?:\.[0-9]+)?)(?:\s|$)/i);
+  if (!usdMatch) throw new Error("SBP open-market USD buying and selling rates were not found");
+  const buyRate = Number(usdMatch[1]);
+  const sellRate = Number(usdMatch[2]);
+  if (!(buyRate > 0) || !(sellRate > 0) || sellRate < buyRate) throw new Error("SBP open-market USD rates failed validation");
+  const sourceAgeDays = Math.floor((input.fetchedAt.getTime() - new Date(`${rateDate}T00:00:00.000Z`).getTime()) / (24 * 60 * 60 * 1000));
+  const hashInput = input.rawPayload ? Buffer.from(input.rawPayload) : input.text;
+
+  return {
+    rateDate,
+    fromCurrencyCode: "USD" as const,
+    toCurrencyCode: "PKR" as const,
+    buyRate,
+    sellRate,
+    referenceRate: sellRate,
+    source: SBP_OPEN_MARKET_RATE_SOURCE,
+    market: SBP_OPEN_MARKET,
+    sourceUrl: input.sourceUrl,
+    fetchedAt: input.fetchedAt.toISOString(),
+    rawPayloadHash: createHash("sha256").update(hashInput).digest("hex"),
+    sourceAgeDays,
+  };
+}
+
+export async function extractPdfText(data: Uint8Array) {
+  const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const document = await getDocument({ data: data.slice() }).promise;
+  const pages: string[] = [];
+  for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+    const page = await document.getPage(pageNumber);
+    const content = await page.getTextContent();
+    pages.push(content.items.map((item: any) => item.str || "").join(" "));
+  }
+  return pages.join("\n");
 }
 
 export function isSbpDailyRateCurrent(rate: { sourceAgeDays: number }) {

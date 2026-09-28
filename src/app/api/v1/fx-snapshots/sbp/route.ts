@@ -2,11 +2,11 @@ import { NextRequest } from "next/server";
 import { errorResponse, serverError, successResponse, validationError } from "@/lib/api-response";
 import { withSuperAdmin } from "@/lib/middleware";
 import { createSbpDailyFxSnapshot, listSbpDailyFxSnapshots } from "@/lib/sbp-daily-fx-db";
-import { isSbpDailyRateCurrent, isValidDailyFxCaptureToken, parseSbpUsdPkrDailyHtml, SBP_DAILY_SOURCE_URL } from "@/lib/sbp-daily-fx";
+import { extractPdfText, isSbpDailyRateCurrent, isValidDailyFxCaptureToken, parseSbpOpenMarketClosingText } from "@/lib/sbp-daily-fx";
 import { createFxEvidenceStorageKey, deleteBucketObject, uploadFxCaptureEvidence } from "@/lib/railway-bucket";
 
 export const runtime = "nodejs";
-const MAX_HTML_BYTES = 2 * 1024 * 1024;
+const MAX_PDF_BYTES = 5 * 1024 * 1024;
 const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024;
 
 export const GET = withSuperAdmin(async (request: NextRequest) => {
@@ -26,10 +26,10 @@ export async function POST(request: NextRequest) {
       return errorResponse("UNAUTHORIZED", "Invalid daily FX capture token", 401);
     }
     const formData = await request.formData();
-    const rawHtmlFile = formData.get("rawHtml");
+    const rawPdfFile = formData.get("rawPdf");
     const screenshotFile = formData.get("screenshot");
-    if (!(rawHtmlFile instanceof File) || !(screenshotFile instanceof File)) return validationError("Raw HTML and screenshot evidence are required");
-    if (rawHtmlFile.size <= 0 || rawHtmlFile.size > MAX_HTML_BYTES) return validationError("Raw HTML evidence has an invalid size");
+    if (!(rawPdfFile instanceof File) || !(screenshotFile instanceof File)) return validationError("Official PDF and screenshot evidence are required");
+    if (rawPdfFile.size <= 0 || rawPdfFile.size > MAX_PDF_BYTES || rawPdfFile.type !== "application/pdf") return validationError("Official PDF evidence is invalid");
     if (screenshotFile.size <= 0 || screenshotFile.size > MAX_SCREENSHOT_BYTES || !String(screenshotFile.type).startsWith("image/png")) {
       return validationError("Screenshot evidence must be a valid PNG");
     }
@@ -37,24 +37,25 @@ export async function POST(request: NextRequest) {
     if (!Number.isFinite(fetchedAt.getTime()) || Math.abs(Date.now() - fetchedAt.getTime()) > 12 * 60 * 60 * 1000) {
       return validationError("Capture timestamp is missing or outside the allowed window");
     }
-    const sourceUrl = String(formData.get("sourceUrl") || SBP_DAILY_SOURCE_URL);
-    const rawHtmlBuffer = Buffer.from(await rawHtmlFile.arrayBuffer());
+    const sourceUrl = String(formData.get("sourceUrl") || "");
+    const rawPdfBuffer = Buffer.from(await rawPdfFile.arrayBuffer());
     const screenshotBuffer = Buffer.from(await screenshotFile.arrayBuffer());
-    const parsed = parseSbpUsdPkrDailyHtml({ html: rawHtmlBuffer.toString("utf8"), sourceUrl, fetchedAt });
+    const text = await extractPdfText(new Uint8Array(rawPdfBuffer));
+    const parsed = parseSbpOpenMarketClosingText({ text, sourceUrl, fetchedAt, rawPayload: new Uint8Array(rawPdfBuffer) });
     if (!isSbpDailyRateCurrent(parsed)) {
       return validationError(`SBP source rate for ${parsed.rateDate} is stale and was not saved`);
     }
-    const htmlKey = createFxEvidenceStorageKey("sbp", parsed.rateDate, "source.html");
+    const pdfKey = createFxEvidenceStorageKey("sbp", parsed.rateDate, "source.pdf");
     const screenshotKey = createFxEvidenceStorageKey("sbp", parsed.rateDate, "screenshot.png");
-    await uploadFxCaptureEvidence({ key: htmlKey, buffer: rawHtmlBuffer, contentType: "text/html; charset=utf-8", fileName: `sbp-usd-pkr-${parsed.rateDate}.html`, provider: "SBP" });
-    uploadedKeys.push(htmlKey);
+    await uploadFxCaptureEvidence({ key: pdfKey, buffer: rawPdfBuffer, contentType: "application/pdf", fileName: `sbp-usd-pkr-${parsed.rateDate}.pdf`, provider: "SBP" });
+    uploadedKeys.push(pdfKey);
     await uploadFxCaptureEvidence({ key: screenshotKey, buffer: screenshotBuffer, contentType: "image/png", fileName: `sbp-usd-pkr-${parsed.rateDate}.png`, provider: "SBP" });
     uploadedKeys.push(screenshotKey);
 
     const result = await createSbpDailyFxSnapshot({
       ...parsed,
       fetchedAt,
-      rawHtmlStorageKey: htmlKey,
+      rawHtmlStorageKey: pdfKey,
       screenshotStorageKey: screenshotKey,
     });
     if (result.duplicate) {

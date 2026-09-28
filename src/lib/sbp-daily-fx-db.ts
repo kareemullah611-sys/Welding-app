@@ -1,5 +1,4 @@
 import prisma from "@/lib/prisma";
-import { SBP_DAILY_MARKET, SBP_DAILY_RATE_SOURCE } from "@/lib/sbp-daily-fx";
 
 const dateOnly = (value: string) => new Date(`${value}T00:00:00.000Z`);
 
@@ -42,11 +41,13 @@ export async function createSbpDailyFxSnapshot(input: {
   rawPayloadHash: string;
   rawHtmlStorageKey: string;
   screenshotStorageKey: string;
+  source: string;
+  market: string;
 }) {
   return prisma.$transaction(async (tx) => {
     const db = tx as any;
     const existingSnapshot = await db.sbpDailyFxSnapshot.findUnique({
-      where: { rateDate_provider_market: { rateDate: dateOnly(input.rateDate), provider: "SBP", market: SBP_DAILY_MARKET } },
+      where: { rateDate_provider_market: { rateDate: dateOnly(input.rateDate), provider: "SBP", market: input.market } },
     });
     if (existingSnapshot) {
       const same = Number(existingSnapshot.buyRate) === input.buyRate
@@ -67,7 +68,7 @@ export async function createSbpDailyFxSnapshot(input: {
           rateDate: dateOnly(input.rateDate),
           fromCurrencyId: usd.id,
           toCurrencyId: pkr.id,
-          source: SBP_DAILY_RATE_SOURCE,
+          source: input.source,
         },
       },
     });
@@ -81,9 +82,9 @@ export async function createSbpDailyFxSnapshot(input: {
         buyRate: input.buyRate,
         sellRate: input.sellRate,
         referenceRate: input.referenceRate,
-        source: SBP_DAILY_RATE_SOURCE,
+        source: input.source,
         entryMethod: "api",
-        notes: `Official SBP weighted-average customer USD/PKR rate. Source: ${input.sourceUrl}. Evidence hash: ${input.rawPayloadHash}`,
+        notes: `Official SBP open-market closing USD/PKR rate. Source: ${input.sourceUrl}. Evidence hash: ${input.rawPayloadHash}`,
       },
     });
     const evidenceExpiresAt = new Date(input.fetchedAt.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -91,7 +92,7 @@ export async function createSbpDailyFxSnapshot(input: {
       data: {
         rateDate: dateOnly(input.rateDate),
         provider: "SBP",
-        market: SBP_DAILY_MARKET,
+        market: input.market,
         sourceUrl: input.sourceUrl,
         fetchedAt: input.fetchedAt,
         buyRate: input.buyRate,
@@ -109,7 +110,7 @@ export async function createSbpDailyFxSnapshot(input: {
   });
 }
 
-export async function getSbpDailyFxEvidence(input: { id: number; type: "screenshot" | "html" }) {
+export async function getSbpDailyFxEvidence(input: { id: number; type: "screenshot" | "html" | "pdf" }) {
   const row = await (prisma as any).sbpDailyFxSnapshot.findUnique({
     where: { id: input.id },
     select: { rateDate: true, evidenceDeletedAt: true, screenshotStorageKey: true, rawHtmlStorageKey: true },
@@ -118,7 +119,8 @@ export async function getSbpDailyFxEvidence(input: { id: number; type: "screensh
   const date = row.rateDate.toISOString().slice(0, 10);
   const key = input.type === "screenshot" ? row.screenshotStorageKey : row.rawHtmlStorageKey;
   if (!key) return null;
-  return input.type === "screenshot"
-    ? { key, fileName: `sbp-usd-pkr-${date}.png`, contentType: "image/png" }
+  if (input.type === "screenshot") return { key, fileName: `sbp-usd-pkr-${date}.png`, contentType: "image/png" };
+  return key.endsWith(".pdf")
+    ? { key, fileName: `sbp-usd-pkr-${date}.pdf`, contentType: "application/pdf" }
     : { key, fileName: `sbp-usd-pkr-${date}.html`, contentType: "text/html; charset=utf-8" };
 }

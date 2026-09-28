@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "@playwright/test";
-import { isSbpDailyRateCurrent, parseSbpUsdPkrDailyHtml, SBP_DAILY_SOURCE_URL } from "../src/lib/sbp-daily-fx";
+import { extractPdfText, isSbpDailyRateCurrent, parseSbpOpenMarketClosingText, SBP_OPEN_MARKET_SOURCE_URL } from "../src/lib/sbp-daily-fx";
 
 function deriveSbpCaptureEndpoint() {
   const explicit = String(process.env.SBP_FX_CAPTURE_ENDPOINT || "").trim();
@@ -26,22 +26,28 @@ async function main() {
       locale: "en-US",
       timezoneId: "Asia/Karachi",
     });
-    await page.goto(SBP_DAILY_SOURCE_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.goto(SBP_OPEN_MARKET_SOURCE_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });
     await page.waitForTimeout(12_000);
-    await page.getByText("Weighted Average Rate", { exact: false }).first().waitFor({ timeout: 30_000 });
+    const latestPdfLink = page.locator('#lawList a[href$=".pdf"]').first();
+    await latestPdfLink.waitFor({ timeout: 30_000 });
+    const sourceUrl = await latestPdfLink.getAttribute("href");
+    if (!sourceUrl) throw new Error("Latest SBP open-market closing PDF link was not found");
+    const pdfResponse = await page.request.get(sourceUrl, { timeout: 60_000 });
+    if (!pdfResponse.ok()) throw new Error(`SBP PDF download failed (${pdfResponse.status()})`);
+    const pdfBuffer = await pdfResponse.body();
     const fetchedAt = new Date();
-    const html = await page.content();
-    const parsed = parseSbpUsdPkrDailyHtml({ html, sourceUrl: SBP_DAILY_SOURCE_URL, fetchedAt });
+    const text = await extractPdfText(new Uint8Array(pdfBuffer));
+    const parsed = parseSbpOpenMarketClosingText({ text, sourceUrl, fetchedAt, rawPayload: new Uint8Array(pdfBuffer) });
     if (!isSbpDailyRateCurrent(parsed)) throw new Error(`SBP source rate for ${parsed.rateDate} is stale and will not be saved`);
-    const htmlPath = path.join(outputDir, `sbp-usd-pkr-${parsed.rateDate}.html`);
+    const pdfPath = path.join(outputDir, `sbp-usd-pkr-${parsed.rateDate}.pdf`);
     const screenshotPath = path.join(outputDir, `sbp-usd-pkr-${parsed.rateDate}.png`);
-    await writeFile(htmlPath, html, "utf8");
+    await writeFile(pdfPath, pdfBuffer);
     await page.screenshot({ path: screenshotPath, fullPage: true });
 
     const formData = new FormData();
-    formData.set("sourceUrl", SBP_DAILY_SOURCE_URL);
+    formData.set("sourceUrl", sourceUrl);
     formData.set("fetchedAt", fetchedAt.toISOString());
-    formData.set("rawHtml", new Blob([html], { type: "text/html; charset=utf-8" }), path.basename(htmlPath));
+    formData.set("rawPdf", new Blob([await readFile(pdfPath)], { type: "application/pdf" }), path.basename(pdfPath));
     formData.set("screenshot", new Blob([await readFile(screenshotPath)], { type: "image/png" }), path.basename(screenshotPath));
     const response = await fetch(endpoint, { method: "POST", headers: { "x-daily-fx-capture-token": token }, body: formData });
     const responseBody = await response.text();

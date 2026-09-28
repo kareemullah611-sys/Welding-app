@@ -3,7 +3,13 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-import { isSbpDailyRateCurrent, parseSbpUsdPkrDailyHtml, SBP_DAILY_RATE_SOURCE } from "./sbp-daily-fx";
+import {
+  isSbpDailyRateCurrent,
+  parseSbpOpenMarketClosingText,
+  parseSbpUsdPkrDailyHtml,
+  SBP_DAILY_RATE_SOURCE,
+  SBP_OPEN_MARKET_SOURCE_URL,
+} from "./sbp-daily-fx";
 
 const root = process.cwd();
 const read = (relativePath: string) => fs.readFileSync(path.join(root, relativePath), "utf8");
@@ -20,6 +26,25 @@ test("SBP daily parser preserves the official date and USD/PKR bid offer", () =>
   assert.equal(parsed.sellRate, 280.2286);
   assert.equal(parsed.referenceRate, 280.2286);
   assert.equal(parsed.source, SBP_DAILY_RATE_SOURCE);
+  assert.equal(isSbpDailyRateCurrent(parsed), true);
+});
+
+test("SBP parser reads the current official open-market closing PDF", () => {
+  const parsed = parseSbpOpenMarketClosingText({
+    text: `Exchange Companies Association of Pakistan (ECAP)\nOpen Market Closing Exchange Rates as on September 2 5 , 2026\nCurrency Buying Selling\nUSD 278.12 279.20\nEUR 316.43 319.49`,
+    sourceUrl: "https://www.sbp.org.pk/assets/document/open-market-closing-exchange-rates-25-september-2026.pdf",
+    fetchedAt: new Date("2026-09-25T13:30:00.000Z"),
+    rawPayload: new TextEncoder().encode("official-sbp-pdf-bytes"),
+  });
+
+  assert.equal(SBP_OPEN_MARKET_SOURCE_URL, "https://www.sbp.org.pk/economic-data/open-market-closing-exchange-rates");
+  assert.equal(parsed.rateDate, "2026-09-25");
+  assert.equal(parsed.buyRate, 278.12);
+  assert.equal(parsed.sellRate, 279.20);
+  assert.equal(parsed.referenceRate, 279.20);
+  assert.equal(parsed.source, "SBP_OPEN_MARKET_CLOSING_RATE");
+  assert.equal(parsed.market, "open_market_closing");
+  assert.notEqual(parsed.rawPayloadHash, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
   assert.equal(isSbpDailyRateCurrent(parsed), true);
 });
 
@@ -64,8 +89,9 @@ test("SBP snapshots use an accurate source name and never overwrite an existing 
   const db = read("src/lib/sbp-daily-fx-db.ts");
   const provider = read("src/lib/sbp-daily-fx.ts");
 
-  assert.match(provider, /SBP_WEIGHTED_AVERAGE_CUSTOMER_RATE/);
-  assert.match(db, /source: SBP_DAILY_RATE_SOURCE/);
+  assert.match(provider, /SBP_OPEN_MARKET_CLOSING_RATE/);
+  assert.match(db, /source: input\.source/);
+  assert.match(db, /market: input\.market/);
   assert.match(db, /exchangeRate\.findUnique/);
   assert.doesNotMatch(db, /exchangeRate\.upsert/);
   assert.doesNotMatch(db, /exchangeRate\.update/);

@@ -9,7 +9,8 @@ export const runtime = "nodejs";
 export const GET = withSuperAdmin(async (request: NextRequest, context: any) => {
   try {
     const id = Number(context.params.id);
-    const type = request.nextUrl.searchParams.get("type") === "html" ? "html" : "screenshot";
+    const requestedType = request.nextUrl.searchParams.get("type");
+    const type = requestedType === "html" || requestedType === "pdf" ? requestedType : "screenshot";
     const evidence = await getSbpDailyFxEvidence({ id, type });
     if (!evidence) return errorResponse("NOT_FOUND", "SBP source evidence has expired or does not exist", 404);
     const url = await getSarafiCaptureEvidenceUrl(evidence);
