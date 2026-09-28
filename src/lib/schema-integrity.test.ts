@@ -258,6 +258,7 @@ test("expenses have no lot relationship end to end", () => {
   const expenseCreateRoute = readFileSync("src/app/api/v1/expenses/route.ts", "utf8");
   const expenseUpdateRoute = readFileSync("src/app/api/v1/expenses/[id]/route.ts", "utf8");
   const expensesPage = readFileSync("src/app/(dashboard)/expenses/page.tsx", "utf8");
+  const paymentsPage = readFileSync("src/app/(dashboard)/payments/page.tsx", "utf8");
   const accounting = readFileSync("src/lib/accounting.ts", "utf8");
   const lotRoute = readFileSync("src/app/api/v1/lots/[id]/route.ts", "utf8");
   const lotCompleteRoute = readFileSync("src/app/api/v1/lots/[id]/complete/route.ts", "utf8");
@@ -285,6 +286,11 @@ test("expenses have no lot relationship end to end", () => {
   assert.doesNotMatch(expensesPage, /apiCall\("\/api\/v1\/lots"/);
   assert.doesNotMatch(expensesPage, /value=\{form\.lotId\}/);
   assert.doesNotMatch(expensesPage, /lotId: form\.lotId/);
+  assert.doesNotMatch(expensesPage, /key: "lot", label: t\("lot"\)/);
+  assert.doesNotMatch(paymentsPage, /createType === "expense"[\s\S]{0,2500}value=\{form\.lotId \|\| 0\}/);
+  assert.doesNotMatch(paymentsPage, /if \(type === "expense"\)[\s\S]{0,1200}lotId: form\.lotId/);
+  assert.doesNotMatch(paymentsPage, /item\.type === "expense" && item\.raw\?\.lotNumber/);
+  assert.doesNotMatch(paymentsPage, /lotId: raw\.lotId \|\| 0/);
 });
 
 test("Afghanistan expense validation names both allowed payment sources", () => {

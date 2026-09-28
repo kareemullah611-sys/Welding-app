@@ -587,7 +587,6 @@ export default function ExpensesPage() {
         { key: "expenseDate", label: t("date"), render: (e: any) => formatDate(e.expenseDate) },
         { key: "detail", label: t("detail"), className: "max-w-xs", render: (e: any) => renderExpenseDetail(e) },
         { key: "amount", label: t("amount"), render: (e: any) => <span className="font-medium text-red-600">{e.currency?.symbol} {e.amount.toLocaleString("en-US")}</span> },
-        { key: "lot", label: t("lot"), render: (e: any) => e.lot?.lotNumber || e.lotNumber },
         { key: "notes", label: t("notes"), render: (e: any) => e.notes || "-", className: "max-w-xs truncate" },
         {
           key: "actions", label: "",

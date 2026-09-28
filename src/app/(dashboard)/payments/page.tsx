@@ -768,7 +768,6 @@ export default function PaymentsPage() {
         amount: 0,
         detail: "",
         notes: "",
-        lotId: 0,
         currencyId,
         paidFrom: "cash_office",
         customerId: 0,
@@ -923,8 +922,11 @@ export default function PaymentsPage() {
       return {
         endpoint: "/api/v1/expenses",
         body: {
-          ...form,
-          lotId: form.lotId || null,
+          expenseDate: form.expenseDate,
+          amount: form.amount,
+          detail: form.detail,
+          notes: form.notes,
+          paidFrom: form.paidFrom,
           currencyId: resolvedCurrencyId,
           bankAccountId: form.paidFrom === "bank_account" ? form.bankAccountId : undefined,
           customerId: form.paidFrom === "customer" ? form.customerId : undefined,
@@ -1279,7 +1281,6 @@ export default function PaymentsPage() {
         amount: raw.amount,
         detail: raw.detail || "",
         notes: raw.notes || "",
-        lotId: raw.lotId || 0,
         currencyId: raw.currencyId || loadedCurrencies[0]?.id || currencies[0]?.id || 0,
         paidFrom: raw.paidFrom || "cash_office",
         bankAccountId: raw.bankAccountId || 0,
@@ -1856,7 +1857,6 @@ export default function PaymentsPage() {
           {!isSuperAdmin && item.type === "haji_transfer" && item.raw?.sourceType && (
             <span className="mt-0.5 block text-[11px] text-gray-400 capitalize">{String(item.raw.sourceType).replace(/_/g, " ")}</span>
           )}
-          {item.type === "expense" && item.raw?.lotNumber && <span className="mt-0.5 block text-[11px] text-gray-400">Lot {item.raw.lotNumber}</span>}
           {!isSuperAdmin && renderChequeStatusHint(item, t)}
         </div>
         );
@@ -2531,8 +2531,7 @@ export default function PaymentsPage() {
           )}
 
           {createType === "expense" && (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="min-w-0">
+            <div className="min-w-0">
                 <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("from")} *</label>
                 <select
                   value={form.paidFrom === "bank_account" && form.bankAccountId ? `bank:${form.bankAccountId}` : form.paidFrom === "customer" ? "customer" : "cash_office"}
@@ -2558,16 +2557,6 @@ export default function PaymentsPage() {
                     </option>
                   ))}
                 </select>
-              </div>
-              <div className="min-w-0">
-                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("lot")}</label>
-                <select value={form.lotId || 0} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value, 10) || 0 }))} className="select-field">
-                  <option value={0}>{t("auto_fifo")}</option>
-                  {lots.filter((lot: any) => lot.status === "ongoing" || !lot.status).map((lot: any) => (
-                    <option key={lot.id} value={lot.id}>{lot.lotNumber}</option>
-                  ))}
-                </select>
-              </div>
             </div>
           )}
           {createType === "expense" && form.paidFrom === "customer" && (
@@ -3305,8 +3294,7 @@ export default function PaymentsPage() {
               ) : null}
 
               {createType === "expense" && (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="min-w-0">
+                <div className="min-w-0">
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t("from")}</label>
                     <select
                       value={form.paidFrom === "bank_account" && form.bankAccountId ? `bank:${form.bankAccountId}` : form.paidFrom === "customer" ? "customer" : "cash_office"}
@@ -3332,16 +3320,6 @@ export default function PaymentsPage() {
                         </option>
                       ))}
                     </select>
-                  </div>
-                  <div className="min-w-0">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t("lot")}</label>
-                    <select value={form.lotId || 0} onChange={e => setForm((f: any) => ({ ...f, lotId: parseInt(e.target.value, 10) || 0 }))} className="select-field">
-                      <option value={0}>{t("auto_fifo")}</option>
-                      {lots.filter((lot: any) => lot.status === "ongoing" || !lot.status).map((lot: any) => (
-                        <option key={lot.id} value={lot.id}>{lot.lotNumber}</option>
-                      ))}
-                    </select>
-                  </div>
                 </div>
               )}
               {createType === "expense" && form.paidFrom === "customer" && (
