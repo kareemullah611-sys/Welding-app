@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middleware";
+import { checkFinWriteRateLimit } from "@/lib/rate-limit";
 import {
   successResponse,
   paginatedResponse,
@@ -181,6 +182,8 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
   const syncMeta = getSyncRequestMeta(request);
   let resolvedCityId: number | null = user.role === "city_admin" ? user.cityId! : null;
   try {
+    const limited = await checkFinWriteRateLimit(user.userId);
+    if (limited) return limited;
     const body = await request.json();
     const transferTypeRaw = String(body.transferType || "cheque_to_bank");
     if (!VALID_TRANSFER_TYPES.includes(transferTypeRaw as TreasuryTransferType)) {

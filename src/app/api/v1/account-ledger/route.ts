@@ -5,6 +5,7 @@ import { withSuperAdmin } from "@/lib/middleware";
 import { errorResponse, serverError, paginatedResponse } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { buildDateRange } from "@/lib/date-range";
+import { parseBusinessDateParam, parseCityIdParam } from "@/lib/report-params";
 
 const PAGE_SIZE = 50;
 const ZERO = new Prisma.Decimal(0);
@@ -91,6 +92,19 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
       return errorResponse("VALIDATION_ERROR", "Invalid account_id");
     }
 
+    if (dateFrom) {
+      const fromCheck = parseBusinessDateParam(dateFrom, "date_from");
+      if (fromCheck.errorMessage) return errorResponse("VALIDATION_ERROR", fromCheck.errorMessage);
+    }
+    if (dateTo) {
+      const toCheck = parseBusinessDateParam(dateTo, "date_to");
+      if (toCheck.errorMessage) return errorResponse("VALIDATION_ERROR", toCheck.errorMessage);
+    }
+
+    const cityCheck = await parseCityIdParam(cityIdParam);
+    if (cityCheck.errorMessage) return errorResponse("VALIDATION_ERROR", cityCheck.errorMessage);
+    const cityId = cityCheck.cityId;
+
     const account = await prisma.account.findUnique({
       where: { id: accountId },
       select: { id: true, code: true, name: true, accountType: true, cityId: true },
@@ -99,7 +113,25 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
       return errorResponse("NOT_FOUND", "Account not found");
     }
 
-    const cityId = cityIdParam ? parseInt(cityIdParam) : undefined;
+    // Direct-entry ledgers never include descendant activity; report the subtree size
+    // so the UI can label a parent account's ledger as direct-entries-only.
+    const visited = new Set<number>([accountId]);
+    let frontier = [accountId];
+    while (frontier.length > 0) {
+      const children = await prisma.account.findMany({
+        where: { parentId: { in: frontier } },
+        select: { id: true },
+      });
+      frontier = [];
+      for (const child of children) {
+        if (!visited.has(child.id)) {
+          visited.add(child.id);
+          frontier.push(child.id);
+        }
+      }
+    }
+    const descendantCount = visited.size - 1;
+
     const cityFilter = cityId ? { cityId } : {};
     const curWhere = currencyWhere(currencyParam);
     const baseWhere: any = { accountId, ...cityFilter, ...(curWhere || {}) };
@@ -131,40 +163,53 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
     }
     // else: no dates at all — opening = 0, period = all entries
 
-    // Opening balance as Prisma.Decimal — never converted to number until serialization
-    let openingDebitDec = ZERO;
-    let openingCreditDec = ZERO;
-    let openingBalanceDec = ZERO;
+    // Per-currency buckets — a running balance is never combined across currencies.
+    type Sums = { debit: Prisma.Decimal; credit: Prisma.Decimal };
+    const zeroSums = (): Sums => ({ debit: ZERO, credit: ZERO });
+    const accumulate = (map: Map<string, Sums>, code: string, debit: Prisma.Decimal | number | null, credit: Prisma.Decimal | number | null) => {
+      const key = normalizeCurrency(code as string);
+      const cur = map.get(key) || zeroSums();
+      map.set(key, { debit: cur.debit.plus(dec(debit)), credit: cur.credit.plus(dec(credit)) });
+    };
+
+    // Opening balance per currency — Decimal throughout, converted only at response time
+    const openingByCur = new Map<string, Sums>();
     if (openingWhere) {
-      const openingAggregate = await prisma.journalEntry.aggregate({
+      const openingGroups = await prisma.journalEntry.groupBy({
+        by: ["currencyCode"],
         where: openingWhere,
         _sum: { debit: true, credit: true },
       });
-      openingDebitDec = dec(openingAggregate._sum.debit);
-      openingCreditDec = dec(openingAggregate._sum.credit);
-      openingBalanceDec = openingDebitDec.minus(openingCreditDec);
+      for (const g of openingGroups) accumulate(openingByCur, g.currencyCode, g._sum.debit, g._sum.credit);
     }
 
     const totalEntries = await prisma.journalEntry.count({ where: periodWhere });
     const totalPages = Math.max(1, Math.ceil(totalEntries / PAGE_SIZE));
 
-    // Prior pages cumulative sum — stays as Prisma.Decimal
-    let priorDebit = ZERO;
-    let priorCredit = ZERO;
+    // Prior pages cumulative sum per currency — stays as Prisma.Decimal
+    const priorByCur = new Map<string, Sums>();
     if (page > 1) {
       const priorEntries = await prisma.journalEntry.findMany({
         where: periodWhere,
         orderBy: [{ entryDate: "asc" }, { createdAt: "asc" }, { id: "asc" }],
         take: (page - 1) * PAGE_SIZE,
-        select: { debit: true, credit: true },
+        select: { currencyCode: true, debit: true, credit: true },
       });
-      for (const e of priorEntries) {
-        priorDebit = priorDebit.plus(e.debit);
-        priorCredit = priorCredit.plus(e.credit);
-      }
+      for (const e of priorEntries) accumulate(priorByCur, e.currencyCode, e.debit, e.credit);
     }
 
-    let runningBalance = openingBalanceDec.plus(priorDebit).minus(priorCredit);
+    const runningByCur = new Map<string, Prisma.Decimal>();
+    const runningOf = (code: string): Prisma.Decimal => {
+      const key = normalizeCurrency(code);
+      let value = runningByCur.get(key);
+      if (value === undefined) {
+        const open = openingByCur.get(key) || zeroSums();
+        const prior = priorByCur.get(key) || zeroSums();
+        value = open.debit.minus(open.credit).plus(prior.debit).minus(prior.credit);
+        runningByCur.set(key, value);
+      }
+      return value;
+    };
 
     const entries = await prisma.journalEntry.findMany({
       where: periodWhere,
@@ -191,26 +236,43 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
 
     const entriesWithBalance: any[] = [];
     for (const entry of entries) {
-      runningBalance = runningBalance.plus(entry.debit).minus(entry.credit);
+      const next = runningOf(entry.currencyCode).plus(entry.debit).minus(entry.credit);
+      runningByCur.set(normalizeCurrency(entry.currencyCode), next);
       entriesWithBalance.push({
         ...entry,
         debit: roundDecStr(dec(entry.debit)),
         credit: roundDecStr(dec(entry.credit)),
         currencyCode: normalizeCurrency(entry.currencyCode),
-        balance: roundDecStr(runningBalance),
+        balance: roundDecStr(next),
         entryDate: entry.entryDate.toISOString().slice(0, 10),
         sourcePath: sourcePath(entry.entityType, entry.entityId),
       });
     }
 
-    // Closing balance from aggregate — Decimal throughout, convert only for response
-    const periodAggregate = await prisma.journalEntry.aggregate({
+    // Closing balance per currency from grouped aggregate
+    const periodByCur = new Map<string, Sums>();
+    const periodGroups = await prisma.journalEntry.groupBy({
+      by: ["currencyCode"],
       where: periodWhere,
       _sum: { debit: true, credit: true },
     });
-    const totalPeriodDebitDec = dec(periodAggregate._sum.debit);
-    const totalPeriodCreditDec = dec(periodAggregate._sum.credit);
-    const closingBalanceDec = openingBalanceDec.plus(totalPeriodDebitDec).minus(totalPeriodCreditDec);
+    for (const g of periodGroups) accumulate(periodByCur, g.currencyCode, g._sum.debit, g._sum.credit);
+
+    const balances: Record<string, { openingDebit: number; openingCredit: number; openingBalance: number; closingBalance: number }> = {};
+    const allKeys = new Set<string>([...openingByCur.keys(), ...periodByCur.keys()]);
+    for (const key of allKeys) {
+      const open = openingByCur.get(key) || zeroSums();
+      const openBal = open.debit.minus(open.credit);
+      const period = periodByCur.get(key) || zeroSums();
+      balances[key] = {
+        openingDebit: roundDecStr(open.debit),
+        openingCredit: roundDecStr(open.credit),
+        openingBalance: roundDecStr(openBal),
+        closingBalance: roundDecStr(openBal.plus(period.debit).minus(period.credit)),
+      };
+    }
+    const keys = Object.keys(balances).sort();
+    const single = keys.length === 1 ? balances[keys[0]] : null;
 
     return paginatedResponse(
       entriesWithBalance,
@@ -220,10 +282,13 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
       "Success",
       {
         account: { id: account.id, code: account.code, name: account.name, type: account.accountType },
-        openingDebit: roundDecStr(openingDebitDec),
-        openingCredit: roundDecStr(openingCreditDec),
-        openingBalance: roundDecStr(openingBalanceDec),
-        closingBalance: roundDecStr(closingBalanceDec),
+        openingDebit: single ? single.openingDebit : null,
+        openingCredit: single ? single.openingCredit : null,
+        openingBalance: single ? single.openingBalance : null,
+        closingBalance: single ? single.closingBalance : null,
+        balances,
+        descendantCount,
+        directEntriesOnly: descendantCount > 0,
         filters: {
           dateFrom: dateFrom || "all",
           dateTo: dateTo || "all",

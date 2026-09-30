@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middleware";
+import { checkFinWriteRateLimit } from "@/lib/rate-limit";
 import { createWithdrawalSchema } from "@/lib/validations";
 import { successResponse, paginatedResponse, validationError, errorResponse, serverError, getPaginationParams, getDateRange } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
@@ -8,7 +9,7 @@ import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idem
 import { isAfghanistanCountry } from "@/lib/country-code";
 import { recordHajiTransferAccounting } from "@/lib/haji-transfer-accounting";
 import { journalForeignCustomerReceiptMovements, journalPaymentReceived } from "@/lib/accounting";
-import { isSupportedForeignCurrency } from "@/lib/foreign-currency-carrying";
+import { isSupportedForeignCurrency, checkCarryingLayerWired } from "@/lib/foreign-currency-carrying";
 import { foreignCurrencyOwnerKey, settleForeignCurrencyAsset } from "@/lib/foreign-currency-carrying-db";
 import { resolveAfghanistanFxRateFromDb } from "@/lib/sarafi-af-snapshot-db";
 
@@ -130,6 +131,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
 export const POST = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
+    const limited = await checkFinWriteRateLimit(user.userId);
+    if (limited) return limited;
     if (user.role !== "city_admin") return errorResponse("FORBIDDEN", "Only city admins can record withdrawals", 403);
     const syncMeta = getSyncRequestMeta(request);
     const body = await request.json();
@@ -188,6 +191,8 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
 
     const currency = await prisma.currency.findUnique({ where: { id: currencyId } });
     if (!currency) return errorResponse("NOT_FOUND", "Currency not found", 404);
+    const carryingGate = checkCarryingLayerWired(isAfghanistanCountry(city?.country), currency.code);
+    if (!carryingGate.ok) return errorResponse("FOREIGN_CARRYING_LAYER_REQUIRED", carryingGate.message, 409);
     const foreignReceiptRate = isAfghanistanCountry(city?.country) && isSupportedForeignCurrency(currency.code)
       ? await resolveAfghanistanFxRateFromDb({
           currencyCode: currency.code,

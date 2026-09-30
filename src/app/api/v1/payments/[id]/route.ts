@@ -3,7 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
-import { reverseJournalEntries, journalPaymentReceived, journalChequeReceived, journalHajiTransfer, journalForeignCustomerReceiptMovements } from "@/lib/accounting";
+import { reverseJournalEntries, journalPaymentReceived, journalChequeReceived, journalHajiTransfer, journalForeignCustomerReceiptMovements, assertJournalEntriesNotInClosedPeriod } from "@/lib/accounting";
 import { getPaymentHajiAuditStateMap, isHajiAuditEligible } from "@/lib/payment-audit";
 import { getSaCheckAuditStateMap, isSaCheckConfirmed } from "@/lib/sa-check-audit";
 import { paymentActionSchema, updatePaymentSchema } from "@/lib/validations";
@@ -468,6 +468,11 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         for (const transactionId of reversedFx.journalTransactionIds) {
           await reverseJournalEntries(transactionId, user.userId, tx);
         }
+        await assertJournalEntriesNotInClosedPeriod({
+          transactionId: {
+            in: [`PAY-${id}`, `REV-PAY-${id}`],
+          },
+        }, tx);
         await tx.journalEntry.deleteMany({
           where: {
             transactionId: {
@@ -598,6 +603,11 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
               include: { currency: true },
             } as any);
 
+        await assertJournalEntriesNotInClosedPeriod({
+          transactionId: {
+            in: [`HAJI-${hajiTransfer.id}`, `REV-HAJI-${hajiTransfer.id}`],
+          },
+        }, tx);
         await tx.journalEntry.deleteMany({
           where: {
             transactionId: {
@@ -621,6 +631,11 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           superAdminBankAccountId: hajiTransfer.superAdminBankAccountId,
         }, tx);
       } else if (linkedHajiTransfer) {
+        await assertJournalEntriesNotInClosedPeriod({
+          transactionId: {
+            in: [`HAJI-${linkedHajiTransfer.id}`, `REV-HAJI-${linkedHajiTransfer.id}`],
+          },
+        }, tx);
         await tx.journalEntry.deleteMany({
           where: {
             transactionId: {

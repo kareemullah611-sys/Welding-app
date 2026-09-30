@@ -27,10 +27,13 @@ type LedgerEntry = {
 
 type LedgerMeta = {
   account: { id: number; code: string; name: string; type: string };
-  openingDebit: number;
-  openingCredit: number;
-  openingBalance: number;
-  closingBalance: number;
+  openingDebit: number | null;
+  openingCredit: number | null;
+  openingBalance: number | null;
+  closingBalance: number | null;
+  balances: Record<string, { openingDebit: number; openingCredit: number; openingBalance: number; closingBalance: number }>;
+  descendantCount: number;
+  directEntriesOnly: boolean;
   filters: { dateFrom: string; dateTo: string; cityId: string | number; currency: string };
 };
 
@@ -88,6 +91,8 @@ export default function AccountLedgerPage() {
   useEffect(() => { load(page); }, [load, page]);
 
   const openingBalance = data?.meta?.openingBalance ?? 0;
+  const balanceKeys = data ? Object.keys(data.meta.balances || {}).sort() : [];
+  const mixedCurrencies = balanceKeys.length > 1;
 
   if (user && user.role !== "super_admin") {
     return (
@@ -146,26 +151,57 @@ export default function AccountLedgerPage() {
         </div>
       </div>
 
+      {data && (data.meta.descendantCount ?? 0) > 0 && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Direct entries only — excludes {data.meta.descendantCount} descendant account{data.meta.descendantCount === 1 ? "" : "s"}.
+          Trial Balance parent rows include descendant totals.
+        </div>
+      )}
+
       {data && (
         <div className="card mb-4">
-          <div className="grid grid-cols-3 gap-4 text-sm">
-            <div>
-              <div className="text-xs text-gray-400">Opening Balance</div>
-              <div className={`font-medium ${openingBalance >= 0 ? "text-gray-800" : "text-red-600"}`}>
-                {openingBalance >= 0 ? `Dr ${n(openingBalance)}` : `Cr ${n(Math.abs(openingBalance))}`}
+          {mixedCurrencies ? (
+            <div className="grid grid-cols-3 gap-4 text-sm">
+              {balanceKeys.map((code) => {
+                const b = data.meta.balances[code];
+                return (
+                  <div key={code}>
+                    <div className="text-xs text-gray-400">{code} Opening Balance</div>
+                    <div className={`font-medium ${b.openingBalance >= 0 ? "text-gray-800" : "text-red-600"}`}>
+                      {b.openingBalance >= 0 ? `Dr ${n(b.openingBalance)}` : `Cr ${n(Math.abs(b.openingBalance))}`}
+                    </div>
+                    <div className="text-xs text-gray-400 mt-1">{code} Closing Balance</div>
+                    <div className={`font-medium ${b.closingBalance >= 0 ? "text-gray-800" : "text-red-600"}`}>
+                      {b.closingBalance >= 0 ? `Dr ${n(b.closingBalance)}` : `Cr ${n(Math.abs(b.closingBalance))}`}
+                    </div>
+                  </div>
+                );
+              })}
+              <div>
+                <div className="text-xs text-gray-400">Period Entries</div>
+                <div className="font-medium">{data.pagination.total}</div>
               </div>
             </div>
-            <div>
-              <div className="text-xs text-gray-400">Period Entries</div>
-              <div className="font-medium">{data.pagination.total}</div>
-            </div>
-            <div>
-              <div className="text-xs text-gray-400">Closing Balance</div>
-              <div className={`font-medium ${data.meta.closingBalance >= 0 ? "text-gray-800" : "text-red-600"}`}>
-                {data.meta.closingBalance >= 0 ? `Dr ${n(data.meta.closingBalance)}` : `Cr ${n(Math.abs(data.meta.closingBalance))}`}
+          ) : (
+            <div className="grid grid-cols-3 gap-4 text-sm">
+              <div>
+                <div className="text-xs text-gray-400">Opening Balance</div>
+                <div className={`font-medium ${openingBalance >= 0 ? "text-gray-800" : "text-red-600"}`}>
+                  {openingBalance >= 0 ? `Dr ${n(openingBalance)}` : `Cr ${n(Math.abs(openingBalance))}`}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-gray-400">Period Entries</div>
+                <div className="font-medium">{data.pagination.total}</div>
+              </div>
+              <div>
+                <div className="text-xs text-gray-400">Closing Balance</div>
+                <div className={`font-medium ${(data.meta.closingBalance ?? 0) >= 0 ? "text-gray-800" : "text-red-600"}`}>
+                  {(data.meta.closingBalance ?? 0) >= 0 ? `Dr ${n(data.meta.closingBalance ?? 0)}` : `Cr ${n(Math.abs(data.meta.closingBalance ?? 0))}`}
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -188,12 +224,26 @@ export default function AccountLedgerPage() {
                 </tr>
               </thead>
               <tbody>
-                <tr className="border-b border-gray-100 bg-gray-50">
-                  <td colSpan={5} className="py-2 pr-2 text-gray-500 font-medium">Opening Balance</td>
-                  <td className="py-2 px-2 text-right">{openingBalance >= 0 ? n(openingBalance) : ""}</td>
-                  <td className="py-2 px-2 text-right">{openingBalance < 0 ? n(Math.abs(openingBalance)) : ""}</td>
-                  <td className="py-2 pl-2 text-right font-medium">{openingBalance >= 0 ? `Dr ${n(openingBalance)}` : `Cr ${n(Math.abs(openingBalance))}`}</td>
-                </tr>
+                {mixedCurrencies
+                  ? balanceKeys.map((code) => {
+                      const b = data.meta.balances[code];
+                      return (
+                        <tr key={`opening-${code}`} className="border-b border-gray-100 bg-gray-50">
+                          <td colSpan={5} className="py-2 pr-2 text-gray-500 font-medium">Opening Balance ({code})</td>
+                          <td className="py-2 px-2 text-right">{b.openingBalance >= 0 ? n(b.openingBalance) : ""}</td>
+                          <td className="py-2 px-2 text-right">{b.openingBalance < 0 ? n(Math.abs(b.openingBalance)) : ""}</td>
+                          <td className="py-2 pl-2 text-right font-medium">{b.openingBalance >= 0 ? `Dr ${n(b.openingBalance)}` : `Cr ${n(Math.abs(b.openingBalance))}`}</td>
+                        </tr>
+                      );
+                    })
+                  : (
+                    <tr className="border-b border-gray-100 bg-gray-50">
+                      <td colSpan={5} className="py-2 pr-2 text-gray-500 font-medium">Opening Balance</td>
+                      <td className="py-2 px-2 text-right">{openingBalance >= 0 ? n(openingBalance) : ""}</td>
+                      <td className="py-2 px-2 text-right">{openingBalance < 0 ? n(Math.abs(openingBalance)) : ""}</td>
+                      <td className="py-2 pl-2 text-right font-medium">{openingBalance >= 0 ? `Dr ${n(openingBalance)}` : `Cr ${n(Math.abs(openingBalance))}`}</td>
+                    </tr>
+                  )}
                 {data.data.map((entry) => (
                   <tr key={entry.id} className="border-b border-gray-50 hover:bg-gray-50">
                     <td className="py-1.5 pr-2 text-gray-600">{entry.entryDate}</td>

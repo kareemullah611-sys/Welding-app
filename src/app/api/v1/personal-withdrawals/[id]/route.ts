@@ -7,7 +7,7 @@ import { updateWithdrawalSchema } from "@/lib/validations";
 import { getSaCheckAuditStateMap, isSaCheckConfirmed } from "@/lib/sa-check-audit";
 import { isAfghanistanCountry } from "@/lib/country-code";
 import { recordHajiTransferAccounting, reverseHajiTransferAccounting } from "@/lib/haji-transfer-accounting";
-import { journalForeignCustomerReceiptMovements, journalPaymentReceived, reverseJournalEntries } from "@/lib/accounting";
+import { journalForeignCustomerReceiptMovements, journalPaymentReceived, reverseJournalEntries, assertJournalEntriesNotInClosedPeriod } from "@/lib/accounting";
 import { isSupportedForeignCurrency } from "@/lib/foreign-currency-carrying";
 import { foreignCurrencyOwnerKey, reverseForeignCurrencyMovements, settleForeignCurrencyAsset } from "@/lib/foreign-currency-carrying-db";
 import { resolveAfghanistanFxRateFromDb } from "@/lib/sarafi-af-snapshot-db";
@@ -165,6 +165,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
             await reverseJournalEntries(journalTransactionId, user.userId, tx);
           }
         } else {
+          await assertJournalEntriesNotInClosedPeriod({ transactionId: { in: [`PAY-${linkedCustomerPayment.id}`, `REV-PAY-${linkedCustomerPayment.id}`] } }, tx);
           await tx.journalEntry.deleteMany({
             where: { transactionId: { in: [`PAY-${linkedCustomerPayment.id}`, `REV-PAY-${linkedCustomerPayment.id}`] } },
           });
@@ -367,9 +368,7 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
             await reverseJournalEntries(journalTransactionId, user.userId, tx);
           }
         } else {
-          await tx.journalEntry.deleteMany({
-            where: { transactionId: { in: [`PAY-${linkedCustomerPayment.id}`, `REV-PAY-${linkedCustomerPayment.id}`] } },
-          });
+          await reverseJournalEntries(`PAY-${linkedCustomerPayment.id}`, user.userId, tx);
         }
         await tx.payment.delete({ where: { id: linkedCustomerPayment.id } });
       }

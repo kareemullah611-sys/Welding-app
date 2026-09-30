@@ -19,6 +19,22 @@ export function isSupportedForeignCurrency(code: string): code is SupportedForei
   return SUPPORTED_FOREIGN_CURRENCIES.includes(canonicalForeignCurrencyCode(code) as SupportedForeignCurrency);
 }
 
+export type CarryingLayerGate = { ok: true } | { ok: false; message: string };
+
+// PKR is always journalizable. Foreign codes are journalizable only where the
+// immutable PKR carrying layer is wired: Afghanistan + supported foreign currencies.
+// Everything else must be rejected with FOREIGN_CARRYING_LAYER_REQUIRED instead of
+// journalizing raw foreign units.
+export function checkCarryingLayerWired(isAfghanistanCity: boolean, currencyCode: string): CarryingLayerGate {
+  const code = canonicalForeignCurrencyCode(currencyCode);
+  if (code === "PKR") return { ok: true };
+  if (isAfghanistanCity && isSupportedForeignCurrency(code)) return { ok: true };
+  return {
+    ok: false,
+    message: `Currency ${code} has no wired immutable PKR carrying layer for this country; non-PKR writes are rejected until the carrying layer records them atomically.`,
+  };
+}
+
 export type AvailableForeignCurrencyLayer = {
   id: number;
   remainingForeignAmount: number;

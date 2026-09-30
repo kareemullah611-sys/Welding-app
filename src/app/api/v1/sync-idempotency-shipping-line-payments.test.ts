@@ -186,5 +186,11 @@ test("shipping line payment create is idempotent for repeated sync request id", 
     await prisma.lot.deleteMany({ where: { id: lot.id } });
     await prisma.intermediary.deleteMany({ where: { id: intermediary.id } });
     await prisma.shippingLine.deleteMany({ where: { id: shippingLine.id } });
+    await prisma.account.deleteMany({
+      where: {
+        code: { in: [`1060-H${intermediary.id}`, `2300-SL${shippingLine.id}`] },
+        journalEntries: { none: {} },
+      },
+    });
   }
 });

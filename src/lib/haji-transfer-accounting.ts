@@ -3,6 +3,7 @@ import {
   journalForeignCarryingTransfers,
   journalHajiTransfer,
   reverseJournalEntries,
+  assertJournalEntriesNotInClosedPeriod,
 } from "@/lib/accounting";
 import { isSupportedForeignCurrency } from "@/lib/foreign-currency-carrying";
 import {
@@ -112,6 +113,7 @@ export async function reverseHajiTransferAccounting(
   }
 
   if (mode === "edit") {
+    await assertJournalEntriesNotInClosedPeriod({ transactionId: { in: [`HAJI-${transfer.id}`, `REV-HAJI-${transfer.id}`] } }, tx);
     await tx.journalEntry.deleteMany({
       where: { transactionId: { in: [`HAJI-${transfer.id}`, `REV-HAJI-${transfer.id}`] } },
     });

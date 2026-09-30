@@ -190,3 +190,14 @@ export async function checkRateLimit(
   if (!result.allowed) return rateLimitResponse(result, limit);
   return null;
 }
+
+/**
+ * Sliding-window limit for core financial write endpoints (payments, expenses,
+ * sales, withdrawals, haji transfers, bank deposits). Tunable via
+ * FIN_RATE_LIMIT (default 120) and FIN_RATE_WINDOW_MS (default 15 minutes).
+ */
+export async function checkFinWriteRateLimit(userId: number): Promise<Response | null> {
+  const limit = Number(process.env.FIN_RATE_LIMIT || 120);
+  const windowMs = Number(process.env.FIN_RATE_WINDOW_MS || 15 * 60 * 1000);
+  return checkRateLimit(`finwrite:${userId}`, limit, windowMs);
+}

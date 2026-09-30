@@ -17,6 +17,7 @@ import {
 } from "@/lib/accounting";
 import { LOT_SHIPMENT_STATUS_VALUES, lotDocumentCategoryLabel, lotShipmentStatusLabel } from "@/lib/lot-documents";
 import { buildLotStockTrace } from "@/lib/accounting-traceability";
+import { reverseForeignCurrencyRecognition } from "@/lib/foreign-currency-carrying-db";
 import { lockLotProductReclassification } from "@/lib/financial-locks";
 import { buildProductReclassifications } from "@/lib/lot-product-reclassification";
 
@@ -1119,7 +1120,15 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
       for (const purchase of purchases) {
         await reverseJournalEntries(lotPurchaseJournalTransactionId(id, purchase.id, purchase.journalVersion), user.userId, tx);
       }
-      for (const cost of costs) await reverseJournalEntries(`COST-${cost.id}`, user.userId, tx);
+      for (const cost of costs) {
+        await reverseJournalEntries(`COST-${cost.id}`, user.userId, tx);
+        await reverseForeignCurrencyRecognition(tx, {
+          sourceType: "lot_shipping_cost",
+          sourceId: cost.id,
+          reversalDate: new Date(),
+          createdBy: user.userId,
+        });
+      }
       for (const transfer of transfers) await reverseJournalEntries(`HAJI-${transfer.id}`, user.userId, tx);
       await tx.lotCityGodownAllocation.deleteMany({ where: { lotCityDistribution: { lotId: id } } });
       await tx.lotCityDistribution.deleteMany({ where: { lotId: id } });

@@ -93,8 +93,26 @@ test("agent payment create is idempotent for repeated sync request id", async ()
         requestId: syncRequestId,
       },
     });
+    const paymentRows = await prisma.agentPayment.findMany({
+      where: { agentId: agent.id, reference: "sync-test" },
+      select: { id: true },
+    });
+    if (paymentRows.length) {
+      await prisma.journalEntry.deleteMany({
+        where: { OR: paymentRows.map((r) => ({ transactionId: { startsWith: `AGENTPAY-${r.id}` } })) },
+      });
+      await prisma.auditLog.deleteMany({
+        where: { entityType: "agent_payments", entityId: { in: paymentRows.map((r) => r.id) } },
+      });
+    }
     await prisma.agentPayment.deleteMany({ where: { agentId: agent.id, reference: "sync-test" } });
     await prisma.agent.deleteMany({ where: { id: agent.id } });
     await prisma.bankAccount.deleteMany({ where: { id: fundingAccount.id } });
+    await prisma.account.deleteMany({
+      where: {
+        code: { in: [`1050-BANK${fundingAccount.id}`, `2200-A${agent.id}`] },
+        journalEntries: { none: {} },
+      },
+    });
   }
 });

@@ -7,12 +7,12 @@ test.describe("super admin smoke flows", () => {
   });
 
   test("dashboard and payments render without city-admin-only create actions", async ({ page }) => {
-    await expect(page.getByText(/welcome/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: /dashboard/i })).toBeVisible();
 
     await page.goto("/payments");
     await expect(page.getByRole("heading", { name: /payments/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /\+ record/i })).toHaveCount(0);
-    await expect(page.getByText(/super admin can review and approve records here/i)).toBeVisible();
+    await expect(page.getByRole("table")).toBeVisible();
   });
 
   test("reports exposes city filter for super admin sales report", async ({ page }) => {
@@ -20,6 +20,7 @@ test.describe("super admin smoke flows", () => {
     await expect(page.getByRole("heading", { name: /reports/i })).toBeVisible();
     const reportFilters = page.locator(".card.no-print").first();
     await expect(reportFilters.getByText(/report type/i)).toBeVisible();
+    await reportFilters.getByRole("button", { name: /^filters$/i }).click();
     await expect(reportFilters.locator("select").nth(1)).toContainText("All Cities");
   });
 

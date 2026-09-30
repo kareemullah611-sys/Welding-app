@@ -203,6 +203,20 @@ export async function assertAccountingDateOpen(entryDate: Date, db: DbClient = p
   }
 }
 
+// H1: journal rows dated inside a closed financial year must never be deleted
+// (reversals post a new open-period row instead). Call with the SAME where
+// predicate the journalEntry.deleteMany is about to use.
+export async function assertJournalEntriesNotInClosedPeriod(where: Prisma.JournalEntryWhereInput, db: DbClient = prisma): Promise<void> {
+  const rows = await db.journalEntry.findMany({ where, select: { entryDate: true } });
+  const seen = new Set<number>();
+  for (const row of rows) {
+    const t = new Date(row.entryDate).getTime();
+    if (seen.has(t)) continue;
+    seen.add(t);
+    await assertAccountingDateOpen(new Date(t), db);
+  }
+}
+
 export async function createJournalEntries(
   transactionId: string, lines: JournalLine[],
   meta: { currencyCode: string; exchangeRate?: number; entityType: string; entityId: number; lotId?: number | null; cityId?: number | null; entryDate: Date; createdBy: number; }
@@ -953,19 +967,6 @@ export async function journalExpenseCreated(e: { id: number; cityId: number; amo
   ], { currencyCode: e.currencyCode, entityType: "expense", entityId: e.id, cityId: e.cityId, entryDate: e.expenseDate, createdBy: e.createdBy }, db);
 }
 
-// WITHDRAWAL
-export async function journalWithdrawal(w: { id: number; cityId: number; amount: number; currencyCode: string; date: Date; createdBy: number; sourceType?: string | null; bankAccountId?: number | null; }, db: DbClient = prisma) {
-  const creditAccId = w.sourceType === "cheque"
-    ? await getChequesInHandAccountId(w.cityId, db)
-    : w.sourceType === "bank_account" && w.bankAccountId
-      ? await getBankGLAccountId(w.bankAccountId, db)
-    : await getCashAccountId(w.cityId, db);
-  await createJournalEntries(`WDRAW-${w.id}`, [
-    { accountId: await getOwnerWithdrawalAccountId(db), debit: w.amount, credit: 0, description: `Owner withdrawal` },
-    { accountId: creditAccId, debit: 0, credit: w.amount, description: `Owner withdrawal` },
-  ], { currencyCode: w.currencyCode, entityType: "withdrawal", entityId: w.id, cityId: w.cityId, entryDate: w.date, createdBy: w.createdBy }, db);
-}
-
 async function journalForeignAssetOutflowMovements(p: {
   entityPrefix: "FXEXP" | "FXWDRAW";
   entityType: "expense" | "withdrawal";
@@ -1337,6 +1338,7 @@ export async function journalSuperAdminLiabilityEntry(entry: {
     currencyCode: "PKR",
     entityType: "super_admin_liability_entry",
     entityId: entry.id,
+    cityId: entry.cityId,
     entryDate: entry.entryDate,
     createdBy: entry.createdBy,
   }, db);

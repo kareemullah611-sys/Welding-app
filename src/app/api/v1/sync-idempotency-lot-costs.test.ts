@@ -123,6 +123,9 @@ test("lot cost create is idempotent for repeated sync request id", async () => {
     await prisma.lotCost.deleteMany({ where: { lotId: lot.id, description: marker } });
     await prisma.lotPurchase.deleteMany({ where: { id: purchase.id } });
     await prisma.supplier.deleteMany({ where: { id: supplier.id } });
+    await prisma.account.deleteMany({
+      where: { code: `2100-S${supplier.id}`, journalEntries: { none: {} } },
+    });
     await prisma.lotProduct.deleteMany({ where: { lotId: lot.id } });
     await prisma.lot.deleteMany({ where: { id: lot.id } });
     await prisma.product.deleteMany({ where: { id: product.id } });

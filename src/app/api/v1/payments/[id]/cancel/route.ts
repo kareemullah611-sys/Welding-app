@@ -5,6 +5,7 @@ import { successResponse, errorResponse, validationError, serverError } from "@/
 import { JWTPayload } from "@/lib/auth";
 import { reverseJournalEntries } from "@/lib/accounting";
 import { reverseForeignCurrencyMovements } from "@/lib/foreign-currency-carrying-db";
+import { reverseHajiTransferAccounting } from "@/lib/haji-transfer-accounting";
 
 export const PUT = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -47,7 +48,30 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         ...(payment.notes ? { notes: payment.notes } : {}),
       }, { reason: body.reason }, getClientIP(request), tx);
 
+      // M1: cascade — a cancelled payment must not leave its linked haji transfer standing.
+      const linkedTransfer = await tx.hajiTransfer.findUnique({
+        where: { paymentId: id },
+        include: { currency: { select: { code: true } } },
+      });
+      if (linkedTransfer) {
+        await reverseHajiTransferAccounting(tx, linkedTransfer, user.userId, "delete");
+        const transferChequeId = (linkedTransfer as any).chequePaymentId;
+        if (transferChequeId && transferChequeId !== id) {
+          await tx.payment.update({ where: { id: transferChequeId }, data: { chequeStatus: "in_hand" } as any });
+        }
+        await tx.hajiTransfer.delete({ where: { id: linkedTransfer.id } });
+        await createAuditLog(user.userId, payment.cityId, "haji_transfers", linkedTransfer.id, "cancel", undefined, { viaPaymentId: id, reason: body.reason }, getClientIP(request), tx);
+      }
+
       await reverseJournalEntries(`PAY-${id}`, user.userId, tx);
+      const adjTxns = await tx.journalEntry.findMany({
+        where: { transactionId: { startsWith: `ADJPAY-${id}-` } },
+        select: { transactionId: true },
+        distinct: ["transactionId"],
+      });
+      for (const adj of adjTxns) {
+        await reverseJournalEntries(adj.transactionId, user.userId, tx);
+      }
       const reversedFx = await reverseForeignCurrencyMovements(tx, {
         sourceType: "customer_payment",
         sourceId: id,

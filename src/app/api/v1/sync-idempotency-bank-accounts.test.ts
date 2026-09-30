@@ -65,6 +65,12 @@ test("super-admin bank account create is idempotent for repeated sync request id
         requestId: syncRequestId,
       },
     });
+    const bankRows = await prisma.superAdminBankAccount.findMany({ where: { bankName: marker }, select: { id: true } });
+    if (bankRows.length) {
+      await prisma.auditLog.deleteMany({
+        where: { entityType: "super_admin_bank_accounts", entityId: { in: bankRows.map((r) => r.id) } },
+      });
+    }
     await prisma.superAdminBankAccount.deleteMany({ where: { bankName: marker } });
   }
 });

@@ -4,6 +4,7 @@ import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, validationError, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { journalSaleDiscount } from "@/lib/accounting";
+import { syncWalkInSalePayment } from "@/lib/walkin-sale-payment";
 import { lockSaleDiscount } from "@/lib/financial-locks";
 
 // POST /api/v1/sales/:id/discount
@@ -62,6 +63,7 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
         createdBy: user.userId,
       }, tx);
       await createAuditLog(user.userId, sale.cityId, "sale_discounts", created.id, "create", undefined, { saleId, discountAmount, appliedToLotId }, getClientIP(request), tx);
+      await syncWalkInSalePayment(tx, { saleId, cityId: sale.cityId, createdBy: user.userId, entryDate: appliedDate });
       return created;
     });
 

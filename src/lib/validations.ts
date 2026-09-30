@@ -228,6 +228,7 @@ export const createSaleSchema = z.object({
   currencyId: z.number().int().optional().nullable(),
   notes: z.string().optional(),
   items: z.array(saleItemSchema).min(1),
+  walkInPaymentMode: z.enum(["paid", "credit"]).optional(),
 });
 
 

@@ -125,6 +125,12 @@ test("superadmin account transfer retry and concurrent replay create one transfe
     });
     const cleanupIds = testTransfers.map((row) => row.id);
     await prisma.journalEntry.deleteMany({ where: { entityType: "super_admin_account_transfer", entityId: { in: cleanupIds } } });
+    await prisma.foreignCurrencyMovement.deleteMany({
+      where: { sourceType: { in: ["super_admin_account_transfer", "super_admin_account_transfer_target"] }, sourceId: { in: cleanupIds } },
+    });
+    await prisma.foreignCurrencyCarryingLayer.deleteMany({
+      where: { sourceType: { in: ["super_admin_account_transfer", "super_admin_account_transfer_target"] }, sourceId: { in: cleanupIds } },
+    });
     await prisma.syncRequest.deleteMany({ where: { module: "super_admin_account_transfers", requestId: { startsWith: marker } } });
     await prisma.auditLog.deleteMany({ where: { entityType: "super_admin_account_transfers", entityId: { in: cleanupIds } } });
     await prisma.superAdminAccountTransfer.deleteMany({ where: { id: { in: cleanupIds } } });

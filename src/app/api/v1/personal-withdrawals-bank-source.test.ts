@@ -20,7 +20,10 @@ test("personal withdrawals support city bank account as a source of funds", () =
   assert.doesNotMatch(route, /journalWithdrawal\(/);
   assert.doesNotMatch(approveRoute, /journalWithdrawal\(/);
   assert.match(accounting, /sourceType\?\:\s*string\s*\|\s*null;\s*bankAccountId\?\:\s*number\s*\|\s*null/);
-  assert.match(accounting, /w\.sourceType === "bank_account" && w\.bankAccountId/);
+  // L3: dead journalWithdrawal removed; bank-sourced withdrawal accounting lives
+  // in the FX outflow path (FXWDRAW) which selects the bank GL by sourceType.
+  assert.match(accounting, /p\.sourceType === "bank_account" && p\.bankAccountId/);
+  assert.match(accounting, /entityPrefix:\s*"FXEXP"\s*\|\s*"FXWDRAW"/);
   assert.match(validations, /sourceType:\s*z\.enum\(\["cash_office", "bank_account", "customer"\]\)/);
   assert.match(page, /cityBankAccounts\.filter\(\(account: any\) => account\.isActive\)/);
   assert.match(page, /value=\{`bank_account:\$\{account\.id\}`\}/);

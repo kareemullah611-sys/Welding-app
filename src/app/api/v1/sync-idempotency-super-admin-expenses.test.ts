@@ -82,9 +82,24 @@ test("super-admin personal expense create is idempotent for repeated sync reques
         requestId: syncRequestId,
       },
     });
+    const expenseRows = await prisma.superAdminPersonalExpense.findMany({
+      where: { detail: marker, bankAccountId: bankAccount.id },
+      select: { id: true },
+    });
+    if (expenseRows.length) {
+      await prisma.journalEntry.deleteMany({
+        where: { OR: expenseRows.map((r) => ({ transactionId: { startsWith: `SAEXP-${r.id}` } })) },
+      });
+      await prisma.auditLog.deleteMany({
+        where: { entityType: "super_admin_personal_expenses", entityId: { in: expenseRows.map((r) => r.id) } },
+      });
+    }
     await prisma.superAdminPersonalExpense.deleteMany({
       where: { detail: marker, bankAccountId: bankAccount.id },
     });
     await prisma.superAdminBankAccount.deleteMany({ where: { id: bankAccount.id } });
+    await prisma.account.deleteMany({
+      where: { code: `1050-SABANK${bankAccount.id}`, journalEntries: { none: {} } },
+    });
   }
 });

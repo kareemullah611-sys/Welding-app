@@ -10,6 +10,7 @@ import { JWTPayload } from "@/lib/auth";
 import { hashPassword } from "@/lib/auth";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
 import { normalizeCustomerListSort, sortCustomersForDisplay } from "@/lib/customer-list-sort";
+import { attachCustomerAccountingHistoryFlags } from "@/lib/hard-delete-history";
 
 const CUSTOMER_SYNC_MODULE = "customers.create";
 
@@ -112,6 +113,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       balanceMap[p.customerId][code] = (balanceMap[p.customerId][code] || 0) - Number(p._sum.amount ?? 0);
     }
 
+    await attachCustomerAccountingHistoryFlags(prisma, customers);
+
     const rows = customers.map((c) => {
         const raw = balanceMap[c.id] || {};
         const balanceByCurrency = Object.fromEntries(
@@ -120,6 +123,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         return {
           id: c.id, cityId: c.cityId, cityName: c.city.name,
           name: c.name, phone: c.phone, address: c.address, isActive: c.isActive,
+          hasAccountingHistory: (c as any).hasAccountingHistory === true,
           portalAccessEnabled: c.portalAccessEnabled,
           portalUsername: c.portalUsername,
           portalLastLoginAt: c.portalLastLoginAt,

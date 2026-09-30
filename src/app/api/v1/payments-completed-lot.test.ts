@@ -89,10 +89,22 @@ test("city admin can record payment against a completed lot distributed to their
     assert.equal(json.success, true);
     assert.equal(json.data?.lot?.id, lot.id);
   } finally {
+    const payments = await prisma.payment.findMany({
+      where: { detail: `${marker}-payment` },
+      select: { id: true },
+    });
+    const paymentIds = payments.map((p) => p.id);
+    await prisma.journalEntry.deleteMany({
+      where: { transactionId: { in: paymentIds.flatMap((id) => [`PAY-${id}`, `REV-PAY-${id}`]) } },
+    });
+    await prisma.auditLog.deleteMany({ where: { entityType: "payments", entityId: { in: paymentIds } } });
     await prisma.payment.deleteMany({ where: { detail: `${marker}-payment` } });
     await prisma.lotCityDistribution.deleteMany({ where: { id: distribution.id } });
     await prisma.lot.deleteMany({ where: { id: lot.id } });
     await prisma.customer.deleteMany({ where: { id: customer.id } });
     await prisma.product.deleteMany({ where: { id: product.id } });
+    await prisma.account.deleteMany({
+      where: { code: `1200-C${customer.id}`, journalEntries: { none: {} } },
+    });
   }
 });

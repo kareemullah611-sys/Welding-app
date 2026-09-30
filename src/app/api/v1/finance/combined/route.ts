@@ -8,6 +8,7 @@ import { getSaCheckAuditStateMap } from "@/lib/sa-check-audit";
 import { computeCityTreasuryNet, computeRunningBalances, computeSuperAdminRunningBalances, buildPaymentCancellationReversalRow } from "@/lib/treasury-ledger";
 import { formatPaymentModuleDetail, formatSuperAdminPaymentDetail } from "@/lib/payment-module-detail";
 import { isAfghanistanCountry } from "@/lib/country-code";
+import { attachPaymentAccountingHistoryFlags } from "@/lib/hard-delete-history";
 import { buildDateRange } from "@/lib/date-range";
 
 function createdAtMs(item: any): number {
@@ -140,10 +141,12 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
       } as any);
       const hajiAuditStateById = await getPaymentHajiAuditStateMap(payments.map((p) => p.id));
       const saCheckStateById = await getSaCheckAuditStateMap("payments", payments.map((p) => p.id));
+      await attachPaymentAccountingHistoryFlags(prisma, payments as any[]);
       for (const p of payments as any[]) {
         combined.push({
           id: p.id,
           type: "payment",
+          hasAccountingHistory: (p as any).hasAccountingHistory === true,
           date: p.paymentDate.toISOString().split("T")[0],
           detail: isAfghanistanCountry((p as any).city?.country)
             ? p.detail

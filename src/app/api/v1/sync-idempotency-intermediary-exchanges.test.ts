@@ -130,6 +130,28 @@ test("intermediary exchange create is idempotent for repeated sync request id", 
         requestId: syncRequestId,
       },
     });
+    const exchangeRows = await prisma.intermediaryExchange.findMany({
+      where: { intermediaryId: intermediary.id, notes: marker },
+      select: { id: true },
+    });
+    const seedDepositRows = await prisma.intermediaryDeposit.findMany({
+      where: { intermediaryId: intermediary.id, notes: `${marker}-seed` },
+      select: { id: true },
+    });
+    if (exchangeRows.length || seedDepositRows.length) {
+      await prisma.journalEntry.deleteMany({
+        where: {
+          OR: [
+            ...exchangeRows.flatMap((r) => [
+              { transactionId: { startsWith: `INTFX-IN-${r.id}` } },
+              { transactionId: { startsWith: `INTFX-OUT-${r.id}` } },
+              { transactionId: { startsWith: `FXINT-${r.id}-` } },
+            ]),
+            ...seedDepositRows.map((r) => ({ transactionId: `INTDEP-${r.id}` })),
+          ],
+        },
+      });
+    }
     await prisma.intermediaryExchange.deleteMany({
       where: { intermediaryId: intermediary.id, notes: marker },
     });
@@ -138,5 +160,13 @@ test("intermediary exchange create is idempotent for repeated sync request id", 
     });
     await prisma.superAdminBankAccount.deleteMany({ where: { id: bank.id } });
     await prisma.intermediary.deleteMany({ where: { id: intermediary.id } });
+    await prisma.account.deleteMany({
+      where: {
+        code: {
+          in: [`1050-SABANK${bank.id}`, `1060-H${intermediary.id}`, `1061-HFX${intermediary.id}`],
+        },
+        journalEntries: { none: {} },
+      },
+    });
   }
 });

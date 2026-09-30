@@ -81,6 +81,25 @@ export async function setLegacyGodownStock(
   const lot = await getOrCreateLegacyLot(godown.city.countryId, params.createdBy, db);
   const qty = round2(Number(params.qty));
 
+  const [sold, transferredOut, transferredIn] = await Promise.all([
+    db.saleItem.aggregate({
+      where: { lotId: lot.id, productId: params.productId, sale: { godownId: params.godownId, status: { in: ["active", "marked_short"] } } },
+      _sum: { qty: true },
+    }),
+    db.godownTransfer.aggregate({
+      where: { lotId: lot.id, productId: params.productId, fromGodownId: params.godownId },
+      _sum: { qty: true },
+    }),
+    db.godownTransfer.aggregate({
+      where: { lotId: lot.id, productId: params.productId, toGodownId: params.godownId },
+      _sum: { qty: true },
+    }),
+  ]);
+  const consumedQty = Math.max(0, round2(Number(sold._sum.qty || 0) + Number(transferredOut._sum.qty || 0) - Number(transferredIn._sum.qty || 0)));
+  if (qty < consumedQty) {
+    throw new Error(`Opening quantity cannot be below already sold or transferred quantity (${consumedQty})`);
+  }
+
   let dist = await db.lotCityDistribution.findUnique({
     where: {
       lotId_cityId_productId: {

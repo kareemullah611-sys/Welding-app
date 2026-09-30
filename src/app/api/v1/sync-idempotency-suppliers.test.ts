@@ -67,6 +67,12 @@ test("supplier create is idempotent for repeated sync request id", async () => {
         requestId: syncRequestId,
       },
     });
+    const supplierRows = await prisma.supplier.findMany({ where: { name: marker }, select: { id: true } });
+    if (supplierRows.length) {
+      await prisma.auditLog.deleteMany({
+        where: { entityType: "suppliers", entityId: { in: supplierRows.map((r) => r.id) } },
+      });
+    }
     await prisma.supplier.deleteMany({ where: { name: marker } });
   }
 });

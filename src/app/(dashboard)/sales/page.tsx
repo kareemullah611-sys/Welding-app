@@ -247,7 +247,7 @@ export default function SalesPage() {
   // Form state
   const [form, setForm] = useState({
     customerId: 0, godownId: 0, lotId: 0, saleDate: new Date().toISOString().split("T")[0],
-    currencyId: 0, notes: "",
+    currencyId: 0, notes: "", walkInPaymentMode: "paid",
     items: [emptySaleItem()],
   });
   const [submitting, setSubmitting] = useState(false);
@@ -505,6 +505,7 @@ export default function SalesPage() {
       saleDate: preserveSaleDate || new Date().toISOString().split("T")[0],
       currencyId: currencies[0]?.id || 0,
       notes: "",
+      walkInPaymentMode: "paid",
       items: [emptySaleItem()],
     });
     setGodownStock([]);
@@ -545,7 +546,7 @@ export default function SalesPage() {
     const nextItems = preset?.items?.length ? preset.items : [emptySaleItem()];
     setForm((prev) => ({
       customerId: 0, godownId: 0, lotId: 0, saleDate: new Date().toISOString().split("T")[0],
-      currencyId: prev.currencyId || 0, notes: "",
+      currencyId: prev.currencyId || 0, notes: "", walkInPaymentMode: "paid",
       ...preset,
       items: nextItems,
     }));
@@ -721,6 +722,7 @@ export default function SalesPage() {
       saleDate: form.saleDate,
       currencyId: form.currencyId,
       notes: form.notes,
+      ...(form.customerId === -1 ? { walkInPaymentMode: form.walkInPaymentMode } : {}),
       items: expandedItems.map((item: any) => isPcsItem(item)
         ? {
           productId: item.productId,
@@ -1235,7 +1237,7 @@ export default function SalesPage() {
               <button onClick={() => { setOpenActionId(null); openCancel(s.sourceSale || s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("cancel")}</button>
             </>
           )}
-          {user?.role === "super_admin" && !String(s.id || "").startsWith("pending-") && (
+          {user?.role === "super_admin" && !String(s.id || "").startsWith("pending-") && !(s.sourceSale || s)?.hasAccountingHistory && (
             <button onClick={() => { setOpenActionId(null); openHardDelete(s.sourceSale || s); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-red-800 hover:bg-red-50 sm:py-2 sm:text-xs">{t("hard_delete")}</button>
           )}
         </RowActionMenu>
@@ -1436,6 +1438,20 @@ export default function SalesPage() {
                 : user?.cityId
             }
           />
+
+          {form.customerId === -1 && (
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">{t("payment")}</label>
+              <select
+                value={form.walkInPaymentMode}
+                onChange={(e) => setForm((f) => ({ ...f, walkInPaymentMode: e.target.value }))}
+                className="select-field"
+              >
+                <option value="paid">{t("paid")}</option>
+                <option value="credit">{t("credit")}</option>
+              </select>
+            </div>
+          )}
 
           {currencies.length > 1 && (
             <div>

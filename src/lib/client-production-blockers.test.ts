@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 
 const read = (path: string) => readFileSync(path, "utf8");
@@ -147,14 +147,25 @@ test("customer hard-delete cannot erase accounting history", () => {
   assert.doesNotMatch(route, /payment\.deleteMany/);
 });
 
-test("sale hard-delete blocks cancelled sales and clears discount journals", () => {
+test("sale hard-delete refuses when accounting history exists", () => {
   const route = read("src/app/api/v1/sales/[id]/hard-delete/route.ts");
   // A cancelled sale carries REV-SALE/REV-COGS reversal journals that this
-  // destructive path does not remove — deleting the sale would orphan them.
+  // path must never remove — deleting the sale would orphan them.
   assert.match(route, /sale\.status === "cancelled"/);
-  // Discount journals (DISCOUNT-{discountId}) must be removed together with
-  // the sale_discounts rows, or they remain as orphaned AR credits.
-  assert.match(route, /DISCOUNT-\$\{/);
+  // Sales with SALE/COGS/DISCOUNT (or walk-in PAY) journals are refused;
+  // the route may not erase journal rows at all.
+  assert.match(route, /SALE_HAS_ACCOUNTING_HISTORY/);
+  assert.doesNotMatch(route, /journalEntry\.deleteMany/);
+});
+
+test("payment hard-delete refuses when accounting history exists", () => {
+  const route = read("src/app/api/v1/payments/[id]/hard-delete/route.ts");
+  assert.match(route, /PAYMENT_HAS_ACCOUNTING_HISTORY/);
+  // Linked transfers' HAJI/REV-HAJI journals count as accounting history too —
+  // a journal-less payment may not take them down with it.
+  assert.match(route, /hajiTransactionIds/);
+  // The route may not erase journal rows at all (PAY/ADJPAY/HAJI).
+  assert.doesNotMatch(route, /journalEntry\.deleteMany/);
 });
 
 test("supplier and shipping edits reread journal versions after locking", () => {
@@ -199,4 +210,39 @@ test("backup and restore scripts verify artifacts and acknowledged targets", () 
   assert.match(restore, /RESTORE_ACKNOWLEDGEMENT/);
   assert.match(restore, /--single-transaction/);
   assert.match(restore, /ALLOW_REMOTE_DATABASE_RESTORE/);
+});
+
+test("every journalEntry.deleteMany site is guarded against closed periods except the secret-protected admin wipe", () => {
+  const files = readdirSync("src", { recursive: true })
+    .map(String)
+    .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
+  const offenders: string[] = [];
+  let sawGuard = false;
+  for (const rel of files) {
+    const content = readFileSync(`src/${rel}`, "utf8");
+    if (content.includes("export async function assertJournalEntriesNotInClosedPeriod")) sawGuard = true;
+    if (!content.includes("journalEntry.deleteMany(")) continue;
+    if (rel.includes("admin-cleanup")) continue; // requestSecret+phrase protected full test-data wipe, not a business path
+    if (!content.includes("assertJournalEntriesNotInClosedPeriod(")) offenders.push(rel);
+  }
+  assert.ok(sawGuard, "assertJournalEntriesNotInClosedPeriod must be exported from src/lib/accounting.ts");
+  assert.deepEqual(offenders, [], `unguarded journalEntry.deleteMany sites: ${offenders.join(", ")}`);
+});
+
+test("every non-PKR write path is gated by checkCarryingLayerWired (H3)", () => {
+  const required: Record<string, string> = {
+    "src/lib/foreign-currency-carrying.ts": "export function checkCarryingLayerWired",
+    "src/app/api/v1/sales/route.ts": "checkCarryingLayerWired(",
+    "src/app/api/v1/sales/[id]/correct/route.ts": "checkCarryingLayerWired(",
+    "src/app/api/v1/payments/route.ts": "checkCarryingLayerWired(",
+    "src/app/api/v1/expenses/route.ts": "checkCarryingLayerWired(",
+    "src/app/api/v1/personal-withdrawals/route.ts": "checkCarryingLayerWired(",
+    "src/app/api/v1/cities/route.ts": "checkCarryingLayerWired(",
+    "src/app/api/v1/cities/[id]/route.ts": "checkCarryingLayerWired(",
+  };
+  const offenders: string[] = [];
+  for (const [rel, needle] of Object.entries(required)) {
+    if (!readFileSync(rel, "utf8").includes(needle)) offenders.push(rel);
+  }
+  assert.deepEqual(offenders, [], `carrying-layer gate missing from: ${offenders.join(", ")}`);
 });

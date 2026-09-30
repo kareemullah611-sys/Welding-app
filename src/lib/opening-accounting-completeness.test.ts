@@ -49,7 +49,7 @@ test("inventory value, superadmin funds, Haji direction and opening equity are j
 });
 
 test("opening UI exposes controlled cutover accounting without replacing physical stock", () => {
-  assert.match(page, /Opening inventory valuation/);
+  assert.match(page, /Opening product inventory/);
   assert.match(page, /Superadmin cash and bank openings/);
   assert.match(page, /One-time cutover control/);
   assert.match(page, /Participant opening capital and retained profit/);

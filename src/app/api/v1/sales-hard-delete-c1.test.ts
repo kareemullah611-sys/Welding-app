@@ -6,6 +6,7 @@ import prisma from "@/lib/prisma";
 import { generateToken, hashPassword } from "@/lib/auth";
 import { getCustomerAccountId, getSalesRevenueAccountId, getCOGSAccountId, journalSaleDiscount } from "@/lib/accounting";
 import { DELETE as hardDeleteSale } from "@/app/api/v1/sales/[id]/hard-delete/route";
+import { GET as listSales } from "@/app/api/v1/sales/route";
 
 const PASSWORD = "C1-HardDelete-Test-1!";
 const marker = `c1hd${Date.now()}`;
@@ -21,14 +22,16 @@ async function seedBase() {
   return { city, admin, pkr };
 }
 
+let seedSaleSeq = 0;
 async function seedSale(opts: { cityId: number; adminId: number; countryId: number; pkrId: number; status: "active" | "cancelled" }) {
-  const product = await prisma.product.create({ data: { name: `${marker}-product`, isActive: true } });
-  const customer = await prisma.customer.create({ data: { cityId: opts.cityId, name: `${marker}-customer`, isActive: true } });
-  const godown = await prisma.godown.create({ data: { cityId: opts.cityId, name: `${marker}-godown` } });
+  const seq = ++seedSaleSeq;
+  const product = await prisma.product.create({ data: { name: `${marker}-product${seq}`, isActive: true } });
+  const customer = await prisma.customer.create({ data: { cityId: opts.cityId, name: `${marker}-customer${seq}`, isActive: true } });
+  const godown = await prisma.godown.create({ data: { cityId: opts.cityId, name: `${marker}-godown${seq}` } });
   const lot = await prisma.lot.create({
     data: {
       countryId: opts.countryId,
-      lotNumber: `${marker}-lot`,
+      lotNumber: `${marker}-lot${seq}`,
       lotDate: new Date("2026-04-01"),
       createdBy: opts.adminId,
     },
@@ -39,7 +42,7 @@ async function seedSale(opts: { cityId: number; adminId: number; countryId: numb
       customerId: customer.id,
       lotId: lot.id,
       godownId: godown.id,
-      voucherNo,
+      voucherNo: `${voucherNo.slice(0, 9)}${seq % 10}`,
       saleDate: new Date("2026-04-15"),
       totalAmount: 1000,
       currencyId: opts.pkrId,
@@ -110,7 +113,7 @@ test("C1 E2E: hard-delete rejects cancelled sales and purges discount journals w
     await prisma.account.deleteMany({ where: { code: `1200-C${cancelled.customer.id}` } });
   }
 
-  // --- Part B: active sale with discount purges SALE/COGS/DISCOUNT journals together ---
+  // --- Part B: active sale WITH accounting history must be refused (409), records intact ---
   const active = await seedSale({ cityId: city.id, adminId: admin.id, countryId: city.countryId, pkrId: pkr.id, status: "active" });
   let discountId = 0;
   try {
@@ -158,19 +161,209 @@ test("C1 E2E: hard-delete rejects cancelled sales and purges discount journals w
     const response = await hardDeleteSale(request, { params: { id: String(active.sale.id) } });
     const json = (await response.json()) as any;
 
-    assert.equal(response.status, 200, `expected 200, got ${response.status}: ${JSON.stringify(json)}`);
-    assert.equal(json.success, true);
-
-    assert.equal(await prisma.sale.findUnique({ where: { id: active.sale.id } }), null, "sale row must be deleted");
-    assert.equal(await prisma.saleDiscount.count({ where: { saleId: active.sale.id } }), 0, "discount rows must be deleted");
-    assert.equal(await prisma.journalEntry.count({ where: { transactionId: `SALE-${active.sale.id}` } }), 0, "SALE journal must be deleted");
-    assert.equal(await prisma.journalEntry.count({ where: { transactionId: `COGS-${active.sale.id}` } }), 0, "COGS journal must be deleted");
-    assert.equal(await prisma.journalEntry.count({ where: { transactionId: `DISCOUNT-${discountId}` } }), 0, "DISCOUNT journal must be deleted — no orphaned AR credit");
-    assert.equal(await prisma.auditLog.count({ where: { entityType: "sales", entityId: active.sale.id, action: "hard_delete" } }), 1, "audit row must exist");
+    assert.equal(response.status, 409, `expected 409 for a sale with accounting history, got ${response.status}: ${JSON.stringify(json)}`);
+    assert.equal(json.error?.code, "SALE_HAS_ACCOUNTING_HISTORY");
+    assert.ok(await prisma.sale.findUnique({ where: { id: active.sale.id } }), "sale must survive the refused delete");
+    assert.notEqual(await prisma.saleDiscount.findUnique({ where: { id: discountId } }), null, "discount row must survive the refused delete");
+    assert.equal(await prisma.journalEntry.count({ where: { transactionId: `SALE-${active.sale.id}` } }), 2, "SALE journals must survive — immutable accounting history");
+    assert.equal(await prisma.journalEntry.count({ where: { transactionId: `COGS-${active.sale.id}` } }), 2, "COGS journals must survive — immutable accounting history");
+    assert.equal(await prisma.journalEntry.count({ where: { transactionId: `DISCOUNT-${discountId}` } }), 2, "DISCOUNT journals must survive — immutable accounting history");
+    assert.equal(
+      await prisma.auditLog.count({ where: { entityType: "sales", entityId: active.sale.id, action: "hard_delete" } }),
+      0,
+      "no hard_delete audit row may be written for a refused delete"
+    );
   } finally {
-    await prisma.journalEntry.deleteMany({ where: { transactionId: `DISCOUNT-${discountId}` } });
+    await prisma.journalEntry.deleteMany({ where: { transactionId: { in: [`SALE-${active.sale.id}`, `COGS-${active.sale.id}`, `DISCOUNT-${discountId}`] } } });
+    await prisma.saleDiscount.deleteMany({ where: { saleId: active.sale.id } });
     await cleanupSaleRows({ saleId: active.sale.id, lotId: active.lot.id, godownId: active.godown.id, customerId: active.customer.id, productId: active.product.id, cityId: city.id });
     await prisma.account.deleteMany({ where: { code: `1200-C${active.customer.id}` } });
     await prisma.auditLog.deleteMany({ where: { entityType: "sales", entityId: active.sale.id, action: "hard_delete" } });
+  }
+});
+
+test("C1 E2E: hard-delete is blocked when the walk-in auto-payment was cancelled (reversal history kept)", async (t) => {
+  const { city, admin, pkr } = await seedBase();
+  const token = generateToken({
+    userId: admin.id,
+    username: admin.username,
+    role: "super_admin",
+    cityId: null,
+    countryId: null,
+  });
+  const originalPasswordHash = admin.passwordHash;
+  await prisma.user.update({ where: { id: admin.id }, data: { passwordHash: await hashPassword(PASSWORD) } });
+  t.after(async () => {
+    await prisma.user.update({ where: { id: admin.id }, data: { passwordHash: originalPasswordHash } });
+  });
+
+  const active = await seedSale({ cityId: city.id, adminId: admin.id, countryId: city.countryId, pkrId: pkr.id, status: "active" });
+  // The route identifies walk-in sales by customer name; seedSale creates a unique one.
+  await prisma.customer.update({ where: { id: active.customer.id }, data: { name: "Walk-in Customer" } });
+  let paymentId = 0;
+  try {
+    const payment = await prisma.payment.create({
+      data: {
+        cityId: city.id,
+        customerId: active.customer.id,
+        paymentDate: new Date("2026-04-15"),
+        detail: `${marker}-walkin-payment`,
+        amount: 1000,
+        currencyId: pkr.id,
+        paymentMethod: "cash",
+        destination: "our_account",
+        status: "cancelled",
+        cancellationReason: "C1 seed",
+        cancelledAt: new Date("2026-04-16"),
+        cancelledBy: admin.id,
+        saleId: active.sale.id,
+        createdBy: admin.id,
+      },
+    });
+    paymentId = payment.id;
+    const customerAccountId = await getCustomerAccountId(active.customer.id);
+    const revenueAccountId = await getSalesRevenueAccountId();
+    await prisma.journalEntry.createMany({
+      data: [
+        { transactionId: `PAY-${paymentId}`, lineNumber: 1, accountId: revenueAccountId, debit: 0, credit: 1000, currencyCode: "PKR", description: "C1 seed", entryDate: new Date("2026-04-15"), createdBy: admin.id },
+        { transactionId: `PAY-${paymentId}`, lineNumber: 2, accountId: customerAccountId, debit: 1000, credit: 0, currencyCode: "PKR", description: "C1 seed", entryDate: new Date("2026-04-15"), createdBy: admin.id },
+        { transactionId: `REV-PAY-${paymentId}`, lineNumber: 1, accountId: customerAccountId, debit: 0, credit: 1000, currencyCode: "PKR", description: "C1 seed", entryDate: new Date("2026-04-16"), createdBy: admin.id },
+        { transactionId: `REV-PAY-${paymentId}`, lineNumber: 2, accountId: revenueAccountId, debit: 1000, credit: 0, currencyCode: "PKR", description: "C1 seed", entryDate: new Date("2026-04-16"), createdBy: admin.id },
+      ],
+    });
+    assert.equal(await prisma.journalEntry.count({ where: { transactionId: `REV-PAY-${paymentId}` } }), 2, "seed precondition: reversal rows exist");
+
+    const request = new NextRequest(`http://localhost/api/v1/sales/${active.sale.id}/hard-delete`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ password: PASSWORD }),
+    });
+    const response = await hardDeleteSale(request, { params: { id: String(active.sale.id) } });
+    const json = (await response.json()) as any;
+
+    assert.equal(response.status, 409, `expected 409, got ${response.status}: ${JSON.stringify(json)}`);
+    assert.equal(json.error?.code, "CONFLICT");
+    assert.ok(await prisma.sale.findUnique({ where: { id: active.sale.id } }), "sale must survive the blocked delete");
+    assert.notEqual(await prisma.payment.findUnique({ where: { id: paymentId } }), null, "cancelled walk-in payment must survive the blocked delete");
+    assert.equal(await prisma.journalEntry.count({ where: { transactionId: `PAY-${paymentId}` } }), 2, "PAY rows must survive the blocked delete");
+    assert.equal(await prisma.journalEntry.count({ where: { transactionId: `REV-PAY-${paymentId}` } }), 2, "reversal rows must survive — immutable audit history");
+  } finally {
+    await prisma.journalEntry.deleteMany({ where: { transactionId: { in: [`PAY-${paymentId}`, `REV-PAY-${paymentId}`] } } });
+    await prisma.payment.deleteMany({ where: { id: paymentId } });
+    await prisma.auditLog.deleteMany({ where: { entityType: "sales", entityId: active.sale.id, action: "hard_delete" } });
+    await cleanupSaleRows({ saleId: active.sale.id, lotId: active.lot.id, godownId: active.godown.id, customerId: active.customer.id, productId: active.product.id, cityId: city.id });
+    await prisma.account.deleteMany({ where: { code: `1200-C${active.customer.id}` } });
+  }
+});
+
+test("C1 E2E: hard-delete still removes a journal-less sale and its journal-less walk-in payment", async (t) => {
+  const { city, admin, pkr } = await seedBase();
+  const token = generateToken({
+    userId: admin.id,
+    username: admin.username,
+    role: "super_admin",
+    cityId: null,
+    countryId: null,
+  });
+  const originalPasswordHash = admin.passwordHash;
+  await prisma.user.update({ where: { id: admin.id }, data: { passwordHash: await hashPassword(PASSWORD) } });
+  t.after(async () => {
+    await prisma.user.update({ where: { id: admin.id }, data: { passwordHash: originalPasswordHash } });
+  });
+
+  const active = await seedSale({ cityId: city.id, adminId: admin.id, countryId: city.countryId, pkrId: pkr.id, status: "active" });
+  await prisma.customer.update({ where: { id: active.customer.id }, data: { name: "Walk-in Customer" } });
+  let paymentId = 0;
+  try {
+    const payment = await prisma.payment.create({
+      data: {
+        cityId: city.id,
+        customerId: active.customer.id,
+        paymentDate: new Date("2026-04-15"),
+        detail: `${marker}-walkin-journalless`,
+        amount: 1000,
+        currencyId: pkr.id,
+        paymentMethod: "cash",
+        destination: "our_account",
+        saleId: active.sale.id,
+        createdBy: admin.id,
+      },
+    });
+    paymentId = payment.id;
+
+    const request = new NextRequest(`http://localhost/api/v1/sales/${active.sale.id}/hard-delete`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ password: PASSWORD }),
+    });
+    const response = await hardDeleteSale(request, { params: { id: String(active.sale.id) } });
+    const json = (await response.json()) as any;
+
+    assert.equal(response.status, 200, `expected 200 for a journal-less sale, got ${response.status}: ${JSON.stringify(json)}`);
+    assert.equal(await prisma.sale.findUnique({ where: { id: active.sale.id } }), null, "journal-less sale row must be deleted");
+    assert.equal(await prisma.payment.findUnique({ where: { id: paymentId } }), null, "journal-less walk-in payment row must be deleted with the sale");
+    assert.equal(
+      await prisma.auditLog.count({ where: { entityType: "sales", entityId: active.sale.id, action: "hard_delete" } }),
+      1,
+      "audit row must exist for an allowed delete"
+    );
+  } finally {
+    await prisma.journalEntry.deleteMany({ where: { transactionId: { in: [`PAY-${paymentId}`, `REV-PAY-${paymentId}`] } } });
+    await prisma.payment.deleteMany({ where: { id: paymentId } });
+    await prisma.auditLog.deleteMany({ where: { entityType: "sales", entityId: active.sale.id, action: "hard_delete" } });
+    await cleanupSaleRows({ saleId: active.sale.id, lotId: active.lot.id, godownId: active.godown.id, customerId: active.customer.id, productId: active.product.id, cityId: city.id });
+    await prisma.account.deleteMany({ where: { code: `1200-C${active.customer.id}` } });
+  }
+});
+
+test("C1: sales list exposes hasAccountingHistory so the UI can hide permanent deletion", async () => {
+  const { city, admin, pkr } = await seedBase();
+  const token = generateToken({
+    userId: admin.id,
+    username: admin.username,
+    role: "super_admin",
+    cityId: null,
+    countryId: null,
+  });
+  const posted = await seedSale({ cityId: city.id, adminId: admin.id, countryId: city.countryId, pkrId: pkr.id, status: "active" });
+  const plain = await seedSale({ cityId: city.id, adminId: admin.id, countryId: city.countryId, pkrId: pkr.id, status: "active" });
+  try {
+    await prisma.journalEntry.createMany({
+      data: [
+        { transactionId: `SALE-${posted.sale.id}`, lineNumber: 1, accountId: await getCustomerAccountId(posted.customer.id), debit: 1000, credit: 0, currencyCode: "PKR", description: "C1 seed", entryDate: new Date("2026-04-15"), createdBy: admin.id },
+        { transactionId: `SALE-${posted.sale.id}`, lineNumber: 2, accountId: await getSalesRevenueAccountId(), debit: 0, credit: 1000, currencyCode: "PKR", description: "C1 seed", entryDate: new Date("2026-04-15"), createdBy: admin.id },
+        { transactionId: `COGS-${posted.sale.id}`, lineNumber: 1, accountId: await getCOGSAccountId(), debit: 600, credit: 0, currencyCode: "PKR", description: "C1 seed", entryDate: new Date("2026-04-15"), createdBy: admin.id },
+        { transactionId: `COGS-${posted.sale.id}`, lineNumber: 2, accountId: await getCOGSAccountId(), debit: 0, credit: 600, currencyCode: "PKR", description: "C1 seed", entryDate: new Date("2026-04-15"), createdBy: admin.id },
+      ],
+    });
+
+    const postedRes = await listSales(
+      new NextRequest(`http://localhost/api/v1/sales?customer_id=${posted.customer.id}`, {
+        headers: { authorization: `Bearer ${token}` },
+      }),
+      { params: {} }
+    );
+    const postedJson = (await postedRes.json()) as any;
+    assert.equal(postedRes.status, 200, `list failed: ${JSON.stringify(postedJson)}`);
+    const postedRow = postedJson.data.find((s: any) => s.id === posted.sale.id);
+    assert.ok(postedRow, "posted sale must be present in the list");
+    assert.equal(postedRow.hasAccountingHistory, true, "sale with SALE/COGS journals must expose hasAccountingHistory=true");
+
+    const plainRes = await listSales(
+      new NextRequest(`http://localhost/api/v1/sales?customer_id=${plain.customer.id}`, {
+        headers: { authorization: `Bearer ${token}` },
+      }),
+      { params: {} }
+    );
+    const plainJson = (await plainRes.json()) as any;
+    assert.equal(plainRes.status, 200, `list failed: ${JSON.stringify(plainJson)}`);
+    const plainRow = plainJson.data.find((s: any) => s.id === plain.sale.id);
+    assert.ok(plainRow, "journal-less sale must be present in the list");
+    assert.equal(plainRow.hasAccountingHistory, false, "journal-less sale must expose hasAccountingHistory=false");
+  } finally {
+    await prisma.journalEntry.deleteMany({ where: { transactionId: { in: [`SALE-${posted.sale.id}`, `COGS-${posted.sale.id}`] } } });
+    await cleanupSaleRows({ saleId: posted.sale.id, lotId: posted.lot.id, godownId: posted.godown.id, customerId: posted.customer.id, productId: posted.product.id, cityId: city.id });
+    await cleanupSaleRows({ saleId: plain.sale.id, lotId: plain.lot.id, godownId: plain.godown.id, customerId: plain.customer.id, productId: plain.product.id, cityId: city.id });
+    await prisma.account.deleteMany({ where: { code: { in: [`1200-C${posted.customer.id}`, `1200-C${plain.customer.id}`] } } });
   }
 });

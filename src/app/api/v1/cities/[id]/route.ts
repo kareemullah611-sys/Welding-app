@@ -4,6 +4,8 @@ import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { updateCitySchema } from "@/lib/validations";
 import { successResponse, validationError, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { isAfghanistanCountry } from "@/lib/country-code";
+import { checkCarryingLayerWired } from "@/lib/foreign-currency-carrying";
 
 export const PATCH = withSuperAdmin(async (request: NextRequest, context: any, user: JWTPayload) => {
   try {
@@ -16,6 +18,19 @@ export const PATCH = withSuperAdmin(async (request: NextRequest, context: any, u
 
     const city = await prisma.city.findUnique({ where: { id } });
     if (!city) return errorResponse("NOT_FOUND", "City not found", 404);
+
+    if (parsed.data.currencyIds !== undefined) {
+      const country = await prisma.country.findUnique({ where: { id: city.countryId }, select: { code: true, name: true } });
+      const currencies = await prisma.currency.findMany({ where: { id: { in: parsed.data.currencyIds } }, select: { code: true, name: true } });
+      const invalidCodes = currencies.filter((c) => !checkCarryingLayerWired(isAfghanistanCountry(country), c.code).ok).map((c) => c.code);
+      if (invalidCodes.length > 0) {
+        return errorResponse(
+          "FOREIGN_CARRYING_LAYER_REQUIRED",
+          `Currencies ${invalidCodes.join(", ")} have no wired immutable PKR carrying layer for ${country?.name ?? "this country"} and cannot be attached to this city.`,
+          409,
+        );
+      }
+    }
 
     const data: any = {};
     if (parsed.data.name !== undefined) {

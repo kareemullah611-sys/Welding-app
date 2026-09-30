@@ -187,22 +187,18 @@ export async function createAuditLog(
   ipAddress?: string,
   db: PrismaClient | Prisma.TransactionClient = prisma
 ) {
-  try {
-    await db.auditLog.create({
-      data: {
-        userId,
-        cityId,
-        entityType,
-        entityId,
-        action,
-        oldValues: (oldValues as any) || undefined,
-        newValues: (newValues as any) || undefined,
-        ipAddress,
-      },
-    });
-  } catch (error) {
-    console.error("Failed to create audit log:", error);
-  }
+  await db.auditLog.create({
+    data: {
+      userId,
+      cityId,
+      entityType,
+      entityId,
+      action,
+      oldValues: (oldValues as any) || undefined,
+      newValues: (newValues as any) || undefined,
+      ipAddress,
+    },
+  });
 }
 
 // Get client IP from request

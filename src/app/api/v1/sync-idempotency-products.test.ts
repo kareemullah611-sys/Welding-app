@@ -62,6 +62,12 @@ test("product create is idempotent for repeated sync request id", async () => {
         requestId: syncRequestId,
       },
     });
+    const productRows = await prisma.product.findMany({ where: { name: marker }, select: { id: true } });
+    if (productRows.length) {
+      await prisma.auditLog.deleteMany({
+        where: { entityType: "products", entityId: { in: productRows.map((r) => r.id) } },
+      });
+    }
     await prisma.product.deleteMany({ where: { name: marker } });
   }
 });

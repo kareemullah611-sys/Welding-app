@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const withdrawalCreate = readFileSync("src/app/api/v1/personal-withdrawals/route.ts", "utf8");
+const accountingSource = readFileSync("src/lib/accounting.ts", "utf8");
 const withdrawalItem = readFileSync("src/app/api/v1/personal-withdrawals/[id]/route.ts", "utf8");
 const withdrawalApproval = readFileSync("src/app/api/v1/personal-withdrawals/[id]/approve/route.ts", "utf8");
 const hajiItem = readFileSync("src/app/api/v1/haji-transfers/[id]/route.ts", "utf8");
@@ -17,6 +18,10 @@ test("withdrawal creation atomically creates one linked Haji transfer and accoun
   assert.match(withdrawalCreate, /hajiTransferId:\s*createdHajiTransfer\.id/);
   assert.match(withdrawalCreate, /recordHajiTransferAccounting\(/);
   assert.doesNotMatch(withdrawalCreate, /journalWithdrawal\(/);
+});
+
+test("L3: dead journalWithdrawal helper stays removed from accounting", () => {
+  assert.doesNotMatch(accountingSource, /export async function journalWithdrawal\(/);
 });
 
 test("withdrawal approval is audit-only and creates no second money movement", () => {

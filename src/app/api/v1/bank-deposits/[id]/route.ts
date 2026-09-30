@@ -3,7 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
-import { journalBankDeposit } from "@/lib/accounting";
+import { journalBankDeposit, assertJournalEntriesNotInClosedPeriod } from "@/lib/accounting";
 import { getCityBankAccountAvailableBalance } from "@/lib/city-bank-balance";
 import { applyForeignCityTreasuryTransfer } from "@/lib/foreign-city-treasury";
 import { reverseForeignCurrencyMovements } from "@/lib/foreign-currency-carrying-db";
@@ -11,6 +11,7 @@ import { reverseForeignCurrencyMovements } from "@/lib/foreign-currency-carrying
 const allowed = new Set(["cheque_to_bank", "bank_to_cash", "cheque_to_cash", "bank_to_bank"]);
 
 async function clearDepositJournal(tx: any, id: number) {
+  await assertJournalEntriesNotInClosedPeriod({ entityType: "bank_deposit", entityId: id }, tx);
   await tx.journalEntry.deleteMany({ where: { entityType: "bank_deposit", entityId: id } });
 }
 

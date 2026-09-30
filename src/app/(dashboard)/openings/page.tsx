@@ -71,6 +71,10 @@ type OpeningData = {
     productName: string;
     qty: number;
     legacyLotNumber?: string;
+    unitCostPkr?: number | null;
+    totalValuePkr?: number | null;
+    valuationDate?: string | null;
+    valuationNotes?: string | null;
     _pending?: boolean;
   }[];
   ongoingLots?: { id: number; lotNumber: string; lotDate: string }[];
@@ -313,7 +317,6 @@ export default function OpeningsPage() {
   const historicalSaleRef = useRef<HTMLFormElement>(null);
   const legacyStockRef = useRef<HTMLFormElement>(null);
   const liabilityRef = useRef<HTMLFormElement>(null);
-  const inventoryValueRef = useRef<HTMLFormElement>(null);
   const superAdminAccountRef = useRef<HTMLFormElement>(null);
 
   const today = new Date().toISOString().split("T")[0];
@@ -332,7 +335,7 @@ export default function OpeningsPage() {
   });
   const [hajiForm, setHajiForm] = useState({ currencyId: 0, amount: "", balanceSide: "payable" as "payable" | "receivable", openingDate: today, notes: "", ...emptyFx });
   const [stockForm, setStockForm] = useState({ lotId: 0, godownId: 0, productId: 0, qty: "" });
-  const [legacyStockForm, setLegacyStockForm] = useState({ godownId: 0, productId: 0, qty: "" });
+  const [legacyStockForm, setLegacyStockForm] = useState({ godownId: 0, productId: 0, quantity: "", unitCostPkr: "", openingDate: today, notes: "" });
   const [historicalSaleForm, setHistoricalSaleForm] = useState({
     lotId: 0,
     customerId: 0,
@@ -375,7 +378,6 @@ export default function OpeningsPage() {
     notes: "",
     ...emptyFx,
   });
-  const [inventoryValueForm, setInventoryValueForm] = useState({ lotId: 0, productId: 0, quantity: "", unitCostPkr: "", originalCurrencyId: 0, originalAmount: "", openingDate: today, notes: "", ...emptyFx });
   const [superAdminAccountForm, setSuperAdminAccountForm] = useState({ accountId: 0, amount: "", openingDate: today, notes: "", ...emptyFx });
   const [cutoverForm, setCutoverForm] = useState({ cutoverDate: today, fiscalYearStart: today, fiscalYearEnd: today, backupReference: "", backupAcknowledged: false });
   const [participantOpeningForm, setParticipantOpeningForm] = useState({ participantId: 0, capitalPkr: "", currentYearProfitPkr: "", ongoingLotRealizedProfitPkr: "", openingDate: today, notes: "" });
@@ -429,10 +431,6 @@ export default function OpeningsPage() {
         accountId: prev.accountId || nextData.cityLiabilityOptions?.accounts?.[0]?.id || 0,
       }));
       setSuperAdminAccountForm((prev) => ({ ...prev, accountId: prev.accountId || nextData.superAdminAccounts?.[0]?.id || 0 }));
-      if (!inventoryValueForm.lotId && nextData.inventoryValuationOptions?.[0]) {
-        const option = nextData.inventoryValuationOptions[0];
-        setInventoryValueForm((prev) => ({ ...prev, lotId: option.lotId, productId: option.productId, quantity: String(option.quantity) }));
-      }
     } else {
       const snapshot = readOfflineReadSnapshot<OpeningData>(OPENINGS_READ_CACHE_KEY)?.data;
       if (!isOnline && snapshot) {
@@ -703,17 +701,19 @@ export default function OpeningsPage() {
     const result = await apiCall("/api/v1/openings", {
       method: "POST",
       body: {
-        kind: "stock",
+        kind: "product_inventory",
         cityId: isSuperAdmin ? selectedCityId : undefined,
-        useLegacy: true,
         godownId: legacyStockForm.godownId,
         productId: legacyStockForm.productId,
-        qty: Number(legacyStockForm.qty || 0),
+        quantity: Number(legacyStockForm.quantity || 0),
+        unitCostPkr: Number(legacyStockForm.unitCostPkr || 0),
+        openingDate: legacyStockForm.openingDate,
+        notes: legacyStockForm.notes || null,
       },
     });
     if (!result.success) return toast.error(result.error || "Failed");
-    toast.success("Legacy stock saved on OLD-STOCK lot");
-    setLegacyStockForm((prev) => ({ ...prev, qty: "" }));
+    toast.success("Opening product inventory saved");
+    setLegacyStockForm((prev) => ({ ...prev, quantity: "", unitCostPkr: "", notes: "" }));
     load();
   };
 
@@ -792,32 +792,6 @@ export default function OpeningsPage() {
     load();
   };
 
-  const submitInventoryValue = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!canEdit) return toast.error("Opening entries are locked");
-    const option = data?.inventoryValuationOptions.find((row) => row.lotId === inventoryValueForm.lotId && row.productId === inventoryValueForm.productId);
-    if (!option) return toast.error("Select a lot and product");
-    const result = await apiCall("/api/v1/openings", {
-      method: "POST",
-      body: {
-        kind: "inventory_value",
-        lotId: option.lotId,
-        productId: option.productId,
-        quantity: Number(inventoryValueForm.quantity || 0),
-        unitCostPkr: Number(inventoryValueForm.unitCostPkr || 0),
-        originalCurrencyId: inventoryValueForm.originalCurrencyId || null,
-        originalAmount: inventoryValueForm.originalAmount === "" ? null : Number(inventoryValueForm.originalAmount),
-        ...fxPayload(inventoryValueForm),
-        openingDate: inventoryValueForm.openingDate,
-        notes: inventoryValueForm.notes || null,
-      },
-    });
-    if (!result.success) return toast.error(result.error || "Failed");
-    toast.success("Opening inventory valuation saved");
-    setInventoryValueForm((prev) => ({ ...prev, quantity: "", unitCostPkr: "", originalAmount: "", notes: "" }));
-    load();
-  };
-
   const submitSuperAdminAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canEdit) return toast.error("Opening entries are locked");
@@ -833,7 +807,6 @@ export default function OpeningsPage() {
 
   const currencyCodeFor = (currencies: CityCurrency[] | undefined, currencyId: number) => currencies?.find((currency) => currency.id === currencyId)?.code || "";
   const selectedSuperAdminAccount = data?.superAdminAccounts.find((account) => account.id === superAdminAccountForm.accountId);
-  const selectedInventoryCurrency = data?.liabilityOptions.currencies.find((currency) => currency.id === inventoryValueForm.originalCurrencyId);
 
   if (loading && !data) {
     return (
@@ -943,34 +916,6 @@ export default function OpeningsPage() {
             <button className="btn-primary" type="submit" disabled={!canEdit}>Save superadmin account opening</button>
             <SavedTable title="Saved superadmin account openings" emptyLabel="No superadmin cash or bank openings recorded." headers={["Account", "Currency", "Original", "PKR carrying", "Date", ""]} rows={(data?.openingSuperAdminAccounts || []).map((row) => (
               <tr key={row.id} className="border-b last:border-0"><td className="py-2 px-3">{row.accountName} · {row.accountKind}</td><td className="py-2 px-3">{row.currencyCode}</td><td className="py-2 px-3">{row.amount.toLocaleString("en-US")}</td><td className="py-2 px-3">{row.carryingAmountPkr.toLocaleString("en-US")}</td><td className="py-2 px-3">{row.openingDate}</td><td className="py-2 px-3"><button type="button" className="text-xs text-red-600 hover:underline" onClick={() => deleteOpening("super_admin_account", row.id)}>Delete</button></td></tr>
-            ))} />
-          </form>
-
-          <form ref={inventoryValueRef} onSubmit={submitInventoryValue} className="card space-y-3">
-            <div>
-              <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-neutral-500">Opening inventory valuation</h2>
-              <p className="mt-1 text-xs text-neutral-500">Superadmin assigns the authoritative PKR cost basis. Physical quantities remain controlled by city godown stock.</p>
-            </div>
-            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3">
-              <select className="input" value={`${inventoryValueForm.lotId}:${inventoryValueForm.productId}`} onChange={(e) => { const [lotId, productId] = e.target.value.split(":").map(Number); const option = data?.inventoryValuationOptions.find((row) => row.lotId === lotId && row.productId === productId); setInventoryValueForm((prev) => ({ ...prev, lotId, productId, quantity: option ? String(option.quantity) : "" })); }} required disabled={!canEdit}>
-                <option value="0:0">Lot / product</option>
-                {(data?.inventoryValuationOptions || []).map((option) => <option key={`${option.lotId}:${option.productId}`} value={`${option.lotId}:${option.productId}`}>{option.lotNumber} · {option.productName} · qty {option.quantity}</option>)}
-              </select>
-              <input className="input" type="number" step="0.0001" placeholder="Valued quantity" value={inventoryValueForm.quantity} onChange={(e) => setInventoryValueForm((prev) => ({ ...prev, quantity: e.target.value }))} required disabled={!canEdit} />
-              <input className="input" type="number" step="0.000001" placeholder="PKR unit cost" value={inventoryValueForm.unitCostPkr} onChange={(e) => setInventoryValueForm((prev) => ({ ...prev, unitCostPkr: e.target.value }))} required disabled={!canEdit} />
-              <input className="input bg-neutral-50" value={((Number(inventoryValueForm.quantity) || 0) * (Number(inventoryValueForm.unitCostPkr) || 0)).toLocaleString("en-US", { maximumFractionDigits: 2 })} readOnly aria-label="Total PKR inventory value" />
-              <select className="input" value={inventoryValueForm.originalCurrencyId} onChange={(e) => setInventoryValueForm((prev) => ({ ...prev, originalCurrencyId: Number(e.target.value) }))} disabled={!canEdit}>
-                <option value={0}>No foreign source (PKR basis)</option>
-                {(data?.liabilityOptions.currencies || []).filter((currency) => currency.code !== "PKR").map((currency) => <option key={currency.id} value={currency.id}>{currency.code} source amount</option>)}
-              </select>
-              <input className="input" type="number" step="0.0001" placeholder="Original foreign amount" value={inventoryValueForm.originalAmount} onChange={(e) => setInventoryValueForm((prev) => ({ ...prev, originalAmount: e.target.value }))} required={inventoryValueForm.originalCurrencyId > 0} disabled={!canEdit || !inventoryValueForm.originalCurrencyId} />
-              <input className="input" type="date" value={inventoryValueForm.openingDate} onChange={(e) => setInventoryValueForm((prev) => ({ ...prev, openingDate: e.target.value }))} required disabled={!canEdit} />
-              <input className="input" placeholder="Notes / costing evidence" value={inventoryValueForm.notes} onChange={(e) => setInventoryValueForm((prev) => ({ ...prev, notes: e.target.value }))} disabled={!canEdit} />
-            </div>
-            <OpeningFxFields currencyCode={selectedInventoryCurrency?.code || "PKR"} value={{ ...inventoryValueForm, carryingAmountPkr: String((Number(inventoryValueForm.quantity) || 0) * (Number(inventoryValueForm.unitCostPkr) || 0)) }} onChange={(next) => setInventoryValueForm((prev) => ({ ...prev, fxRateToPkr: next.fxRateToPkr, fxRateDate: next.fxRateDate, fxRateSource: next.fxRateSource }))} disabled={!canEdit} />
-            <button className="btn-primary" type="submit" disabled={!canEdit}>Save opening inventory value</button>
-            <SavedTable title="Saved opening inventory values" emptyLabel="No opening inventory values recorded." headers={["Lot", "Product", "Qty", "Unit PKR", "Total PKR", ""]} rows={(data?.openingInventoryValuations || []).map((row) => (
-              <tr key={row.id} className="border-b last:border-0"><td className="py-2 px-3">{row.lotNumber}</td><td className="py-2 px-3">{row.productName}</td><td className="py-2 px-3">{row.quantity.toLocaleString("en-US")}</td><td className="py-2 px-3">{row.unitCostPkr.toLocaleString("en-US")}</td><td className="py-2 px-3">{row.totalValuePkr.toLocaleString("en-US")}</td><td className="py-2 px-3"><button type="button" className="text-xs text-red-600 hover:underline" onClick={() => deleteOpening("inventory_value", row.id)}>Delete</button></td></tr>
             ))} />
           </form>
 
@@ -1716,16 +1661,15 @@ export default function OpeningsPage() {
         />
       </form>
 
-      {/* Legacy stock (OLD-STOCK) — untraceable only */}
+      {/* Product-level opening inventory; the technical historical layer is intentionally hidden. */}
       <form ref={legacyStockRef} onSubmit={submitLegacyStock} className="card space-y-3">
         <div>
-          <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-neutral-500">Legacy stock (OLD-STOCK)</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-neutral-500">Opening product inventory</h2>
           <p className="text-xs text-neutral-500 mt-1">
-            Only for stock with no lot identity. Sets net on-hand on the country&apos;s{" "}
-            <span className="font-medium">OLD-STOCK</span> lot. Prefer ongoing lots + historical sales when lot history is known.
+            Enter the product&apos;s opening on-hand quantity and audited PKR valuation. Future purchases remain tracked by their actual lots.
           </p>
         </div>
-        <div className="grid md:grid-cols-3 gap-3">
+        <div className="grid md:grid-cols-2 lg:grid-cols-6 gap-3">
           <select
             className="input"
             value={legacyStockForm.godownId}
@@ -1751,24 +1695,29 @@ export default function OpeningsPage() {
             type="number"
             step="0.01"
             placeholder="On-hand qty (cartons)"
-            value={legacyStockForm.qty}
-            onChange={(e) => setLegacyStockForm((prev) => ({ ...prev, qty: e.target.value }))}
+            value={legacyStockForm.quantity}
+            onChange={(e) => setLegacyStockForm((prev) => ({ ...prev, quantity: e.target.value }))}
             required
             disabled={formsDisabled}
           />
+          <input className="input" type="number" step="0.000001" placeholder="PKR unit cost" value={legacyStockForm.unitCostPkr} onChange={(e) => setLegacyStockForm((prev) => ({ ...prev, unitCostPkr: e.target.value }))} required disabled={formsDisabled} />
+          <input className="input bg-neutral-50" value={((Number(legacyStockForm.quantity) || 0) * (Number(legacyStockForm.unitCostPkr) || 0)).toLocaleString("en-US", { maximumFractionDigits: 2 })} readOnly aria-label="Total PKR value" />
+          <input className="input" type="date" value={legacyStockForm.openingDate} onChange={(e) => setLegacyStockForm((prev) => ({ ...prev, openingDate: e.target.value }))} required disabled={formsDisabled} />
+          <input className="input" placeholder="Notes / valuation evidence" value={legacyStockForm.notes} onChange={(e) => setLegacyStockForm((prev) => ({ ...prev, notes: e.target.value }))} disabled={formsDisabled} />
         </div>
-        <button className="btn-primary" type="submit" disabled={formsDisabled}>Save legacy stock</button>
+        <button className="btn-primary" type="submit" disabled={formsDisabled}>Save opening inventory</button>
 
         <SavedTable
-          title="Saved legacy stock (OLD-STOCK lot)"
-          emptyLabel="No legacy stock in godowns for this city yet."
-          headers={["Godown", "Product", "On-hand qty", "Lot", ""]}
+          title="Saved opening product inventory"
+          emptyLabel="No opening product inventory recorded for this city yet."
+          headers={["Godown", "Product", "On-hand qty", "Unit PKR", "Total PKR", ""]}
           rows={(data?.legacyStocks || []).map((row) => (
             <tr key={String(row.id)} className={`border-b last:border-0 ${row._pending ? "bg-amber-50/60" : ""}`}>
               <td className="py-2 px-3">{row.godownName}</td>
               <td className="py-2 px-3">{row.productName}</td>
               <td className="py-2 px-3">{row.qty.toLocaleString("en-US")}</td>
-              <td className="py-2 px-3">{row.legacyLotNumber || "OLD-STOCK"}{row._pending ? " (pending sync)" : ""}</td>
+              <td className="py-2 px-3">{row.unitCostPkr?.toLocaleString("en-US") || "—"}</td>
+              <td className="py-2 px-3">{row.totalValuePkr?.toLocaleString("en-US") || "—"}</td>
               <td className="py-2 px-3">
                 {!row._pending && canEdit && (
                   <span className="inline-flex gap-2">
@@ -1779,7 +1728,10 @@ export default function OpeningsPage() {
                         setLegacyStockForm({
                           godownId: row.godownId,
                           productId: row.productId,
-                          qty: String(row.qty),
+                          quantity: String(row.qty),
+                          unitCostPkr: row.unitCostPkr == null ? "" : String(row.unitCostPkr),
+                          openingDate: row.valuationDate || today,
+                          notes: row.valuationNotes || "",
                         });
                         scrollTo(legacyStockRef);
                       }}
@@ -1789,7 +1741,7 @@ export default function OpeningsPage() {
                     <button
                       type="button"
                       className="text-xs text-red-600 hover:underline"
-                      onClick={() => deleteOpening("stock", row.id)}
+                      onClick={() => deleteOpening("product_inventory", row.id)}
                     >
                       Delete
                     </button>

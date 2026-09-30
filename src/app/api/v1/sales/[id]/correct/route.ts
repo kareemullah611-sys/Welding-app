@@ -2,15 +2,16 @@ import { NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
-import { journalSaleCreated, journalSaleCOGSForLots, reverseJournalEntries } from "@/lib/accounting";
+import { journalSaleCreated, journalSaleCOGSForLots, reverseJournalEntries, assertJournalEntriesNotInClosedPeriod } from "@/lib/accounting";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { canAccessGodown } from "@/lib/godown-access";
 import { allocateSaleItemAcrossLots, consolidateSaleLotAllocationItems, AvailableSaleLot, SaleLotAllocationItem } from "@/lib/sale-lot-allocation";
 import { lockGodownProductStock } from "@/lib/financial-locks";
+import { syncWalkInSalePayment } from "@/lib/walkin-sale-payment";
 import { isAfghanistanCountry } from "@/lib/country-code";
 import { resolveAfghanistanFxRateFromDb } from "@/lib/sarafi-af-snapshot-db";
-import { isSupportedForeignCurrency } from "@/lib/foreign-currency-carrying";
+import { isSupportedForeignCurrency, checkCarryingLayerWired } from "@/lib/foreign-currency-carrying";
 import {
   foreignCurrencyOwnerKey,
   nextForeignCurrencyRecognitionLineKey,
@@ -76,6 +77,8 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     if (user.role === "city_admin" && sale.cityId !== user.cityId) {
       return errorResponse("FORBIDDEN", "Not your city", 403);
     }
+    const carryingGate = checkCarryingLayerWired(isAfghanistanCountry(sale.city.country), sale.currency.code);
+    if (!carryingGate.ok) return errorResponse("FOREIGN_CARRYING_LAYER_REQUIRED", carryingGate.message, 409);
     if (sale.isOpeningImport) {
       const existingOpeningAdjustment = await prisma.journalEntry.findFirst({
         where: { transactionId: `OPENING-STOCK-COST-${saleId}` },
@@ -268,7 +271,8 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 	      ratePerCarton: Number(item.ratePerCarton),
 	      amount: roundMoney(Number(item.stockQty) * Number(item.ratePerCarton)),
 	    }));
-	    const totalAmount = roundMoney(newItemData.reduce((sum: number, i: { amount: number }) => sum + i.amount, 0));
+	    const itemsSum = roundMoney(newItemData.reduce((sum: number, i: { amount: number }) => sum + i.amount, 0));
+	    let totalAmount = itemsSum;
 	    const nextSaleLotId = Number(newItemData[0]?.lotId || sale.lotId || 0);
 
 	    await prisma.$transaction(async (tx) => {
@@ -298,6 +302,16 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         await reverseJournalEntries(`SALE-${saleId}`, user.userId, tx, sale.saleDate);
         await reverseJournalEntries(`COGS-${saleId}`, user.userId, tx, sale.saleDate);
       } else {
+        await assertJournalEntriesNotInClosedPeriod({
+          transactionId: {
+            in: [
+              `SALE-${saleId}`,
+              `REV-SALE-${saleId}`,
+              `COGS-${saleId}`,
+              `REV-COGS-${saleId}`,
+            ],
+          },
+        }, tx);
         await tx.journalEntry.deleteMany({
           where: {
             transactionId: {
@@ -311,6 +325,14 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           },
         });
       }
+
+      // L5: the corrected item value must still cover already-applied discounts.
+      const discountAgg = await tx.saleDiscount.aggregate({ where: { saleId }, _sum: { discountAmount: true } });
+      const discountSum = roundMoney(Number(discountAgg._sum.discountAmount || 0));
+      if (discountSum > itemsSum) {
+        throw new Error(`DISCOUNT_EXCEEDS_ITEMS:${discountSum}:${itemsSum}`);
+      }
+      totalAmount = roundMoney(itemsSum - discountSum);
 
       await tx.saleItem.deleteMany({ where: { saleId } });
       await tx.saleItem.createMany({ data: newItemData });
@@ -362,9 +384,11 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 
 	      await journalSaleCreated({
 	        id: saleId, customerId: sale.customerId, cityId: sale.cityId,
-	        lotId: nextSaleLotId, totalAmount, currencyCode: (sale as any).currency?.code || "PKR",
+	        lotId: nextSaleLotId, totalAmount: itemsSum, currencyCode: (sale as any).currency?.code || "PKR",
 	        saleDate: nextSaleDate, createdBy: user.userId,
 	      }, tx);
+
+      await syncWalkInSalePayment(tx, { saleId, cityId: sale.cityId, createdBy: user.userId, entryDate: nextSaleDate });
 
       const qtyByLot = newItemData.reduce((acc: Record<number, number>, item: { lotId: number; qty: number }) => {
         acc[item.lotId] = (acc[item.lotId] || 0) + item.qty;
@@ -392,6 +416,10 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     if (error instanceof Error && error.message.startsWith("STOCK_SHORT:")) {
       const [, productId, lotId, available] = error.message.split(":");
       return errorResponse("VALIDATION_ERROR", `Product ${productId} lot ${lotId}: corrected quantity exceeds available stock ${available}`);
+    }
+    if (error instanceof Error && error.message.startsWith("DISCOUNT_EXCEEDS_ITEMS")) {
+      const [, discountSum, correctedItems] = error.message.split(":");
+      return errorResponse("DISCOUNT_EXCEEDS_ITEMS", `Applied discounts (${discountSum}) exceed corrected item value (${correctedItems})`, 409);
     }
     console.error("Sale correction error:", error);
     return serverError();

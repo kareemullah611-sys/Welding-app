@@ -25,4 +25,56 @@ jobs:
       - name: Verify
         run: npm run verify
         env:
-          JWT_SECRET: ci-test-jwt-secret
+          JWT_SECRET: ci-test-jwt-secret-long-enough-32
+
+      - name: Unit test library suites
+        run: npm run test:lib
+        env:
+          JWT_SECRET: ci-test-jwt-secret-long-enough-32
+
+  critical-db:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: welding_app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/welding_app
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/welding_app
+      JWT_SECRET: ci-test-jwt-secret-long-enough-32
+      ADMIN_PASSWORD: ci-admin-password
+      CITY_ADMIN_PASSWORD: ci-city-admin-password
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: Seed reference data
+        run: npm run db:seed
+
+      - name: Critical DB tests
+        run: npm run test:critical-db
+
+      - name: DB-backed library tests
+        run: npm run test:db-lib

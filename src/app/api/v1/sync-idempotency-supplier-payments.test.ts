@@ -232,5 +232,11 @@ test("supplier payment create is idempotent for repeated sync request id", async
     await prisma.lot.deleteMany({ where: { id: lot.id } });
     await prisma.intermediary.deleteMany({ where: { id: intermediary.id } });
     await prisma.supplier.deleteMany({ where: { id: supplier.id } });
+    await prisma.account.deleteMany({
+      where: {
+        code: { in: [`1060-H${intermediary.id}`, `2100-S${supplier.id}`] },
+        journalEntries: { none: {} },
+      },
+    });
   }
 });

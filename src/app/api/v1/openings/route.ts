@@ -296,6 +296,10 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
     const openingBalanceAccount = user.role === "super_admin"
       ? await prisma.account.findUnique({ where: { code: "3900" }, select: { id: true } })
       : null;
+    const legacyValuations = await prisma.openingInventoryValuation.findMany({
+      where: { lotId: { in: legacyStocks.map((row) => row.legacyLotId) } },
+      select: { id: true, lotId: true, productId: true, unitCostPkr: true, totalValuePkr: true, openingDate: true, notes: true },
+    });
     const openingBalanceTotals = openingBalanceAccount
       ? await prisma.journalEntry.aggregate({
           where: { accountId: openingBalanceAccount.id, currencyCode: "PKR" },
@@ -361,7 +365,9 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         qty: Number(o.qty),
         openingDate: o.openingDate,
       })),
-      legacyStocks: legacyStocks.map((o) => ({
+      legacyStocks: legacyStocks.map((o) => {
+        const valuation = legacyValuations.find((row) => row.lotId === o.legacyLotId && row.productId === o.productId);
+        return {
         id: o.id,
         godownId: o.godownId,
         godownName: o.godownName,
@@ -371,7 +377,12 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         openingDate: o.openingDate,
         legacyLotId: o.legacyLotId,
         legacyLotNumber: o.legacyLotNumber,
-      })),
+        unitCostPkr: valuation ? Number(valuation.unitCostPkr) : null,
+        totalValuePkr: valuation ? Math.round(Number(o.qty) * Number(valuation.unitCostPkr) * 100) / 100 : null,
+        valuationDate: valuation?.openingDate.toISOString().split("T")[0] || null,
+        valuationNotes: valuation?.notes || null,
+      };
+      }),
       ongoingLots: ongoingLots.map((l) => ({
         id: l.id,
         lotNumber: l.lotNumber,
@@ -892,6 +903,49 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
         });
       }
       return successResponse({ id: sale.id, voucherNo: sale.voucherNo }, "Historical sale imported");
+    }
+
+    if (kind === "product_inventory") {
+      if (!cityId) return validationError("City is required");
+      const scopedCityId = cityId;
+      const godownId = Number(body.godownId);
+      const productId = Number(body.productId);
+      const quantity = Number(body.quantity);
+      const unitCostPkr = Number(body.unitCostPkr);
+      const openingDate = dateOnly(body.openingDate);
+      if (!Number.isInteger(godownId) || godownId <= 0) return validationError("Godown is required");
+      if (!Number.isInteger(productId) || productId <= 0) return validationError("Product is required");
+      if (!Number.isFinite(quantity) || quantity <= 0) return validationError("Opening inventory quantity must be greater than zero");
+      if (!Number.isFinite(unitCostPkr) || unitCostPkr <= 0) return validationError("PKR unit cost must be greater than zero");
+      const [godown, product] = await Promise.all([
+        prisma.godown.findFirst({ where: { id: godownId, cityId: scopedCityId } }),
+        prisma.product.findFirst({ where: { id: productId, isActive: true } }),
+      ]);
+      if (!godown) return errorResponse("NOT_FOUND", "Godown not found in selected city");
+      if (!product) return errorResponse("NOT_FOUND", "Product not found");
+
+      const result = await prisma.$transaction(async (tx) => {
+        const { lotId } = await setLegacyGodownStock({ cityId: scopedCityId, godownId, productId, qty: quantity, createdBy: user.userId }, tx);
+        await lockOpeningScope(tx, `inventory:${lotId}:${productId}`);
+        const lotProduct = await tx.lotProduct.findUnique({ where: { lotId_productId: { lotId, productId } } });
+        const totalQuantity = Number(lotProduct?.totalQty || 0);
+        const totalValuePkr = Math.round(totalQuantity * unitCostPkr * 100) / 100;
+        const current = await tx.openingInventoryValuation.findUnique({ where: { unique_opening_inventory_lot_product: { lotId, productId } } });
+        const nextVersion = (current?.journalVersion || 0) + 1;
+        if (current) await reverseOpeningJournals("opening_inventory_valuation", current.id, `OPENINV-${current.id}`, user.userId, tx);
+        const valuation = current
+          ? await tx.openingInventoryValuation.update({
+              where: { id: current.id },
+              data: { quantity: totalQuantity, unitCostPkr, totalValuePkr, openingDate, notes: body.notes || null, journalVersion: nextVersion, createdBy: user.userId },
+            })
+          : await tx.openingInventoryValuation.create({
+              data: { lotId, productId, quantity: totalQuantity, unitCostPkr, totalValuePkr, openingDate, notes: body.notes || null, journalVersion: 1, createdBy: user.userId },
+            });
+        await journalOpeningInventoryValuation({ id: valuation.id, lotId, productId, totalValuePkr, openingDate, createdBy: user.userId, journalVersion: valuation.journalVersion }, tx);
+        return { lotId, valuationId: valuation.id, totalQuantity, totalValuePkr };
+      });
+      await createAuditLog(user.userId, cityId, "opening_inventory_valuations", result.valuationId, "update", undefined, { godownId, productId, quantity, unitCostPkr, totalValuePkr: result.totalValuePkr }, getClientIP(request));
+      return successResponse(result, "Opening product inventory saved");
     }
 
     if (kind === "stock") {
@@ -1558,6 +1612,35 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       await prisma.sale.delete({ where: { id: row.id } });
       await createAuditLog(user.userId, cityId, "sales", row.id, "delete", { voucherNo: row.voucherNo }, undefined, getClientIP(request));
       return successResponse({ id: row.id }, "Historical sale deleted");
+    }
+
+    if (kind === "product_inventory") {
+      if (!cityId) return validationError("City is required");
+      const scopedCityId = cityId;
+      const allocation = await prisma.lotCityGodownAllocation.findFirst({
+        where: { id, godown: { cityId: scopedCityId }, lotCityDistribution: { lot: { isLegacyStock: true } } },
+        select: { godownId: true, productId: true, lotCityDistribution: { select: { lotId: true } } },
+      });
+      if (!allocation) return errorResponse("NOT_FOUND", "Opening product inventory row not found");
+      await prisma.$transaction(async (tx) => {
+        const lotId = allocation.lotCityDistribution.lotId;
+        await lockOpeningScope(tx, `inventory:${lotId}:${allocation.productId}`);
+        const current = await tx.openingInventoryValuation.findUnique({ where: { unique_opening_inventory_lot_product: { lotId, productId: allocation.productId } } });
+        await setLegacyGodownStock({ cityId: scopedCityId, godownId: allocation.godownId, productId: allocation.productId, qty: 0, createdBy: user.userId }, tx);
+        if (!current) return;
+        await reverseOpeningJournals("opening_inventory_valuation", current.id, `OPENINV-${current.id}`, user.userId, tx);
+        const lotProduct = await tx.lotProduct.findUnique({ where: { lotId_productId: { lotId, productId: allocation.productId } } });
+        const remainingQuantity = Number(lotProduct?.totalQty || 0);
+        if (remainingQuantity <= 0) {
+          await tx.openingInventoryValuation.delete({ where: { id: current.id } });
+          return;
+        }
+        const totalValuePkr = Math.round(remainingQuantity * Number(current.unitCostPkr) * 100) / 100;
+        const valuation = await tx.openingInventoryValuation.update({ where: { id: current.id }, data: { quantity: remainingQuantity, totalValuePkr, journalVersion: current.journalVersion + 1, createdBy: user.userId } });
+        await journalOpeningInventoryValuation({ id: valuation.id, lotId, productId: allocation.productId, totalValuePkr, openingDate: valuation.openingDate, createdBy: user.userId, journalVersion: valuation.journalVersion }, tx);
+      });
+      await createAuditLog(user.userId, scopedCityId, "opening_inventory_valuations", id, "delete", { godownId: allocation.godownId, productId: allocation.productId }, undefined, getClientIP(request));
+      return successResponse({ id }, "Opening product inventory deleted");
     }
 
     if (kind === "stock") {

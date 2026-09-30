@@ -68,6 +68,16 @@ test("customer create is idempotent for repeated sync request id", async () => {
     });
     assert.equal(createdRows.length, 1, "Only one customer row should exist for replayed request");
   } finally {
+    const rows = await prisma.customer.findMany({
+      where: { cityId: city.id, name: marker },
+      select: { id: true },
+    });
+    if (rows.length) {
+      await prisma.auditLog.deleteMany({
+        where: { entityType: "customers", entityId: { in: rows.map((r) => r.id) } },
+      });
+    }
+    await prisma.syncRequest.deleteMany({ where: { requestId: syncRequestId } });
     await prisma.customer.deleteMany({
       where: { cityId: city.id, name: marker },
     });

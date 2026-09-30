@@ -678,7 +678,7 @@ export default function CustomersPage() {
         ) : (
           <button onClick={() => { setOpenActionId(null); handleReactivate(c); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-green-700 hover:bg-green-50 sm:py-2 sm:text-xs">{t("reactivate")}</button>
         )}
-        {user?.role === "super_admin" && (
+        {user?.role === "super_admin" && !c.hasAccountingHistory && (
           <button onClick={() => { setOpenActionId(null); openHardDelete(c); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-red-800 hover:bg-red-50 sm:py-2 sm:text-xs">{t("hard_delete")}</button>
         )}
       </RowActionMenu>

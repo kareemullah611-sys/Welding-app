@@ -14,6 +14,18 @@ export type TrialBalanceRow = {
   periodCredit: number;
   closingDebit: number;
   closingCredit: number;
+  depth: number;
+  parentId: number | null;
+  isParentRow: boolean;
+  hasDirectEntries: boolean;
+  direct: {
+    openingDebit: number;
+    openingCredit: number;
+    periodDebit: number;
+    periodCredit: number;
+    closingDebit: number;
+    closingCredit: number;
+  };
 };
 
 export type TrialBalanceGroup = {
@@ -66,7 +78,52 @@ export type AccountInfo = {
   name: string;
   accountType: string;
   parentId?: number | null;
+  hasDirectEntries?: boolean;
 };
+
+export class AccountHierarchyError extends Error {
+  reasons: string[];
+  constructor(reasons: string[]) {
+    super(`Account hierarchy invalid: ${reasons.join("; ")}`);
+    this.name = "AccountHierarchyError";
+    this.reasons = reasons;
+  }
+}
+
+export function validateAccountHierarchy(accounts: AccountInfo[]): void {
+  const map = new Map<number, AccountInfo>();
+  for (const a of accounts) map.set(a.id, a);
+
+  const reasons = new Set<string>();
+  for (const a of accounts) {
+    if (a.parentId == null) continue;
+    if (a.parentId === a.id) {
+      reasons.add(`Account ${a.code} is its own parent`);
+      continue;
+    }
+    const parent = map.get(a.parentId);
+    if (!parent) {
+      reasons.add(`Account ${a.code} references missing parent id ${a.parentId}`);
+      continue;
+    }
+    if (parent.accountType !== a.accountType) {
+      reasons.add(`Account ${a.code} (${a.accountType}) accountType mismatch with parent ${parent.code} (${parent.accountType})`);
+    }
+    const seen = new Set<number>([a.id]);
+    let cur: AccountInfo | undefined = parent;
+    while (cur && cur.parentId != null) {
+      if (seen.has(cur.id)) {
+        reasons.add(`Hierarchy cycle detected at account ${a.code}`);
+        break;
+      }
+      seen.add(cur.id);
+      cur = map.get(cur.parentId);
+      if (!cur) break;
+    }
+  }
+
+  if (reasons.size > 0) throw new AccountHierarchyError([...reasons]);
+}
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -107,6 +164,8 @@ export function buildTrialBalance(input: {
   openingGroups: JournalGroupEntry[];
   periodGroups: JournalGroupEntry[];
 }): TrialBalanceResult {
+  validateAccountHierarchy(input.accounts);
+
   const accountMap = new Map<number, AccountInfo>();
   for (const a of input.accounts) accountMap.set(a.id, a);
 
@@ -128,35 +187,115 @@ export function buildTrialBalance(input: {
     periodMap.set(key, existing);
   }
 
-  const allKeys = new Set<string>([...openingMap.keys(), ...periodMap.keys()]);
-  const rows: TrialBalanceRow[] = [];
+  // Hierarchy metadata: family follows the nearest recognized ancestor, which for a
+  // parented account equals its parent's family (root families come from classifyAccount).
+  const childrenOf = new Map<number, AccountInfo[]>();
+  const roots: AccountInfo[] = [];
+  for (const a of input.accounts) {
+    if (a.parentId) {
+      const siblings = childrenOf.get(a.parentId) || [];
+      siblings.push(a);
+      childrenOf.set(a.parentId, siblings);
+    } else {
+      roots.push(a);
+    }
+  }
 
-  for (const key of allKeys) {
+  const familyById = new Map<number, AccountFamily>();
+  const depthById = new Map<number, number>();
+  const pathById = new Map<number, number[]>();
+  const stack: Array<{ account: AccountInfo; depth: number; family: AccountFamily; path: number[] }> = roots.map(
+    (account) => ({ account, depth: 0, family: classifyAccount(account.code), path: [account.id] }),
+  );
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    familyById.set(node.account.id, node.family);
+    depthById.set(node.account.id, node.depth);
+    pathById.set(node.account.id, node.path);
+    for (const kid of childrenOf.get(node.account.id) || []) {
+      stack.push({ account: kid, depth: node.depth + 1, family: node.family, path: [...node.path, kid.id] });
+    }
+  }
+
+  // Row keys: every direct journal key plus the same-currency key for each ancestor.
+  const directKeys = new Set<string>([...openingMap.keys(), ...periodMap.keys()]);
+  const expandedKeys = new Set<string>();
+  for (const key of directKeys) {
+    const [accountIdStr, currencyCode] = key.split(":");
+    let account = accountMap.get(Number(accountIdStr));
+    while (account) {
+      expandedKeys.add(`${account.id}:${currencyCode}`);
+      account = account.parentId ? accountMap.get(account.parentId) : undefined;
+    }
+  }
+
+  const makeValues = (opening: { debit: number; credit: number }, period: { debit: number; credit: number }) => {
+    const openingNet = round2(opening.debit - opening.credit);
+    const closingNet = round2(openingNet + period.debit - period.credit);
+    return {
+      openingDebit: openingNet > 0 ? round2(openingNet) : 0,
+      openingCredit: openingNet < 0 ? round2(Math.abs(openingNet)) : 0,
+      periodDebit: round2(period.debit),
+      periodCredit: round2(period.credit),
+      closingDebit: closingNet > 0 ? round2(closingNet) : 0,
+      closingCredit: closingNet < 0 ? round2(Math.abs(closingNet)) : 0,
+    };
+  };
+
+  // Recursive subtree aggregation (hierarchy is validated acyclic above).
+  const subtreeMemo = new Map<string, { openingDebit: number; openingCredit: number; periodDebit: number; periodCredit: number }>();
+  const subtreeOf = (accountId: number, currencyCode: string) => {
+    const key = `${accountId}:${currencyCode}`;
+    const memo = subtreeMemo.get(key);
+    if (memo) return memo;
+    const opening = openingMap.get(key) || { debit: 0, credit: 0 };
+    const period = periodMap.get(key) || { debit: 0, credit: 0 };
+    const total = { openingDebit: opening.debit, openingCredit: opening.credit, periodDebit: period.debit, periodCredit: period.credit };
+    for (const kid of childrenOf.get(accountId) || []) {
+      const childTotal = subtreeOf(kid.id, currencyCode);
+      total.openingDebit += childTotal.openingDebit;
+      total.openingCredit += childTotal.openingCredit;
+      total.periodDebit += childTotal.periodDebit;
+      total.periodCredit += childTotal.periodCredit;
+    }
+    for (const field of ["openingDebit", "openingCredit", "periodDebit", "periodCredit"] as const) {
+      total[field] = round2(total[field]);
+    }
+    subtreeMemo.set(key, total);
+    return total;
+  };
+
+  const sortedKeys = [...expandedKeys].sort((ka, kb) => {
+    const [aId, aCur] = ka.split(":");
+    const [bId, bCur] = kb.split(":");
+    const pathA = pathById.get(Number(aId)) || [Number(aId)];
+    const pathB = pathById.get(Number(bId)) || [Number(bId)];
+    const len = Math.min(pathA.length, pathB.length);
+    for (let i = 0; i < len; i++) {
+      if (pathA[i] !== pathB[i]) return pathA[i] - pathB[i];
+    }
+    if (pathA.length !== pathB.length) return pathA.length - pathB.length;
+    return aCur.localeCompare(bCur);
+  });
+
+  const rows: TrialBalanceRow[] = [];
+  for (const key of sortedKeys) {
     const [accountIdStr, currencyCode] = key.split(":");
     const accountId = Number(accountIdStr);
     const acc = accountMap.get(accountId);
     if (!acc) continue;
 
-    const opening = openingMap.get(key) || { debit: 0, credit: 0 };
-    const period = periodMap.get(key) || { debit: 0, credit: 0 };
+    const ownOpening = openingMap.get(key) || { debit: 0, credit: 0 };
+    const ownPeriod = periodMap.get(key) || { debit: 0, credit: 0 };
+    const direct = makeValues(ownOpening, ownPeriod);
 
-    const openingNet = round2(opening.debit - opening.credit);
-    const closingNet = round2(openingNet + period.debit - period.credit);
+    const subtree = subtreeOf(accountId, currencyCode);
+    const displayed = makeValues(
+      { debit: subtree.openingDebit, credit: subtree.openingCredit },
+      { debit: subtree.periodDebit, credit: subtree.periodCredit },
+    );
 
-    const openingDebit = openingNet > 0 ? round2(openingNet) : 0;
-    const openingCredit = openingNet < 0 ? round2(Math.abs(openingNet)) : 0;
-    const closingDebit = closingNet > 0 ? round2(closingNet) : 0;
-    const closingCredit = closingNet < 0 ? round2(Math.abs(closingNet)) : 0;
-
-    // Use parentId hierarchy when available: child accounts group under parent's family.
-    // Falls back to code-based classification when no parentId is set.
-    let family: AccountFamily;
-    if (acc.parentId) {
-      const parent = accountMap.get(acc.parentId);
-      family = parent ? classifyAccount(parent.code) : classifyAccount(acc.code);
-    } else {
-      family = classifyAccount(acc.code);
-    }
+    const family = familyById.get(acc.id) ?? classifyAccount(acc.code);
     const familyDef = getFamilyDef(family);
 
     rows.push({
@@ -167,12 +306,12 @@ export function buildTrialBalance(input: {
       family,
       familyLabel: familyDef.label,
       currencyCode,
-      openingDebit,
-      openingCredit,
-      periodDebit: round2(period.debit),
-      periodCredit: round2(period.credit),
-      closingDebit,
-      closingCredit,
+      ...displayed,
+      depth: depthById.get(acc.id) ?? 0,
+      parentId: acc.parentId ?? null,
+      isParentRow: (childrenOf.get(acc.id) || []).length > 0,
+      hasDirectEntries: acc.hasDirectEntries ?? (openingMap.has(key) || periodMap.has(key)),
+      direct,
     });
   }
 
@@ -205,14 +344,9 @@ export function buildTrialBalance(input: {
     const group = section.groups.get(g.family)!;
     group.rows.push(...g.rows);
     for (const row of g.rows) {
-      addCurrencyTotals(group.totals, row.currencyCode, {
-        openingDebit: row.openingDebit,
-        openingCredit: row.openingCredit,
-        periodDebit: row.periodDebit,
-        periodCredit: row.periodCredit,
-        closingDebit: row.closingDebit,
-        closingCredit: row.closingCredit,
-      });
+      // Totals use direct values only: parent rows display recursive balances,
+      // and every journal entry must be counted exactly once.
+      addCurrencyTotals(group.totals, row.currencyCode, row.direct);
     }
   }
 
@@ -281,14 +415,7 @@ export function filterTrialBalanceRows(
       if (rows.length === 0) continue;
       const totals: CurrencyTotals = {};
       for (const row of rows) {
-        addCurrencyTotals(totals, row.currencyCode, {
-          openingDebit: row.openingDebit,
-          openingCredit: row.openingCredit,
-          periodDebit: row.periodDebit,
-          periodCredit: row.periodCredit,
-          closingDebit: row.closingDebit,
-          closingCredit: row.closingCredit,
-        });
+        addCurrencyTotals(totals, row.currencyCode, row.direct);
       }
       filteredGroups.push({ ...group, rows, totals });
     }
@@ -320,3 +447,13 @@ export function filterTrialBalanceRows(
 }
 
 export { round2, normalizeCurrency };
+
+// Search and account-type filters produce account subsets whose D/C imbalance is
+// expected; only unfiltered (or full single-currency / scoped) views may assert
+// reconciliation. Shared by the Trial Balance API and the XLSX export.
+export function reconciliationIsMeaningful(filters: {
+  search?: string | null;
+  accountType?: string | null;
+}): boolean {
+  return !(filters.search || filters.accountType);
+}

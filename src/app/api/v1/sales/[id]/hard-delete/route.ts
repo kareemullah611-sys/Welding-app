@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { withAuth, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, validationError, serverError } from "@/lib/api-response";
 import { JWTPayload, comparePassword } from "@/lib/auth";
+import { saleHistoryJournalWhere } from "@/lib/hard-delete-history";
 
 // DELETE /api/v1/sales/:id/hard-delete
 // Super admin only — permanently removes a sale record from the database.
@@ -42,30 +43,32 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
     }
 
     await prisma.$transaction(async (tx) => {
-      // Fix: also remove COGS-* entries — sale creation posts SALE-* AND COGS-* journals
-      await tx.journalEntry.deleteMany({ where: { transactionId: `SALE-${id}` } });
-      await tx.journalEntry.deleteMany({ where: { transactionId: `COGS-${id}` } });
-      const discountIds = await tx.saleDiscount.findMany({ where: { saleId: id }, select: { id: true } });
-      for (const { id: discountId } of discountIds) {
-        await tx.journalEntry.deleteMany({ where: { transactionId: `DISCOUNT-${discountId}` } });
+      // C1: a cancelled walk-in payment carries REV-PAY/REV-ADJPAY reversal rows
+      // that are immutable audit history — block instead of orphaning them.
+      const walkinPayment =
+        sale.customer.name === "Walk-in Customer"
+          ? await tx.payment.findFirst({ where: { saleId: sale.id }, select: { id: true, status: true } })
+          : null;
+      if (walkinPayment?.status === "cancelled") {
+        throw new Error("WALKIN_PAYMENT_CANCELLED");
       }
+      // C1: refuse once the sale has accounting history (SALE/COGS/DISCOUNT or
+      // walk-in PAY/ADJPAY journals) — only journal-less rows may be erased.
+      const discountIds = await tx.saleDiscount.findMany({ where: { saleId: id }, select: { id: true } });
+      const historyCount = await tx.journalEntry.count({
+        where: saleHistoryJournalWhere(id, discountIds.map((d) => d.id), walkinPayment ? [walkinPayment.id] : []),
+      });
+      if (historyCount > 0) {
+        throw Object.assign(new Error("Sale has accounting history"), { code: "SALE_HAS_ACCOUNTING_HISTORY" });
+      }
+
       await tx.saleDiscount.deleteMany({ where: { saleId: id } });
       await tx.saleItem.deleteMany({ where: { saleId: id } });
 
-      // Fix: for walk-in sales, auto-payment was created at sale time — remove it too.
-      // Fix C1: drop manualVoucherNo fallback — saleId is the only reliable link.
-      if (sale.customer.name === "Walk-in Customer") {
-        const walkinPayment = await tx.payment.findFirst({
-          where: {
-            saleId: sale.id,
-          },
-          select: { id: true },
-        });
-        if (walkinPayment) {
-          await tx.journalEntry.deleteMany({ where: { transactionId: `PAY-${walkinPayment.id}` } });
-          await (tx as any).paymentLotTransfer.deleteMany({ where: { paymentId: walkinPayment.id } });
-          await tx.payment.delete({ where: { id: walkinPayment.id } });
-        }
+      // Journal-less walk-in sale: remove the auto-payment row too (no journals exist).
+      if (walkinPayment) {
+        await (tx as any).paymentLotTransfer.deleteMany({ where: { paymentId: walkinPayment.id } });
+        await tx.payment.delete({ where: { id: walkinPayment.id } });
       }
 
       await tx.sale.delete({ where: { id } });
@@ -90,6 +93,20 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
     });
     return successResponse({ id }, "Sale permanently deleted");
   } catch (error) {
+    if ((error as any)?.code === "SALE_HAS_ACCOUNTING_HISTORY") {
+      return errorResponse(
+        "SALE_HAS_ACCOUNTING_HISTORY",
+        "Sales with accounting history cannot be permanently deleted. Cancel the sale instead.",
+        409
+      );
+    }
+    if ((error as any)?.message === "WALKIN_PAYMENT_CANCELLED") {
+      return errorResponse(
+        "CONFLICT",
+        "The walk-in payment for this sale is cancelled: its reversal journals are audit history. Keep the cancelled record before permanently deleting the sale.",
+        409
+      );
+    }
     console.error("Hard delete sale error:", error);
     return serverError();
   }

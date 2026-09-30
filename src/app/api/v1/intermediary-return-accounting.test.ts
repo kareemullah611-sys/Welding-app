@@ -100,5 +100,11 @@ test("intermediary bank return updates DB journal and both balances once and rev
     await prisma.openingSuperAdminAccountBalance.deleteMany({ where: { accountId: account.id } });
     await prisma.superAdminBankAccount.deleteMany({ where: { id: account.id } });
     await prisma.intermediary.deleteMany({ where: { id: intermediary.id } });
+    await prisma.account.deleteMany({
+      where: {
+        code: { in: [`1050-SABANK${account.id}`, `1060-H${intermediary.id}`, `1061-HFX${intermediary.id}`] },
+        journalEntries: { none: {} },
+      },
+    });
   }
 });

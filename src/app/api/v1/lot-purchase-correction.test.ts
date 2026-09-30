@@ -58,12 +58,22 @@ test("post-sale purchase edit posts a current delta without reversing the origin
     assert.equal(await prisma.journalEntry.count({ where: { transactionId: { startsWith: `REV-PURCH-${lot.id}-${purchase.id}` } } }), 0);
   } finally {
     await prisma.journalEntry.deleteMany({ where: { entityType: "lot_purchase_correction", entityId: lot.id } });
+    const purchaseRows = await prisma.lotPurchase.findMany({ where: { lotId: lot.id }, select: { id: true } });
+    if (purchaseRows.length) {
+      const purchaseIds = purchaseRows.map((r) => r.id);
+      await prisma.auditLog.deleteMany({ where: { entityType: "lot_purchases", entityId: { in: purchaseIds } } });
+      await prisma.foreignCurrencyMovement.deleteMany({ where: { sourceType: "lot_purchase", sourceId: { in: purchaseIds } } });
+      await prisma.foreignCurrencyCarryingLayer.deleteMany({ where: { sourceType: "lot_purchase", sourceId: { in: purchaseIds } } });
+    }
     await prisma.saleItem.deleteMany({ where: { saleId: sale.id } });
     await prisma.sale.delete({ where: { id: sale.id } });
     await prisma.lotPurchase.deleteMany({ where: { lotId: lot.id } });
     await prisma.lotProduct.deleteMany({ where: { lotId: lot.id } });
     await prisma.lot.delete({ where: { id: lot.id } });
     await prisma.supplier.delete({ where: { id: supplier.id } });
+    await prisma.account.deleteMany({
+      where: { code: `2100-S${supplier.id}`, journalEntries: { none: {} } },
+    });
     await prisma.product.delete({ where: { id: product.id } });
     await prisma.customer.delete({ where: { id: customer.id } });
   }

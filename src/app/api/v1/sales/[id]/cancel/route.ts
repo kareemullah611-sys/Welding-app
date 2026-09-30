@@ -63,6 +63,14 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
             data: { status: "cancelled", notes: `${walkinPayment.notes || ""}\n[Auto-cancelled: linked sale #${sale.voucherNo} was cancelled. Reason: ${body.reason}]`.trim() },
           });
           await reverseJournalEntries(`PAY-${walkinPayment.id}`, user.userId, tx);
+          const adjTxns = await tx.journalEntry.findMany({
+            where: { transactionId: { startsWith: `ADJPAY-${walkinPayment.id}-` } },
+            select: { transactionId: true },
+            distinct: ["transactionId"],
+          });
+          for (const adj of adjTxns) {
+            await reverseJournalEntries(adj.transactionId, user.userId, tx);
+          }
         }
       }
 
@@ -74,6 +82,10 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       });
       await reverseJournalEntries(`SALE-${id}`, user.userId, tx);
       await reverseJournalEntries(`COGS-${id}`, user.userId, tx);
+      const discounts = await tx.saleDiscount.findMany({ where: { saleId: id }, select: { id: true } });
+      for (const discount of discounts) {
+        await reverseJournalEntries(`DISCOUNT-${discount.id}`, user.userId, tx);
+      }
     });
 
     return successResponse({ id, status: "cancelled" }, "Sale cancelled");

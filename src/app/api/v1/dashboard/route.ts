@@ -36,7 +36,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         _sum: { amount: true },
       }),
       prisma.personalWithdrawal.groupBy({
-        by: ["currencyId"],
+        by: ["currencyId", "sourceType"],
         where: cityFilter,
         _sum: { amount: true },
       }),
@@ -91,7 +91,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     const withdrawalByCurrency: Record<string, number> = {};
     for (const w of wdByC) {
-      withdrawalByCurrency[currCode[w.currencyId]] = Number(w._sum.amount || 0);
+      const code = currCode[w.currencyId];
+      withdrawalByCurrency[code] = (withdrawalByCurrency[code] || 0) + Number(w._sum.amount || 0);
     }
 
     const expenseByCurrency: Record<string, number> = {};
@@ -159,8 +160,9 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         const code = currCode[e.currencyId];
         cashByCurrency[code] = (cashByCurrency[code] || 0) - Number(e._sum.amount || 0);
       }
-      // Withdrawals → cash OUT
-      for (const w of wdByC) {
+      // Withdrawals → cash OUT (only cash-office pot; bank/cheque/customer
+      // withdrawals come from other pots — mirrors treasury-ledger.ts)
+      for (const w of wdByC.filter((w) => w.sourceType === "cash_office")) {
         const code = currCode[w.currencyId];
         cashByCurrency[code] = (cashByCurrency[code] || 0) - Number(w._sum.amount || 0);
       }
@@ -210,7 +212,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           _sum: { amount: true },
         }),
         prisma.personalWithdrawal.groupBy({
-          by: ["cityId", "currencyId"],
+          by: ["cityId", "currencyId", "sourceType"],
           _sum: { amount: true },
         }),
         prisma.openingCash.groupBy({
@@ -280,7 +282,9 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         for (const w of cWd.filter((w) => w.cityId === cid)) {
           const code = currCode[w.currencyId];
           wdByCurr[code] = (wdByCurr[code] || 0) + Number(w._sum.amount || 0);
-          cashByCurr[code] = (cashByCurr[code] || 0) - Number(w._sum.amount || 0);
+          if (w.sourceType === "cash_office") {
+            cashByCurr[code] = (cashByCurr[code] || 0) - Number(w._sum.amount || 0);
+          }
         }
         for (const e of cExpenses.filter((e) => e.cityId === cid)) {
           const code = currCode[e.currencyId];

@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
-import { journalExpenseCreated, journalForeignCustomerReceiptMovements, journalForeignExpenseMovements, journalPaymentReceived, reverseJournalEntries } from "@/lib/accounting";
+import { journalExpenseCreated, journalForeignCustomerReceiptMovements, journalForeignExpenseMovements, journalPaymentReceived, reverseJournalEntries, assertJournalEntriesNotInClosedPeriod } from "@/lib/accounting";
 import { JWTPayload } from "@/lib/auth";
 import { updateExpenseSchema } from "@/lib/validations";
 import { getSaCheckAuditStateMap, isSaCheckConfirmed } from "@/lib/sa-check-audit";
@@ -186,6 +186,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           await reverseJournalEntries(journalTransactionId, user.userId, tx);
         }
       } else {
+        await assertJournalEntriesNotInClosedPeriod({ transactionId: { in: [`EXP-${id}`, `REV-EXP-${id}`] } }, tx);
         await tx.journalEntry.deleteMany({
           where: { transactionId: { in: [`EXP-${id}`, `REV-EXP-${id}`] } },
         });
@@ -202,6 +203,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
             await reverseJournalEntries(journalTransactionId, user.userId, tx);
           }
         } else {
+          await assertJournalEntriesNotInClosedPeriod({ transactionId: { in: [`PAY-${linkedCustomerPayment.id}`, `REV-PAY-${linkedCustomerPayment.id}`] } }, tx);
           await tx.journalEntry.deleteMany({
             where: { transactionId: { in: [`PAY-${linkedCustomerPayment.id}`, `REV-PAY-${linkedCustomerPayment.id}`] } },
           });
@@ -380,9 +382,7 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
             await reverseJournalEntries(journalTransactionId, user.userId, tx);
           }
         } else {
-          await tx.journalEntry.deleteMany({
-            where: { transactionId: { in: [`PAY-${linkedCustomerPayment.id}`, `REV-PAY-${linkedCustomerPayment.id}`] } },
-          });
+          await reverseJournalEntries(`PAY-${linkedCustomerPayment.id}`, user.userId, tx);
         }
         await tx.payment.delete({ where: { id: linkedCustomerPayment.id } });
       }

@@ -62,6 +62,12 @@ test("shipping line create is idempotent for repeated sync request id", async ()
         requestId: syncRequestId,
       },
     });
+    const lineRows = await prisma.shippingLine.findMany({ where: { name: marker }, select: { id: true } });
+    if (lineRows.length) {
+      await prisma.auditLog.deleteMany({
+        where: { entityType: "shipping_lines", entityId: { in: lineRows.map((r) => r.id) } },
+      });
+    }
     await prisma.shippingLine.deleteMany({ where: { name: marker } });
   }
 });

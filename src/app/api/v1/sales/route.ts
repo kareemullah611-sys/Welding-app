@@ -2,8 +2,10 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middleware";
+import { checkFinWriteRateLimit } from "@/lib/rate-limit";
 import { createSaleSchema } from "@/lib/validations";
 import { journalSaleCreated, journalPaymentReceived, journalSaleCOGSForLots } from "@/lib/accounting";
+import { attachSaleAccountingHistoryFlags } from "@/lib/hard-delete-history";
 import {
   successResponse, paginatedResponse, validationError, errorResponse, serverError,
   getPaginationParams, getDateRange,
@@ -14,6 +16,7 @@ import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idem
 import { allocateSaleItemAcrossLots, consolidateSaleLotAllocationItems, AvailableSaleLot, SaleLotAllocationItem } from "@/lib/sale-lot-allocation";
 import { resolveAfghanistanFxRateFromDb } from "@/lib/sarafi-af-snapshot-db";
 import { isAfghanistanCountry } from "@/lib/country-code";
+import { checkCarryingLayerWired } from "@/lib/foreign-currency-carrying";
 import {
   foreignCurrencyOwnerKey,
   recordForeignCurrencyRecognition,
@@ -220,6 +223,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       stockShortFlag: s.stockShortFlag,
       notes: s.notes,
       cancellationReason: s.cancellationReason,
+      hasAccountingHistory: (s as any).hasAccountingHistory === true,
       customer: s.customer,
       lot: { id: s.lot.id, lotNumber: s.lot.lotNumber, status: s.lot.status },
       godown: { ...s.godown, crossCity: s.godown.cityId !== s.cityId, sourceCityName: s.godown.city?.name },
@@ -263,6 +267,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         }),
         prisma.sale.count({ where: baseWhere }),
       ]);
+      await attachSaleAccountingHistoryFlags(prisma, sales);
       return paginatedResponse(sales.map(formatSale), total, page, limit);
     }
 
@@ -280,6 +285,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       },
       orderBy: [{ saleDate: "desc" }, { id: "desc" }],
     });
+    await attachSaleAccountingHistoryFlags(prisma, candidates);
 
     const includesQuery = (value: unknown) => String(value ?? "").toLowerCase().includes(normalizedQuery);
     const digitsOnly = (value: unknown) => String(value ?? "").replace(/[^\d]/g, "");
@@ -332,6 +338,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 // POST /api/v1/sales - Create sale
 export const POST = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
+    const limited = await checkFinWriteRateLimit(user.userId);
+    if (limited) return limited;
     if (user.role !== "city_admin") {
       return errorResponse("FORBIDDEN", "Only city admins can create sales", 403);
     }
@@ -376,9 +384,10 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const parsed = createSaleSchema.safeParse(body);
     if (!parsed.success) return validationError("Invalid sale data", parsed.error.errors);
 
-    const { godownId, saleDate, currencyId, notes, items } = parsed.data;
+    const { godownId, saleDate, currencyId, notes, items, walkInPaymentMode } = parsed.data;
     let { customerId } = parsed.data;
     let lotId = parsed.data.lotId;
+    const skipWalkInPayment = customerId === -1 && walkInPaymentMode === "credit";
 
     // Handle walk-in customer (id = -1): find or create per city
     if (customerId === -1) {
@@ -496,6 +505,8 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     const totalAmount = roundMoney(normalizedItems.reduce((sum, i) => sum + Number(i.amount || 0), 0));
     const country = await prisma.country.findUnique({ where: { id: user.countryId! }, select: { code: true, name: true } });
     const isAfghanistan = isAfghanistanCountry(country);
+    const carryingGate = checkCarryingLayerWired(isAfghanistan, resolvedCurrency.code);
+    if (!carryingGate.ok) return errorResponse("FOREIGN_CARRYING_LAYER_REQUIRED", carryingGate.message, 409);
     const saleFx = isAfghanistan && ["AFN", "USD", "CNY", "AED"].includes(String(resolvedCurrency.code || "").toUpperCase())
       ? await resolveAfghanistanFxRateFromDb({
           currencyCode: resolvedCurrency.code,
@@ -608,7 +619,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         items: createdSale.items.map((i: any) => `${i.product.name} ×${Number(i.cartonQty || i.qty)}`).join(", ") || undefined,
       }, getClientIP(request), tx);
 
-      if (createdSale.customer.name === "Walk-in Customer") {
+      if (createdSale.customer.name === "Walk-in Customer" && !skipWalkInPayment) {
         const walkinPayment = await tx.payment.create({
           data: {
             cityId,

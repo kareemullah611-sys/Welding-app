@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
@@ -21,6 +21,10 @@ type TBRow = {
   periodCredit: number;
   closingDebit: number;
   closingCredit: number;
+  depth: number;
+  parentId: number | null;
+  isParentRow: boolean;
+  hasDirectEntries: boolean;
 };
 
 type TBGroup = {
@@ -68,6 +72,7 @@ export default function TrialBalancePage() {
 
   const [data, setData] = useState<TBData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [cityId, setCityId] = useState("");
@@ -78,6 +83,51 @@ export default function TrialBalancePage() {
   const [financialYears, setFinancialYears] = useState<any[]>([]);
   const [financialYearLabel, setFinancialYearLabel] = useState("");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [collapsedNodes, setCollapsedNodes] = useState<Set<number>>(new Set());
+
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevSearchRef = useRef(search);
+
+  const fetchTB = useCallback(async (params: Record<string, string>) => {
+    if (!params.date_from || !params.date_to) return;
+    setLoading(true);
+    const r = await apiCall("/api/v1/trial-balance", { params });
+    if (r.success) {
+      setData(r.data as TBData);
+      setError(null);
+    } else {
+      setData(null);
+      setError(r.error || "Failed to load trial balance");
+    }
+    setLoading(false);
+  }, []);
+
+  const buildParams = useCallback(() => {
+    const params: Record<string, string> = { date_from: dateFrom, date_to: dateTo };
+    if (cityId) params.city_id = cityId;
+    if (currency) params.currency = currency;
+    if (accountType) params.account_type = accountType;
+    if (search) params.q = search;
+    return params;
+  }, [dateFrom, dateTo, cityId, currency, accountType, search]);
+
+  const buildParamsRef = useRef(buildParams);
+  useEffect(() => { buildParamsRef.current = buildParams; }, [buildParams]);
+
+  const cancelSearchTimer = useCallback(() => {
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current);
+      searchTimerRef.current = null;
+    }
+  }, []);
+
+  const load = useCallback(() => {
+    cancelSearchTimer();
+    return fetchTB(buildParams());
+  }, [cancelSearchTimer, fetchTB, buildParams]);
+
+  const loadRef = useRef(load);
+  useEffect(() => { loadRef.current = load; }, [load]);
 
   useEffect(() => {
     if (user?.role !== "super_admin") return;
@@ -91,28 +141,32 @@ export default function TrialBalancePage() {
         setFinancialYears(years);
         const selected = years.find((y: any) => y.status === "open") || years[0];
         if (selected) {
-          setDateFrom(String(selected.startDate).slice(0, 10));
-          setDateTo(String(selected.endDate).slice(0, 10));
+          const d1 = String(selected.startDate).slice(0, 10);
+          const d2 = String(selected.endDate).slice(0, 10);
+          setDateFrom(d1);
+          setDateTo(d2);
           setFinancialYearLabel(selected.name || "");
+          void fetchTB({ date_from: d1, date_to: d2 });
         }
       }
     });
-  }, [user]);
+  }, [user, fetchTB]);
 
-  const load = useCallback(async () => {
-    if (!dateFrom || !dateTo) return;
-    setLoading(true);
-    const params: Record<string, string> = { date_from: dateFrom, date_to: dateTo };
-    if (cityId) params.city_id = cityId;
-    if (currency) params.currency = currency;
-    if (accountType) params.account_type = accountType;
-    if (search) params.q = search;
-    const r = await apiCall("/api/v1/trial-balance", { params });
-    if (r.success) setData(r.data as TBData);
-    setLoading(false);
-  }, [dateFrom, dateTo, cityId, currency, accountType, search]);
-
-  useEffect(() => { load(); }, [load]);
+  // Search auto-applies debounced; date/city/currency/type require Apply.
+  useEffect(() => {
+    if (prevSearchRef.current === search) return;
+    prevSearchRef.current = search;
+    searchTimerRef.current = setTimeout(() => {
+      searchTimerRef.current = null;
+      void fetchTB(buildParamsRef.current());
+    }, 400);
+    return () => {
+      if (searchTimerRef.current) {
+        clearTimeout(searchTimerRef.current);
+        searchTimerRef.current = null;
+      }
+    };
+  }, [search, fetchTB]);
 
   const toggleGroup = (key: string) => {
     setExpandedGroups((prev) => {
@@ -121,6 +175,38 @@ export default function TrialBalancePage() {
       else next.add(key);
       return next;
     });
+  };
+
+  const parentById = useMemo(() => {
+    const map = new Map<number, number>();
+    if (data) {
+      for (const section of data.sections) {
+        for (const group of section.groups) {
+          for (const row of group.rows) {
+            if (row.parentId != null) map.set(row.accountId, row.parentId);
+          }
+        }
+      }
+    }
+    return map;
+  }, [data]);
+
+  const toggleNode = (accountId: number) => {
+    setCollapsedNodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(accountId)) next.delete(accountId);
+      else next.add(accountId);
+      return next;
+    });
+  };
+
+  const isRowVisible = (row: TBRow): boolean => {
+    let current = parentById.get(row.accountId) ?? null;
+    while (current != null) {
+      if (collapsedNodes.has(current)) return false;
+      current = parentById.get(current) ?? null;
+    }
+    return true;
   };
 
   // Expand all groups before printing, then trigger print
@@ -133,6 +219,7 @@ export default function TrialBalancePage() {
       }
     }
     setExpandedGroups(allKeys);
+    setCollapsedNodes(new Set());
     setTimeout(() => window.print(), 100);
   }, [data]);
 
@@ -151,14 +238,24 @@ export default function TrialBalancePage() {
     window.open(`/api/v1/trial-balance/export?${new URLSearchParams(params)}`, "_blank");
   }, [data, dateFrom, dateTo, cityId, currency, accountType, search]);
 
+  const handleReset = useCallback(() => {
+    prevSearchRef.current = "";
+    setCityId("");
+    setCurrency("");
+    setAccountType("");
+    setSearch("");
+    cancelSearchTimer();
+    void fetchTB({ date_from: dateFrom, date_to: dateTo });
+  }, [cancelSearchTimer, fetchTB, dateFrom, dateTo]);
+
   const handleRowClick = (row: TBRow) => {
     const params = new URLSearchParams({
       account_id: String(row.accountId),
       date_from: dateFrom,
       date_to: dateTo,
+      currency: row.currencyCode,
     });
     if (cityId) params.set("city_id", cityId);
-    if (currency) params.set("currency", row.currencyCode);
     router.push(`/accounts/ledger?${params.toString()}`);
   };
 
@@ -249,7 +346,7 @@ export default function TrialBalancePage() {
             <GlassButton variant="primary" onClick={load} disabled={loading || !dateFrom || !dateTo}>
               {loading ? "Loading..." : "Apply"}
             </GlassButton>
-            <GlassButton variant="secondary" onClick={() => { setCityId(""); setCurrency(""); setAccountType(""); setSearch(""); }}>
+            <GlassButton variant="secondary" onClick={handleReset}>
               Reset
             </GlassButton>
           </div>
@@ -309,6 +406,11 @@ export default function TrialBalancePage() {
 
       {loading ? (
         <div className="py-12 text-center text-gray-400">Loading...</div>
+      ) : error ? (
+        <div className="py-12 text-center">
+          <div className="text-red-600 mb-3">{error}</div>
+          <GlassButton variant="primary" onClick={load}>Retry</GlassButton>
+        </div>
       ) : data && data.sections.length > 0 ? (
         <div className="space-y-4">
           {data.sections.map((section) => (
@@ -320,7 +422,8 @@ export default function TrialBalancePage() {
                 return (
                   <div key={groupKey} className="card mb-3">
                     <button
-                      className="w-full flex justify-between items-center py-1 text-left"
+                      className="w-full flex justify-between items-center py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50"
+                      aria-expanded={isExpanded}
                       onClick={() => toggleGroup(groupKey)}
                     >
                       <span className="text-sm font-semibold text-gray-700">{group.familyLabel}</span>
@@ -349,13 +452,24 @@ export default function TrialBalancePage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {group.rows.map((row) => (
+                            {group.rows.filter(isRowVisible).map((row) => (
                               <tr
                                 key={`${row.accountId}:${row.currencyCode}`}
-                                className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer"
-                                onClick={() => handleRowClick(row)}
+                                className={`border-b border-gray-50 hover:bg-gray-50 ${row.hasDirectEntries ? "cursor-pointer" : ""}`}
+                                onClick={row.hasDirectEntries ? () => handleRowClick(row) : undefined}
                               >
-                                <td className="py-1.5 pr-2">
+                                <td className="py-1.5 pr-2" style={row.depth > 0 ? { paddingLeft: `${row.depth * 16}px` } : undefined}>
+                                  {row.isParentRow && (
+                                    <button
+                                      type="button"
+                                      aria-expanded={!collapsedNodes.has(row.accountId)}
+                                      aria-label={collapsedNodes.has(row.accountId) ? "Expand accounts" : "Collapse accounts"}
+                                      onClick={(e) => { e.stopPropagation(); toggleNode(row.accountId); }}
+                                      className="mr-1 text-gray-400 hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50"
+                                    >
+                                      {collapsedNodes.has(row.accountId) ? "▶" : "▼"}
+                                    </button>
+                                  )}
                                   <span className="text-gray-800 font-medium">{row.accountName}</span>
                                   <span className="text-gray-400 text-xs ml-1">({row.accountCode})</span>
                                 </td>

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middleware";
+import { checkFinWriteRateLimit } from "@/lib/rate-limit";
 import { journalPaymentReceived, journalChequeReceived, journalHajiTransfer, journalForeignCustomerReceiptMovements } from "@/lib/accounting";
 import { createPaymentSchema } from "@/lib/validations";
 import { getPaymentHajiAuditStateMap, isHajiAuditEligible } from "@/lib/payment-audit";
@@ -16,7 +17,7 @@ import { resolveAfghanistanSettlement, type ResolvedAfghanistanSettlement } from
 import { formatAfghanistanCityPaymentDetail } from "@/lib/payment-module-detail";
 import { isAfghanistanCountry } from "@/lib/country-code";
 import { resolveAfghanistanFxRateFromDb } from "@/lib/sarafi-af-snapshot-db";
-import { isSupportedForeignCurrency } from "@/lib/foreign-currency-carrying";
+import { isSupportedForeignCurrency, checkCarryingLayerWired } from "@/lib/foreign-currency-carrying";
 import { foreignCurrencyOwnerKey, settleForeignCurrencyAsset } from "@/lib/foreign-currency-carrying-db";
 
 const PAYMENT_SYNC_MODULE = "payments.create";
@@ -162,6 +163,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 // POST /api/v1/payments
 export const POST = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
+    const limited = await checkFinWriteRateLimit(user.userId);
+    if (limited) return limited;
     if (user.role !== "city_admin") {
       return errorResponse("FORBIDDEN", "Only city admins can create payments", 403);
     }
@@ -247,6 +250,8 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       include: { country: { select: { code: true } } },
     });
     const isAfghanistanCity = isAfghanistanCountry(city?.country);
+    const carryingGate = checkCarryingLayerWired(isAfghanistanCity, cityCurrency.currency.code);
+    if (!carryingGate.ok) return errorResponse("FOREIGN_CARRYING_LAYER_REQUIRED", carryingGate.message, 409);
     if (isAfghanistanCity && paymentMethod !== "cash") {
       return errorResponse("VALIDATION_ERROR", "Afghanistan cities can record cash payments only");
     }

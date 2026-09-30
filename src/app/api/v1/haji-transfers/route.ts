@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, getCityScope, createAuditLog, getClientIP } from "@/lib/middleware";
+import { checkFinWriteRateLimit } from "@/lib/rate-limit";
 import { createHajiTransferSchema } from "@/lib/validations";
 import { successResponse, paginatedResponse, validationError, errorResponse, serverError, getPaginationParams, getDateRange } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
@@ -202,6 +203,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
 export const POST = withAuth(async (request: NextRequest, context, user: JWTPayload) => {
   try {
+    const limited = await checkFinWriteRateLimit(user.userId);
+    if (limited) return limited;
     if (user.role !== "city_admin") return errorResponse("FORBIDDEN", "Only city admins can record Haji transfers", 403);
     const syncMeta = getSyncRequestMeta(request);
     const body = await request.json();

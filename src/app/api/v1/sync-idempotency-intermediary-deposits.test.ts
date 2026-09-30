@@ -110,10 +110,30 @@ test("intermediary deposit create is idempotent for repeated sync request id", a
         requestId: syncRequestId,
       },
     });
+    const depositRows = await prisma.intermediaryDeposit.findMany({
+      where: { intermediaryId: intermediary.id, notes: marker },
+      select: { id: true },
+    });
+    if (depositRows.length) {
+      await prisma.journalEntry.deleteMany({
+        where: { transactionId: { in: depositRows.map((r) => `INTDEP-${r.id}`) } },
+      });
+      await prisma.auditLog.deleteMany({
+        where: { entityType: "intermediary_deposits", entityId: { in: depositRows.map((r) => r.id) } },
+      });
+    }
     await prisma.intermediaryDeposit.deleteMany({
       where: { intermediaryId: intermediary.id, notes: marker },
     });
     await prisma.superAdminBankAccount.deleteMany({ where: { id: bank.id } });
     await prisma.intermediary.deleteMany({ where: { id: intermediary.id } });
+    await prisma.account.deleteMany({
+      where: {
+        code: {
+          in: [`1050-SABANK${bank.id}`, `1060-H${intermediary.id}`, `1061-HFX${intermediary.id}`],
+        },
+        journalEntries: { none: {} },
+      },
+    });
   }
 });

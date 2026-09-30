@@ -1784,7 +1784,7 @@ export default function PaymentsPage() {
                 Unverify
               </button>
             )}
-            {item.type === "payment" && user?.role === "super_admin" && !getPendingQueueId(item?.id) && (
+            {item.type === "payment" && user?.role === "super_admin" && !getPendingQueueId(item?.id) && !item.hasAccountingHistory && (
               <button onClick={() => { setOpenActionId(null); openHardDelete(item); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-800 hover:bg-red-50 sm:py-2 sm:text-xs">{t("hard_delete")}</button>
             )}
           </RowActionMenu>
@@ -1987,7 +1987,7 @@ export default function PaymentsPage() {
             {item.type !== "payment" && (
               <button type="button" onClick={() => openDelete(item)} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 sm:py-2 sm:text-xs">{t("delete")}</button>
             )}
-            {item.type === "payment" && user?.role === "super_admin" && !getPendingQueueId(item?.id) && (
+            {item.type === "payment" && user?.role === "super_admin" && !getPendingQueueId(item?.id) && !item.hasAccountingHistory && (
               <button onClick={() => { setOpenActionId(null); openHardDelete(item); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-red-800 hover:bg-red-50 sm:py-2 sm:text-xs">{t("hard_delete")}</button>
             )}
             {item.type === "withdrawal" && item.status === "pending" && user?.role === "super_admin" && (

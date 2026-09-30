@@ -3,8 +3,9 @@ import prisma from "@/lib/prisma";
 import { withSuperAdmin } from "@/lib/middleware";
 import { errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
-import { buildDateRange } from "@/lib/date-range";
-import { buildTrialBalance, filterTrialBalanceRows, normalizeCurrency } from "@/lib/trial-balance";
+import { buildTrialBalance, filterTrialBalanceRows, normalizeCurrency, reconciliationIsMeaningful, AccountHierarchyError } from "@/lib/trial-balance";
+import { loadTrialBalanceSource } from "@/lib/trial-balance-source";
+import { parseBusinessDateParam, parseCityIdParam } from "@/lib/report-params";
 import ExcelJS from "exceljs";
 
 export const GET = withSuperAdmin(async (request: NextRequest, context, user: JWTPayload) => {
@@ -21,58 +22,35 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
       return errorResponse("VALIDATION_ERROR", "date_from and date_to are required");
     }
 
-    const range = buildDateRange(dateFrom, dateTo);
-    if (!range.gte || !range.lt) {
-      return errorResponse("VALIDATION_ERROR", "Invalid date range");
-    }
+    const fromCheck = parseBusinessDateParam(dateFrom, "date_from");
+    if (fromCheck.errorMessage) return errorResponse("VALIDATION_ERROR", fromCheck.errorMessage);
+    const toCheck = parseBusinessDateParam(dateTo, "date_to");
+    if (toCheck.errorMessage) return errorResponse("VALIDATION_ERROR", toCheck.errorMessage);
 
-    const cityId = cityIdParam ? parseInt(cityIdParam) : undefined;
+    const cityCheck = await parseCityIdParam(cityIdParam);
+    if (cityCheck.errorMessage) return errorResponse("VALIDATION_ERROR", cityCheck.errorMessage);
+    const cityId = cityCheck.cityId;
     const city = cityId ? await prisma.city.findUnique({ where: { id: cityId }, select: { name: true } }) : null;
 
-    const accounts = await prisma.account.findMany({
-      where: { OR: [{ isActive: true }, { journalEntries: { some: {} } }] },
-      select: { id: true, code: true, name: true, accountType: true, cityId: true, parentId: true },
-    });
-
-    const relevantAccounts = cityId
-      ? accounts.filter((a) => !a.cityId || a.cityId === cityId)
-      : accounts;
-    const accountIds = relevantAccounts.map((a) => a.id);
-
-    if (accountIds.length === 0) {
-      return errorResponse("VALIDATION_ERROR", "No accounts found");
-    }
-
-    // Build currency filter that includes legacy RMB when CNY is requested
-    let currencyWhere: Record<string, unknown> | undefined;
-    if (currencyParam) {
-      const normalized = normalizeCurrency(currencyParam);
-      if (normalized === "CNY") {
-        currencyWhere = { currencyCode: { in: ["CNY", "RMB"] } };
-      } else {
-        currencyWhere = { currencyCode: normalized };
+    let source;
+    try {
+      source = await loadTrialBalanceSource({ dateFrom, dateTo, cityId, currencyParam });
+    } catch (error) {
+      if (error instanceof AccountHierarchyError) {
+        return errorResponse("ACCOUNT_HIERARCHY_INVALID", error.message);
       }
+      throw error;
     }
 
-    const cityFilter = cityId ? { cityId } : {};
-    const [openingGroups, periodGroups] = await Promise.all([
-      prisma.journalEntry.groupBy({
-        by: ["accountId", "currencyCode"],
-        where: { accountId: { in: accountIds }, entryDate: { lt: range.gte }, ...cityFilter, ...(currencyWhere || {}) },
-        _sum: { debit: true, credit: true },
-      }),
-      prisma.journalEntry.groupBy({
-        by: ["accountId", "currencyCode"],
-        where: { accountId: { in: accountIds }, entryDate: { gte: range.gte, lt: range.lt }, ...cityFilter, ...(currencyWhere || {}) },
-        _sum: { debit: true, credit: true },
-      }),
-    ]);
-
-    const result = buildTrialBalance({ accounts: relevantAccounts, openingGroups, periodGroups });
+    const result = buildTrialBalance({
+      accounts: source.accounts,
+      openingGroups: source.openingGroups,
+      periodGroups: source.periodGroups,
+    });
     const filtered = filterTrialBalanceRows(result, {
       search: searchParam || undefined,
       accountType: accountTypeParam || undefined,
-      currency: currencyParam || undefined,
+      currency: currencyParam ? normalizeCurrency(currencyParam) : undefined,
     });
 
     const workbook = new ExcelJS.Workbook();
@@ -143,9 +121,17 @@ export const GET = withSuperAdmin(async (request: NextRequest, context, user: JW
     sheet.addRow([]);
     const reconHeader = sheet.addRow(["Reconciliation"]);
     reconHeader.font = { bold: true, size: 12 };
-    sheet.addRow(["Currency", "Opening Diff", "Period Diff", "Closing Diff", "Balanced"]);
-    for (const r of filtered.reconciliation) {
-      sheet.addRow([r.currency, r.openingDiff, r.periodDiff, r.closingDiff, r.balanced ? "Yes" : "NO"]);
+    const reconciliationMeaningful = reconciliationIsMeaningful({
+      search: searchParam,
+      accountType: accountTypeParam,
+    });
+    if (reconciliationMeaningful) {
+      sheet.addRow(["Currency", "Opening Diff", "Period Diff", "Closing Diff", "Balanced"]);
+      for (const r of filtered.reconciliation) {
+        sheet.addRow([r.currency, r.openingDiff, r.periodDiff, r.closingDiff, r.balanced ? "Yes" : "NO"]);
+      }
+    } else {
+      sheet.addRow(["Reconciliation: not applicable (filtered view)"]);
     }
 
     for (let i = 1; i <= 9; i++) {
