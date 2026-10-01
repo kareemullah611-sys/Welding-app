@@ -14,8 +14,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     const isActive = searchParams.get("is_active");
 
     const where: any = {};
-    const showAll = searchParams.get("all") === "true";
-    if (user.role === "city_admin" && !showAll) {
+    if (user.role === "city_admin") {
       where.id = user.cityId;
     } else {
       if (countryId) where.countryId = countryId;

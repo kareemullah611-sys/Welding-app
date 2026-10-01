@@ -515,6 +515,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           positionKind: "asset",
         })
       : null;
+    if (saleFx && !saleFx.ok) return errorResponse("FX_RATE_REQUIRED", saleFx.missingReason, 400);
 
     const sale = await prisma.$transaction(async (tx) => {
       const productIdsToLock: number[] = Array.from(new Set<number>(normalizedItems.map((item) => item.productId)));

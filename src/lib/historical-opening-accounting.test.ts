@@ -80,6 +80,18 @@ test("sale correction and opening deletion preserve opening-import accounting is
   assert.match(accounting, /isOpeningImport/);
 });
 
+test("opening workflow excludes historical-sale entry while preserving legacy accounting", () => {
+  const page = readFileSync("src/app/(dashboard)/openings/page.tsx", "utf8");
+  const route = readFileSync("src/app/api/v1/openings/route.ts", "utf8");
+  const offline = readFileSync("src/lib/offline-openings.ts", "utf8");
+
+  assert.doesNotMatch(page, /historical_sale|Historical sales|historicalSales|historicalSale/);
+  assert.match(route, /if \(kind === "historical_sale"\) \{\s*return errorResponse\("VALIDATION_ERROR"/s);
+  assert.match(route, /Historical sales are not part of opening entries/);
+  assert.doesNotMatch(offline, /historical_sale|historicalSales/);
+  assert.match(readFileSync("src/lib/accounting.ts", "utf8"), /isOpeningImport/);
+});
+
 test("historical correction runner is clone-gated and preview-first", () => {
   const runner = readFileSync("scripts/historical-accounting-correction.ts", "utf8");
 

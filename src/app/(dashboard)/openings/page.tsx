@@ -78,18 +78,6 @@ type OpeningData = {
     _pending?: boolean;
   }[];
   ongoingLots?: { id: number; lotNumber: string; lotDate: string }[];
-  historicalSales?: {
-    id: number | string;
-    voucherNo: string;
-    saleDate: string;
-    customerName: string;
-    lotNumber: string;
-    godownName: string;
-    currencyCode: string;
-    totalAmount: number;
-    items: { productName: string; qty: number; amount: number }[];
-    _pending?: boolean;
-  }[];
   openingBankBalances: {
     id: number | string;
     bankAccountId: number;
@@ -314,7 +302,6 @@ export default function OpeningsPage() {
   const chequeRef = useRef<HTMLFormElement>(null);
   const hajiRef = useRef<HTMLFormElement>(null);
   const stockRef = useRef<HTMLFormElement>(null);
-  const historicalSaleRef = useRef<HTMLFormElement>(null);
   const legacyStockRef = useRef<HTMLFormElement>(null);
   const liabilityRef = useRef<HTMLFormElement>(null);
   const superAdminAccountRef = useRef<HTMLFormElement>(null);
@@ -336,18 +323,6 @@ export default function OpeningsPage() {
   const [hajiForm, setHajiForm] = useState({ currencyId: 0, amount: "", balanceSide: "payable" as "payable" | "receivable", openingDate: today, notes: "", ...emptyFx });
   const [stockForm, setStockForm] = useState({ lotId: 0, godownId: 0, productId: 0, qty: "" });
   const [legacyStockForm, setLegacyStockForm] = useState({ godownId: 0, productId: 0, quantity: "", unitCostPkr: "", openingDate: today, notes: "" });
-  const [historicalSaleForm, setHistoricalSaleForm] = useState({
-    lotId: 0,
-    customerId: 0,
-    godownId: 0,
-    productId: 0,
-    currencyId: 0,
-    qty: "",
-    amount: "",
-    saleDate: today,
-    skipCustomerLedger: true,
-    notes: "",
-  });
   const [liabilityForm, setLiabilityForm] = useState<{
     liabilityType: "supplier" | "shipping_line" | "agent" | "intermediary";
     partyId: number;
@@ -409,18 +384,11 @@ export default function OpeningsPage() {
       const cityCurrencies = nextData.currencies;
       setCashForm((prev) => ({ ...prev, currencyId: resolveCityCurrencyId(cityCurrencies, prev.currencyId) }));
       setCustomerForm((prev) => ({ ...prev, currencyId: resolveCityCurrencyId(cityCurrencies, prev.currencyId) }));
-      setHistoricalSaleForm((prev) => ({
-        ...prev,
-        currencyId: resolveCityCurrencyId(cityCurrencies, prev.currencyId),
-      }));
       setBankForm((prev) => ({ ...prev, currencyId: resolveCityCurrencyId(cityCurrencies, prev.currencyId) }));
       setChequeForm((prev) => ({ ...prev, currencyId: resolveCityCurrencyId(cityCurrencies, prev.currencyId) }));
       setHajiForm((prev) => ({ ...prev, currencyId: resolveCityCurrencyId(cityCurrencies, prev.currencyId) }));
       if (!stockForm.lotId && nextData.ongoingLots?.[0]) {
         setStockForm((prev) => ({ ...prev, lotId: nextData.ongoingLots![0].id }));
-      }
-      if (!historicalSaleForm.lotId && nextData.ongoingLots?.[0]) {
-        setHistoricalSaleForm((prev) => ({ ...prev, lotId: nextData.ongoingLots![0].id }));
       }
       if (!liabilityForm.currencyId && nextData.liabilityOptions?.currencies?.[0]) {
         setLiabilityForm((prev) => ({ ...prev, currencyId: nextData.liabilityOptions.currencies[0].id }));
@@ -717,32 +685,6 @@ export default function OpeningsPage() {
     load();
   };
 
-  const submitHistoricalSale = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!canEdit) return toast.error("Opening entries are locked");
-    if (!cityReady) return toast.error("Select a city first");
-    const result = await apiCall("/api/v1/openings", {
-      method: "POST",
-      body: {
-        kind: "historical_sale",
-        cityId: isSuperAdmin ? selectedCityId : undefined,
-        lotId: historicalSaleForm.lotId,
-        customerId: historicalSaleForm.customerId,
-        godownId: historicalSaleForm.godownId,
-        productId: historicalSaleForm.productId,
-        currencyId: historicalSaleForm.currencyId,
-        qty: Number(historicalSaleForm.qty || 0),
-        amount: Number(historicalSaleForm.amount || 0),
-        saleDate: historicalSaleForm.saleDate,
-        skipCustomerLedger: historicalSaleForm.skipCustomerLedger,
-        notes: historicalSaleForm.notes || null,
-      },
-    });
-    if (!result.success) return toast.error(result.error || "Failed");
-    toast.success("Historical sale imported");
-    setHistoricalSaleForm((prev) => ({ ...prev, qty: "", amount: "", notes: "" }));
-    load();
-  };
 
   const submitLiability = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1212,142 +1154,6 @@ export default function OpeningsPage() {
         />
       </form>
 
-      {/* Historical sales (pre-cutover) */}
-      <form ref={historicalSaleRef} onSubmit={submitHistoricalSale} className="card space-y-3">
-        <div>
-          <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-neutral-500">Historical sales (pre-cutover)</h2>
-          <p className="text-xs text-neutral-500 mt-1">
-            Backfill sales sold before go-live on an ongoing lot. Qty drives lot/godown stock; amounts count toward owed-to-Haji on that lot.
-            When opening customer balance already covers receivables, keep &quot;Skip customer ledger&quot; checked so the sale does not add customer debit.
-          </p>
-        </div>
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3">
-          <select
-            className="input"
-            value={historicalSaleForm.lotId}
-            onChange={(e) => setHistoricalSaleForm((prev) => ({ ...prev, lotId: Number(e.target.value) }))}
-            required
-            disabled={formsDisabled}
-          >
-            <option value={0}>Ongoing lot</option>
-            {(data?.ongoingLots || []).map((l) => (
-              <option key={l.id} value={l.id}>{l.lotNumber} ({l.lotDate})</option>
-            ))}
-          </select>
-          <select
-            className="input"
-            value={historicalSaleForm.customerId}
-            onChange={(e) => setHistoricalSaleForm((prev) => ({ ...prev, customerId: Number(e.target.value) }))}
-            required
-            disabled={formsDisabled}
-          >
-            <option value={0}>Customer</option>
-            {(data?.customers || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-          <select
-            className="input"
-            value={historicalSaleForm.godownId}
-            onChange={(e) => setHistoricalSaleForm((prev) => ({ ...prev, godownId: Number(e.target.value) }))}
-            required
-            disabled={formsDisabled}
-          >
-            <option value={0}>Godown</option>
-            {(data?.godowns || []).map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-          </select>
-          <select
-            className="input"
-            value={historicalSaleForm.productId}
-            onChange={(e) => setHistoricalSaleForm((prev) => ({ ...prev, productId: Number(e.target.value) }))}
-            required
-            disabled={formsDisabled}
-          >
-            <option value={0}>Product</option>
-            {(data?.products || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          <OpeningCurrencyField
-            currencies={data?.currencies || []}
-            value={historicalSaleForm.currencyId}
-            onChange={(currencyId) => setHistoricalSaleForm((prev) => ({ ...prev, currencyId }))}
-            disabled={formsDisabled}
-          />
-          <input
-            className="input"
-            type="number"
-            step="0.01"
-            placeholder="Qty (cartons)"
-            value={historicalSaleForm.qty}
-            onChange={(e) => setHistoricalSaleForm((prev) => ({ ...prev, qty: e.target.value }))}
-            required
-            disabled={formsDisabled}
-          />
-          <input
-            className="input"
-            type="number"
-            step="0.01"
-            placeholder="Amount"
-            value={historicalSaleForm.amount}
-            onChange={(e) => setHistoricalSaleForm((prev) => ({ ...prev, amount: e.target.value }))}
-            required
-            disabled={formsDisabled}
-          />
-          <input
-            className="input"
-            type="date"
-            value={historicalSaleForm.saleDate}
-            onChange={(e) => setHistoricalSaleForm((prev) => ({ ...prev, saleDate: e.target.value }))}
-            required
-            disabled={formsDisabled}
-          />
-          <input
-            className="input lg:col-span-2"
-            placeholder="Notes (optional)"
-            value={historicalSaleForm.notes}
-            onChange={(e) => setHistoricalSaleForm((prev) => ({ ...prev, notes: e.target.value }))}
-            disabled={formsDisabled}
-          />
-        </div>
-        <label className="flex items-center gap-2 text-sm text-neutral-600">
-          <input
-            type="checkbox"
-            checked={historicalSaleForm.skipCustomerLedger}
-            onChange={(e) => setHistoricalSaleForm((prev) => ({ ...prev, skipCustomerLedger: e.target.checked }))}
-            disabled={formsDisabled}
-          />
-          Skip customer ledger (stock/Haji only — use when opening customer balance covers receivables)
-        </label>
-        <button className="btn-primary" type="submit" disabled={formsDisabled || !(data?.ongoingLots?.length)}>Import historical sale</button>
-
-        <SavedTable
-          title="Imported historical sales"
-          emptyLabel="No historical sales imported for this city yet."
-          headers={["Voucher", "Date", "Customer", "Lot", "Godown", "Currency", "Amount", "Items", ""]}
-          rows={(data?.historicalSales || []).map((row) => (
-            <tr key={String(row.id)} className={`border-b last:border-0 ${row._pending ? "bg-amber-50/60" : ""}`}>
-              <td className="py-2 px-3">{row.voucherNo}{row._pending ? " (pending sync)" : ""}</td>
-              <td className="py-2 px-3">{row.saleDate}</td>
-              <td className="py-2 px-3">{row.customerName}</td>
-              <td className="py-2 px-3">{row.lotNumber}</td>
-              <td className="py-2 px-3">{row.godownName}</td>
-              <td className="py-2 px-3">{row.currencyCode}</td>
-              <td className="py-2 px-3">{row.totalAmount.toLocaleString("en-US")}</td>
-              <td className="py-2 px-3 text-neutral-500">
-                {row.items.map((i) => `${i.productName} × ${i.qty}`).join(", ")}
-              </td>
-              <td className="py-2 px-3">
-                {!row._pending && canEdit && (
-                  <button
-                    type="button"
-                    className="text-xs text-red-600 hover:underline"
-                    onClick={() => deleteOpening("historical_sale", row.id)}
-                  >
-                    Delete
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
-        />
-      </form>
 
       {/* Step 2b: Opening bank balances */}
       <form ref={bankRef} onSubmit={submitBank} className="card space-y-3">

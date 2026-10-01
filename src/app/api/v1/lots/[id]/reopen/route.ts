@@ -24,35 +24,30 @@ export const PUT = withSuperAdmin(async (request: NextRequest, context: any, use
       return errorResponse("CONFLICT", `Cannot reopen — overflow was applied to completed lot(s): ${nums}. Reopen those first.`, 409);
     }
 
-    // Delete any overflow records FROM this lot
-    const overflows = await prisma.lotSettlementOverflow.findMany({ where: { fromLotId: lotId } });
-    for (const ov of overflows) {
-      // Backward-compatible cleanup for legacy overflow-created haji transfers.
-      // New completions only write lotSettlementOverflow rows, but older records may
-      // still have a synthetic hajiTransfer that should be removed on reopen.
-      const legacyTransfers = await prisma.hajiTransfer.findMany({
-        where: {
-          cityId: ov.cityId,
-          lotId: ov.toLotId,
-          currencyId: ov.currencyId,
-          detail: { contains: `Overflow credit from completed lot ${lot.lotNumber}` },
-        },
-        select: { id: true },
-      });
-      for (const transfer of legacyTransfers) {
-        try { await reverseJournalEntries(`HAJI-${transfer.id}`, user.userId); } catch (_) {}
-        await prisma.hajiTransfer.delete({ where: { id: transfer.id } });
+    await prisma.$transaction(async (tx) => {
+      const overflows = await tx.lotSettlementOverflow.findMany({ where: { fromLotId: lotId } });
+      for (const ov of overflows) {
+        const legacyTransfers = await tx.hajiTransfer.findMany({
+          where: {
+            cityId: ov.cityId,
+            lotId: ov.toLotId,
+            currencyId: ov.currencyId,
+            detail: { contains: `Overflow credit from completed lot ${lot.lotNumber}` },
+          },
+          select: { id: true },
+        });
+        for (const transfer of legacyTransfers) {
+          await reverseJournalEntries(`HAJI-${transfer.id}`, user.userId, tx);
+          await tx.hajiTransfer.delete({ where: { id: transfer.id } });
+        }
       }
-    }
-    await prisma.lotSettlementOverflow.deleteMany({ where: { fromLotId: lotId } });
-
-    // Reopen the lot
-    await prisma.lot.update({
-      where: { id: lotId },
-      data: { status: "ongoing", completedBy: null, completedAt: null, updatedAt: new Date() },
+      await tx.lotSettlementOverflow.deleteMany({ where: { fromLotId: lotId } });
+      await tx.lot.update({
+        where: { id: lotId },
+        data: { status: "ongoing", completedBy: null, completedAt: null, updatedAt: new Date() },
+      });
+      await createAuditLog(user.userId, null, "lots", lotId, "update", { status: "completed" }, { status: "ongoing", action: "reopen" }, getClientIP(request), tx);
     });
-
-    await createAuditLog(user.userId, null, "lots", lotId, "update", { status: "completed" }, { status: "ongoing", action: "reopen" }, getClientIP(request));
 
     return successResponse({ lotId, lotNumber: lot.lotNumber, status: "ongoing" }, "Lot reopened successfully");
   } catch (error) {

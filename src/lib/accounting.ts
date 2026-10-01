@@ -453,17 +453,39 @@ export async function journalOpeningCheque(d: {
 }
 
 // SALE CREATED
-export async function journalSaleCreated(sale: { id: number; customerId: number; cityId: number; lotId: number; totalAmount: number; currencyCode: string; saleDate: Date; createdBy: number; }, db: DbClient = prisma) {
+export function saleJournalTransactionId(saleId: number, journalVersion = 1) {
+  return journalVersion <= 1 ? `SALE-${saleId}` : `SALE-${saleId}-V${journalVersion}`;
+}
+
+export function saleCogsJournalTransactionId(saleId: number, journalVersion = 1) {
+  return journalVersion <= 1 ? `COGS-${saleId}` : `COGS-${saleId}-V${journalVersion}`;
+}
+
+export async function nextSaleJournalVersion(db: DbClient, saleId: number) {
+  const rows = await db.journalEntry.findMany({
+    where: { transactionId: { startsWith: `SALE-${saleId}` } },
+    select: { transactionId: true },
+    distinct: ["transactionId"],
+  });
+  const current = rows.reduce((max, row) => {
+    const match = row.transactionId.match(new RegExp(`^SALE-${saleId}(?:-V(\\d+))?$`));
+    return match ? Math.max(max, Number(match[1] || 1)) : max;
+  }, 1);
+  return current + 1;
+}
+
+export async function journalSaleCreated(sale: { id: number; customerId: number; cityId: number; lotId: number; totalAmount: number; currencyCode: string; saleDate: Date; createdBy: number; journalVersion?: number; }, db: DbClient = prisma) {
+  const transactionId = saleJournalTransactionId(sale.id, sale.journalVersion);
   const [persistedSale, existing] = await Promise.all([
     db.sale.findUnique({ where: { id: sale.id }, select: { isOpeningImport: true } }),
-    db.journalEntry.findFirst({ where: { transactionId: `SALE-${sale.id}` }, select: { id: true } }),
+    db.journalEntry.findFirst({ where: { transactionId }, select: { id: true } }),
   ]);
   if (persistedSale?.isOpeningImport || existing) return;
   const lines: JournalLine[] = [
     { accountId: await getCustomerAccountId(sale.customerId, db), debit: sale.totalAmount, credit: 0, description: `Sale #${sale.id}` },
     { accountId: await getSalesRevenueAccountId(db), debit: 0, credit: sale.totalAmount, description: `Sale #${sale.id}` },
   ];
-  await createJournalEntries(`SALE-${sale.id}`, lines, { currencyCode: sale.currencyCode, entityType: "sale", entityId: sale.id, lotId: sale.lotId, cityId: sale.cityId, entryDate: sale.saleDate, createdBy: sale.createdBy }, db);
+  await createJournalEntries(transactionId, lines, { currencyCode: sale.currencyCode, entityType: "sale", entityId: sale.id, lotId: sale.lotId, cityId: sale.cityId, entryDate: sale.saleDate, createdBy: sale.createdBy }, db);
 }
 
 // PAYMENT RECEIVED (cash / bank transfer / online)
@@ -1059,8 +1081,8 @@ export async function journalForeignWithdrawalMovements(p: {
 }
 
 export async function journalForeignFundingAssetAdjustments(p: {
-  entityPrefix: "FXSUPASSET" | "FXSHIPASSET";
-  entityType: "supplier_payment" | "shipping_line_payment";
+  entityPrefix: "FXSUPASSET" | "FXSHIPASSET" | "SATRANSFX";
+  entityType: "supplier_payment" | "shipping_line_payment" | "super_admin_account_transfer";
   entityId: number;
   date: Date;
   createdBy: number;
@@ -1874,6 +1896,7 @@ export async function journalSaleCOGSForLots(params: {
   saleDate: Date;
   cityId: number;
   createdBy: number;
+  journalVersion?: number;
 }, db: DbClient = prisma) {
   const { saleId, allocations, saleDate, cityId, createdBy } = params;
   const sale = await db.sale.findUnique({ where: { id: saleId }, select: { isOpeningImport: true } });
@@ -1895,7 +1918,7 @@ export async function journalSaleCOGSForLots(params: {
     { accountId: inventoryAccountId, debit: 0, credit: amount, description: `Inventory reduction — Sale #${saleId} · Lot #${lotId}`, lotId },
   ]);
 
-  await createJournalEntries(`COGS-${saleId}`, lines, {
+  await createJournalEntries(saleCogsJournalTransactionId(saleId, params.journalVersion), lines, {
     currencyCode: "PKR",
     entityType: "sale",
     entityId: saleId,

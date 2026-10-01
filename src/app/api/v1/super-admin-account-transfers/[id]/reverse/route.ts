@@ -17,12 +17,15 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
       const row = await tx.superAdminAccountTransfer.findUnique({ where: { id } });
       if (!row) throw Object.assign(new Error("Transfer not found"), { code: "NOT_FOUND" });
       if (row.reversedAt) throw Object.assign(new Error("Transfer is already reversed"), { code: "ALREADY_REVERSED" });
-      await reverseForeignCurrencyMovements(tx, {
+      const fx = await reverseForeignCurrencyMovements(tx, {
         sourceType: "super_admin_account_transfer",
         sourceId: id,
         reversalDate: new Date(),
         createdBy: user.userId,
       });
+      for (const transactionId of fx.journalTransactionIds) {
+        await reverseJournalEntries(transactionId, user.userId, tx);
+      }
       if (row.transferType === "same_currency") {
         await reverseJournalEntries(`SATRANS-${id}`, user.userId, tx);
       } else {

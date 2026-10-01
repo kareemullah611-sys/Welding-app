@@ -220,6 +220,81 @@ test("H3: sale POST in a non-wired foreign currency is rejected with FOREIGN_CAR
   }
 });
 
+test("C01: Afghanistan foreign sale without an authoritative FX rate writes nothing", async () => {
+  const marker = `c01-sale-${Date.now()}`;
+  const { kandahar, usd, adminId } = await seedBase();
+  const kandaharAdmin = await prisma.user.findUnique({ where: { username: "kandahar_admin" } });
+  assert.ok(kandaharAdmin, "Seed user kandahar_admin is required");
+  const token = generateToken({
+    userId: kandaharAdmin.id,
+    username: kandaharAdmin.username,
+    role: "city_admin",
+    cityId: kandahar.id,
+    countryId: kandahar.countryId,
+  });
+  const product = await prisma.product.create({ data: { name: `${marker}-product`, isActive: true } });
+  const customer = await prisma.customer.create({ data: { cityId: kandahar.id, name: `${marker}-customer`, isActive: true } });
+  const godown = await prisma.godown.create({ data: { cityId: kandahar.id, name: `${marker}-godown`, isActive: true } });
+  const lot = await prisma.lot.create({
+    data: { countryId: kandahar.countryId, lotNumber: `${marker}-lot`, lotDate: new Date("2026-04-01"), status: "ongoing", createdBy: adminId },
+  });
+  const distribution = await prisma.lotCityDistribution.create({
+    data: { lotId: lot.id, cityId: kandahar.id, productId: product.id, allocatedQty: 100 },
+  });
+  const allocation = await prisma.lotCityGodownAllocation.create({
+    data: { lotCityDistributionId: distribution.id, godownId: godown.id, productId: product.id, qty: 100 },
+  });
+  const valuation = await prisma.openingInventoryValuation.create({
+    data: { lotId: lot.id, productId: product.id, quantity: 100, unitCostPkr: 50, totalValuePkr: 5000, openingDate: new Date("2026-04-01"), createdBy: adminId },
+  });
+  await prisma.cityCurrency.upsert({
+    where: { cityId_currencyId: { cityId: kandahar.id, currencyId: usd.id } },
+    update: {},
+    create: { cityId: kandahar.id, currencyId: usd.id },
+  });
+
+  try {
+    const res = await createSale(
+      new NextRequest("http://localhost/api/v1/sales", {
+        method: "POST",
+        headers: authHeaders(token),
+        body: JSON.stringify({
+          godownId: godown.id,
+          saleDate: "2026-04-24",
+          currencyId: usd.id,
+          customerId: customer.id,
+          items: [{ productId: product.id, lotId: lot.id, qty: 1, ratePerCarton: 100, amount: 100 }],
+        }),
+      }),
+      { params: {} },
+    );
+    const json = (await res.json()) as any;
+    assert.equal(res.status, 400, `missing FX rate must reject the sale: ${JSON.stringify(json)}`);
+    assert.equal(json.error?.code, "FX_RATE_REQUIRED");
+    assert.equal(await prisma.sale.count({ where: { customerId: customer.id } }), 0);
+    assert.equal(await prisma.journalEntry.count({ where: { description: { contains: marker } } }), 0);
+    assert.equal(await prisma.foreignCurrencyCarryingLayer.count({ where: { sourceType: "sale", ownerKey: `customer_receivable:${customer.id}` } }), 0);
+  } finally {
+    const sales = await prisma.sale.findMany({ where: { customerId: customer.id }, select: { id: true } });
+    const saleIds = sales.map((row) => row.id);
+    if (saleIds.length) {
+      await prisma.foreignCurrencyMovement.deleteMany({ where: { sourceType: "sale", sourceId: { in: saleIds } } });
+      await prisma.foreignCurrencyCarryingLayer.deleteMany({ where: { sourceType: "sale", sourceId: { in: saleIds } } });
+      await prisma.journalEntry.deleteMany({ where: { entityType: "sale", entityId: { in: saleIds } } });
+      await prisma.saleItem.deleteMany({ where: { saleId: { in: saleIds } } });
+      await prisma.sale.deleteMany({ where: { id: { in: saleIds } } });
+    }
+    await prisma.openingInventoryValuation.deleteMany({ where: { id: valuation.id } });
+    await prisma.lotCityGodownAllocation.deleteMany({ where: { id: allocation.id } });
+    await prisma.lotCityDistribution.deleteMany({ where: { id: distribution.id } });
+    await prisma.lot.deleteMany({ where: { id: lot.id } });
+    await prisma.godown.deleteMany({ where: { id: godown.id } });
+    await prisma.account.deleteMany({ where: { code: `1200-C${customer.id}`, journalEntries: { none: {} } } });
+    await prisma.customer.deleteMany({ where: { id: customer.id } });
+    await prisma.product.deleteMany({ where: { id: product.id } });
+  }
+});
+
 test("H3: city PATCH cannot attach a non-wired foreign currency to a Pakistan city", async () => {
   const { quetta, pkr, usd, superToken } = await seedBase();
   const before = await prisma.cityCurrency.findMany({ where: { cityId: quetta.id }, orderBy: { currencyId: "asc" } });

@@ -26,7 +26,6 @@ type OpeningDataLike = {
   openingHajiBalances?: any[];
   openingStocks: any[];
   legacyStocks?: any[];
-  historicalSales?: any[];
   openingLiabilities: any[];
 };
 
@@ -52,7 +51,6 @@ export function applyPendingOpeningsData(base: OpeningDataLike, queuedItems: Que
     openingHajiBalances: [...(base.openingHajiBalances || [])],
     openingStocks: [...(base.openingStocks || [])],
     legacyStocks: [...(base.legacyStocks || [])],
-    historicalSales: [...(base.historicalSales || [])],
     openingLiabilities: [...(base.openingLiabilities || [])],
   };
 
@@ -186,32 +184,6 @@ export function applyPendingOpeningsData(base: OpeningDataLike, queuedItems: Que
       continue;
     }
 
-    if (kind === "historical_sale") {
-      const lotId = Number(parsed?.lotId || 0);
-      const customerId = Number(parsed?.customerId || 0);
-      const godownId = Number(parsed?.godownId || 0);
-      const productId = Number(parsed?.productId || 0);
-      const currencyId = Number(parsed?.currencyId || 0);
-      const qty = Number(parsed?.qty || 0);
-      const amount = Number(parsed?.amount || 0);
-      next.historicalSales!.unshift({
-        id: `pending-${queued.id}`,
-        voucherNo: "O-pending",
-        saleDate: parsed?.saleDate || new Date().toISOString().split("T")[0],
-        customerName: (base.customers || []).find((c) => c.id === customerId)?.name || "Pending Customer",
-        lotNumber: (base.ongoingLots || []).find((l) => l.id === lotId)?.lotNumber || "Pending Lot",
-        godownName: (base.godowns || []).find((g) => g.id === godownId)?.name || "Pending Godown",
-        currencyCode: findCurrencyCode(base.currencies || [], currencyId),
-        totalAmount: amount,
-        items: [{
-          productName: (base.products || []).find((p) => p.id === productId)?.name || "Pending Product",
-          qty,
-          amount,
-        }],
-        _pending: true,
-      });
-      continue;
-    }
 
     if (kind === "liability") {
       const liabilityType = String(parsed?.liabilityType || "supplier");

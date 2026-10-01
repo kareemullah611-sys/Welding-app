@@ -3,7 +3,7 @@ import prisma from "@/lib/prisma";
 import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { errorResponse, getPaginationParams, paginatedResponse, serverError, successResponse, validationError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
-import { journalSuperAdminAccountTransfer } from "@/lib/accounting";
+import { journalForeignFundingAssetAdjustments, journalSuperAdminAccountTransfer } from "@/lib/accounting";
 import { getSyncRequestMeta } from "@/lib/sync-idempotency";
 import { canonicalForeignCurrencyCode, isSupportedForeignCurrency } from "@/lib/foreign-currency-carrying";
 import {
@@ -158,7 +158,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: unknow
           createdBy: user.userId,
         });
       } else if (!sameCurrency && (fromCode === "PKR" || isSupportedForeignCurrency(fromCode)) && (toCode === "PKR" || isSupportedForeignCurrency(toCode))) {
-        await exchangeForeignCurrencyLayers(tx, {
+        const fx = await exchangeForeignCurrencyLayers(tx, {
           ownerKey: sourceOwnerKey,
           targetOwnerKey,
           positionType: targetPositionType,
@@ -173,6 +173,16 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: unknow
           rateReference: `super_admin_account_transfer:${row.id}`,
           createdBy: user.userId,
         });
+        await journalForeignFundingAssetAdjustments({
+          entityPrefix: "SATRANSFX",
+          entityType: "super_admin_account_transfer",
+          entityId: row.id,
+          date: row.transferDate,
+          createdBy: user.userId,
+          superAdminCashAccountId: source.accountKind === "cash" ? sourceAccountId : null,
+          superAdminBankAccountId: source.accountKind === "bank" ? sourceAccountId : null,
+          movements: fx.movements,
+        }, tx);
       }
       await createAuditLog(user.userId, null, "super_admin_account_transfers", row.id, "create", undefined, { sourceAccountId, destinationAccountId, fromAmount, toAmount, exchangeRate, rateSource }, getClientIP(request), tx);
       if (syncMeta) {

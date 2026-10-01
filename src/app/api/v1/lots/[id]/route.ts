@@ -12,6 +12,7 @@ import {
   calculateLotProductLandedCostsForLot,
   journalLotPurchaseCorrection,
   loadLotSupplierPurchaseBalances,
+  lotCostJournalTransactionId,
   lotPurchaseJournalTransactionId,
   reverseJournalEntries,
 } from "@/lib/accounting";
@@ -1108,20 +1109,20 @@ export const DELETE = withSuperAdmin(async (request: NextRequest, context: any, 
     const lot = await prisma.lot.findUnique({ where: { id } });
     if (!lot) return errorResponse("NOT_FOUND", "Lot not found", 404);
     // Check if lot has sales
-    const salesCount = await prisma.sale.count({ where: { status: "active", OR: [{ lotId: id }, { items: { some: { lotId: id } } }] } });
+    const salesCount = await prisma.sale.count({ where: { status: { in: ["active", "marked_short"] }, OR: [{ lotId: id }, { items: { some: { lotId: id } } }] } });
     if (salesCount > 0) return errorResponse("FORBIDDEN", `Cannot delete: lot has ${salesCount} active sales`, 403);
     // Delete all related data atomically — if any step fails the lot is NOT deleted
     await prisma.$transaction(async (tx) => {
       const [purchases, costs, transfers] = await Promise.all([
         tx.lotPurchase.findMany({ where: { lotId: id } }),
-        tx.lotCost.findMany({ where: { lotId: id }, select: { id: true } }),
+        tx.lotCost.findMany({ where: { lotId: id }, select: { id: true, journalVersion: true } }),
         tx.hajiTransfer.findMany({ where: { lotId: id }, select: { id: true } }),
       ]);
       for (const purchase of purchases) {
         await reverseJournalEntries(lotPurchaseJournalTransactionId(id, purchase.id, purchase.journalVersion), user.userId, tx);
       }
       for (const cost of costs) {
-        await reverseJournalEntries(`COST-${cost.id}`, user.userId, tx);
+        await reverseJournalEntries(lotCostJournalTransactionId(cost.id, cost.journalVersion), user.userId, tx);
         await reverseForeignCurrencyRecognition(tx, {
           sourceType: "lot_shipping_cost",
           sourceId: cost.id,

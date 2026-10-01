@@ -37,29 +37,28 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
     }
 
     const incomingGodownIds = new Set(allocations.filter((a: any) => a.qty > 0).map((a: any) => a.godownId));
-    const existingRows = await prisma.lotCityGodownAllocation.findMany({
-      where: { lotCityDistributionId: dist.id },
-      select: { godownId: true },
-    });
-    for (const row of existingRows) {
-      if (!incomingGodownIds.has(row.godownId)) {
-        await prisma.lotCityGodownAllocation.delete({
-          where: { lotCityDistributionId_godownId: { lotCityDistributionId: dist.id, godownId: row.godownId } },
+    await prisma.$transaction(async (tx) => {
+      const existingRows = await tx.lotCityGodownAllocation.findMany({
+        where: { lotCityDistributionId: dist.id },
+        select: { godownId: true },
+      });
+      for (const row of existingRows) {
+        if (!incomingGodownIds.has(row.godownId)) {
+          await tx.lotCityGodownAllocation.delete({
+            where: { lotCityDistributionId_godownId: { lotCityDistributionId: dist.id, godownId: row.godownId } },
+          });
+        }
+      }
+      for (const a of allocations) {
+        if (a.qty <= 0) continue;
+        await tx.lotCityGodownAllocation.upsert({
+          where: { lotCityDistributionId_godownId: { lotCityDistributionId: dist.id, godownId: a.godownId } },
+          create: { lotCityDistributionId: dist.id, godownId: a.godownId, productId, qty: a.qty },
+          update: { qty: a.qty },
         });
       }
-    }
-
-    // Upsert godown allocations one by one (no transaction - avoids DB timeout)
-    for (const a of allocations) {
-      if (a.qty <= 0) continue;
-      await prisma.lotCityGodownAllocation.upsert({
-        where: { lotCityDistributionId_godownId: { lotCityDistributionId: dist.id, godownId: a.godownId } },
-        create: { lotCityDistributionId: dist.id, godownId: a.godownId, productId, qty: a.qty },
-        update: { qty: a.qty },
-      });
-    }
-
-    await createAuditLog(user.userId, effectiveCityId, "lot_city_godown_allocations", lotId, "create", undefined, { allocations }, getClientIP(request));
+      await createAuditLog(user.userId, effectiveCityId, "lot_city_godown_allocations", lotId, "create", undefined, { allocations }, getClientIP(request), tx);
+    });
 
     return successResponse({ lotId, cityId: effectiveCityId, productId, allocations: allocations.length }, "Godown allocations saved");
   } catch (error) {

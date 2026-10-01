@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
-import { journalSaleCreated, journalSaleCOGSForLots, reverseJournalEntries, assertJournalEntriesNotInClosedPeriod } from "@/lib/accounting";
+import { journalSaleCreated, journalSaleCOGSForLots, nextSaleJournalVersion, reverseJournalEntries, saleCogsJournalTransactionId, saleJournalTransactionId } from "@/lib/accounting";
 import { successResponse, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { canAccessGodown } from "@/lib/godown-access";
@@ -276,6 +276,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 	    const nextSaleLotId = Number(newItemData[0]?.lotId || sale.lotId || 0);
 
 	    await prisma.$transaction(async (tx) => {
+	      const nextJournalVersion = sale.isOpeningImport ? 1 : await nextSaleJournalVersion(tx, saleId);
       const lockScopes = [
         ...sale.items.map((item) => ({ godownId: sale.godownId, productId: item.productId })),
         ...newItemData.map((item) => ({ godownId: nextGodownId, productId: item.productId })),
@@ -302,28 +303,9 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         await reverseJournalEntries(`SALE-${saleId}`, user.userId, tx, sale.saleDate);
         await reverseJournalEntries(`COGS-${saleId}`, user.userId, tx, sale.saleDate);
       } else {
-        await assertJournalEntriesNotInClosedPeriod({
-          transactionId: {
-            in: [
-              `SALE-${saleId}`,
-              `REV-SALE-${saleId}`,
-              `COGS-${saleId}`,
-              `REV-COGS-${saleId}`,
-            ],
-          },
-        }, tx);
-        await tx.journalEntry.deleteMany({
-          where: {
-            transactionId: {
-              in: [
-                `SALE-${saleId}`,
-                `REV-SALE-${saleId}`,
-                `COGS-${saleId}`,
-                `REV-COGS-${saleId}`,
-              ],
-            },
-          },
-        });
+        const currentJournalVersion = nextJournalVersion - 1;
+        await reverseJournalEntries(saleJournalTransactionId(saleId, currentJournalVersion), user.userId, tx, nextSaleDate);
+        await reverseJournalEntries(saleCogsJournalTransactionId(saleId, currentJournalVersion), user.userId, tx, nextSaleDate);
       }
 
       // L5: the corrected item value must still cover already-applied discounts.
@@ -386,6 +368,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 	        id: saleId, customerId: sale.customerId, cityId: sale.cityId,
 	        lotId: nextSaleLotId, totalAmount: itemsSum, currencyCode: (sale as any).currency?.code || "PKR",
 	        saleDate: nextSaleDate, createdBy: user.userId,
+	        journalVersion: nextJournalVersion,
 	      }, tx);
 
       await syncWalkInSalePayment(tx, { saleId, cityId: sale.cityId, createdBy: user.userId, entryDate: nextSaleDate });
@@ -400,7 +383,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
           lotId: Number(itemLotId),
           totalQtySold,
         })),
-        saleDate: nextSaleDate, cityId: sale.cityId, createdBy: user.userId,
+        saleDate: nextSaleDate, cityId: sale.cityId, createdBy: user.userId, journalVersion: nextJournalVersion,
       }, tx);
 
 	      await createAuditLog(user.userId, sale.cityId, "sales", saleId, "update",

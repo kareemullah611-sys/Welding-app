@@ -569,6 +569,9 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
     body = await request.json();
     kind = String(body?.kind || "");
     cityId = getScopedCityId(user, body?.cityId);
+    if (kind === "historical_sale") {
+      return errorResponse("VALIDATION_ERROR", "Historical sales are not part of opening entries. Use customer receivables and product inventory openings.", 400);
+    }
 
     if (kind === "purge_legacy_stock") {
       if (user.role !== "super_admin") {
@@ -1543,6 +1546,9 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
 
     if (!kind) return validationError("kind is required");
     if (!Number.isInteger(id) || id <= 0) return validationError("id is required");
+    if (kind === "historical_sale") {
+      return errorResponse("VALIDATION_ERROR", "Historical sales cannot be managed through opening entries.", 400);
+    }
 
     if (kind === "cash") {
       if (!cityId) return validationError("City is required");
