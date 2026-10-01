@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
 import { withAuth, getCityScope } from "@/lib/middleware";
 import { successResponse, paginatedResponse, serverError } from "@/lib/api-response";
+import { MAX_FINANCIAL_PAGE_SIZE } from "@/lib/pagination";
 import { JWTPayload } from "@/lib/auth";
 import { getPaymentHajiAuditStateMap, isHajiAuditEligible } from "@/lib/payment-audit";
 import { getSaCheckAuditStateMap } from "@/lib/sa-check-audit";
@@ -29,8 +30,12 @@ function compareCombinedPaymentsNewestFirst(a: any, b: any): number {
 export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayload) => {
   try {
     const sp = request.nextUrl.searchParams;
-    const page = Math.max(1, parseInt(sp.get("page") || "1"));
-    const limit = Math.max(1, Math.min(100, parseInt(sp.get("limit") || "20")));
+    // Clamped server-side: a non-numeric page/limit must never become NaN,
+    // which previously produced an empty 200 with `pagination.page: null`.
+    const pageRaw = parseInt(sp.get("page") || "1", 10);
+    const limitRaw = parseInt(sp.get("limit") || "20", 10);
+    const page = Math.max(1, Number.isFinite(pageRaw) ? pageRaw : 1);
+    const limit = Math.min(MAX_FINANCIAL_PAGE_SIZE, Math.max(1, Number.isFinite(limitRaw) ? limitRaw : 20));
     const typeFilter = sp.get("type") || "all";
     const destinationFilter = sp.get("destination");
     const paymentMethodFilter = sp.get("payment_method") as "cash" | "bank_transfer" | "cheque" | "online" | null;
@@ -595,8 +600,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
     }
 
     const total = combined.length;
-    const skip = (page - 1) * limit;
-    const items = combined.slice(skip, skip + limit);
+    const items = combined.slice((page - 1) * limit, (page - 1) * limit + limit);
 
     const currentBalanceByCurrency =
       cityId != null ? await computeCityTreasuryNet(prisma, cityId) : {};

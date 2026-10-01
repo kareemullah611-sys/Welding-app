@@ -12,11 +12,18 @@ import {
 import { changeUsernameSchema } from "@/lib/validations";
 import { successResponse, unauthorizedResponse, validationError, errorResponse, serverError } from "@/lib/api-response";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { getDatabaseUserForToken } from "@/lib/middleware";
+import { getDatabaseUserForToken, isCsrfSafe } from "@/lib/middleware";
 import { isSessionActive, hashToken } from "@/lib/session";
 
 export async function PUT(request: NextRequest) {
   try {
+    if (!isCsrfSafe(request)) {
+      return new Response(
+        JSON.stringify({ success: false, error: "CSRF_ERROR", message: "Cross-site request blocked" }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
     const token = getTokenFromRequest(request);
     if (!token) return unauthorizedResponse();
     const payload = verifyToken(token);

@@ -8,6 +8,8 @@ export default defineConfig({
   fullyParallel: false,
   retries: 0,
   reporter: "list",
+  globalSetup: require.resolve("./e2e/global-setup.ts"),
+  globalTeardown: require.resolve("./e2e/global-teardown.ts"),
   use: {
     baseURL,
     trace: "retain-on-failure",

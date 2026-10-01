@@ -35,3 +35,7 @@ test-results
 android/
 ios/
 release/
+
+# E2E watermark/residue state
+.e2e-watermark.json
+.e2e-residue-baseline.json

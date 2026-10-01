@@ -6,6 +6,7 @@ import { successResponse, validationError, errorResponse, serverError, paginated
 import { JWTPayload } from "@/lib/auth";
 import { validatePaymentSource } from "@/lib/payment-source-validation";
 import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idempotency";
+import { assertCanonicalCurrencyCode } from "@/lib/foreign-currency-carrying";
 
 const AGENT_PAYMENT_SYNC_MODULE = "agent_payments";
 const SUPERADMIN_SYNC_CITY_ID = 0;
@@ -47,7 +48,12 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
       return errorResponse("VALIDATION_ERROR", "Settlement city must match the agent's city");
     }
 
-    const currencyCode = String(body.currencyCode || "PKR").toUpperCase();
+    let currencyCode: string;
+    try {
+      currencyCode = assertCanonicalCurrencyCode(body.currencyCode || "PKR");
+    } catch (error) {
+      return errorResponse("VALIDATION_ERROR", error instanceof Error ? error.message : "Invalid currency code", 400);
+    }
     if (currencyCode !== "PKR") {
       return errorResponse("FOREIGN_CARRYING_LAYER_REQUIRED", "Foreign-currency agent payments are blocked until their payable and funding-asset carrying layers are recorded atomically.", 409);
     }
@@ -82,7 +88,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         data: {
           agentId, cityId,
           paymentDate: new Date(body.paymentDate || new Date()),
-          amount, currencyCode: body.currencyCode || "PKR",
+          amount, currencyCode,
           paymentMethod: body.paymentMethod || "cash",
           bankAccountId: source.bankAccountId,
           superAdminBankAccountId: source.superAdminBankAccountId,
@@ -116,7 +122,7 @@ export const POST = withSuperAdmin(async (request: NextRequest, context, user: J
         agentId,
         cityId,
         amount,
-        currencyCode: body.currencyCode || "PKR",
+        currencyCode,
         paymentDate: createdPayment.paymentDate,
         createdBy: user.userId,
         bankAccountId: source.bankAccountId,

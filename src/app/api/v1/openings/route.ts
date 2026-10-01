@@ -12,6 +12,7 @@ import { createHistoricalSale } from "@/lib/historical-sale-import";
 import { autoActivateShortSales } from "@/lib/stock-activation";
 import { getOpeningEditState } from "@/lib/openings-lock";
 import { isSupportedForeignCurrency } from "@/lib/foreign-currency-carrying";
+import { assertOpeningFxEvidence } from "@/lib/opening-fx-evidence";
 import {
   foreignCurrencyOwnerKey,
   nextForeignCurrencyRecognitionLineKey,
@@ -39,7 +40,7 @@ async function lockOpeningScope(tx: Prisma.TransactionClient, scope: string) {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`opening:${scope}`}))`;
 }
 
-function openingFxData(body: any, currencyCode: string, amount: number) {
+async function openingFxData(body: any, currencyCode: string, amount: number) {
   if (currencyCode !== "PKR" && (!body.fxRateDate || !String(body.fxRateSource || "").trim())) {
     throw new OpeningValidationError(`Historical ${currencyCode} rate date and source are required.`);
   }
@@ -54,17 +55,40 @@ function openingFxData(body: any, currencyCode: string, amount: number) {
   } catch (error) {
     throw new OpeningValidationError(error instanceof Error ? error.message : "Invalid opening FX data");
   }
+
+  // A non-PKR opening becomes the immutable carrying basis for every later
+  // settlement, so the rate must be backed by stored evidence. This never
+  // substitutes or derives a rate: it only accepts or rejects.
+  let evidenceProvider: string | null = null;
+  const fxRateDate = currencyCode === "PKR" ? null : dateOnly(body.fxRateDate);
+  if (currencyCode !== "PKR") {
+    try {
+      evidenceProvider = await assertOpeningFxEvidence({
+        currencyCode,
+        rate: carrying.fxRateToPkr,
+        rateDate: fxRateDate as Date,
+        provider: String(body.fxRateSource || ""),
+        reference: body.fxRateReference,
+        approval: body.fxRateApproval,
+      });
+    } catch (error) {
+      throw new OpeningValidationError(error instanceof Error ? error.message : "Invalid opening FX evidence");
+    }
+  }
+
   return {
     carryingAmountPkr: carrying.carryingAmountPkr,
     fxRateToPkr: carrying.fxRateToPkr,
-    fxRateDate: currencyCode === "PKR" ? null : dateOnly(body.fxRateDate),
-    fxRateSource: currencyCode === "PKR" ? null : String(body.fxRateSource || "").trim(),
+    fxRateDate,
+    fxRateSource: currencyCode === "PKR" ? null : evidenceProvider,
     fxRateMetadata: currencyCode === "PKR" ? Prisma.DbNull : {
       originalCurrency: currencyCode,
       originalAmount: amount,
       rate: carrying.fxRateToPkr,
-      rateDate: body.fxRateDate,
-      source: String(body.fxRateSource || "").trim(),
+      rateDate: fxRateDate?.toISOString().slice(0, 10) ?? null,
+      source: evidenceProvider,
+      reference: body.fxRateReference ? String(body.fxRateReference).trim() : null,
+      approvedManualRate: evidenceProvider === "MANUAL_HISTORICAL_REMEDIATION" ? true : null,
     },
   };
 }
@@ -619,7 +643,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
         include: { currency: { select: { code: true } } },
       });
       if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not available for this city");
-      const fxData = openingFxData(body, cityCurrency.currency.code, amount);
+      const fxData = await openingFxData(body, cityCurrency.currency.code, amount);
 
       const existing = await prisma.openingCash.findFirst({ where: { cityId: scopedCityId, currencyId } });
       const row = await prisma.$transaction(async (tx) => {
@@ -691,7 +715,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       const existing = await prisma.openingCustomerBalance.findFirst({ where: { customerId, currencyId } });
       const currency = await prisma.currency.findUnique({ where: { id: currencyId }, select: { code: true } });
       if (!currency) return errorResponse("NOT_FOUND", "Currency not found");
-      const fxData = openingFxData(body, currency.code, amount);
+      const fxData = await openingFxData(body, currency.code, amount);
       const row = await prisma.$transaction(async (tx) => {
         await lockOpeningScope(tx, `customer:${customerId}:${currencyId}`);
         const current = await tx.openingCustomerBalance.findFirst({ where: { customerId, currencyId } });
@@ -767,7 +791,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       if (!currency) return errorResponse("NOT_FOUND", "Currency not found");
       if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not available for this city");
       const balanceSide = body.balanceSide === "receivable" ? "receivable" : "payable";
-      const fxData = openingFxData(body, currency.code, amount);
+      const fxData = await openingFxData(body, currency.code, amount);
       const existing = await prisma.openingHajiBalance.findFirst({ where: { cityId: scopedCityId, currencyId } });
       const row = await prisma.$transaction(async (tx) => {
         await lockOpeningScope(tx, `haji:${scopedCityId}:${currencyId}`);
@@ -1038,7 +1062,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
         include: { currency: { select: { code: true } } },
       });
       if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not available for this city");
-      const fxData = openingFxData(body, cityCurrency.currency.code, amount);
+      const fxData = await openingFxData(body, cityCurrency.currency.code, amount);
 
       const existing = await prisma.openingBankBalance.findFirst({ where: { bankAccountId, currencyId } });
       const row = await prisma.$transaction(async (tx) => {
@@ -1107,7 +1131,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
         include: { currency: { select: { code: true } } },
       });
       if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not available for this city");
-      const fxData = openingFxData(body, cityCurrency.currency.code, amount);
+      const fxData = await openingFxData(body, cityCurrency.currency.code, amount);
 
       const row = await prisma.$transaction(async (tx) => {
         const saved = await tx.openingCheque.create({
@@ -1170,7 +1194,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       const currency = await prisma.currency.findFirst({ where: { id: currencyId } });
       if (!currency) return errorResponse("NOT_FOUND", "Currency not found");
       const balanceSide = body.balanceSide === "receivable" ? "receivable" : "payable";
-      const fxData = openingFxData(body, currency.code, amount);
+      const fxData = await openingFxData(body, currency.code, amount);
 
       const partyField =
         liabilityType === "supplier" ? "supplierId" :
@@ -1316,7 +1340,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       if (!account) return errorResponse("NOT_FOUND", "Liability account not found");
       if (!currency) return errorResponse("NOT_FOUND", "Currency not found");
       if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not available for this city");
-      const fxData = openingFxData(body, currency.code, amount);
+      const fxData = await openingFxData(body, currency.code, amount);
 
       const existing = await prisma.openingCityLiability.findFirst({ where: { accountId, currencyId } });
       const row = await prisma.$transaction(async (tx) => {
@@ -1407,7 +1431,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
         const currency = await prisma.currency.findUnique({ where: { id: originalCurrencyId } });
         if (!currency) return errorResponse("NOT_FOUND", "Original currency not found");
         if (!Number.isFinite(originalAmount) || Number(originalAmount) <= 0) return validationError("Original foreign amount is required");
-        const fx = openingFxData({ ...body, carryingAmountPkr: totalValuePkr }, currency.code, Number(originalAmount));
+        const fx = await openingFxData({ ...body, carryingAmountPkr: totalValuePkr }, currency.code, Number(originalAmount));
         fxRateToPkr = fx.fxRateToPkr;
         fxRateDate = fx.fxRateDate;
         fxRateSource = fx.fxRateSource;
@@ -1442,7 +1466,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       if (!Number.isFinite(amount) || amount === 0) return validationError("Opening amount must be non-zero");
       const account = await prisma.superAdminBankAccount.findFirst({ where: { id: accountId, isActive: true }, include: { currency: true } });
       if (!account) return errorResponse("NOT_FOUND", "Superadmin account not found");
-      const fxData = openingFxData(body, account.currency.code, amount);
+      const fxData = await openingFxData(body, account.currency.code, amount);
       const existing = await prisma.openingSuperAdminAccountBalance.findUnique({ where: { accountId } });
       const row = await prisma.$transaction(async (tx) => {
         await lockOpeningScope(tx, `super-admin-account:${accountId}`);

@@ -204,7 +204,7 @@ Deploy the web app on Railway with the repository connected as the service sourc
 Notes:
 - The app starts with `npm run start`, which runs `scripts/bootstrap.ts` (production uses `prisma migrate deploy` with fallback handling) before `next start`.
 - `DIRECT_URL` must be the direct (non-pooler) database URL; migrations cannot run through the pooler.
-- Build gate uses `npm run verify`. Full health: `/api/health`. Keep-alive: `/api/ping`.
+- Build gate uses `npm run verify`. Readiness (DB-backed): `/api/health`. Keep-alive: `/api/ping`. Both are anonymous and return only `{ ok }` status.
 - Operational runbook: [docs/operations-hardening.md](/Users/kareemullah/Desktop/welding-app/docs/operations-hardening.md)
 - Offline-first migration spec: [docs/offline-first-architecture.md](/Users/kareemullah/Desktop/welding-app/docs/offline-first-architecture.md)
 - Offline feature gate: [docs/offline-feature-gate.md](/Users/kareemullah/Desktop/welding-app/docs/offline-feature-gate.md)

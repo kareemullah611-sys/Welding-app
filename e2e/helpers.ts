@@ -1,11 +1,22 @@
 import { expect, Page } from "@playwright/test";
 
+// Credentials come from the environment so CI can use its own values instead of
+// the shared defaults. Defaults keep local runs working unchanged.
+const superAdmin = {
+  username: process.env.E2E_SUPERADMIN_USERNAME || "superadmin",
+  password: process.env.E2E_SUPERADMIN_PASSWORD || "admin123",
+};
+const cityAdmin = {
+  username: process.env.E2E_CITYADMIN_USERNAME || "quetta_admin",
+  password: process.env.E2E_CITYADMIN_PASSWORD || "city123",
+};
+
 export async function loginAsSuperAdmin(page: Page) {
-  await login(page, "superadmin", "admin123");
+  await login(page, superAdmin.username, superAdmin.password);
   await expect(page).toHaveURL(/\/dashboard$/);
 }
 
-export async function loginAsCityAdmin(page: Page, username = "quetta_admin", password = "city123") {
+export async function loginAsCityAdmin(page: Page, username = cityAdmin.username, password = cityAdmin.password) {
   await login(page, username, password);
   await expect(page).toHaveURL(/\/dashboard$/);
 }

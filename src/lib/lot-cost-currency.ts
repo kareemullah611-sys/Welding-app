@@ -1,5 +1,7 @@
 /** Currency rules for lot costs (non-purchase charges). */
 
+import { canonicalForeignCurrencyCode } from "@/lib/foreign-currency-carrying";
+
 export const FREIGHT_CURRENCIES = ["USD", "CNY", "AED"] as const;
 export const AFG_NON_FREIGHT_CURRENCIES = ["USD", "CNY", "AED", "AFN", "PKR"] as const;
 export const PK_NON_FREIGHT_CURRENCIES = ["PKR"] as const;
@@ -8,7 +10,9 @@ export const FOREIGN_TO_PKR = ["USD", "CNY", "AED", "AFN"] as const;
 export type LotCostCurrencyCode = "USD" | "CNY" | "AED" | "AFN" | "PKR";
 
 export function normalizeCurrencyCode(value: unknown): LotCostCurrencyCode | null {
-  const code = String(value || "").toUpperCase();
+  // Canonicalization first so RMB is accepted as its CNY alias rather than
+  // silently rejected, matching the foreign-currency accounting policy.
+  const code = canonicalForeignCurrencyCode(value as string);
   if (code === "USD" || code === "CNY" || code === "AED" || code === "AFN" || code === "PKR") return code;
   return null;
 }

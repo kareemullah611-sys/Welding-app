@@ -16,7 +16,7 @@ const MARKER = {
   smokeBank: "E2E Smoke Bank",
 };
 
-async function up() {
+export async function up() {
   const city = await prisma.city.findFirst({ where: { name: "Quetta", country: { code: "PK" } } });
   const admin = await prisma.user.findUnique({ where: { username: "superadmin" } });
   const pkr = await prisma.currency.findUnique({ where: { code: "PKR" } });
@@ -98,7 +98,7 @@ async function up() {
   console.log(JSON.stringify({ histSale: histSale.id, plainSale: plainSale.id, histPay: histPay.id, plainPay: plainPay.id }));
 }
 
-async function down() {
+export async function down() {
   const histCust = await prisma.customer.findFirst({ where: { name: MARKER.histCust } });
   const plainCust = await prisma.customer.findFirst({ where: { name: MARKER.plainCust } });
   const plainPayCust = await prisma.customer.findFirst({ where: { name: MARKER.plainPayCust } });
@@ -122,7 +122,12 @@ async function down() {
   console.log("cleaned");
 }
 
-const cmd = process.argv[2];
-if (cmd === "up") up().then(() => prisma.$disconnect());
-else if (cmd === "down") down().then(() => prisma.$disconnect());
-else throw new Error("usage: e2e-hard-delete-seed.ts up|down");
+// Only act as a CLI when invoked directly; this module is also imported by the
+// Playwright global setup/teardown, which must not trigger the dispatch.
+const invokedDirectly = /e2e-hard-delete-seed\.[cm]?[jt]s$/.test(process.argv[1] || "");
+if (invokedDirectly) {
+  const cmd = process.argv[2];
+  if (cmd === "up") up().then(() => prisma.$disconnect());
+  else if (cmd === "down") down().then(() => prisma.$disconnect());
+  else throw new Error("usage: e2e-hard-delete-seed.ts up|down");
+}

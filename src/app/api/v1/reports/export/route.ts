@@ -18,6 +18,10 @@ import {
   type ExportPayload,
 } from "@/lib/report-export-helpers";
 import { computeRunningBalances, getCombinedItemNetDelta } from "@/lib/treasury-ledger";
+import { fetchInBatches } from "@/lib/pagination";
+
+// Exports must return the complete dataset, but no single query may be unbounded.
+const EXPORT_BATCH_SIZE = 500;
 
 function comparePaymentExportNewestFirst(a: { date: Date; createdAt?: Date; id: number; ledgerType: string; raw?: any }, b: { date: Date; createdAt?: Date; id: number; ledgerType: string; raw?: any }) {
   const dateDiff = b.date.getTime() - a.date.getTime();
@@ -86,7 +90,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     if (type === "sales") {
       const { title, meta } = buildExportMeta("Sales Report", city?.name, dateFrom, dateTo, search.rawQuery);
       const saleDate = buildExportDateFilter(dateFrom, dateTo);
-      const sales = await prisma.sale.findMany({
+      const sales = await fetchInBatches(EXPORT_BATCH_SIZE, (take, skip) => prisma.sale.findMany({
         where: {
           ...cityFilter,
           ...(statusFilter ? { status: statusFilter as any } : {}),
@@ -102,8 +106,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           city: { select: { name: true } },
           creator: { select: { fullName: true } },
         },
-        orderBy: { saleDate: "asc" },
-      });
+        orderBy: [{ saleDate: "asc" }, { id: "asc" }], take, skip }));
       const filteredSales = sales.filter((s) =>
         matchesExportTextSearch(
           search,
@@ -198,7 +201,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       }> = [];
 
       if (selectedType === "all" || selectedType === "payment") {
-        const payments = await prisma.payment.findMany({
+        const payments = await fetchInBatches(EXPORT_BATCH_SIZE, (take, skip) => prisma.payment.findMany({
           where: {
             ...cityFilter,
             status: "active",
@@ -211,8 +214,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
             bankAccount: { select: { bankName: true, accountNumber: true } },
             superAdminBankAccount: { select: { bankName: true, accountNumber: true } },
           },
-          orderBy: [{ paymentDate: "asc" }, { id: "asc" }],
-        });
+          orderBy: [{ paymentDate: "asc" }, { id: "asc" }], take, skip }));
         entries.push(...payments.map((p: any) => {
           const amount = Number(p.amount || 0);
           return {
@@ -236,15 +238,14 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       }
 
       if (selectedType === "all" || selectedType === "withdrawal") {
-        const withdrawals = await prisma.personalWithdrawal.findMany({
+        const withdrawals = await fetchInBatches(EXPORT_BATCH_SIZE, (take, skip) => prisma.personalWithdrawal.findMany({
           where: { ...cityFilter, ...dateWhere("withdrawalDate") },
           include: {
             currency: true,
             bankAccount: { select: { bankName: true, accountNumber: true } },
             chequePayment: { select: { manualVoucherNo: true, chequeNumber: true } },
           },
-          orderBy: [{ withdrawalDate: "asc" }, { id: "asc" }],
-        });
+          orderBy: [{ withdrawalDate: "asc" }, { id: "asc" }], take, skip }));
         entries.push(...withdrawals.map((w: any) => ({
           id: w.id,
           date: w.withdrawalDate,
@@ -265,7 +266,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       }
 
       if (selectedType === "all" || selectedType === "expense") {
-        const expenses = await prisma.expense.findMany({
+        const expenses = await fetchInBatches(EXPORT_BATCH_SIZE, (take, skip) => prisma.expense.findMany({
           where: { ...cityFilter, deletedAt: null, ...dateWhere("expenseDate") },
           include: {
             currency: true,
@@ -273,8 +274,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
             chequePayment: { select: { manualVoucherNo: true, chequeNumber: true } },
             customerPayment: { select: { customer: { select: { name: true } } } },
           },
-          orderBy: [{ expenseDate: "asc" }, { id: "asc" }],
-        });
+          orderBy: [{ expenseDate: "asc" }, { id: "asc" }], take, skip }));
         entries.push(...expenses.map((e: any) => ({
           id: e.id,
           date: e.expenseDate,
@@ -294,15 +294,14 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       }
 
       if (selectedType === "all" || selectedType === "haji_transfer") {
-        const transfers = await prisma.hajiTransfer.findMany({
+        const transfers = await fetchInBatches(EXPORT_BATCH_SIZE, (take, skip) => prisma.hajiTransfer.findMany({
           where: {
             ...cityFilter,
             ...dateWhere("transferDate"),
             ...(selectedType === "all" ? { withdrawalSource: null } : {}),
           },
           include: { currency: true },
-          orderBy: [{ transferDate: "asc" }, { id: "asc" }],
-        });
+          orderBy: [{ transferDate: "asc" }, { id: "asc" }], take, skip }));
         entries.push(...transfers.map((h: any) => ({
           id: h.id,
           date: h.transferDate,
@@ -322,8 +321,8 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       }
 
       const [openingCashRows, openingBankRows] = await Promise.all([
-        prisma.openingCash.findMany({ where: cityFilter, include: { currency: { select: { code: true } } } }),
-        prisma.openingBankBalance.findMany({ where: cityId ? { bankAccount: { cityId } } : {}, include: { currency: { select: { code: true } } } }),
+        fetchInBatches(EXPORT_BATCH_SIZE, (take, skip) => prisma.openingCash.findMany({ where: cityFilter, include: { currency: { select: { code: true } } }, orderBy: { id: "asc" }, take, skip })),
+        fetchInBatches(EXPORT_BATCH_SIZE, (take, skip) => prisma.openingBankBalance.findMany({ where: cityId ? { bankAccount: { cityId } } : {}, include: { currency: { select: { code: true } } }, orderBy: { id: "asc" }, take, skip })),
       ]);
       const openingCashByCurrency: Record<string, number> = {};
       for (const row of [...openingCashRows, ...openingBankRows]) {
@@ -376,7 +375,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       const { title, meta } = buildExportMeta("Expenses Report", city?.name, dateFrom, dateTo, search.rawQuery);
       const expenseDate = buildExportDateFilter(dateFrom, dateTo);
       const searchWhere = buildExpenseExportSearchWhere(search);
-      const expenses = await prisma.expense.findMany({
+      const expenses = await fetchInBatches(EXPORT_BATCH_SIZE, (take, skip) => prisma.expense.findMany({
         where: {
           ...cityFilter,
           deletedAt: null,
@@ -384,8 +383,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           ...(searchWhere || {}),
         },
         include: { currency: true, city: { select: { name: true } } },
-        orderBy: { expenseDate: "asc" },
-      });
+        orderBy: [{ expenseDate: "asc" }, { id: "asc" }], take, skip }));
       const headers = ["Date", "City", "Particulars", "Amount", "Notes"];
       const dataRows = expenses.map((e) => [
         formatDate(e.expenseDate),
@@ -398,11 +396,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     } else if (type === "withdrawals") {
       const { title, meta } = buildExportMeta("Withdrawals Report", city?.name, dateFrom, dateTo, search.rawQuery);
       const withdrawalDate = buildExportDateFilter(dateFrom, dateTo);
-      const withdrawals = await prisma.personalWithdrawal.findMany({
+      const withdrawals = await fetchInBatches(EXPORT_BATCH_SIZE, (take, skip) => prisma.personalWithdrawal.findMany({
         where: { ...cityFilter, ...(withdrawalDate ? { withdrawalDate } : {}) },
         include: { currency: true, city: { select: { name: true } } },
-        orderBy: { withdrawalDate: "asc" },
-      });
+        orderBy: [{ withdrawalDate: "asc" }, { id: "asc" }], take, skip }));
       const filtered = withdrawals.filter((w) =>
         matchesExportTextSearch(
           search,
@@ -424,11 +421,10 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     } else if (type === "haji_transfers") {
       const { title, meta } = buildExportMeta("Haji Transfers Report", city?.name, dateFrom, dateTo, search.rawQuery);
       const transferDate = buildExportDateFilter(dateFrom, dateTo);
-      const transfers = await prisma.hajiTransfer.findMany({
+      const transfers = await fetchInBatches(EXPORT_BATCH_SIZE, (take, skip) => prisma.hajiTransfer.findMany({
         where: { ...cityFilter, ...(transferDate ? { transferDate } : {}) },
         include: { currency: true, lot: { select: { lotNumber: true } } },
-        orderBy: { transferDate: "asc" },
-      });
+        orderBy: [{ transferDate: "asc" }, { id: "asc" }], take, skip }));
       const filtered = transfers.filter((h) =>
         matchesExportTextSearch(
           search,
@@ -470,12 +466,11 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       const paymentDate = buildExportDateFilter(dateFrom, dateTo);
 
       const [sales, payments] = await Promise.all([
-        prisma.sale.findMany({
+        fetchInBatches(EXPORT_BATCH_SIZE, (take, skip) => prisma.sale.findMany({
           where: { customerId, ...(saleDate ? { saleDate } : {}) },
           include: { currency: true, items: { include: { product: true, lot: { select: { lotNumber: true } } } }, lot: { select: { lotNumber: true } } },
-          orderBy: { saleDate: "asc" },
-        }),
-        prisma.payment.findMany({
+          orderBy: [{ saleDate: "asc" }, { id: "asc" }], take, skip })),
+        fetchInBatches(EXPORT_BATCH_SIZE, (take, skip) => prisma.payment.findMany({
           where: { customerId, ...(paymentDate ? { paymentDate } : {}) },
           include: {
             currency: true,
@@ -483,8 +478,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
             bankAccount: { select: { bankName: true, accountNumber: true } },
             superAdminBankAccount: { select: { bankName: true, accountNumber: true } },
           },
-          orderBy: { paymentDate: "asc" },
-        }),
+          orderBy: [{ paymentDate: "asc" }, { id: "asc" }], take, skip })),
       ]);
 
       let transactions = [
@@ -551,15 +545,14 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       if (!cityId) return new Response("city_id required for ledger export", { status: 400 });
       const { title, meta } = buildExportMeta("City Ledger Report", city?.name, dateFrom, dateTo, search.rawQuery);
       const [sales, payments, expenses, withdrawals, hajiTransfers] = await Promise.all([
-        prisma.sale.findMany({ where: { cityId, status: { in: ["active", "marked_short"] } }, include: { customer: { select: { name: true } }, currency: true }, orderBy: { saleDate: "asc" } }),
-        prisma.payment.findMany({ where: { cityId }, include: { customer: { select: { name: true } }, currency: true }, orderBy: { paymentDate: "asc" } }),
-        prisma.expense.findMany({ where: { cityId, deletedAt: null }, include: { currency: true }, orderBy: { expenseDate: "asc" } }),
-        prisma.personalWithdrawal.findMany({ where: { cityId }, include: { currency: true }, orderBy: { withdrawalDate: "asc" } }),
-        prisma.hajiTransfer.findMany({
+        fetchInBatches(EXPORT_BATCH_SIZE, (take, skip) => prisma.sale.findMany({ where: { cityId, status: { in: ["active", "marked_short"] } }, include: { customer: { select: { name: true } }, currency: true }, orderBy: [{ saleDate: "asc" }, { id: "asc" }], take, skip })),
+        fetchInBatches(EXPORT_BATCH_SIZE, (take, skip) => prisma.payment.findMany({ where: { cityId }, include: { customer: { select: { name: true } }, currency: true }, orderBy: [{ paymentDate: "asc" }, { id: "asc" }], take, skip })),
+        fetchInBatches(EXPORT_BATCH_SIZE, (take, skip) => prisma.expense.findMany({ where: { cityId, deletedAt: null }, include: { currency: true }, orderBy: [{ expenseDate: "asc" }, { id: "asc" }], take, skip })),
+        fetchInBatches(EXPORT_BATCH_SIZE, (take, skip) => prisma.personalWithdrawal.findMany({ where: { cityId }, include: { currency: true }, orderBy: [{ withdrawalDate: "asc" }, { id: "asc" }], take, skip })),
+        fetchInBatches(EXPORT_BATCH_SIZE, (take, skip) => prisma.hajiTransfer.findMany({
           where: { cityId, withdrawalSource: null },
           include: { currency: true },
-          orderBy: { transferDate: "asc" },
-        }),
+          orderBy: [{ transferDate: "asc" }, { id: "asc" }], take, skip })),
       ]);
 
       let entries: any[] = [];

@@ -78,3 +78,57 @@ jobs:
 
       - name: DB-backed library tests
         run: npm run test:db-lib
+
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: welding_app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/welding_app
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/welding_app
+      JWT_SECRET: ci-test-jwt-secret-long-enough-32
+      ADMIN_PASSWORD: ci-admin-password
+      CITY_ADMIN_PASSWORD: ci-city-admin-password
+      E2E_SUPERADMIN_USERNAME: superadmin
+      E2E_SUPERADMIN_PASSWORD: ci-admin-password
+      E2E_CITYADMIN_USERNAME: quetta_admin
+      E2E_CITYADMIN_PASSWORD: ci-city-admin-password
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # TODO(C03): switch to `npx prisma migrate deploy` once a baseline
+      # migration exists. migrate deploy cannot provision an empty database yet.
+      - name: Apply schema
+        run: npx prisma db push
+
+      - name: Seed reference data
+        run: npm run db:seed
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      # Fails the job if the run leaves any row behind.
+      - name: E2E (must leave zero residue)
+        run: npm run test:e2e:clean

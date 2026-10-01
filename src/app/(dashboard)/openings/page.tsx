@@ -238,16 +238,47 @@ function OpeningCurrencyField({
   );
 }
 
-type FxForm = { carryingAmountPkr: string; fxRateToPkr: string; fxRateDate: string; fxRateSource: string };
+type FxForm = {
+  carryingAmountPkr: string;
+  fxRateToPkr: string;
+  fxRateDate: string;
+  fxRateSource: string;
+  fxRateReference: string;
+  fxRateApproval: string;
+};
+
+const OPENING_FX_PROVIDERS = [
+  "SBP_DAILY_FX",
+  "SARAFI_AF_SNAPSHOT",
+  "COUNTRY_FALLBACK",
+  "MANUAL_HISTORICAL_REMEDIATION",
+] as const;
 
 function OpeningFxFields({ currencyCode, value, onChange, disabled }: { currencyCode: string; value: FxForm; onChange: (next: FxForm) => void; disabled?: boolean }) {
   if (!currencyCode || currencyCode === "PKR") return null;
+  const isManual = value.fxRateSource === "MANUAL_HISTORICAL_REMEDIATION";
   return (
     <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3 rounded-lg border border-amber-200 bg-amber-50/50 p-3">
       <input className="input" type="number" step="0.01" placeholder="PKR carrying amount" value={value.carryingAmountPkr} onChange={(e) => onChange({ ...value, carryingAmountPkr: e.target.value })} required disabled={disabled} />
       <input className="input" type="number" step="0.00000001" placeholder={`${currencyCode} → PKR rate`} value={value.fxRateToPkr} onChange={(e) => onChange({ ...value, fxRateToPkr: e.target.value })} required disabled={disabled} />
       <input className="input" type="date" value={value.fxRateDate} onChange={(e) => onChange({ ...value, fxRateDate: e.target.value })} required disabled={disabled} />
-      <input className="input" placeholder="Historical rate source/reference" value={value.fxRateSource} onChange={(e) => onChange({ ...value, fxRateSource: e.target.value })} required disabled={disabled} />
+      <select className="input" value={value.fxRateSource} onChange={(e) => onChange({ ...value, fxRateSource: e.target.value })} required disabled={disabled}>
+        <option value="">Select rate evidence…</option>
+        {OPENING_FX_PROVIDERS.map((provider) => (
+          <option key={provider} value={provider}>{provider.replace(/_/g, " ")}</option>
+        ))}
+      </select>
+      <input className="input md:col-span-2" placeholder="Evidence reference (snapshot id, document, or minute)" value={value.fxRateReference} onChange={(e) => onChange({ ...value, fxRateReference: e.target.value })} required={isManual} disabled={disabled} />
+      {isManual && (
+        <input
+          className="input md:col-span-2"
+          placeholder='Type "APPROVE MANUAL HISTORICAL RATE" to approve'
+          value={value.fxRateApproval}
+          onChange={(e) => onChange({ ...value, fxRateApproval: e.target.value })}
+          required
+          disabled={disabled}
+        />
+      )}
     </div>
   );
 }
@@ -307,7 +338,7 @@ export default function OpeningsPage() {
   const superAdminAccountRef = useRef<HTMLFormElement>(null);
 
   const today = new Date().toISOString().split("T")[0];
-  const emptyFx = { carryingAmountPkr: "", fxRateToPkr: "", fxRateDate: today, fxRateSource: "" };
+  const emptyFx = { carryingAmountPkr: "", fxRateToPkr: "", fxRateDate: today, fxRateSource: "", fxRateReference: "", fxRateApproval: "" };
   const [cashForm, setCashForm] = useState({ currencyId: 0, amount: "", openingDate: today, notes: "", ...emptyFx });
   const [customerForm, setCustomerForm] = useState({ customerId: 0, currencyId: 0, amount: "", openingDate: today, notes: "", ...emptyFx });
   const [bankForm, setBankForm] = useState({ bankAccountId: 0, currencyId: 0, amount: "", openingDate: today, notes: "", ...emptyFx });
@@ -335,6 +366,8 @@ export default function OpeningsPage() {
     fxRateToPkr: string;
     fxRateDate: string;
     fxRateSource: string;
+    fxRateReference: string;
+    fxRateApproval: string;
   }>({
     liabilityType: "supplier",
     partyId: 0,
@@ -458,6 +491,8 @@ export default function OpeningsPage() {
     fxRateToPkr: form.fxRateToPkr === "" ? null : Number(form.fxRateToPkr),
     fxRateDate: form.fxRateDate || null,
     fxRateSource: form.fxRateSource || null,
+    fxRateReference: form.fxRateReference || null,
+    fxRateApproval: form.fxRateApproval || null,
   });
 
   const deleteOpening = async (kind: string, id: number | string) => {
@@ -935,7 +970,7 @@ export default function OpeningsPage() {
                           carryingAmountPkr: String(row.carryingAmountPkr ?? row.amount),
                           fxRateToPkr: row.fxRateToPkr == null ? "" : String(row.fxRateToPkr),
                           fxRateDate: row.fxRateDate || row.openingDate,
-                          fxRateSource: row.fxRateSource || "",
+                          fxRateSource: row.fxRateSource || "", fxRateReference: "", fxRateApproval: "",
                           openingDate: row.openingDate,
                           notes: row.notes || "",
                         });
@@ -1029,7 +1064,7 @@ export default function OpeningsPage() {
                           carryingAmountPkr: String(row.carryingAmountPkr ?? row.amount),
                           fxRateToPkr: row.fxRateToPkr == null ? "" : String(row.fxRateToPkr),
                           fxRateDate: row.fxRateDate || row.openingDate,
-                          fxRateSource: row.fxRateSource || "",
+                          fxRateSource: row.fxRateSource || "", fxRateReference: "", fxRateApproval: "",
                           openingDate: row.openingDate,
                           notes: row.notes || "",
                         });
@@ -1130,7 +1165,7 @@ export default function OpeningsPage() {
                           carryingAmountPkr: String(row.carryingAmountPkr ?? row.amount),
                           fxRateToPkr: row.fxRateToPkr == null ? "" : String(row.fxRateToPkr),
                           fxRateDate: row.fxRateDate || row.openingDate,
-                          fxRateSource: row.fxRateSource || "",
+                          fxRateSource: row.fxRateSource || "", fxRateReference: "", fxRateApproval: "",
                           openingDate: row.openingDate,
                           notes: row.notes || "",
                         });
@@ -1242,7 +1277,7 @@ export default function OpeningsPage() {
                           carryingAmountPkr: String(row.carryingAmountPkr ?? row.amount),
                           fxRateToPkr: row.fxRateToPkr == null ? "" : String(row.fxRateToPkr),
                           fxRateDate: row.fxRateDate || row.openingDate,
-                          fxRateSource: row.fxRateSource || "",
+                          fxRateSource: row.fxRateSource || "", fxRateReference: "", fxRateApproval: "",
                           openingDate: row.openingDate,
                           notes: row.notes || "",
                         });
@@ -1640,7 +1675,7 @@ export default function OpeningsPage() {
                           carryingAmountPkr: String(row.carryingAmountPkr ?? row.amount),
                           fxRateToPkr: row.fxRateToPkr == null ? "" : String(row.fxRateToPkr),
                           fxRateDate: row.fxRateDate || row.openingDate,
-                          fxRateSource: row.fxRateSource || "",
+                          fxRateSource: row.fxRateSource || "", fxRateReference: "", fxRateApproval: "",
                           openingDate: row.openingDate,
                           notes: row.notes || "",
                         })}
@@ -1765,7 +1800,7 @@ export default function OpeningsPage() {
                               carryingAmountPkr: String(row.carryingAmountPkr ?? row.amount),
                               fxRateToPkr: row.fxRateToPkr == null ? "" : String(row.fxRateToPkr),
                               fxRateDate: row.fxRateDate || row.openingDate,
-                              fxRateSource: row.fxRateSource || "",
+                              fxRateSource: row.fxRateSource || "", fxRateReference: "", fxRateApproval: "",
                               openingDate: row.openingDate,
                               notes: row.notes || "",
                             });

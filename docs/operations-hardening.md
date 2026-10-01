@@ -22,11 +22,14 @@ Production URL:
 
 `https://welding-app-production.up.railway.app/api/ping`
 
-### Full health check (app + database)
+### Readiness check (app + database)
 
 - URL: `/api/health`
+- Public, no login
 - Checks database with `SELECT 1`
-- Returns `503` if DB is down
+- Returns `200` with `{ "ok": true }`, or `503` with `{ "ok": false }` if DB is down
+- Exposes no uptime, latency, timestamp, or database detail to anonymous callers;
+  use server logs for diagnostics.
 
 ### Uptime monitor (optional)
 

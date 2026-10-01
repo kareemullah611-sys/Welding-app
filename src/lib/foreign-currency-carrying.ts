@@ -1,5 +1,35 @@
 export const SUPPORTED_FOREIGN_CURRENCIES = ["USD", "AFN", "CNY", "AED"] as const;
 
+/** Every currency code the application may persist. */
+export const CANONICAL_CURRENCY_CODES = ["PKR", ...SUPPORTED_FOREIGN_CURRENCIES] as const;
+
+export type CanonicalCurrencyCode = (typeof CANONICAL_CURRENCY_CODES)[number];
+
+export class UnsupportedCurrencyCodeError extends Error {}
+
+/**
+ * Normalize and validate a currency code before it is persisted.
+ *
+ * `RMB` is an input alias for `CNY` and never persists as its own currency.
+ * Anything outside the canonical set is rejected rather than coerced, so a
+ * typo cannot silently become an unreconcilable ledger currency.
+ *
+ * A database-level constraint is deliberately not relied upon here: see
+ * docs/foreign-currency-accounting-policy.md. Adding one requires first
+ * confirming no production `currencies.code` or `accounts.currency_code` row
+ * sits outside this set.
+ */
+export function assertCanonicalCurrencyCode(value: unknown): CanonicalCurrencyCode {
+  const normalized = String(value ?? "").trim().toUpperCase();
+  const canonical = normalized === "RMB" ? "CNY" : normalized;
+  if (!(CANONICAL_CURRENCY_CODES as readonly string[]).includes(canonical)) {
+    throw new UnsupportedCurrencyCodeError(
+      `Unsupported currency code "${value}". Expected one of: ${CANONICAL_CURRENCY_CODES.join(", ")} (RMB is accepted as CNY).`
+    );
+  }
+  return canonical as CanonicalCurrencyCode;
+}
+
 export type SupportedForeignCurrency = (typeof SUPPORTED_FOREIGN_CURRENCIES)[number];
 export type ForeignCurrencyPositionKind = "asset" | "liability";
 
@@ -21,9 +51,15 @@ export function isSupportedForeignCurrency(code: string): code is SupportedForei
 
 export type CarryingLayerGate = { ok: true } | { ok: false; message: string };
 
-// PKR is always journalizable. Foreign codes are journalizable only where the
-// immutable PKR carrying layer is wired: Afghanistan + supported foreign currencies.
-// Everything else must be rejected with FOREIGN_CARRYING_LAYER_REQUIRED instead of
+// Defence-in-depth gate, not the authoritative control.
+//
+// It answers "may this country/currency pair be journalized at all?" and must
+// never be read as "capability is decided by country". Whether a specific
+// non-PKR write path is actually wired to a carrying layer is asserted per
+// route by src/lib/foreign-currency-route-coverage.test.ts, which requires
+// every currency-accepting write route to either wire a carrying layer or
+// reject non-PKR writes with FOREIGN_CARRYING_LAYER_REQUIRED.
+// PKR is always journalizable. Everything else must be rejected rather than
 // journalizing raw foreign units.
 export function checkCarryingLayerWired(isAfghanistanCity: boolean, currencyCode: string): CarryingLayerGate {
   const code = canonicalForeignCurrencyCode(currencyCode);

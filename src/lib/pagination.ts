@@ -6,6 +6,16 @@ export const DEFAULT_LIST_PAGE_SIZE = 15;
 /** Visible rows per page in city Sales and Payments modules. */
 export const SALES_PAYMENTS_PAGE_SIZE = 20;
 
+/**
+ * Server-enforced ceiling for any single financial read, in rows.
+ *
+ * No endpoint may return an unbounded result set: interactive lists stay small,
+ * and anything that genuinely needs the whole dataset (exports, reports) must
+ * page through it with `fetchInBatches` so every query stays bounded while the
+ * assembled dataset stays complete.
+ */
+export const MAX_FINANCIAL_PAGE_SIZE = 1000;
+
 export function buildPaginationItems(page: number, totalPages: number): PaginationItem[] {
   const safeTotal = Math.max(1, Math.floor(totalPages || 1));
   const safePage = Math.min(Math.max(1, Math.floor(page || 1)), safeTotal);
@@ -32,17 +42,41 @@ export function getLedgerPaginationParams(searchParams: URLSearchParams): {
   const limitRaw = parseInt(searchParams.get("limit") || String(DEFAULT_LIST_PAGE_SIZE), 10);
   const page = Math.max(1, Number.isFinite(pageRaw) ? pageRaw : 1);
   const limit = Math.min(
-    10000,
+    MAX_FINANCIAL_PAGE_SIZE,
     Math.max(1, Number.isFinite(limitRaw) ? limitRaw : DEFAULT_LIST_PAGE_SIZE)
   );
   return { page, limit };
+}
+
+/**
+ * Read an entire dataset as a sequence of bounded queries.
+ *
+ * Returns every matching row, but never asks the database for more than
+ * `batchSize` at a time, so exports and reports keep full completeness without
+ * an unbounded `findMany`.
+ */
+export async function fetchInBatches<T>(
+  batchSize: number,
+  readBatch: (take: number, skip: number) => Promise<T[]>
+): Promise<T[]> {
+  const size = Math.min(MAX_FINANCIAL_PAGE_SIZE, Math.max(1, Math.floor(batchSize) || DEFAULT_LIST_PAGE_SIZE));
+  const rows: T[] = [];
+  for (let skip = 0; ; skip += size) {
+    const batch = await readBatch(size, skip);
+    rows.push(...batch);
+    if (batch.length < size) break;
+  }
+  return rows;
 }
 
 export function paginateList<T>(items: T[], page: number, limit: number): {
   items: T[];
   pagination: { page: number; limit: number; total: number; totalPages: number };
 } {
-  const safeLimit = Math.min(10000, Math.max(1, Math.floor(limit || DEFAULT_LIST_PAGE_SIZE)));
+  const safeLimit = Math.min(
+    MAX_FINANCIAL_PAGE_SIZE,
+    Math.max(1, Math.floor(limit || DEFAULT_LIST_PAGE_SIZE))
+  );
   const safePage = Math.max(1, Math.floor(page || 1));
   const total = items.length;
   const totalPages = Math.max(1, Math.ceil(total / safeLimit));

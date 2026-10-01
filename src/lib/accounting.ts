@@ -187,7 +187,13 @@ export async function assertAccountingDateOpen(entryDate: Date, db: DbClient = p
     where: { startDate: { lte: entryDate }, endDate: { gte: entryDate } },
     select: { id: true },
   });
-  if (!matchingYear) return;
+  if (!matchingYear) {
+    const configuredYears = typeof financialYearModel.count === "function"
+      ? await financialYearModel.count()
+      : 0;
+    if (configuredYears === 0) return;
+    throw new Error(`Accounting date ${entryDate.toISOString().slice(0, 10)} is outside every configured financial year.`);
+  }
   if (typeof (db as any).$executeRawUnsafe === "function") {
     await (db as any).$executeRawUnsafe(
       "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",

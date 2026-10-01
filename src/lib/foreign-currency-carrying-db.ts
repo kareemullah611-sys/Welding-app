@@ -124,6 +124,22 @@ export async function recordForeignCurrencyRecognition(db: DbClient, input: {
   return layer;
 }
 
+async function updateLayerBalance(db: DbClient, input: {
+  id: number;
+  remainingForeignAmount: number;
+  remainingCarryingAmountPkr: number;
+  status: "open" | "closed" | "reversed";
+}) {
+  return db.foreignCurrencyCarryingLayer.update({
+    where: { id: input.id },
+    data: {
+      remainingForeignAmount: input.remainingForeignAmount,
+      remainingCarryingAmountPkr: input.remainingCarryingAmountPkr,
+      status: input.status,
+    },
+  });
+}
+
 async function consumeLayers(db: DbClient, input: { ownerKey: string; currencyCode: string; amount: number }) {
   const { currencyId } = await currencyIdForCode(db, input.currencyCode);
   await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`foreign-layer:${input.ownerKey}:${currencyId}`}))`;
@@ -144,13 +160,11 @@ async function consumeLayers(db: DbClient, input: { ownerKey: string; currencyCo
     const layer = layers.find((row) => row.id === allocation.layerId)!;
     const remainingForeignAmount = round4(Number(layer.remainingForeignAmount) - allocation.foreignAmount);
     const remainingCarryingAmountPkr = round2(Number(layer.remainingCarryingAmountPkr) - allocation.carryingAmountPkr);
-    await db.foreignCurrencyCarryingLayer.update({
-      where: { id: layer.id },
-      data: {
-        remainingForeignAmount,
-        remainingCarryingAmountPkr,
-        status: remainingForeignAmount === 0 ? "closed" : "open",
-      },
+    await updateLayerBalance(db, {
+      id: layer.id,
+      remainingForeignAmount,
+      remainingCarryingAmountPkr,
+      status: remainingForeignAmount === 0 ? "closed" : "open",
     });
   }
   return { currencyId, allocations };
@@ -611,20 +625,20 @@ export async function reverseForeignCurrencyMovements(db: DbClient, input: {
       if (movement.targetLayer.status !== "open" || Math.abs(originalForeign - remainingForeign) > 0.0001) {
         throw new Error("Foreign-currency proceeds have already moved and cannot be edited; reverse the later movement first.");
       }
-      await db.foreignCurrencyCarryingLayer.update({
-        where: { id: movement.targetLayer.id },
-        data: { status: "reversed", remainingForeignAmount: 0, remainingCarryingAmountPkr: 0 },
+      await updateLayerBalance(db, {
+        id: movement.targetLayer.id,
+        status: "reversed",
+        remainingForeignAmount: 0,
+        remainingCarryingAmountPkr: 0,
       });
     }
     if (movement.sourceLayerId) {
       const source = await db.foreignCurrencyCarryingLayer.findUniqueOrThrow({ where: { id: movement.sourceLayerId } });
-      await db.foreignCurrencyCarryingLayer.update({
-        where: { id: source.id },
-        data: {
-          status: "open",
-          remainingForeignAmount: round4(Number(source.remainingForeignAmount) + Number(movement.foreignAmount)),
-          remainingCarryingAmountPkr: round2(Number(source.remainingCarryingAmountPkr) + Number(movement.carryingAmountPkr)),
-        },
+      await updateLayerBalance(db, {
+        id: source.id,
+        status: "open",
+        remainingForeignAmount: round4(Number(source.remainingForeignAmount) + Number(movement.foreignAmount)),
+        remainingCarryingAmountPkr: round2(Number(source.remainingCarryingAmountPkr) + Number(movement.carryingAmountPkr)),
       });
     }
     await db.foreignCurrencyMovement.create({
@@ -671,9 +685,11 @@ export async function reverseForeignCurrencyRecognition(db: DbClient, input: {
     if (Math.abs(Number(layer.originalForeignAmount) - Number(layer.remainingForeignAmount)) > 0.0001) {
       throw new Error("This foreign-currency source has downstream receipts or transfers. Reverse those transactions before correcting it.");
     }
-    await db.foreignCurrencyCarryingLayer.update({
-      where: { id: layer.id },
-      data: { status: "reversed", remainingForeignAmount: 0, remainingCarryingAmountPkr: 0 },
+    await updateLayerBalance(db, {
+      id: layer.id,
+      status: "reversed",
+      remainingForeignAmount: 0,
+      remainingCarryingAmountPkr: 0,
     });
     await db.foreignCurrencyMovement.create({
       data: {
