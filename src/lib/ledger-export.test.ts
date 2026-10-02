@@ -52,3 +52,10 @@ test("payments PDF maps the six export columns into the current report layout", 
   assert.match(paymentTemplate, /<th class="col-details">Details<\/th>/);
   assert.doesNotMatch(paymentTemplate, /col-type|col-name|col-particulars|row\[6\]|row\[7\]/);
 });
+
+test("print-only pages do not eagerly bundle ExcelJS and its eval-based polyfills", () => {
+  const source = readFileSync("src/lib/ledger-export.ts", "utf8");
+
+  assert.doesNotMatch(source, /from ["']exceljs["']/);
+  assert.match(source, /await import\(["']\.\/ledger-workbook-export["']\)/);
+});

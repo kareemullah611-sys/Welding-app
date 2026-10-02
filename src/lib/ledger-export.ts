@@ -1,4 +1,3 @@
-import ExcelJS from "exceljs";
 import { apiCall } from "@/hooks/useApi";
 import { formatLedgerMoneyAmount } from "@/lib/city-money-format";
 import type { LotCostLedgerRow } from "@/lib/lot-cost-ledger";
@@ -330,16 +329,8 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 async function writeWorkbookSheets(sheets: Array<{ name: string; rows: unknown[][] }>, filename: string) {
-  const workbook = new ExcelJS.Workbook();
-  for (const sheet of sheets) {
-    const worksheet = workbook.addWorksheet(sheet.name);
-    worksheet.addRows(sheet.rows.map((row) => row.map((value) => value ?? "")));
-  }
-  const wbout = await workbook.xlsx.writeBuffer();
-  downloadBlob(
-    new Blob([wbout], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
-    filename,
-  );
+  const { buildWorkbookBlob } = await import("./ledger-workbook-export");
+  downloadBlob(await buildWorkbookBlob(sheets), filename);
 }
 
 export async function exportLotCostLedgerXlsx(input: {

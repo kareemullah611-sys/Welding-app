@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   OFFLINE_AUTH_CACHE_KEY,
   buildOfflinePasswordVerifier,
@@ -27,7 +28,7 @@ const sampleUser = {
   countryName: "Afghanistan",
 };
 
-test("writes and reads offline auth cache with bcrypt verifier", async () => {
+test("writes and reads offline auth cache with PBKDF2 verifier", async () => {
   const storage = new MemoryStorage();
   const passwordVerifier = await buildOfflinePasswordVerifier("secret");
   writeOfflineAuthCache(storage as unknown as Storage, {
@@ -41,6 +42,14 @@ test("writes and reads offline auth cache with bcrypt verifier", async () => {
   assert.equal(cached?.user.fullName, "Demo");
   assert.equal(await verifyOfflinePassword("secret", cached!), true);
   assert.equal(await verifyOfflinePassword("wrong", cached!), false);
+});
+
+test("offline verifier uses browser Web Crypto without bcrypt polyfills", async () => {
+  const source = readFileSync("src/lib/offline-auth-cache.ts", "utf8");
+  const verifier = await buildOfflinePasswordVerifier("secret");
+
+  assert.doesNotMatch(source, /from ["']bcryptjs["']/);
+  assert.match(verifier, /^pbkdf2-sha256\$/);
 });
 
 test("clear removes offline auth cache", () => {
