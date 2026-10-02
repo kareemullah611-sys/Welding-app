@@ -7,6 +7,7 @@ import { finalizeLedgerForDisplay } from "@/lib/ledger-display";
 import { getLedgerPaginationParams, paginateList } from "@/lib/pagination";
 import { formatSuperAdminBankLabel } from "@/lib/haji-transfer-detail";
 import { formatBankTransferCounterparty } from "@/lib/bank-deposit-ledger";
+import { buildSuperAdminBankJournalRows } from "@/lib/superadmin-bank-ledger";
 
 type LedgerRow = {
   key: string;
@@ -88,6 +89,38 @@ async function appendSuperAdminControlRows(accountId: number, currencyCode: stri
       debit: sourceIncrease ? 0 : Number(entry.amount),
     });
   }
+}
+
+async function appendSuperAdminJournalFallbackRows(
+  accountId: number,
+  accountKind: string,
+  rows: LedgerRow[],
+) {
+  if (rows.length > 0) return;
+  const accountCode = accountKind === "cash"
+    ? `1051-SACASH${accountId}`
+    : `1050-SABANK${accountId}`;
+  const glAccount = await prisma.account.findUnique({
+    where: { code: accountCode },
+    select: { id: true },
+  });
+  if (!glAccount) return;
+  const entries = await prisma.journalEntry.findMany({
+    where: { accountId: glAccount.id },
+    select: {
+      id: true,
+      transactionId: true,
+      debit: true,
+      credit: true,
+      currencyCode: true,
+      description: true,
+      entityType: true,
+      entryDate: true,
+      createdAt: true,
+    },
+    orderBy: [{ entryDate: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+  });
+  rows.push(...buildSuperAdminBankJournalRows(entries));
 }
 
 export const GET = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
@@ -284,6 +317,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           });
         }
         await appendSuperAdminControlRows(id, currencyCode, rows);
+        await appendSuperAdminJournalFallbackRows(id, account.accountKind, rows);
 
         return respondLedgerView(request.nextUrl.searchParams, {
           id: account.id,
@@ -531,6 +565,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         });
       }
       await appendSuperAdminControlRows(id, currencyCode, rows);
+      await appendSuperAdminJournalFallbackRows(id, account.accountKind, rows);
 
       return respondLedgerView(request.nextUrl.searchParams, {
         id: account.id,
