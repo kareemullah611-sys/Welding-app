@@ -13,7 +13,7 @@ import {
   BookOpen, Receipt, Wallet, Users, ClipboardList,
   ArrowLeftRight, TrendingUp, BarChart2, FileText, Search,
   Activity, Settings, LogOut, ChevronLeft, ChevronRight,
-  Menu, FileCheck, Landmark, BotMessageSquare, PiggyBank, X, ChevronDown, Lock, type LucideIcon,
+  Menu, FileCheck, Landmark, BotMessageSquare, PiggyBank, X, ChevronDown, Lock, Truck, type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ThemeSwitcher from "@/components/layout/ThemeSwitcher";
@@ -154,6 +154,12 @@ const cityAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
       { label: "Cheque Register", key: "cheque_register", href: "/cheques",               icon: FileCheck, roles: ["city_admin"] },
       { label: "Bank Deposits",   key: "bank_deposits",   href: "/bank-deposits",         icon: Landmark,  roles: ["city_admin"] },
       { label: "Bank Accounts",   key: "bank_accounts",   href: "/settings/bank-accounts",icon: Landmark,  roles: ["city_admin"] },
+    ],
+  },
+  {
+    label: "Delivery",
+    items: [
+      { label: "Delivery", key: "delivery", href: "/delivery", icon: Truck, roles: ["city_admin"] },
     ],
   },
   {
