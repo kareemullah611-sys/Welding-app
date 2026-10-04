@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 
 const schema = readFileSync("prisma/schema.prisma", "utf8");
 const migration = readFileSync(
-  "prisma/migrations/20260830120000_complete_opening_accounting/migration.sql",
+  "prisma/migrations_legacy_pre_baseline/20260830120000_complete_opening_accounting/migration.sql",
   "utf8",
 );
 const route = readFileSync("src/app/api/v1/openings/route.ts", "utf8");

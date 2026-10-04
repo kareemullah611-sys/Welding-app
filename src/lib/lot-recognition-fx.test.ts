@@ -89,7 +89,7 @@ test("manual historical remediation rates apply only to the approved exact lot s
 test("future lot recognition is snapshotted with auditable metadata", () => {
   const schema = readFileSync("prisma/schema.prisma", "utf8");
   const route = readFileSync("src/app/api/v1/lots/route.ts", "utf8");
-  const migration = readFileSync("prisma/migrations/20260825120000_lot_recognition_rate_metadata/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260825120000_lot_recognition_rate_metadata/migration.sql", "utf8");
 
   assert.match(schema, /pkrExchangeRateMetadata\s+Json\?/);
   assert.match(route, /resolveLotRecognitionRateFromDb/);

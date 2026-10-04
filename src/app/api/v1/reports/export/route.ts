@@ -465,7 +465,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       const saleDate = buildExportDateFilter(dateFrom, dateTo);
       const paymentDate = buildExportDateFilter(dateFrom, dateTo);
 
-      const [sales, payments] = await Promise.all([
+      const [sales, payments, openingChequeBounces] = await Promise.all([
         fetchInBatches(EXPORT_BATCH_SIZE, (take, skip) => prisma.sale.findMany({
           where: { customerId, ...(saleDate ? { saleDate } : {}) },
           include: { currency: true, items: { include: { product: true, lot: { select: { lotNumber: true } } } }, lot: { select: { lotNumber: true } } },
@@ -479,6 +479,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
             superAdminBankAccount: { select: { bankName: true, accountNumber: true } },
           },
           orderBy: [{ paymentDate: "asc" }, { id: "asc" }], take, skip })),
+        fetchInBatches(EXPORT_BATCH_SIZE, (take, skip) => prisma.openingCheque.findMany({ where: { customerId, chequeStatus: "bounced", ...(paymentDate ? { bouncedAt: paymentDate } : {}) }, include: { currency: true }, orderBy: [{ bouncedAt: "asc" }, { id: "asc" }], take, skip })),
       ]);
 
       let transactions = [
@@ -508,6 +509,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           currencySymbol: p.currency.symbol || p.currency.code,
           lotNumber: p.lot?.lotNumber || "",
         })),
+        ...openingChequeBounces.map((cheque) => ({ type: "cheque_bounce", date: cheque.bouncedAt!, voucherNo: cheque.chequeNumber, detail: "Opening cheque bounced", perCartonPrice: "-", debit: Number(cheque.amount), credit: 0, status: "bounced", currency: cheque.currency.code, currencySymbol: cheque.currency.symbol || cheque.currency.code, lotNumber: "" })),
       ].filter((t) => ledgerType === "all" || t.type === ledgerType)
         .sort((a, b) => a.date.getTime() - b.date.getTime());
 
@@ -529,7 +531,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         runningByCurrency[t.currency] = (runningByCurrency[t.currency] || 0) + t.debit - t.credit;
         dataRows.push([
           formatDate(t.date),
-          t.type === "sale" ? "Sale" : "Receipt",
+          t.type === "sale" ? "Sale" : t.type === "cheque_bounce" ? "Cheque Bounce" : "Receipt",
           t.voucherNo,
           cleanText(t.detail),
           t.perCartonPrice,

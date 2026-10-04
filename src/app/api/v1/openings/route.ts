@@ -8,7 +8,6 @@ import { getSyncRequestMeta, isSyncRequestDuplicateError } from "@/lib/sync-idem
 import { journalOpeningBankBalance, journalOpeningCashBalance, journalOpeningCheque, journalOpeningCityLiability, journalOpeningCustomerBalance, journalOpeningEquityAllocation, journalOpeningHajiBalance, journalOpeningInventoryValuation, journalOpeningLiability, journalOpeningSuperAdminAccountBalance, resolveOpeningCarryingAmount, reverseOpeningCustomerBalanceJournals, reverseOpeningJournals } from "@/lib/accounting";
 import { setLegacyGodownStock, listLegacyStockForCity, purgeLegacyOpeningStockData } from "@/lib/legacy-stock-lot";
 import { listLotGodownStockForCity, setLotGodownStock } from "@/lib/lot-godown-stock";
-import { createHistoricalSale } from "@/lib/historical-sale-import";
 import { autoActivateShortSales } from "@/lib/stock-activation";
 import { getOpeningEditState } from "@/lib/openings-lock";
 import { isSupportedForeignCurrency } from "@/lib/foreign-currency-carrying";
@@ -20,9 +19,14 @@ import {
   reverseForeignCurrencyRecognition,
 } from "@/lib/foreign-currency-carrying-db";
 
-function dateOnly(value?: string | null): Date {
-  if (!value) return new Date();
-  return new Date(value);
+function parseOpeningDate(value: unknown, field = "Opening date"): Date {
+  const text = String(value || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) throw new OpeningValidationError(`${field} is required`);
+  const date = new Date(`${text}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== text) {
+    throw new OpeningValidationError(`${field} is invalid`);
+  }
+  return date;
 }
 
 function getScopedCityId(user: JWTPayload, requestedCityId?: unknown): number | null {
@@ -38,6 +42,39 @@ class OpeningValidationError extends Error {}
 
 async function lockOpeningScope(tx: Prisma.TransactionClient, scope: string) {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`opening:${scope}`}))`;
+}
+
+async function ensureCityOpeningPackageEditable(tx: Prisma.TransactionClient, cutoverId: number, cityId: number, createdBy: number) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"opening-city-packages"}))`;
+  const packageRow = await tx.openingCityPackage.upsert({
+    where: { cutoverId_cityId: { cutoverId, cityId } },
+    update: {},
+    create: { cutoverId, cityId, createdBy },
+    select: { status: true },
+  });
+  if (packageRow.status === "submitted" || packageRow.status === "approved") {
+    throw new OpeningValidationError("OPENING_CITY_PACKAGE_LOCKED");
+  }
+}
+
+async function attachOpeningToDraft(tx: Prisma.TransactionClient, entityType: string, entityId: number, createdBy: number, cityId?: number) {
+  const cutover = await tx.openingCutover.findFirst({ where: { status: "draft" }, orderBy: { revision: "desc" }, select: { id: true } });
+  if (!cutover) throw new OpeningValidationError("Create a draft opening cutover before entering opening balances");
+  if (cityId) await ensureCityOpeningPackageEditable(tx, cutover.id, cityId, createdBy);
+  const existing = await tx.openingCutoverEntry.findUnique({ where: { opening_cutover_entry_entity_key: { entityType, entityId } }, select: { cutoverId: true } });
+  if (existing && existing.cutoverId !== cutover.id) {
+    throw new OpeningValidationError("Opening record belongs to an earlier cutover revision and cannot be reassigned");
+  }
+  if (!existing) await tx.openingCutoverEntry.create({ data: { cutoverId: cutover.id, entityType, entityId, createdBy } });
+}
+
+async function detachOpening(tx: Prisma.TransactionClient, entityType: string, entityId: number, cityId?: number | null, createdBy?: number) {
+  if (cityId && createdBy) {
+    const cutover = await tx.openingCutover.findFirst({ where: { status: "draft" }, orderBy: { revision: "desc" }, select: { id: true } });
+    if (!cutover) throw new OpeningValidationError("Create a draft opening cutover before changing opening balances");
+    await ensureCityOpeningPackageEditable(tx, cutover.id, cityId, createdBy);
+  }
+  await tx.openingCutoverEntry.deleteMany({ where: { entityType, entityId } });
 }
 
 async function openingFxData(body: any, currencyCode: string, amount: number) {
@@ -60,7 +97,7 @@ async function openingFxData(body: any, currencyCode: string, amount: number) {
   // settlement, so the rate must be backed by stored evidence. This never
   // substitutes or derives a rate: it only accepts or rejects.
   let evidenceProvider: string | null = null;
-  const fxRateDate = currencyCode === "PKR" ? null : dateOnly(body.fxRateDate);
+  const fxRateDate = currencyCode === "PKR" ? null : parseOpeningDate(body.fxRateDate, "Historical rate date");
   if (currencyCode !== "PKR") {
     try {
       evidenceProvider = await assertOpeningFxEvidence({
@@ -152,7 +189,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
 
     const cityId = getScopedCityId(user, request.nextUrl.searchParams.get("city_id"));
 
-    const [cities, currenciesRaw, customers, godowns, products, bankAccounts, openingCash, openingCustomerBalances, openingStocks, legacyStocks, ongoingLots, historicalSales, openingBankBalances, openingCheques, openingHajiBalances, liabilityCurrencies, suppliers, shippingLines, agents, intermediaries, openingLiabilities, cityLiabilityAccounts, openingCityLiabilities] = await Promise.all([
+    const [cities, currenciesRaw, customers, godowns, products, bankAccounts, openingCash, openingCustomerBalances, openingStocks, legacyStocks, ongoingLots, openingBankBalances, openingCheques, openingHajiBalances, liabilityCurrencies, suppliers, shippingLines, agents, intermediaries, openingLiabilities, cityLiabilityAccounts, openingCityLiabilities] = await Promise.all([
       user.role === "super_admin"
         ? prisma.city.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
         : Promise.resolve([]),
@@ -212,20 +249,6 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
           })
         : Promise.resolve([]),
       cityId
-        ? prisma.sale.findMany({
-            where: { cityId, isOpeningImport: true },
-            include: {
-              customer: { select: { name: true } },
-              lot: { select: { lotNumber: true } },
-              godown: { select: { name: true } },
-              currency: { select: { code: true } },
-              items: { include: { product: { select: { name: true, unitOfMeasure: true, piecesPerCarton: true } } } },
-            },
-            orderBy: [{ saleDate: "desc" }, { id: "desc" }],
-            take: 200,
-          })
-        : Promise.resolve([]),
-      cityId
         ? prisma.openingBankBalance.findMany({
             where: { cityId },
             include: {
@@ -238,7 +261,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
       cityId
         ? prisma.openingCheque.findMany({
             where: { cityId },
-            include: { currency: { select: { code: true, symbol: true } } },
+            include: { currency: { select: { code: true, symbol: true } }, customer: { select: { id: true, name: true } } },
             orderBy: [{ openingDate: "asc" }, { id: "asc" }],
           })
         : Promise.resolve([]),
@@ -356,7 +379,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         currencyCode: o.currency.code,
         currencySymbol: o.currency.symbol,
         amount: Number(o.amount),
-        carryingAmountPkr: Number(o.carryingAmountPkr ?? o.amount),
+        carryingAmountPkr: Math.abs(Number(o.carryingAmountPkr ?? o.amount)),
         fxRateToPkr: o.fxRateToPkr ? Number(o.fxRateToPkr) : null,
         fxRateDate: o.fxRateDate?.toISOString().split("T")[0] || null,
         fxRateSource: o.fxRateSource,
@@ -370,7 +393,8 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         currencyId: o.currencyId,
         currencyCode: o.currency.code,
         currencySymbol: o.currency.symbol,
-        amount: Number(o.amount),
+        amount: Math.abs(Number(o.amount)),
+        balanceSide: Number(o.amount) < 0 ? "advance" : "receivable",
         carryingAmountPkr: Number(o.carryingAmountPkr ?? o.amount),
         fxRateToPkr: o.fxRateToPkr ? Number(o.fxRateToPkr) : null,
         fxRateDate: o.fxRateDate?.toISOString().split("T")[0] || null,
@@ -412,23 +436,6 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
         lotNumber: l.lotNumber,
         lotDate: l.lotDate.toISOString().split("T")[0],
       })),
-      historicalSales: historicalSales.map((s) => ({
-        id: s.id,
-        voucherNo: s.voucherNo,
-        saleDate: s.saleDate.toISOString().split("T")[0],
-        customerName: s.customer.name,
-        lotNumber: s.lot.lotNumber,
-        godownName: s.godown.name,
-        currencyCode: s.currency.code,
-        totalAmount: Number(s.totalAmount),
-        items: s.items.map((i) => ({
-          productName: i.product.name,
-          qty: i.product.unitOfMeasure === "PCS" && i.product.piecesPerCarton
-            ? Number(i.cartonQty ?? Number(i.qty) / Number(i.product.piecesPerCarton))
-            : Number(i.qty),
-          amount: Number(i.amount),
-        })),
-      })),
       openingBankBalances: openingBankBalances.map((o) => ({
         id: o.id,
         bankAccountId: o.bankAccountId,
@@ -446,6 +453,9 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
       })),
       openingCheques: openingCheques.map((o) => ({
         id: o.id,
+        customerId: o.customerId,
+        customerName: o.customer.name,
+        chequeStatus: o.chequeStatus,
         currencyId: o.currencyId,
         currencyCode: o.currency.code,
         amount: Number(o.amount),
@@ -593,10 +603,6 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
     body = await request.json();
     kind = String(body?.kind || "");
     cityId = getScopedCityId(user, body?.cityId);
-    if (kind === "historical_sale") {
-      return errorResponse("VALIDATION_ERROR", "Historical sales are not part of opening entries. Use customer receivables and product inventory openings.", 400);
-    }
-
     if (kind === "purge_legacy_stock") {
       if (user.role !== "super_admin") {
         return errorResponse("FORBIDDEN", "Only super admin can purge legacy stock data", 403);
@@ -612,10 +618,10 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
         result,
         getClientIP(request),
       );
-      return successResponse(result, "Legacy stock and historical opening sales removed");
+      return successResponse(result, "Legacy opening stock removed");
     }
 
-    if (syncMeta && cityId && (kind === "cash" || kind === "customer" || kind === "stock" || kind === "historical_sale" || kind === "bank" || kind === "cheque")) {
+    if (syncMeta && cityId && (kind === "cash" || kind === "customer" || kind === "stock" || kind === "bank" || kind === "cheque")) {
       const existingSync = await prisma.syncRequest.findUnique({
         where: {
           unique_sync_request_per_city_module: {
@@ -636,12 +642,9 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       const currencyId = Number(body.currencyId);
       const amount = Number(body.amount);
       if (!Number.isInteger(currencyId) || currencyId <= 0) return validationError("Currency is required");
-      if (!Number.isFinite(amount)) return validationError("Amount is required");
+      if (!Number.isFinite(amount) || amount <= 0) return validationError("Amount must be greater than zero");
 
-      const cityCurrency = await prisma.cityCurrency.findFirst({
-        where: { cityId: scopedCityId, currencyId },
-        include: { currency: { select: { code: true } } },
-      });
+      const cityCurrency = await prisma.cityCurrency.findFirst({ where: { cityId: scopedCityId, currencyId }, include: { currency: { select: { code: true } } } });
       if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not available for this city");
       const fxData = await openingFxData(body, cityCurrency.currency.code, amount);
 
@@ -652,10 +655,10 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
         const saved = current
           ? await tx.openingCash.update({
               where: { id: current.id },
-              data: { amount, ...fxData, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
+              data: { amount, ...fxData, openingDate: parseOpeningDate(body.openingDate), notes: body.notes || null, createdBy: user.userId },
             })
           : await tx.openingCash.create({
-              data: { cityId: scopedCityId, currencyId, amount, ...fxData, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
+              data: { cityId: scopedCityId, currencyId, amount, ...fxData, openingDate: parseOpeningDate(body.openingDate), notes: body.notes || null, createdBy: user.userId },
             });
         const previousVersions = await reverseOpeningJournals("opening_cash", saved.id, `OPENCASH-${saved.id}`, user.userId, tx);
         await journalOpeningCashBalance({
@@ -668,6 +671,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           amount, carryingAmountPkr: fxData.carryingAmountPkr, fxRateToPkr: fxData.fxRateToPkr,
           fxRateDate: fxData.fxRateDate, fxRateSource: fxData.fxRateSource, openingDate: saved.openingDate, createdBy: user.userId,
         });
+        await attachOpeningToDraft(tx, "opening_cash", saved.id, user.userId, scopedCityId);
         return saved;
       });
 
@@ -702,10 +706,12 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       const scopedCityId = cityId;
       const customerId = Number(body.customerId);
       const currencyId = Number(body.currencyId);
-      const amount = Number(body.amount);
+      const amountMagnitude = Number(body.amount);
+      const customerBalanceSide = body.balanceSide === "advance" ? "advance" : "receivable";
+      const signedAmount = customerBalanceSide === "advance" ? -amountMagnitude : amountMagnitude;
       if (!Number.isInteger(customerId) || customerId <= 0) return validationError("Customer is required");
       if (!Number.isInteger(currencyId) || currencyId <= 0) return validationError("Currency is required");
-      if (!Number.isFinite(amount)) return validationError("Amount is required");
+      if (!Number.isFinite(amountMagnitude) || amountMagnitude <= 0) return validationError("Amount must be greater than zero");
 
       const customer = await prisma.customer.findFirst({ where: { id: customerId, cityId: scopedCityId } });
       if (!customer) return errorResponse("NOT_FOUND", "Customer not found in selected city");
@@ -715,24 +721,24 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       const existing = await prisma.openingCustomerBalance.findFirst({ where: { customerId, currencyId } });
       const currency = await prisma.currency.findUnique({ where: { id: currencyId }, select: { code: true } });
       if (!currency) return errorResponse("NOT_FOUND", "Currency not found");
-      const fxData = await openingFxData(body, currency.code, amount);
+      const fxData = await openingFxData(body, currency.code, signedAmount);
       const row = await prisma.$transaction(async (tx) => {
         await lockOpeningScope(tx, `customer:${customerId}:${currencyId}`);
         const current = await tx.openingCustomerBalance.findFirst({ where: { customerId, currencyId } });
         const saved = current
           ? await tx.openingCustomerBalance.update({
               where: { id: current.id },
-              data: { amount, ...fxData, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
+              data: { amount: signedAmount, ...fxData, openingDate: parseOpeningDate(body.openingDate), notes: body.notes || null, createdBy: user.userId },
             })
           : await tx.openingCustomerBalance.create({
-              data: { customerId, currencyId, amount, ...fxData, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
+              data: { customerId, currencyId, amount: signedAmount, ...fxData, openingDate: parseOpeningDate(body.openingDate), notes: body.notes || null, createdBy: user.userId },
             });
         const previousVersions = await reverseOpeningCustomerBalanceJournals(saved.id, user.userId, tx);
         await journalOpeningCustomerBalance({
           id: saved.id,
           customerId,
           cityId: scopedCityId,
-          amount,
+          amount: signedAmount,
           carryingAmountPkr: fxData.carryingAmountPkr,
           fxRateToPkr: fxData.fxRateToPkr,
           currencyCode: currency.code,
@@ -742,12 +748,13 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
         }, tx);
         await recordOpeningForeignPosition(tx, {
           sourceType: "opening_customer_balance", sourceId: saved.id,
-          positionKind: amount >= 0 ? "asset" : "liability",
-          positionType: amount >= 0 ? "customer_receivable" : "other_payable",
-          ownerKey: amount >= 0 ? foreignCurrencyOwnerKey.customerReceivable(customerId) : foreignCurrencyOwnerKey.customerAdvance(customerId),
-          currencyCode: currency.code, amount, carryingAmountPkr: fxData.carryingAmountPkr, fxRateToPkr: fxData.fxRateToPkr,
+          positionKind: customerBalanceSide === "receivable" ? "asset" : "liability",
+          positionType: customerBalanceSide === "receivable" ? "customer_receivable" : "other_payable",
+          ownerKey: customerBalanceSide === "receivable" ? foreignCurrencyOwnerKey.customerReceivable(customerId) : foreignCurrencyOwnerKey.customerAdvance(customerId),
+          currencyCode: currency.code, amount: signedAmount, carryingAmountPkr: fxData.carryingAmountPkr, fxRateToPkr: fxData.fxRateToPkr,
           fxRateDate: fxData.fxRateDate, fxRateSource: fxData.fxRateSource, openingDate: saved.openingDate, createdBy: user.userId,
         });
+        await attachOpeningToDraft(tx, "opening_customer_balance", saved.id, user.userId, scopedCityId);
         return saved;
       });
 
@@ -758,7 +765,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
         row.id,
         existing ? "update" : "create",
         existing ? { amount: Number(existing.amount) } : undefined,
-        { amount },
+        { amount: signedAmount, balanceSide: customerBalanceSide },
         getClientIP(request),
       );
       if (syncMeta) {
@@ -783,7 +790,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       const currencyId = Number(body.currencyId);
       const amount = Number(body.amount);
       if (!Number.isInteger(currencyId) || currencyId <= 0) return validationError("Currency is required");
-      if (!Number.isFinite(amount)) return validationError("Amount is required");
+      if (!Number.isFinite(amount) || amount <= 0) return validationError("Amount must be greater than zero");
       const [currency, cityCurrency] = await Promise.all([
         prisma.currency.findUnique({ where: { id: currencyId } }),
         prisma.cityCurrency.findFirst({ where: { cityId: scopedCityId, currencyId } }),
@@ -799,7 +806,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
         const saved = current
           ? await tx.openingHajiBalance.update({
               where: { id: current.id },
-              data: { amount, balanceSide, ...fxData, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
+              data: { amount, balanceSide, ...fxData, openingDate: parseOpeningDate(body.openingDate), notes: body.notes || null, createdBy: user.userId },
             })
           : await tx.openingHajiBalance.create({
               data: {
@@ -808,7 +815,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
                 amount,
                 balanceSide,
                 ...fxData,
-                openingDate: dateOnly(body.openingDate),
+                openingDate: parseOpeningDate(body.openingDate),
                 notes: body.notes || null,
                 createdBy: user.userId,
               },
@@ -842,6 +849,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
             detail: { startsWith: "Opening Haji balance" },
           },
         });
+        await attachOpeningToDraft(tx, "opening_haji_balance", saved.id, user.userId, scopedCityId);
         return saved;
       });
       await createAuditLog(
@@ -870,68 +878,6 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       return successResponse({ id: row.id }, "Opening Haji balance saved");
     }
 
-    if (kind === "historical_sale") {
-      if (!cityId) return validationError("City is required");
-      const lotId = Number(body.lotId);
-      const customerId = Number(body.customerId);
-      const godownId = Number(body.godownId);
-      const productId = Number(body.productId);
-      const currencyId = Number(body.currencyId);
-      const qty = Number(body.qty);
-      const amount = Number(body.amount);
-      if (!Number.isInteger(lotId) || lotId <= 0) return validationError("Lot is required");
-      if (!Number.isInteger(customerId) || customerId <= 0) return validationError("Customer is required");
-      if (!Number.isInteger(godownId) || godownId <= 0) return validationError("Godown is required");
-      if (!Number.isInteger(productId) || productId <= 0) return validationError("Product is required");
-      if (!Number.isInteger(currencyId) || currencyId <= 0) return validationError("Currency is required");
-      if (!Number.isFinite(qty) || qty <= 0) return validationError("Quantity is required");
-      if (!Number.isFinite(amount) || amount < 0) return validationError("Amount is required");
-
-      const cityCurrency = await prisma.cityCurrency.findFirst({ where: { cityId, currencyId } });
-      if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not available for this city");
-
-      let sale;
-      try {
-        sale = await createHistoricalSale({
-          cityId,
-          customerId,
-          lotId,
-          godownId,
-          productId,
-          qty,
-          amount,
-          currencyId,
-          saleDate: dateOnly(body.saleDate),
-          notes: body.notes || null,
-          skipCustomerLedger: body.skipCustomerLedger !== false,
-          createdBy: user.userId,
-        });
-      } catch (err) {
-        return validationError(err instanceof Error ? err.message : "Failed to import historical sale");
-      }
-
-      await createAuditLog(user.userId, cityId, "sales", sale.id, "create", undefined, {
-        openingImport: true,
-        voucherNo: sale.voucherNo,
-        lotNumber: (sale as any).lot.lotNumber,
-      }, getClientIP(request));
-
-      if (syncMeta) {
-        await prisma.syncRequest.create({
-          data: {
-            cityId,
-            module: OPENINGS_SYNC_MODULE,
-            requestId: syncMeta.requestId,
-            deviceId: syncMeta.deviceId,
-            entityType: "historical_sales",
-            entityId: sale.id,
-            createdBy: user.userId,
-          },
-        });
-      }
-      return successResponse({ id: sale.id, voucherNo: sale.voucherNo }, "Historical sale imported");
-    }
-
     if (kind === "product_inventory") {
       if (!cityId) return validationError("City is required");
       const scopedCityId = cityId;
@@ -939,7 +885,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       const productId = Number(body.productId);
       const quantity = Number(body.quantity);
       const unitCostPkr = Number(body.unitCostPkr);
-      const openingDate = dateOnly(body.openingDate);
+      const openingDate = parseOpeningDate(body.openingDate);
       if (!Number.isInteger(godownId) || godownId <= 0) return validationError("Godown is required");
       if (!Number.isInteger(productId) || productId <= 0) return validationError("Product is required");
       if (!Number.isFinite(quantity) || quantity <= 0) return validationError("Opening inventory quantity must be greater than zero");
@@ -969,6 +915,10 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
               data: { lotId, productId, quantity: totalQuantity, unitCostPkr, totalValuePkr, openingDate, notes: body.notes || null, journalVersion: 1, createdBy: user.userId },
             });
         await journalOpeningInventoryValuation({ id: valuation.id, lotId, productId, totalValuePkr, openingDate, createdBy: user.userId, journalVersion: valuation.journalVersion }, tx);
+        const allocation = await tx.lotCityGodownAllocation.findFirst({ where: { godownId, productId, lotCityDistribution: { lotId } }, select: { id: true } });
+        if (!allocation) throw new OpeningValidationError("Opening stock allocation was not created");
+        await attachOpeningToDraft(tx, "opening_stock", allocation.id, user.userId, scopedCityId);
+        await attachOpeningToDraft(tx, "opening_inventory_valuation", valuation.id, user.userId);
         return { lotId, valuationId: valuation.id, totalQuantity, totalValuePkr };
       });
       await createAuditLog(user.userId, cityId, "opening_inventory_valuations", result.valuationId, "update", undefined, { godownId, productId, quantity, unitCostPkr, totalValuePkr: result.totalValuePkr }, getClientIP(request));
@@ -985,6 +935,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       if (!Number.isInteger(godownId) || godownId <= 0) return validationError("Godown is required");
       if (!Number.isInteger(productId) || productId <= 0) return validationError("Product is required");
       if (!Number.isFinite(qty)) return validationError("Quantity is required");
+      if (!useLegacy && (!Number.isInteger(lotId) || lotId <= 0)) return validationError("Ongoing lot is required");
 
       const godown = await prisma.godown.findFirst({ where: { id: godownId, cityId } });
       if (!godown) return errorResponse("NOT_FOUND", "Godown not found in selected city");
@@ -993,24 +944,15 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
 
       let resolvedLotId: number;
       try {
-        if (useLegacy) {
-          ({ lotId: resolvedLotId } = await setLegacyGodownStock({
-            cityId,
-            godownId,
-            productId,
-            qty,
-            createdBy: user.userId,
-          }));
-        } else {
-          if (!Number.isInteger(lotId) || lotId <= 0) return validationError("Ongoing lot is required");
-          ({ lotId: resolvedLotId } = await setLotGodownStock({
-            lotId,
-            cityId,
-            godownId,
-            productId,
-            qty,
-          }));
-        }
+        resolvedLotId = await prisma.$transaction(async (tx) => {
+          const result = useLegacy
+            ? await setLegacyGodownStock({ cityId: Number(cityId), godownId, productId, qty, createdBy: user.userId }, tx)
+            : await setLotGodownStock({ lotId: Number(lotId), cityId: Number(cityId), godownId, productId, qty }, tx);
+          const allocation = await tx.lotCityGodownAllocation.findFirst({ where: { godownId, productId, lotCityDistribution: { lotId: result.lotId } }, select: { id: true } });
+          if (!allocation) throw new OpeningValidationError("Opening stock quantity must be greater than zero");
+          await attachOpeningToDraft(tx, "opening_stock", allocation.id, user.userId, Number(cityId));
+          return result.lotId;
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to save godown stock";
         return validationError(message);
@@ -1053,7 +995,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       const amount = Number(body.amount);
       if (!Number.isInteger(bankAccountId) || bankAccountId <= 0) return validationError("Bank account is required");
       if (!Number.isInteger(currencyId) || currencyId <= 0) return validationError("Currency is required");
-      if (!Number.isFinite(amount)) return validationError("Amount is required");
+      if (!Number.isFinite(amount) || amount <= 0) return validationError("Amount must be greater than zero");
 
       const bankAccount = await prisma.bankAccount.findFirst({ where: { id: bankAccountId, cityId: scopedCityId, isActive: true } });
       if (!bankAccount) return errorResponse("NOT_FOUND", "Bank account not found in selected city");
@@ -1071,10 +1013,10 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
         const saved = current
           ? await tx.openingBankBalance.update({
               where: { id: current.id },
-              data: { amount, ...fxData, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
+              data: { amount, ...fxData, openingDate: parseOpeningDate(body.openingDate), notes: body.notes || null, createdBy: user.userId },
             })
           : await tx.openingBankBalance.create({
-              data: { cityId: scopedCityId, bankAccountId, currencyId, amount, ...fxData, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
+              data: { cityId: scopedCityId, bankAccountId, currencyId, amount, ...fxData, openingDate: parseOpeningDate(body.openingDate), notes: body.notes || null, createdBy: user.userId },
             });
         const previousVersions = await reverseOpeningJournals("opening_bank_balance", saved.id, `OPENBANK-${saved.id}`, user.userId, tx);
         await journalOpeningBankBalance({
@@ -1087,6 +1029,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           amount, carryingAmountPkr: fxData.carryingAmountPkr, fxRateToPkr: fxData.fxRateToPkr,
           fxRateDate: fxData.fxRateDate, fxRateSource: fxData.fxRateSource, openingDate: saved.openingDate, createdBy: user.userId,
         });
+        await attachOpeningToDraft(tx, "opening_bank_balance", saved.id, user.userId, scopedCityId);
         return saved;
       });
 
@@ -1119,38 +1062,60 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
     if (kind === "cheque") {
       if (!cityId) return validationError("City is required");
       const scopedCityId = cityId;
+      const id = body.id == null ? null : Number(body.id);
       const currencyId = Number(body.currencyId);
+      const customerId = Number(body.customerId);
       const amount = Number(body.amount);
       const chequeNumber = String(body.chequeNumber || "").trim();
+      if (id !== null && (!Number.isInteger(id) || id <= 0)) return validationError("Opening cheque id is invalid");
       if (!Number.isInteger(currencyId) || currencyId <= 0) return validationError("Currency is required");
+      if (!Number.isInteger(customerId) || customerId <= 0) return validationError("Customer is required");
       if (!Number.isFinite(amount) || amount <= 0) return validationError("Amount is required");
       if (!chequeNumber) return validationError("Cheque number is required");
 
-      const cityCurrency = await prisma.cityCurrency.findFirst({
-        where: { cityId: scopedCityId, currencyId },
-        include: { currency: { select: { code: true } } },
-      });
+      const [cityCurrency, customer] = await Promise.all([
+        prisma.cityCurrency.findFirst({ where: { cityId: scopedCityId, currencyId }, include: { currency: { select: { code: true } } } }),
+        prisma.customer.findFirst({ where: { id: customerId, cityId: scopedCityId, isActive: true } }),
+      ]);
       if (!cityCurrency) return errorResponse("VALIDATION_ERROR", "Currency not available for this city");
+      if (!customer) return errorResponse("VALIDATION_ERROR", "Customer not found in this city");
       const fxData = await openingFxData(body, cityCurrency.currency.code, amount);
+      const existing = id === null ? null : await prisma.openingCheque.findFirst({ where: { id, cityId: scopedCityId } });
+      if (id !== null && !existing) return errorResponse("NOT_FOUND", "Opening cheque not found", 404);
+      if (existing && existing.chequeStatus !== "in_hand") {
+        return errorResponse("OPENING_CHEQUE_LOCKED", "Deposited or bounced opening cheques cannot be edited", 409);
+      }
 
       const row = await prisma.$transaction(async (tx) => {
-        const saved = await tx.openingCheque.create({
-          data: {
+        if (id !== null) await lockOpeningScope(tx, `cheque:${scopedCityId}:${id}`);
+        const current = id === null ? null : await tx.openingCheque.findFirst({ where: { id, cityId: scopedCityId } });
+        if (id !== null && !current) throw new OpeningValidationError("Opening cheque not found");
+        if (current && current.chequeStatus !== "in_hand") throw new OpeningValidationError("OPENING_CHEQUE_LOCKED");
+        const previousVersions = current
+          ? await reverseOpeningJournals("opening_cheque", current.id, `OPENCHEQUE-${current.id}`, user.userId, tx)
+          : 0;
+        if (current) {
+          await reverseForeignCurrencyRecognition(tx, { sourceType: "opening_cheque", sourceId: current.id, reversalDate: new Date(), createdBy: user.userId });
+        }
+        const data = {
             cityId: scopedCityId,
+            customerId,
             currencyId,
             amount,
             ...fxData,
             chequeNumber,
             chequeBank: body.chequeBank ? String(body.chequeBank).trim() : null,
-            chequeDueDate: body.chequeDueDate ? dateOnly(body.chequeDueDate) : null,
-            openingDate: dateOnly(body.openingDate),
+            chequeDueDate: body.chequeDueDate ? parseOpeningDate(body.chequeDueDate) : null,
+            openingDate: parseOpeningDate(body.openingDate),
             notes: body.notes || null,
             createdBy: user.userId,
-          },
-        });
+          };
+        const saved = current
+          ? await tx.openingCheque.update({ where: { id: current.id }, data })
+          : await tx.openingCheque.create({ data });
         await journalOpeningCheque({
           id: saved.id, cityId: scopedCityId, amount, carryingAmountPkr: fxData.carryingAmountPkr, fxRateToPkr: fxData.fxRateToPkr, currencyCode: cityCurrency.currency.code,
-          openingDate: saved.openingDate, createdBy: user.userId, journalVersion: 1,
+          openingDate: saved.openingDate, createdBy: user.userId, journalVersion: previousVersions + 1,
         }, tx);
         await recordOpeningForeignPosition(tx, {
           sourceType: "opening_cheque", sourceId: saved.id, positionKind: "asset", positionType: "other_receivable",
@@ -1158,10 +1123,11 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           amount, carryingAmountPkr: fxData.carryingAmountPkr, fxRateToPkr: fxData.fxRateToPkr,
           fxRateDate: fxData.fxRateDate, fxRateSource: fxData.fxRateSource, openingDate: saved.openingDate, createdBy: user.userId,
         });
+        await attachOpeningToDraft(tx, "opening_cheque", saved.id, user.userId, scopedCityId);
         return saved;
       });
 
-      await createAuditLog(user.userId, cityId, "opening_cheques", row.id, "create", undefined, { amount, chequeNumber }, getClientIP(request));
+      await createAuditLog(user.userId, cityId, "opening_cheques", row.id, existing ? "update" : "create", existing || undefined, { amount, chequeNumber, customerId, currencyId }, getClientIP(request));
       if (syncMeta) {
         await prisma.syncRequest.create({
           data: {
@@ -1175,7 +1141,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           },
         });
       }
-      return successResponse({ id: row.id }, "Opening cheque saved");
+      return successResponse({ id: row.id }, existing ? "Opening cheque updated" : "Opening cheque saved");
     }
 
     if (kind === "liability") {
@@ -1188,7 +1154,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
 
       if (!["supplier", "shipping_line", "agent", "intermediary"].includes(liabilityType)) return validationError("Invalid liability type");
       if (!Number.isInteger(currencyId) || currencyId <= 0) return validationError("Currency is required");
-      if (!Number.isFinite(amount)) return validationError("Amount is required");
+      if (!Number.isFinite(amount) || amount <= 0) return validationError("Amount must be greater than zero");
       if (!Number.isInteger(partyId) || partyId <= 0) return validationError("Liability party is required");
 
       const currency = await prisma.currency.findFirst({ where: { id: currencyId } });
@@ -1239,7 +1205,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
         const saved = current
           ? await tx.openingLiability.update({
               where: { id: current.id },
-              data: { liabilityType, amount, balanceSide, ...fxData, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
+              data: { liabilityType, amount, balanceSide, ...fxData, openingDate: parseOpeningDate(body.openingDate), notes: body.notes || null, createdBy: user.userId },
             })
           : await tx.openingLiability.create({
               data: {
@@ -1248,7 +1214,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
                 amount,
                 balanceSide,
                 ...fxData,
-                openingDate: dateOnly(body.openingDate),
+                openingDate: parseOpeningDate(body.openingDate),
                 notes: body.notes || null,
                 createdBy: user.userId,
                 supplierId: liabilityType === "supplier" ? partyId : null,
@@ -1306,6 +1272,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           });
         }
 
+        await attachOpeningToDraft(tx, "opening_liability", saved.id, user.userId);
         return saved;
       });
 
@@ -1349,7 +1316,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
         const saved = current
           ? await tx.openingCityLiability.update({
               where: { id: current.id },
-              data: { amount, ...fxData, openingDate: dateOnly(body.openingDate), notes: body.notes || null, createdBy: user.userId },
+              data: { amount, ...fxData, openingDate: parseOpeningDate(body.openingDate), notes: body.notes || null, createdBy: user.userId },
             })
           : await tx.openingCityLiability.create({
               data: {
@@ -1358,7 +1325,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
                 currencyId,
                 amount,
                 ...fxData,
-                openingDate: dateOnly(body.openingDate),
+                openingDate: parseOpeningDate(body.openingDate),
                 notes: body.notes || null,
                 createdBy: user.userId,
               },
@@ -1383,6 +1350,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           amount, carryingAmountPkr: fxData.carryingAmountPkr, fxRateToPkr: fxData.fxRateToPkr,
           fxRateDate: fxData.fxRateDate, fxRateSource: fxData.fxRateSource, openingDate: saved.openingDate, createdBy: user.userId,
         });
+        await attachOpeningToDraft(tx, "opening_city_liability", saved.id, user.userId, cityId);
         return saved;
       });
 
@@ -1406,7 +1374,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       const quantity = Number(body.quantity);
       const unitCostPkr = Number(body.unitCostPkr);
       const totalValuePkr = Math.round(quantity * unitCostPkr * 100) / 100;
-      const openingDate = dateOnly(body.openingDate);
+      const openingDate = parseOpeningDate(body.openingDate);
       if (!Number.isInteger(lotId) || lotId <= 0) return validationError("Lot is required");
       if (!Number.isInteger(productId) || productId <= 0) return validationError("Product is required");
       if (!Number.isFinite(quantity) || quantity <= 0) return validationError("Opening inventory quantity must be greater than zero");
@@ -1452,6 +1420,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
               data: { lotId, productId, quantity, unitCostPkr, totalValuePkr, originalCurrencyId, originalAmount, fxRateToPkr, fxRateDate, fxRateSource, fxRateMetadata, openingDate, notes: body.notes || null, journalVersion: 1, createdBy: user.userId },
             });
         await journalOpeningInventoryValuation({ id: saved.id, lotId, productId, totalValuePkr, openingDate, createdBy: user.userId, journalVersion: saved.journalVersion }, tx);
+        await attachOpeningToDraft(tx, "opening_inventory_valuation", saved.id, user.userId);
         return saved;
       });
       await createAuditLog(user.userId, null, "opening_inventory_valuations", row.id, existing ? "update" : "create", existing || undefined, { lotId, productId, quantity, unitCostPkr, totalValuePkr }, getClientIP(request));
@@ -1463,19 +1432,19 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       const accountId = Number(body.accountId);
       const amount = Number(body.amount);
       if (!Number.isInteger(accountId) || accountId <= 0) return validationError("Superadmin cash/bank account is required");
-      if (!Number.isFinite(amount) || amount === 0) return validationError("Opening amount must be non-zero");
+      if (!Number.isFinite(amount) || amount <= 0) return validationError("Opening amount must be greater than zero");
       const account = await prisma.superAdminBankAccount.findFirst({ where: { id: accountId, isActive: true }, include: { currency: true } });
       if (!account) return errorResponse("NOT_FOUND", "Superadmin account not found");
       const fxData = await openingFxData(body, account.currency.code, amount);
-      const existing = await prisma.openingSuperAdminAccountBalance.findUnique({ where: { accountId } });
+      const existing = await prisma.openingSuperAdminAccountBalance.findFirst({ where: { accountId } });
       const row = await prisma.$transaction(async (tx) => {
         await lockOpeningScope(tx, `super-admin-account:${accountId}`);
-        const current = await tx.openingSuperAdminAccountBalance.findUnique({ where: { accountId } });
+        const current = await tx.openingSuperAdminAccountBalance.findFirst({ where: { accountId } });
         const nextVersion = (current?.journalVersion || 0) + 1;
         if (current) await reverseOpeningJournals("opening_super_admin_account_balance", current.id, `OPENSA-${current.id}`, user.userId, tx);
         const saved = current
-          ? await tx.openingSuperAdminAccountBalance.update({ where: { id: current.id }, data: { amount, ...fxData, openingDate: dateOnly(body.openingDate), notes: body.notes || null, journalVersion: nextVersion, createdBy: user.userId } })
-          : await tx.openingSuperAdminAccountBalance.create({ data: { accountId, currencyId: account.currencyId, amount, ...fxData, openingDate: dateOnly(body.openingDate), notes: body.notes || null, journalVersion: 1, createdBy: user.userId } });
+          ? await tx.openingSuperAdminAccountBalance.update({ where: { id: current.id }, data: { amount, ...fxData, openingDate: parseOpeningDate(body.openingDate), notes: body.notes || null, journalVersion: nextVersion, createdBy: user.userId } })
+          : await tx.openingSuperAdminAccountBalance.create({ data: { accountId, currencyId: account.currencyId, amount, ...fxData, openingDate: parseOpeningDate(body.openingDate), notes: body.notes || null, journalVersion: 1, createdBy: user.userId } });
         await journalOpeningSuperAdminAccountBalance({ id: saved.id, accountId, accountKind: account.accountKind, amount, carryingAmountPkr: fxData.carryingAmountPkr, fxRateToPkr: fxData.fxRateToPkr, currencyCode: account.currency.code, openingDate: saved.openingDate, createdBy: user.userId, journalVersion: saved.journalVersion }, tx);
         await recordOpeningForeignPosition(tx, {
           sourceType: "opening_super_admin_account", sourceId: saved.id, positionKind: "asset",
@@ -1484,6 +1453,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           currencyCode: account.currency.code, amount, carryingAmountPkr: fxData.carryingAmountPkr, fxRateToPkr: fxData.fxRateToPkr,
           fxRateDate: fxData.fxRateDate, fxRateSource: fxData.fxRateSource, openingDate: saved.openingDate, createdBy: user.userId,
         });
+        await attachOpeningToDraft(tx, "opening_super_admin_account_balance", saved.id, user.userId);
         return saved;
       });
       await createAuditLog(user.userId, null, "opening_super_admin_account_balances", row.id, existing ? "update" : "create", existing || undefined, { accountId, amount, carryingAmountPkr: fxData.carryingAmountPkr }, getClientIP(request));
@@ -1505,9 +1475,10 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
         const nextVersion = (current?.journalVersion || 0) + 1;
         if (current) await reverseOpeningJournals("opening_equity_allocation", current.id, `OPENEQ-${current.id}`, user.userId, tx);
         const saved = current
-          ? await tx.openingEquityAllocation.update({ where: { id: current.id }, data: { amountPkr, openingDate: dateOnly(body.openingDate), notes: body.notes || null, journalVersion: nextVersion, createdBy: user.userId } })
-          : await tx.openingEquityAllocation.create({ data: { equityType: equityType as any, label, amountPkr, openingDate: dateOnly(body.openingDate), notes: body.notes || null, journalVersion: 1, createdBy: user.userId } });
+          ? await tx.openingEquityAllocation.update({ where: { id: current.id }, data: { amountPkr, openingDate: parseOpeningDate(body.openingDate), notes: body.notes || null, journalVersion: nextVersion, createdBy: user.userId } })
+          : await tx.openingEquityAllocation.create({ data: { equityType: equityType as any, label, amountPkr, openingDate: parseOpeningDate(body.openingDate), notes: body.notes || null, journalVersion: 1, createdBy: user.userId } });
         await journalOpeningEquityAllocation({ id: saved.id, equityType: equityType as any, label, amountPkr, openingDate: saved.openingDate, createdBy: user.userId, journalVersion: saved.journalVersion }, tx);
+        await attachOpeningToDraft(tx, "opening_equity_allocation", saved.id, user.userId);
         return saved;
       });
       await createAuditLog(user.userId, null, "opening_equity_allocations", row.id, existing ? "update" : "create", existing || undefined, { equityType, label, amountPkr }, getClientIP(request));
@@ -1516,7 +1487,11 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
 
     return validationError("Invalid opening kind");
   } catch (error) {
-    if (error instanceof OpeningValidationError) return validationError(error.message);
+    if (error instanceof OpeningValidationError) {
+      if (error.message === "OPENING_CITY_PACKAGE_LOCKED") return errorResponse(error.message, "City opening package is submitted or approved and cannot be changed", 409);
+      if (error.message === "OPENING_CHEQUE_LOCKED") return errorResponse(error.message, "Deposited or bounced opening cheques cannot be edited", 409);
+      return validationError(error.message);
+    }
     if (syncMeta && kind === "liability" && isSyncRequestDuplicateError(error)) {
       const existingSync = await prisma.syncRequest.findUnique({
         where: {
@@ -1534,7 +1509,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
     if (
       syncMeta &&
       cityId &&
-      (kind === "cash" || kind === "customer" || kind === "stock" || kind === "historical_sale" || kind === "bank" || kind === "cheque") &&
+      (kind === "cash" || kind === "customer" || kind === "stock" || kind === "bank" || kind === "cheque") &&
       isSyncRequestDuplicateError(error)
     ) {
       const existingSync = await prisma.syncRequest.findUnique({
@@ -1570,10 +1545,6 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
 
     if (!kind) return validationError("kind is required");
     if (!Number.isInteger(id) || id <= 0) return validationError("id is required");
-    if (kind === "historical_sale") {
-      return errorResponse("VALIDATION_ERROR", "Historical sales cannot be managed through opening entries.", 400);
-    }
-
     if (kind === "cash") {
       if (!cityId) return validationError("City is required");
       const row = await prisma.openingCash.findFirst({ where: { id, cityId } });
@@ -1581,6 +1552,7 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       await prisma.$transaction(async (tx) => {
         await reverseOpeningJournals("opening_cash", row.id, `OPENCASH-${row.id}`, user.userId, tx);
         await reverseForeignCurrencyRecognition(tx, { sourceType: "opening_cash", sourceId: row.id, reversalDate: new Date(), createdBy: user.userId });
+        await detachOpening(tx, "opening_cash", row.id, cityId, user.userId);
         await tx.openingCash.delete({ where: { id: row.id } });
       });
       await createAuditLog(user.userId, cityId, "opening_cashes", row.id, "delete", { amount: Number(row.amount) }, undefined, getClientIP(request));
@@ -1596,6 +1568,7 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       await prisma.$transaction(async (tx) => {
         await reverseOpeningCustomerBalanceJournals(row.id, user.userId, tx);
         await reverseForeignCurrencyRecognition(tx, { sourceType: "opening_customer_balance", sourceId: row.id, reversalDate: new Date(), createdBy: user.userId });
+        await detachOpening(tx, "opening_customer_balance", row.id, cityId, user.userId);
         await tx.openingCustomerBalance.delete({ where: { id: row.id } });
       });
       await createAuditLog(user.userId, cityId, "opening_customer_balances", row.id, "delete", { amount: Number(row.amount) }, undefined, getClientIP(request));
@@ -1616,32 +1589,11 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
             detail: { startsWith: "Opening Haji balance" },
           },
         });
+        await detachOpening(tx, "opening_haji_balance", row.id, cityId, user.userId);
         await tx.openingHajiBalance.delete({ where: { id: row.id } });
       });
       await createAuditLog(user.userId, cityId, "opening_haji_balances", row.id, "delete", { amount: Number(row.amount) }, undefined, getClientIP(request));
       return successResponse({ id: row.id }, "Opening Haji balance deleted");
-    }
-
-    if (kind === "historical_sale") {
-      if (!cityId) return validationError("City is required");
-      const row = await prisma.sale.findFirst({
-        where: { id, cityId, isOpeningImport: true },
-      });
-      if (!row) return errorResponse("NOT_FOUND", "Historical sale not found");
-      const accountingEntry = await prisma.journalEntry.findFirst({
-        where: {
-          transactionId: {
-            in: [`SALE-${id}`, `COGS-${id}`, `OPENING-STOCK-COST-${id}`],
-          },
-        },
-        select: { id: true },
-      });
-      if (accountingEntry) {
-        return errorResponse("VALIDATION_ERROR", "Historical opening sale has accounting entries; use a controlled reversal instead of deletion", 400);
-      }
-      await prisma.sale.delete({ where: { id: row.id } });
-      await createAuditLog(user.userId, cityId, "sales", row.id, "delete", { voucherNo: row.voucherNo }, undefined, getClientIP(request));
-      return successResponse({ id: row.id }, "Historical sale deleted");
     }
 
     if (kind === "product_inventory") {
@@ -1649,19 +1601,21 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       const scopedCityId = cityId;
       const allocation = await prisma.lotCityGodownAllocation.findFirst({
         where: { id, godown: { cityId: scopedCityId }, lotCityDistribution: { lot: { isLegacyStock: true } } },
-        select: { godownId: true, productId: true, lotCityDistribution: { select: { lotId: true } } },
+        select: { id: true, godownId: true, productId: true, lotCityDistribution: { select: { lotId: true } } },
       });
       if (!allocation) return errorResponse("NOT_FOUND", "Opening product inventory row not found");
       await prisma.$transaction(async (tx) => {
         const lotId = allocation.lotCityDistribution.lotId;
         await lockOpeningScope(tx, `inventory:${lotId}:${allocation.productId}`);
         const current = await tx.openingInventoryValuation.findUnique({ where: { unique_opening_inventory_lot_product: { lotId, productId: allocation.productId } } });
+        await detachOpening(tx, "opening_stock", allocation.id, cityId, user.userId);
         await setLegacyGodownStock({ cityId: scopedCityId, godownId: allocation.godownId, productId: allocation.productId, qty: 0, createdBy: user.userId }, tx);
         if (!current) return;
         await reverseOpeningJournals("opening_inventory_valuation", current.id, `OPENINV-${current.id}`, user.userId, tx);
         const lotProduct = await tx.lotProduct.findUnique({ where: { lotId_productId: { lotId, productId: allocation.productId } } });
         const remainingQuantity = Number(lotProduct?.totalQty || 0);
         if (remainingQuantity <= 0) {
+          await detachOpening(tx, "opening_inventory_valuation", current.id);
           await tx.openingInventoryValuation.delete({ where: { id: current.id } });
           return;
         }
@@ -1684,12 +1638,15 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
         select: { godownId: true, productId: true, lotCityDistribution: { select: { lotId: true, cityId: true } } },
       });
       if (alloc) {
-        await setLotGodownStock({
-          lotId: alloc.lotCityDistribution.lotId,
-          cityId: alloc.lotCityDistribution.cityId,
-          godownId: alloc.godownId,
-          productId: alloc.productId,
-          qty: 0,
+        await prisma.$transaction(async (tx) => {
+          await detachOpening(tx, "opening_stock", id, cityId, user.userId);
+          await setLotGodownStock({
+            lotId: alloc.lotCityDistribution.lotId,
+            cityId: alloc.lotCityDistribution.cityId,
+            godownId: alloc.godownId,
+            productId: alloc.productId,
+            qty: 0,
+          }, tx);
         });
         await createAuditLog(user.userId, cityId, "opening_stocks", id, "delete", { godownId: alloc.godownId, productId: alloc.productId }, undefined, getClientIP(request));
         return successResponse({ id }, "Godown stock cleared");
@@ -1703,12 +1660,15 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
         select: { godownId: true, productId: true },
       });
       if (!legacyAlloc) return errorResponse("NOT_FOUND", "Stock row not found");
-      await setLegacyGodownStock({
-        cityId,
-        godownId: legacyAlloc.godownId,
-        productId: legacyAlloc.productId,
-        qty: 0,
-        createdBy: user.userId,
+      await prisma.$transaction(async (tx) => {
+        await detachOpening(tx, "opening_stock", id, cityId, user.userId);
+        await setLegacyGodownStock({
+          cityId,
+          godownId: legacyAlloc.godownId,
+          productId: legacyAlloc.productId,
+          qty: 0,
+          createdBy: user.userId,
+        }, tx);
       });
       await createAuditLog(user.userId, cityId, "opening_stocks", id, "delete", { godownId: legacyAlloc.godownId, productId: legacyAlloc.productId }, undefined, getClientIP(request));
       return successResponse({ id }, "Legacy stock cleared");
@@ -1721,6 +1681,7 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       await prisma.$transaction(async (tx) => {
         await reverseOpeningJournals("opening_bank_balance", row.id, `OPENBANK-${row.id}`, user.userId, tx);
         await reverseForeignCurrencyRecognition(tx, { sourceType: "opening_bank_balance", sourceId: row.id, reversalDate: new Date(), createdBy: user.userId });
+        await detachOpening(tx, "opening_bank_balance", row.id, cityId, user.userId);
         await tx.openingBankBalance.delete({ where: { id: row.id } });
       });
       await createAuditLog(user.userId, cityId, "opening_bank_balances", row.id, "delete", { amount: Number(row.amount) }, undefined, getClientIP(request));
@@ -1731,9 +1692,11 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       if (!cityId) return validationError("City is required");
       const row = await prisma.openingCheque.findFirst({ where: { id, cityId } });
       if (!row) return errorResponse("NOT_FOUND", "Opening cheque not found");
+      if (row.chequeStatus !== "in_hand") return errorResponse("OPENING_CHEQUE_LOCKED", "Deposited or bounced opening cheques cannot be deleted", 409);
       await prisma.$transaction(async (tx) => {
         await reverseOpeningJournals("opening_cheque", row.id, `OPENCHEQUE-${row.id}`, user.userId, tx);
         await reverseForeignCurrencyRecognition(tx, { sourceType: "opening_cheque", sourceId: row.id, reversalDate: new Date(), createdBy: user.userId });
+        await detachOpening(tx, "opening_cheque", row.id, cityId, user.userId);
         await tx.openingCheque.delete({ where: { id: row.id } });
       });
       await createAuditLog(user.userId, cityId, "opening_cheques", row.id, "delete", { amount: Number(row.amount), chequeNumber: row.chequeNumber }, undefined, getClientIP(request));
@@ -1747,6 +1710,7 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       await prisma.$transaction(async (tx) => {
         await reverseOpeningJournals("opening_liability", row.id, `OPENLIAB-${row.id}`, user.userId, tx);
         await reverseForeignCurrencyRecognition(tx, { sourceType: "opening_liability", sourceId: row.id, reversalDate: new Date(), createdBy: user.userId });
+        await detachOpening(tx, "opening_liability", row.id);
         await tx.openingLiability.delete({ where: { id: row.id } });
       });
       await createAuditLog(user.userId, null, "opening_liabilities", row.id, "delete", { amount: Number(row.amount) }, undefined, getClientIP(request));
@@ -1760,6 +1724,7 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       await prisma.$transaction(async (tx) => {
         await reverseOpeningJournals("opening_city_liability", row.id, `OPENCITYLIAB-${row.id}`, user.userId, tx);
         await reverseForeignCurrencyRecognition(tx, { sourceType: "opening_city_liability", sourceId: row.id, reversalDate: new Date(), createdBy: user.userId });
+        await detachOpening(tx, "opening_city_liability", row.id, cityId, user.userId);
         await tx.openingCityLiability.delete({ where: { id: row.id } });
       });
       await createAuditLog(user.userId, cityId, "opening_city_liabilities", row.id, "delete", { amount: Number(row.amount) }, undefined, getClientIP(request));
@@ -1772,6 +1737,7 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       if (!row) return errorResponse("NOT_FOUND", "Opening inventory valuation not found");
       await prisma.$transaction(async (tx) => {
         await reverseOpeningJournals("opening_inventory_valuation", row.id, `OPENINV-${row.id}`, user.userId, tx);
+        await detachOpening(tx, "opening_inventory_valuation", row.id);
         await tx.openingInventoryValuation.delete({ where: { id: row.id } });
       });
       await createAuditLog(user.userId, null, "opening_inventory_valuations", row.id, "delete", { totalValuePkr: Number(row.totalValuePkr) }, undefined, getClientIP(request));
@@ -1785,6 +1751,7 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       await prisma.$transaction(async (tx) => {
         await reverseOpeningJournals("opening_super_admin_account_balance", row.id, `OPENSA-${row.id}`, user.userId, tx);
         await reverseForeignCurrencyRecognition(tx, { sourceType: "opening_super_admin_account", sourceId: row.id, reversalDate: new Date(), createdBy: user.userId });
+        await detachOpening(tx, "opening_super_admin_account_balance", row.id);
         await tx.openingSuperAdminAccountBalance.delete({ where: { id: row.id } });
       });
       await createAuditLog(user.userId, null, "opening_super_admin_account_balances", row.id, "delete", { amount: Number(row.amount) }, undefined, getClientIP(request));
@@ -1797,6 +1764,7 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
       if (!row) return errorResponse("NOT_FOUND", "Opening equity allocation not found");
       await prisma.$transaction(async (tx) => {
         await reverseOpeningJournals("opening_equity_allocation", row.id, `OPENEQ-${row.id}`, user.userId, tx);
+        await detachOpening(tx, "opening_equity_allocation", row.id);
         await tx.openingEquityAllocation.delete({ where: { id: row.id } });
       });
       await createAuditLog(user.userId, null, "opening_equity_allocations", row.id, "delete", { amountPkr: Number(row.amountPkr) }, undefined, getClientIP(request));
@@ -1805,6 +1773,10 @@ export const DELETE = withAuth(async (request: NextRequest, _context, user: JWTP
 
     return validationError("Invalid opening kind");
   } catch (error) {
+    if (error instanceof OpeningValidationError) {
+      if (error.message === "OPENING_CITY_PACKAGE_LOCKED") return errorResponse(error.message, "City opening package is submitted or approved and cannot be changed", 409);
+      return validationError(error.message);
+    }
     console.error("Delete opening error:", error);
     return serverError();
   }

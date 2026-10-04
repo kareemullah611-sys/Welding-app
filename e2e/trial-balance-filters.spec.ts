@@ -20,6 +20,7 @@ async function fillDates(page: import("@playwright/test").Page) {
 test("TB: date changes apply only via Apply button, never automatically", async ({ page }) => {
   await loginAsSuperAdmin(page);
   await page.goto("/trial-balance");
+  await expect(page.getByText(loadedMarker)).toBeVisible({ timeout: 30000 });
   const counter = countTbRequests(page);
 
   await fillDates(page);

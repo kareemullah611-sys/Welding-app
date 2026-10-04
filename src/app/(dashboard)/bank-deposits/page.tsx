@@ -110,7 +110,7 @@ export default function BankDepositsPage() {
     transferType: "cheque_to_bank",
     bankAccountId: 0, depositDate: new Date().toISOString().split("T")[0],
     destinationBankAccountId: 0,
-    slipNumber: "", cashAmount: 0, currencyId: 0, notes: "", chequePaymentIds: [] as number[],
+    slipNumber: "", cashAmount: 0, currencyId: 0, notes: "", chequePaymentIds: [] as number[], openingChequeIds: [] as number[],
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -201,13 +201,14 @@ export default function BankDepositsPage() {
       return;
     }
 
-    const [baRes, cityRes, chRes, treasuryRes] = await Promise.all([
+    const [baRes, cityRes, chRes, treasuryRes, openingRes] = await Promise.all([
       apiCall("/api/v1/bank-accounts"),
       apiCall("/api/v1/cities"),
       apiCall("/api/v1/payments", {
         params: { all: 1, status: "active", payment_method: "cheque", destination: "our_account", cheque_status: "in_hand" },
       }),
       apiCall("/api/v1/treasury"),
+      apiCall("/api/v1/openings"),
     ]);
     if (baRes.success) setBankAccounts(baRes.data as any[]);
     if (treasuryRes.success) {
@@ -226,7 +227,7 @@ export default function BankDepositsPage() {
         setForm((f: any) => ({ ...f, currencyId: city.currencies[0].id }));
       }
     }
-    if (chRes.success) setInHandCheques(chRes.data as any[]);
+    if (chRes.success) setInHandCheques([...(chRes.data as any[]).map((row: any) => ({ ...row, sourceType: "payment" })), ...(((openingRes.data as any)?.openingCheques || []).filter((row: any) => row.chequeStatus === "in_hand").map((row: any) => ({ ...row, sourceType: "opening" })))]);
     if (baRes.success && nextCurrencies.length > 0) {
       writeOfflineFormCache<BankDepositsFormCache>(BANK_DEPOSITS_FORM_CACHE_KEY, {
         bankAccounts: baRes.data as any[],
@@ -244,21 +245,22 @@ export default function BankDepositsPage() {
       cashAmount: 0,
       notes: "",
       chequePaymentIds: [],
+      openingChequeIds: [],
       ...preset,
     }));
     setShowCreate(true); setError("");
   };
 
-  const toggleCheque = (id: number) => {
+  const toggleCheque = (id: number, sourceType: "payment" | "opening") => {
     setForm((f: any) => ({
       ...f,
-      chequePaymentIds: f.chequePaymentIds.includes(id)
-        ? f.chequePaymentIds.filter((c: number) => c !== id)
-        : [...f.chequePaymentIds, id],
+      [sourceType === "opening" ? "openingChequeIds" : "chequePaymentIds"]: (f[sourceType === "opening" ? "openingChequeIds" : "chequePaymentIds"] || []).includes(id)
+        ? f[sourceType === "opening" ? "openingChequeIds" : "chequePaymentIds"].filter((c: number) => c !== id)
+        : [...(f[sourceType === "opening" ? "openingChequeIds" : "chequePaymentIds"] || []), id],
     }));
   };
 
-  const selectedCheques = inHandCheques.filter((c: any) => form.chequePaymentIds.includes(c.id));
+  const selectedCheques = inHandCheques.filter((c: any) => (c.sourceType === "opening" ? form.openingChequeIds : form.chequePaymentIds).includes(c.id));
   const chequesTotal = selectedCheques.reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
   const selectedCurrencyCode = currencies.find((c: any) => c.id === form.currencyId)?.code || "";
   const sourceAvailableBalance = form.bankAccountId && selectedCurrencyCode
@@ -282,8 +284,8 @@ export default function BankDepositsPage() {
       setError(`Insufficient bank balance. Available: ${sourceAvailableBalance.toLocaleString("en-US")} ${selectedCurrencyCode}`);
       return;
     }
-    if (form.transferType === "cheque_to_cash" && form.chequePaymentIds.length === 0) { setError("Please select at least one cheque"); return; }
-    if (form.transferType === "cheque_to_bank" && Number(form.cashAmount || 0) <= 0 && form.chequePaymentIds.length === 0) { setError("Please enter a cash amount or select at least one cheque"); return; }
+    if (form.transferType === "cheque_to_cash" && form.chequePaymentIds.length === 0 && form.openingChequeIds.length === 0) { setError("Please select at least one cheque"); return; }
+    if (form.transferType === "cheque_to_bank" && Number(form.cashAmount || 0) <= 0 && form.chequePaymentIds.length === 0 && form.openingChequeIds.length === 0) { setError("Please enter a cash amount or select at least one cheque"); return; }
     const body = {
       ...form,
       bankAccountId: requiresSourceBankAccount(form.transferType) ? form.bankAccountId : null,
@@ -370,9 +372,10 @@ export default function BankDepositsPage() {
       cashAmount: Math.abs(Number(d.cashAmount || 0)),
       currencyId: d.currencyId,
       notes: d.notes || "",
-      chequePaymentIds: (d.cheques || []).map((c: any) => c.id),
+      chequePaymentIds: (d.cheques || []).filter((c: any) => c.sourceType !== "opening").map((c: any) => c.id),
+      openingChequeIds: (d.cheques || []).filter((c: any) => c.sourceType === "opening").map((c: any) => c.id),
     });
-    setInHandCheques((rows) => [...rows, ...(d.cheques || []).filter((c: any) => !rows.some((r: any) => r.id === c.id))]);
+    setInHandCheques((rows) => [...rows, ...(d.cheques || []).filter((c: any) => !rows.some((r: any) => r.id === c.id && r.sourceType === c.sourceType))]);
     setEditingId(Number(d.id));
   };
 
@@ -633,11 +636,11 @@ export default function BankDepositsPage() {
             ) : (
               <div className="border border-gray-200 rounded-lg overflow-hidden max-h-48 overflow-y-auto">
                 {inHandCheques.map((ch: any) => (
-                  <label key={ch.id} className={`flex items-center gap-3 px-3 py-2.5 border-b last:border-0 cursor-pointer transition-colors ${form.chequePaymentIds.includes(ch.id) ? "bg-blue-50" : "hover:bg-gray-50"}`}>
+                  <label key={`${ch.sourceType}-${ch.id}`} className={`flex items-center gap-3 px-3 py-2.5 border-b last:border-0 cursor-pointer transition-colors ${(ch.sourceType === "opening" ? form.openingChequeIds : form.chequePaymentIds).includes(ch.id) ? "bg-blue-50" : "hover:bg-gray-50"}`}>
                     <input
                       type="checkbox"
-                      checked={form.chequePaymentIds.includes(ch.id)}
-                      onChange={() => toggleCheque(ch.id)}
+                      checked={(ch.sourceType === "opening" ? form.openingChequeIds : form.chequePaymentIds).includes(ch.id)}
+                      onChange={() => toggleCheque(ch.id, ch.sourceType)}
                       className="w-4 h-4 text-primary-600"
                     />
                     <div className="flex-1 min-w-0">

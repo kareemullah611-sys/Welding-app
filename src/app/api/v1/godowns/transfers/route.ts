@@ -24,12 +24,16 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       }),
       prisma.godownTransfer.count({ where }),
     ]);
+    const reversedTransferIds = new Set((await prisma.auditLog.findMany({
+      where: { entityType: "godown_transfers", entityId: { in: transfers.map((transfer) => transfer.id) }, action: "cancel" },
+      select: { entityId: true },
+    })).map((row) => row.entityId));
 
     return paginatedResponse(transfers.map((t) => ({
       id: t.id, transferDate: t.transferDate.toISOString().split("T")[0],
       fromGodown: t.fromGodown.name, toGodown: t.toGodown.name, city: t.fromGodown.city.name,
       product: t.product.name, lotNumber: t.lot.lotNumber, qty: Number(t.qty),
-      notes: t.notes, createdBy: t.creator.fullName,
+      notes: t.notes, createdBy: t.creator.fullName, isReversed: reversedTransferIds.has(t.id),
     })), total, page, limit);
   } catch (error) { return serverError(); }
 });

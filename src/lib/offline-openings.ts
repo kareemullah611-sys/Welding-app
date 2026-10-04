@@ -89,6 +89,7 @@ export function applyPendingOpeningsData(base: OpeningDataLike, queuedItems: Que
         currencyId,
         currencyCode: findCurrencyCode(base.currencies || [], currencyId),
         amount: Number(parsed?.amount || 0),
+        balanceSide: parsed?.balanceSide === "advance" ? "advance" : "receivable",
         carryingAmountPkr: parsed?.carryingAmountPkr ?? null,
         fxRateToPkr: parsed?.fxRateToPkr ?? null,
         fxRateDate: parsed?.fxRateDate ?? null,

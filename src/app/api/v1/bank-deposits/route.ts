@@ -95,6 +95,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
               customer: { select: { name: true } },
             },
           },
+          openingCheques: { select: { id: true, amount: true, chequeNumber: true, chequeBank: true, customer: { select: { name: true } } } },
         },
         orderBy: { depositDate: "desc" },
         skip,
@@ -141,7 +142,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     return paginatedResponse(
       deposits.map((d) => {
-        const chequeTotal = d.cheques.reduce(
+        const chequeTotal = [...d.cheques, ...d.openingCheques].reduce(
           (sum: number, c: any) => sum + Number(c.amount),
           0
         );
@@ -155,15 +156,16 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           bankAccount: d.bankAccount,
           destinationBankAccount: d.transferPairId ? destinationByPair.get(d.transferPairId) || null : legacyDestinationBySource.get(d.id) || null,
           transferPairId: d.transferPairId,
-          cheques: d.cheques.map((c: any) => ({
+          cheques: [...d.cheques.map((c: any) => ({
             id: c.id,
             amount: Number(c.amount),
             chequeNumber: c.chequeNumber,
             chequeBank: c.chequeBank,
             customer: c.customer,
-          })),
+            sourceType: "payment",
+          })), ...d.openingCheques.map((c: any) => ({ id: c.id, amount: Number(c.amount), chequeNumber: c.chequeNumber, chequeBank: c.chequeBank, customer: c.customer, sourceType: "opening" }))],
           totalAmount: Number(d.cashAmount) + chequeTotal,
-          transferType: d.transferType || deriveTransferType({ cashAmount: Number(d.cashAmount), cheques: d.cheques, notes: d.notes }),
+          transferType: d.transferType || deriveTransferType({ cashAmount: Number(d.cashAmount), cheques: [...d.cheques, ...d.openingCheques], notes: d.notes }),
           notes: d.notes || null,
           createdAt: d.createdAt.toISOString(),
           creator: { fullName: creatorById[d.createdBy] ?? null },
@@ -251,12 +253,13 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           .map((id: any) => parseInt(id))
           .filter((id: number) => !isNaN(id))
       : [];
+    const openingChequeIds: number[] = Array.isArray(body.openingChequeIds) ? body.openingChequeIds.map(Number).filter(Number.isInteger) : [];
 
     if (transferType === "bank_to_cash" || transferType === "bank_to_bank") {
       if (!(transferAmount > 0)) {
         return errorResponse("VALIDATION_ERROR", "Amount must be greater than zero");
       }
-      if (chequePaymentIds.length > 0) {
+      if (chequePaymentIds.length > 0 || openingChequeIds.length > 0) {
         return errorResponse("VALIDATION_ERROR", "Cheques are not allowed for this transfer type");
       }
     }
@@ -327,11 +330,13 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         }
       }
     }
+    const openingCheques = openingChequeIds.length ? await prisma.openingCheque.findMany({ where: { id: { in: openingChequeIds }, cityId, currencyId: parsedCurrencyId, chequeStatus: "in_hand" } }) : [];
+    if (openingCheques.length !== openingChequeIds.length) return errorResponse("VALIDATION_ERROR", "One or more opening cheques are unavailable");
 
-    if (transferType === "cheque_to_bank" && transferAmount <= 0 && chequePaymentIds.length === 0) {
+    if (transferType === "cheque_to_bank" && transferAmount <= 0 && chequePaymentIds.length === 0 && openingChequeIds.length === 0) {
       return errorResponse("VALIDATION_ERROR", "Enter cash amount or select at least one cheque");
     }
-    if (transferType === "cheque_to_cash" && chequePaymentIds.length === 0) {
+    if (transferType === "cheque_to_cash" && chequePaymentIds.length === 0 && openingChequeIds.length === 0) {
       return errorResponse("VALIDATION_ERROR", "Select at least one cheque for cheque-to-cash transfer");
     }
 
@@ -367,7 +372,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       }
     }
 
-    const chequeTotal = cheques.reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
+    const chequeTotal = [...cheques, ...openingCheques].reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
     const signedCashAmount =
       transferType === "bank_to_cash"
         ? -Math.abs(transferAmount)
@@ -411,6 +416,10 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           throw new Error("One or more cheques were already deposited by a concurrent request. Please refresh and try again.");
         }
       }
+      if (openingChequeIds.length > 0) {
+        const result = await tx.openingCheque.updateMany({ where: { id: { in: openingChequeIds }, chequeStatus: "in_hand" }, data: { chequeStatus: "deposited_to_bank", bankDepositId: sourceDeposit.id } });
+        if (result.count !== openingChequeIds.length) throw new Error("One or more opening cheques were already deposited");
+      }
 
       let destinationDepositId: number | null = null;
       if (transferType === "bank_to_bank" && destinationBankAccountId) {
@@ -439,6 +448,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         paymentId: c.id,
         amount: Number(c.amount),
       }));
+      chequeAmounts.push(...openingCheques.map((c: any) => ({ openingChequeId: c.id, amount: Number(c.amount) })) as any);
       await journalBankDeposit(
         {
           id: sourceDeposit.id,

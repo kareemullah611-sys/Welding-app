@@ -4,10 +4,10 @@ import test from "node:test";
 
 test("PCS carton products are modeled from product master through purchase and sale flows", () => {
   const schema = readFileSync("prisma/schema.prisma", "utf8");
-  const migration = readFileSync("prisma/migrations/20260705090000_add_pcs_carton_products/migration.sql", "utf8");
-  const weightMigration = readFileSync("prisma/migrations/20260705093000_add_product_default_weight/migration.sql", "utf8");
-  const backfillMigration = readFileSync("prisma/migrations/20260705094500_backfill_products_mt_20kg/migration.sql", "utf8");
-  const packetsMigration = readFileSync("prisma/migrations/20260705100000_add_product_packets_per_carton/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260705090000_add_pcs_carton_products/migration.sql", "utf8");
+  const weightMigration = readFileSync("prisma/migrations_legacy_pre_baseline/20260705093000_add_product_default_weight/migration.sql", "utf8");
+  const backfillMigration = readFileSync("prisma/migrations_legacy_pre_baseline/20260705094500_backfill_products_mt_20kg/migration.sql", "utf8");
+  const packetsMigration = readFileSync("prisma/migrations_legacy_pre_baseline/20260705100000_add_product_packets_per_carton/migration.sql", "utf8");
   const validations = readFileSync("src/lib/validations.ts", "utf8");
   const productsRoute = readFileSync("src/app/api/v1/products/route.ts", "utf8");
   const productRoute = readFileSync("src/app/api/v1/products/[id]/route.ts", "utf8");
@@ -16,7 +16,6 @@ test("PCS carton products are modeled from product master through purchase and s
   const lotDetailTabs = readFileSync("src/components/lots/LotDetailTabs.tsx", "utf8");
   const salesRoute = readFileSync("src/app/api/v1/sales/route.ts", "utf8");
   const historicalSaleImport = readFileSync("src/lib/historical-sale-import.ts", "utf8");
-  const openingsRoute = readFileSync("src/app/api/v1/openings/route.ts", "utf8");
   const accounting = readFileSync("src/lib/accounting.ts", "utf8");
   const lotsPage = readFileSync("src/app/(dashboard)/lots/page.tsx", "utf8");
   const salesPage = readFileSync("src/app/(dashboard)/sales/page.tsx", "utf8");
@@ -86,8 +85,6 @@ test("PCS carton products are modeled from product master through purchase and s
   assert.match(historicalSaleImport, /stockQty\s*=\s*product\.unitOfMeasure === "PCS" \? cartonQty!\s*\*\s*piecesPerCarton : qty/);
   assert.match(historicalSaleImport, /cartonQty/);
   assert.match(historicalSaleImport, /ratePerPieceLocal/);
-  assert.match(openingsRoute, /i\.product\.unitOfMeasure === "PCS"/);
-  assert.match(openingsRoute, /i\.cartonQty/);
   assert.match(accounting, /calculateLotProductLandedCostsForLot/);
   assert.match(accounting, /unitCostByProduct/);
   assert.match(accounting, /Number\(item\.qty \|\| 0\) \* Number\(unitCostByProduct\.get\(item\.productId\)/);

@@ -14,7 +14,7 @@ function collectRouteFiles(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-const WIRED = /(?:recordForeignCurrencyRecognition|reverseForeignCurrencyRecognition|settleForeignCurrencyAsset|settleForeignCurrencyLiability|settleForeignCurrencyOutflow|transferForeignCurrencyLayers|exchangeForeignCurrencyLayers|applyForeignCityTreasuryTransfer|recordHajiTransferAccounting|createForeignCurrencyMovement)\s*\(/;
+const WIRED = /(?:recordForeignCurrencyRecognition|reverseForeignCurrencyRecognition|settleForeignCurrencyAsset|settleForeignCurrencyLiability|settleForeignCurrencyOutflow|transferForeignCurrencyLayers|exchangeForeignCurrencyLayers|applyForeignCityTreasuryTransfer|recordHajiTransferAccounting|createForeignCurrencyMovement|loadOpeningCutoverReadiness)\s*\(/;
 const BLOCKED = /FOREIGN_CARRYING_LAYER_REQUIRED/;
 const ACCEPTS_CURRENCY = /currencyId|currencyCode/;
 const EXPORTS_A_WRITE = /^export (async function|const) (POST|PUT|PATCH|DELETE)/m;

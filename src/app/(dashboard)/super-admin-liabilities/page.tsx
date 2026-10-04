@@ -18,6 +18,7 @@ export default function SuperAdminLiabilitiesPage() {
   const [selected, setSelected] = useState<any>(null);
   const [ledger, setLedger] = useState<any>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
   const [showEntry, setShowEntry] = useState(false);
   const [showLedger, setShowLedger] = useState(false);
   const [openActionId, setOpenActionId] = useState<number | null>(null);
@@ -52,6 +53,31 @@ export default function SuperAdminLiabilitiesPage() {
     setShowCreate(false);
     setAccountForm({ name: "", partyType: "lender", phone: "", address: "", notes: "" });
     load();
+  };
+
+  const openEditAccount = (row: any) => {
+    setSelected(row);
+    setAccountForm({ name: row.name || "", partyType: row.partyType, phone: row.phone || "", address: row.address || "", notes: row.notes || "" });
+    setError("");
+    setShowEdit(true);
+  };
+
+  const updateAccount = async () => {
+    if (!selected) return;
+    setSubmitting(true); setError("");
+    const result = await apiCall(`/api/v1/super-admin-liabilities/${selected.id}`, { method: "PUT", body: accountForm });
+    setSubmitting(false);
+    if (!result.success) return setError(result.error || "Unable to update account");
+    setShowEdit(false);
+    await load();
+  };
+
+  const deactivateAccount = async (row: any) => {
+    if (!window.confirm(`Deactivate ${row.name}? This is allowed only when its balance is zero.`)) return;
+    setError("");
+    const result = await apiCall(`/api/v1/super-admin-liabilities/${row.id}`, { method: "DELETE" });
+    if (!result.success) return setError(result.error || "Unable to deactivate account");
+    await load();
   };
 
   const openEntry = (row: any, type: string) => {
@@ -126,13 +152,15 @@ export default function SuperAdminLiabilitiesPage() {
   ], [allowedCitySources, options]);
 
   const columns = [
-    { key: "name", label: "Lender / creditor", render: (row: any) => <button className="font-medium text-primary-700 hover:underline" onClick={() => openLedger(row)}>{row.name}<span className="ml-2 text-xs font-normal uppercase text-gray-400">{row.partyType}</span></button> },
+    { key: "name", label: "Lender / creditor", render: (row: any) => <button className="font-medium text-primary-700 hover:underline" onClick={() => openLedger(row)}>{row.name}<span className="ml-2 text-xs font-normal uppercase text-gray-400">{row.partyType}{row.isActive ? "" : " · inactive"}</span></button> },
     { key: "balances", label: "Outstanding principal", render: (row: any) => <div>{Object.entries(row.balancesByCurrency || {}).map(([code, value]: any) => <div key={code} className={Number(value) < 0 ? "text-amber-700" : "text-gray-800"}>{code} {Number(value).toLocaleString("en-US")}</div>)}</div> },
     { key: "balancePkr", label: "PKR carrying value", render: (row: any) => `PKR ${Number(row.balancePkr || 0).toLocaleString("en-US")}` },
     { key: "actions", label: "", render: (row: any) => <RowActionMenu open={openActionId === row.id} onOpenChange={(open) => setOpenActionId(open ? row.id : null)}>
-      {row.partyType === "lender" ? <button className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50" onClick={() => { setOpenActionId(null); openSuperAdminTransaction({ type: "liability_receive", prefill: { partyId: Number(row.id) }, onSuccess: load }); }}>Receive funds</button> : <button className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50" onClick={() => { setOpenActionId(null); openSuperAdminTransaction({ type: "liability_incurred", prefill: { partyId: Number(row.id) }, onSuccess: load }); }}>Record amount owed</button>}
-      <button className="w-full px-3 py-2 text-left text-sm text-emerald-700 hover:bg-emerald-50" onClick={() => { setOpenActionId(null); openSuperAdminTransaction({ type: "liability_payment", prefill: { partyId: Number(row.id) }, onSuccess: load }); }}>Record payment</button>
+      {row.isActive && (row.partyType === "lender" ? <button className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50" onClick={() => { setOpenActionId(null); openSuperAdminTransaction({ type: "liability_receive", prefill: { partyId: Number(row.id) }, onSuccess: load }); }}>Receive funds</button> : <button className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50" onClick={() => { setOpenActionId(null); openSuperAdminTransaction({ type: "liability_incurred", prefill: { partyId: Number(row.id) }, onSuccess: load }); }}>Record amount owed</button>)}
+      {row.isActive && <button className="w-full px-3 py-2 text-left text-sm text-emerald-700 hover:bg-emerald-50" onClick={() => { setOpenActionId(null); openSuperAdminTransaction({ type: "liability_payment", prefill: { partyId: Number(row.id) }, onSuccess: load }); }}>Record payment</button>}
       <button className="w-full px-3 py-2 text-left text-sm text-primary-700 hover:bg-primary-50" onClick={() => { setOpenActionId(null); openLedger(row); }}>View ledger</button>
+      {row.isActive && <button className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50" onClick={() => { setOpenActionId(null); openEditAccount(row); }}>Edit account</button>}
+      {row.isActive && <button className="w-full px-3 py-2 text-left text-sm text-red-700 hover:bg-red-50" onClick={() => { setOpenActionId(null); void deactivateAccount(row); }}>Deactivate account</button>}
     </RowActionMenu> },
   ];
 
@@ -149,6 +177,15 @@ export default function SuperAdminLiabilitiesPage() {
         <div><label className="mb-1 block text-sm font-medium">Notes</label><textarea className="input-field" value={accountForm.notes} onChange={(event) => setAccountForm({ ...accountForm, notes: event.target.value })} /></div>
       </div>
       <div className="mt-4 flex justify-end border-t pt-4"><button className="btn-primary text-sm" disabled={submitting} onClick={createAccount}>{submitting ? "Saving…" : "Create account"}</button></div>
+    </Modal>
+
+    <Modal open={showEdit} onClose={() => setShowEdit(false)} title="Edit lender or creditor" size="md">
+      <div className="space-y-3">
+        <div><label className="mb-1 block text-sm font-medium">Name *</label><input className="input-field" value={accountForm.name} onChange={(event) => setAccountForm({ ...accountForm, name: event.target.value })} /></div>
+        <div className="grid gap-3 sm:grid-cols-2"><div><label className="mb-1 block text-sm font-medium">Phone</label><input className="input-field" value={accountForm.phone} onChange={(event) => setAccountForm({ ...accountForm, phone: event.target.value })} /></div><div><label className="mb-1 block text-sm font-medium">Address</label><input className="input-field" value={accountForm.address} onChange={(event) => setAccountForm({ ...accountForm, address: event.target.value })} /></div></div>
+        <div><label className="mb-1 block text-sm font-medium">Notes</label><textarea className="input-field" value={accountForm.notes} onChange={(event) => setAccountForm({ ...accountForm, notes: event.target.value })} /></div>
+      </div>
+      <div className="mt-4 flex justify-end border-t pt-4"><button className="btn-primary text-sm" disabled={submitting} onClick={updateAccount}>{submitting ? "Saving…" : "Save changes"}</button></div>
     </Modal>
 
     <Modal open={showEntry} onClose={() => setShowEntry(false)} title={`${entryForm.entryType === "payment" ? "Record payment" : entryForm.entryType === "loan_received" ? "Loan received" : "Record liability"} — ${selected?.name || ""}`} size="lg">

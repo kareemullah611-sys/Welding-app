@@ -49,7 +49,7 @@ test("personal-expense edit increments journal version before reposting", () => 
 
 test("accounting migration is additive and preserves existing finance rows", () => {
   const migration = readFileSync(
-    "prisma/migrations/20260829170000_client_accounting_remediation/migration.sql",
+    "prisma/migrations_legacy_pre_baseline/20260829170000_client_accounting_remediation/migration.sql",
     "utf8",
   );
   assert.doesNotMatch(migration, /DROP\s+(TABLE|COLUMN)|TRUNCATE|DELETE\s+FROM/i);
@@ -120,7 +120,7 @@ test("controlled correction runner requires an exact local clone backup and appr
 });
 
 test("financial-year controls are additive and enforced at journal boundaries", () => {
-  const migration = readFileSync("prisma/migrations/20260829180000_financial_year_controls/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260829180000_financial_year_controls/migration.sql", "utf8");
   const accounting = readFileSync("src/lib/accounting.ts", "utf8");
   const route = readFileSync("src/app/api/v1/financial-years/[id]/route.ts", "utf8");
   assert.doesNotMatch(migration, /DROP\s+(TABLE|COLUMN)|TRUNCATE|DELETE\s+FROM/i);

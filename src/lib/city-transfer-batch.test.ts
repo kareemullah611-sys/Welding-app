@@ -43,7 +43,7 @@ test("groups source rows into one receiver-facing batch with product totals", ()
 
 test("city transfer batches support multiple products and multiple source godowns", () => {
   const schema = readFileSync("prisma/schema.prisma", "utf8");
-  const migration = readFileSync("prisma/migrations/20260926040000_city_transfer_batches/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260926040000_city_transfer_batches/migration.sql", "utf8");
   const createRoute = readFileSync("src/app/api/v1/city-transfers/route.ts", "utf8");
   const actionRoute = readFileSync("src/app/api/v1/city-transfers/[id]/route.ts", "utf8");
   const page = readFileSync("src/app/(dashboard)/city-transfers/page.tsx", "utf8");

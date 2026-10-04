@@ -4,11 +4,11 @@ import { expect, Page } from "@playwright/test";
 // the shared defaults. Defaults keep local runs working unchanged.
 const superAdmin = {
   username: process.env.E2E_SUPERADMIN_USERNAME || "superadmin",
-  password: process.env.E2E_SUPERADMIN_PASSWORD || "admin123",
+  password: process.env.E2E_SUPERADMIN_PASSWORD || process.env.ADMIN_PASSWORD || "admin123",
 };
 const cityAdmin = {
   username: process.env.E2E_CITYADMIN_USERNAME || "quetta_admin",
-  password: process.env.E2E_CITYADMIN_PASSWORD || "city123",
+  password: process.env.E2E_CITYADMIN_PASSWORD || process.env.CITY_ADMIN_PASSWORD || "city12345",
 };
 
 export async function loginAsSuperAdmin(page: Page) {

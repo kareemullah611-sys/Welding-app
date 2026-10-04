@@ -94,11 +94,13 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     const bankAccountId = transferType === "cheque_to_cash" ? null : Number(body.bankAccountId || 0);
     if (transferType !== "cheque_to_cash" && !bankAccountId) return errorResponse("VALIDATION_ERROR", "bankAccountId is required");
     const chequeIds = Array.isArray(body.chequePaymentIds) ? body.chequePaymentIds.map(Number) : [];
+    const openingChequeIds = Array.isArray(body.openingChequeIds) ? body.openingChequeIds.map(Number) : [];
     if (transferType === "cheque_to_cash" && chequeIds.length === 0) return errorResponse("VALIDATION_ERROR", "Select at least one cheque");
     const cheques = chequeIds.length ? await prisma.payment.findMany({ where: { id: { in: chequeIds }, cityId: existing.cityId, currencyId: Number(body.currencyId), paymentMethod: "cheque", destination: "our_account", status: "active", OR: [{ chequeStatus: "in_hand" }, { bankDepositId: id }] } }) : [];
+    const openingCheques = openingChequeIds.length ? await prisma.openingCheque.findMany({ where: { id: { in: openingChequeIds }, cityId: existing.cityId, currencyId: Number(body.currencyId), OR: [{ chequeStatus: "in_hand" }, { bankDepositId: id }] } }) : [];
     if (cheques.length !== chequeIds.length) return errorResponse("VALIDATION_ERROR", "One or more cheques are unavailable");
     const amount = transferType === "cheque_to_cash"
-      ? -cheques.reduce((sum, cheque) => sum + Number(cheque.amount), 0)
+      ? -[...cheques, ...openingCheques].reduce((sum, cheque) => sum + Number(cheque.amount), 0)
       : transferType === "bank_to_cash" ? -Math.abs(Number(body.cashAmount || 0)) : Math.abs(Number(body.cashAmount || 0));
     const date = new Date(body.depositDate);
     if (Number.isNaN(date.getTime())) return errorResponse("VALIDATION_ERROR", "Invalid date");
@@ -109,10 +111,13 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       await reverseForeignCurrencyMovements(tx, { sourceType: "bank_deposit", sourceId: id, reversalDate: new Date(), createdBy: user.userId });
       await clearDepositJournal(tx, id);
       await tx.payment.updateMany({ where: { bankDepositId: id }, data: { bankDepositId: null, bankAccountId: null, chequeStatus: "in_hand" } });
+      await tx.openingCheque.updateMany({ where: { bankDepositId: id }, data: { bankDepositId: null, chequeStatus: "in_hand" } });
       const updatedCheques = await tx.payment.updateMany({ where: { id: { in: chequeIds }, chequeStatus: "in_hand" }, data: { bankDepositId: id, bankAccountId, chequeStatus: "deposited_to_bank" } });
       if (updatedCheques.count !== chequeIds.length) throw new Error("One or more cheques were used by another transfer");
+      const updatedOpeningCheques = await tx.openingCheque.updateMany({ where: { id: { in: openingChequeIds }, chequeStatus: "in_hand" }, data: { bankDepositId: id, chequeStatus: "deposited_to_bank" } });
+      if (updatedOpeningCheques.count !== openingChequeIds.length) throw new Error("One or more opening cheques were used by another transfer");
       await tx.bankDeposit.update({ where: { id }, data: { transferType, bankAccountId, depositDate: date, slipNumber: body.slipNumber || null, cashAmount: amount, currencyId: Number(body.currencyId), notes: body.notes || null } });
-      await journalBankDeposit({ id, bankAccountId, cityId: existing.cityId, cashAmount: amount, currencyCode: currency.code, depositDate: date, createdBy: user.userId, transferType, cheques: cheques.map((c) => ({ paymentId: c.id, amount: Number(c.amount) })) }, tx);
+      await journalBankDeposit({ id, bankAccountId, cityId: existing.cityId, cashAmount: amount, currencyCode: currency.code, depositDate: date, createdBy: user.userId, transferType, cheques: [...cheques.map((c) => ({ paymentId: c.id, amount: Number(c.amount) })), ...openingCheques.map((c) => ({ openingChequeId: c.id, amount: Number(c.amount) }))] }, tx);
       await applyForeignCityTreasuryTransfer(tx, {
         depositId: id,
         transferType: transferType as "cheque_to_bank" | "bank_to_cash" | "cheque_to_cash",
@@ -120,7 +125,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         bankAccountId,
         currencyCode: currency.code,
         cashAmount: amount,
-        chequeAmount: cheques.reduce((sum, cheque) => sum + Number(cheque.amount), 0),
+        chequeAmount: [...cheques, ...openingCheques].reduce((sum, cheque) => sum + Number(cheque.amount), 0),
         movementDate: date,
         createdBy: user.userId,
       });
@@ -155,6 +160,7 @@ export const DELETE = withAuth(async (request: NextRequest, context: any, user: 
       await reverseForeignCurrencyMovements(tx, { sourceType: "bank_deposit", sourceId: id, reversalDate: new Date(), createdBy: user.userId });
       await clearDepositJournal(tx, id);
       await tx.payment.updateMany({ where: { bankDepositId: id }, data: { bankDepositId: null, bankAccountId: null, chequeStatus: "in_hand" } });
+      await tx.openingCheque.updateMany({ where: { bankDepositId: id }, data: { bankDepositId: null, chequeStatus: "in_hand" } });
       await tx.bankDeposit.delete({ where: { id } });
     });
     await createAuditLog(user.userId, existing.cityId, "bank_deposits", id, "delete", existing, undefined, getClientIP(request));

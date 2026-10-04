@@ -53,7 +53,7 @@ test("tsx is not installed as a production dependency", () => {
 test("bank account numbers are encrypted before persistence", async () => {
   const prisma = readFileSync("src/lib/prisma.ts", "utf8");
   const schema = readFileSync("prisma/schema.prisma", "utf8");
-  const migration = readFileSync("prisma/migrations/20260703000500_expand_encrypted_account_numbers/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260703000500_expand_encrypted_account_numbers/migration.sql", "utf8");
 
   assert.match(prisma, /encryptAccountNumberInData\(params\.args\.data\)/);
   assert.match(prisma, /decryptSensitiveFields\(result\)/);
@@ -73,7 +73,7 @@ test("bank account numbers are encrypted before persistence", async () => {
 
 test("audit enum findings are backed by Prisma database enums", () => {
   const schema = readFileSync("prisma/schema.prisma", "utf8");
-  const migration = readFileSync("prisma/migrations/20260703000400_enum_rls_foundation/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260703000400_enum_rls_foundation/migration.sql", "utf8");
 
   assert.match(schema, /enum AgentType\s*{[^}]*customs[^}]*transport[^}]*freight[^}]*other/s);
   assert.match(schema, /enum AgentPaymentMethod\s*{[^}]*cash[^}]*bank_transfer[^}]*online[^}]*cheque[^}]*intermediary[^}]*super_admin_cash/s);
@@ -91,7 +91,7 @@ test("audit enum findings are backed by Prisma database enums", () => {
 });
 
 test("RLS foundation is present but not forcibly enabled before request context is wired", () => {
-  const migration = readFileSync("prisma/migrations/20260703000400_enum_rls_foundation/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260703000400_enum_rls_foundation/migration.sql", "utf8");
 
   assert.match(migration, /CREATE SCHEMA IF NOT EXISTS app_security/);
   assert.match(migration, /CREATE OR REPLACE FUNCTION app_security\.current_user_role\(\)/);
@@ -116,7 +116,7 @@ test("Prisma RLS context is opt-in and transaction-scoped", () => {
 });
 
 test("RLS migration defines dormant city isolation policies for core city tables", () => {
-  const migration = readFileSync("prisma/migrations/20260703000400_enum_rls_foundation/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260703000400_enum_rls_foundation/migration.sql", "utf8");
 
   for (const table of ["customers", "payments", "expenses", "sales", "godowns", "bank_accounts", "bank_deposits"]) {
     assert.match(migration, new RegExp(`'${table}'`));
@@ -132,7 +132,7 @@ test("RLS migration defines dormant city isolation policies for core city tables
 });
 
 test("RLS activation is explicit reversible and uses force when enabled", () => {
-  const migration = readFileSync("prisma/migrations/20260703000400_enum_rls_foundation/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260703000400_enum_rls_foundation/migration.sql", "utf8");
 
   assert.match(migration, /CREATE OR REPLACE FUNCTION app_security\.enable_city_rls\(\)/);
   assert.match(migration, /CREATE OR REPLACE FUNCTION app_security\.disable_city_rls\(\)/);
@@ -145,7 +145,7 @@ test("RLS activation is explicit reversible and uses force when enabled", () => 
 });
 
 test("RLS activation has a read-only status check", () => {
-  const migration = readFileSync("prisma/migrations/20260703000400_enum_rls_foundation/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260703000400_enum_rls_foundation/migration.sql", "utf8");
 
   assert.match(migration, /CREATE OR REPLACE FUNCTION app_security\.city_rls_status\(\)/);
   assert.match(migration, /RETURNS TABLE/);

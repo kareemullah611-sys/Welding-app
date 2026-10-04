@@ -4,6 +4,7 @@ import test from "node:test";
 import prisma from "@/lib/prisma";
 import { journalOpeningParticipantBalance } from "@/lib/accounting";
 import { loadParticipantBalance } from "@/lib/investor-participant-actions";
+import { loadOpeningCutoverReadiness } from "@/lib/opening-cutover";
 
 test("opening cutover journals capital and retained profit separately and rolls test data back", async () => {
   const before = await Promise.all([prisma.openingCutover.count(), prisma.openingParticipantBalance.count()]);
@@ -70,4 +71,27 @@ test("opening cutover journals capital and retained profit separately and rolls 
   );
   const after = await Promise.all([prisma.openingCutover.count(), prisma.openingParticipantBalance.count()]);
   assert.deepEqual(after, before);
+});
+
+test("opening clearing reconciliation excludes journals owned by another revision", async () => {
+  await assert.rejects(
+    prisma.$transaction(async (tx) => {
+      await tx.openingCutover.updateMany({ where: { status: "draft" }, data: { status: "reversed" } });
+      const openingAccount = await tx.account.findUniqueOrThrow({ where: { code: "3900" } });
+      const cutover = await tx.openingCutover.create({ data: {
+        revision: 999_998, status: "draft", cutoverDate: new Date("2026-09-23"),
+        fiscalYearStart: new Date("2026-02-19"), fiscalYearEnd: new Date("2027-02-08"),
+        backupReference: "scope-test.dump", backupAcknowledged: true, createdBy: 1,
+      } });
+      await tx.openingCutoverEntry.create({ data: { cutoverId: cutover.id, entityType: "opening_cash", entityId: 910_001, createdBy: 1 } });
+      await tx.journalEntry.createMany({ data: [
+        { transactionId: "SCOPE-INCLUDED", lineNumber: 1, accountId: openingAccount.id, debit: 0, credit: 100, currencyCode: "PKR", description: "included", entityType: "opening_cash", entityId: 910_001, entryDate: new Date("2026-09-23"), createdBy: 1 },
+        { transactionId: "SCOPE-EXCLUDED", lineNumber: 1, accountId: openingAccount.id, debit: 0, credit: 900, currencyCode: "PKR", description: "excluded", entityType: "opening_cash", entityId: 910_002, entryDate: new Date("2026-09-23"), createdBy: 1 },
+      ] });
+      const readiness = await loadOpeningCutoverReadiness(tx, cutover.id);
+      assert.equal(readiness?.input.openingClearingPkr, 100);
+      throw new Error("ROLLBACK_OPENING_SCOPE_TEST");
+    }),
+    /ROLLBACK_OPENING_SCOPE_TEST/,
+  );
 });

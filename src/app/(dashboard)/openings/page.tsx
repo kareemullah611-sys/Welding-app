@@ -43,6 +43,7 @@ type OpeningData = {
     currencyId: number;
     currencyCode: string;
     amount: number;
+    balanceSide: "receivable" | "advance";
     carryingAmountPkr?: number | null;
     fxRateToPkr?: number | null;
     fxRateDate?: string | null;
@@ -96,6 +97,9 @@ type OpeningData = {
   }[];
   openingCheques: {
     id: number | string;
+    customerId: number;
+    customerName: string;
+    chequeStatus: string;
     currencyId: number;
     currencyCode: string;
     amount: number;
@@ -189,6 +193,26 @@ type OpeningCutoverData = {
   };
   participants: Array<{ id: number; name: string; type: "manager" | "investor"; isActive: boolean }>;
   readiness: null | { ready: boolean; blockers: string[]; openingClearingPkr: number; totalParticipatingCapitalPkr: number };
+};
+
+type OpeningCityPackagesData = {
+  cutover: { id: number; revision: number } | null;
+  packages: Array<{
+    id: number;
+    cityId: number;
+    status: "draft" | "submitted" | "returned" | "approved";
+    returnReason?: string | null;
+    city: { id: number; name: string };
+    dueBalances: Array<{
+      id: number;
+      currencyId: number;
+      cityAmount: number | string | null;
+      cityCarryingPkr: number | string | null;
+      centralAmount: number | string | null;
+      centralCarryingPkr: number | string | null;
+      currency: { id: number; code: string; symbol: string };
+    }>;
+  }>;
 };
 
 type CityCurrency = { id: number; code: string; symbol?: string };
@@ -340,9 +364,10 @@ export default function OpeningsPage() {
   const today = new Date().toISOString().split("T")[0];
   const emptyFx = { carryingAmountPkr: "", fxRateToPkr: "", fxRateDate: today, fxRateSource: "", fxRateReference: "", fxRateApproval: "" };
   const [cashForm, setCashForm] = useState({ currencyId: 0, amount: "", openingDate: today, notes: "", ...emptyFx });
-  const [customerForm, setCustomerForm] = useState({ customerId: 0, currencyId: 0, amount: "", openingDate: today, notes: "", ...emptyFx });
+  const [customerForm, setCustomerForm] = useState({ customerId: 0, currencyId: 0, amount: "", balanceSide: "receivable" as "receivable" | "advance", openingDate: today, notes: "", ...emptyFx });
   const [bankForm, setBankForm] = useState({ bankAccountId: 0, currencyId: 0, amount: "", openingDate: today, notes: "", ...emptyFx });
   const [chequeForm, setChequeForm] = useState({
+    customerId: 0,
     currencyId: 0,
     amount: "",
     chequeNumber: "",
@@ -351,6 +376,7 @@ export default function OpeningsPage() {
     notes: "",
     ...emptyFx,
   });
+  const [editingChequeId, setEditingChequeId] = useState<number | null>(null);
   const [hajiForm, setHajiForm] = useState({ currencyId: 0, amount: "", balanceSide: "payable" as "payable" | "receivable", openingDate: today, notes: "", ...emptyFx });
   const [stockForm, setStockForm] = useState({ lotId: 0, godownId: 0, productId: 0, qty: "" });
   const [legacyStockForm, setLegacyStockForm] = useState({ godownId: 0, productId: 0, quantity: "", unitCostPkr: "", openingDate: today, notes: "" });
@@ -391,10 +417,15 @@ export default function OpeningsPage() {
   const [participantOpeningForm, setParticipantOpeningForm] = useState({ participantId: 0, capitalPkr: "", currentYearProfitPkr: "", ongoingLotRealizedProfitPkr: "", openingDate: today, notes: "" });
   const [finalizeConfirmation, setFinalizeConfirmation] = useState("");
   const [reversalForm, setReversalForm] = useState({ confirmation: "", reason: "" });
+  const [cityPackagesData, setCityPackagesData] = useState<OpeningCityPackagesData | null>(null);
+  const [cityDueForm, setCityDueForm] = useState({ currencyId: 0, amount: "", ...emptyFx });
+  const [packageReturnReason, setPackageReturnReason] = useState("");
 
+  const selectedCityPackage = cityPackagesData?.packages.find((row) => isSuperAdmin ? row.cityId === selectedCityId : true);
+  const cityPackageEditable = !selectedCityPackage || selectedCityPackage.status === "draft" || selectedCityPackage.status === "returned";
   const cityReady = !isSuperAdmin || selectedCityId > 0;
   const canEdit = data?.canEditOpenings !== false;
-  const formsDisabled = !cityReady || !canEdit;
+  const formsDisabled = !cityReady || !canEdit || !cityPackageEditable;
 
   const load = async (cityIdOverride?: number) => {
     setLoading(true);
@@ -462,9 +493,15 @@ export default function OpeningsPage() {
     }
   };
 
+  const loadCityPackages = async () => {
+    const result = await apiCall<OpeningCityPackagesData>("/api/v1/opening-city-packages");
+    if (result.success && result.data) setCityPackagesData(result.data);
+  };
+
   useEffect(() => {
     load();
     loadCutover();
+    loadCityPackages();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -473,6 +510,27 @@ export default function OpeningsPage() {
     load(selectedCityId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCityId, isSuperAdmin]);
+
+  const saveCityDueAssertion = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const body = isSuperAdmin
+      ? { action: "save_due", cityId: selectedCityId, currencyId: cityDueForm.currencyId, centralAmount: Number(cityDueForm.amount), centralCarryingPkr: Number(cityDueForm.carryingAmountPkr) }
+      : { action: "save_due", currencyId: cityDueForm.currencyId, cityAmount: Number(cityDueForm.amount), cityCarryingPkr: Number(cityDueForm.carryingAmountPkr), ...fxPayload(cityDueForm) };
+    const result = await apiCall("/api/v1/opening-city-packages", { method: "POST", body });
+    if (!result.success) return toast.error(result.error || "Failed to save Due to/from Superadmin assertion");
+    toast.success("Due to/from Superadmin assertion saved");
+    setCityDueForm((prev) => ({ ...prev, amount: "", carryingAmountPkr: "" }));
+    await loadCityPackages();
+  };
+
+  const runCityPackageAction = async (action: "submit" | "return" | "approve") => {
+    if (!selectedCityPackage) return;
+    const result = await apiCall("/api/v1/opening-city-packages", { method: "POST", body: { action, packageId: selectedCityPackage.id, reason: packageReturnReason } });
+    if (!result.success) return toast.error(result.error || `Failed to ${action} city package`);
+    toast.success(`City opening package ${action === "submit" ? "submitted" : action === "return" ? "returned" : "approved"}`);
+    setPackageReturnReason("");
+    await Promise.all([loadCityPackages(), loadCutover()]);
+  };
 
   const liabilityPartyOptions = useMemo(() => {
     if (!data) return [];
@@ -515,6 +573,7 @@ export default function OpeningsPage() {
       body: {
         kind: "cash",
         cityId: isSuperAdmin ? selectedCityId : undefined,
+        customerId: chequeForm.customerId,
         currencyId: cashForm.currencyId,
         amount: Number(cashForm.amount || 0),
         ...fxPayload(cashForm),
@@ -540,6 +599,7 @@ export default function OpeningsPage() {
         customerId: customerForm.customerId,
         currencyId: customerForm.currencyId,
         amount: Number(customerForm.amount || 0),
+        balanceSide: customerForm.balanceSide,
         ...fxPayload(customerForm),
         openingDate: customerForm.openingDate,
         notes: customerForm.notes || null,
@@ -583,7 +643,9 @@ export default function OpeningsPage() {
       method: "POST",
       body: {
         kind: "cheque",
+        id: editingChequeId || undefined,
         cityId: isSuperAdmin ? selectedCityId : undefined,
+        customerId: chequeForm.customerId,
         currencyId: chequeForm.currencyId,
         amount: Number(chequeForm.amount || 0),
         ...fxPayload(chequeForm),
@@ -594,9 +656,11 @@ export default function OpeningsPage() {
       },
     });
     if (!result.success) return toast.error(result.error || "Failed");
-    toast.success("Opening cheque saved");
+    toast.success(editingChequeId ? "Opening cheque updated" : "Opening cheque saved");
+    setEditingChequeId(null);
     setChequeForm((prev) => ({
       ...prev,
+      customerId: 0,
       amount: "",
       chequeNumber: "",
       chequeDueDate: "",
@@ -636,6 +700,7 @@ export default function OpeningsPage() {
   };
 
   const finalizeCutover = async () => {
+    if (!isOnline) return toast.error("Finalization requires an online connection");
     if (!window.confirm("Finalize and permanently lock all opening entries?")) return;
     const result = await apiCall("/api/v1/opening-cutover", { method: "POST", body: { action: "finalize", confirmation: finalizeConfirmation } });
     if (!result.success) return toast.error(result.error || "Opening cutover could not be finalized");
@@ -843,7 +908,6 @@ export default function OpeningsPage() {
                     <input className="input" type="number" min="0" step="0.01" placeholder="Ongoing-lot realized profit PKR" value={participantOpeningForm.ongoingLotRealizedProfitPkr} onChange={(e) => setParticipantOpeningForm((prev) => ({ ...prev, ongoingLotRealizedProfitPkr: e.target.value }))} />
                     <input className="input" type="date" value={participantOpeningForm.openingDate} onChange={(e) => setParticipantOpeningForm((prev) => ({ ...prev, openingDate: e.target.value }))} required />
                     <input className="input lg:col-span-2" placeholder="Book reference / notes" value={participantOpeningForm.notes} onChange={(e) => setParticipantOpeningForm((prev) => ({ ...prev, notes: e.target.value }))} />
-                    {cutoverData.participants.find((participant) => participant.id === participantOpeningForm.participantId)?.type === "manager" && Number(cutoverData.readiness?.openingClearingPkr || 0) > 0 && <button type="button" className="btn-secondary" onClick={() => setParticipantOpeningForm((prev) => ({ ...prev, capitalPkr: String(cutoverData.readiness?.openingClearingPkr || 0) }))}>Use remaining equity</button>}
                   </div>
                   <button className="btn-primary" type="submit">Save participant opening</button>
                 </form>
@@ -854,7 +918,7 @@ export default function OpeningsPage() {
                 <p>Opening reconciliation: PKR {(cutoverData.readiness?.openingClearingPkr || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}</p>
                 {(cutoverData.readiness?.blockers || []).map((blocker) => <p key={blocker} className="mt-1">• {blocker}</p>)}
               </div>
-              {cutoverData.cutover.status === "draft" && <div className="flex flex-col md:flex-row gap-3"><input className="input md:max-w-xs" placeholder="Type FINALIZE OPENINGS" value={finalizeConfirmation} onChange={(e) => setFinalizeConfirmation(e.target.value)} /><button type="button" className="btn-primary" disabled={!cutoverData.readiness?.ready || finalizeConfirmation !== "FINALIZE OPENINGS"} onClick={finalizeCutover}>Finalize openings</button></div>}
+              {cutoverData.cutover.status === "draft" && <div className="flex flex-col md:flex-row gap-3"><input className="input md:max-w-xs" placeholder="Type FINALIZE OPENINGS" value={finalizeConfirmation} onChange={(e) => setFinalizeConfirmation(e.target.value)} /><button type="button" className="btn-primary" disabled={!isOnline || !cutoverData.readiness?.ready || finalizeConfirmation !== "FINALIZE OPENINGS"} onClick={finalizeCutover}>Finalize openings</button>{!isOnline && <p className="text-sm text-amber-700">Finalization requires an online connection.</p>}</div>}
               {cutoverData.cutover.status === "finalized" && <div className="rounded-lg border border-red-200 p-3 space-y-3"><p className="text-sm font-semibold text-red-800">Audited reversal and re-entry only</p><div className="grid md:grid-cols-2 gap-3"><input className="input" placeholder="Reason for correction" value={reversalForm.reason} onChange={(e) => setReversalForm((prev) => ({ ...prev, reason: e.target.value }))} /><input className="input" placeholder="Type REVERSE OPENINGS" value={reversalForm.confirmation} onChange={(e) => setReversalForm((prev) => ({ ...prev, confirmation: e.target.value }))} /></div><button type="button" className="btn-secondary" disabled={!reversalForm.reason.trim() || reversalForm.confirmation !== "REVERSE OPENINGS"} onClick={reverseCutover}>Reverse for correction</button></div>}
             </>
           )}
@@ -871,6 +935,33 @@ export default function OpeningsPage() {
             ))}
           </select>
         </div>
+      )}
+
+      {cityPackagesData?.cutover && (!isSuperAdmin || selectedCityId > 0) && (
+        <section className="card space-y-4">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-neutral-500">City opening package</h2>
+            <p className="mt-1 text-xs text-neutral-500">{isSuperAdmin ? "Verify central Due from City against the city submission in original currency and PKR carrying value." : "Record Due to Superadmin for every enabled currency, including an explicit zero, then submit the complete opening package."}</p>
+          </div>
+          <p className="text-sm">Status: <span className="font-semibold capitalize">{selectedCityPackage?.status || "draft"}</span>{selectedCityPackage?.returnReason ? ` · Returned: ${selectedCityPackage.returnReason}` : ""}</p>
+          {(!isSuperAdmin && (!selectedCityPackage || selectedCityPackage.status === "draft" || selectedCityPackage.status === "returned")) || (isSuperAdmin && selectedCityPackage?.status === "submitted") ? (
+            <form onSubmit={saveCityDueAssertion} className="grid md:grid-cols-4 gap-3">
+              <select className="input" value={cityDueForm.currencyId} onChange={(event) => setCityDueForm((prev) => ({ ...prev, currencyId: Number(event.target.value) }))} required>
+                <option value={0}>Currency</option>
+                {(data?.currencies || []).map((currency) => <option key={currency.id} value={currency.id}>{currency.code}</option>)}
+              </select>
+              <input className="input" type="number" min="0" step="0.000001" placeholder={isSuperAdmin ? "Central due amount" : "City due amount"} value={cityDueForm.amount} onChange={(event) => setCityDueForm((prev) => ({ ...prev, amount: event.target.value }))} required />
+              <input className="input" type="number" min="0" step="0.01" placeholder="PKR carrying value" value={cityDueForm.carryingAmountPkr} onChange={(event) => setCityDueForm((prev) => ({ ...prev, carryingAmountPkr: event.target.value }))} required />
+              <button className="btn-primary" type="submit">Save assertion</button>
+              {!isSuperAdmin && <div className="md:col-span-4"><OpeningFxFields currencyCode={currencyCodeFor(data?.currencies, cityDueForm.currencyId)} value={cityDueForm} onChange={(next) => setCityDueForm((prev) => ({ ...prev, ...next }))} /></div>}
+            </form>
+          ) : null}
+          <SavedTable title="Due to/from Superadmin assertions" emptyLabel="No currency assertions recorded." headers={["Currency", "City amount", "City PKR", "Central amount", "Central PKR"]} rows={(selectedCityPackage?.dueBalances || []).map((row) => (
+            <tr key={row.id} className="border-b last:border-0"><td className="py-2 px-3">{row.currency.code}</td><td className="py-2 px-3">{row.cityAmount ?? "Not entered"}</td><td className="py-2 px-3">{row.cityCarryingPkr ?? "Not entered"}</td><td className="py-2 px-3">{row.centralAmount ?? "Not verified"}</td><td className="py-2 px-3">{row.centralCarryingPkr ?? "Not verified"}</td></tr>
+          ))} />
+          {!isSuperAdmin && selectedCityPackage && (selectedCityPackage.status === "draft" || selectedCityPackage.status === "returned") && <button type="button" className="btn-primary" onClick={() => runCityPackageAction("submit")}>Submit opening package</button>}
+          {isSuperAdmin && selectedCityPackage?.status === "submitted" && <div className="flex flex-col md:flex-row gap-3"><input className="input md:max-w-sm" placeholder="Return reason" value={packageReturnReason} onChange={(event) => setPackageReturnReason(event.target.value)} /><button type="button" className="btn-secondary" disabled={!packageReturnReason.trim()} onClick={() => runCityPackageAction("return")}>Return for correction</button><button type="button" className="btn-primary" onClick={() => runCityPackageAction("approve")}>Approve exact match</button></div>}
+        </section>
       )}
 
       {isSuperAdmin && (
@@ -1088,11 +1179,11 @@ export default function OpeningsPage() {
         />
       </form>
 
-      {/* Step 2: Customer receivables */}
+      {/* Step 2: Customer balances */}
       <form ref={customerRef} onSubmit={submitCustomer} className="card space-y-3">
         <div>
-          <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-neutral-500">Opening customer receivable</h2>
-          <p className="text-xs text-neutral-500 mt-1">Sets opening amount owed by a customer. One row per customer + currency.</p>
+          <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-neutral-500">Opening customer balance</h2>
+          <p className="text-xs text-neutral-500 mt-1">Enter a positive amount and select whether the customer owes us or has an advance.</p>
         </div>
         <div className="grid md:grid-cols-2 lg:grid-cols-6 gap-3">
           <select
@@ -1111,10 +1202,15 @@ export default function OpeningsPage() {
             onChange={(currencyId) => setCustomerForm((prev) => ({ ...prev, currencyId }))}
             disabled={formsDisabled}
           />
+          <select className="input" value={customerForm.balanceSide} onChange={(e) => setCustomerForm((prev) => ({ ...prev, balanceSide: e.target.value as "receivable" | "advance" }))} required disabled={formsDisabled}>
+            <option value="receivable">Customer owes us</option>
+            <option value="advance">Customer advance</option>
+          </select>
           <input
             className="input"
             type="number"
             step="0.01"
+            min="0.01"
             placeholder="Amount"
             value={customerForm.amount}
             onChange={(e) => setCustomerForm((prev) => ({ ...prev, amount: e.target.value }))}
@@ -1141,12 +1237,13 @@ export default function OpeningsPage() {
         <button className="btn-primary" type="submit" disabled={formsDisabled}>Save customer opening</button>
 
         <SavedTable
-          title="Saved customer receivables"
+          title="Saved customer balances"
           emptyLabel="No opening customer balances for this city yet."
-          headers={["Customer", "Currency", "Amount", "Date", "Notes", ""]}
+          headers={["Customer", "Side", "Currency", "Amount", "Date", "Notes", ""]}
           rows={(data?.openingCustomerBalances || []).map((row) => (
             <tr key={String(row.id)} className={`border-b last:border-0 ${row._pending ? "bg-amber-50/60" : ""}`}>
               <td className="py-2 px-3">{row.customerName}</td>
+              <td className="py-2 px-3">{row.balanceSide === "advance" ? "Customer advance" : "Customer owes us"}</td>
               <td className="py-2 px-3">{row.currencyCode}</td>
               <td className="py-2 px-3">{row.amount.toLocaleString("en-US")}</td>
               <td className="py-2 px-3">{row.openingDate}</td>
@@ -1162,6 +1259,7 @@ export default function OpeningsPage() {
                           customerId: row.customerId,
                           currencyId: row.currencyId,
                           amount: String(row.amount),
+                          balanceSide: row.balanceSide,
                           carryingAmountPkr: String(row.carryingAmountPkr ?? row.amount),
                           fxRateToPkr: row.fxRateToPkr == null ? "" : String(row.fxRateToPkr),
                           fxRateDate: row.fxRateDate || row.openingDate,
@@ -1310,6 +1408,10 @@ export default function OpeningsPage() {
           </p>
         </div>
         <div className="grid md:grid-cols-2 lg:grid-cols-6 gap-3">
+          <select className="input" value={chequeForm.customerId} onChange={(e) => setChequeForm((prev) => ({ ...prev, customerId: Number(e.target.value) }))} required disabled={formsDisabled}>
+            <option value={0}>Customer who issued the cheque</option>
+            {(data?.customers || []).map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
+          </select>
           <OpeningCurrencyField
             currencies={data?.currencies || []}
             value={chequeForm.currencyId}
@@ -1322,7 +1424,11 @@ export default function OpeningsPage() {
             step="0.01"
             placeholder="Amount"
             value={chequeForm.amount}
-            onChange={(e) => setChequeForm((prev) => ({ ...prev, amount: e.target.value }))}
+            onChange={(e) => setChequeForm((prev) => ({
+              ...prev,
+              amount: e.target.value,
+              ...(currencyCodeFor(data?.currencies, prev.currencyId) === "PKR" ? { carryingAmountPkr: e.target.value } : {}),
+            }))}
             required
             disabled={formsDisabled}
           />
@@ -1358,29 +1464,61 @@ export default function OpeningsPage() {
           disabled={formsDisabled}
         />
         <OpeningFxFields currencyCode={currencyCodeFor(data?.currencies, chequeForm.currencyId)} value={chequeForm} onChange={(next) => setChequeForm((prev) => ({ ...prev, ...next }))} disabled={formsDisabled} />
-        <button className="btn-primary" type="submit" disabled={formsDisabled}>Save opening cheque</button>
+        <div className="flex gap-2">
+          <button className="btn-primary" type="submit" disabled={formsDisabled}>{editingChequeId ? "Update opening cheque" : "Save opening cheque"}</button>
+          {editingChequeId && <button type="button" className="btn-secondary" onClick={() => {
+            setEditingChequeId(null);
+            setChequeForm((prev) => ({ ...prev, customerId: 0, amount: "", chequeNumber: "", chequeDueDate: "", notes: "", ...emptyFx }));
+          }}>Cancel edit</button>}
+        </div>
 
         <SavedTable
           title="Saved opening cheques"
           emptyLabel="No opening cheques recorded for this city yet."
-          headers={["Cheque #", "Currency", "Amount", "Due", "Date", "Notes", ""]}
+          headers={["Customer", "Cheque #", "Currency", "Amount", "Status", "Due", "Date", "Notes", ""]}
           rows={(data?.openingCheques || []).map((row) => (
             <tr key={String(row.id)} className={`border-b last:border-0 ${row._pending ? "bg-amber-50/60" : ""}`}>
-              <td className="py-2 px-3">{row.chequeNumber}{row._pending ? " (pending sync)" : ""}</td>
+              <td className="py-2 px-3">{row.customerName}</td><td className="py-2 px-3">{row.chequeNumber}{row._pending ? " (pending sync)" : ""}</td>
               <td className="py-2 px-3">{row.currencyCode}</td>
               <td className="py-2 px-3">{row.amount.toLocaleString("en-US")}</td>
+              <td className="py-2 px-3">{row.chequeStatus.replaceAll("_", " ")}</td>
               <td className="py-2 px-3">{row.chequeDueDate || "—"}</td>
               <td className="py-2 px-3">{row.openingDate}</td>
               <td className="py-2 px-3 text-neutral-500">{row.notes || "—"}</td>
               <td className="py-2 px-3">
-                {!row._pending && canEdit && (
-                  <button
-                    type="button"
-                    className="text-xs text-red-600 hover:underline"
-                    onClick={() => deleteOpening("cheque", row.id)}
-                  >
-                    Delete
-                  </button>
+                {!row._pending && canEdit && row.chequeStatus === "in_hand" && (
+                  <span className="inline-flex gap-2">
+                    <button
+                      type="button"
+                      className="text-xs text-primary-600 hover:underline"
+                      onClick={() => {
+                        setEditingChequeId(Number(row.id));
+                        setChequeForm({
+                          customerId: row.customerId,
+                          currencyId: row.currencyId,
+                          amount: String(row.amount),
+                          chequeNumber: row.chequeNumber,
+                          chequeDueDate: row.chequeDueDate || "",
+                          carryingAmountPkr: String(row.carryingAmountPkr ?? row.amount),
+                          fxRateToPkr: row.fxRateToPkr == null ? "" : String(row.fxRateToPkr),
+                          fxRateDate: row.fxRateDate || row.openingDate,
+                          fxRateSource: row.fxRateSource || "", fxRateReference: "", fxRateApproval: "",
+                          openingDate: row.openingDate,
+                          notes: row.notes || "",
+                        });
+                        scrollTo(chequeRef);
+                      }}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs text-red-600 hover:underline"
+                      onClick={() => deleteOpening("cheque", row.id)}
+                    >
+                      Delete
+                    </button>
+                  </span>
                 )}
               </td>
             </tr>
@@ -1393,8 +1531,8 @@ export default function OpeningsPage() {
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-neutral-500">Opening godown stock (ongoing lots)</h2>
           <p className="text-xs text-neutral-500 mt-1">
-            Set <span className="font-medium">gross</span> quantity received into a godown on an ongoing lot (not net on-hand).
-            Import historical sales separately for the sold portion. Saving replaces the qty for that lot + godown + product.
+            Set the <span className="font-medium">current on-hand quantity</span> in the godown for an ongoing lot.
+            Saving replaces the current quantity for that lot + godown + product.
           </p>
           {isSuperAdmin && (data?.ongoingLots?.length || 0) === 0 && cityReady && (
             <p className="text-xs mt-1">

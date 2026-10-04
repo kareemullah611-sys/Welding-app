@@ -9,7 +9,7 @@ const shippingEdit = readFileSync("src/app/api/v1/shipping-line-payments/[id]/ro
 const accounting = readFileSync("src/lib/accounting.ts", "utf8");
 const attribution = readFileSync("src/app/api/v1/investor-attribution/route.ts", "utf8");
 const periodReport = readFileSync("src/lib/period-profit-report-data.ts", "utf8");
-const migration = readFileSync("prisma/migrations/20260823120000_realized_liability_fx/migration.sql", "utf8");
+const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260823120000_realized_liability_fx/migration.sql", "utf8");
 
 test("supplier settlement persists documented carrying basis and realized FX atomically", () => {
   assert.match(supplierCreate, /supplier-liability:/);

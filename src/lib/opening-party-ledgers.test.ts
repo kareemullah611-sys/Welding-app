@@ -56,7 +56,7 @@ test("payables report totals are grouped by currency", () => {
 test("intermediary openings are assets rather than payables", () => {
   const accounting = readFileSync("src/lib/accounting.ts", "utf8");
   const reports = readFileSync("src/app/api/v1/financial-reports/route.ts", "utf8");
-  const migration = readFileSync("prisma/migrations/20260826090000_journal_opening_customer_receivables/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260826090000_journal_opening_customer_receivables/migration.sql", "utf8");
 
   assert.match(accounting, /p\.liabilityType === "intermediary"/);
   assert.match(accounting, /Opening intermediary receivable/);

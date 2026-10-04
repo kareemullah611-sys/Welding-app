@@ -5,7 +5,7 @@ import test from "node:test";
 const route = readFileSync("src/app/api/v1/openings/route.ts", "utf8");
 const accounting = readFileSync("src/lib/accounting.ts", "utf8");
 const migration = readFileSync(
-  "prisma/migrations/20260826090000_journal_opening_customer_receivables/migration.sql",
+  "prisma/migrations_legacy_pre_baseline/20260826090000_journal_opening_customer_receivables/migration.sql",
   "utf8",
 );
 

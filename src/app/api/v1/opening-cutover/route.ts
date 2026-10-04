@@ -5,10 +5,13 @@ import { errorResponse, serverError, successResponse } from "@/lib/api-response"
 import { JWTPayload } from "@/lib/auth";
 import { journalOpeningParticipantBalance, reverseOpeningJournals } from "@/lib/accounting";
 import { loadOpeningCutoverReadiness } from "@/lib/opening-cutover";
+import { createHash } from "node:crypto";
 
-const dateOnly = (value: unknown) => {
-  const date = new Date(String(value || ""));
-  return Number.isNaN(date.getTime()) ? null : date;
+const parseCutoverDate = (value: unknown) => {
+  const text = String(value || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
+  const date = new Date(`${text}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === text ? date : null;
 };
 
 async function latestCutover(client: any = prisma) {
@@ -19,29 +22,28 @@ async function latestCutover(client: any = prisma) {
 }
 
 async function openingSnapshot(tx: any, cutoverId: number, financialYearId: number) {
-  const sourceTypes = [
-    "opening_cash", "opening_customer_balance", "opening_bank_balance", "opening_cheque",
-    "opening_haji_balance", "opening_liability", "opening_city_liability", "opening_super_admin_account",
-  ];
-  const [cash, customers, stock, banks, cheques, haji, liabilities, cityLiabilities, inventory, superAdminAccounts, legacyEquity, participants, foreignCarryingLayers, openingJournals] = await Promise.all([
-    tx.openingCash.findMany({ orderBy: { id: "asc" } }),
-    tx.openingCustomerBalance.findMany({ orderBy: { id: "asc" } }),
-    tx.openingStock.findMany({ orderBy: { id: "asc" } }),
-    tx.openingBankBalance.findMany({ orderBy: { id: "asc" } }),
-    tx.openingCheque.findMany({ orderBy: { id: "asc" } }),
-    tx.openingHajiBalance.findMany({ orderBy: { id: "asc" } }),
-    tx.openingLiability.findMany({ orderBy: { id: "asc" } }),
-    tx.openingCityLiability.findMany({ orderBy: { id: "asc" } }),
-    tx.openingInventoryValuation.findMany({ orderBy: { id: "asc" } }),
-    tx.openingSuperAdminAccountBalance.findMany({ orderBy: { id: "asc" } }),
-    tx.openingEquityAllocation.findMany({ orderBy: { id: "asc" } }),
+  const entries = await tx.openingCutoverEntry.findMany({ where: { cutoverId }, select: { entityType: true, entityId: true }, orderBy: { id: "asc" } });
+  const ids = (entityType: string) => entries.filter((entry: any) => entry.entityType === entityType).map((entry: any) => entry.entityId);
+  const [cash, customers, stock, banks, cheques, haji, liabilities, cityLiabilities, inventory, superAdminAccounts, legacyEquity, participants, cityPackages, foreignCarryingLayers, openingJournals] = await Promise.all([
+    tx.openingCash.findMany({ where: { id: { in: ids("opening_cash") } }, orderBy: { id: "asc" } }),
+    tx.openingCustomerBalance.findMany({ where: { id: { in: ids("opening_customer_balance") } }, orderBy: { id: "asc" } }),
+    tx.lotCityGodownAllocation.findMany({ where: { id: { in: ids("opening_stock") } }, include: { lotCityDistribution: true }, orderBy: { id: "asc" } }),
+    tx.openingBankBalance.findMany({ where: { id: { in: ids("opening_bank_balance") } }, orderBy: { id: "asc" } }),
+    tx.openingCheque.findMany({ where: { id: { in: ids("opening_cheque") } }, orderBy: { id: "asc" } }),
+    tx.openingHajiBalance.findMany({ where: { id: { in: ids("opening_haji_balance") } }, orderBy: { id: "asc" } }),
+    tx.openingLiability.findMany({ where: { id: { in: ids("opening_liability") } }, orderBy: { id: "asc" } }),
+    tx.openingCityLiability.findMany({ where: { id: { in: ids("opening_city_liability") } }, orderBy: { id: "asc" } }),
+    tx.openingInventoryValuation.findMany({ where: { id: { in: ids("opening_inventory_valuation") } }, orderBy: { id: "asc" } }),
+    tx.openingSuperAdminAccountBalance.findMany({ where: { id: { in: ids("opening_super_admin_account_balance") } }, orderBy: { id: "asc" } }),
+    tx.openingEquityAllocation.findMany({ where: { id: { in: ids("opening_equity_allocation") } }, orderBy: { id: "asc" } }),
     tx.openingParticipantBalance.findMany({ where: { cutoverId }, include: { participant: { select: { id: true, name: true, type: true } } }, orderBy: { participantId: "asc" } }),
-    tx.foreignCurrencyCarryingLayer.findMany({ where: { sourceType: { in: sourceTypes }, status: { not: "reversed" } }, orderBy: { id: "asc" } }),
-    tx.journalEntry.findMany({ where: { entityType: { startsWith: "opening_" } }, orderBy: { id: "asc" } }),
+    tx.openingCityPackage.findMany({ where: { cutoverId }, include: { city: { select: { id: true, name: true } }, dueBalances: { include: { currency: { select: { id: true, code: true } } }, orderBy: { currencyId: "asc" } } }, orderBy: { cityId: "asc" } }),
+    tx.foreignCurrencyCarryingLayer.findMany({ where: { status: { not: "reversed" }, OR: entries.map((entry: any) => ({ sourceType: entry.entityType === "opening_super_admin_account_balance" ? "opening_super_admin_account" : entry.entityType, sourceId: entry.entityId })) }, orderBy: { id: "asc" } }),
+    tx.journalEntry.findMany({ where: { OR: entries.map((entry: any) => ({ entityType: entry.entityType, entityId: entry.entityId })) }, orderBy: { id: "asc" } }),
   ]);
   return JSON.parse(JSON.stringify({
     financialYearId,
-    openingRecords: { cash, customers, stock, banks, cheques, haji, liabilities, cityLiabilities, inventory, superAdminAccounts, legacyEquity, participants },
+    openingRecords: { cash, customers, stock, banks, cheques, haji, liabilities, cityLiabilities, inventory, superAdminAccounts, legacyEquity, participants, cityPackages },
     foreignCarryingLayers,
     openingJournals,
   }));
@@ -66,6 +68,8 @@ export const GET = withAuth(async (_request: NextRequest, _context, user: JWTPay
         backupReference: cutover.backupReference,
         backupAcknowledged: cutover.backupAcknowledged,
         finalizedAt: cutover.finalizedAt,
+        previousSnapshotHash: cutover.previousSnapshotHash,
+        finalSnapshotHash: cutover.finalSnapshotHash,
         participantBalances: cutover.participantBalances.map((row: any) => ({
           id: row.id,
           participantId: row.participantId,
@@ -94,9 +98,9 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
     const action = String(body.action || "");
 
     if (action === "save_setup") {
-      const cutoverDate = dateOnly(body.cutoverDate);
-      const fiscalYearStart = dateOnly(body.fiscalYearStart);
-      const fiscalYearEnd = dateOnly(body.fiscalYearEnd);
+      const cutoverDate = parseCutoverDate(body.cutoverDate);
+      const fiscalYearStart = parseCutoverDate(body.fiscalYearStart);
+      const fiscalYearEnd = parseCutoverDate(body.fiscalYearEnd);
       const backupReference = String(body.backupReference || "").trim();
       const backupAcknowledged = body.backupAcknowledged === true;
       if (!cutoverDate || !fiscalYearStart || !fiscalYearEnd) return errorResponse("VALIDATION", "Valid cutover and financial-year dates are required", 400);
@@ -131,7 +135,7 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
       const capitalPkr = Number(body.capitalPkr || 0);
       const currentYearProfitPkr = Number(body.currentYearProfitPkr || 0);
       const ongoingLotRealizedProfitPkr = Number(body.ongoingLotRealizedProfitPkr || 0);
-      const openingDate = dateOnly(body.openingDate);
+      const openingDate = parseCutoverDate(body.openingDate);
       if (!Number.isInteger(participantId) || participantId <= 0 || !openingDate) return errorResponse("VALIDATION", "Participant and opening date are required", 400);
       if ([capitalPkr, currentYearProfitPkr, ongoingLotRealizedProfitPkr].some((amount) => !Number.isFinite(amount) || amount < 0)) return errorResponse("VALIDATION", "Opening amounts cannot be negative", 400);
       if (capitalPkr + currentYearProfitPkr + ongoingLotRealizedProfitPkr <= 0) return errorResponse("VALIDATION", "At least one opening amount is required", 400);
@@ -203,10 +207,23 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           } });
         }
         const snapshot = await openingSnapshot(tx, cutover.id, financialYear.id);
+        const previous = await tx.openingCutover.findFirst({
+          where: { revision: { lt: cutover.revision }, finalSnapshotHash: { not: null } },
+          select: { finalSnapshotHash: true },
+          orderBy: { revision: "desc" },
+        });
+        const previousSnapshotHash = previous?.finalSnapshotHash || null;
+        const finalSnapshotHash = createHash("sha256").update(JSON.stringify({
+          cutoverId: cutover.id,
+          revision: cutover.revision,
+          cutoverDate: cutover.cutoverDate.toISOString().slice(0, 10),
+          previousSnapshotHash,
+          snapshot,
+        })).digest("hex");
         return tx.openingCutover.update({ where: { id: cutover.id }, data: {
           status: "finalized", reconciliationDifferencePkr: readiness.input.openingClearingPkr,
           readinessSnapshotJson: { input: readiness.input, blockers: readiness.blockers } as any,
-          finalSnapshotJson: snapshot as any, finalizedBy: user.userId, finalizedAt: new Date(),
+          finalSnapshotJson: snapshot as any, previousSnapshotHash, finalSnapshotHash, finalizedBy: user.userId, finalizedAt: new Date(),
         } });
       });
       await createAuditLog(user.userId, null, "opening_cutovers", finalized.id, "update", undefined, { action: "finalize", revision: finalized.revision }, getClientIP(request));

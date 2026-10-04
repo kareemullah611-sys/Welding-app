@@ -115,7 +115,7 @@ test("foreign exchange preserves basis cross-currency and realizes FX only when 
 });
 
 test("carrying-layer migration is additive and the sale path recognizes AED", () => {
-  const migration = readFileSync("prisma/migrations/20260918120000_foreign_currency_carrying_layers/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260918120000_foreign_currency_carrying_layers/migration.sql", "utf8");
   const saleRoute = readFileSync("src/app/api/v1/sales/route.ts", "utf8");
   const attributionRoute = readFileSync("src/app/api/v1/investor-attribution/route.ts", "utf8");
 

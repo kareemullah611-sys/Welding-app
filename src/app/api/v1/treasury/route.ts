@@ -198,6 +198,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     // ----------------------------------------------------------------
     // 2. CHEQUES IN HAND
     //    = cheque payments (our_account, active, chequeStatus = in_hand)
+    //    + customer opening cheques (chequeStatus = in_hand)
     // ----------------------------------------------------------------
 
     const chequesInHandRaw = await prisma.payment.groupBy({
@@ -211,8 +212,14 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       },
       _sum: { amount: true },
     });
+    const openingChequesInHandRaw = await prisma.openingCheque.groupBy({
+      by: ["currencyId"],
+      where: { cityId, chequeStatus: "in_hand" },
+      _sum: { amount: true },
+    });
 
-    const chequesInHandCurrencyIds = chequesInHandRaw.map((r) => r.currencyId);
+    const allChequesInHandRaw = [...chequesInHandRaw, ...openingChequesInHandRaw];
+    const chequesInHandCurrencyIds = allChequesInHandRaw.map((r) => r.currencyId);
     const missingChequeIds = chequesInHandCurrencyIds.filter((id) => !codeById[id]);
     if (missingChequeIds.length > 0) {
       const extraCurrencies = await prisma.currency.findMany({
@@ -223,7 +230,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     }
 
     const chequesInHand = toBalanceMap(
-      chequesInHandRaw.map((r) => ({
+      allChequesInHandRaw.map((r) => ({
         currencyCode: codeById[r.currencyId] ?? String(r.currencyId),
         total: Number(r._sum.amount ?? 0),
       }))

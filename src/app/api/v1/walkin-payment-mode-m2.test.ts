@@ -98,6 +98,16 @@ async function cleanupSale(s: Seed, saleId: number | null) {
     txnIds.push(...adj.map((a) => a.transactionId));
   }
   await prisma.journalEntry.deleteMany({ where: { transactionId: { in: txnIds } } });
+  await prisma.journalEntry.deleteMany({
+    where: {
+      OR: [
+        { transactionId: { startsWith: `SALE-${saleId}-V` } },
+        { transactionId: { startsWith: `REV-SALE-${saleId}` } },
+        { transactionId: { startsWith: `COGS-${saleId}-V` } },
+        { transactionId: { startsWith: `REV-COGS-${saleId}` } },
+      ],
+    },
+  });
   await prisma.saleDiscount.deleteMany({ where: { saleId } });
   const walkin = await prisma.sale.findFirst({ where: { id: saleId }, select: { customerId: true } });
   if (walkin) {
@@ -190,9 +200,15 @@ test("M2: discount and correction keep a paid walk-in payment in sync (AR nets t
       select: { transactionId: true },
       distinct: ["transactionId"],
     });
-    const scoped = [`SALE-${saleId}`, `DISCOUNT-${disc.id}`, `PAY-${payment.id}`, ...adj.map((a) => a.transactionId)];
     const rows = await prisma.journalEntry.findMany({
-      where: { accountId: arAccount.id, transactionId: { in: scoped } },
+      where: {
+        accountId: arAccount.id,
+        OR: [
+          { transactionId: { startsWith: `SALE-${saleId}` } },
+          { transactionId: { startsWith: `REV-SALE-${saleId}` } },
+          { transactionId: { in: [`DISCOUNT-${disc.id}`, `PAY-${payment.id}`, ...adj.map((a) => a.transactionId)] } },
+        ],
+      },
       select: { debit: true, credit: true },
     });
     const net = rows.reduce((sum, r) => sum + Number(r.debit) - Number(r.credit), 0);

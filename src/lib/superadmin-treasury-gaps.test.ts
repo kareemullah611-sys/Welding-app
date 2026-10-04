@@ -86,7 +86,7 @@ test("superadmin liabilities support principal-only lender ledgers", () => {
 });
 
 test("treasury migration is additive and non-destructive", () => {
-  const migration = read("prisma/migrations/20260905120000_superadmin_treasury_liabilities/migration.sql");
+  const migration = read("prisma/migrations_legacy_pre_baseline/20260905120000_superadmin_treasury_liabilities/migration.sql");
 
   assert.doesNotMatch(migration, /\bDROP\b|\bTRUNCATE\b|\bDELETE\s+FROM\b/i);
   assert.match(migration, /CREATE TABLE "super_admin_liability_accounts"/);

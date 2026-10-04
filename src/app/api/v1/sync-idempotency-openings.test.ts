@@ -44,6 +44,21 @@ test("opening cash save is idempotent for repeated sync request id", async () =>
     : [];
   const cashAccountCode = `1001-CITY${city.id}`;
   const cashAccountBefore = await prisma.account.findUnique({ where: { code: cashAccountCode } });
+  const existingDraft = await prisma.openingCutover.findFirst({
+    where: { status: "draft" },
+    orderBy: { revision: "desc" },
+  });
+  const maxRevision = await prisma.openingCutover.aggregate({ _max: { revision: true } });
+  const testCutover = existingDraft ?? await prisma.openingCutover.create({
+    data: {
+      revision: (maxRevision._max.revision ?? 0) + 1,
+      cutoverDate: new Date("2026-04-27T00:00:00.000Z"),
+      fiscalYearStart: new Date("2026-01-01T00:00:00.000Z"),
+      fiscalYearEnd: new Date("2026-12-31T00:00:00.000Z"),
+      backupReference: `test-sync-opening-${Date.now()}`,
+      createdBy: user.id,
+    },
+  });
 
   const payload = {
     kind: "cash",
@@ -126,6 +141,9 @@ test("opening cash save is idempotent for repeated sync request id", async () =>
       },
     });
     if (rowId) {
+      await prisma.openingCutoverEntry.deleteMany({
+        where: { entityType: "opening_cash", entityId: rowId },
+      });
       await prisma.auditLog.deleteMany({
         where: { entityType: "opening_cashes", entityId: rowId, userId: user.id },
       });
@@ -158,6 +176,10 @@ test("opening cash save is idempotent for repeated sync request id", async () =>
       if (!cashAccountBefore) {
         await prisma.account.deleteMany({ where: { code: cashAccountCode } });
       }
+    }
+    if (!existingDraft) {
+      await prisma.openingCityPackage.deleteMany({ where: { cutoverId: testCutover.id } });
+      await prisma.openingCutover.delete({ where: { id: testCutover.id } });
     }
   }
 });

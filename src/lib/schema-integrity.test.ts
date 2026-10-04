@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 test("lot product allocation migration is additive and non-destructive", () => {
-  const migration = readFileSync("prisma/migrations/20260917150000_lot_cost_product_allocation/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260917150000_lot_cost_product_allocation/migration.sql", "utf8");
   assert.match(migration, /ADD COLUMN "allocation_basis"/);
   assert.match(migration, /ADD COLUMN "allocated_product_id"/);
   assert.doesNotMatch(migration, /DROP TABLE|DROP COLUMN|TRUNCATE|DELETE FROM/i);
@@ -18,7 +18,7 @@ function modelBlock(name: string) {
 }
 
 test("investor finalization enforces one active manager and carries finalized losses into future capital", () => {
-  const migration = readFileSync("prisma/migrations/20260927190000_single_active_investment_manager/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260927190000_single_active_investment_manager/migration.sql", "utf8");
   const route = readFileSync("src/app/api/v1/investor-attribution/route.ts", "utf8");
   const participantRoute = readFileSync("src/app/api/v1/investment-participants/route.ts", "utf8");
   const participation = readFileSync("src/lib/investment-participation.ts", "utf8");
@@ -35,7 +35,7 @@ test("investor finalization enforces one active manager and carries finalized lo
 test("SyncRequest supports global and city idempotency scopes with a creator relation", () => {
   const user = modelBlock("User");
   const syncRequest = modelBlock("SyncRequest");
-  const migration = readFileSync("prisma/migrations/20260824120000_sync_request_global_scope/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260824120000_sync_request_global_scope/migration.sql", "utf8");
 
   assert.match(user, /syncRequestsCreated\s+SyncRequest\[\]\s+@relation\("SyncRequestCreatedBy"\)/);
   assert.doesNotMatch(syncRequest, /city\s+City\s+@relation/);
@@ -46,7 +46,7 @@ test("SyncRequest supports global and city idempotency scopes with a creator rel
 });
 
 test("superadmin app branding settings are persisted and visible", () => {
-  const migration = readFileSync("prisma/migrations/20260809120000_app_branding_settings/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260809120000_app_branding_settings/migration.sql", "utf8");
   const route = readFileSync("src/app/api/v1/app-branding/route.ts", "utf8");
   const settingsPage = readFileSync("src/app/(dashboard)/settings/page.tsx", "utf8");
   const brandLogo = readFileSync("src/components/brand/BrandLogo.tsx", "utf8");
@@ -90,7 +90,7 @@ test("lots support consignees, documents, and separate shipment status without a
   const statusRoute = readFileSync("src/app/api/v1/lots/[id]/shipment-status/route.ts", "utf8");
   const railwayBucket = readFileSync("src/lib/railway-bucket.ts", "utf8");
   const lotDocumentsHelper = readFileSync("src/lib/lot-documents.ts", "utf8");
-  const migration = readFileSync("prisma/migrations/20260822120000_lot_documents_shipment_consignee/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260822120000_lot_documents_shipment_consignee/migration.sql", "utf8");
 
   assert.match(schema, /enum LotShipmentStatus/);
   assert.match(schema, /enum LotDocumentCategory/);
@@ -155,7 +155,7 @@ test("OpeningLiability uses type-scoped uniqueness and party check constraints",
   assert.match(openingLiability, /@@index\(\[agentId, currencyId\]/);
   assert.match(openingLiability, /@@index\(\[intermediaryId, currencyId\]/);
 
-  const migration = readFileSync("prisma/migrations/20260703000100_audit_data_integrity/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260703000100_audit_data_integrity/migration.sql", "utf8");
   assert.match(migration, /opening_liabilities_party_type_check/);
   assert.match(migration, /WHERE "liability_type" = 'supplier' AND "supplier_id" IS NOT NULL/);
   assert.match(migration, /WHERE "liability_type" = 'shipping_line' AND "shipping_line_id" IS NOT NULL/);
@@ -168,7 +168,7 @@ test("core payable party names are unique in the database schema", () => {
     assert.match(modelBlock(name), /name\s+String\s+@unique\s+@db\.VarChar\(200\)/);
   }
 
-  const migration = readFileSync("prisma/migrations/20260703000200_unique_party_names/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260703000200_unique_party_names/migration.sql", "utf8");
   assert.match(migration, /ALTER TABLE "suppliers" ADD CONSTRAINT "suppliers_name_key" UNIQUE \("name"\)/);
   assert.match(migration, /ALTER TABLE "shipping_lines" ADD CONSTRAINT "shipping_lines_name_key" UNIQUE \("name"\)/);
   assert.match(migration, /ALTER TABLE "intermediaries" ADD CONSTRAINT "intermediaries_name_key" UNIQUE \("name"\)/);
@@ -190,7 +190,7 @@ test("opening balance records use restrict deletes instead of cascade deletes", 
     assert.doesNotMatch(block, /onDelete: Cascade/);
   }
 
-  const migration = readFileSync("prisma/migrations/20260703000300_restrict_opening_balance_deletes/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260703000300_restrict_opening_balance_deletes/migration.sql", "utf8");
   assert.match(migration, /ON DELETE RESTRICT ON UPDATE CASCADE/);
   assert.doesNotMatch(migration, /ON DELETE CASCADE/);
 });
@@ -205,7 +205,7 @@ test("city liabilities have city-scoped accounts, entries, openings, and cheque 
   assert.match(entry, /paymentSource\s+CityLiabilityPaymentSource\?\s+@map\("payment_source"\)/);
   assert.match(opening, /@@unique\(\[accountId, currencyId\], name: "unique_opening_city_liability_account_currency"\)/);
 
-  const migration = readFileSync("prisma/migrations/20260707090000_add_city_liabilities/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260707090000_add_city_liabilities/migration.sql", "utf8");
   assert.match(migration, /ALTER TYPE "ChequeStatus" ADD VALUE IF NOT EXISTS 'used_for_liability'/);
   assert.match(migration, /CREATE TABLE "city_liability_accounts"/);
   assert.match(migration, /CREATE TABLE "city_liability_entries"/);
@@ -221,7 +221,7 @@ test("Haji openings stay historical and customer-to-Haji payments get linked tra
   const paymentUpdateRoute = readFileSync("src/app/api/v1/payments/[id]/route.ts", "utf8");
   const owedHelper = readFileSync("src/lib/ongoing-lot-haji-owed.ts", "utf8");
   const cityLedgerRoute = readFileSync("src/app/api/v1/city-ledger/route.ts", "utf8");
-  const migration = readFileSync("prisma/migrations/20260710103000_link_haji_payment_transfers/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260710103000_link_haji_payment_transfers/migration.sql", "utf8");
 
   assert.match(hajiTransfer, /paymentId\s+Int\?\s+@unique\s+@map\("payment_id"\)/);
   assert.match(hajiTransfer, /payment\s+Payment\?\s+@relation\("HajiPayment", fields: \[paymentId\], references: \[id\]\)/);
@@ -263,7 +263,7 @@ test("expenses have no lot relationship end to end", () => {
   const lotRoute = readFileSync("src/app/api/v1/lots/[id]/route.ts", "utf8");
   const lotCompleteRoute = readFileSync("src/app/api/v1/lots/[id]/complete/route.ts", "utf8");
   const profitReportRoute = readFileSync("src/app/api/v1/profit-report/route.ts", "utf8");
-  const migration = readFileSync("prisma/migrations/20260927200000_remove_expense_lot_relationship/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260927200000_remove_expense_lot_relationship/migration.sql", "utf8");
 
   const expenseModel = schema.match(/model Expense \{[\s\S]*?\n\}/)?.[0] || "";
   assert.doesNotMatch(expenseModel, /\blotId\b|\blot\s+Lot\?/);
@@ -632,7 +632,7 @@ test("city sales support per-item lot selection and locked completed sale item l
   const salesRoute = readFileSync("src/app/api/v1/sales/route.ts", "utf8");
   const saleDetailRoute = readFileSync("src/app/api/v1/sales/[id]/route.ts", "utf8");
   const saleCorrectRoute = readFileSync("src/app/api/v1/sales/[id]/correct/route.ts", "utf8");
-  const migration = readFileSync("prisma/migrations/20260721090000_add_sale_item_lots/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260721090000_add_sale_item_lots/migration.sql", "utf8");
 
   assert.match(saleItem, /lotId\s+Int\s+@map\("lot_id"\)/);
   assert.match(saleItem, /lot\s+Lot\s+@relation\(fields: \[lotId\], references: \[id\], onDelete: Restrict\)/);
@@ -1095,7 +1095,7 @@ test("dashboard bank balance only counts movements tied to city bank accounts", 
   assert.match(treasuryLedger, /where: \{ cityId, paidFrom: "bank_account", bankAccountId: \{ not: null \}, deletedAt: null \}/);
 });
 
-test("dashboard cheque balance only counts active in-hand payment cheques", () => {
+test("dashboard cheque balance includes active in-hand payment and opening cheques", () => {
   const treasuryRoute = readFileSync("src/app/api/v1/treasury/route.ts", "utf8");
   const cashPositionRoute = readFileSync("src/app/api/v1/cash-position/route.ts", "utf8");
   const chequesInHandBlock = treasuryRoute.match(/const chequesInHandRaw = await prisma\.payment\.groupBy\(\{[\s\S]*?\n    \}\);/);
@@ -1105,8 +1105,10 @@ test("dashboard cheque balance only counts active in-hand payment cheques", () =
   assert.match(chequesInHandBlock![0], /destination: "our_account"/);
   assert.match(chequesInHandBlock![0], /status: "active"/);
   assert.match(chequesInHandBlock![0], /chequeStatus: "in_hand"/);
-  assert.doesNotMatch(treasuryRoute, /openingChequesRaw/);
-  assert.doesNotMatch(treasuryRoute, /\[\.\.\.chequesInHandRaw,\s*\.\.\.openingChequesRaw\]/);
+  const openingChequesBlock = treasuryRoute.match(/const openingChequesInHandRaw = await prisma\.openingCheque\.groupBy\(\{[\s\S]*?\n    \}\);/);
+  assert.ok(openingChequesBlock, "treasury opening cheques in hand block should exist");
+  assert.match(openingChequesBlock![0], /where: \{ cityId, chequeStatus: "in_hand" \}/);
+  assert.match(treasuryRoute, /\[\.\.\.chequesInHandRaw,\s*\.\.\.openingChequesInHandRaw\]/);
   assert.match(cashPositionRoute, /paymentMethod: "cheque", chequeStatus: "in_hand" as any/);
   assert.doesNotMatch(cashPositionRoute, /openingChequeTotal/);
 });
@@ -1214,7 +1216,7 @@ test("superadmin liability and exchange journals are atomic", () => {
 
 test("country fallback rates and intermediary FIFO costing are wired", () => {
   const schema = readFileSync("prisma/schema.prisma", "utf8");
-  const migration = readFileSync("prisma/migrations/20260808090000_country_fallback_fifo_rates/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260808090000_country_fallback_fifo_rates/migration.sql", "utf8");
   const fallbackRoute = readFileSync("src/app/api/v1/country-fallback-rates/route.ts", "utf8");
   const fifo = readFileSync("src/lib/intermediary-usd-fifo.ts", "utf8");
   const settlementValidation = readFileSync("src/lib/settlement-validation.ts", "utf8");
@@ -1383,7 +1385,7 @@ test("customer portal access is isolated from admin auth and ledger scoped", () 
   const portalLogin = readFileSync("src/app/api/v1/customer-portal/login/route.ts", "utf8");
   const portalLedger = readFileSync("src/app/api/v1/customer-portal/ledger/route.ts", "utf8");
   const customersPage = readFileSync("src/app/(dashboard)/customers/page.tsx", "utf8");
-  const migration = readFileSync("prisma/migrations/20260729100000_customer_portal_access/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260729100000_customer_portal_access/migration.sql", "utf8");
 
   assert.match(customerModel, /portalAccessEnabled\s+Boolean\s+@default\(false\)/);
   assert.match(customerModel, /portalUsername\s+String\?/);
@@ -1449,7 +1451,7 @@ test("GLM critical audit fixes remain wired", () => {
   const adminCleanupRoute = readFileSync("src/app/api/v1/admin-cleanup/route.ts", "utf8");
   const saleRoute = readFileSync("src/app/api/v1/sales/route.ts", "utf8");
   const stockActivation = readFileSync("src/lib/stock-activation.ts", "utf8");
-  const withdrawalCleanupMigration = readFileSync("prisma/migrations/20260710110000_remove_pending_withdrawal_journals/migration.sql", "utf8");
+  const withdrawalCleanupMigration = readFileSync("prisma/migrations_legacy_pre_baseline/20260710110000_remove_pending_withdrawal_journals/migration.sql", "utf8");
 
   assert.match(sale, /@@unique\(\[cityId, voucherNo\], name: "unique_sale_city_voucher"\)/);
   assert.match(unresolved, /@@map\("lot_settlement_unresolved_overflows"\)/);
@@ -1489,7 +1491,7 @@ test("city transfer send modal uses available source godowns", () => {
 
 test("investor attribution phase 1 foundation reconciles to existing profit report", () => {
   const schema = readFileSync("prisma/schema.prisma", "utf8");
-  const migration = readFileSync("prisma/migrations/20260811100000_investor_attribution_phase1/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260811100000_investor_attribution_phase1/migration.sql", "utf8");
   const attributionRoute = readFileSync("src/app/api/v1/investor-attribution/route.ts", "utf8");
   const periodProfitHelper = readFileSync("src/lib/period-profit-report-data.ts", "utf8");
   const investorsPage = readFileSync("src/app/(dashboard)/investors/page.tsx", "utf8");
@@ -1520,7 +1522,7 @@ test("investor attribution phase 1 foundation reconciles to existing profit repo
 });
 
 test("investor attribution phase 1.1 keeps participant management separate from accounting postings", () => {
-  const phaseOneOneMigration = readFileSync("prisma/migrations/20260811110000_investor_attribution_phase1_1/migration.sql", "utf8");
+  const phaseOneOneMigration = readFileSync("prisma/migrations_legacy_pre_baseline/20260811110000_investor_attribution_phase1_1/migration.sql", "utf8");
   const participantsRoute = readFileSync("src/app/api/v1/investment-participants/route.ts", "utf8");
   const capitalEventsRoute = readFileSync("src/app/api/v1/investment-participants/[id]/capital-events/route.ts", "utf8");
   const shareEventsRoute = readFileSync("src/app/api/v1/investment-participants/[id]/profit-share-events/route.ts", "utf8");
@@ -1587,7 +1589,7 @@ test("investor attribution follows financial report recognition without collecti
   const attributionRoute = readFileSync("src/app/api/v1/investor-attribution/route.ts", "utf8");
   const attributionEngine = readFileSync("src/lib/investor-attribution.ts", "utf8");
   const investorsPage = readFileSync("src/app/(dashboard)/investors/page.tsx", "utf8");
-  const cleanupMigration = readFileSync("prisma/migrations/20260811120000_remove_collection_based_investor_eligibility/migration.sql", "utf8");
+  const cleanupMigration = readFileSync("prisma/migrations_legacy_pre_baseline/20260811120000_remove_collection_based_investor_eligibility/migration.sql", "utf8");
 
   assert.match(attributionRoute, /buildReadiness/);
   assert.match(attributionRoute, /BLOCKED_RECONCILIATION/);
@@ -1659,7 +1661,7 @@ test("investor attribution phase 1.3 historical pool tracking is preview-only", 
 
 test("investor attribution phase 2.2 controlled finalization is atomic and attribution-only", () => {
   const schema = readFileSync("prisma/schema.prisma", "utf8");
-  const migration = readFileSync("prisma/migrations/20260813100000_controlled_investor_finalization/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260813100000_controlled_investor_finalization/migration.sql", "utf8");
   const attributionRoute = readFileSync("src/app/api/v1/investor-attribution/route.ts", "utf8");
   const investorsPage = readFileSync("src/app/(dashboard)/investors/page.tsx", "utf8");
 
@@ -1721,7 +1723,7 @@ test("investor attribution phase 2.2 controlled finalization is atomic and attri
 
 test("sarafi afghanistan daily FX snapshots are additive and audit-only", () => {
   const schema = readFileSync("prisma/schema.prisma", "utf8");
-  const migration = readFileSync("prisma/migrations/20260816120000_sarafi_af_daily_fx_snapshots/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260816120000_sarafi_af_daily_fx_snapshots/migration.sql", "utf8");
   const engine = readFileSync("src/lib/sarafi-af-snapshot.ts", "utf8");
   const dbHelper = readFileSync("src/lib/sarafi-af-snapshot-db.ts", "utf8");
   const route = readFileSync("src/app/api/v1/fx-snapshots/sarafi-af/route.ts", "utf8");
@@ -1772,7 +1774,7 @@ test("sarafi afghanistan daily FX snapshots are additive and audit-only", () => 
 
 test("sarafi assisted capture auto-authorizes only validated immutable snapshots", () => {
   const schema = readFileSync("prisma/schema.prisma", "utf8");
-  const migration = readFileSync("prisma/migrations/20260828090000_sarafi_assisted_capture_drafts/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260828090000_sarafi_assisted_capture_drafts/migration.sql", "utf8");
   const captureEngine = readFileSync("src/lib/sarafi-af-assisted-capture.ts", "utf8");
   const captureDb = readFileSync("src/lib/sarafi-af-assisted-capture-db.ts", "utf8");
   const snapshotDb = readFileSync("src/lib/sarafi-af-snapshot-db.ts", "utf8");

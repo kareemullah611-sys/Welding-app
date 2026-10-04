@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 
 const schema = readFileSync("prisma/schema.prisma", "utf8");
-const migration = readFileSync("prisma/migrations/20260923090000_opening_cutover_control/migration.sql", "utf8");
+const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260923090000_opening_cutover_control/migration.sql", "utf8");
 const route = readFileSync("src/app/api/v1/opening-cutover/route.ts", "utf8");
 const openings = readFileSync("src/app/api/v1/openings/route.ts", "utf8");
 const page = readFileSync("src/app/(dashboard)/openings/page.tsx", "utf8");

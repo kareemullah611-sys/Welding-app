@@ -22,7 +22,7 @@ test("opening customer create, edit, and delete maintain the journal atomically"
 
 test("existing customer openings receive an idempotent deployment backfill", () => {
   const migration = readFileSync(
-    "prisma/migrations/20260826090000_journal_opening_customer_receivables/migration.sql",
+    "prisma/migrations_legacy_pre_baseline/20260826090000_journal_opening_customer_receivables/migration.sql",
     "utf8",
   );
 

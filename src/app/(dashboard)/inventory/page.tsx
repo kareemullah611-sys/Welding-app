@@ -89,6 +89,7 @@ export default function InventoryPage() {
   const [transferError, setTransferError] = useState("");
   const [transferSubmitting, setTransferSubmitting] = useState(false);
   const [transferHelpersLoading, setTransferHelpersLoading] = useState(false);
+  const [recentGodownTransfers, setRecentGodownTransfers] = useState<any[]>([]);
 
   // Godown allocation modal
   const [showGodownAlloc, setShowGodownAlloc] = useState(false);
@@ -277,10 +278,11 @@ export default function InventoryPage() {
       transferDate: new Date().toISOString().split("T")[0],
       notes: "",
     });
-    const [gR, pR, lR] = await Promise.all([
+    const [gR, pR, lR, transferR] = await Promise.all([
       apiCall("/api/v1/godowns", { params: { limit: 100 } }),
       apiCall("/api/v1/products", { params: { limit: 100 } }),
       apiCall("/api/v1/lots", { params: { limit: 100 } }),
+      apiCall("/api/v1/godowns/transfers", { params: { limit: 20 } }),
     ]);
     const snapshot = readSnapshot()?.data;
     if (gR.success) {
@@ -308,8 +310,21 @@ export default function InventoryPage() {
       setLots(snapshot.lots);
       setShowOfflineSnapshot(true);
     }
+    if (transferR.success) setRecentGodownTransfers((transferR.data as any[]) || []);
     setTransferHelpersLoading(false);
     setShowInterGodownTransfer(true);
+  };
+
+  const reverseInterGodownTransfer = async (transfer: any) => {
+    const reason = window.prompt("Reason for audited reversal:");
+    if (!reason?.trim()) return;
+    setTransferError("");
+    const result = await apiCall(`/api/v1/godowns/transfers/${transfer.id}/reverse`, { method: "POST", body: { reason } });
+    if (!result.success) return setTransferError(result.error || "Unable to reverse transfer");
+    const refreshed = await apiCall("/api/v1/godowns/transfers", { params: { limit: 20 } });
+    if (refreshed.success) setRecentGodownTransfers((refreshed.data as any[]) || []);
+    await loadInventory();
+    await loadLedger();
   };
 
   const handleInterGodownTransfer = async () => {
@@ -1294,6 +1309,22 @@ export default function InventoryPage() {
               <button onClick={handleInterGodownTransfer} disabled={transferSubmitting} className="btn-primary text-sm">
                 {transferSubmitting ? "..." : simplifyCityUI ? "Transfer" : "Transfer Stock"}
               </button>
+            </div>
+            <div className="mt-5 border-t pt-4">
+              <h3 className="mb-2 text-sm font-semibold text-gray-800">Recent transfers</h3>
+              <div className="max-h-52 overflow-y-auto rounded-lg border">
+                {recentGodownTransfers.length ? recentGodownTransfers.map((transfer: any) => (
+                  <div key={transfer.id} className="flex items-center justify-between gap-3 border-b px-3 py-2 text-xs last:border-b-0">
+                    <div>
+                      <div className="font-medium text-gray-800">{transfer.product} · {formatNumber(transfer.qty)}</div>
+                      <div className="text-gray-500">{transfer.fromGodown} → {transfer.toGodown} · {transfer.transferDate}</div>
+                    </div>
+                    {transfer.isReversed ? <span className="text-gray-500">Reversed</span> : (
+                      <button className="text-red-700 hover:underline" onClick={() => { void reverseInterGodownTransfer(transfer); }}>Reverse</button>
+                    )}
+                  </div>
+                )) : <div className="px-3 py-4 text-center text-xs text-gray-500">No transfers recorded.</div>}
+              </div>
             </div>
           </>
         )}

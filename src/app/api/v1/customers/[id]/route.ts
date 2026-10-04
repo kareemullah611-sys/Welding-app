@@ -31,7 +31,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
     const paymentDateFilter = buildDateRange(dateFrom, dateTo);
 
     // Get ledger
-    const [sales, payments, openings] = await Promise.all([
+    const [sales, payments, openings, openingChequeBounces] = await Promise.all([
       prisma.sale.findMany({
         where: {
           customerId: id,
@@ -57,6 +57,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         include: { currency: true },
         orderBy: { openingDate: "asc" },
       }),
+      prisma.openingCheque.findMany({ where: { customerId: id, chequeStatus: "bounced", ...(Object.keys(paymentDateFilter).length ? { bouncedAt: paymentDateFilter } : {}) }, include: { currency: true }, orderBy: { bouncedAt: "asc" } }),
     ]);
 
     const transactions = [
@@ -107,6 +108,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
           lotNumber: p.lot?.lotNumber ?? null,
         };
       }),
+      ...openingChequeBounces.map((cheque) => ({ type: "cheque_bounce" as const, date: cheque.bouncedAt!.toISOString().split("T")[0], voucherNo: cheque.chequeNumber, detail: "Opening cheque bounced", customerFacingDetail: "Opening cheque bounced", perCartonPrice: "-", debit: Number(cheque.amount), credit: 0, status: "bounced", currency: cheque.currency.code, currencySymbol: cheque.currency.symbol || cheque.currency.code, lotNumber: null })),
     ].filter((t) => ledgerType === "all" || t.type === ledgerType)
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 

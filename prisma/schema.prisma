@@ -208,6 +208,13 @@ enum OpeningCutoverStatus {
   reversed
 }
 
+enum OpeningCityPackageStatus {
+  draft
+  submitted
+  returned
+  approved
+}
+
 enum CityLiabilityEntryType {
   charge
   payment
@@ -312,6 +319,7 @@ model Currency {
   openingHajiBalances                     OpeningHajiBalance[]
   openingSuperAdminAccountBalances        OpeningSuperAdminAccountBalance[]
   openingInventoryValuations              OpeningInventoryValuation[]
+  openingCityDueBalances                  OpeningCityDueBalance[]
   hajiCashReceipts                        HajiCashReceipt[]
   countryFallbackFromRates                CountryFallbackExchangeRate[]            @relation("CountryFallbackFromCurrency")
   countryFallbackToRates                  CountryFallbackExchangeRate[]            @relation("CountryFallbackToCurrency")
@@ -666,6 +674,7 @@ model City {
   cityLiabilityAccounts            CityLiabilityAccount[]
   cityLiabilityEntries             CityLiabilityEntry[]
   openingCityLiabilities           OpeningCityLiability[]
+  openingCityPackages              OpeningCityPackage[]
   consignees                       Consignee[]
   destinationLots                  Lot[]                             @relation("LotDestinationCity")
 
@@ -926,6 +935,7 @@ model Customer {
   sales           Sale[]
   payments        Payment[]
   openingBalances OpeningCustomerBalance[]
+  openingCheques  OpeningCheque[]
 
   @@index([cityId])
   @@index([name])
@@ -1063,29 +1073,38 @@ model OpeningBankBalance {
 }
 
 model OpeningCheque {
-  id                Int       @id @default(autoincrement())
-  cityId            Int       @map("city_id")
-  currencyId        Int       @map("currency_id")
-  amount            Decimal   @db.Decimal(15, 2)
-  carryingAmountPkr Decimal?  @map("carrying_amount_pkr") @db.Decimal(15, 2)
-  fxRateToPkr       Decimal?  @map("fx_rate_to_pkr") @db.Decimal(18, 8)
-  fxRateDate        DateTime? @map("fx_rate_date") @db.Date
-  fxRateSource      String?   @map("fx_rate_source") @db.VarChar(120)
-  fxRateMetadata    Json?     @map("fx_rate_metadata")
-  chequeNumber      String    @map("cheque_number") @db.VarChar(50)
-  chequeBank        String?   @map("cheque_bank") @db.VarChar(100)
-  chequeDueDate     DateTime? @map("cheque_due_date") @db.Date
-  openingDate       DateTime  @map("opening_date") @db.Date
-  notes             String?   @db.Text
-  createdBy         Int       @map("created_by")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  id                Int          @id @default(autoincrement())
+  cityId            Int          @map("city_id")
+  customerId        Int          @map("customer_id")
+  currencyId        Int          @map("currency_id")
+  amount            Decimal      @db.Decimal(15, 2)
+  carryingAmountPkr Decimal?     @map("carrying_amount_pkr") @db.Decimal(15, 2)
+  fxRateToPkr       Decimal?     @map("fx_rate_to_pkr") @db.Decimal(18, 8)
+  fxRateDate        DateTime?    @map("fx_rate_date") @db.Date
+  fxRateSource      String?      @map("fx_rate_source") @db.VarChar(120)
+  fxRateMetadata    Json?        @map("fx_rate_metadata")
+  chequeNumber      String       @map("cheque_number") @db.VarChar(50)
+  chequeBank        String?      @map("cheque_bank") @db.VarChar(100)
+  chequeDueDate     DateTime?    @map("cheque_due_date") @db.Date
+  chequeStatus      ChequeStatus @default(in_hand) @map("cheque_status")
+  bankDepositId     Int?         @map("bank_deposit_id")
+  bouncedAt         DateTime?    @map("bounced_at")
+  bouncedBy         Int?         @map("bounced_by")
+  openingDate       DateTime     @map("opening_date") @db.Date
+  notes             String?      @db.Text
+  createdBy         Int          @map("created_by")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
 
-  city     City     @relation(fields: [cityId], references: [id], onDelete: Restrict)
-  currency Currency @relation(fields: [currencyId], references: [id])
-  creator  User     @relation(fields: [createdBy], references: [id])
+  city        City         @relation(fields: [cityId], references: [id], onDelete: Restrict)
+  customer    Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  bankDeposit BankDeposit? @relation("DepositOpeningCheques", fields: [bankDepositId], references: [id], onDelete: Restrict)
+  currency    Currency     @relation(fields: [currencyId], references: [id])
+  creator     User         @relation(fields: [createdBy], references: [id])
 
   @@index([cityId])
+  @@index([customerId])
+  @@index([bankDepositId])
   @@map("opening_cheques")
 }
 
@@ -1178,6 +1197,8 @@ model OpeningCutover {
   reconciliationDifferencePkr Decimal?             @map("reconciliation_difference_pkr") @db.Decimal(15, 2)
   readinessSnapshotJson       Json?                @map("readiness_snapshot_json")
   finalSnapshotJson           Json?                @map("final_snapshot_json")
+  previousSnapshotHash        String?              @map("previous_snapshot_hash") @db.Char(64)
+  finalSnapshotHash           String?              @unique @map("final_snapshot_hash") @db.Char(64)
   finalizedBy                 Int?                 @map("finalized_by")
   finalizedAt                 DateTime?            @map("finalized_at")
   reversedBy                  Int?                 @map("reversed_by")
@@ -1189,11 +1210,80 @@ model OpeningCutover {
   updatedAt                   DateTime             @updatedAt @map("updated_at")
 
   participantBalances OpeningParticipantBalance[]
+  entries             OpeningCutoverEntry[]
+  cityPackages        OpeningCityPackage[]
 
   @@index([status])
   @@index([cutoverDate])
   @@index([supersedesCutoverId])
   @@map("opening_cutovers")
+}
+
+model OpeningCityPackage {
+  id           Int                      @id @default(autoincrement())
+  cutoverId    Int                      @map("cutover_id")
+  cityId       Int                      @map("city_id")
+  status       OpeningCityPackageStatus @default(draft)
+  returnReason String?                  @map("return_reason") @db.Text
+  submittedBy  Int?                     @map("submitted_by")
+  submittedAt  DateTime?                @map("submitted_at")
+  returnedBy   Int?                     @map("returned_by")
+  returnedAt   DateTime?                @map("returned_at")
+  approvedBy   Int?                     @map("approved_by")
+  approvedAt   DateTime?                @map("approved_at")
+  createdBy    Int                      @map("created_by")
+  createdAt    DateTime                 @default(now()) @map("created_at")
+  updatedAt    DateTime                 @updatedAt @map("updated_at")
+
+  cutover     OpeningCutover          @relation(fields: [cutoverId], references: [id], onDelete: Restrict)
+  city        City                    @relation(fields: [cityId], references: [id], onDelete: Restrict)
+  dueBalances OpeningCityDueBalance[]
+
+  @@unique([cutoverId, cityId])
+  @@index([status])
+  @@map("opening_city_packages")
+}
+
+model OpeningCityDueBalance {
+  id                 Int       @id @default(autoincrement())
+  packageId          Int       @map("package_id")
+  currencyId         Int       @map("currency_id")
+  cityAmount         Decimal?  @map("city_amount") @db.Decimal(20, 6)
+  cityCarryingPkr    Decimal?  @map("city_carrying_pkr") @db.Decimal(15, 2)
+  centralAmount      Decimal?  @map("central_amount") @db.Decimal(20, 6)
+  centralCarryingPkr Decimal?  @map("central_carrying_pkr") @db.Decimal(15, 2)
+  fxRateToPkr        Decimal?  @map("fx_rate_to_pkr") @db.Decimal(18, 8)
+  fxRateDate         DateTime? @map("fx_rate_date") @db.Date
+  fxRateSource       String?   @map("fx_rate_source") @db.VarChar(100)
+  fxRateMetadata     Json?     @map("fx_rate_metadata")
+  cityRecordedBy     Int?      @map("city_recorded_by")
+  cityRecordedAt     DateTime? @map("city_recorded_at")
+  centralRecordedBy  Int?      @map("central_recorded_by")
+  centralRecordedAt  DateTime? @map("central_recorded_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  package  OpeningCityPackage @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  currency Currency           @relation(fields: [currencyId], references: [id], onDelete: Restrict)
+
+  @@unique([packageId, currencyId])
+  @@index([currencyId])
+  @@map("opening_city_due_balances")
+}
+
+model OpeningCutoverEntry {
+  id         Int      @id @default(autoincrement())
+  cutoverId  Int      @map("cutover_id")
+  entityType String   @map("entity_type") @db.VarChar(80)
+  entityId   Int      @map("entity_id")
+  createdBy  Int      @map("created_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  cutover OpeningCutover @relation(fields: [cutoverId], references: [id], onDelete: Restrict)
+
+  @@unique([entityType, entityId], name: "opening_cutover_entry_entity_key")
+  @@index([cutoverId])
+  @@map("opening_cutover_entries")
 }
 
 model OpeningParticipantBalance {
@@ -1862,10 +1952,11 @@ model BankDeposit {
   createdBy      Int      @map("created_by")
   createdAt      DateTime @default(now()) @map("created_at")
 
-  city        City         @relation(fields: [cityId], references: [id])
-  bankAccount BankAccount? @relation(fields: [bankAccountId], references: [id])
-  currency    Currency     @relation(fields: [currencyId], references: [id])
-  cheques     Payment[]    @relation("DepositCheques")
+  city           City            @relation(fields: [cityId], references: [id])
+  bankAccount    BankAccount?    @relation(fields: [bankAccountId], references: [id])
+  currency       Currency        @relation(fields: [currencyId], references: [id])
+  cheques        Payment[]       @relation("DepositCheques")
+  openingCheques OpeningCheque[] @relation("DepositOpeningCheques")
 
   @@index([cityId])
   @@index([bankAccountId])

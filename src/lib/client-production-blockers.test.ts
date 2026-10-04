@@ -76,7 +76,7 @@ test("visible profit report includes expenses and converts stock units to carton
 test("investor finalization blocks overlaps and reversal after entitlement consumption", () => {
   const route = read("src/app/api/v1/investor-attribution/route.ts");
   const dryRun = read("src/lib/investor-finalization-dry-run.ts");
-  const migration = read("prisma/migrations/20260901090000_client_production_blockers/migration.sql");
+  const migration = read("prisma/migrations_legacy_pre_baseline/20260901090000_client_production_blockers/migration.sql");
   assert.match(route, /investor-finalization-timeline/);
   assert.match(route, /OVERLAPPING_FINALIZATION/);
   assert.match(route, /FINALIZATION_ENTITLEMENT_CONSUMED/);

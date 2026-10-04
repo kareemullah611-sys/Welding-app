@@ -233,10 +233,10 @@ test("phase 3 implementation is investor-side only and not a business expense", 
   const capitalEventsRoute = readFileSync("src/app/api/v1/investment-participants/[id]/capital-events/route.ts", "utf8");
   const profitShareEventsRoute = readFileSync("src/app/api/v1/investment-participants/[id]/profit-share-events/route.ts", "utf8");
   const schema = readFileSync("prisma/schema.prisma", "utf8");
-  const migration = readFileSync("prisma/migrations/20260813110000_investor_participant_actions/migration.sql", "utf8");
-  const settlementMigration = readFileSync("prisma/migrations/20260813120000_investor_settlement_linkage_design/migration.sql", "utf8");
-  const settlementExecutionMigration = readFileSync("prisma/migrations/20260813130000_investor_settlement_execution_metadata/migration.sql", "utf8");
-  const settlementPaymentMigration = readFileSync("prisma/migrations/20260813140000_investor_settlement_payment_linkage/migration.sql", "utf8");
+  const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260813110000_investor_participant_actions/migration.sql", "utf8");
+  const settlementMigration = readFileSync("prisma/migrations_legacy_pre_baseline/20260813120000_investor_settlement_linkage_design/migration.sql", "utf8");
+  const settlementExecutionMigration = readFileSync("prisma/migrations_legacy_pre_baseline/20260813130000_investor_settlement_execution_metadata/migration.sql", "utf8");
+  const settlementPaymentMigration = readFileSync("prisma/migrations_legacy_pre_baseline/20260813140000_investor_settlement_payment_linkage/migration.sql", "utf8");
   const accounting = readFileSync("src/lib/accounting.ts", "utf8");
   const bankAccountsRoute = readFileSync("src/app/api/v1/bank-accounts/route.ts", "utf8");
   const bankAccountLedgerRoute = readFileSync("src/app/api/v1/bank-accounts/[id]/route.ts", "utf8");

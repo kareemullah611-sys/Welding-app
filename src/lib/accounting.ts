@@ -72,6 +72,16 @@ export async function getCityLiabilityAccountId(accountId: number, db: DbClient 
   );
 }
 
+export async function getDueFromCityAccountId(cityId: number, db: DbClient = prisma): Promise<number> {
+  const city = await db.city.findUnique({ where: { id: cityId }, select: { name: true } });
+  return getOrCreateAccount(`1280-CITY${cityId}`, `Due from City - ${city?.name || cityId}`, "asset", null, db);
+}
+
+export async function getDueToSuperadminAccountId(cityId: number, db: DbClient = prisma): Promise<number> {
+  const city = await db.city.findUnique({ where: { id: cityId }, select: { name: true } });
+  return getOrCreateAccount(`2480-CITY${cityId}`, `Due to Superadmin - ${city?.name || cityId}`, "liability", cityId, db);
+}
+
 export async function getSupplierAccountId(supplierId: number, db: DbClient = prisma): Promise<number> {
   const supplier = await db.supplier.findUnique({ where: { id: supplierId }, select: { name: true } });
   return getOrCreateAccount(`2100-S${supplierId}`, `Payable - ${supplier?.name || supplierId}`, "liability", undefined, db);
@@ -150,7 +160,7 @@ export async function getExpenseAccountId(costType: string, db: DbClient = prism
   return getOrCreateAccount(entry.code, entry.name, "expense", undefined, db);
 }
 
-interface JournalLine { accountId: number; debit: number; credit: number; description: string; currencyCode?: string; lotId?: number | null; }
+interface JournalLine { accountId: number; debit: number; credit: number; description: string; currencyCode?: string; lotId?: number | null; cityId?: number | null; }
 
 function roundMoney(value: Prisma.Decimal.Value): number {
   return Number(new Prisma.Decimal(value).toDecimalPlaces(2).toString());
@@ -235,7 +245,7 @@ export async function createJournalEntries(
       lineNumber: index + 1,
       currencyCode: line.currencyCode || meta.currencyCode, exchangeRate: meta.exchangeRate || null, description: line.description,
       entityType: meta.entityType, entityId: meta.entityId, lotId: line.lotId ?? meta.lotId ?? null,
-      cityId: meta.cityId || null, entryDate: meta.entryDate, createdBy: meta.createdBy,
+      cityId: line.cityId !== undefined ? line.cityId : meta.cityId || null, entryDate: meta.entryDate, createdBy: meta.createdBy,
     }));
   if (data.length > 0) {
     const currencies = new Set(data.map((line) => line.currencyCode));
@@ -458,6 +468,14 @@ export async function journalOpeningCheque(d: {
   }, db);
 }
 
+export async function journalOpeningChequeBounced(d: { id: number; customerId: number; cityId: number; carryingAmountPkr: number; bounceDate: Date; createdBy: number }, db: DbClient = prisma) {
+  const amount = roundMoney(Math.abs(d.carryingAmountPkr));
+  await createJournalEntries(`BOUNCE-OPENCHEQUE-${d.id}`, [
+    { accountId: await getCustomerAccountId(d.customerId, db), debit: amount, credit: 0, description: "Opening cheque bounced - customer receivable restored" },
+    { accountId: await getChequesInHandAccountId(d.cityId, db), debit: 0, credit: amount, description: "Opening cheque bounced" },
+  ], { currencyCode: "PKR", entityType: "opening_cheque_bounce", entityId: d.id, cityId: d.cityId, entryDate: d.bounceDate, createdBy: d.createdBy }, db);
+}
+
 // SALE CREATED
 export function saleJournalTransactionId(saleId: number, journalVersion = 1) {
   return journalVersion <= 1 ? `SALE-${saleId}` : `SALE-${saleId}-V${journalVersion}`;
@@ -625,14 +643,15 @@ export async function journalChequeReceived(p: { id: number; customerId: number;
 export async function journalBankDeposit(d: {
   id: number; bankAccountId: number | null; cityId: number; cashAmount: number;
   currencyCode: string; depositDate: Date; createdBy: number;
-  cheques: Array<{ paymentId: number; amount: number; }>;
+  cheques: Array<{ paymentId?: number; openingChequeId?: number; amount: number; }>;
   transactionKeySuffix?: string;
   transferType?: string;
 }, db: DbClient = prisma) {
   const txKey = d.transactionKeySuffix ? `DEP-${d.id}-${d.transactionKeySuffix}` : `DEP-${d.id}`;
   if (d.transferType === "cheque_to_cash") {
     for (const cheque of d.cheques) {
-      await createJournalEntries(`${txKey}-PAY-${cheque.paymentId}`, [
+      const chequeKey = cheque.openingChequeId ? `OPEN-${cheque.openingChequeId}` : `PAY-${cheque.paymentId}`;
+      await createJournalEntries(`${txKey}-${chequeKey}`, [
         { accountId: await getCashAccountId(d.cityId, db), debit: cheque.amount, credit: 0, description: `Cheque cashed #${cheque.paymentId}` },
         { accountId: await getChequesInHandAccountId(d.cityId, db), debit: 0, credit: cheque.amount, description: `Cheque cashed #${cheque.paymentId}` },
       ], { currencyCode: d.currencyCode, entityType: "bank_deposit", entityId: d.id, cityId: d.cityId, entryDate: d.depositDate, createdBy: d.createdBy }, db);
@@ -654,7 +673,8 @@ export async function journalBankDeposit(d: {
     ], { currencyCode: d.currencyCode, entityType: "bank_deposit", entityId: d.id, cityId: d.cityId, entryDate: d.depositDate, createdBy: d.createdBy }, db);
   }
   for (const cheque of d.cheques) {
-    await createJournalEntries(`${txKey}-PAY-${cheque.paymentId}`, [
+    const chequeKey = cheque.openingChequeId ? `OPEN-${cheque.openingChequeId}` : `PAY-${cheque.paymentId}`;
+    await createJournalEntries(`${txKey}-${chequeKey}`, [
       { accountId: bankAccId, debit: cheque.amount, credit: 0, description: `Deposit #${d.id} — cheque PAY-${cheque.paymentId}` },
       { accountId: await getChequesInHandAccountId(d.cityId, db), debit: 0, credit: cheque.amount, description: `Deposit #${d.id} — cheque PAY-${cheque.paymentId}` },
     ], { currencyCode: d.currencyCode, entityType: "bank_deposit", entityId: d.id, cityId: d.cityId, entryDate: d.depositDate, createdBy: d.createdBy }, db);
@@ -1619,6 +1639,24 @@ export async function journalOpeningCityLiability(
     entityType: "opening_city_liability",
     entityId: p.id,
     cityId: p.cityId,
+    entryDate: p.openingDate,
+    createdBy: p.createdBy,
+  }, db);
+}
+
+export async function journalOpeningCityDueBalance(
+  p: { id: number; cityId: number; carryingAmountPkr: number; openingDate: Date; createdBy: number },
+  db: DbClient = prisma,
+) {
+  const amount = roundMoney(Math.abs(p.carryingAmountPkr));
+  if (!(amount > 0)) return;
+  await createJournalEntries(`OPENCITYDUE-${p.id}`, [
+    { accountId: await getDueFromCityAccountId(p.cityId, db), debit: amount, credit: 0, cityId: null, description: "Opening Due from City" },
+    { accountId: await getDueToSuperadminAccountId(p.cityId, db), debit: 0, credit: amount, cityId: p.cityId, description: "Opening Due to Superadmin" },
+  ], {
+    currencyCode: "PKR",
+    entityType: "opening_city_due_balance",
+    entityId: p.id,
     entryDate: p.openingDate,
     createdBy: p.createdBy,
   }, db);
