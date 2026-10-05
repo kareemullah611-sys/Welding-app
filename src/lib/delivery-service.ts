@@ -168,6 +168,19 @@ export function setPartyUserActive(cityId: number, id: number, isActive: boolean
   });
 }
 
+/**
+ * Reset a party login. The admin chooses the new password, so this must carry it.
+ *
+ * The target's city is enforced upstream against the service call's city, so this
+ * cannot be used to reach another city even with a guessed id.
+ */
+export function resetPartyPassword(cityId: number, id: number, newPassword: string): Promise<{ id: number; username: string }> {
+  return call(`/api/v1/delivery/sync/parties/${id}/password`, cityId, {
+    method: "POST",
+    body: JSON.stringify({ newPassword }),
+  });
+}
+
 export function assignSale(cityId: number, saleId: number): Promise<{ saleId: number; lineCount: number }> {
   return call("/api/v1/delivery/sync/assignments", cityId, { method: "POST", body: JSON.stringify({ saleId }) });
 }

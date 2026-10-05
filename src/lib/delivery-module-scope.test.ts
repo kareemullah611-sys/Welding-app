@@ -136,3 +136,35 @@ function serviceConfigProbe(): void {
     });
   }
 }
+
+// ── Reset is confined to the caller's city, upstream ────────────────────────
+
+test("resetting a password is refused without an explicit city, like every other call", async () => {
+  const previousEnv = { ...process.env };
+  const urls: string[] = [];
+  const originalFetch = globalThis.fetch;
+
+  try {
+    process.env.DELIVERY_API_URL = "https://delivery.example.test";
+    process.env.DELIVERY_SERVICE_TOKEN = "token-abc";
+    globalThis.fetch = (async (input: string) => {
+      urls.push(String(input));
+      return { ok: true, status: 200, json: async () => ({ success: true, data: { id: 1, username: "x" } }) };
+    }) as typeof fetch;
+
+    const service = await import("./delivery-service.js");
+
+    await service.resetPartyPassword(4, 1, "AdminChosenPw1");
+    assert.equal(urls.length, 1);
+    assert.match(urls[0]!, /cityId=4\b/, "the caller's city must accompany a reset");
+    assert.match(urls[0]!, /\/sync\/parties\/1\/password\?cityId=4$/);
+
+    // An invalid city never reaches the network.
+    const before = urls.length;
+    await assert.rejects(() => service.resetPartyPassword(0, 1, "AdminChosenPw1"));
+    assert.equal(urls.length, before, "a bad city must not reach the network");
+  } finally {
+    globalThis.fetch = originalFetch;
+    process.env = previousEnv;
+  }
+});

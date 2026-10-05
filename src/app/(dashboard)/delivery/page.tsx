@@ -292,6 +292,43 @@ function PartyTab({ data, onChanged }: { data: DeliverySnapshot; onChanged: () =
   const [formError, setFormError] = useState<string | null>(null);
   const [issued, setIssued] = useState<{ username: string; password: string } | null>(null);
 
+  // Password reset: the admin picks the new password, so it is typed rather than
+  // generated and shown. Only one row's form is open at a time.
+  const [resettingId, setResettingId] = useState<number | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetConfirm, setResetConfirm] = useState("");
+
+  function closeReset() {
+    setResettingId(null);
+    setResetPassword("");
+    setResetConfirm("");
+  }
+
+  async function submitReset(party: PartyUser) {
+    if (busy) return;
+    if (resetPassword.length < 10) {
+      setFormError("Password must be at least 10 characters");
+      return;
+    }
+    if (resetPassword !== resetConfirm) {
+      setFormError("The two passwords do not match");
+      return;
+    }
+    setBusy(true);
+    setFormError(null);
+    const res = await apiCall(`/api/v1/delivery/parties/${party.id}/password`, {
+      method: "POST",
+      body: { newPassword: resetPassword },
+    });
+    if (!res.success) {
+      setFormError(res.error ?? "Could not reset that password");
+    } else {
+      closeReset();
+      await onChanged();
+    }
+    setBusy(false);
+  }
+
   async function create() {
     if (busy || !fullName.trim() || !username.trim()) return;
     setBusy(true);
@@ -385,7 +422,46 @@ function PartyTab({ data, onChanged }: { data: DeliverySnapshot; onChanged: () =
             >
               {party.isActive ? "Deactivate" : "Reactivate"}
             </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => (resettingId === party.id ? closeReset() : setResettingId(party.id))}
+              className="rounded-lg bg-white/70 px-3 py-1.5 text-xs font-semibold text-[#52525b] hover:bg-white"
+            >
+              {resettingId === party.id ? "Cancel" : "Reset password"}
+            </button>
           </div>
+
+          {resettingId === party.id ? (
+            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+              <p className="text-xs font-bold text-amber-900">Set a new password for @{party.username}</p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <Field label="New password" value={resetPassword} onChange={setResetPassword} type="password" />
+                <Field label="Repeat password" value={resetConfirm} onChange={setResetConfirm} type="password" />
+              </div>
+              <p className="mt-2 text-xs text-amber-900">
+                At least 10 characters. Give it to them over a safe channel. They will be signed out
+                on every device.
+              </p>
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  disabled={busy || resetPassword.length < 10 || resetPassword !== resetConfirm}
+                  onClick={() => void submitReset(party)}
+                  className="rounded-lg bg-amber-900 px-4 py-2 text-xs font-semibold text-white disabled:opacity-40"
+                >
+                  {busy ? "Saving…" : "Set password"}
+                </button>
+                <button
+                  type="button"
+                  onClick={closeReset}
+                  className="rounded-lg bg-white/70 px-4 py-2 text-xs font-semibold text-[#52525b]"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : null}
           {party.isActive ? null : (
             <p className="mt-2 text-xs text-[#52525b]">
               Sign-in is blocked. Their recorded deliveries are kept and stay attributed to them.
@@ -443,11 +519,13 @@ function Field({
   value,
   onChange,
   placeholder,
+  type = "text",
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  type?: "text" | "password";
 }) {
   return (
     <label className="flex flex-col gap-1">
@@ -456,6 +534,7 @@ function Field({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        type={type}
         autoComplete="off"
         className="rounded-xl border border-white/70 bg-white/70 px-3 py-2 text-sm outline-none focus:border-[#2A0608]"
       />
