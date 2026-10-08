@@ -7,6 +7,7 @@ import { checkRateLimit, rejectIfRateLimited } from "@/lib/rate-limit";
 import { allowSuperAdminInLockedDeployment, isAllowedCityName, isCityLockedDeployment } from "@/lib/deployment-profile";
 import { getClientIP } from "@/lib/middleware";
 import { cleanupExpiredSessions, hashToken } from "@/lib/session";
+import { issueOfflineSyncDeviceToken } from "@/lib/offline-device-auth";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -144,6 +145,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const packagedDeviceId = request.headers.get("x-offline-device-id")?.trim();
+    const packagedPlatform = request.headers.get("x-offline-platform")?.trim();
+    const offlineDevice = packagedDeviceId && packagedPlatform
+      ? await issueOfflineSyncDeviceToken({
+          userId: user.id,
+          deviceId: packagedDeviceId.slice(0, 200),
+          platform: packagedPlatform.slice(0, 50),
+        })
+      : null;
+
     // Set cookie for web app
     const response = successResponse({
       user: {
@@ -157,6 +168,11 @@ export async function POST(request: NextRequest) {
         countryName: user.city?.country?.name || null,
         currencies: user.city?.cityCurrencies.map((cc) => cc.currency) || [],
       },
+      ...(offlineDevice ? {
+        accessToken: token,
+        offlineDeviceToken: offlineDevice.token,
+        offlineDeviceTokenExpiresAt: offlineDevice.expiresAt.toISOString(),
+      } : {}),
     });
 
     response.cookies.set("token", token, {

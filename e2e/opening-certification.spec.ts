@@ -280,4 +280,77 @@ test.describe("opening window professional certification", () => {
     await superContext.close();
     await cityContext.close();
   });
+
+  test("reversal preserves the old snapshot and supports corrected re-finalization", async ({ browser, page }) => {
+    await loginAsSuperAdmin(page);
+    await page.goto("/openings");
+    await expect(page.getByText("Finalized and locked")).toBeVisible();
+
+    await page.getByPlaceholder("Reason for correction").fill("Authenticated opening correction rehearsal");
+    await page.getByPlaceholder("Type REVERSE OPENINGS").fill("REVERSE OPENINGS");
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "Reverse for correction" }).click();
+    await expect(page.getByText("Not ready")).toBeVisible();
+
+    const cutovers = await prisma.openingCutover.findMany({ orderBy: { revision: "asc" } });
+    expect(cutovers).toHaveLength(2);
+    expect(cutovers[0].status).toBe("reversed");
+    expect(cutovers[0].finalSnapshotHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(cutovers[0].finalSnapshotJson).toBeTruthy();
+    expect(cutovers[1]).toMatchObject({ status: "draft", revision: 2, backupAcknowledged: false, supersedesCutoverId: cutovers[0].id });
+
+    expect(await prisma.openingCutoverEntry.count({ where: { cutoverId: cutovers[0].id } })).toBe(0);
+    expect(await prisma.openingCutoverEntry.count({ where: { cutoverId: cutovers[1].id } })).toBeGreaterThan(0);
+    const correctionPackage = await prisma.openingCityPackage.findFirstOrThrow({
+      where: { cutoverId: cutovers[1].id, cityId: quettaId },
+      include: { dueBalances: true },
+    });
+    expect(correctionPackage.status).toBe("returned");
+    expect(correctionPackage.dueBalances.length).toBeGreaterThan(0);
+
+    const openingCash = await prisma.openingCash.findFirstOrThrow({ where: { cityId: quettaId, currencyId: pkrId } });
+    const response = await page.request.post("/api/v1/openings", { data: {
+      kind: "cash", cityId: quettaId, currencyId: pkrId, amount: Number(openingCash.amount) + 1,
+      openingDate: openingCash.openingDate.toISOString().slice(0, 10), notes: "Correction draft edit rehearsal",
+    } });
+    expect(response.status(), await response.text()).toBe(200);
+
+    await post(page, "/api/v1/opening-cutover", {
+      action: "save_setup", cutoverDate: date, fiscalYearStart: "2026-01-01", fiscalYearEnd: "2026-12-31",
+      backupReference: "CERT-CORRECTION-RESTORE-20261003", backupAcknowledged: true,
+    });
+    const cityContext = await browser.newContext();
+    const cityPage = await cityContext.newPage();
+    await loginAsCityAdmin(cityPage, "quetta_admin", "city12345");
+    await post(cityPage, "/api/v1/opening-city-packages", { action: "submit", packageId: correctionPackage.id });
+    await post(page, "/api/v1/opening-city-packages", { action: "approve", packageId: correctionPackage.id });
+
+    let correction = await (await page.request.get("/api/v1/opening-cutover")).json();
+    const correctedCapital = Number(correction.data.readiness.openingClearingPkr);
+    expect(correctedCapital).toBeGreaterThan(0);
+    await post(page, "/api/v1/opening-cutover", {
+      action: "save_participant_balance", participantId, capitalPkr: correctedCapital,
+      currentYearProfitPkr: 0, ongoingLotRealizedProfitPkr: 0, openingDate: date,
+      notes: "CERT corrected reconciler",
+    });
+    correction = await (await page.request.get("/api/v1/opening-cutover")).json();
+    expect(correction.data.readiness, JSON.stringify(correction.data.readiness.blockers)).toMatchObject({ ready: true, openingClearingPkr: 0 });
+
+    await post(page, "/api/v1/opening-cutover", { action: "finalize", confirmation: "FINALIZE OPENINGS" });
+    const corrected = await prisma.openingCutover.findUniqueOrThrow({ where: { id: cutovers[1].id } });
+    expect(corrected.status).toBe("finalized");
+    expect(corrected.previousSnapshotHash).toBe(cutovers[0].finalSnapshotHash);
+    expect(corrected.finalSnapshotHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(corrected.finalSnapshotHash).not.toBe(cutovers[0].finalSnapshotHash);
+    expect(Number(corrected.reconciliationDifferencePkr)).toBe(0);
+
+    const journalTotals = await prisma.journalEntry.aggregate({ _sum: { debit: true, credit: true } });
+    expect(Number(journalTotals._sum.debit)).toBe(Number(journalTotals._sum.credit));
+    const unbalanced = await prisma.$queryRaw<Array<{ transaction_id: string }>>`
+      SELECT transaction_id FROM journal_entries GROUP BY transaction_id
+      HAVING ABS(SUM(debit) - SUM(credit)) >= 0.01
+    `;
+    expect(unbalanced).toEqual([]);
+    await cityContext.close();
+  });
 });

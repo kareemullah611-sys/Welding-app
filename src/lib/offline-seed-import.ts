@@ -1,6 +1,5 @@
 import {
-  OFFLINE_DB_NAME,
-  OFFLINE_DB_VERSION,
+  openOfflineDatabase,
 } from "@/lib/offline-cache";
 import { hydrateOfflineCachesFromSyncPayload } from "@/lib/offline-sync-hydrate";
 
@@ -22,21 +21,7 @@ const SYNC_MODULE_KEYS = [
 ] as const;
 
 function openDB(): Promise<IDBDatabase> {
-  if (typeof window === "undefined") return Promise.reject(new Error("offline db unavailable"));
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(OFFLINE_DB_NAME, OFFLINE_DB_VERSION);
-    req.onupgradeneeded = (e) => {
-      const db = (e.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(FULL_SYNC_STORE)) {
-        db.createObjectStore(FULL_SYNC_STORE, { keyPath: "key" });
-      }
-      if (!db.objectStoreNames.contains(FULL_SYNC_META_STORE)) {
-        db.createObjectStore(FULL_SYNC_META_STORE, { keyPath: "key" });
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  return openOfflineDatabase();
 }
 
 async function dbPut(store: string, value: { key: string } & Record<string, unknown>): Promise<void> {

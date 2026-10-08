@@ -5,6 +5,8 @@ import { unauthorizedResponse, forbiddenResponse } from "@/lib/api-response";
 import prisma from "@/lib/prisma";
 import { runWithPrismaRequestContext } from "@/lib/prisma-request-context";
 import { Prisma, PrismaClient } from "@prisma/client";
+import { authenticateOfflineSyncDevice } from "@/lib/offline-device-auth";
+import { isAllowlistedOfflineMutationPath } from "@/lib/offline-route-policy";
 
 export type ApiHandler = (
   request: NextRequest,
@@ -20,10 +22,10 @@ type TestRouteContext = {
   params: Record<string, string>;
 };
 
-type WrappedApiHandler = {
-  (request: NextRequest, context: TestRouteContext): Promise<Response>;
-  (request: NextRequest, context: NextRouteContext): Promise<Response>;
-};
+type WrappedApiHandler = (
+  request: NextRequest,
+  context: any
+) => Promise<Response>;
 
 // ============================================================
 // CSRF PROTECTION
@@ -41,6 +43,7 @@ export function isCsrfSafe(request: NextRequest): boolean {
   // If the request uses Authorization header (Bearer token) it cannot be
   // triggered by a cross-origin HTML form or navigation — safe.
   if (request.headers.get("authorization")?.startsWith("Bearer ")) return true;
+  if (request.headers.get("x-offline-device-token")) return true;
 
   // For cookie-authenticated requests, verify Origin or Referer
   const appOrigin = process.env.NEXT_PUBLIC_APP_URL
@@ -134,6 +137,18 @@ export function withAuth(handler: ApiHandler): WrappedApiHandler {
   const wrapped = async (request: NextRequest, context: NextRouteContext | TestRouteContext) => {
     const resolvedContext = { params: await context.params };
     if (!isCsrfSafe(request)) return csrfError();
+    if (request.headers.get("x-offline-device-token")) {
+      const path = request.nextUrl.pathname;
+      if (!MUTATION_METHODS.has(request.method) || !isAllowlistedOfflineMutationPath(path)) {
+        return unauthorizedResponse("Offline device credential is not permitted for this operation");
+      }
+      const deviceUser = await authenticateOfflineSyncDevice(request);
+      if (!deviceUser) return unauthorizedResponse("Invalid or expired offline device credential");
+      if (process.env.ENABLE_PRISMA_RLS_CONTEXT === "true") {
+        return runWithPrismaRequestContext(prisma, deviceUser, () => handler(request, resolvedContext, deviceUser));
+      }
+      return handler(request, resolvedContext, deviceUser);
+    }
     const token = getTokenFromRequest(request);
     if (!token) return unauthorizedResponse("Invalid or expired token");
     const user = verifyToken(token);

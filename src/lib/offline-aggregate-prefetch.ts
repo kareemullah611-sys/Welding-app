@@ -5,6 +5,7 @@ import { searchOfflineSyncedModules } from "@/lib/offline-local-search";
 import { buildOfflineStockLedger } from "@/lib/offline-stock-ledger";
 import { buildOfflineLotProfitReport } from "@/lib/offline-lot-profit";
 import { paginateList } from "@/lib/pagination";
+import { packagedFetch } from "@/lib/packaged-api";
 
 const DASHBOARD_READ_CACHE_KEY = "mrf-dashboard-read-cache-v1";
 const INVENTORY_READ_CACHE_KEY = "mrf-inventory-read-cache-v1";
@@ -44,6 +45,8 @@ type ProfitReportReadSnapshot = {
   mode: "lot" | "period";
   selectedLotId: number;
   year: number;
+  dateFrom?: string;
+  dateTo?: string;
 };
 
 function normalizeApiPath(url: string): string {
@@ -87,15 +90,9 @@ export function getOfflineAggregateForApiRequest<T = unknown>(
     const cached = snap.data;
     const reqPeriod = String(params?.period || "monthly");
     const reqYear = Number(params?.year || new Date().getFullYear());
-    if (cached.period === reqPeriod && cached.year === reqYear) {
-      return {
-        data: {
-          chartData: cached.chartData,
-          totals: cached.totals,
-        } as T,
-      };
-    }
-    // Fall back to any cached analytics snapshot
+    // A cached period/year is the only answer we can give: another year's totals
+    // would read as this year's figures with no indication they are wrong.
+    if (cached.period !== reqPeriod || cached.year !== reqYear) return null;
     return {
       data: {
         chartData: cached.chartData,
@@ -114,12 +111,13 @@ export function getOfflineAggregateForApiRequest<T = unknown>(
       }
       return null;
     }
-    if (params?.year && cached.mode === "period") {
-      if (Number(params.year) === Number(cached.year)) return { data: cached.data as T };
-      return { data: cached.data as T };
-    }
-    if (!params?.lot_id && cached.mode === "period") return { data: cached.data as T };
-    return null;
+    if (cached.mode !== "period") return null;
+    // The snapshot is cached for one period only. Answering a different year or date
+    // range with it would silently report the cached period's profit.
+    if (params?.year && Number(params.year) !== Number(cached.year)) return null;
+    if (params?.date_from && String(params.date_from) !== String(cached.dateFrom ?? "")) return null;
+    if (params?.date_to && String(params.date_to) !== String(cached.dateTo ?? "")) return null;
+    return { data: cached.data as T };
   }
 
   if (path === "/api/v1/search") {
@@ -189,7 +187,7 @@ async function fetchJson(path: string): Promise<unknown | null> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
-    const res = await fetch(path, { credentials: "include", signal: controller.signal });
+    const res = await packagedFetch(path, { credentials: "include", signal: controller.signal });
     clearTimeout(timeout);
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json?.success) return null;

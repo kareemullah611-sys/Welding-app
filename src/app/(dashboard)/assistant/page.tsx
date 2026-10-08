@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useOffline } from "@/hooks/useOffline";
 import { useRouter } from "next/navigation";
 import { Send, Bot, Sparkles, Trash2, ChevronDown } from "lucide-react";
+import { packagedFetch } from "@/lib/packaged-api";
 
 interface Message {
   role: "user" | "assistant";
@@ -207,7 +208,7 @@ export default function AssistantPage() {
         content: m.content,
       }));
 
-      const res = await fetch("/api/v1/assistant", {
+      const res = await packagedFetch("/api/v1/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",

@@ -203,6 +203,7 @@ type PaymentsFormCache = {
   cityBankAccounts: any[];
   superAdminBankAccounts: any[];
   inHandCheques: any[];
+  settlementByCurrency?: Record<string, { intermediaries: any[]; superAdminCashAccounts: any[] }>;
 };
 
 type LatestPaymentEntrySummary = {
@@ -646,6 +647,20 @@ export default function PaymentsPage() {
       setSettlementOptionsError("");
       return;
     }
+    if (!isOnline) {
+      const cached = readOfflineFormCache<PaymentsFormCache>(PAYMENTS_FORM_CACHE_KEY, [
+        "lots",
+        "currencies",
+        "cityBankAccounts",
+        "superAdminBankAccounts",
+        "inHandCheques",
+      ]);
+      const options = cached?.settlementByCurrency?.[String(currencyId)];
+      setSettlementIntermediaries(options?.intermediaries || []);
+      setSettlementCashAccounts(options?.superAdminCashAccounts || []);
+      setSettlementOptionsError(options ? "" : "Offline settlement options are not synchronized for this currency");
+      return;
+    }
     setSettlementOptionsLoading(true);
     setSettlementOptionsError("");
     const result = await apiCall("/api/v1/haji-transfers/settlement-options", { params: { currencyId } });
@@ -659,7 +674,7 @@ export default function PaymentsPage() {
       setSettlementCashAccounts([]);
       setSettlementOptionsError(result.error || "Failed to load settlement options");
     }
-  }, [isAfghanistanCity]);
+  }, [isAfghanistanCity, isOnline]);
 
   useEffect(() => {
     if ((!showCreate && !showEdit) || !["payment", "haji_transfer"].includes(createType) || !isAfghanistanCity) return;

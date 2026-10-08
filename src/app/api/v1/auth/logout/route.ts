@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { getTokenFromRequest, shouldUseSecureAuthCookie } from "@/lib/auth";
 import { successResponse } from "@/lib/api-response";
 import { hashToken } from "@/lib/session";
+import { revokeOfflineSyncDeviceToken } from "@/lib/offline-device-auth";
 
 export async function POST(request: NextRequest) {
   // Logout is safe without CSRF — worst case is the user is signed out (no state change attack).
@@ -17,6 +18,14 @@ export async function POST(request: NextRequest) {
     } catch (error) {
       // Don't fail logout if session cleanup fails
       console.error("Session cleanup error (non-fatal):", error);
+    }
+  }
+  const offlineDeviceToken = request.headers.get("x-offline-device-token")?.trim();
+  if (offlineDeviceToken) {
+    try {
+      await revokeOfflineSyncDeviceToken(offlineDeviceToken);
+    } catch (error) {
+      console.error("Offline device cleanup error (non-fatal):", error);
     }
   }
 

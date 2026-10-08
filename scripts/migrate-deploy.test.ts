@@ -16,13 +16,14 @@ test("isPrismaP1002 ignores unrelated errors", () => {
   assert.equal(isPrismaP1002({ message: "P3005 schema is not empty" }), false);
 });
 
-test("migration history has a fresh-database baseline and non-destructive compatibility migration", () => {
+test("migration history has a fresh-database baseline and only additive follow-up migrations", () => {
   const migrations = readdirSync("prisma/migrations")
     .filter((entry) => statSync(`prisma/migrations/${entry}`).isDirectory())
     .sort();
   assert.deepEqual(migrations, [
     "00000000000000_current_schema_baseline",
     "20261002130000_existing_database_compatibility",
+    "20261006090000_add_offline_sync_devices",
   ]);
 
   const baseline = readFileSync("prisma/migrations/00000000000000_current_schema_baseline/migration.sql", "utf8");
@@ -35,6 +36,11 @@ test("migration history has a fresh-database baseline and non-destructive compat
   assert.match(compatibility, /OPENING_CHEQUE_CUSTOMER_REMEDIATION_REQUIRED/);
   assert.match(compatibility, /SETTLEMENT_FX_SNAPSHOT_CONFLICT/);
   assert.doesNotMatch(compatibility, /DROP TABLE|DROP COLUMN/);
+
+  const offlineDevices = readFileSync("prisma/migrations/20261006090000_add_offline_sync_devices/migration.sql", "utf8");
+  assert.match(offlineDevices, /CREATE TABLE "offline_sync_devices"/);
+  assert.match(offlineDevices, /FOREIGN KEY \("user_id"\) REFERENCES "users"\("id"\)/);
+  assert.doesNotMatch(offlineDevices, /DROP TABLE|DROP COLUMN|TRUNCATE|DELETE FROM|UPDATE\s+"/);
 });
 
 test("CI provisions every PostgreSQL job through migration deploy", () => {

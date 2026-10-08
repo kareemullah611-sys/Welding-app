@@ -9,6 +9,7 @@ import { readOfflineReadSnapshot, writeOfflineReadSnapshot } from "@/lib/offline
 import { getPendingProducts, getPendingUsers } from "@/lib/offline-queue-overlays";
 import { pruneStalePendingRows } from "@/lib/offline-pending-prune";
 import BrandLogo from "@/components/brand/BrandLogo";
+import CountriesTab from "@/components/settings/CountriesTab";
 import {
   APP_BRANDING_CACHE_KEY,
   APP_BRANDING_UPDATED_EVENT,
@@ -17,7 +18,7 @@ import {
   normalizeAppBranding,
 } from "@/lib/app-branding";
 
-type Tab = "branding" | "users" | "products" | "cities" | "exchange_rates" | "sessions" | "godown_access";
+type Tab = "branding" | "users" | "products" | "countries" | "cities" | "exchange_rates" | "sessions" | "godown_access";
 
 const SETTINGS_USERS_READ_CACHE_KEY = "mrf-settings-users-read-cache-v1";
 const SETTINGS_PRODUCTS_READ_CACHE_KEY = "mrf-settings-products-read-cache-v1";
@@ -130,6 +131,7 @@ export default function SettingsPage() {
     branding: "Branding",
     users: t("users"),
     products: t("products"),
+    countries: "Countries",
     cities: t("cities"),
     exchange_rates: "Exchange Rates",
     sessions: t("sessions"),
@@ -140,13 +142,14 @@ export default function SettingsPage() {
     <div>
       <PageHeader title={t("settings")} />
       <div className="flex flex-wrap gap-1 mb-6 bg-gray-100 rounded-lg p-1 w-fit">
-        {(["branding", "users", "products", "cities", "exchange_rates", "sessions", "godown_access"] as Tab[]).map((tb) => (
+        {(["branding", "users", "products", "countries", "cities", "exchange_rates", "sessions", "godown_access"] as Tab[]).map((tb) => (
           <button key={tb} onClick={() => setTab(tb)} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === tb ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>{tabLabels[tb]}</button>
         ))}
       </div>
       {tab === "branding" && <BrandingTab />}
       {tab === "users" && <UsersTab />}
       {tab === "products" && <ProductsTab />}
+      {tab === "countries" && <CountriesTab />}
       {tab === "cities" && <CitiesTab />}
       {tab === "exchange_rates" && <CountryFallbackRatesTab />}
       {tab === "sessions" && <SessionsTab />}

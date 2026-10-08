@@ -16,6 +16,7 @@ import { applyQueuedMutationsToLots } from "@/lib/offline-remaining-mutations";
 import { formatCityPot } from "@/lib/city-money-format";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
 import { LOT_DOCUMENT_CATEGORIES, LOT_SHIPMENT_STATUSES, lotShipmentStatusLabel } from "@/lib/lot-documents";
+import { packagedFetch } from "@/lib/packaged-api";
 
 const LOTS_READ_CACHE_KEY = "mrf-lots-read-cache-v1";
 
@@ -326,7 +327,7 @@ export default function LotsPage() {
       if (documentForm.referenceNo) formData.append("referenceNo", documentForm.referenceNo);
       if (documentForm.documentDate) formData.append("documentDate", documentForm.documentDate);
       if (documentForm.note) formData.append("note", documentForm.note);
-      const response = await fetch(`/api/v1/lots/${selectedLot.id}/documents`, { method: "POST", body: formData });
+      const response = await packagedFetch(`/api/v1/lots/${selectedLot.id}/documents`, { method: "POST", body: formData });
       const data = await response.json();
       if (!data.success) { setFormError(data.error?.message || "Failed to upload document"); return; }
       setShowAddDocument(false);

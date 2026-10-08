@@ -6,6 +6,7 @@ import { JWTPayload } from "@/lib/auth";
 import { journalOpeningParticipantBalance, reverseOpeningJournals } from "@/lib/accounting";
 import { loadOpeningCutoverReadiness } from "@/lib/opening-cutover";
 import { createHash } from "node:crypto";
+import { Prisma } from "@prisma/client";
 
 const parseCutoverDate = (value: unknown) => {
   const text = String(value || "");
@@ -144,9 +145,16 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
         const cutover = await latestCutover(tx);
         if (!cutover || cutover.status !== "draft") throw new Error("OPENING_CUTOVER_NOT_DRAFT");
         if (openingDate < cutover.fiscalYearStart || openingDate > cutover.cutoverDate) throw new Error("OPENING_DATE_OUTSIDE_FINANCIAL_YEAR");
-        const participant = await tx.investmentParticipant.findFirst({ where: { id: participantId, isActive: true }, include: { capitalEvents: { take: 1 } } });
+        const participant = await tx.investmentParticipant.findFirst({ where: { id: participantId, isActive: true }, include: { capitalEvents: { select: { amountPkr: true, sourceType: true, sourceId: true } } } });
         if (!participant) throw new Error("PARTICIPANT_NOT_FOUND");
-        if (participant.capitalEvents.length) throw new Error("PARTICIPANT_ALREADY_HAS_CAPITAL_HISTORY");
+        if (participant.capitalEvents.length) {
+          const supersededId = cutover.supersedesCutoverId;
+          const supersededOpeningWasFullyReversed = supersededId !== null
+            && participant.capitalEvents.every((event: any) => event.sourceId === supersededId
+              && (event.sourceType === "opening_cutover_finalization" || event.sourceType === "opening_cutover_reversal"))
+            && participant.capitalEvents.reduce((total: Prisma.Decimal, event: any) => total.plus(event.amountPkr), new Prisma.Decimal(0)).equals(0);
+          if (!supersededOpeningWasFullyReversed) throw new Error("PARTICIPANT_ALREADY_HAS_CAPITAL_HISTORY");
+        }
         const existing = await tx.openingParticipantBalance.findUnique({ where: { opening_participant_cutover_participant_key: { cutoverId: cutover.id, participantId } } });
         const row = existing
           ? await tx.openingParticipantBalance.update({ where: { id: existing.id }, data: { capitalPkr, currentYearProfitPkr, ongoingLotRealizedProfitPkr, openingDate, notes: String(body.notes || "").trim() || null, journalVersion: existing.journalVersion + 1 } })
@@ -261,6 +269,44 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
           fiscalYearStart: cutover.fiscalYearStart, fiscalYearEnd: cutover.fiscalYearEnd,
           backupReference: "", backupAcknowledged: false, supersedesCutoverId: cutover.id, createdBy: user.userId,
         } });
+        await tx.openingCutoverEntry.updateMany({
+          where: { cutoverId: cutover.id },
+          data: { cutoverId: draft.id },
+        });
+        const previousPackages = await tx.openingCityPackage.findMany({
+          where: { cutoverId: cutover.id },
+          include: { dueBalances: true },
+        });
+        for (const previousPackage of previousPackages) {
+          await tx.openingCityPackage.create({
+            data: {
+              cutoverId: draft.id,
+              cityId: previousPackage.cityId,
+              status: "returned",
+              returnReason: `Opening cutover revision ${cutover.revision} reversed: ${reason}`,
+              returnedBy: user.userId,
+              returnedAt: new Date(),
+              createdBy: user.userId,
+              dueBalances: {
+                create: previousPackage.dueBalances.map((balance) => ({
+                  currencyId: balance.currencyId,
+                  cityAmount: balance.cityAmount,
+                  cityCarryingPkr: balance.cityCarryingPkr,
+                  centralAmount: balance.centralAmount,
+                  centralCarryingPkr: balance.centralCarryingPkr,
+                  fxRateToPkr: balance.fxRateToPkr,
+                  fxRateDate: balance.fxRateDate,
+                  fxRateSource: balance.fxRateSource,
+                  fxRateMetadata: balance.fxRateMetadata ?? undefined,
+                  cityRecordedBy: balance.cityRecordedBy,
+                  cityRecordedAt: balance.cityRecordedAt,
+                  centralRecordedBy: balance.centralRecordedBy,
+                  centralRecordedAt: balance.centralRecordedAt,
+                })),
+              },
+            },
+          });
+        }
         return { reversedId: cutover.id, draftId: draft.id };
       });
       await createAuditLog(user.userId, null, "opening_cutovers", result.reversedId, "update", undefined, { action: "reverse", reason, replacementDraftId: result.draftId }, getClientIP(request));

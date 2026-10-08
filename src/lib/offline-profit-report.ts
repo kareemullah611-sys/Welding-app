@@ -32,7 +32,9 @@ function getYearFromDate(value: unknown): number | null {
 }
 
 function isDateInPeriod(value: unknown, period: number | { dateFrom: string; dateTo: string }) {
-  if (!value) return true;
+  // A queued row with no date cannot be placed in a period, so it must not be
+  // folded into every period the user happens to request.
+  if (!value) return false;
   if (typeof period === "number") return getYearFromDate(value) === period;
   const date = String(value).slice(0, 10);
   return date >= period.dateFrom && date <= period.dateTo;
@@ -50,6 +52,7 @@ export function applyPendingProfitReportPeriod(
   let salesDelta = 0;
   let cartonsDelta = 0;
   let expenseDelta = 0;
+  let pendingCogsUnposted = false;
 
   for (const q of queuedItems) {
     if (String(q.method || "").toUpperCase() !== "POST") continue;
@@ -59,6 +62,10 @@ export function applyPendingProfitReportPeriod(
       if (!isDateInPeriod(parsed?.saleDate || parsed?.date, period)) continue;
       salesDelta += resolveSaleAmount(parsed);
       cartonsDelta += resolveSaleCartons(parsed);
+      // COGS for an unsynced sale cannot be derived here: it depends on lot landed
+      // cost, which is only authoritative on the server. Mark it instead of
+      // assuming zero cost and overstating gross profit.
+      pendingCogsUnposted = true;
       continue;
     }
 
@@ -84,9 +91,11 @@ export function applyPendingProfitReportPeriod(
 
   pl.totalRevenue = Number(pl.totalRevenue || 0) + salesDelta;
   pl.totalExpenses = Number(pl.totalExpenses || 0) + expenseDelta;
-  pl.grossProfit = Number(pl.grossProfit || 0) + salesDelta;
-  pl.netProfit = Number(pl.netProfit || 0) + salesDelta - expenseDelta;
+  // Gross and net profit stay at their posted values: an unsynced sale's COGS is
+  // unknown, so adding its revenue would count profit that does not exist yet.
+  pl.netProfit = Number(pl.netProfit || 0) - expenseDelta;
   next.cartonsSold = Number(next.cartonsSold || 0) + cartonsDelta;
+  if (pendingCogsUnposted) next.pendingCogsUnposted = true;
 
   const rev = Number(pl.totalRevenue || 0);
   const gross = Number(pl.grossProfit || 0);

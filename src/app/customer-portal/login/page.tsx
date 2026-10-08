@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { packagedFetch } from "@/lib/packaged-api";
 
 export default function CustomerPortalLoginPage() {
   const router = useRouter();
@@ -12,7 +13,7 @@ export default function CustomerPortalLoginPage() {
 
   useEffect(() => {
     void (async () => {
-      const res = await fetch("/api/v1/customer-portal/me", { credentials: "include", cache: "no-store" });
+      const res = await packagedFetch("/api/v1/customer-portal/me", { credentials: "include", cache: "no-store" });
       const data = await res.json().catch(() => null);
       if (data?.success && data.data) router.replace("/customer-portal");
     })();
@@ -22,7 +23,7 @@ export default function CustomerPortalLoginPage() {
     event.preventDefault();
     setError("");
     setSubmitting(true);
-    const res = await fetch("/api/v1/customer-portal/login", {
+    const res = await packagedFetch("/api/v1/customer-portal/login", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },

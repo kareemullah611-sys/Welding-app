@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { listLegacyStockForSync } from "@/lib/legacy-stock-lot";
+import { isAfghanistanCountry } from "@/lib/country-code";
 
 export type OfflineSyncScope = {
   role: "super_admin" | "city_admin";
@@ -27,6 +28,9 @@ function mapLotForOffline(lot: any) {
     lotDate: lot.lotDate instanceof Date ? lot.lotDate.toISOString().slice(0, 10) : lot.lotDate,
     notes: lot.notes ?? "",
     status: lot.status,
+    // Required by the offline lot profit report for landed cost / COGS. Without it
+    // PKR cost, COGS and profit cannot be derived without guessing an FX rate.
+    pkrExchangeRate: lot.pkrExchangeRate == null ? null : Number(lot.pkrExchangeRate),
     isLegacyStock: Boolean(lot.isLegacyStock),
     countryId: lot.countryId,
     countryName: lot.country?.name ?? "",
@@ -133,11 +137,31 @@ export async function buildOfflineSyncPayload(
         : listLegacyStockForSync(null),
   ]);
 
+  const isAfghanistanCityAdmin = isCityAdmin && countries.some((country) => isAfghanistanCountry(country));
+  const enabledCurrencyIds = cityCurrencies.map((row) => row.currencyId);
+  const superAdminBankAccounts = await prisma.superAdminBankAccount.findMany({
+    where: {
+      isActive: true,
+      ...(isAfghanistanCityAdmin
+        ? { accountKind: "cash", currencyId: { in: enabledCurrencyIds } }
+        : {}),
+    },
+    select: {
+      id: true,
+      bankName: true,
+      accountNumber: true,
+      currencyId: true,
+      accountKind: true,
+      isActive: true,
+    },
+    orderBy: [{ accountKind: "asc" }, { bankName: "asc" }],
+  });
+
   const [
     suppliers,
     agents,
     shippingLines,
-    intermediaries,
+    baseIntermediaries,
     investors,
     openingLiabilities,
   ] = isCityAdmin
@@ -158,6 +182,14 @@ export async function buildOfflineSyncPayload(
           },
         }),
       ]);
+
+  const intermediaries = isAfghanistanCityAdmin
+    ? await prisma.intermediary.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, isActive: true },
+      orderBy: { name: "asc" },
+    })
+    : baseIntermediaries;
 
   const rawLots = await prisma.lot.findMany({
     where: lotWhere,
@@ -280,6 +312,7 @@ export async function buildOfflineSyncPayload(
     intermediaries,
     investors,
     bankAccounts,
+    superAdminBankAccounts,
     lots,
     sales,
     payments,

@@ -177,6 +177,20 @@ export default function HajiTransfersPage() {
       setSettlementOptionsError("");
       return;
     }
+    if (!isOnline) {
+      const cached = readOfflineFormCache<HajiFormCache>(HAJI_FORM_CACHE_KEY, [
+        "lots",
+        "currencies",
+        "bankAccounts",
+        "inHandCheques",
+        "superAdminBankAccounts",
+      ]);
+      const options = cached?.settlementByCurrency?.[String(currencyId)];
+      setSettlementIntermediaries(options?.intermediaries || []);
+      setSettlementCashAccounts(options?.superAdminCashAccounts || []);
+      setSettlementOptionsError(options ? "" : "Offline settlement options are not synchronized for this currency");
+      return;
+    }
     setSettlementOptionsLoading(true);
     setSettlementOptionsError("");
     const r = await apiCall("/api/v1/haji-transfers/settlement-options", { params: { currencyId } });
@@ -190,12 +204,26 @@ export default function HajiTransfersPage() {
       setSettlementCashAccounts([]);
       setSettlementOptionsError(r.error || "Failed to load settlement options");
     }
-  }, [isAfghanistanCity, isSuperAdmin]);
+  }, [isAfghanistanCity, isOnline, isSuperAdmin]);
 
   const loadPakistanDestinationAccounts = useCallback(async (currencyId?: number) => {
     if (!shouldUseSuperAdminTarget) {
       setSuperAdminBankAccounts([]);
       return;
+    }
+    if (!isOnline) {
+      const cached = readOfflineFormCache<HajiFormCache>(HAJI_FORM_CACHE_KEY, [
+        "lots",
+        "currencies",
+        "bankAccounts",
+        "inHandCheques",
+        "superAdminBankAccounts",
+      ]);
+      const accounts = (cached?.superAdminBankAccounts || []).filter(
+        (account: any) => !currencyId || Number(account.currencyId) === Number(currencyId),
+      );
+      setSuperAdminBankAccounts(accounts);
+      return accounts;
     }
     setDestinationAccountsLoading(true);
     const params: Record<string, number> = {};
@@ -209,7 +237,7 @@ export default function HajiTransfersPage() {
     }
     setSuperAdminBankAccounts([]);
     return [];
-  }, [shouldUseSuperAdminTarget]);
+  }, [isOnline, shouldUseSuperAdminTarget]);
 
   useEffect(() => {
     if (!showCreate || !shouldUseSuperAdminTarget) return;

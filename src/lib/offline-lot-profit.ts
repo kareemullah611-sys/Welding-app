@@ -62,6 +62,11 @@ export function buildOfflineLotProfitFromModules(input: {
   const totalPurchaseUsd = purchases.reduce((s: number, p) => s + num((p as { totalPriceUsd?: number }).totalPriceUsd), 0);
   const usdPkrRate = num(lot.pkrExchangeRate);
   const totalCartonsBought = lotProducts.reduce((s: number, lp) => s + num((lp as { totalQty?: number }).totalQty), 0);
+
+  // Never guess a missing USD/PKR rate: landed cost, COGS and profit would all be
+  // fabricated. Report the lot as unavailable rather than throwing into the caller.
+  if (usdPkrRate <= 0 && totalPurchaseUsd > 0) return null;
+
   const landed = computeLotLandedCostPkr({
     totalPurchaseUsd,
     totalCartons: totalCartonsBought,

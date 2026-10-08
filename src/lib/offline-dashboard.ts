@@ -157,6 +157,21 @@ export function applyPendingDashboardMetrics(
       continue;
     }
 
+    if (q.url === "/api/v1/bank-deposits") {
+      const transferType = String(parsed?.transferType || "cheque_to_bank");
+      const amount = Number(parsed?.cashAmount || 0);
+      // bank_to_bank moves money between bank accounts; cash in hand is unchanged.
+      if (cashPosition && amount > 0 && transferType !== "bank_to_bank") {
+        // cheque_to_bank: cash leaves hand for the bank. bank_to_cash / cheque_to_cash:
+        // the incoming amount lands in hand as cash.
+        const leavesHand = transferType === "cheque_to_bank";
+        cashPosition.incomingToHand!.cash = Number(cashPosition.incomingToHand!.cash || 0) + (leavesHand ? -amount : amount);
+        cashPosition.incomingToHand!.total = Number(cashPosition.incomingToHand!.total || 0) + (leavesHand ? -amount : amount);
+        cashPosition.netCashInHand = Number(cashPosition.netCashInHand || 0) + (leavesHand ? -amount : amount);
+      }
+      continue;
+    }
+
     if (q.url === "/api/v1/haji-transfers") {
       const amount = Number(parsed?.amount || 0);
       const transferType = String(parsed?.transferType || "from_in_hand");

@@ -3,19 +3,18 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import {
   OFFLINE_API_CACHE_STORE,
-  OFFLINE_DB_NAME,
-  OFFLINE_DB_VERSION,
   OFFLINE_LOCAL_READ_MODEL_STORE,
   OFFLINE_QUEUE_STORE,
   OFFLINE_STOCK_STORE,
   isPackagedOfflineActive,
   buildApiCacheKey,
+  openOfflineDatabase,
 } from "@/lib/offline-cache";
 import {
+  getPackagedServerReachable,
   probeServerReachable,
   setPackagedServerReachable,
 } from "@/lib/offline-reachability";
-import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import {
   canApplyCreateToReadModel,
   getReadModelKey,
@@ -37,6 +36,8 @@ import {
 } from "@/lib/offline-full-sync";
 import { isOfflineFeaturesEnabled } from "@/lib/offline-features";
 import { tryBootstrapBundledOfflineSeed } from "@/lib/offline-seed-bootstrap";
+import { getOfflineDeviceToken, packagedFetchWithTimeout } from "@/lib/packaged-api";
+import { mirrorQueueToNativeBackground, readNativeBackgroundCompletions } from "@/lib/native-background-sync";
 
 const FULL_SYNC_DATA_STORE = "full_sync_data";
 const FULL_SYNC_META_STORE = "full_sync_meta";
@@ -127,8 +128,6 @@ const OfflineContext = createContext<OfflineContextType>({
 });
 
 // ── IndexedDB helpers ──────────────────────────────────────────────────────────
-const DB_NAME = OFFLINE_DB_NAME;
-const DB_VERSION = OFFLINE_DB_VERSION;
 const QUEUE_STORE = OFFLINE_QUEUE_STORE;
 const STOCK_STORE = OFFLINE_STOCK_STORE;
 const API_CACHE_STORE = OFFLINE_API_CACHE_STORE;
@@ -146,28 +145,7 @@ function getOrCreateDeviceId(): string {
 }
 
 function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = (e) => {
-      const db = (e.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(QUEUE_STORE))
-        db.createObjectStore(QUEUE_STORE, { keyPath: "id" });
-      if (!db.objectStoreNames.contains(STOCK_STORE))
-        db.createObjectStore(STOCK_STORE, { keyPath: "godownId" });
-      if (!db.objectStoreNames.contains(API_CACHE_STORE))
-        db.createObjectStore(API_CACHE_STORE, { keyPath: "key" });
-      if (!db.objectStoreNames.contains(LOCAL_READ_MODEL_STORE))
-        db.createObjectStore(LOCAL_READ_MODEL_STORE, { keyPath: "key" });
-      if (!db.objectStoreNames.contains(ID_MAP_STORE))
-        db.createObjectStore(ID_MAP_STORE, { keyPath: "key" });
-      if (!db.objectStoreNames.contains("full_sync_data"))
-        db.createObjectStore("full_sync_data", { keyPath: "key" });
-      if (!db.objectStoreNames.contains("full_sync_meta"))
-        db.createObjectStore("full_sync_meta", { keyPath: "key" });
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  return openOfflineDatabase();
 }
 
 async function dbGetAll<T>(store: string): Promise<T[]> {
@@ -237,14 +215,15 @@ async function reconcileSyncedIds(item: QueuedRequest, responsePayload: unknown)
 
 // ── Provider ───────────────────────────────────────────────────────────────────
 export function OfflineProvider({ children }: { children: React.ReactNode }) {
-  const [offlineEnabled, setOfflineEnabled] = useState(false);
-  const [isOnline, setIsOnline] = useState(true);
+  const [offlineEnabled, setOfflineEnabled] = useState(() => isPackagedOfflineActive());
+  const [isOnline, setIsOnline] = useState(() => isPackagedOfflineActive() ? getPackagedServerReachable() : true);
   const [isServiceWorkerReady, setIsServiceWorkerReady] = useState(false);
   const [queueCount, setQueueCount]       = useState(0);
   const [queuedItems, setQueuedItems]     = useState<QueuedRequest[]>([]);
   const [isSyncing, setIsSyncing]         = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState<{ synced: number; failed: number } | null>(null);
   const [fullSyncMeta, setFullSyncMeta] = useState<SyncMeta | null>(null);
+  const [nativeCompletionVersion, setNativeCompletionVersion] = useState(0);
   const fullSyncLockRef = useRef(false);
   const syncLockRef = useRef(false);
 
@@ -315,13 +294,32 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
       const items = await dbGetAll<QueuedRequest>(QUEUE_STORE);
       setQueueCount(items.length);
       setQueuedItems([...items].sort((a, b) => b.timestamp - a.timestamp));
+      void mirrorQueueToNativeBackground(items).catch(() => {});
     } catch {
       setQueueCount(0);
       setQueuedItems([]);
     }
   }, []);
 
-  useEffect(() => { refreshQueueState(); }, [refreshQueueState]);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const completions = await readNativeBackgroundCompletions();
+        for (const completion of completions) {
+          const item = await dbGet<QueuedRequest>(QUEUE_STORE, completion.id);
+          if (!item) continue;
+          await dbDelete(QUEUE_STORE, completion.id);
+          await reconcileSyncedIds(item, completion.data);
+          await removePendingReadModelRowForQueueItem(item);
+        }
+        if (completions.length > 0) setNativeCompletionVersion((value) => value + 1);
+      } catch {
+        // Foreground sync remains authoritative if native reconciliation is unavailable.
+      } finally {
+        await refreshQueueState();
+      }
+    })();
+  }, [refreshQueueState]);
   useEffect(() => {
     const onQueueUpdated = () => { refreshQueueState(); };
     window.addEventListener("mrf-offline-queue-updated", onQueueUpdated);
@@ -527,6 +525,11 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!offlineEnabled || !isOnline || nativeCompletionVersion === 0) return;
+    void triggerFullSync();
+  }, [offlineEnabled, isOnline, nativeCompletionVersion, triggerFullSync]);
+
+  useEffect(() => {
     getSyncMeta().then(setFullSyncMeta);
     const onFullSyncComplete = () => { getSyncMeta().then(setFullSyncMeta); };
     window.addEventListener("mrf-offline-full-sync-complete", onFullSyncComplete);
@@ -570,11 +573,12 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
               ...item.headers,
               "x-sync-request-id": item.id,
               "x-sync-device-id": deviceId,
+              ...(getOfflineDeviceToken() ? { "x-offline-device-token": getOfflineDeviceToken()! } : {}),
             },
             body:    item.method !== "GET" ? item.body : undefined,
           };
           const res  = offlineEnabled
-            ? await fetchWithTimeout(item.url, fetchInit, PACKAGED_SYNC_TIMEOUT_MS)
+            ? await packagedFetchWithTimeout(item.url, fetchInit, PACKAGED_SYNC_TIMEOUT_MS)
             : await fetch(item.url, fetchInit);
           const isJson = res.headers.get("content-type")?.includes("application/json");
           const data = isJson ? await res.json() : null;

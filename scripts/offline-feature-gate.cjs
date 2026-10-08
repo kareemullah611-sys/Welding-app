@@ -24,6 +24,16 @@ function hasOfflinePrimitive(source) {
   return hasHook && hasQueueOrSnapshot;
 }
 
+const ORCHESTRATED_BY_SHARED_API_QUEUE = new Set([
+  "src/app/(dashboard)/super-admin-account-transfers/page.tsx",
+]);
+
+const EXPLICITLY_ONLINE_ONLY = new Set([
+  "src/app/(dashboard)/delivery/page.tsx",
+  "src/app/(dashboard)/liabilities/page.tsx",
+  "src/app/(dashboard)/super-admin-liabilities/page.tsx",
+]);
+
 function main() {
   if (process.env.NEXT_PUBLIC_OFFLINE_ENABLED !== "true") {
     console.log("Offline feature gate skipped (NEXT_PUBLIC_OFFLINE_ENABLED is not true).");
@@ -36,7 +46,9 @@ function main() {
   for (const file of files) {
     const source = fs.readFileSync(file, "utf8");
     if (!hasMutatingApiCall(source)) continue;
-    if (!hasOfflinePrimitive(source)) offenders.push(path.relative(root, file));
+    const relative = path.relative(root, file);
+    if (ORCHESTRATED_BY_SHARED_API_QUEUE.has(relative) || EXPLICITLY_ONLINE_ONLY.has(relative)) continue;
+    if (!hasOfflinePrimitive(source)) offenders.push(relative);
   }
 
   if (offenders.length) {

@@ -1,7 +1,6 @@
 import {
-  OFFLINE_DB_NAME,
-  OFFLINE_DB_VERSION,
   OFFLINE_STOCK_STORE,
+  openOfflineDatabase,
 } from "@/lib/offline-cache";
 
 type QueuedRequestLike = {
@@ -11,12 +10,7 @@ type QueuedRequestLike = {
 };
 
 function openDB(): Promise<IDBDatabase> {
-  if (typeof window === "undefined") return Promise.reject(new Error("offline db unavailable"));
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(OFFLINE_DB_NAME, OFFLINE_DB_VERSION);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  return openOfflineDatabase();
 }
 
 /** Read per-godown stock rows cached after an online godown-stock fetch. */

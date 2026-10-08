@@ -43,6 +43,45 @@ type CustomersReadSnapshot = {
   ledgerByCustomer: Record<string, any>;
 };
 
+function buildCustomerSubmitPayload(form: {
+  name: string;
+  phone: string;
+  address: string;
+  cityId: number;
+  portalAccessEnabled: boolean;
+  portalUsername: string;
+  portalPassword: string;
+}): {
+  name: string;
+  phone: string;
+  address: string;
+  cityId: number;
+  portalAccessEnabled: boolean;
+  portalUsername?: string;
+  portalPassword?: string;
+} {
+  const payload: {
+    name: string;
+    phone: string;
+    address: string;
+    cityId: number;
+    portalAccessEnabled: boolean;
+    portalUsername?: string;
+    portalPassword?: string;
+  } = {
+    name: form.name.trim(),
+    phone: form.phone,
+    address: form.address,
+    cityId: form.cityId,
+    portalAccessEnabled: form.portalAccessEnabled,
+  };
+  if (form.portalAccessEnabled) {
+    payload.portalUsername = form.portalUsername.trim();
+    if (form.portalPassword) payload.portalPassword = form.portalPassword;
+  }
+  return payload;
+}
+
 function applyQueuedMutationsToCustomers(baseRows: any[], queueItems: any[]) {
   if (!Array.isArray(baseRows) || !Array.isArray(queueItems) || queueItems.length === 0) return baseRows;
   let next = [...baseRows];
@@ -255,7 +294,7 @@ export default function CustomersPage() {
       setFormError("Portal access settings require internet so credentials are not stored offline.");
       return;
     }
-    const payload = { ...form, name: form.name.trim() };
+    const payload = buildCustomerSubmitPayload(form);
 
     if (resolvingQueueId) {
       const ok = await updateQueuedItem(resolvingQueueId, {
@@ -327,10 +366,11 @@ export default function CustomersPage() {
       setFormError("Portal access settings require internet so credentials are not stored offline.");
       return;
     }
+    const payload = buildCustomerSubmitPayload(form);
     if (selected?._pending && selected?._queueId) {
       const updatedForm = { ...form, name: form.name.trim() };
       const ok = await updateQueuedItem(selected._queueId, {
-        body: JSON.stringify(updatedForm),
+        body: JSON.stringify(payload),
         auditMeta: {
           action: "update",
           entityType: "customer",
@@ -356,7 +396,7 @@ export default function CustomersPage() {
         url: `/api/v1/customers/${selected.id}`,
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
         pathname: "/customers",
         auditMeta: {
           action: "update",
@@ -374,7 +414,7 @@ export default function CustomersPage() {
       return;
     }
     setSubmitting(true);
-    const result = await apiCall(`/api/v1/customers/${selected.id}`, { method: "PUT", body: form });
+    const result = await apiCall(`/api/v1/customers/${selected.id}`, { method: "PUT", body: payload });
     setSubmitting(false);
     if (result.success) { setShowEdit(false); load(); } else { setFormError(result.error || "Failed"); }
   };

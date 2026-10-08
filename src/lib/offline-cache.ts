@@ -1,69 +1,51 @@
 import { isOfflineFeaturesEnabled } from "@/lib/offline-features";
 import { getPackagedServerReachable } from "@/lib/offline-reachability";
+import {
+  isAllowlistedOfflineMutationPath as isPolicyAllowlistedOfflineMutationPath,
+  isOfflineQueueBlockedPath as isPolicyOfflineQueueBlockedPath,
+} from "@/lib/offline-route-policy";
 
 export const OFFLINE_DB_NAME = "mrf-offline";
-export const OFFLINE_DB_VERSION = 6;
+export const OFFLINE_DB_VERSION = 7;
 export const OFFLINE_QUEUE_STORE = "queue";
 export const OFFLINE_STOCK_STORE = "stock_cache";
 export const OFFLINE_API_CACHE_STORE = "api_cache";
 export const OFFLINE_LOCAL_READ_MODEL_STORE = "local_read_models";
+export const OFFLINE_ID_MAP_STORE = "id_reconciliation_map";
+export const OFFLINE_FULL_SYNC_STORE = "full_sync_data";
+export const OFFLINE_FULL_SYNC_META_STORE = "full_sync_meta";
 
-const OFFLINE_WRITE_QUEUE_ALLOWLIST = [
-  "/api/v1/sales",
-  "/api/v1/payments",
-  "/api/v1/expenses",
-  "/api/v1/personal-withdrawals",
-  "/api/v1/haji-transfers",
-  "/api/v1/customers",
-  "/api/v1/bank-deposits",
-  "/api/v1/suppliers",
-  "/api/v1/intermediaries",
-  "/api/v1/supplier-payments",
-  "/api/v1/shipping-line-payments",
-  "/api/v1/super-admin-personal-expenses",
-  "/api/v1/agent-payments",
-  "/api/v1/lot-costs",
-  "/api/v1/openings",
-  "/api/v1/lots",
-  "/api/v1/lot-purchases",
-  "/api/v1/products",
-  "/api/v1/users",
-  "/api/v1/shipping-lines",
-  "/api/v1/agents",
-  "/api/v1/bank-accounts",
-  "/api/v1/city-transfers",
-  "/api/v1/godowns",
-  "/api/v1/godowns/transfers",
-  "/api/v1/investors",
-] as const;
-
-const OFFLINE_WRITE_QUEUE_DYNAMIC_ALLOWLIST = [
-  /^\/api\/v1\/intermediaries\/\d+\/deposits$/,
-  /^\/api\/v1\/intermediaries\/\d+\/exchanges$/,
-  /^\/api\/v1\/investors\/\d+\/transactions$/,
-];
-
-/** PUT/PATCH/DELETE on entity routes not covered by POST allowlist prefixes. */
-const OFFLINE_MUTATION_EXTRA_PATTERNS = [
-  /^\/api\/v1\/investors\/\d+$/,
-  /^\/api\/v1\/investors\/\d+\/transactions\/\d+$/,
-] as const;
-
-const OFFLINE_QUEUE_BLOCKED_PREFIXES = [
-  "/api/v1/auth/",
-  "/api/v1/offline/",
-  "/api/v1/activity-feed",
-  "/api/v1/search",
-  "/api/v1/analytics",
-  "/api/v1/dashboard",
-  "/api/v1/cash-position",
-  "/api/v1/treasury",
-  "/api/v1/inventory",
-  "/api/v1/sessions",
-  "/api/v1/godown-permissions",
-  "/api/v1/health",
-  "/api/ping",
-] as const;
+export function openOfflineDatabase(): Promise<IDBDatabase> {
+  if (typeof window === "undefined" || typeof indexedDB === "undefined") {
+    return Promise.reject(new Error("offline db unavailable"));
+  }
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(OFFLINE_DB_NAME, OFFLINE_DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(OFFLINE_QUEUE_STORE))
+        db.createObjectStore(OFFLINE_QUEUE_STORE, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(OFFLINE_STOCK_STORE))
+        db.createObjectStore(OFFLINE_STOCK_STORE, { keyPath: "godownId" });
+      if (!db.objectStoreNames.contains(OFFLINE_API_CACHE_STORE))
+        db.createObjectStore(OFFLINE_API_CACHE_STORE, { keyPath: "key" });
+      if (!db.objectStoreNames.contains(OFFLINE_LOCAL_READ_MODEL_STORE))
+        db.createObjectStore(OFFLINE_LOCAL_READ_MODEL_STORE, { keyPath: "key" });
+      if (!db.objectStoreNames.contains(OFFLINE_ID_MAP_STORE))
+        db.createObjectStore(OFFLINE_ID_MAP_STORE, { keyPath: "key" });
+      if (!db.objectStoreNames.contains(OFFLINE_FULL_SYNC_STORE))
+        db.createObjectStore(OFFLINE_FULL_SYNC_STORE, { keyPath: "key" });
+      if (!db.objectStoreNames.contains(OFFLINE_FULL_SYNC_META_STORE))
+        db.createObjectStore(OFFLINE_FULL_SYNC_META_STORE, { keyPath: "key" });
+    };
+    request.onsuccess = () => {
+      request.result.onversionchange = () => request.result.close();
+      resolve(request.result);
+    };
+    request.onerror = () => reject(request.error);
+    request.onblocked = () => reject(new Error("offline db upgrade blocked"));
+  });
+}
 
 function normalizeApiPath(url: string): string {
   const raw = String(url || "").trim();
@@ -108,6 +90,7 @@ const OFFLINE_AUDIT_META_BY_PATH: Record<string, { entityType: string; entityLab
   "/api/v1/shipping-lines": { entityType: "shipping_line", entityLabel: "Shipping Line" },
   "/api/v1/agents": { entityType: "agent", entityLabel: "Agent" },
   "/api/v1/bank-accounts": { entityType: "bank_account", entityLabel: "Bank Account" },
+  "/api/v1/super-admin-account-transfers": { entityType: "super_admin_account_transfer", entityLabel: "Account Transfer" },
   "/api/v1/city-transfers": { entityType: "city_transfer", entityLabel: "City Transfer" },
   "/api/v1/godowns/transfers": { entityType: "godown_transfer", entityLabel: "Godown Transfer" },
   "/api/v1/investors": { entityType: "investor", entityLabel: "Investor" },
@@ -259,20 +242,11 @@ export function buildOfflineAuditMeta(url: string, method: string, body: unknown
 }
 
 export function isOfflineQueueBlockedPath(path: string): boolean {
-  return OFFLINE_QUEUE_BLOCKED_PREFIXES.some((blocked) => {
-    if (blocked.endsWith("/")) return path.startsWith(blocked);
-    return path === blocked || path.startsWith(`${blocked}/`);
-  });
+  return isPolicyOfflineQueueBlockedPath(path);
 }
 
 export function isAllowlistedOfflineMutationPath(path: string): boolean {
-  if (isOfflineQueueBlockedPath(path)) return false;
-  if (OFFLINE_WRITE_QUEUE_ALLOWLIST.includes(path as (typeof OFFLINE_WRITE_QUEUE_ALLOWLIST)[number])) return true;
-  if (OFFLINE_MUTATION_EXTRA_PATTERNS.some((pattern) => pattern.test(path))) return true;
-  for (const base of OFFLINE_WRITE_QUEUE_ALLOWLIST) {
-    if (path.startsWith(`${base}/`)) return true;
-  }
-  return OFFLINE_WRITE_QUEUE_DYNAMIC_ALLOWLIST.some((pattern) => pattern.test(path));
+  return isPolicyAllowlistedOfflineMutationPath(path);
 }
 
 export function buildApiCacheKey(
@@ -315,8 +289,7 @@ export function shouldAutoQueueOfflineWrite(url: string, method: string): boolea
   if (isOfflineQueueBlockedPath(path)) return false;
 
   if (normalizedMethod === "POST") {
-    if (OFFLINE_WRITE_QUEUE_ALLOWLIST.includes(path as (typeof OFFLINE_WRITE_QUEUE_ALLOWLIST)[number])) return true;
-    return OFFLINE_WRITE_QUEUE_DYNAMIC_ALLOWLIST.some((pattern) => pattern.test(path));
+    return isAllowlistedOfflineMutationPath(path);
   }
 
   if (["PUT", "PATCH", "DELETE"].includes(normalizedMethod)) {

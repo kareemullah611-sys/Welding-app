@@ -4,7 +4,16 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { clearOfflineAuthCache, readOfflineAuthCache, writeOfflineAuthCache, buildOfflinePasswordVerifier, verifyOfflinePassword } from "@/lib/offline-auth-cache";
 import { isPackagedOfflineActive } from "@/lib/offline-cache";
 import { probeServerReachable, setPackagedServerReachable } from "@/lib/offline-reachability";
-import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import {
+  clearPackagedCredentials,
+  getOfflineDeviceToken,
+  getOrCreatePackagedDeviceId,
+  getPackagedPlatform,
+  packagedFetch,
+  packagedFetchWithTimeout,
+  storePackagedCredentials,
+} from "@/lib/packaged-api";
+import { clearNativeBackgroundSync } from "@/lib/native-background-sync";
 import { getEmbedFromLocation } from "@/lib/quickform-embed";
 import {
   clearAuthLogoutPending,
@@ -53,8 +62,8 @@ async function fetchWithWarmupRetry(url: string, init: RequestInit, attempts = 3
   for (let i = 0; i < attempts; i++) {
     try {
       lastRes = useTimeout
-        ? await fetchWithTimeout(url, init, PACKAGED_AUTH_TIMEOUT_MS)
-        : await fetch(url, init);
+        ? await packagedFetchWithTimeout(url, init, PACKAGED_AUTH_TIMEOUT_MS)
+        : await packagedFetch(url, init);
     } catch {
       if (i === attempts - 1) throw new Error("Network error");
       await sleep(1500 * (i + 1));
@@ -67,7 +76,7 @@ async function fetchWithWarmupRetry(url: string, init: RequestInit, attempts = 3
 }
 
 async function parseAuthJson(res: Response): Promise<{
-  data?: { success?: boolean; data?: { user: User }; error?: { message?: string } | string };
+  data?: { success?: boolean; data?: { user: User; accessToken?: string; offlineDeviceToken?: string }; error?: { message?: string } | string };
   error?: string;
 }> {
   const text = await res.text();
@@ -87,7 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshOnlineSession = useCallback(async () => {
     try {
-      const res = await fetchWithTimeout(
+      const res = await packagedFetchWithTimeout(
         "/api/v1/auth/me",
         { credentials: "include", cache: "no-store" },
         PACKAGED_AUTH_TIMEOUT_MS
@@ -131,8 +140,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         const res = packaged
-          ? await fetchWithTimeout("/api/v1/auth/me", { credentials: "include", cache: "no-store" }, PACKAGED_AUTH_TIMEOUT_MS)
-          : await fetch("/api/v1/auth/me", { credentials: "include", cache: "no-store" });
+          ? await packagedFetchWithTimeout("/api/v1/auth/me", { credentials: "include", cache: "no-store" }, PACKAGED_AUTH_TIMEOUT_MS)
+          : await packagedFetch("/api/v1/auth/me", { credentials: "include", cache: "no-store" });
 
         if (res.ok) {
           const data = await res.json();
@@ -219,10 +228,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const tryOnlineLogin = useCallback(async (username: string, password: string): Promise<{ ok: boolean; user?: User; error?: string }> => {
     try {
+      const packagedPlatform = getPackagedPlatform();
       const res = await fetchWithWarmupRetry("/api/v1/auth/login", {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(packagedPlatform ? {
+            "x-offline-device-id": getOrCreatePackagedDeviceId(),
+            "x-offline-platform": packagedPlatform,
+          } : {}),
+        },
         body: JSON.stringify({ username, password }),
       });
       const parsed = await parseAuthJson(res);
@@ -238,6 +254,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
       }
       if (data.success && data.data?.user) {
+        if (packagedPlatform && data.data.accessToken && data.data.offlineDeviceToken) {
+          storePackagedCredentials(data.data.accessToken, data.data.offlineDeviceToken);
+          window.dispatchEvent(new Event("mrf-offline-queue-updated"));
+        }
         setPackagedServerReachable(true);
         return { ok: true, user: data.data.user };
       }
@@ -316,16 +336,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     clearOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
     setUser(null);
     try {
-      await fetch("/api/v1/auth/logout", {
+      const offlineDeviceToken = getOfflineDeviceToken();
+      await packagedFetch("/api/v1/auth/logout", {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(offlineDeviceToken ? { "x-offline-device-token": offlineDeviceToken } : {}),
+        },
         body: "{}",
         cache: "no-store",
       });
     } catch {
       // Keep local logout deterministic even when offline.
     }
+    clearPackagedCredentials();
+    void clearNativeBackgroundSync().catch(() => {});
     if (typeof window !== "undefined") {
       window.location.replace("/login");
     }
@@ -341,7 +367,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(timer);
       timer = setTimeout(() => {
         alert("Session expired due to inactivity. Please login again.");
-        logout();
+        if (isPackagedOfflineActive()) {
+          setUser(null);
+          window.location.replace("/login");
+        } else {
+          logout();
+        }
       }, IDLE_TIMEOUT);
     };
 

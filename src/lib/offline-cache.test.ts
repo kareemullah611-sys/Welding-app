@@ -38,7 +38,11 @@ test("offline profit report overlays only queued transactions inside the selecte
 
   assert.equal(result.profitAndLoss.totalRevenue, 1_000);
   assert.equal(result.profitAndLoss.totalExpenses, 100);
-  assert.equal(result.profitAndLoss.netProfit, 900);
+  // Revenue rises for the queued sale, but gross/net profit do not: COGS for an
+  // unsynced sale is only authoritative on the server, so it must not be assumed zero.
+  assert.equal(result.profitAndLoss.grossProfit, 0);
+  assert.equal(result.profitAndLoss.netProfit, -100);
+  assert.equal(result.pendingCogsUnposted, true);
   assert.equal(result.cartonsSold, 2);
 });
 

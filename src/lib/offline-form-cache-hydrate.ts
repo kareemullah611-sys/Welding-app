@@ -2,6 +2,7 @@ import { readOfflineAuthCache } from "@/lib/offline-auth-cache";
 import { writeOfflineFormCache } from "@/lib/offline-form-cache";
 
 const EXPENSES_FORM_CACHE_KEY = "mrf-expenses-form-cache-v1";
+const SALES_FORM_CACHE_KEY = "mrf-sales-form-cache-v1";
 const PAYMENTS_FORM_CACHE_KEY = "mrf-payments-form-cache-v1";
 const HAJI_FORM_CACHE_KEY = "mrf-haji-form-cache-v1";
 const WITHDRAWALS_FORM_CACHE_KEY = "mrf-withdrawals-form-cache-v1";
@@ -97,6 +98,8 @@ export function hydrateFormCachesFromSyncData(data: Record<string, unknown>): vo
   const products = asArray(data.products);
   const godowns = asArray(data.godowns);
   const bankAccounts = asArray(data.bankAccounts);
+  const superAdminBankAccounts = asArray(data.superAdminBankAccounts);
+  const intermediaries = asArray(data.intermediaries);
   const payments = asArray(data.payments);
   const withdrawals = asArray(data.personalWithdrawals);
   const cheques = inHandCheques(payments);
@@ -105,8 +108,25 @@ export function hydrateFormCachesFromSyncData(data: Record<string, unknown>): vo
     ? currenciesForCity(cities, cityId)
     : uniqueCurrencies(cityCurrencies);
   const cityAccounts = cityId ? cityBankAccounts(bankAccounts, cityId) : bankAccounts;
+  const settlementByCurrency = Object.fromEntries(currencies.map((currency) => {
+    const currencyId = Number((currency as { id?: number }).id);
+    return [String(currencyId), {
+      intermediaries,
+      superAdminCashAccounts: superAdminBankAccounts.filter((account) => {
+        const row = account as { currencyId?: number; accountKind?: string };
+        return Number(row.currencyId) === currencyId && row.accountKind === "cash";
+      }),
+    }];
+  }));
 
   if (currencies.length === 0) return;
+
+  window.localStorage.setItem(SALES_FORM_CACHE_KEY, JSON.stringify({
+    godowns: cityId ? godowns.filter((g) => Number((g as { cityId?: number }).cityId) === cityId) : godowns,
+    products,
+    lots: allLots,
+    currencies,
+  }));
 
   writeOfflineFormCache(EXPENSES_FORM_CACHE_KEY, {
     lots,
@@ -119,7 +139,9 @@ export function hydrateFormCachesFromSyncData(data: Record<string, unknown>): vo
     lots: allLots,
     currencies,
     cityBankAccounts: cityAccounts,
-    superAdminBankAccounts: [],
+    superAdminBankAccounts,
+    inHandCheques: cheques,
+    settlementByCurrency,
   });
 
   writeOfflineFormCache(HAJI_FORM_CACHE_KEY, {
@@ -127,6 +149,8 @@ export function hydrateFormCachesFromSyncData(data: Record<string, unknown>): vo
     currencies,
     bankAccounts: cityAccounts,
     inHandCheques: cheques,
+    superAdminBankAccounts,
+    settlementByCurrency,
   });
 
   writeOfflineFormCache(WITHDRAWALS_FORM_CACHE_KEY, {

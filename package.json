@@ -11,7 +11,8 @@
     "dev:clean": "rm -rf .next && next dev",
     "dev:mobile": "next dev --hostname 0.0.0.0 --port 3000",
     "build": "prisma generate && next build",
-    "build:electron": "mv src/app/api src/app/_api && ELECTRON_BUILD=true prisma generate && ELECTRON_BUILD=true next build && mv src/app/_api src/app/api",
+    "build:electron": "mv src/app/api src/app/_api && NEXT_PUBLIC_OFFLINE_ENABLED=true ELECTRON_BUILD=true prisma generate && NEXT_PUBLIC_OFFLINE_ENABLED=true ELECTRON_BUILD=true next build && mv src/app/_api src/app/api",
+    "build:packaged": "node scripts/build-packaged.cjs",
     "start": "tsx scripts/bootstrap.ts && NODE_OPTIONS='--max-old-space-size=448' next start -H 0.0.0.0 -p ${PORT:-3000}",
     "lint": "next lint",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
@@ -20,6 +21,7 @@
     "test:production-blockers": "node --import tsx --test src/lib/client-production-blockers.test.ts src/lib/payment-fx.test.ts scripts/migrate-deploy.test.ts",
     "test:offline-gate": "node scripts/offline-feature-gate.cjs",
     "test:e2e": "playwright test",
+    "test:country-creation": "node --import tsx --import ./scripts/test-active-session.ts --test src/app/api/v1/countries/country-create.test.ts",
     "test:e2e:clean": "node --import tsx scripts/e2e-residue-check.ts snapshot && playwright test; code=$?; node --import tsx scripts/e2e-residue-check.ts verify; exit $code",
     "test:smoke": "node --import tsx --test scripts/security-headers.test.cjs src/lib/deployment-profile.test.ts src/lib/opening-calculations.test.ts src/lib/opening-accounting-completeness.test.ts src/lib/opening-accounting-behavior.test.ts src/app/api/health.test.ts src/app/api/ping.test.ts src/app/api/v1/auth/me.test.ts src/lib/auth.test.ts src/lib/session.test.ts src/lib/middleware.test.ts src/lib/rate-limit.test.ts src/lib/security-audit-regression.test.ts src/lib/security-audit-v2-regression.test.ts src/lib/auth-csrf-coverage.test.ts src/app/api/v1/personal-withdrawals-bank-source.test.ts src/app/api/v1/pcs-carton-products.test.ts src/lib/accounting-race.test.ts src/lib/schema-integrity.test.ts src/lib/superadmin-transaction-entry.test.ts src/lib/exchange-rate-provider.test.ts src/lib/sarafi-af-assisted-capture.test.ts src/lib/sbp-daily-fx.test.ts src/lib/live-fx-position-tracing.test.ts src/lib/investor-finalization-dry-run.test.ts src/lib/investor-participant-actions.test.ts src/lib/offline-form-cache-hydrate.test.ts src/lib/offline-cache.test.ts src/lib/offline-aggregate-prefetch.test.ts src/lib/offline-full-sync-read.test.ts src/lib/offline-remaining-mutations.test.ts src/lib/offline-local-search.test.ts src/lib/offline-phase3.test.ts src/lib/sanitize-validation-details.test.ts src/lib/secret-exposure-guard.test.ts src/lib/ledger-export.test.ts",
     "test:critical-db": "node --import tsx --import ./scripts/test-active-session.ts --test --test-concurrency=1 src/app/api/v1/intermediary-return-accounting.test.ts src/app/api/v1/sync-idempotency-customers.test.ts src/app/api/v1/sync-idempotency-withdrawals.test.ts src/app/api/v1/sync-idempotency-openings.test.ts src/app/api/v1/sync-idempotency-suppliers.test.ts src/app/api/v1/sync-idempotency-intermediaries.test.ts src/app/api/v1/sync-idempotency-intermediary-deposits.test.ts src/app/api/v1/sync-idempotency-intermediary-exchanges.test.ts src/app/api/v1/sync-idempotency-products.test.ts src/app/api/v1/sync-idempotency-shipping-lines.test.ts src/app/api/v1/sync-idempotency-agents.test.ts src/app/api/v1/sync-idempotency-bank-accounts.test.ts src/app/api/v1/sync-idempotency-supplier-payments.test.ts src/app/api/v1/sync-idempotency-shipping-line-payments.test.ts src/app/api/v1/sync-idempotency-super-admin-expenses.test.ts src/app/api/v1/sync-idempotency-super-admin-account-transfers.test.ts src/app/api/v1/sync-idempotency-agent-payments.test.ts src/app/api/v1/sync-idempotency-lot-costs.test.ts src/app/api/v1/payments-completed-lot.test.ts src/app/api/v1/bank-deposits-transfer-type.test.ts src/app/api/v1/personal-withdrawal-names.test.ts src/app/api/v1/search-amount-column.test.ts src/app/api/v1/search-city-finance-modules.test.ts src/app/api/v1/sales-hard-delete-c1.test.ts src/app/api/v1/customer-funded-delete-c2.test.ts src/app/api/v1/closed-period-journal-guard-h1.test.ts src/app/api/v1/payment-hard-delete-h2.test.ts src/app/api/v1/foreign-carrying-layer-h3.test.ts src/app/api/v1/sale-cancel-discount-h4.test.ts src/app/api/v1/payment-cancel-haji-cascade-m1.test.ts src/app/api/v1/walkin-payment-mode-m2.test.ts src/app/api/v1/customer-portal-ledger-m3.test.ts src/app/api/v1/dashboard-withdrawal-source-m4.test.ts src/app/api/v1/financial-write-rate-limit-l2.test.ts src/app/api/v1/lot-delete-fx-recognition-l4.test.ts src/app/api/v1/account-ledger-currency-p1.test.ts src/app/api/v1/trial-balance-hierarchy-p2.test.ts src/app/api/v1/trial-balance-validation-p3.test.ts src/app/api/v1/trial-balance-parity-p4.test.ts src/app/api/v1/trial-balance-reconciliation-p5.test.ts src/app/api/v1/journal-city-id-p6.test.ts src/app/api/v1/trial-balance-financial-reports-p8.test.ts",
@@ -39,12 +41,15 @@
     "fx:sarafi-af:capture": "tsx scripts/capture-sarafi-af.ts",
     "fx:sbp:capture": "tsx scripts/capture-sbp-fx.ts",
     "package:android:init": "npx cap add android",
-    "package:android:sync": "npx cap sync android",
+    "package:android:sync": "NEXT_PUBLIC_OFFLINE_ENABLED=true npm run offline-seed:generate && npm run build:packaged && npx cap sync android && node scripts/configure-capacitor-background-runner.cjs",
     "package:android:open": "npx cap open android",
     "package:mac:dev": "electron electron/main.cjs",
-    "package:mac:dist": "npm run build:electron && electron-builder --mac dmg --publish never",
+    "package:mac:dist": "npm run offline-seed:generate && npm run build:packaged && electron-builder --mac dmg --publish never",
+    "package:win:dist": "npm run offline-seed:generate && npm run build:packaged && electron-builder --win nsis --publish never",
     "offline-seed:generate": "tsx scripts/generate-offline-seed.ts",
     "offline-seed:generate:lahore": "tsx scripts/generate-offline-seed.ts -- --city=Lahore",
+    "offline-seed:generate:kandahar": "tsx scripts/generate-offline-seed.ts -- --city=Kandahar",
+    "package:mac:dist:kandahar": "npm run offline-seed:generate:kandahar && npm run build:packaged && electron-builder --mac dmg --publish never -c.productName=\"MRF Hardware - Kandahar\" -c.mac.artifactName='MRF-Hardware-Kandahar-${version}.${ext}'",
     "package:mac:dist:lahore": "npm run offline-seed:generate:lahore && npm run build:electron && electron-builder --mac dmg --publish never -c.productName=\"MRF Hardware - Lahore\" -c.mac.artifactName='MRF-Hardware-Lahore-${version}.${ext}'",
     "rls:status": "node --import tsx scripts/rls-admin.ts --status",
     "rls:enable": "node --import tsx scripts/rls-admin.ts --enable",
@@ -55,8 +60,9 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1116.0",
     "@aws-sdk/s3-request-presigner": "^3.1116.0",
-    "@capacitor/android": "^7.4.3",
-    "@capacitor/core": "^7.4.3",
+    "@capacitor/android": "^7.6.9",
+    "@capacitor/background-runner": "^2.3.1",
+    "@capacitor/core": "^7.6.9",
     "@prisma/client": "^5.15.0",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-slot": "^1.2.4",
@@ -76,11 +82,10 @@
     "react-hot-toast": "^2.4.1",
     "recharts": "^2.12.0",
     "tailwind-merge": "^3.5.0",
-    "tailwindcss-animate": "^1.0.7",
     "zod": "^3.23.0"
   },
   "devDependencies": {
-    "@capacitor/cli": "^7.4.3",
+    "@capacitor/cli": "^7.6.9",
     "@playwright/test": "^1.58.2",
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.6",
@@ -95,13 +100,20 @@
     "postcss": "^8.5.26",
     "prisma": "^5.15.0",
     "tailwindcss": "^3.4.0",
+    "tailwindcss-animate": "^1.0.7",
     "tsx": "^4.23.12",
     "typescript": "^5.9.3"
   },
   "overrides": {
     "postcss": "$postcss",
-    "sharp": "0.35.4",
-    "brace-expansion": "2.1.7",
+    "sharp": "0.35.5",
+    "source-map-js": "1.2.2",
+    "minimatch@<10": {
+      "brace-expansion": "2.1.7"
+    },
+    "minimatch@>=10": {
+      "brace-expansion": "5.0.5"
+    },
     "postcss-selector-parser": "6.1.3",
     "exceljs": {
       "uuid": "11.1.1"
@@ -111,18 +123,24 @@
     "appId": "com.mrf.hardware",
     "productName": "MRF Hardware",
     "directories": {
-      "output": "release/mac"
+      "output": "release"
     },
-    "files": [
-      "electron/**/*",
-      "out/**/*",
-      "package.json"
-    ],
+  "files": [
+    "electron/**/*",
+    "scripts/security-headers.cjs",
+    "out/**/*",
+    "package.json"
+  ],
     "mac": {
       "target": [
         "dmg"
       ],
       "category": "public.app-category.business"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
     }
   }
 }

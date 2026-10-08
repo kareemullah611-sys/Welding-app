@@ -75,7 +75,8 @@ test("sale correction and opening deletion preserve opening-import accounting is
 
   assert.match(correctionRoute, /sale\.isOpeningImport/);
   assert.match(correctionRoute, /Historical opening sale accounting has been adjusted/);
-  assert.match(openingsRoute, /OPENING-STOCK-COST-/);
+  assert.match(openingsRoute, /journalOpeningInventoryValuation/);
+  assert.match(openingsRoute, /reverseOpeningJournals\("opening_inventory_valuation"/);
   assert.match(accounting, /Historical Stock Adjustment/);
   assert.match(accounting, /isOpeningImport/);
 });
@@ -86,8 +87,8 @@ test("opening workflow excludes historical-sale entry while preserving legacy ac
   const offline = readFileSync("src/lib/offline-openings.ts", "utf8");
 
   assert.doesNotMatch(page, /historical_sale|Historical sales|historicalSales|historicalSale/);
-  assert.match(route, /if \(kind === "historical_sale"\) \{\s*return errorResponse\("VALIDATION_ERROR"/s);
-  assert.match(route, /Historical sales are not part of opening entries/);
+  assert.doesNotMatch(route, /kind === "historical_sale"/);
+  assert.match(route, /return validationError\("Invalid opening kind"\)/);
   assert.doesNotMatch(offline, /historical_sale|historicalSales/);
   assert.match(readFileSync("src/lib/accounting.ts", "utf8"), /isOpeningImport/);
 });
@@ -141,7 +142,8 @@ test("sale COGS excludes city expenses that already have separate expense journa
   );
 
   assert.doesNotMatch(cogsCalculator, /db\.expense\.findMany/);
-  assert.match(cogsCalculator, /lotExpensesByCurrency:\s*\{\}/);
+  assert.match(cogsCalculator, /calculateLotProductLandedCostsForLot/);
+  assert.match(accounting, /db\.lotCost\.findMany/);
   assert.doesNotMatch(preview, /groupExpensesByCurrency/);
   assert.match(preview, /lotExpensesByCurrency:\s*\{\}/);
 });

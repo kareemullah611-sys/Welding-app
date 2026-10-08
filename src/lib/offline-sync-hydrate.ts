@@ -1,15 +1,16 @@
 import {
   OFFLINE_API_CACHE_STORE,
-  OFFLINE_DB_NAME,
-  OFFLINE_DB_VERSION,
   OFFLINE_LOCAL_READ_MODEL_STORE,
+  OFFLINE_STOCK_STORE,
   buildApiCacheKey,
+  openOfflineDatabase,
 } from "@/lib/offline-cache";
 import { getReadModelKey } from "@/lib/offline-local-read-model";
 import { writeOfflineReadSnapshot } from "@/lib/offline-read-snapshot";
 import { hydrateFormCachesFromSyncData } from "@/lib/offline-form-cache-hydrate";
 import { prefetchOfflineAggregateSnapshots } from "@/lib/offline-aggregate-prefetch";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/lib/pagination";
+import { packagedFetchWithTimeout } from "@/lib/packaged-api";
 const SNAPSHOT_KEYS = {
   customers: "mrf-customers-read-cache-v1",
   sales: "mrf-sales-read-cache-v1",
@@ -55,11 +56,7 @@ const SNAPSHOT_LIST_FIELD: Record<string, string> = {
 };
 
 function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(OFFLINE_DB_NAME, OFFLINE_DB_VERSION);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  return openOfflineDatabase();
 }
 
 async function putStoreRow(store: string, value: unknown): Promise<void> {
@@ -168,7 +165,7 @@ async function hydrateApiCaches(data: Record<string, unknown>) {
     if (pagedKey !== cacheKey) {
       await putStoreRow(OFFLINE_API_CACHE_STORE, {
         key: pagedKey,
-        data: rows.slice(0, 20),
+        data: rows.slice(0, DEFAULT_LIST_PAGE_SIZE),
         pagination: { total: rows.length, totalPages: Math.max(1, Math.ceil(rows.length / DEFAULT_LIST_PAGE_SIZE)), page: 1, limit: DEFAULT_LIST_PAGE_SIZE },
         cachedAt: now,
       });
@@ -176,10 +173,34 @@ async function hydrateApiCaches(data: Record<string, unknown>) {
   }
 }
 
+async function prefetchGodownStockCaches(godowns: unknown[]) {
+  await Promise.all(godowns.map(async (row) => {
+    const godownId = Number((row as { id?: number }).id);
+    if (!godownId) return;
+    try {
+      const response = await packagedFetchWithTimeout(
+        `/api/v1/inventory/godown-stock?godown_id=${godownId}`,
+        { credentials: "include", cache: "no-store" },
+        15_000,
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.success || !Array.isArray(payload.data)) return;
+      await putStoreRow(OFFLINE_STOCK_STORE, {
+        godownId,
+        stock: payload.data,
+        cachedAt: Date.now(),
+      });
+    } catch {
+      // Keep any prior stock cache when this godown cannot be refreshed.
+    }
+  }));
+}
+
 export async function hydrateOfflineCachesFromSyncPayload(data: Record<string, unknown>): Promise<void> {
   await hydrateApiCaches(data);
   hydrateReadSnapshots(data);
   hydrateFormCachesFromSyncData(data);
+  await prefetchGodownStockCaches(Array.isArray(data.godowns) ? data.godowns : []);
   await prefetchOfflineAggregateSnapshots();
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event("mrf-offline-full-sync-complete"));

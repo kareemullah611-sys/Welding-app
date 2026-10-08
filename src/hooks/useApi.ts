@@ -3,8 +3,6 @@
 import { useState, useCallback } from "react";
 import {
   OFFLINE_API_CACHE_STORE,
-  OFFLINE_DB_NAME,
-  OFFLINE_DB_VERSION,
   OFFLINE_LOCAL_READ_MODEL_STORE,
   OFFLINE_QUEUE_STORE,
   OFFLINE_STOCK_STORE,
@@ -14,10 +12,10 @@ import {
   shouldQueueOfflineWriteNow,
   shouldQueueOfflineWriteOnNetworkFailure,
   shouldUseOfflineApiCache,
+  openOfflineDatabase,
 } from "@/lib/offline-cache";
 import { isOfflineFeaturesEnabled } from "@/lib/offline-features";
 import { setPackagedServerReachable } from "@/lib/offline-reachability";
-import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { OFFLINE_ID_MAP_STORE } from "@/lib/offline-id-reconciliation";
 import {
   applyQueuedMutationToReadModel,
@@ -28,6 +26,8 @@ import {
   normalizeReadModelPath,
 } from "@/lib/offline-local-read-model";
 import { getFullSyncDataForApiRequest } from "@/lib/offline-full-sync-read";
+import { packagedFetchWithTimeout } from "@/lib/packaged-api";
+import { mirrorQueueToNativeBackground } from "@/lib/native-background-sync";
 
 interface FetchOptions {
   method?: string;
@@ -41,7 +41,7 @@ const PACKAGED_FETCH_TIMEOUT_MS = 8000;
 
 async function appFetch(url: string, init?: RequestInit): Promise<Response> {
   if (typeof window !== "undefined" && isPackagedOfflineActive()) {
-    return fetchWithTimeout(url, init, PACKAGED_FETCH_TIMEOUT_MS);
+    return packagedFetchWithTimeout(url, init || {}, PACKAGED_FETCH_TIMEOUT_MS);
   }
   return fetch(url, init);
 }
@@ -120,38 +120,7 @@ function buildFullUrl(url: string, params?: Record<string, string | number | und
 }
 
 function openOfflineDb(): Promise<IDBDatabase> {
-  if (typeof window === "undefined") {
-    return Promise.reject(new Error("offline db unavailable"));
-  }
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(OFFLINE_DB_NAME, OFFLINE_DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(OFFLINE_QUEUE_STORE)) {
-        db.createObjectStore(OFFLINE_QUEUE_STORE, { keyPath: "id" });
-      }
-      if (!db.objectStoreNames.contains(OFFLINE_STOCK_STORE)) {
-        db.createObjectStore(OFFLINE_STOCK_STORE, { keyPath: "godownId" });
-      }
-      if (!db.objectStoreNames.contains(OFFLINE_API_CACHE_STORE)) {
-        db.createObjectStore(OFFLINE_API_CACHE_STORE, { keyPath: "key" });
-      }
-      if (!db.objectStoreNames.contains(OFFLINE_LOCAL_READ_MODEL_STORE)) {
-        db.createObjectStore(OFFLINE_LOCAL_READ_MODEL_STORE, { keyPath: "key" });
-      }
-      if (!db.objectStoreNames.contains(OFFLINE_ID_MAP_STORE)) {
-        db.createObjectStore(OFFLINE_ID_MAP_STORE, { keyPath: "key" });
-      }
-      if (!db.objectStoreNames.contains("full_sync_data")) {
-        db.createObjectStore("full_sync_data", { keyPath: "key" });
-      }
-      if (!db.objectStoreNames.contains("full_sync_meta")) {
-        db.createObjectStore("full_sync_meta", { keyPath: "key" });
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  return openOfflineDatabase();
 }
 
 async function cacheApiResponse<T>(
@@ -175,6 +144,13 @@ async function cacheApiResponse<T>(
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
+  const nativeQueue = await new Promise<QueuedRequest[]>((resolve, reject) => {
+    const tx = db.transaction(OFFLINE_QUEUE_STORE, "readonly");
+    const request = tx.objectStore(OFFLINE_QUEUE_STORE).getAll();
+    request.onsuccess = () => resolve((request.result as QueuedRequest[]) || []);
+    request.onerror = () => reject(request.error);
+  });
+  void mirrorQueueToNativeBackground(nativeQueue).catch(() => {});
 }
 
 async function getCachedApiResponse<T>(
@@ -286,8 +262,15 @@ async function readOfflineGetCache<T>(
   if (cached) return { data: cached.data, pagination: cached.pagination };
   if (local) return { data: local.data as T, pagination: local.pagination };
 
-  const fullSync = await getFullSyncDataForApiRequest<T>(url, params);
-  if (fullSync) return { data: fullSync.data, pagination: fullSync.pagination };
+  // Computed offline read models (lot profit, stock ledger, search) can reject —
+  // e.g. a missing FX rate. This runs on both the happy and the error path, so an
+  // escaping rejection would take down the caller instead of falling through.
+  try {
+    const fullSync = await getFullSyncDataForApiRequest<T>(url, params);
+    if (fullSync) return { data: fullSync.data, pagination: fullSync.pagination };
+  } catch {
+    return null;
+  }
   return null;
 }
 
@@ -393,7 +376,7 @@ export function useApi<T = unknown>() {
           );
           return queued;
         }
-        if (method === "GET") {
+        if (method === "GET" && typeof window !== "undefined" && shouldUseOfflineApiCache()) {
           const offlineRead = await readOfflineGetCache<T>(url, options.params);
           if (offlineRead) {
             setState({ data: offlineRead.data, loading: false, error: null });
@@ -418,7 +401,7 @@ export function useApi<T = unknown>() {
         );
         return queued;
       }
-      if (method === "GET") {
+      if (method === "GET" && typeof window !== "undefined" && shouldUseOfflineApiCache()) {
         const offlineRead = await readOfflineGetCache<T>(url, options.params);
         if (offlineRead) {
           setState({ data: offlineRead.data, loading: false, error: null });
@@ -485,7 +468,7 @@ export async function apiCall<T = unknown>(
       const queued = await queuePackagedOfflineWrite<T>(url, method, options.body, options.params);
       return { ...queued, data: queued.data as unknown as T };
     }
-    if (method === "GET") {
+    if (method === "GET" && typeof window !== "undefined" && shouldUseOfflineApiCache()) {
       const offlineRead = await readOfflineGetCache<T>(url, options.params);
       if (offlineRead) {
         return { success: true, data: offlineRead.data, pagination: offlineRead.pagination, cached: true };
@@ -501,7 +484,7 @@ export async function apiCall<T = unknown>(
       const queued = await queuePackagedOfflineWrite<T>(url, method, options.body, options.params);
       return { ...queued, data: queued.data as unknown as T };
     }
-    if (method === "GET") {
+    if (method === "GET" && typeof window !== "undefined" && shouldUseOfflineApiCache()) {
       const offlineRead = await readOfflineGetCache<T>(url, options.params);
       if (offlineRead) {
         return { success: true, data: offlineRead.data, pagination: offlineRead.pagination, cached: true };

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { printCustomerLedgerStatement } from "@/lib/ledger-export";
+import { packagedFetch } from "@/lib/packaged-api";
 
 function formatAmount(symbol: string, amount: number) {
   return `${symbol || ""} ${Math.abs(Number(amount || 0)).toLocaleString("en-US")}`;
@@ -30,7 +31,7 @@ export default function CustomerPortalPage() {
 
   const fetchLedgerData = async () => {
     const params = buildLedgerParams();
-    const res = await fetch(`/api/v1/customer-portal/ledger?${params.toString()}`, { credentials: "include", cache: "no-store" });
+    const res = await packagedFetch(`/api/v1/customer-portal/ledger?${params.toString()}`, { credentials: "include", cache: "no-store" });
     const data = await res.json().catch(() => null);
     if (res.status === 401) {
       router.replace("/customer-portal/login");
@@ -55,7 +56,7 @@ export default function CustomerPortalPage() {
 
   useEffect(() => {
     void (async () => {
-      const res = await fetch("/api/v1/customer-portal/me", { credentials: "include", cache: "no-store" });
+      const res = await packagedFetch("/api/v1/customer-portal/me", { credentials: "include", cache: "no-store" });
       const data = await res.json().catch(() => null);
       if (!data?.success || !data.data) {
         router.replace("/customer-portal/login");
@@ -95,7 +96,7 @@ export default function CustomerPortalPage() {
   };
 
   const logout = async () => {
-    await fetch("/api/v1/customer-portal/logout", { method: "POST", credentials: "include" }).catch(() => null);
+    await packagedFetch("/api/v1/customer-portal/logout", { method: "POST", credentials: "include" }).catch(() => null);
     router.replace("/customer-portal/login");
   };
 

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, shell, ipcMain, Menu, Tray, nativeImage } = require("electron");
 // shell used to wake the remote server in the system browser
 const path = require("path");
 const fs = require("fs");
@@ -19,8 +19,13 @@ function readConfiguredUrl() {
 
 const REMOTE_URL = process.env.ELECTRON_START_URL || readConfiguredUrl() || "http://localhost:3000";
 const STATIC_DIR = path.resolve(path.join(__dirname, "..", "out"));
+const LOCAL_APP_PORT = 47819;
 
 const { getSecurityHeaders } = require("../scripts/security-headers.cjs");
+
+if (process.platform === "darwin") {
+  app.commandLine.appendSwitch("disable-features", "SkiaGraphite");
+}
 
 const MIME_TYPES = {
   ".html": "text/html",
@@ -218,6 +223,7 @@ const ALLOWED_API_PREFIXES = [
   "/api/v1/godowns", "/api/v1/products", "/api/v1/inventory", "/api/v1/openings",
   "/api/v1/city-transfers", "/api/v1/cities", "/api/v1/countries", "/api/v1/currencies",
   "/api/v1/bank-accounts", "/api/v1/super-admin-personal-expenses", "/api/v1/offline/",
+  "/api/v1/liabilities", "/api/v1/super-admin-liabilities", "/api/v1/super-admin-account-transfers",
   "/api/v1/activity-feed", "/api/v1/search", "/api/v1/sessions",
   "/api/v1/users", "/api/v1/finance/", "/api/v1/financial-reports", "/api/v1/city-ledger",
   "/api/v1/profit-report", "/api/v1/analytics", "/api/v1/reports/",
@@ -252,9 +258,8 @@ function createLocalServer() {
 function startServer() {
   return new Promise((resolve, reject) => {
     const server = createLocalServer();
-    server.listen(0, "127.0.0.1", () => {
-      const port = server.address().port;
-      resolve({ server, port });
+    server.listen(LOCAL_APP_PORT, "127.0.0.1", () => {
+      resolve({ server, port: LOCAL_APP_PORT });
     });
     server.on("error", reject);
   });
@@ -311,6 +316,7 @@ function createWindow(localPort) {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      backgroundThrottling: false,
     },
   });
 
@@ -328,14 +334,78 @@ function createWindow(localPort) {
     return { action: "deny" };
   });
 
+  win.on("close", (event) => {
+    if (isQuitting) return;
+    event.preventDefault();
+    mainWindow.hide();
+  });
+
+  mainWindow = win;
   return win;
 }
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 let localServer = null;
 let localPort = null;
+let mainWindow = null;
+let tray = null;
+let isQuitting = false;
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
-app.whenReady().then(async () => {
+if (!hasSingleInstanceLock) app.quit();
+
+app.on("second-instance", () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+});
+
+function createTray() {
+  if (tray) return true;
+  const iconName = process.platform === "darwin" ? "apple-touch-icon.png" : "favicon.ico";
+  const packagedIcon = path.join(STATIC_DIR, iconName);
+  const developmentIcon = path.join(__dirname, "..", "public", iconName);
+  try {
+    const sourceIcon = nativeImage.createFromPath(fs.existsSync(packagedIcon) ? packagedIcon : developmentIcon);
+    if (sourceIcon.isEmpty()) throw new Error(`Invalid tray icon: ${iconName}`);
+    const trayIcon = process.platform === "darwin"
+      ? sourceIcon.resize({ width: 18, height: 18 })
+      : sourceIcon;
+    if (process.platform === "darwin") trayIcon.setTemplateImage(true);
+    tray = new Tray(trayIcon);
+  } catch (error) {
+    console.error("Unable to create tray icon:", error);
+    tray = null;
+    return false;
+  }
+  tray.setToolTip("MRF Hardware");
+  tray.setContextMenu(Menu.buildFromTemplate([
+    {
+      label: "Open MRF Hardware",
+      click: () => {
+        if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createWindow(localPort);
+        mainWindow.show();
+        mainWindow.focus();
+      },
+    },
+    {
+      label: "Quit",
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ]));
+  tray.on("double-click", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createWindow(localPort);
+    mainWindow.show();
+    mainWindow.focus();
+  });
+  return true;
+}
+
+if (hasSingleInstanceLock) app.whenReady().then(async () => {
   if (hasLocalBuild()) {
     try {
       const result = await startServer();
@@ -366,37 +436,29 @@ app.whenReady().then(async () => {
     return true;
   });
 
-  const serverHealthy = await probeRemoteHealth();
-  if (!serverHealthy) {
-    const choice = await dialog.showMessageBox({
-      type: "warning",
-      title: "Server not ready",
-      message: "Cannot reach the welding-app server",
-      detail:
-        REMOTE_URL +
-        " is not responding (the server may be waking, suspended, or the last deploy failed).\n\n" +
-        "1. Open the Railway Dashboard → welding-app-production → confirm the latest deploy is live\n" +
-        "2. Set JWT_SECRET and DATABASE_URL\n" +
-        "3. Open the URL in Safari until login works, then reopen this app",
-      buttons: ["Open in Browser", "Continue Offline Shell"],
-      defaultId: 0,
-    });
-    if (choice.response === 0) {
-      await shell.openExternal(REMOTE_URL);
-    }
-  }
-
-  createWindow(localPort);
+  mainWindow = createWindow(localPort);
+  mainWindow.show();
+  mainWindow.focus();
+  if (process.platform === "darwin") app.focus({ steal: true });
+  createTray();
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow(localPort);
+    if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createWindow(localPort);
+    mainWindow.show();
+    mainWindow.focus();
   });
+
+  const serverHealthy = await probeRemoteHealth();
+  if (!serverHealthy) {
+    console.warn("Remote server unavailable; continuing with the local offline shell");
+  }
 });
 
 app.on("before-quit", () => {
+  isQuitting = true;
   if (localServer) localServer.close();
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  // Keep the renderer alive in the tray so queued work can synchronize.
 });
