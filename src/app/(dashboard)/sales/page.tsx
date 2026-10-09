@@ -537,7 +537,10 @@ export default function SalesPage() {
     setShowLatestSale(false);
     setFormError("");
     setShowCreate(true);
-    const loaded = await loadDropdowns();
+    const [loaded, latestSale] = await Promise.all([
+      loadDropdowns(),
+      loadLatestSaleSummary(),
+    ]);
     if (!loaded) {
       setFormError("Unable to load sale form data.");
       setSaleCreateFormReady(true);
@@ -551,7 +554,7 @@ export default function SalesPage() {
       items: nextItems,
     }));
     setGodownStock([]);
-    setLatestCreatedSale(await loadLatestSaleSummary());
+    setLatestCreatedSale(latestSale);
     setSelectedCustomerName("");
     setSaleCreateFormReady(true);
     setFormError("");

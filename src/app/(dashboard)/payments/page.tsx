@@ -855,8 +855,11 @@ export default function PaymentsPage() {
     setPaymentSavedNotice(null);
     setShowLatestEntry(false);
     setChequeSearchQuery("");
-    setLatestCreatedEntry(await loadLatestCreateEntrySummary());
-    const { loadedCurrencies } = await loadHelpers();
+    const [latestEntry, { loadedCurrencies }] = await Promise.all([
+      loadLatestCreateEntrySummary(),
+      loadHelpers(),
+    ]);
+    setLatestCreatedEntry(latestEntry);
     const offlineReadinessError = getOfflineFormReadinessError({
       isOnline,
       currencyCount: loadedCurrencies.length,
