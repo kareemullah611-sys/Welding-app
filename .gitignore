@@ -33,7 +33,6 @@ backups/
 test-results
 .artifacts/
 android/
-ios/
 release/
 
 # E2E watermark/residue state
