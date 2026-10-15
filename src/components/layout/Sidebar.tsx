@@ -31,6 +31,7 @@ export const useSidebar = () => useContext(SidebarContext);
 
 const SIDEBAR_NAV_SCROLL_KEY = "mrf-sidebar-nav-scroll";
 const SIDEBAR_OPEN_GROUPS_KEY = "mrf-sidebar-open-groups";
+const AFGHANISTAN_HIDDEN_NAV_ITEMS = ["cheque_register", "bank_deposits", "bank_accounts"];
 
 const SIDEBAR_SHELL =
   "bg-white/40 dark:bg-[#21191c]/80 backdrop-blur-2xl backdrop-saturate-[1.8] border-white/60 dark:border-[#594148]/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),inset_0_0_0_0.5px_rgba(255,255,255,0.3),0_24px_60px_-24px_rgba(42,6,8,0.38)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_24px_60px_-24px_rgba(0,0,0,0.8)]";
@@ -166,7 +167,7 @@ const cityAdminNavGroups: { label: string; items: NavItemDef[] }[] = [
     label: "Other",
     items: [
       { label: "Reports",  key: "reports",  href: "/reports",       icon: FileText,      roles: ["city_admin"] },
-      { label: "Audit",    key: "audit",    href: "/activity-feed", icon: Activity,      roles: ["city_admin"], locked: true },
+      { label: "Sync Issues", key: "audit", href: "/activity-feed", icon: Activity,      roles: ["city_admin"] },
       { label: "Openings", key: "openings", href: "/openings",      icon: ClipboardList, roles: ["city_admin"] },
       { label: "Settings", key: "settings", href: "/settings",      icon: Settings,      roles: ["city_admin"] },
     ],
@@ -257,8 +258,6 @@ export default function Sidebar() {
   }, [user]);
 
   const isAfghanistan = user?.countryName === "Afghanistan";
-  const afghHide = ["cheque_register", "bank_deposits", "bank_accounts"];
-
   const navGroups = user?.role === "city_admin" ? cityAdminNavGroups : superAdminNavGroups;
 
   const filteredGroups = useMemo(() => {
@@ -267,7 +266,7 @@ export default function Sidebar() {
       .map((g) => ({
         ...g,
         items: g.items.filter(
-          (i) => i.roles.includes(user.role) && !(isAfghanistan && afghHide.includes(i.key))
+          (i) => i.roles.includes(user.role) && !(isAfghanistan && AFGHANISTAN_HIDDEN_NAV_ITEMS.includes(i.key))
         ),
       }))
       .filter((g) => g.items.length > 0);
@@ -305,7 +304,7 @@ export default function Sidebar() {
     } catch {
       /* ignore */
     }
-  }, [user?.role]);
+  }, [filteredGroups, user]);
 
   const persistOpenGroups = useCallback((next: Set<string>) => {
     sessionStorage.setItem(SIDEBAR_OPEN_GROUPS_KEY, JSON.stringify([...next]));
@@ -608,8 +607,8 @@ export default function Sidebar() {
       <button
         onClick={() => setMobileOpen(true)}
         className={cn(
-          "lg:hidden fixed top-4 z-50 rounded-2xl border border-white/60 bg-white/60 backdrop-blur-xl p-2.5 text-[#6B0F1A] shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_10px_24px_-12px_rgba(42,6,8,0.4)] hover:bg-white/80 transition-colors",
-          isRTL ? "right-3" : "left-3"
+          "lg:hidden fixed safe-top z-50 rounded-2xl border border-white/60 bg-white/60 backdrop-blur-xl p-2.5 text-[#6B0F1A] shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_10px_24px_-12px_rgba(42,6,8,0.4)] hover:bg-white/80 transition-colors",
+          isRTL ? "safe-right" : "safe-left"
         )}
       >
         <Menu className="w-5 h-5" />
@@ -638,8 +637,8 @@ export default function Sidebar() {
           mobileOpen ? "pointer-events-auto" : "pointer-events-none"
         )}
       >
-        <div className="relative flex h-full flex-col">
-          <div className={cn("absolute top-3 z-20", isRTL ? "left-3" : "right-3")}>
+        <div className="relative flex h-full flex-col pt-[env(safe-area-inset-top)]">
+          <div className={cn("absolute top-[max(0.75rem,env(safe-area-inset-top))] z-20", isRTL ? "left-3" : "right-3")}>
             <button
               type="button"
               onClick={() => setMobileOpen(false)}

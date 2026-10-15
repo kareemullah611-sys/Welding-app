@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildApiCacheKey,
   buildOfflineAuditMeta,
+  getOfflineMutationBlockReason,
   isPackagedOfflineRuntime,
   shouldAutoQueueOfflineWrite,
   shouldQueueOfflineWriteNow,
@@ -69,10 +70,19 @@ test("shouldAutoQueueOfflineWrite only queues allowlisted POST create routes", (
   assert.equal(shouldAutoQueueOfflineWrite("/api/v1/intermediaries/9/exchanges", "POST"), true);
   assert.equal(shouldAutoQueueOfflineWrite("/api/v1/investors/7/transactions", "POST"), true);
   assert.equal(shouldAutoQueueOfflineWrite("/api/v1/investors", "POST"), true);
-  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/investors/3", "PATCH"), true);
-  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/customers/1", "DELETE"), true);
-  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/payments/10", "PATCH"), true);
-  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/lots/1/complete", "PUT"), true);
+  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/liabilities", "POST"), true);
+  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/liabilities/7/entries", "POST"), true);
+  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/super-admin-liabilities", "POST"), true);
+  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/super-admin-liabilities/7/entries", "POST"), true);
+  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/liabilities/7", "PUT"), false);
+  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/liabilities/7", "DELETE"), false);
+  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/super-admin-liabilities/7", "PUT"), false);
+  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/delivery/assignments", "POST"), false);
+  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/investors/3", "PATCH"), false);
+  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/customers/1", "DELETE"), false);
+  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/payments/10", "PATCH"), false);
+  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/lots/1/complete", "PUT"), false);
+  assert.equal(shouldAutoQueueOfflineWrite("/api/v1/users", "POST"), false);
   assert.equal(shouldAutoQueueOfflineWrite("/api/v1/auth/reset-password", "PUT"), false);
   assert.equal(shouldAutoQueueOfflineWrite("/api/v1/dashboard", "GET"), false);
   assert.equal(shouldAutoQueueOfflineWrite("/api/v1/auth/login", "POST"), false);
@@ -132,6 +142,22 @@ test("buildOfflineAuditMeta maps allowlisted routes to concrete entity metadata"
   const investorTxnMeta = buildOfflineAuditMeta("/api/v1/investors/9/transactions", "POST", { type: "deposit" });
   assert.equal(investorTxnMeta.entityType, "investor_transaction");
   assert.equal(investorTxnMeta.entityDetail, "Type: deposit");
+
+  const cityLiabilityMeta = buildOfflineAuditMeta("/api/v1/liabilities", "POST", { name: "Customs Duty" });
+  assert.equal(cityLiabilityMeta.entityType, "city_liability_account");
+  assert.equal(cityLiabilityMeta.entityDetail, "Liability: Customs Duty");
+
+  const cityLiabilityEntryMeta = buildOfflineAuditMeta("/api/v1/liabilities/9/entries", "POST", { amount: 4500 });
+  assert.equal(cityLiabilityEntryMeta.entityType, "city_liability_entry");
+  assert.equal(cityLiabilityEntryMeta.entityDetail, "Amount: 4500");
+
+  const superAdminLiabilityMeta = buildOfflineAuditMeta("/api/v1/super-admin-liabilities", "POST", { name: "Lender A" });
+  assert.equal(superAdminLiabilityMeta.entityType, "super_admin_liability_account");
+  assert.equal(superAdminLiabilityMeta.entityDetail, "Liability: Lender A");
+
+  const superAdminLiabilityEntryMeta = buildOfflineAuditMeta("/api/v1/super-admin-liabilities/7/entries", "POST", { amount: 8000 });
+  assert.equal(superAdminLiabilityEntryMeta.entityType, "super_admin_liability_entry");
+  assert.equal(superAdminLiabilityEntryMeta.entityDetail, "Amount: 8000");
 });
 
 test("buildOfflineAuditMeta maps update and delete mutations", () => {
@@ -184,8 +210,35 @@ test("shouldQueueOfflineWriteNow requires packaged app, unreachable server, allo
   assert.equal(shouldQueueOfflineWriteNow("/api/v1/openings", "POST"), true);
   assert.equal(shouldQueueOfflineWriteNow("/api/v1/lots", "POST"), true);
   assert.equal(shouldQueueOfflineWriteOnNetworkFailure("/api/v1/payments", "POST"), true);
-  assert.equal(shouldQueueOfflineWriteOnNetworkFailure("/api/v1/payments/10", "PATCH"), true);
+  assert.equal(shouldQueueOfflineWriteOnNetworkFailure("/api/v1/payments/10", "PATCH"), false);
   assert.equal(shouldQueueOfflineWriteOnNetworkFailure("/api/v1/dashboard", "PUT"), false);
+  } finally {
+    g.window = prev;
+    setPackagedServerReachable(true);
+    if (prevEnv === undefined) delete process.env.NEXT_PUBLIC_OFFLINE_ENABLED;
+    else process.env.NEXT_PUBLIC_OFFLINE_ENABLED = prevEnv;
+  }
+});
+
+test("unsafe packaged-app mutations fail closed with an explicit offline reason", () => {
+  const g = globalThis as typeof globalThis & { window?: any };
+  const prev = g.window;
+  const prevEnv = process.env.NEXT_PUBLIC_OFFLINE_ENABLED;
+  process.env.NEXT_PUBLIC_OFFLINE_ENABLED = "true";
+  g.window = { platformInfo: { runtime: "electron" } } as Window;
+  setPackagedServerReachable(false);
+  try {
+    assert.match(
+      getOfflineMutationBlockReason("/api/v1/customers/1", "PUT") || "",
+      /requires an internet connection/i
+    );
+    assert.match(
+      getOfflineMutationBlockReason("/api/v1/users", "POST") || "",
+      /not changed/i
+    );
+    assert.equal(getOfflineMutationBlockReason("/api/v1/customers", "POST"), null);
+    assert.equal(getOfflineMutationBlockReason("/api/v1/customers", "GET"), null);
+    assert.equal(getOfflineMutationBlockReason("/api/v1/auth/login", "POST"), null);
   } finally {
     g.window = prev;
     setPackagedServerReachable(true);

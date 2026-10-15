@@ -26,7 +26,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         _sum: { totalAmount: true },
       }),
       prisma.payment.groupBy({
-        by: ["currencyId", "destination"],
+        by: ["currencyId", "destination", "paymentMethod"],
         where: { ...cityFilter, status: "active" },
         _sum: { amount: true },
       }),
@@ -151,7 +151,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       }
 
       // Payments to our_account → cash IN
-      for (const p of paymentsByC.filter((p) => p.destination === "our_account")) {
+      for (const p of paymentsByC.filter((p) => p.destination === "our_account" && p.paymentMethod === "cash")) {
         const code = currCode[p.currencyId];
         cashByCurrency[code] = (cashByCurrency[code] || 0) + Number(p._sum.amount || 0);
       }

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import prisma from "@/lib/prisma";
-import { comparePassword, generateToken, getJwtExpiryMs, getJwtExpirySeconds, shouldUseSecureAuthCookie } from "@/lib/auth";
+import { comparePassword, generateOfflineShellToken, generateToken, getJwtExpiryMs, getJwtExpirySeconds, shouldUseSecureAuthCookie } from "@/lib/auth";
 import { loginSchema } from "@/lib/validations";
 import { successResponse, validationError, errorResponse } from "@/lib/api-response";
 import { checkRateLimit, rejectIfRateLimited } from "@/lib/rate-limit";
@@ -154,6 +154,15 @@ export async function POST(request: NextRequest) {
           platform: packagedPlatform.slice(0, 50),
         })
       : null;
+    const offlineShellToken = offlineDevice
+      ? generateOfflineShellToken({
+          userId: user.id,
+          username: user.username,
+          role: user.role,
+          cityId: user.cityId,
+          countryId: user.city?.countryId || null,
+        })
+      : null;
 
     // Set cookie for web app
     const response = successResponse({
@@ -172,6 +181,7 @@ export async function POST(request: NextRequest) {
         accessToken: token,
         offlineDeviceToken: offlineDevice.token,
         offlineDeviceTokenExpiresAt: offlineDevice.expiresAt.toISOString(),
+        offlineShellToken,
       } : {}),
     });
 

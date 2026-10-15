@@ -2,7 +2,8 @@ import {
   openOfflineDatabase,
 } from "@/lib/offline-cache";
 import { hydrateOfflineCachesFromSyncPayload } from "@/lib/offline-sync-hydrate";
-import { packagedFetch } from "@/lib/packaged-api";
+import { getOfflineDeviceToken, packagedFetch } from "@/lib/packaged-api";
+import type { OfflineModuleHashes, OfflineSyncMetadata } from "@/lib/offline-sync-delta";
 
 const FULL_SYNC_STORE = "full_sync_data";
 const FULL_SYNC_META_STORE = "full_sync_meta";
@@ -19,6 +20,8 @@ const SYNC_MODULES = [
   "investorDeposits", "investorWithdrawals",
   "superAdminExpenses", "voucherSequences",
   "lotPurchases", "lotCosts", "godownTransfers",
+  "financialYears", "consignees", "appBranding", "sarafiFxSnapshots",
+  "sarafiCaptureDrafts", "sbpFxSnapshots",
 ] as const;
 
 export interface SyncMeta {
@@ -28,6 +31,8 @@ export interface SyncMeta {
   error: string | null;
   moduleCounts: Record<string, number> | null;
   seedSource?: "bundled" | "live" | null;
+  cursor?: string | null;
+  moduleHashes?: OfflineModuleHashes | null;
 }
 
 function openDB(): Promise<IDBDatabase> {
@@ -128,30 +133,57 @@ async function replaceFullSyncModules(data: Record<string, unknown>) {
   }
 }
 
+async function mergeFullSyncModules(data: Record<string, unknown>) {
+  for (const mod of SYNC_MODULES) {
+    if (data[mod] === undefined) continue;
+    await dbPut(FULL_SYNC_STORE, { key: mod, data: data[mod] });
+  }
+}
+
+async function readAllFullSyncModules(): Promise<Record<string, unknown>> {
+  const data: Record<string, unknown> = {};
+  for (const mod of SYNC_MODULES) {
+    const row = await dbGet<{ key: string; data: unknown }>(FULL_SYNC_STORE, mod);
+    if (row) data[mod] = row.data;
+  }
+  return data;
+}
+
 export async function performFullSync(
   onProgress?: (module: string, index: number, total: number) => void
 ): Promise<{ success: boolean; error?: string }> {
+  const existingMeta = await getSyncMeta();
   const meta: SyncMeta = {
     lastAttemptedAt: new Date().toISOString(),
-    lastSyncedAt: null,
+    lastSyncedAt: existingMeta.lastSyncedAt,
     status: "syncing",
     error: null,
-    moduleCounts: null,
+    moduleCounts: existingMeta.moduleCounts,
+    cursor: existingMeta.cursor ?? null,
+    moduleHashes: existingMeta.moduleHashes ?? null,
   };
   await dbPut(FULL_SYNC_META_STORE, { key: META_KEY, ...meta });
 
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 120000);
+    const offlineDeviceToken = getOfflineDeviceToken();
     const res = await packagedFetch("/api/v1/offline/sync-all", {
       credentials: "include",
       signal: controller.signal,
+      headers: {
+        ...(existingMeta.moduleHashes ? { "x-offline-module-hashes": JSON.stringify(existingMeta.moduleHashes) } : {}),
+        ...(offlineDeviceToken ? { "x-offline-device-token": offlineDeviceToken } : {}),
+      },
     });
     clearTimeout(timeout);
 
     const json = await res.json().catch(() => ({}));
 
     if (!res.ok || !json.success) {
+      if (res.status === 401 && offlineDeviceToken && typeof window !== "undefined") {
+        window.dispatchEvent(new Event("mrf-offline-device-rejected"));
+      }
       meta.status = "failed";
       meta.error = json.error?.message || `Sync failed (${res.status})`;
       await dbPut(FULL_SYNC_META_STORE, { key: META_KEY, ...meta });
@@ -159,18 +191,25 @@ export async function performFullSync(
     }
 
     const data = json.data as Record<string, unknown>;
+    const syncMetadata = data._sync as OfflineSyncMetadata | undefined;
     for (let i = 0; i < SYNC_MODULES.length; i++) {
       const mod = SYNC_MODULES[i];
       if (data[mod] !== undefined) onProgress?.(mod, i + 1, SYNC_MODULES.length);
     }
 
-    await replaceFullSyncModules(data);
-    await hydrateOfflineCachesFromSyncPayload(data);
+    if (syncMetadata?.mode === "incremental") await mergeFullSyncModules(data);
+    else await replaceFullSyncModules(data);
+    const completeData = syncMetadata?.mode === "incremental"
+      ? { ...(await readAllFullSyncModules()), counts: data.counts, syncedAt: data.syncedAt }
+      : data;
+    await hydrateOfflineCachesFromSyncPayload(completeData);
 
     meta.status = "completed";
-    meta.lastSyncedAt = new Date().toISOString();
+    meta.lastSyncedAt = syncMetadata?.cursor || new Date().toISOString();
     meta.error = null;
     meta.moduleCounts = (data.counts as Record<string, number>) || {};
+    meta.cursor = syncMetadata?.cursor || meta.lastSyncedAt;
+    meta.moduleHashes = syncMetadata?.moduleHashes || null;
     await dbPut(FULL_SYNC_META_STORE, { key: META_KEY, ...meta });
 
     return { success: true };

@@ -26,6 +26,10 @@ jobs:
         run: npm run verify
         env:
           JWT_SECRET: ci-test-jwt-secret-long-enough-32
+          NEXT_PUBLIC_OFFLINE_ENABLED: "true"
+
+      - name: Apple platform readiness
+        run: npm run test:apple-readiness
 
       - name: Unit test library suites
         run: npm run test:lib
@@ -76,6 +80,12 @@ jobs:
       - name: Critical DB tests
         run: npm run test:critical-db
 
+      - name: Liability offline idempotency tests
+        run: npm run test:liability-idempotency-db
+
+      - name: Offline device control idempotency tests
+        run: npm run test:offline-device-controls-db
+
       - name: DB-backed library tests
         run: npm run test:db-lib
 
@@ -105,6 +115,7 @@ jobs:
       E2E_SUPERADMIN_PASSWORD: ci-admin-password
       E2E_CITYADMIN_USERNAME: quetta_admin
       E2E_CITYADMIN_PASSWORD: ci-city-admin-password
+      NEXT_PUBLIC_OFFLINE_ENABLED: "true"
     steps:
       - name: Checkout
         uses: actions/checkout@v4

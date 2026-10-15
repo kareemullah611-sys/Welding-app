@@ -6,6 +6,7 @@ import { LangProvider } from "@/lib/lang";
 import { OfflineProvider } from "@/hooks/useOffline";
 import OfflineBanner from "@/components/layout/OfflineBanner";
 import { ThemeProvider } from "@/hooks/useTheme";
+import { Toaster } from "react-hot-toast";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -47,6 +48,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <OfflineProvider>
                 {children}
                 <OfflineBanner />
+                {/* toast.* calls are inert without a mounted Toaster */}
+                <Toaster
+                  position="top-center"
+                  containerStyle={{ paddingTop: "env(safe-area-inset-top)" }}
+                />
               </OfflineProvider>
             </AuthProvider>
           </LangProvider>

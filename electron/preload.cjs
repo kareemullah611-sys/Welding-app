@@ -7,4 +7,9 @@ contextBridge.exposeInMainWorld("platformInfo", {
   getLocalPort: () => ipcRenderer.invoke("electron:get-local-port"),
   hasLocalBuild: () => ipcRenderer.invoke("electron:has-local-build"),
   openRemoteInBrowser: () => ipcRenderer.invoke("electron:open-remote-in-browser"),
+  onBackgroundSyncTrigger: (callback) => {
+    const listener = (_event, reason) => callback(reason);
+    ipcRenderer.on("electron:background-sync-trigger", listener);
+    return () => ipcRenderer.removeListener("electron:background-sync-trigger", listener);
+  },
 });

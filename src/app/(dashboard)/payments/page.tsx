@@ -2134,7 +2134,7 @@ export default function PaymentsPage() {
               <button
                 type="button"
                 onClick={() => setSearchQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full px-1 text-sm leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                className="tap-target absolute right-2 top-1/2 -translate-y-1/2 rounded-full px-1 text-sm leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-700"
                 aria-label="Clear search"
               >
                 ×
@@ -2208,7 +2208,7 @@ export default function PaymentsPage() {
       )}
 
       {!isEmbed && queueSaved && (
-        <div className="fixed bottom-6 right-6 z-50 bg-green-600 text-white text-sm font-medium px-5 py-3 rounded-2xl shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4">
+        <div className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom))] right-[max(1.5rem,env(safe-area-inset-right))] z-50 bg-green-600 text-white text-sm font-medium px-5 py-3 rounded-2xl shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4">
           ✓ All payments saved successfully!
         </div>
       )}
@@ -3058,7 +3058,7 @@ export default function PaymentsPage() {
                   <span className="text-[10px] text-blue-500 truncate">{q.voucherNo || "—"}</span>
                   <span className="text-xs font-bold text-blue-800 text-right whitespace-nowrap">{q.currencySymbol} {q.amount.toLocaleString("en-US")}</span>
                   <button type="button" onClick={() => setPaymentQueue(prev => prev.filter(p => p.tempId !== q.tempId))}
-                    className="flex h-6 w-6 items-center justify-center rounded-md text-blue-300 transition-colors hover:bg-blue-100 hover:text-red-500" aria-label="Remove from queue">✕</button>
+                    className="tap-target relative flex h-6 w-6 items-center justify-center rounded-md text-blue-300 transition-colors hover:bg-blue-100 hover:text-red-500" aria-label="Remove from queue">✕</button>
                 </div>
               ))}
             </div>

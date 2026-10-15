@@ -26,12 +26,12 @@ function hasOfflinePrimitive(source) {
 
 const ORCHESTRATED_BY_SHARED_API_QUEUE = new Set([
   "src/app/(dashboard)/super-admin-account-transfers/page.tsx",
+  "src/app/(dashboard)/liabilities/page.tsx",
+  "src/app/(dashboard)/super-admin-liabilities/page.tsx",
 ]);
 
 const EXPLICITLY_ONLINE_ONLY = new Set([
   "src/app/(dashboard)/delivery/page.tsx",
-  "src/app/(dashboard)/liabilities/page.tsx",
-  "src/app/(dashboard)/super-admin-liabilities/page.tsx",
 ]);
 
 function main() {

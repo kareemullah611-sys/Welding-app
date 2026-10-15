@@ -11,6 +11,14 @@ export default defineConfig({
   reporter: "list",
   globalSetup: require.resolve("./e2e/global-setup.ts"),
   globalTeardown: require.resolve("./e2e/global-teardown.ts"),
+  // Every spec runs against `next dev`, which compiles routes on first request.
+  // From a cold cache (fresh CI checkout) that takes far longer than Playwright's
+  // 5s default, so specs failed intermittently before a route had been warmed.
+  // Raising the shared timeout fixes the whole suite without weakening any
+  // assertion; once warm the same routes settle in ~1s.
+  expect: {
+    timeout: 30_000,
+  },
   use: {
     baseURL,
     trace: "retain-on-failure",

@@ -1,6 +1,7 @@
 import { isOfflineFeaturesEnabled } from "@/lib/offline-features";
 import { getPackagedServerReachable } from "@/lib/offline-reachability";
 import {
+  isAllowlistedOfflineMutation as isPolicyAllowlistedOfflineMutation,
   isAllowlistedOfflineMutationPath as isPolicyAllowlistedOfflineMutationPath,
   isOfflineQueueBlockedPath as isPolicyOfflineQueueBlockedPath,
 } from "@/lib/offline-route-policy";
@@ -94,6 +95,8 @@ const OFFLINE_AUDIT_META_BY_PATH: Record<string, { entityType: string; entityLab
   "/api/v1/city-transfers": { entityType: "city_transfer", entityLabel: "City Transfer" },
   "/api/v1/godowns/transfers": { entityType: "godown_transfer", entityLabel: "Godown Transfer" },
   "/api/v1/investors": { entityType: "investor", entityLabel: "Investor" },
+  "/api/v1/liabilities": { entityType: "city_liability_account", entityLabel: "City Liability" },
+  "/api/v1/super-admin-liabilities": { entityType: "super_admin_liability_account", entityLabel: "Superadmin Liability" },
 };
 
 function getDynamicAuditMeta(path: string): { entityType: string; entityLabel: string } | null {
@@ -105,6 +108,12 @@ function getDynamicAuditMeta(path: string): { entityType: string; entityLabel: s
   }
   if (/^\/api\/v1\/investors\/\d+\/transactions$/.test(path)) {
     return { entityType: "investor_transaction", entityLabel: "Investor Transaction" };
+  }
+  if (/^\/api\/v1\/liabilities\/\d+\/entries$/.test(path)) {
+    return { entityType: "city_liability_entry", entityLabel: "City Liability Entry" };
+  }
+  if (/^\/api\/v1\/super-admin-liabilities\/\d+\/entries$/.test(path)) {
+    return { entityType: "super_admin_liability_entry", entityLabel: "Superadmin Liability Entry" };
   }
   return null;
 }
@@ -197,6 +206,12 @@ function detailFromBody(path: string, body: unknown): string | null {
   if (path === "/api/v1/investors" && typeof record.name === "string" && record.name.trim()) {
     return `Investor: ${record.name.trim()}`;
   }
+  if ((path === "/api/v1/liabilities" || path === "/api/v1/super-admin-liabilities") && typeof record.name === "string" && record.name.trim()) {
+    return `Liability: ${record.name.trim()}`;
+  }
+  if ((/^\/api\/v1\/liabilities\/\d+\/entries$/.test(path) || /^\/api\/v1\/super-admin-liabilities\/\d+\/entries$/.test(path)) && typeof record.amount !== "undefined") {
+    return `Amount: ${record.amount}`;
+  }
   return null;
 }
 
@@ -286,14 +301,8 @@ export function shouldAutoQueueOfflineWrite(url: string, method: string): boolea
   if (!path.startsWith("/api/v1/")) return false;
   if (path.startsWith("/api/v1/auth/")) return false;
   if (path === "/api/v1/auth/logout") return false;
-  if (isOfflineQueueBlockedPath(path)) return false;
-
-  if (normalizedMethod === "POST") {
-    return isAllowlistedOfflineMutationPath(path);
-  }
-
-  if (["PUT", "PATCH", "DELETE"].includes(normalizedMethod)) {
-    return isAllowlistedOfflineMutationPath(path);
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(normalizedMethod)) {
+    return isPolicyAllowlistedOfflineMutation(path, normalizedMethod);
   }
 
   return false;
@@ -310,4 +319,14 @@ export function shouldQueueOfflineWriteNow(url: string, method: string): boolean
 export function shouldQueueOfflineWriteOnNetworkFailure(url: string, method: string): boolean {
   if (!isPackagedOfflineActive()) return false;
   return shouldAutoQueueOfflineWrite(url, method);
+}
+
+export function getOfflineMutationBlockReason(url: string, method: string): string | null {
+  const normalizedMethod = String(method || "GET").toUpperCase();
+  const path = normalizeApiPath(url);
+  if (!isPackagedOfflineActive() || getPackagedServerReachable()) return null;
+  if (!path.startsWith("/api/v1/") || path.startsWith("/api/v1/auth/")) return null;
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(normalizedMethod)) return null;
+  if (shouldAutoQueueOfflineWrite(path, normalizedMethod)) return null;
+  return "This action requires an internet connection because offline retry safety has not been verified. Your data was not changed.";
 }

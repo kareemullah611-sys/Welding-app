@@ -523,7 +523,7 @@ export async function journalPaymentReceived(
   db: DbClient = prisma
 ) {
   let debitAccId: number;
-  if (p.bankAccountId && p.paymentMethod === "bank_transfer") {
+  if (p.bankAccountId && (p.paymentMethod === "bank_transfer" || p.paymentMethod === "online")) {
     debitAccId = await getBankGLAccountId(p.bankAccountId, db);
   } else {
     debitAccId = await getCashAccountId(p.cityId, db);

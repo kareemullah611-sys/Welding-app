@@ -3,6 +3,9 @@ import prisma from "@/lib/prisma";
 import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, paginatedResponse, validationError, errorResponse, serverError, getPaginationParams } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { getSyncRequestMeta } from "@/lib/sync-idempotency";
+
+const CITY_LIABILITY_ACCOUNT_SYNC_MODULE = "city_liability_accounts.create";
 
 function round2(value: number) {
   return Math.round(value * 100) / 100;
@@ -85,13 +88,36 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
 });
 
 export const POST = withAuth(async (request: NextRequest, _context, user: JWTPayload) => {
+  const syncMeta = getSyncRequestMeta(request);
   try {
     if (user.role !== "city_admin") return errorResponse("FORBIDDEN", "Only city admins can create liabilities", 403);
     const body = await request.json();
     const name = String(body.name || "").trim();
     if (!name) return validationError("Liability name is required");
     const cityId = user.cityId!;
-    const account = await prisma.$transaction(async (tx) => {
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: { unique_sync_request_per_city_module: { cityId, module: CITY_LIABILITY_ACCOUNT_SYNC_MODULE, requestId: syncMeta.requestId } },
+      });
+      if (existingSync?.entityId) {
+        const existing = await prisma.cityLiabilityAccount.findUnique({ where: { id: existingSync.entityId } });
+        if (existing) return successResponse(existing, "Liability already created");
+      }
+    }
+    const result = await prisma.$transaction(async (tx) => {
+      if (syncMeta) {
+        await tx.$executeRawUnsafe(
+          "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
+          `sync:${cityId}:${CITY_LIABILITY_ACCOUNT_SYNC_MODULE}:${syncMeta.requestId}`,
+        );
+        const existingSync = await tx.syncRequest.findUnique({
+          where: { unique_sync_request_per_city_module: { cityId, module: CITY_LIABILITY_ACCOUNT_SYNC_MODULE, requestId: syncMeta.requestId } },
+        });
+        if (existingSync?.entityId) {
+          const existing = await tx.cityLiabilityAccount.findUnique({ where: { id: existingSync.entityId } });
+          if (existing) return { account: existing, duplicate: true };
+        }
+      }
       const created = await tx.cityLiabilityAccount.create({
         data: {
           cityId,
@@ -102,9 +128,22 @@ export const POST = withAuth(async (request: NextRequest, _context, user: JWTPay
         },
       });
       await createAuditLog(user.userId, cityId, "city_liability_accounts", created.id, "create", undefined, { name }, getClientIP(request), tx);
-      return created;
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId,
+            module: CITY_LIABILITY_ACCOUNT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "city_liability_accounts",
+            entityId: created.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+      return { account: created, duplicate: false };
     });
-    return successResponse(account, "Liability created", 201);
+    return successResponse(result.account, result.duplicate ? "Liability already created" : "Liability created", result.duplicate ? 200 : 201);
   } catch (error: any) {
     if (error?.code === "P2002") return validationError("Liability name already exists for this city");
     console.error("Create liability error:", error);

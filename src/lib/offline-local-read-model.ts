@@ -26,6 +26,8 @@ const CREATE_LIST_PATHS = new Set([
   "/api/v1/agents",
   "/api/v1/investors",
   "/api/v1/lots",
+  "/api/v1/liabilities",
+  "/api/v1/super-admin-liabilities",
 ]);
 
 function safeObject(value: unknown): Record<string, unknown> {
@@ -285,6 +287,36 @@ function pendingLot(body: unknown, queueId: string, timestamp: number) {
   };
 }
 
+function pendingCityLiability(body: unknown, queueId: string, timestamp: number) {
+  const payload = safeObject(body);
+  return {
+    id: makePendingId(queueId),
+    name: String(payload.name || "Liability"),
+    phone: String(payload.phone || ""),
+    notes: String(payload.notes || ""),
+    isActive: true,
+    balance: 0,
+    balanceByCurrency: {},
+    createdAt: new Date(timestamp).toISOString(),
+  };
+}
+
+function pendingSuperAdminLiability(body: unknown, queueId: string, timestamp: number) {
+  const payload = safeObject(body);
+  return {
+    id: makePendingId(queueId),
+    name: String(payload.name || "Liability"),
+    partyType: String(payload.partyType || "lender"),
+    phone: String(payload.phone || ""),
+    address: String(payload.address || ""),
+    notes: String(payload.notes || ""),
+    isActive: true,
+    balancePkr: 0,
+    balancesByCurrency: {},
+    createdAt: new Date(timestamp).toISOString(),
+  };
+}
+
 export function buildPendingReadModelRow(path: string, body: unknown, queueId: string, timestamp: number): Record<string, unknown> | null {
   if (path === "/api/v1/customers") return pendingCustomer(body, queueId, timestamp);
   if (path === "/api/v1/sales") return pendingSale(body, queueId, timestamp);
@@ -304,6 +336,8 @@ export function buildPendingReadModelRow(path: string, body: unknown, queueId: s
   if (path === "/api/v1/agents") return pendingAgent(body, queueId, timestamp);
   if (path === "/api/v1/investors") return pendingInvestor(body, queueId, timestamp);
   if (path === "/api/v1/lots") return pendingLot(body, queueId, timestamp);
+  if (path === "/api/v1/liabilities") return pendingCityLiability(body, queueId, timestamp);
+  if (path === "/api/v1/super-admin-liabilities") return pendingSuperAdminLiability(body, queueId, timestamp);
   return null;
 }
 

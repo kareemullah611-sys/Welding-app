@@ -41,9 +41,9 @@ addEventListener("mrfReadSyncState", (resolve, reject) => {
 
 addEventListener("mrfOfflineSync", async (resolve, reject) => {
   try {
-    const network = CapacitorNetwork.getStatus();
+    const network = CapacitorDevice.getNetworkStatus();
     const state = readState();
-    if (!network.connected || !state || !state.apiBaseUrl || !state.deviceToken) {
+    if (!network || !network.connected || !state || !state.apiBaseUrl || !state.deviceToken) {
       resolve({ synced: 0, remaining: state && state.queue ? state.queue.length : 0 });
       return;
     }

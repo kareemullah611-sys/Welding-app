@@ -1,6 +1,12 @@
 import type { PrismaClient } from "@prisma/client";
 import { listLegacyStockForSync } from "@/lib/legacy-stock-lot";
 import { isAfghanistanCountry } from "@/lib/country-code";
+import { DEFAULT_APP_BRANDING, normalizeAppBranding } from "@/lib/app-branding";
+import { listSarafiAfFxSnapshots } from "@/lib/sarafi-af-snapshot-db";
+import { listSarafiAfCaptureDrafts } from "@/lib/sarafi-af-assisted-capture-db";
+import { listSbpDailyFxSnapshots } from "@/lib/sbp-daily-fx-db";
+import { buildSarafiAfScheduledSnapshotDate, isSarafiAfAutoSnapshotEnabled } from "@/lib/sarafi-af-snapshot";
+import { isSarafiAfAssistedCaptureEnabled } from "@/lib/sarafi-af-assisted-capture";
 
 export type OfflineSyncScope = {
   role: "super_admin" | "city_admin";
@@ -156,6 +162,18 @@ export async function buildOfflineSyncPayload(
     },
     orderBy: [{ accountKind: "asc" }, { bankName: "asc" }],
   });
+  const appBrandingRow = await prisma.appBranding.findUnique({ where: { id: 1 } });
+  const appBranding = normalizeAppBranding(appBrandingRow || DEFAULT_APP_BRANDING);
+
+  const [financialYears, consignees, sarafiSnapshots, sarafiCaptureDrafts, sbpSnapshots] = isCityAdmin
+    ? [emptyArr, emptyArr, emptyArr, emptyArr, emptyArr]
+    : await Promise.all([
+        prisma.financialYear.findMany({ orderBy: { startDate: "desc" } }),
+        prisma.consignee.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
+        listSarafiAfFxSnapshots(30),
+        listSarafiAfCaptureDrafts(30),
+        listSbpDailyFxSnapshots(30),
+      ]);
 
   const [
     suppliers,
@@ -337,6 +355,19 @@ export async function buildOfflineSyncPayload(
     lotPurchases,
     lotCosts,
     godownTransfers,
+    financialYears,
+    consignees,
+    appBranding,
+    sarafiFxSnapshots: {
+      snapshots: sarafiSnapshots,
+      schedule: buildSarafiAfScheduledSnapshotDate(),
+      autoSnapshotEnabled: isSarafiAfAutoSnapshotEnabled(),
+    },
+    sarafiCaptureDrafts: {
+      captures: sarafiCaptureDrafts,
+      assistedCaptureEnabled: isSarafiAfAssistedCaptureEnabled(),
+    },
+    sbpFxSnapshots: { snapshots: sbpSnapshots },
   };
 
   const counts: Record<string, number> = {};

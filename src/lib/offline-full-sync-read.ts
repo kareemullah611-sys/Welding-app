@@ -29,7 +29,15 @@ const API_PATH_TO_MODULE: Record<string, string> = {
   "/api/v1/agent-payments": "agentPayments",
   "/api/v1/shipping-line-payments": "shippingLinePayments",
   "/api/v1/super-admin-personal-expenses": "superAdminExpenses",
+  "/api/v1/financial-years": "financialYears",
+  "/api/v1/consignees": "consignees",
+  "/api/v1/app-branding": "appBranding",
+  "/api/v1/fx-snapshots/sarafi-af": "sarafiFxSnapshots",
+  "/api/v1/fx-snapshots/sarafi-af/captures": "sarafiCaptureDrafts",
+  "/api/v1/fx-snapshots/sbp": "sbpFxSnapshots",
 };
+
+const OBJECT_MODULES = new Set(["appBranding", "sarafiFxSnapshots", "sarafiCaptureDrafts", "sbpFxSnapshots"]);
 
 function normalizeApiPath(url: string): string {
   const raw = String(url || "").trim();
@@ -95,6 +103,7 @@ export function paginateSyncedList<T>(
 
 export function getModuleKeyForApiPath(url: string): string | null {
   const path = normalizeApiPath(url);
+  if (API_PATH_TO_MODULE[path]) return API_PATH_TO_MODULE[path];
   const listMatch = path.match(/^(\/api\/v1\/[^/]+)(?:\/|$)/);
   const listPath = listMatch?.[1] ?? path;
   return API_PATH_TO_MODULE[listPath] ?? null;
@@ -142,6 +151,9 @@ export async function getFullSyncDataForApiRequest<T = unknown>(
   if (!moduleKey) return null;
 
   const raw = await getSyncedModuleData(moduleKey);
+  if (OBJECT_MODULES.has(moduleKey) && raw && typeof raw === "object") {
+    return { data: raw as T };
+  }
   if (!Array.isArray(raw)) return null;
 
   const filtered = filterSyncedListRows(raw, params);

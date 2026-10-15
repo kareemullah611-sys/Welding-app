@@ -11,7 +11,7 @@ import { applyPendingDashboardMetrics } from "@/lib/offline-dashboard";
 import { formatCityAmount, isSingleCurrencyCityAdmin } from "@/lib/city-money-format";
 import { cn } from "@/lib/utils";
 import BalanceHub from "@/components/dashboard/BalanceHub";
-import { QUICKFORM_POST_MESSAGE } from "@/lib/quickform-embed";
+import { QUICKFORM_POST_MESSAGE, getQuickformSrc } from "@/lib/quickform-embed";
 import Link from "next/link";
 import { 
   ShoppingCart, 
@@ -65,7 +65,7 @@ const QuickActionCard = ({
         className={`quick-action-glow pointer-events-none absolute left-10 top-3 h-12 w-12 rounded-full blur-2xl ${theme.glow}`}
       />
       <div
-        className={`relative flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-[13px] bg-gradient-to-b text-white shadow-[0_8px_20px_-8px_rgba(0,0,0,0.45)] ring-1 ring-white/40 transition-transform duration-500 ease-[cubic-bezier(0.34,1.45,0.64,1)] group-hover:scale-110 group-active:scale-95 ${theme.icon}`}
+        className={`relative flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-[13px] bg-gradient-to-b text-white shadow-[0_8px_20px_-8px_rgba(0,0,0,0.45)] ring-1 ring-white/40 transition-transform duration-500 [transition-timing-function:cubic-bezier(0.34,1.45,0.64,1)] group-hover:scale-110 group-active:scale-95 ${theme.icon}`}
       >
         <div className="pointer-events-none absolute inset-0 rounded-[13px] bg-gradient-to-b from-white/35 to-transparent" />
         <Icon className="relative h-[21px] w-[21px]" strokeWidth={2} />
@@ -397,16 +397,16 @@ export default function DashboardPage() {
           <QuickActionCard 
             icon={ShoppingCart} 
             title="Sale" 
-            src="/sales?create=1&embed=1"
+            src={getQuickformSrc("sales", "1")}
             color="blue"
-            onClick={() => { collapseBalanceHub(); openQuickForm("Sale", "/sales?create=1&embed=1"); }}
+            onClick={() => { collapseBalanceHub(); openQuickForm("Sale", getQuickformSrc("sales", "1")); }}
           />
           <QuickActionCard 
             icon={Banknote} 
             title="Payment" 
-            src="/payments?create=payment&embed=1"
+            src={getQuickformSrc("payments", "payment")}
             color="green"
-            onClick={() => { collapseBalanceHub(); openQuickForm("Payment", "/payments?create=payment&embed=1"); }}
+            onClick={() => { collapseBalanceHub(); openQuickForm("Payment", getQuickformSrc("payments", "payment")); }}
           />
           </div>
         </div>

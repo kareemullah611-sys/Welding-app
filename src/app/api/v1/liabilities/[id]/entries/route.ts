@@ -4,17 +4,27 @@ import { withAuth, createAuditLog, getClientIP } from "@/lib/middleware";
 import { successResponse, validationError, errorResponse, serverError } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
 import { journalCityLiabilityCharge, journalCityLiabilityPayment } from "@/lib/accounting";
+import { getSyncRequestMeta } from "@/lib/sync-idempotency";
+
+const CITY_LIABILITY_ENTRY_SYNC_MODULE = "city_liability_entries.create";
 
 function dateOnly(value?: string | null) {
   return value ? new Date(value) : new Date();
 }
 
 export const POST = withAuth(async (request: NextRequest, context: any, user: JWTPayload) => {
+  const syncMeta = getSyncRequestMeta(request);
   try {
     if (user.role !== "city_admin") return errorResponse("FORBIDDEN", "Only city admins can create liability entries", 403);
     const accountId = Number(context.params.id);
     const body = await request.json();
     const cityId = user.cityId!;
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: { unique_sync_request_per_city_module: { cityId, module: CITY_LIABILITY_ENTRY_SYNC_MODULE, requestId: syncMeta.requestId } },
+      });
+      if (existingSync?.entityId) return successResponse({ id: existingSync.entityId }, "Liability entry already saved");
+    }
     const account = await prisma.cityLiabilityAccount.findUnique({ where: { id: accountId } });
     if (!account) return errorResponse("NOT_FOUND", "Liability not found", 404);
     if (account.cityId !== cityId) return errorResponse("FORBIDDEN", "Not your city", 403);
@@ -61,7 +71,17 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
       if (!bankAccount.isActive) return errorResponse("VALIDATION_ERROR", "Bank account is inactive");
     }
 
-    const entry = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
+      if (syncMeta) {
+        await tx.$executeRawUnsafe(
+          "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
+          `sync:${cityId}:${CITY_LIABILITY_ENTRY_SYNC_MODULE}:${syncMeta.requestId}`,
+        );
+        const existingSync = await tx.syncRequest.findUnique({
+          where: { unique_sync_request_per_city_module: { cityId, module: CITY_LIABILITY_ENTRY_SYNC_MODULE, requestId: syncMeta.requestId } },
+        });
+        if (existingSync?.entityId) return { id: existingSync.entityId, duplicate: true };
+      }
       if (paymentSource === "cheque" && chequePaymentId) {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(32005, ${chequePaymentId}::int)`;
         const chequePayment = await tx.payment.findUnique({ where: { id: chequePaymentId } });
@@ -129,10 +149,23 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
         amount,
         detail,
       }, getClientIP(request), tx);
-      return created;
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId,
+            module: CITY_LIABILITY_ENTRY_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "city_liability_entries",
+            entityId: created.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+      return { id: created.id, duplicate: false };
     });
 
-    return successResponse({ id: entry.id }, "Liability entry saved", 201);
+    return successResponse({ id: result.id }, result.duplicate ? "Liability entry already saved" : "Liability entry saved", result.duplicate ? 200 : 201);
   } catch (error: any) {
     if (error?.message === "CHEQUE_NOT_FOUND") return errorResponse("NOT_FOUND", "Cheque not found", 404);
     if (error?.message === "CHEQUE_FORBIDDEN") return errorResponse("FORBIDDEN", "Cheque does not belong to your city", 403);

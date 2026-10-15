@@ -6,7 +6,7 @@ import prisma from "@/lib/prisma";
 import { runWithPrismaRequestContext } from "@/lib/prisma-request-context";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { authenticateOfflineSyncDevice } from "@/lib/offline-device-auth";
-import { isAllowlistedOfflineMutationPath } from "@/lib/offline-route-policy";
+import { isAllowlistedOfflineRequest } from "@/lib/offline-route-policy";
 
 export type ApiHandler = (
   request: NextRequest,
@@ -139,7 +139,7 @@ export function withAuth(handler: ApiHandler): WrappedApiHandler {
     if (!isCsrfSafe(request)) return csrfError();
     if (request.headers.get("x-offline-device-token")) {
       const path = request.nextUrl.pathname;
-      if (!MUTATION_METHODS.has(request.method) || !isAllowlistedOfflineMutationPath(path)) {
+      if (!isAllowlistedOfflineRequest(path, request.method)) {
         return unauthorizedResponse("Offline device credential is not permitted for this operation");
       }
       const deviceUser = await authenticateOfflineSyncDevice(request);

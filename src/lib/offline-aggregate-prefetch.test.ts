@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getOfflineAggregateForApiRequest } from "@/lib/offline-aggregate-prefetch";
+import { getOfflineAggregateForApiRequest, getOfflineExactPrefetchRequests } from "@/lib/offline-aggregate-prefetch";
 
 class MemoryStorage {
   private map = new Map<string, string>();
@@ -36,4 +36,23 @@ test("getOfflineAggregateForApiRequest reads dashboard snapshot fields", () => {
     if (prevEnv === undefined) delete process.env.NEXT_PUBLIC_OFFLINE_ENABLED;
     else process.env.NEXT_PUBLIC_OFFLINE_ENABLED = prevEnv;
   }
+});
+
+test("exact prefetch requests cover authoritative city ledgers and superadmin reports", () => {
+  const cityRequests = getOfflineExactPrefetchRequests(
+    { role: "city_admin", cityId: 7 },
+    2026,
+    []
+  );
+  assert.ok(cityRequests.some((request) => request.path === "/api/v1/finance/combined" && request.params.limit === 20));
+  assert.ok(cityRequests.some((request) => request.path === "/api/v1/city-ledger" && request.params.city_id === 7));
+
+  const superRequests = getOfflineExactPrefetchRequests(
+    { role: "super_admin", cityId: null },
+    2026,
+    [{ status: "open", startDate: "2026-03-01", endDate: "2027-02-18" }]
+  );
+  assert.ok(superRequests.some((request) => request.path === "/api/v1/financial-reports" && request.params.report === "pnl"));
+  assert.ok(superRequests.some((request) => request.path === "/api/v1/trial-balance" && request.params.date_from === "2026-03-01"));
+  assert.ok(superRequests.some((request) => request.path === "/api/v1/finance/combined" && request.params.destination === "haji"));
 });

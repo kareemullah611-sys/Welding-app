@@ -6,14 +6,14 @@ if (legacyServerUrl.startsWith("http://") && !allowCleartextHttp) {
 }
 
 const config = {
-  appId: "com.mrf.kandahar",
-  appName: "MRF Kandahar",
+  appId: "com.mrf.hardware",
+  appName: "MRF Hardware",
   webDir: "out",
   bundledWebRuntime: false,
   plugins: {
     CapacitorHttp: { enabled: true },
     BackgroundRunner: {
-      label: "com.mrf.kandahar.offline.sync",
+      label: "com.mrf.hardware.offline.sync",
       src: "runners/offline-sync.js",
       event: "mrfOfflineSync",
       repeat: true,

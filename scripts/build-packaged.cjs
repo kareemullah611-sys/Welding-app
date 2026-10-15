@@ -5,6 +5,17 @@ const { spawnSync } = require("node:child_process");
 const root = path.resolve(__dirname, "..");
 const apiPath = path.join(root, "src", "app", "api");
 const parkedApiPath = path.join(root, "src", "app", "_api");
+const exportPath = path.join(root, "out");
+
+function removePrivateRuntimeFiles() {
+  fs.rmSync(path.join(exportPath, "uploads"), { recursive: true, force: true });
+  if (!fs.existsSync(exportPath)) return;
+  for (const entry of fs.readdirSync(exportPath, { recursive: true })) {
+    if (path.basename(entry) === ".DS_Store") {
+      fs.rmSync(path.join(exportPath, entry), { force: true });
+    }
+  }
+}
 
 if (fs.existsSync(parkedApiPath)) {
   throw new Error("src/app/_api already exists; restore src/app/api before building");
@@ -26,6 +37,7 @@ try {
     if (result.status !== 0) process.exitCode = result.status || 1;
     if (process.exitCode) break;
   }
+  if (!process.exitCode) removePrivateRuntimeFiles();
 } finally {
   fs.renameSync(parkedApiPath, apiPath);
 }

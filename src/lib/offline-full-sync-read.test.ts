@@ -10,6 +10,11 @@ test("getModuleKeyForApiPath maps list endpoints", () => {
   assert.equal(getModuleKeyForApiPath("/api/v1/sales"), "sales");
   assert.equal(getModuleKeyForApiPath("/api/v1/shipping-lines"), "shippingLines");
   assert.equal(getModuleKeyForApiPath("/api/v1/customers/42"), "customers");
+  assert.equal(getModuleKeyForApiPath("/api/v1/financial-years"), "financialYears");
+  assert.equal(getModuleKeyForApiPath("/api/v1/consignees"), "consignees");
+  assert.equal(getModuleKeyForApiPath("/api/v1/app-branding"), "appBranding");
+  assert.equal(getModuleKeyForApiPath("/api/v1/fx-snapshots/sarafi-af"), "sarafiFxSnapshots");
+  assert.equal(getModuleKeyForApiPath("/api/v1/fx-snapshots/sbp"), "sbpFxSnapshots");
   assert.equal(getModuleKeyForApiPath("/api/v1/unknown"), null);
 });
 

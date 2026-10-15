@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, ipcMain, Menu, Tray, nativeImage } = require("electron");
+const { app, BrowserWindow, shell, ipcMain, Menu, Tray, nativeImage, powerMonitor } = require("electron");
 // shell used to wake the remote server in the system browser
 const path = require("path");
 const fs = require("fs");
@@ -20,6 +20,7 @@ function readConfiguredUrl() {
 const REMOTE_URL = process.env.ELECTRON_START_URL || readConfiguredUrl() || "http://localhost:3000";
 const STATIC_DIR = path.resolve(path.join(__dirname, "..", "out"));
 const LOCAL_APP_PORT = 47819;
+const BACKGROUND_SYNC_INTERVAL_MS = 60 * 1000;
 
 const { getSecurityHeaders } = require("../scripts/security-headers.cjs");
 
@@ -350,6 +351,7 @@ let localPort = null;
 let mainWindow = null;
 let tray = null;
 let isQuitting = false;
+let backgroundSyncTimer = null;
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
 if (!hasSingleInstanceLock) app.quit();
@@ -405,6 +407,20 @@ function createTray() {
   return true;
 }
 
+function sendBackgroundSyncTrigger(reason) {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+  mainWindow.webContents.send("electron:background-sync-trigger", reason);
+}
+
+function configureBackgroundLaunch() {
+  if (!app.isPackaged) return;
+  app.setLoginItemSettings({
+    openAtLogin: true,
+    openAsHidden: true,
+    args: process.platform === "win32" ? ["--background"] : [],
+  });
+}
+
 if (hasSingleInstanceLock) app.whenReady().then(async () => {
   if (hasLocalBuild()) {
     try {
@@ -436,11 +452,26 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
     return true;
   });
 
+  configureBackgroundLaunch();
+  const loginSettings = app.getLoginItemSettings();
+  const startHidden = process.argv.includes("--background") || loginSettings.wasOpenedAsHidden === true;
+
   mainWindow = createWindow(localPort);
-  mainWindow.show();
-  mainWindow.focus();
-  if (process.platform === "darwin") app.focus({ steal: true });
+  if (startHidden) {
+    mainWindow.hide();
+  } else {
+    mainWindow.show();
+    mainWindow.focus();
+    if (process.platform === "darwin") app.focus({ steal: true });
+  }
   createTray();
+
+  powerMonitor.on("resume", () => sendBackgroundSyncTrigger("resume"));
+  powerMonitor.on("unlock-screen", () => sendBackgroundSyncTrigger("unlock-screen"));
+  backgroundSyncTimer = setInterval(
+    () => sendBackgroundSyncTrigger("periodic"),
+    BACKGROUND_SYNC_INTERVAL_MS
+  );
 
   app.on("activate", () => {
     if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createWindow(localPort);
@@ -456,6 +487,7 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  if (backgroundSyncTimer) clearInterval(backgroundSyncTimer);
   if (localServer) localServer.close();
 });
 

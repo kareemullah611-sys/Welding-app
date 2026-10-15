@@ -1,9 +1,26 @@
 /** Dashboard iframe quickforms (?embed=1). */
 
+import { isCapacitorRuntime } from "@/lib/packaged-api";
+
 export const QUICKFORM_POST_MESSAGE = {
   close: "dashboard-quick-close",
   reload: "dashboard-quickform-reload",
 } as const;
+
+/**
+ * URL for the dashboard quickform iframe.
+ *
+ * On Capacitor the app is a static export served through WebViewAssetHandler,
+ * whose router (Router.swift) maps every extensionless path to the *root*
+ * index.html. A quickform iframe is a real document load, so "/sales" would be
+ * served the login page instead of the module. Pointing at the exported file
+ * resolves correctly, and Next's client router normalises the pathname back to
+ * the route. Web/Electron run a real server that already routes "/sales".
+ */
+export function getQuickformSrc(route: string, create: string): string {
+  const query = `create=${create}&embed=1`;
+  return isCapacitorRuntime() ? `/${route}/index.html?${query}` : `/${route}?${query}`;
+}
 
 export function getEmbedFromLocation(): boolean {
   if (typeof window === "undefined") return false;

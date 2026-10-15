@@ -15,6 +15,11 @@ type ReportType = "haji_settlement" | "city_ledger" | "discount_history";
 type DatePreset = "month" | "last7" | "all" | "custom";
 
 const REPORTS_READ_CACHE_KEY = "mrf-reports-read-cache-v1";
+const REPORT_SEARCH_COLUMN_KEYS: Record<ReportType, string[]> = {
+  haji_settlement: ["detail"],
+  city_ledger: ["description"],
+  discount_history: ["customer", "saleVoucherNo", "lotNumber", "notes"],
+};
 
 type ReportsReadSnapshot = {
   customers: any[];
@@ -371,17 +376,12 @@ export default function ReportsPage() {
   };
 
   const activeColumns = cols[reportType];
-  const reportSearchColumnKeys: Record<ReportType, string[]> = {
-    haji_settlement: ["detail"],
-    city_ledger: ["description"],
-    discount_history: ["customer", "saleVoucherNo", "lotNumber", "notes"],
-  };
   const supportsXlsxExport = reportType === "city_ledger" || reportType === "haji_settlement";
 
   const filteredExportRows = useMemo(() => {
     const needle = tableSearch.trim().toLowerCase();
     if (needle.length < 2) return data;
-    const keys = reportSearchColumnKeys[reportType];
+    const keys = REPORT_SEARCH_COLUMN_KEYS[reportType];
     return data.filter((row) =>
       keys.some((key) =>
         stripLegacyReportUrl(formatReportCell(reportType, row, key))
@@ -696,7 +696,7 @@ export default function ReportsPage() {
               searchValue={tableSearch}
               onSearchChange={setTableSearch}
               emptyMessage="No entries matched the selected filters."
-              searchColumnKeys={reportSearchColumnKeys[reportType]}
+              searchColumnKeys={REPORT_SEARCH_COLUMN_KEYS[reportType]}
               searchPlaceholder={
                 reportType === "city_ledger"
                   ? "Search particulars…"

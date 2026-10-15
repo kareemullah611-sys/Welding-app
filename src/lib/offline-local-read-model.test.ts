@@ -50,6 +50,50 @@ test("allows operational treasury endpoints for local read-model creates", () =>
   assert.equal(canApplyCreateToReadModel("/api/v1/agents", "POST"), true);
   assert.equal(canApplyCreateToReadModel("/api/v1/investors", "POST"), true);
   assert.equal(canApplyCreateToReadModel("/api/v1/lots", "POST"), true);
+  assert.equal(canApplyCreateToReadModel("/api/v1/liabilities", "POST"), true);
+  assert.equal(canApplyCreateToReadModel("/api/v1/super-admin-liabilities", "POST"), true);
+  assert.equal(canApplyCreateToReadModel("/api/v1/liabilities/7/entries", "POST"), false);
+  assert.equal(canApplyCreateToReadModel("/api/v1/super-admin-liabilities/7/entries", "POST"), false);
+});
+
+test("creates pending liability account rows without fabricating ledger entries", () => {
+  const cityRow = buildPendingReadModelRow(
+    "/api/v1/liabilities",
+    { name: "Customs Duty", phone: "123", notes: "Pending" },
+    "city-liability",
+    1000
+  );
+  assert.deepEqual(cityRow, {
+    id: "pending-city-liability",
+    name: "Customs Duty",
+    phone: "123",
+    notes: "Pending",
+    isActive: true,
+    balance: 0,
+    balanceByCurrency: {},
+    createdAt: new Date(1000).toISOString(),
+  });
+
+  const superAdminRow = buildPendingReadModelRow(
+    "/api/v1/super-admin-liabilities",
+    { name: "Lender A", partyType: "lender", phone: "456", address: "Quetta", notes: "Pending" },
+    "super-liability",
+    2000
+  );
+  assert.deepEqual(superAdminRow, {
+    id: "pending-super-liability",
+    name: "Lender A",
+    partyType: "lender",
+    phone: "456",
+    address: "Quetta",
+    notes: "Pending",
+    isActive: true,
+    balancePkr: 0,
+    balancesByCurrency: {},
+    createdAt: new Date(2000).toISOString(),
+  });
+
+  assert.equal(buildPendingReadModelRow("/api/v1/liabilities/7/entries", { amount: 10 }, "entry", 3000), null);
 });
 
 test("removes a pending row when queue item is synced", () => {

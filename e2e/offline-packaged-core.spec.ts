@@ -5,6 +5,15 @@ import { loginAsCityAdmin } from "./helpers";
 
 const marker = `E2E Offline Customer ${Date.now()}`;
 
+async function enablePackagedRuntime(page: import("@playwright/test").Page) {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "platformInfo", {
+      configurable: true,
+      value: { runtime: "electron" },
+    });
+  });
+}
+
 async function readOfflineQueue(page: import("@playwright/test").Page) {
   return page.evaluate(async () => {
     const request = indexedDB.open("mrf-offline", 7);
@@ -54,13 +63,8 @@ test.describe("packaged offline core workflow", () => {
   test("hydrates online, works offline, then synchronizes automatically", async ({ page }) => {
     test.skip(process.env.NEXT_PUBLIC_OFFLINE_ENABLED !== "true", "Requires packaged offline build flag");
 
+    await enablePackagedRuntime(page);
     await loginAsCityAdmin(page);
-    await page.addInitScript(() => {
-      Object.defineProperty(window, "platformInfo", {
-        configurable: true,
-        value: { runtime: "electron" },
-      });
-    });
     await page.reload();
 
     await expect.poll(() => readFullSyncStatus(page), { timeout: 120_000 }).toBe("completed");
@@ -99,5 +103,37 @@ test.describe("packaged offline core workflow", () => {
 
     await expect.poll(async () => (await readOfflineQueue(page)).length, { timeout: 30_000 }).toBe(0);
     await expect.poll(() => prisma.customer.count({ where: { name: marker } }), { timeout: 30_000 }).toBe(1);
+  });
+
+  test("previously verified superadmin can authenticate offline on a trusted packaged device", async ({ page, context }) => {
+    test.skip(process.env.NEXT_PUBLIC_OFFLINE_ENABLED !== "true", "Requires packaged offline build flag");
+    const username = process.env.E2E_SUPERADMIN_USERNAME || "superadmin";
+    const password = process.env.E2E_SUPERADMIN_PASSWORD || process.env.ADMIN_PASSWORD || "admin123";
+
+    await enablePackagedRuntime(page);
+    await page.goto("/login");
+    const inputs = page.locator("input");
+    await inputs.nth(0).fill(username);
+    await inputs.nth(1).fill(password);
+    await page.getByRole("button", { name: /sign in/i }).click();
+    await page.waitForURL("**/dashboard", { timeout: 30_000 });
+
+    const cachedRole = await page.evaluate(() => {
+      const raw = window.localStorage.getItem("mrf-offline-auth-cache-v2");
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return { role: parsed?.user?.role, expiresAt: parsed?.expiresAt };
+    });
+    expect(cachedRole?.role).toBe("super_admin");
+    expect(new Date(cachedRole?.expiresAt || 0).getTime()).toBeGreaterThan(Date.now());
+
+    await context.clearCookies();
+    await page.route("**/api/**", async (route) => route.abort("internetdisconnected"));
+    await page.goto("/login");
+    await page.locator("input").nth(0).fill(username);
+    await page.locator("input").nth(1).fill(password);
+    await page.getByRole("button", { name: /sign in/i }).click();
+    await page.waitForURL("**/dashboard", { timeout: 30_000 });
+    await expect(page.getByText(/server unavailable/i)).toBeVisible();
   });
 });

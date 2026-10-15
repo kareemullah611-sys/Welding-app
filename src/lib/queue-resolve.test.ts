@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getQueueResolvePath, isEditableCustomerQueuedPayload, safeParseQueuedBody } from "@/lib/queue-resolve";
+import { getConflictSnapshotUrl, getQueueResolvePath, isEditableCustomerQueuedPayload, safeParseQueuedBody } from "@/lib/queue-resolve";
 
 test("safeParseQueuedBody parses valid object payload", () => {
   const parsed = safeParseQueuedBody('{"name":"Ali","cityId":2}');
@@ -40,4 +40,12 @@ test("getQueueResolvePath maps supported entity types", () => {
   assert.equal(getQueueResolvePath("godown_transfer"), "/inventory");
   assert.equal(getQueueResolvePath("investor_transaction"), "/investors");
   assert.equal(getQueueResolvePath("unknown"), null);
+});
+
+test("conflict snapshots are read only for direct entity edits", () => {
+  assert.equal(getConflictSnapshotUrl("/api/v1/customers/12", "PUT"), "/api/v1/customers/12");
+  assert.equal(getConflictSnapshotUrl("/api/v1/payments/22?view=full", "PATCH"), "/api/v1/payments/22?view=full");
+  assert.equal(getConflictSnapshotUrl("/api/v1/customers", "POST"), null);
+  assert.equal(getConflictSnapshotUrl("/api/v1/payments/22/cancel", "PUT"), null);
+  assert.equal(getConflictSnapshotUrl("/api/v1/payments/22", "DELETE"), null);
 });

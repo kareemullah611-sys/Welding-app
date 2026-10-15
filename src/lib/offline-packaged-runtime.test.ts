@@ -82,6 +82,27 @@ test("packaged UI starts offline until server reachability is proven", () => {
   assert.match(offlineProvider, /useState\(\(\) => isPackagedOfflineActive\(\) \? getPackagedServerReachable\(\) : true\)/);
 });
 
+test("a clean packaged install reaches login without waiting for an auth probe", () => {
+  const auth = read("src/hooks/useAuth.tsx");
+  const packagedApi = read("src/lib/packaged-api.ts");
+
+  assert.match(packagedApi, /export function hasPackagedAccessToken/);
+  assert.match(auth, /packaged\s*&&\s*!cached\?\.user\s*&&\s*!hasPackagedAccessToken\(\)/);
+  assert.match(auth, /!hasPackagedAccessToken\(\)[\s\S]*setUser\(null\);[\s\S]*setLoading\(false\);[\s\S]*return;/);
+});
+
+test("offline archive sync and its status banners require an authenticated user", () => {
+  const offlineProvider = read("src/hooks/useOffline.tsx");
+  const offlineBanner = read("src/components/layout/OfflineBanner.tsx");
+
+  assert.match(offlineProvider, /const \{ user \} = useAuth\(\)/);
+  assert.match(offlineProvider, /const triggerFullSync = useCallback[\s\S]*if \(!user\) return false/);
+  assert.match(offlineProvider, /const syncQueue = useCallback[\s\S]*if \(!user \|\| syncLockRef\.current \|\| !isOnline\) return/);
+  assert.match(offlineBanner, /const \{ user \} = useAuth\(\)/);
+  assert.match(offlineBanner, /if \(!user\) return null/);
+  assert.match(offlineBanner, /const needsInitialSync =[^;]*&& !fullSyncInProgress && !fullSyncFailed/);
+});
+
 test("full sync prepares every godown stock cache required by offline sales", () => {
   const hydrate = read("src/lib/offline-sync-hydrate.ts");
 
@@ -126,6 +147,25 @@ test("offline device migration is additive and background completions reconcile 
   assert.doesNotMatch(migration, /DROP\s+(TABLE|COLUMN)|TRUNCATE|DELETE\s+FROM/i);
   assert.match(offlineProvider, /readNativeBackgroundCompletions/);
   assert.match(offlineProvider, /reconcileSyncedIds\(item, completion\.data\)/);
+});
+
+test("unauthenticated packaged startup does not dispatch native background sync", () => {
+  const nativeBackgroundSync = read("src/lib/native-background-sync.ts");
+  const offlineProvider = read("src/hooks/useOffline.tsx");
+  const readCompletions = nativeBackgroundSync.slice(
+    nativeBackgroundSync.indexOf("export async function readNativeBackgroundCompletions"),
+  );
+
+  assert.match(readCompletions, /const deviceToken = getOfflineDeviceToken\(\)/);
+  assert.match(readCompletions, /if \(!deviceToken\) return \[\]/);
+  assert.ok(
+    readCompletions.indexOf("if (!deviceToken) return []") < readCompletions.indexOf('import("@capacitor/background-runner")'),
+  );
+  assert.match(
+    offlineProvider,
+    /useEffect\(\(\) => \{\s*if \(!user\) return;\s*void \(async \(\) => \{\s*try \{\s*const completions = await readNativeBackgroundCompletions\(\)/,
+  );
+  assert.match(offlineProvider, /if \(user\) void mirrorQueueToNativeBackground\(items\)/);
 });
 
 test("all offline modules share one versioned IndexedDB schema initializer", () => {

@@ -18,7 +18,7 @@ export const OFFLINE_CONFLICT_RULES: OfflineConflictRule[] = [
     id: "server_wins_edit",
     title: "Same record edited on server while you were offline",
     rule: "If the server already changed that record, your queued update may fail with a conflict (409).",
-    action: "Open Activity Feed → Retry once. If it still fails, use Resolve to fix values or Discard the local copy.",
+    action: "Open Sync Issues. Accept the server version, or review and correct the local form before resubmitting.",
   },
   {
     id: "duplicate_create",

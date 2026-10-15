@@ -7,7 +7,6 @@ import { PageHeader, PaginationBar, EmptyState, FilterMenu } from "@/components/
 import { useLang } from "@/lib/lang";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { Lock } from "lucide-react";
 import { getQueueResolvePath } from "@/lib/queue-resolve";
 import { getOfflineConflictHint } from "@/lib/offline-conflict-hints";
 import { OFFLINE_CONFLICT_RULES } from "@/lib/offline-conflict-rules";
@@ -241,7 +240,7 @@ function UserAvatar({ name }: { name: string }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function ActivityFeedPage() {
   const { user } = useAuth();
-  const { offlineEnabled, isOnline, isSyncing, queuedItems, retryQueuedItem, discardQueuedItem, syncQueue } = useOffline();
+  const { offlineEnabled, isOnline, isSyncing, queuedItems, retryQueuedItem, discardQueuedItem, syncQueue, triggerFullSync } = useOffline();
   const { t } = useLang();
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -261,7 +260,10 @@ export default function ActivityFeedPage() {
   }, [user]);
 
   const load = useCallback(async (p = 1, cityId?: number | "") => {
-    if (user?.role !== "super_admin") return;
+    if (user?.role !== "super_admin") {
+      setLoading(false);
+      return;
+    }
     if (p === 1) setLoading(true);
     const params: any = { page: p, limit: DEFAULT_LIST_PAGE_SIZE };
     const cid = cityId !== undefined ? cityId : filterCityId;
@@ -291,7 +293,7 @@ export default function ActivityFeedPage() {
     if (!autoRefresh || page !== 1) return;
     const interval = setInterval(() => load(1), 30000);
     return () => clearInterval(interval);
-  }, [autoRefresh, page, load]);
+  }, [autoRefresh, page, load, user?.role]);
 
   const localQueueItems: ActivityItem[] = user && page === 1
     ? queuedItems.map((entry) => ({
@@ -299,7 +301,9 @@ export default function ActivityFeedPage() {
           const parsed = safeParseQueueBody(entry.body);
           if (!parsed) return { oldValues: null, newValues: null };
           return {
-            oldValues: null,
+            oldValues: entry.serverSnapshot && typeof entry.serverSnapshot === "object"
+              ? entry.serverSnapshot as Record<string, any>
+              : null,
             newValues: {
               ...parsed,
               _offlineMethod: entry.method,
@@ -341,21 +345,6 @@ export default function ActivityFeedPage() {
   }
 
   if (!user) return null;
-
-  if (user.role === "city_admin") {
-    return (
-      <div>
-        <PageHeader title={t("activity_feed")} />
-        <div className="card flex min-h-[360px] flex-col items-center justify-center py-16 text-center">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-[#e4e4e7] bg-[#fafafa] shadow-sm">
-            <Lock className="h-6 w-6 text-gray-500" strokeWidth={1.5} />
-          </div>
-          <p className="mt-4 text-base font-semibold text-gray-800">{t("activity_feed")}</p>
-          <p className="mt-2 max-w-sm text-sm text-gray-500">{t("super_admin_only")}</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div>
@@ -542,7 +531,7 @@ export default function ActivityFeedPage() {
                                   </Link>
                                 );
                               })()}
-                              {(item.syncStatus === "failed" || item.syncStatus === "conflict") && (
+                              {item.syncStatus === "failed" && (
                                 <>
                               <button
                                 disabled={queueActionId === item.queueId}
@@ -568,6 +557,20 @@ export default function ActivityFeedPage() {
                                 {conflictHint?.recommended === "discard" ? "Discard (Recommended)" : "Discard"}
                               </button>
                                 </>
+                              )}
+                              {item.syncStatus === "conflict" && (
+                                <button
+                                  disabled={queueActionId === item.queueId}
+                                  onClick={async () => {
+                                    setQueueActionId(item.queueId!);
+                                    await discardQueuedItem(item.queueId!);
+                                    await triggerFullSync();
+                                    setQueueActionId(null);
+                                  }}
+                                  className="text-[11px] text-red-600 hover:underline disabled:opacity-50"
+                                >
+                                  Accept server
+                                </button>
                               )}
                               {item.syncStatus === "pending" && item.action === "update" && (() => {
                                 const path = getQueueResolvePath(item.entityType);

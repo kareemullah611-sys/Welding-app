@@ -141,7 +141,6 @@ export default function ModalOptionSelect({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={listId}
-        aria-activedescendant={open ? `${listId}-opt-${activeIndex}` : undefined}
         onKeyDown={handleKeyDown}
         onFocus={() => setFocused(true)}
         onBlur={() => {

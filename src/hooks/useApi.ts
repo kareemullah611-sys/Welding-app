@@ -8,6 +8,7 @@ import {
   OFFLINE_STOCK_STORE,
   buildOfflineAuditMeta,
   buildApiCacheKey,
+  getOfflineMutationBlockReason,
   isPackagedOfflineActive,
   shouldQueueOfflineWriteNow,
   shouldQueueOfflineWriteOnNetworkFailure,
@@ -349,6 +350,14 @@ export function useApi<T = unknown>() {
         return queued;
       }
 
+      if (typeof window !== "undefined") {
+        const offlineBlockReason = getOfflineMutationBlockReason(url, method);
+        if (offlineBlockReason) {
+          setState({ data: null, loading: false, error: offlineBlockReason });
+          return { success: false, error: offlineBlockReason };
+        }
+      }
+
       const res = await appFetch(fullUrl, fetchOptions);
       const data = await res.json();
 
@@ -361,20 +370,23 @@ export function useApi<T = unknown>() {
         return { success: true, data: data.data as T, pagination: data.pagination, meta: data.meta };
       } else {
         const error = data.error?.message || "Request failed";
-        if (
-          typeof window !== "undefined" &&
-          shouldQueueOfflineWriteOnNetworkFailure(url, method) &&
-          RETRYABLE_HTTP_STATUSES.has(res.status)
-        ) {
+        if (typeof window !== "undefined" && RETRYABLE_HTTP_STATUSES.has(res.status) && isPackagedOfflineActive()) {
           setPackagedServerReachable(false);
-          const queued = await queuePackagedOfflineWrite<T>(
-            url,
-            method,
-            options.body,
-            options.params,
-            (d) => setState({ data: d as T, loading: false, error: null })
-          );
-          return queued;
+          if (shouldQueueOfflineWriteOnNetworkFailure(url, method)) {
+            const queued = await queuePackagedOfflineWrite<T>(
+              url,
+              method,
+              options.body,
+              options.params,
+              (d) => setState({ data: d as T, loading: false, error: null })
+            );
+            return queued;
+          }
+          const offlineBlockReason = getOfflineMutationBlockReason(url, method);
+          if (offlineBlockReason) {
+            setState({ data: null, loading: false, error: offlineBlockReason });
+            return { success: false, error: offlineBlockReason };
+          }
         }
         if (method === "GET" && typeof window !== "undefined" && shouldUseOfflineApiCache()) {
           const offlineRead = await readOfflineGetCache<T>(url, options.params);
@@ -400,6 +412,13 @@ export function useApi<T = unknown>() {
           (d) => setState({ data: d as T, loading: false, error: null })
         );
         return queued;
+      }
+      if (typeof window !== "undefined") {
+        const offlineBlockReason = getOfflineMutationBlockReason(url, method);
+        if (offlineBlockReason) {
+          setState({ data: null, loading: false, error: offlineBlockReason });
+          return { success: false, error: offlineBlockReason };
+        }
       }
       if (method === "GET" && typeof window !== "undefined" && shouldUseOfflineApiCache()) {
         const offlineRead = await readOfflineGetCache<T>(url, options.params);
@@ -440,6 +459,11 @@ export async function apiCall<T = unknown>(
       return { ...queued, data: queued.data as unknown as T };
     }
 
+    if (typeof window !== "undefined") {
+      const offlineBlockReason = getOfflineMutationBlockReason(url, method);
+      if (offlineBlockReason) return { success: false, error: offlineBlockReason };
+    }
+
     if (method === "GET" && typeof window !== "undefined" && shouldUseOfflineApiCache()) {
       const offlineRead = await readOfflineGetCache<T>(url, options.params);
       if (offlineRead) {
@@ -459,14 +483,14 @@ export async function apiCall<T = unknown>(
       }
       return { success: true, data: data.data as T, pagination: data.pagination, meta: data.meta };
     }
-    if (
-      typeof window !== "undefined" &&
-      shouldQueueOfflineWriteOnNetworkFailure(url, method) &&
-      RETRYABLE_HTTP_STATUSES.has(res.status)
-    ) {
+    if (typeof window !== "undefined" && RETRYABLE_HTTP_STATUSES.has(res.status) && isPackagedOfflineActive()) {
       setPackagedServerReachable(false);
-      const queued = await queuePackagedOfflineWrite<T>(url, method, options.body, options.params);
-      return { ...queued, data: queued.data as unknown as T };
+      if (shouldQueueOfflineWriteOnNetworkFailure(url, method)) {
+        const queued = await queuePackagedOfflineWrite<T>(url, method, options.body, options.params);
+        return { ...queued, data: queued.data as unknown as T };
+      }
+      const offlineBlockReason = getOfflineMutationBlockReason(url, method);
+      if (offlineBlockReason) return { success: false, error: offlineBlockReason };
     }
     if (method === "GET" && typeof window !== "undefined" && shouldUseOfflineApiCache()) {
       const offlineRead = await readOfflineGetCache<T>(url, options.params);
@@ -483,6 +507,10 @@ export async function apiCall<T = unknown>(
     if (typeof window !== "undefined" && shouldQueueOfflineWriteOnNetworkFailure(url, method)) {
       const queued = await queuePackagedOfflineWrite<T>(url, method, options.body, options.params);
       return { ...queued, data: queued.data as unknown as T };
+    }
+    if (typeof window !== "undefined") {
+      const offlineBlockReason = getOfflineMutationBlockReason(url, method);
+      if (offlineBlockReason) return { success: false, error: offlineBlockReason };
     }
     if (method === "GET" && typeof window !== "undefined" && shouldUseOfflineApiCache()) {
       const offlineRead = await readOfflineGetCache<T>(url, options.params);

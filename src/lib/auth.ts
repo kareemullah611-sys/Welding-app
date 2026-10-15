@@ -8,6 +8,8 @@ const JWT_EXPIRY = process.env.JWT_EXPIRY || "24h";
 const MIN_JWT_SECRET_LENGTH = 32;
 const JWT_ISSUER = "welding-app";
 const JWT_AUDIENCE = "welding-app-api";
+const OFFLINE_SHELL_AUDIENCE = "welding-app-offline-shell";
+const OFFLINE_SHELL_EXPIRY = "7d";
 
 function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
@@ -65,6 +67,15 @@ export function generateToken(payload: JWTPayload): string {
     expiresIn: JWT_EXPIRY as any,
     issuer: JWT_ISSUER,
     audience: JWT_AUDIENCE,
+    algorithm: "HS256",
+  });
+}
+
+export function generateOfflineShellToken(payload: JWTPayload): string {
+  return jwt.sign({ ...payload, purpose: "offline_shell" }, getJwtSecret(), {
+    expiresIn: OFFLINE_SHELL_EXPIRY,
+    issuer: JWT_ISSUER,
+    audience: OFFLINE_SHELL_AUDIENCE,
     algorithm: "HS256",
   });
 }

@@ -1,7 +1,8 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { clearOfflineAuthCache, readOfflineAuthCache, writeOfflineAuthCache, buildOfflinePasswordVerifier, verifyOfflinePassword } from "@/lib/offline-auth-cache";
+import { useRouter } from "next/navigation";
+import { OFFLINE_AUTH_TTL_MS, clearOfflineAuthCache, readOfflineAuthCache, writeOfflineAuthCache, buildOfflinePasswordVerifier, verifyOfflinePassword } from "@/lib/offline-auth-cache";
 import { isPackagedOfflineActive } from "@/lib/offline-cache";
 import { probeServerReachable, setPackagedServerReachable } from "@/lib/offline-reachability";
 import {
@@ -9,8 +10,10 @@ import {
   getOfflineDeviceToken,
   getOrCreatePackagedDeviceId,
   getPackagedPlatform,
+  hasPackagedAccessToken,
   packagedFetch,
   packagedFetchWithTimeout,
+  restoreOfflineShellCookie,
   storePackagedCredentials,
 } from "@/lib/packaged-api";
 import { clearNativeBackgroundSync } from "@/lib/native-background-sync";
@@ -20,6 +23,7 @@ import {
   isAuthLogoutPending,
   markAuthLogoutPending,
 } from "@/lib/auth-logout-client";
+import { isLoginPathname } from "@/lib/auth-path";
 
 interface User {
   id: number;
@@ -76,7 +80,7 @@ async function fetchWithWarmupRetry(url: string, init: RequestInit, attempts = 3
 }
 
 async function parseAuthJson(res: Response): Promise<{
-  data?: { success?: boolean; data?: { user: User; accessToken?: string; offlineDeviceToken?: string }; error?: { message?: string } | string };
+  data?: { success?: boolean; data?: { user: User; accessToken?: string; offlineDeviceToken?: string; offlineDeviceTokenExpiresAt?: string; offlineShellToken?: string }; error?: { message?: string } | string };
   error?: string;
 }> {
   const text = await res.text();
@@ -91,6 +95,7 @@ async function parseAuthJson(res: Response): Promise<{
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -124,10 +129,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const checkAuth = useCallback(async () => {
     const packaged = isPackagedOfflineActive();
     const isEmbed = typeof window !== "undefined" && getEmbedFromLocation();
-    const onLoginPage = typeof window !== "undefined" && window.location.pathname === "/login";
+    const onLoginPage = typeof window !== "undefined" && isLoginPathname(window.location.pathname);
     const logoutPending = isAuthLogoutPending();
     const cached = readOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
     const maxAttempts = isEmbed ? 6 : 4;
+
+    if (packaged && !cached?.user && !hasPackagedAccessToken()) {
+      setUser(null);
+      setLoading(false);
+      return;
+    }
 
     if (packaged && cached?.user && !logoutPending && !onLoginPage) {
       setUser(cached.user);
@@ -160,6 +171,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 passwordVerifier: existing.passwordVerifier,
                 user: data.data,
                 updatedAt: new Date().toISOString(),
+                expiresAt: existing.expiresAt!,
               });
             }
             if (packaged) setPackagedServerReachable(true);
@@ -217,7 +229,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [checkAuth]);
 
   useEffect(() => {
-    const onLoginPage = typeof window !== "undefined" && window.location.pathname === "/login";
+    const onLoginPage = typeof window !== "undefined" && isLoginPathname(window.location.pathname);
     const logoutPending = isAuthLogoutPending();
     if (!onLoginPage && !logoutPending) {
       const cached = readOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
@@ -226,7 +238,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void checkAuth();
   }, [checkAuth]);
 
-  const tryOnlineLogin = useCallback(async (username: string, password: string): Promise<{ ok: boolean; user?: User; error?: string }> => {
+  useEffect(() => {
+    const handleOfflineDeviceRejected = () => {
+      markAuthLogoutPending();
+      clearOfflineAuthCache(window.localStorage);
+      clearPackagedCredentials();
+      setUser(null);
+      router.replace("/login");
+    };
+    window.addEventListener("mrf-offline-device-rejected", handleOfflineDeviceRejected);
+    return () => window.removeEventListener("mrf-offline-device-rejected", handleOfflineDeviceRejected);
+  }, [router]);
+
+  const tryOnlineLogin = useCallback(async (username: string, password: string): Promise<{ ok: boolean; user?: User; offlineDeviceTokenExpiresAt?: string; error?: string }> => {
     try {
       const packagedPlatform = getPackagedPlatform();
       const res = await fetchWithWarmupRetry("/api/v1/auth/login", {
@@ -254,12 +278,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
       }
       if (data.success && data.data?.user) {
-        if (packagedPlatform && data.data.accessToken && data.data.offlineDeviceToken) {
-          storePackagedCredentials(data.data.accessToken, data.data.offlineDeviceToken);
+        if (packagedPlatform && data.data.accessToken && data.data.offlineDeviceToken && data.data.offlineShellToken) {
+          storePackagedCredentials(data.data.accessToken, data.data.offlineDeviceToken, data.data.offlineShellToken);
+          restoreOfflineShellCookie();
           window.dispatchEvent(new Event("mrf-offline-queue-updated"));
         }
         setPackagedServerReachable(true);
-        return { ok: true, user: data.data.user };
+        return {
+          ok: true,
+          user: data.data.user,
+          offlineDeviceTokenExpiresAt: data.data.offlineDeviceTokenExpiresAt,
+        };
       }
       const errMsg = typeof data.error === "string" ? data.error : data.error?.message;
       if (errMsg?.includes("You are offline")) {
@@ -288,25 +317,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
 
     const packaged = isPackagedOfflineActive();
-    const persistLogin = async (loggedInUser: User, pwd: string) => {
+    const persistLogin = async (loggedInUser: User, pwd: string, deviceTokenExpiresAt?: string) => {
       clearAuthLogoutPending();
       setUser(loggedInUser);
+      const localExpiry = Date.now() + OFFLINE_AUTH_TTL_MS;
+      const serverExpiry = deviceTokenExpiresAt ? new Date(deviceTokenExpiresAt).getTime() : Number.POSITIVE_INFINITY;
+      const expiresAt = new Date(Math.min(localExpiry, Number.isFinite(serverExpiry) ? serverExpiry : localExpiry));
       writeOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null, {
         username: normalizedUsername,
         passwordVerifier: await buildOfflinePasswordVerifier(pwd),
         user: loggedInUser,
         updatedAt: new Date().toISOString(),
+        expiresAt: expiresAt.toISOString(),
       });
     };
 
-    if (packaged && cacheMatches) {
+    if (packaged && cacheMatches && restoreOfflineShellCookie()) {
       setPackagedServerReachable(false);
       clearAuthLogoutPending();
       setUser(cached!.user);
       void (async () => {
         const online = await tryOnlineLogin(username, password);
         if (online.ok && online.user) {
-          await persistLogin(online.user, password);
+          await persistLogin(online.user, password, online.offlineDeviceTokenExpiresAt);
         } else {
           const reachable = await probeServerReachable();
           setPackagedServerReachable(reachable);
@@ -317,11 +350,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const online = await tryOnlineLogin(username, password);
     if (online.ok && online.user) {
-      await persistLogin(online.user, password);
+      await persistLogin(online.user, password, online.offlineDeviceTokenExpiresAt);
       return { success: true };
     }
 
     if (packaged && cacheMatches) {
+      if (!restoreOfflineShellCookie()) {
+        return { success: false, error: "Offline access for this device must be renewed online." };
+      }
       setPackagedServerReachable(false);
       clearAuthLogoutPending();
       setUser(cached!.user);
@@ -331,7 +367,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { success: false, error: online.error || "Login failed" };
   };
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     markAuthLogoutPending();
     clearOfflineAuthCache(typeof window !== "undefined" ? window.localStorage : null);
     setUser(null);
@@ -352,10 +388,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     clearPackagedCredentials();
     void clearNativeBackgroundSync().catch(() => {});
-    if (typeof window !== "undefined") {
-      window.location.replace("/login");
-    }
-  };
+    router.replace("/login");
+  }, [router]);
 
   // Auto-logout after 30 minutes of inactivity
   useEffect(() => {
@@ -369,7 +403,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         alert("Session expired due to inactivity. Please login again.");
         if (isPackagedOfflineActive()) {
           setUser(null);
-          window.location.replace("/login");
+          router.replace("/login");
         } else {
           logout();
         }
@@ -384,7 +418,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(timer);
       events.forEach((e) => window.removeEventListener(e, resetTimer));
     };
-  }, [user]);
+  }, [user, router, logout]);
 
   return (
     <AuthContext.Provider value={{ user, loading, login, logout, recheckAuth }}>

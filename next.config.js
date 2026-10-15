@@ -6,8 +6,10 @@ const isElectronBuild = process.env.ELECTRON_BUILD === "true";
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: false,
+  outputFileTracingRoot: __dirname,
   ...(isElectronBuild ? {
     output: "export",
+    trailingSlash: true,
     images: { unoptimized: true },
   } : {
     async headers() {

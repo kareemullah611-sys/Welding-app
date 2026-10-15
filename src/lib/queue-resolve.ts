@@ -49,3 +49,15 @@ export function getPendingQueueId(value: unknown): string | null {
   const queueId = id.slice("pending-".length).trim();
   return queueId || null;
 }
+
+export function getConflictSnapshotUrl(url: string, method: string): string | null {
+  if (!new Set(["PUT", "PATCH"]).has(String(method || "").toUpperCase())) return null;
+  try {
+    const parsed = new URL(url, "http://offline.local");
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    if (segments.length !== 4 || segments[0] !== "api" || segments[1] !== "v1" || !segments[3]) return null;
+    return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    return null;
+  }
+}

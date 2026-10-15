@@ -206,7 +206,6 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
                   { detail: { contains: query, mode: "insensitive" } },
                   { notes: { contains: query, mode: "insensitive" } },
                   { city: { name: { contains: query, mode: "insensitive" } } },
-                  { lot: { lotNumber: { contains: query, mode: "insensitive" } } },
                   { currency: { code: { contains: query, mode: "insensitive" } } },
                   { currency: { symbol: { contains: query, mode: "insensitive" } } },
                   { bankAccount: { bankName: { contains: query, mode: "insensitive" } } },

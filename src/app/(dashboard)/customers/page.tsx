@@ -257,7 +257,7 @@ export default function CustomersPage() {
       }
     }
     setLoading(false);
-  }, [customerSort, customerSortCurrency, isEmbed, isOnline, mergeSnapshot, page, queuedItems, readSnapshot, searchQuery, user?.cityId]);
+  }, [customerSort, customerSortCurrency, isEmbed, isOnline, mergeSnapshot, page, queuedItems, readSnapshot, searchQuery, user?.cityId, user?.role]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (lastSyncResult && lastSyncResult.synced > 0) load();

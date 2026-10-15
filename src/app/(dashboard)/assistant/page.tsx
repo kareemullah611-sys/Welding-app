@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useOffline } from "@/hooks/useOffline";
 import { useRouter } from "next/navigation";
+import { useKeyboardInset } from "@/hooks/useKeyboardInset";
 import { Send, Bot, Sparkles, Trash2, ChevronDown } from "lucide-react";
 import { packagedFetch } from "@/lib/packaged-api";
 
@@ -259,10 +260,15 @@ export default function AssistantPage() {
     e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
   };
 
+  const keyboardInset = useKeyboardInset();
+
   if (!user || user.role !== "super_admin") return null;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-48px)] max-h-[900px] bg-[#f0f2f5] rounded-2xl overflow-hidden shadow-lg border border-gray-200">
+    <div
+      className="flex flex-col max-h-[900px] bg-[#f0f2f5] rounded-2xl overflow-hidden shadow-lg border border-gray-200"
+      style={{ height: `calc(100dvh - 48px - ${keyboardInset}px)` }}
+    >
 
       {/* ── WhatsApp-style Header ── */}
       <div className="flex items-center justify-between px-4 py-3 bg-[#008069] flex-shrink-0">

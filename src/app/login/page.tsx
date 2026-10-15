@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { useLang, LangSwitcher } from "@/lib/lang";
 import { InlineSpinner } from "@/components/ui/BrandLoader";
@@ -14,6 +15,7 @@ const SLIDE_INTERVAL = 5000;
 
 export default function LoginPage() {
   const { login, user, loading } = useAuth();
+  const router = useRouter();
   const { t, dir } = useLang();
   const branding = useAppBranding();
   const [isElectron, setIsElectron] = useState(false);
@@ -29,9 +31,9 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!loading && user && !isAuthLogoutPending()) {
-      window.location.replace("/dashboard");
+      router.replace("/dashboard/");
     }
-  }, [loading, user]);
+  }, [loading, user, router]);
 
   useEffect(() => {
     setIsElectron(typeof window !== "undefined" && window.platformInfo?.runtime === "electron");
@@ -55,7 +57,7 @@ export default function LoginPage() {
 
     if (result.success) {
       clearAuthLogoutPending();
-      window.location.href = "/dashboard";
+      router.replace("/dashboard/");
       return;
     }
 
@@ -68,7 +70,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center p-4 overflow-hidden" dir={dir}>
+    <div className="relative min-h-[100dvh] flex justify-center overflow-y-auto p-4" dir={dir}>
       {hasPhotos ? (
         <div className="absolute inset-0 z-0">
           {LOGIN_PHOTOS.map((src, i) => (
@@ -87,7 +89,7 @@ export default function LoginPage() {
         <div className="absolute inset-0 z-0 bg-gradient-to-br from-slate-900 via-[#3D0808] to-slate-900" />
       )}
 
-      <div className="relative z-10 w-full max-w-md">
+      <div className="relative z-10 my-auto w-full max-w-md">
         <div className="text-center mb-8">
           <div className="mx-auto mb-4 flex justify-center">
             <div className="rounded-2xl bg-white p-2 shadow-2xl">
@@ -142,8 +144,13 @@ export default function LoginPage() {
                 onChange={(e) => setUsername(e.target.value)}
                 className="input-field"
                 placeholder={t("enter_username")}
+                lang="en"
+                dir="ltr"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="username"
                 required
-                autoFocus
                 disabled={submitting}
               />
             </div>
@@ -155,6 +162,12 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 className="input-field"
                 placeholder={t("enter_password")}
+                lang="en"
+                dir="ltr"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="current-password"
                 required
                 disabled={submitting}
               />

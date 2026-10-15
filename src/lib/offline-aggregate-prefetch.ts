@@ -6,6 +6,13 @@ import { buildOfflineStockLedger } from "@/lib/offline-stock-ledger";
 import { buildOfflineLotProfitReport } from "@/lib/offline-lot-profit";
 import { paginateList } from "@/lib/pagination";
 import { packagedFetch } from "@/lib/packaged-api";
+import {
+  OFFLINE_API_CACHE_STORE,
+  OFFLINE_LOCAL_READ_MODEL_STORE,
+  buildApiCacheKey,
+  openOfflineDatabase,
+} from "@/lib/offline-cache";
+import { getReadModelKey } from "@/lib/offline-local-read-model";
 
 const DASHBOARD_READ_CACHE_KEY = "mrf-dashboard-read-cache-v1";
 const INVENTORY_READ_CACHE_KEY = "mrf-inventory-read-cache-v1";
@@ -48,6 +55,45 @@ type ProfitReportReadSnapshot = {
   dateFrom?: string;
   dateTo?: string;
 };
+
+type ExactPrefetchRequest = {
+  path: string;
+  params: Record<string, string | number | undefined>;
+};
+
+export function getOfflineExactPrefetchRequests(
+  user: { role: string; cityId?: number | null },
+  year: number,
+  financialYears: Array<{ status?: string; startDate?: string | Date; endDate?: string | Date }>
+): ExactPrefetchRequest[] {
+  const requests: ExactPrefetchRequest[] = [];
+  if (user.role === "city_admin") {
+    requests.push(
+      { path: "/api/v1/finance/combined", params: { page: 1, limit: 20 } },
+      { path: "/api/v1/city-ledger", params: { city_id: user.cityId || undefined } }
+    );
+    return requests;
+  }
+
+  requests.push({
+    path: "/api/v1/finance/combined",
+    params: { page: 1, limit: 20, type: "payment", destination: "haji" },
+  });
+  for (const report of ["pnl", "cash", "receivables", "payables", "balance_sheet"]) {
+    requests.push({ path: "/api/v1/financial-reports", params: { report, year } });
+  }
+  const selectedYear = financialYears.find((row) => row.status === "open") || financialYears[0];
+  if (selectedYear?.startDate && selectedYear?.endDate) {
+    requests.push({
+      path: "/api/v1/trial-balance",
+      params: {
+        date_from: String(selectedYear.startDate).slice(0, 10),
+        date_to: String(selectedYear.endDate).slice(0, 10),
+      },
+    });
+  }
+  return requests;
+}
 
 function normalizeApiPath(url: string): string {
   const raw = String(url || "").trim();
@@ -197,6 +243,39 @@ async function fetchJson(path: string): Promise<unknown | null> {
   }
 }
 
+async function fetchAndCacheExact(request: ExactPrefetchRequest): Promise<void> {
+  const cacheKey = buildApiCacheKey(request.path, request.params);
+  try {
+    const response = await packagedFetch(cacheKey, { credentials: "include" });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.success) return;
+    const database = await openOfflineDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(
+        [OFFLINE_API_CACHE_STORE, OFFLINE_LOCAL_READ_MODEL_STORE],
+        "readwrite"
+      );
+      const cachedAt = Date.now();
+      transaction.objectStore(OFFLINE_API_CACHE_STORE).put({
+        key: cacheKey,
+        data: payload.data,
+        pagination: payload.pagination,
+        cachedAt,
+      });
+      transaction.objectStore(OFFLINE_LOCAL_READ_MODEL_STORE).put({
+        key: getReadModelKey(request.path, request.params),
+        data: payload.data,
+        pagination: payload.pagination,
+        updatedAt: cachedAt,
+      });
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  } catch {
+    // Keep the previous exact snapshot if this optional prefetch is unavailable.
+  }
+}
+
 /** After full sync, prefetch heavy aggregate pages so packaged users never need to visit them first. */
 export async function prefetchOfflineAggregateSnapshots(): Promise<void> {
   if (typeof window === "undefined") return;
@@ -205,7 +284,7 @@ export async function prefetchOfflineAggregateSnapshots(): Promise<void> {
   const isCityAdmin = cachedUser?.role === "city_admin";
   const year = new Date().getFullYear();
 
-  const [dashboard, cashPosition, inventory, treasury, analytics, profitReport, cities, lots] = await Promise.all([
+  const [dashboard, cashPosition, inventory, treasury, analytics, profitReport, cities, lots, financialYears] = await Promise.all([
     fetchJson("/api/v1/dashboard"),
     fetchJson("/api/v1/cash-position"),
     fetchJson("/api/v1/inventory"),
@@ -214,7 +293,16 @@ export async function prefetchOfflineAggregateSnapshots(): Promise<void> {
     fetchJson(`/api/v1/profit-report?year=${year}`),
     cachedUser?.role === "super_admin" ? fetchJson("/api/v1/cities") : Promise.resolve(null),
     fetchJson("/api/v1/lots?limit=100"),
+    cachedUser?.role === "super_admin" ? fetchJson("/api/v1/financial-years") : Promise.resolve([]),
   ]);
+
+  await Promise.all(
+    getOfflineExactPrefetchRequests(
+      { role: cachedUser?.role || "", cityId: cachedUser?.cityId ?? null },
+      year,
+      Array.isArray(financialYears) ? financialYears as Array<{ status?: string; startDate?: string; endDate?: string }> : []
+    ).map(fetchAndCacheExact)
+  );
 
   const existingDash = readOfflineReadSnapshot<DashboardReadSnapshot>(DASHBOARD_READ_CACHE_KEY)?.data;
   if (dashboard || cashPosition || treasury) {

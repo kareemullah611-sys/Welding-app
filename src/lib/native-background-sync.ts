@@ -1,6 +1,6 @@
 import { getOfflineDeviceToken, getPackagedApiBaseUrl, isCapacitorRuntime } from "@/lib/packaged-api";
 
-const RUNNER_LABEL = "com.mrf.kandahar.offline.sync";
+const RUNNER_LABEL = "com.mrf.hardware.offline.sync";
 
 export interface NativeQueuedRequest {
   id: string;
@@ -47,6 +47,8 @@ export async function clearNativeBackgroundSync(): Promise<void> {
 
 export async function readNativeBackgroundCompletions(): Promise<NativeSyncCompletion[]> {
   if (!isCapacitorRuntime()) return [];
+  const deviceToken = getOfflineDeviceToken();
+  if (!deviceToken) return [];
   const { BackgroundRunner } = await import("@capacitor/background-runner");
   const result = await BackgroundRunner.dispatchEvent<{ state?: string }>({
     label: RUNNER_LABEL,

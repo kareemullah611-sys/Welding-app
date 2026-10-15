@@ -38,6 +38,8 @@ import { isOfflineFeaturesEnabled } from "@/lib/offline-features";
 import { tryBootstrapBundledOfflineSeed } from "@/lib/offline-seed-bootstrap";
 import { getOfflineDeviceToken, packagedFetchWithTimeout } from "@/lib/packaged-api";
 import { mirrorQueueToNativeBackground, readNativeBackgroundCompletions } from "@/lib/native-background-sync";
+import { getConflictSnapshotUrl } from "@/lib/queue-resolve";
+import { useAuth } from "@/hooks/useAuth";
 
 const FULL_SYNC_DATA_STORE = "full_sync_data";
 const FULL_SYNC_META_STORE = "full_sync_meta";
@@ -64,6 +66,8 @@ interface QueuedRequest {
   syncAttempts: number;
   nextRetryAt?: number | null;
   lastError?: string | null;
+  conflictCode?: string | null;
+  serverSnapshot?: unknown | null;
   auditMeta?: OfflineAuditMeta;
 }
 
@@ -213,8 +217,34 @@ async function reconcileSyncedIds(item: QueuedRequest, responsePayload: unknown)
   }
 }
 
+function readSyncFailure(data: any, status: number): { code: string | null; message: string } {
+  const error = data?.error;
+  if (typeof error === "string") return { code: null, message: error };
+  return {
+    code: typeof error?.code === "string" ? error.code : null,
+    message: typeof error?.message === "string" ? error.message : `Sync failed (${status})`,
+  };
+}
+
+async function readConflictServerSnapshot(item: QueuedRequest): Promise<unknown | null> {
+  const snapshotUrl = getConflictSnapshotUrl(item.url, item.method);
+  if (!snapshotUrl) return null;
+  try {
+    const response = await packagedFetchWithTimeout(
+      snapshotUrl,
+      { credentials: "include", cache: "no-store" },
+      PACKAGED_SYNC_TIMEOUT_MS
+    );
+    const payload = await response.json().catch(() => null);
+    return response.ok && payload?.success ? payload.data ?? null : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Provider ───────────────────────────────────────────────────────────────────
 export function OfflineProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [offlineEnabled, setOfflineEnabled] = useState(() => isPackagedOfflineActive());
   const [isOnline, setIsOnline] = useState(() => isPackagedOfflineActive() ? getPackagedServerReachable() : true);
   const [isServiceWorkerReady, setIsServiceWorkerReady] = useState(false);
@@ -294,14 +324,15 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
       const items = await dbGetAll<QueuedRequest>(QUEUE_STORE);
       setQueueCount(items.length);
       setQueuedItems([...items].sort((a, b) => b.timestamp - a.timestamp));
-      void mirrorQueueToNativeBackground(items).catch(() => {});
+      if (user) void mirrorQueueToNativeBackground(items).catch(() => {});
     } catch {
       setQueueCount(0);
       setQueuedItems([]);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
+    if (!user) return;
     void (async () => {
       try {
         const completions = await readNativeBackgroundCompletions();
@@ -319,7 +350,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
         await refreshQueueState();
       }
     })();
-  }, [refreshQueueState]);
+  }, [refreshQueueState, user]);
   useEffect(() => {
     const onQueueUpdated = () => { refreshQueueState(); };
     window.addEventListener("mrf-offline-queue-updated", onQueueUpdated);
@@ -353,7 +384,14 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
   const retryQueuedItem = useCallback(async (id: string) => {
     const existing = await dbGet<QueuedRequest>(QUEUE_STORE, id);
     if (!existing) return false;
-    await dbPut(QUEUE_STORE, { ...existing, syncStatus: "pending", lastError: null, nextRetryAt: null });
+    await dbPut(QUEUE_STORE, {
+      ...existing,
+      syncStatus: "pending",
+      lastError: null,
+      nextRetryAt: null,
+      conflictCode: null,
+      serverSnapshot: null,
+    });
     await refreshQueueState();
     return true;
   }, [refreshQueueState]);
@@ -510,6 +548,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const triggerFullSync = useCallback(async (): Promise<boolean> => {
+    if (!user) return false;
     if (fullSyncLockRef.current) return false;
     fullSyncLockRef.current = true;
     try {
@@ -522,7 +561,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
     } finally {
       fullSyncLockRef.current = false;
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (!offlineEnabled || !isOnline || nativeCompletionVersion === 0) return;
@@ -550,7 +589,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
 
   // ── Sync queue (FIFO) when back online ──
   const syncQueue = useCallback(async () => {
-    if (syncLockRef.current || !isOnline) return;
+    if (!user || syncLockRef.current || !isOnline) return;
     syncLockRef.current = true;
     setIsSyncing(true);
     try {
@@ -567,13 +606,14 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
         try {
           await dbPut(QUEUE_STORE, { ...item, syncStatus: "syncing", lastError: null, nextRetryAt: null });
           const deviceId = getOrCreateDeviceId();
+          const offlineDeviceToken = getOfflineDeviceToken();
           const fetchInit: RequestInit = {
             method:  item.method,
             headers: {
               ...item.headers,
               "x-sync-request-id": item.id,
               "x-sync-device-id": deviceId,
-              ...(getOfflineDeviceToken() ? { "x-offline-device-token": getOfflineDeviceToken()! } : {}),
+              ...(offlineDeviceToken ? { "x-offline-device-token": offlineDeviceToken } : {}),
             },
             body:    item.method !== "GET" ? item.body : undefined,
           };
@@ -598,6 +638,10 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
           }
 
           const nextStatus: QueueSyncStatus = res.status === 409 ? "conflict" : "failed";
+          const failure = readSyncFailure(data, res.status);
+          const serverSnapshot = nextStatus === "conflict"
+            ? await readConflictServerSnapshot(item)
+            : null;
           const nextAttempts = item.syncAttempts + 1;
           const retryDelayMs = Math.min(5 * 60 * 1000, Math.pow(2, Math.min(nextAttempts, 8)) * 5000);
           await dbPut(QUEUE_STORE, {
@@ -605,9 +649,15 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
             syncStatus: nextStatus,
             syncAttempts: nextAttempts,
             nextRetryAt: Date.now() + retryDelayMs,
-            lastError: data?.error || `Sync failed (${res.status})`,
+            lastError: failure.message,
+            conflictCode: failure.code,
+            serverSnapshot,
           });
           failed++;
+          if (res.status === 401 && offlineDeviceToken) {
+            window.dispatchEvent(new Event("mrf-offline-device-rejected"));
+            break;
+          }
         } catch {
           const nextAttempts = item.syncAttempts + 1;
           const retryDelayMs = Math.min(5 * 60 * 1000, Math.pow(2, Math.min(nextAttempts, 8)) * 5000);
@@ -635,7 +685,7 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
       syncLockRef.current = false;
       setIsSyncing(false);
     }
-  }, [isOnline, refreshQueueState, offlineEnabled, triggerFullSync]);
+  }, [user, isOnline, refreshQueueState, offlineEnabled, triggerFullSync]);
 
   // Auto-sync 2 s after coming back online
   useEffect(() => {
@@ -684,6 +734,17 @@ export function OfflineProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(timer);
     };
   }, [offlineEnabled, isOnline, syncQueue, triggerFullSync]);
+
+  useEffect(() => {
+    if (!offlineEnabled) return;
+    return window.platformInfo?.onBackgroundSyncTrigger?.(() => {
+      window.dispatchEvent(new Event("online"));
+      void syncQueue();
+      void isFullSyncStale().then((stale) => {
+        if (stale) void triggerFullSync();
+      });
+    });
+  }, [offlineEnabled, syncQueue, triggerFullSync]);
 
   return (
     <OfflineContext.Provider value={{

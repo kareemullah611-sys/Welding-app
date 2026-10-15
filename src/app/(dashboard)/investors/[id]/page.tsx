@@ -538,13 +538,13 @@ export default function InvestorLedgerPage() {
                             setEditTarget({ type: e.type as TxType, id: e.id, amount: String(e.amount), date: e.date, notes: e.notes ?? "" });
                             setEditError("");
                           }}
-                          className="p-1.5 hover:bg-violet-50 rounded-lg"
+                          className="tap-target relative p-1.5 hover:bg-violet-50 rounded-lg"
                         >
                           <Pencil size={13} className="text-violet-400" />
                         </button>
                         <button
                           onClick={() => setDeleteTarget({ type: e.type as TxType, id: e.id })}
-                          className="p-1.5 hover:bg-red-50 rounded-lg"
+                          className="tap-target relative p-1.5 hover:bg-red-50 rounded-lg"
                         >
                           <Trash2 size={13} className="text-red-400" />
                         </button>

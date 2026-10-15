@@ -182,7 +182,7 @@ export default function SuppliersPage() {
     if (!supplier || isPendingSupplier(supplier)) return;
     deepLinkHandled.current = true;
     void openLedger(supplier, { openPayment: searchParams.get("create") === "1" });
-  }, [loading, suppliers, searchParams]);
+  }, [loading, suppliers, searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCreate = async () => {
     if (!form.name.trim()) { setError(t("name") + " required"); return; }

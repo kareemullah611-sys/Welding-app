@@ -202,8 +202,8 @@ export function LotDetailSummary({ selectedLot, userRole, t, onAddCost, onEditPu
                       <td className="px-3 py-2.5 text-right font-semibold text-blue-700">${Number(p.totalPriceUsd).toLocaleString("en-US", { minimumFractionDigits: 2 })}</td>
                       {userRole === "super_admin" && (
                         <td className="px-3 py-2.5 text-right">
-                          <button onClick={() => onEditPurchase(p)} className="p-1 text-gray-400 hover:text-blue-600" title="Edit"><Pencil size={12} /></button>
-                          <button onClick={() => onDeletePurchase(p)} className="ml-1 p-1 text-gray-400 hover:text-red-600" title="Delete"><Trash2 size={12} /></button>
+                          <button onClick={() => onEditPurchase(p)} className="relative tap-target p-1 text-gray-400 hover:text-blue-600" title="Edit"><Pencil size={12} /></button>
+                          <button onClick={() => onDeletePurchase(p)} className="relative tap-target ml-1 p-1 text-gray-400 hover:text-red-600" title="Delete"><Trash2 size={12} /></button>
                         </td>
                       )}
                     </tr>

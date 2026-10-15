@@ -1288,7 +1288,7 @@ export default function SalesPage() {
               <button
                 type="button"
                 onClick={() => { setFilters((f) => ({ ...f, query: "" })); setPage(1); }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full px-1 text-sm leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                className="tap-target absolute right-2 top-1/2 -translate-y-1/2 rounded-full px-1 text-sm leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-700"
                 aria-label="Clear search"
               >
                 ×

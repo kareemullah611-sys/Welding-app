@@ -1,5 +1,6 @@
 export const OFFLINE_AUTH_CACHE_KEY = "mrf-offline-auth-cache-v2";
 const LEGACY_OFFLINE_AUTH_CACHE_KEY = "mrf-offline-auth-cache-v1";
+export const OFFLINE_AUTH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const PBKDF2_ITERATIONS = 210_000;
 const PBKDF2_PREFIX = "pbkdf2-sha256";
 
@@ -20,6 +21,7 @@ export interface OfflineAuthCache {
   passwordVerifier: string;
   user: OfflineAuthUser;
   updatedAt: string;
+  expiresAt: string;
 }
 
 /** Parsed from localStorage; legacy verifier formats are cleared on read. */
@@ -28,6 +30,7 @@ type StoredOfflineAuthCache = {
   passwordVerifier?: string;
   user: OfflineAuthUser;
   updatedAt: string;
+  expiresAt?: string;
 };
 
 function canUseStorage(storage: Storage | null | undefined): storage is Storage {
@@ -91,7 +94,10 @@ function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
-export function readOfflineAuthCache(storage: Storage | null | undefined): StoredOfflineAuthCache | null {
+export function readOfflineAuthCache(
+  storage: Storage | null | undefined,
+  now: Date = new Date(),
+): StoredOfflineAuthCache | null {
   if (!canUseStorage(storage)) return null;
   try {
     storage.removeItem(LEGACY_OFFLINE_AUTH_CACHE_KEY);
@@ -100,6 +106,11 @@ export function readOfflineAuthCache(storage: Storage | null | undefined): Store
     const parsed = JSON.parse(raw) as StoredOfflineAuthCache & { password?: string };
     if (!parsed?.username || !parsed?.user) return null;
     if (!parsed.passwordVerifier?.startsWith(`${PBKDF2_PREFIX}$`)) {
+      storage.removeItem(OFFLINE_AUTH_CACHE_KEY);
+      return null;
+    }
+    const expiresAt = parsed.expiresAt ? new Date(parsed.expiresAt) : null;
+    if (!expiresAt || Number.isNaN(expiresAt.getTime()) || expiresAt <= now) {
       storage.removeItem(OFFLINE_AUTH_CACHE_KEY);
       return null;
     }

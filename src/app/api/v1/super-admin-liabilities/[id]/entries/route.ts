@@ -6,8 +6,11 @@ import { JWTPayload } from "@/lib/auth";
 import { journalSuperAdminLiabilityEntry } from "@/lib/accounting";
 import { validatePaymentSource } from "@/lib/payment-source-validation";
 import { calculateLiabilitySettlementFx, SuperAdminLiabilitySettlementError } from "@/lib/superadmin-liability-accounting";
+import { getSyncRequestMeta } from "@/lib/sync-idempotency";
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
+const SUPER_ADMIN_LIABILITY_ENTRY_SYNC_MODULE = "super_admin_liability_entries.create";
+const SUPERADMIN_SYNC_CITY_ID = 0;
 
 export const GET = withSuperAdmin(async (_request: NextRequest, context: any) => {
   try {
@@ -57,9 +60,16 @@ export const GET = withSuperAdmin(async (_request: NextRequest, context: any) =>
 });
 
 export const POST = withSuperAdmin(async (request: NextRequest, context: any, user: JWTPayload) => {
+  const syncMeta = getSyncRequestMeta(request);
   try {
     const accountId = Number(context.params.id);
     const body = await request.json();
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: { unique_sync_request_per_city_module: { cityId: SUPERADMIN_SYNC_CITY_ID, module: SUPER_ADMIN_LIABILITY_ENTRY_SYNC_MODULE, requestId: syncMeta.requestId } },
+      });
+      if (existingSync?.entityId) return successResponse({ id: existingSync.entityId }, "Liability entry already recorded");
+    }
     const entryType = String(body.entryType || "");
     if (!new Set(["loan_received", "liability_incurred", "payment"]).has(entryType)) return validationError("Invalid liability entry type");
     const amount = Number(body.amount);
@@ -114,7 +124,17 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
       }
     }
 
-    const created = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
+      if (syncMeta) {
+        await tx.$executeRawUnsafe(
+          "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
+          `sync:${SUPERADMIN_SYNC_CITY_ID}:${SUPER_ADMIN_LIABILITY_ENTRY_SYNC_MODULE}:${syncMeta.requestId}`,
+        );
+        const existingSync = await tx.syncRequest.findUnique({
+          where: { unique_sync_request_per_city_module: { cityId: SUPERADMIN_SYNC_CITY_ID, module: SUPER_ADMIN_LIABILITY_ENTRY_SYNC_MODULE, requestId: syncMeta.requestId } },
+        });
+        if (existingSync?.entityId) return { id: existingSync.entityId, duplicate: true };
+      }
       await tx.$executeRawUnsafe("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)", `superadmin-liability:${accountId}:${currencyId}`);
       const liabilityEffect = entryType === "payment" ? -amount : amount;
       let carryingRatePkr = exchangeRateToPkr;
@@ -184,9 +204,22 @@ export const POST = withSuperAdmin(async (request: NextRequest, context: any, us
         description: `${account.name} — ${entryType.replaceAll("_", " ")}`,
       }, tx);
       await createAuditLog(user.userId, null, "super_admin_liability_entries", entry.id, "create", undefined, { accountId, entryType, amount, currencyCode, pkrAmount, carryingAmountPkr, realizedFxPkr, sourceType }, getClientIP(request), tx);
-      return entry;
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: SUPER_ADMIN_LIABILITY_ENTRY_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "super_admin_liability_entries",
+            entityId: entry.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+      return { id: entry.id, duplicate: false };
     });
-    return successResponse({ id: created.id }, "Liability entry recorded", 201);
+    return successResponse({ id: result.id }, result.duplicate ? "Liability entry already recorded" : "Liability entry recorded", result.duplicate ? 200 : 201);
   } catch (error) {
     if (error instanceof SuperAdminLiabilitySettlementError) return validationError(error.message);
     console.error("Create superadmin liability entry:", error);

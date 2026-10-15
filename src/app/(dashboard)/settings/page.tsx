@@ -1,5 +1,6 @@
 "use client";
 import React, { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { apiCall } from "@/hooks/useApi";
 import { useOffline } from "@/hooks/useOffline";
@@ -118,6 +119,7 @@ type SettingsGodownAccessReadSnapshot = {
 
 type SettingsSessionsReadSnapshot = {
   sessions: any[];
+  offlineDevices: any[];
 };
 
 export default function SettingsPage() {
@@ -278,6 +280,7 @@ function BrandingTab() {
 function CityAdminSettingsCard() {
   const { user } = useAuth();
   const { t } = useLang();
+  const router = useRouter();
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -440,7 +443,7 @@ function CityAdminSettingsCard() {
     setSuccess("Your account has been deleted. You will be logged out.");
     closeDeleteAccount();
     setTimeout(() => {
-      window.location.href = "/login";
+      router.replace("/login");
     }, 1200);
   };
 
@@ -1639,23 +1642,30 @@ function SessionsTab() {
   const { t } = useLang();
   const { isOnline } = useOffline();
   const [sessions, setSessions] = useState<any[]>([]);
+  const [offlineDevices, setOfflineDevices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [revoking, setRevoking] = useState<string | null>(null);
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const r = await apiCall("/api/v1/sessions");
-    if (r.success) {
+    const [r, devicesResult] = await Promise.all([
+      apiCall("/api/v1/sessions"),
+      apiCall("/api/v1/offline-devices"),
+    ]);
+    if (r.success && devicesResult.success) {
       setSessions(r.data as any[]);
+      setOfflineDevices(devicesResult.data as any[]);
       writeOfflineReadSnapshot<SettingsSessionsReadSnapshot>(SETTINGS_SESSIONS_READ_CACHE_KEY, {
         sessions: r.data as any[],
+        offlineDevices: devicesResult.data as any[],
       });
       setShowOfflineSnapshot(false);
     } else if (!isOnline) {
       const snapshot = readOfflineReadSnapshot<SettingsSessionsReadSnapshot>(SETTINGS_SESSIONS_READ_CACHE_KEY)?.data;
       if (snapshot?.sessions?.length) {
         setSessions(snapshot.sessions);
+        setOfflineDevices(snapshot.offlineDevices || []);
         setShowOfflineSnapshot(true);
       }
     }
@@ -1678,6 +1688,15 @@ function SessionsTab() {
     const r = await apiCall("/api/v1/sessions/revoke-others", { method: "POST" });
     setRevoking(null);
     if (r.success) load();
+  };
+
+  const updateOfflineDevice = async (id: string, action: "approve" | "revoke") => {
+    const verb = action === "approve" ? "re-approve" : "revoke";
+    if (!confirm(`${verb[0].toUpperCase()}${verb.slice(1)} offline access for this device?`)) return;
+    setRevoking(`device:${id}`);
+    const result = await apiCall(`/api/v1/offline-devices/${id}/${action}`, { method: "POST" });
+    setRevoking(null);
+    if (result.success) await load();
   };
 
   if (loading) return <div className="flex items-center justify-center py-12"><div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" /></div>;
@@ -1730,6 +1749,47 @@ function SessionsTab() {
             </div>
           ))
         )}
+      </div>
+
+      <div className="mt-8 border-t border-gray-200 pt-6">
+        <div className="mb-4">
+          <h3 className="text-sm font-semibold text-gray-900">Trusted offline devices</h3>
+          <p className="mt-1 text-xs text-gray-500">
+            Packaged apps can sign in offline for seven days after a successful online login. Device controls require an internet connection.
+          </p>
+        </div>
+        <div className="space-y-3">
+          {offlineDevices.length === 0 ? (
+            <div className="card text-center py-8 text-gray-400">No trusted offline devices found.</div>
+          ) : offlineDevices.map((device: any) => {
+            const revoked = Boolean(device.revokedAt);
+            return (
+              <div key={device.id} className="bg-white rounded-lg border border-gray-100 px-4 py-3 flex items-center gap-4">
+                <div className="w-10 h-10 rounded-lg bg-gray-50 flex items-center justify-center text-lg flex-shrink-0">
+                  {String(device.platform || "").match(/ios|android/i) ? "📱" : "💻"}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm text-gray-900">{device.platform || "Packaged app"}</span>
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${revoked ? "bg-red-50 text-red-700 border-red-200" : "bg-green-50 text-green-700 border-green-200"}`}>
+                      {revoked ? "Revoked" : "Approved"}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 text-xs text-gray-400">
+                    Device ••••{String(device.deviceId || "").slice(-8)} · Approved {timeAgo(device.approvedAt)} · Expires {new Date(device.expiresAt).toLocaleDateString("en-GB")}
+                  </div>
+                </div>
+                <button
+                  onClick={() => updateOfflineDevice(device.id, revoked ? "approve" : "revoke")}
+                  disabled={!isOnline || revoking === `device:${device.id}`}
+                  className={`text-xs font-medium flex-shrink-0 disabled:cursor-not-allowed disabled:opacity-40 ${revoked ? "text-green-700" : "text-red-600"}`}
+                >
+                  {revoking === `device:${device.id}` ? "Saving..." : revoked ? "Re-approve" : "Revoke"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

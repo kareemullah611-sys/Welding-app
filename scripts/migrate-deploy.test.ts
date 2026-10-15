@@ -24,6 +24,7 @@ test("migration history has a fresh-database baseline and only additive follow-u
     "00000000000000_current_schema_baseline",
     "20261002130000_existing_database_compatibility",
     "20261006090000_add_offline_sync_devices",
+    "20261009100000_add_offline_device_approval",
   ]);
 
   const baseline = readFileSync("prisma/migrations/00000000000000_current_schema_baseline/migration.sql", "utf8");
@@ -41,6 +42,11 @@ test("migration history has a fresh-database baseline and only additive follow-u
   assert.match(offlineDevices, /CREATE TABLE "offline_sync_devices"/);
   assert.match(offlineDevices, /FOREIGN KEY \("user_id"\) REFERENCES "users"\("id"\)/);
   assert.doesNotMatch(offlineDevices, /DROP TABLE|DROP COLUMN|TRUNCATE|DELETE FROM|UPDATE\s+"/);
+
+  const offlineDeviceApproval = readFileSync("prisma/migrations/20261009100000_add_offline_device_approval/migration.sql", "utf8");
+  assert.match(offlineDeviceApproval, /ADD COLUMN "approved_at"/);
+  assert.match(offlineDeviceApproval, /SET "approved_at" = "created_at"/);
+  assert.doesNotMatch(offlineDeviceApproval, /DROP TABLE|DROP COLUMN|TRUNCATE|DELETE FROM/);
 });
 
 test("CI provisions every PostgreSQL job through migration deploy", () => {

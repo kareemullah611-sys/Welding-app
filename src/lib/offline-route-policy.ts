@@ -17,7 +17,6 @@ const OFFLINE_WRITE_QUEUE_ALLOWLIST = [
   "/api/v1/lots",
   "/api/v1/lot-purchases",
   "/api/v1/products",
-  "/api/v1/users",
   "/api/v1/shipping-lines",
   "/api/v1/agents",
   "/api/v1/bank-accounts",
@@ -34,9 +33,11 @@ const OFFLINE_WRITE_QUEUE_DYNAMIC_ALLOWLIST = [
   /^\/api\/v1\/investors\/\d+\/transactions$/,
 ];
 
-const OFFLINE_MUTATION_EXTRA_PATTERNS = [
-  /^\/api\/v1\/investors\/\d+$/,
-  /^\/api\/v1\/investors\/\d+\/transactions\/\d+$/,
+const OFFLINE_POST_ONLY_PATTERNS = [
+  /^\/api\/v1\/liabilities$/,
+  /^\/api\/v1\/liabilities\/\d+\/entries$/,
+  /^\/api\/v1\/super-admin-liabilities$/,
+  /^\/api\/v1\/super-admin-liabilities\/\d+\/entries$/,
 ] as const;
 
 const OFFLINE_QUEUE_BLOCKED_PREFIXES = [
@@ -74,9 +75,18 @@ export function isOfflineQueueBlockedPath(path: string): boolean {
 export function isAllowlistedOfflineMutationPath(path: string): boolean {
   if (isOfflineQueueBlockedPath(path)) return false;
   if (OFFLINE_WRITE_QUEUE_ALLOWLIST.includes(path as (typeof OFFLINE_WRITE_QUEUE_ALLOWLIST)[number])) return true;
-  if (OFFLINE_MUTATION_EXTRA_PATTERNS.some((pattern) => pattern.test(path))) return true;
-  for (const base of OFFLINE_WRITE_QUEUE_ALLOWLIST) {
-    if (path.startsWith(`${base}/`)) return true;
-  }
   return OFFLINE_WRITE_QUEUE_DYNAMIC_ALLOWLIST.some((pattern) => pattern.test(path));
+}
+
+export function isAllowlistedOfflineMutation(path: string, method: string): boolean {
+  const normalizedMethod = String(method || "").toUpperCase();
+  if (normalizedMethod === "POST" && OFFLINE_POST_ONLY_PATTERNS.some((pattern) => pattern.test(path))) return true;
+  if (normalizedMethod !== "POST") return false;
+  return isAllowlistedOfflineMutationPath(path);
+}
+
+export function isAllowlistedOfflineRequest(path: string, method: string): boolean {
+  const normalizedMethod = String(method || "").toUpperCase();
+  if (normalizedMethod === "GET") return path === "/api/v1/offline/sync-all";
+  return isAllowlistedOfflineMutation(path, normalizedMethod);
 }

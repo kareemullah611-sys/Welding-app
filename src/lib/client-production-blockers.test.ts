@@ -139,6 +139,17 @@ test("online expense creation uses a stable idempotency key", () => {
   assert.match(page, /"x-sync-request-id"/);
 });
 
+test("CI enforces offline behavior and liability replay idempotency before approval", () => {
+  const workflow = read(".github/workflows/ci.yml");
+  const packageJson = read("package.json");
+  const agentRules = read("AGENTS.md");
+  assert.match(workflow, /NEXT_PUBLIC_OFFLINE_ENABLED:\s*["']true["']/);
+  assert.match(workflow, /npm run test:liability-idempotency-db/);
+  assert.match(packageJson, /"test:liability-idempotency-db"/);
+  assert.match(agentRules, /IDEMPOTENCY AND OFFLINE ACCEPTANCE GATE/);
+  assert.match(agentRules, /concurrent replay/);
+});
+
 test("customer hard-delete cannot erase accounting history", () => {
   const route = read("src/app/api/v1/customers/[id]/hard-delete/route.ts");
   assert.match(route, /CUSTOMER_HAS_ACCOUNTING_HISTORY/);

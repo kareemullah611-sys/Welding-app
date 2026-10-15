@@ -29,6 +29,7 @@ export async function issueOfflineSyncDeviceToken(input: {
       platform: input.platform,
       tokenHash: hashDeviceToken(token),
       expiresAt,
+      approvedAt: new Date(),
     },
     update: {
       platform: input.platform,
@@ -48,7 +49,7 @@ export async function authenticateOfflineSyncDevice(request: NextRequest): Promi
     where: { tokenHash: hashDeviceToken(token) },
     include: { user: { include: { city: true } } },
   });
-  if (!device || device.revokedAt || device.expiresAt <= new Date() || !device.user.isActive) return null;
+  if (!device || !device.approvedAt || device.revokedAt || device.expiresAt <= new Date() || !device.user.isActive) return null;
   await prisma.offlineSyncDevice.update({
     where: { id: device.id },
     data: { lastUsedAt: new Date() },

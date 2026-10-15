@@ -2,8 +2,10 @@
 
 import React, { useState, useEffect } from "react";
 import { useOffline } from "@/hooks/useOffline";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function OfflineBanner() {
+  const { user } = useAuth();
   const { offlineEnabled, isOnline, queueCount, syncQueue, isSyncing, lastSyncResult, fullSyncMeta, triggerFullSync } = useOffline();
   const [showResult, setShowResult] = useState(false);
   const [dismissed, setDismissed] = useState(false);
@@ -25,14 +27,15 @@ export default function OfflineBanner() {
   const fullSyncInProgress = fullSyncMeta?.status === "syncing";
   const fullSyncFailed = fullSyncMeta?.status === "failed" && !fullSyncMeta?.lastSyncedAt;
   const seededLocally = fullSyncMeta?.seedSource === "bundled";
-  const needsInitialSync = offlineEnabled && isOnline && !fullSyncMeta?.lastSyncedAt && !fullSyncInProgress;
+  const needsInitialSync = offlineEnabled && isOnline && !fullSyncMeta?.lastSyncedAt && !fullSyncInProgress && !fullSyncFailed;
 
+  if (!user) return null;
   if (!offlineEnabled) return null;
   if (dismissed && isOnline && queueCount === 0 && !showResult && !fullSyncInProgress && !fullSyncFailed && !needsInitialSync) return null;
   if (isOnline && queueCount === 0 && !showResult && !fullSyncInProgress && !fullSyncFailed && !needsInitialSync) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-40 max-w-sm">
+    <div className="fixed safe-bottom safe-right z-40 max-w-sm">
       {(fullSyncInProgress || needsInitialSync) && (
         <div className="bg-blue-600 text-white rounded-xl shadow-lg px-4 py-3 mb-2 flex items-center gap-3">
           <svg className="w-4 h-4 animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none">

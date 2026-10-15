@@ -20,7 +20,7 @@ function paymentDebitTarget(input: {
   bankAccountId?: number | null;
   paymentMethod?: string | null;
 }) {
-  if (input.bankAccountId && input.paymentMethod === "bank_transfer") return "city_bank";
+  if (input.bankAccountId && (input.paymentMethod === "bank_transfer" || input.paymentMethod === "online")) return "city_bank";
   return "city_cash";
 }
 
@@ -35,6 +35,13 @@ describe("accounting journal routing", () => {
     assert.equal(
       paymentDebitTarget({ destination: "haji", superAdminBankAccountId: 2 }),
       "city_cash"
+    );
+  });
+
+  it("routes online customer receipts to the selected city bank", () => {
+    assert.equal(
+      paymentDebitTarget({ destination: "our_account", bankAccountId: 7, paymentMethod: "online" }),
+      "city_bank",
     );
   });
 });

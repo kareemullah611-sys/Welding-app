@@ -98,6 +98,19 @@ Every finance final report must include this trace table:
 | Flow | Form | API | DB | Journal | Ledger | Running Balance | Dashboard | Edit | Delete | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 
+## IDEMPOTENCY AND OFFLINE ACCEPTANCE GATE
+
+Every new feature, route, API, or mutation must be classified and verified before approval:
+
+1. Every mutating request must define a stable retry/idempotency strategy.
+2. Financial and stock writes must have a database-backed test proving retry and concurrent replay create exactly one business effect and one balanced journal/posting set where applicable.
+3. Packaged-app behavior must be explicit: safely queue with audit metadata and reconciliation, or fail closed as online-only with a clear reason.
+4. Offline-capable creates must appear in the local read model without inventing server-side journals, balances, IDs, or accounting results.
+5. Unsafe edits, reversals, deletes, external-service writes, and unsupported foreign-currency paths must remain blocked offline until exact-once behavior is proven.
+6. Add the route to the offline policy/gate and add regression coverage for allowlisted and blocked methods.
+7. Do not approve or mark complete until idempotency, network-failure retry, concurrent replay, offline queue/read behavior, sync reconciliation, and duplicate prevention have passed.
+8. CI must run the offline feature gate with `NEXT_PUBLIC_OFFLINE_ENABLED=true` and all relevant idempotency suites.
+
 ## LOT PRODUCT COST CORRECTION RULE
 
 - Lot purchase value and every landed cost must be attributable to child products, not only to the parent lot.

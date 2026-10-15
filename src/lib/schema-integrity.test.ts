@@ -69,6 +69,32 @@ test("superadmin app branding settings are persisted and visible", () => {
   assert.match(sidebar, /useAppBranding/);
 });
 
+test("login password input preserves literal iOS keyboard characters", () => {
+  const loginPage = readFileSync("src/app/login/page.tsx", "utf8");
+  const usernameInput = loginPage.slice(
+    loginPage.indexOf('type="text"'),
+    loginPage.indexOf('type="text"') + 500,
+  );
+  const passwordInput = loginPage.slice(
+    loginPage.indexOf('type="password"'),
+    loginPage.indexOf('type="password"') + 500,
+  );
+
+  assert.match(usernameInput, /lang="en"/);
+  assert.match(usernameInput, /dir="ltr"/);
+  assert.match(usernameInput, /autoCapitalize="none"/);
+  assert.match(usernameInput, /autoCorrect="off"/);
+  assert.match(usernameInput, /spellCheck=\{false\}/);
+  assert.match(usernameInput, /autoComplete="username"/);
+  assert.match(passwordInput, /lang="en"/);
+  assert.match(passwordInput, /dir="ltr"/);
+  assert.match(passwordInput, /autoCapitalize="none"/);
+  assert.match(passwordInput, /autoCorrect="off"/);
+  assert.match(passwordInput, /spellCheck=\{false\}/);
+  assert.match(passwordInput, /autoComplete="current-password"/);
+  assert.doesNotMatch(loginPage, /autoFocus/);
+});
+
 test("superadmin dashboard country tabs do not show country flags", () => {
   const dashboardPage = readFileSync("src/app/(dashboard)/dashboard/page.tsx", "utf8");
 
@@ -361,7 +387,7 @@ test("city payment modal owns haji expense and withdrawal creation", () => {
   assert.match(paymentsPage, /const loadLatestCreateEntrySummary = useCallback/);
   assert.match(paymentsPage, /apiCall\("\/api\/v1\/finance\/combined", \{ params: \{ page: 1, limit: 1, type: "all" \} \}\)/);
   assert.match(paymentsPage, /setLatestCreatedEntry\(buildLatestPaymentEntrySummary\(createType, body, formSnapshot, currencies, lots/);
-  assert.match(paymentsPage, /setLatestCreatedEntry\(await loadLatestCreateEntrySummary\(\)\)/);
+  assert.match(paymentsPage, /const \[latestEntry,[\s\S]*?loadLatestCreateEntrySummary\(\)[\s\S]*?setLatestCreatedEntry\(latestEntry\)/);
   assert.match(paymentsPage, /\{latestCreatedEntry && \(/);
   assert.match(paymentsPage, /latestCreatedEntry\.meta\.join\(" · "\)/);
   assert.match(paymentsPage, /key: "actions", label: t\("actions"\)/);
@@ -381,7 +407,7 @@ test("city sale modal shows compact latest sale summary after save", () => {
   assert.match(salesPage, /apiCall\("\/api\/v1\/sales", \{ params: \{ page: 1, limit: 1 \} \}\)/);
   assert.match(salesPage, /const \[latestCreatedSale, setLatestCreatedSale\] = useState<LatestSaleSummary \| null>\(null\)/);
   assert.match(salesPage, /setLatestCreatedSale\(buildLatestSaleSummary\(/);
-  assert.match(salesPage, /setLatestCreatedSale\(await loadLatestSaleSummary\(\)\)/);
+  assert.match(salesPage, /const \[loaded, latestSale\][\s\S]*?loadLatestSaleSummary\(\)[\s\S]*?setLatestCreatedSale\(latestSale\)/);
   assert.match(salesPage, /\{latestCreatedSale && \(/);
   assert.match(salesPage, /latestCreatedSale\.meta\.join\(" · "\)/);
 });
@@ -562,10 +588,10 @@ test("dashboard modules use shimmer table skeletons while loading", () => {
   assert.doesNotMatch(inventoryPage.slice(inventoryPage.indexOf("if (loading || !data)"), inventoryPage.indexOf("const isCityAdmin")), /animate-spin/);
   assert.match(skeleton, /function ModalFormSkeleton/);
   assert.match(uiIndex, /ModalFormSkeleton/);
-  assert.match(paymentsPage, /setShowCreate\(true\);[\s\S]*?const \{ loadedCurrencies \} = await loadHelpers\(\)/);
+  assert.match(paymentsPage, /setShowCreate\(true\);[\s\S]*?const \[latestEntry, \{ loadedCurrencies \}\] = await Promise\.all\([\s\S]*?loadHelpers\(\)/);
   assert.match(paymentsPage, /setShowEdit\(true\);[\s\S]*?const \{ loadedCurrencies \} = await loadHelpers\(\)/);
   assert.match(paymentsPage, /!createFormReady \? \(\s*<ModalFormSkeleton \/>/);
-  assert.match(salesPage, /setShowCreate\(true\);[\s\S]*?const loaded = await loadDropdowns\(\)/);
+  assert.match(salesPage, /setShowCreate\(true\);[\s\S]*?const \[loaded, latestSale\] = await Promise\.all\([\s\S]*?loadDropdowns\(\)/);
   assert.match(salesPage, /setShowCorrect\(true\);[\s\S]*?if \(!products\.length\) await loadDropdowns\(\)/);
   assert.match(salesPage, /!saleCreateFormReady \? \(\s*<ModalFormSkeleton \/>/);
   assert.match(salesPage, /!saleCorrectFormReady \? \(\s*<ModalFormSkeleton \/>/);
@@ -1132,8 +1158,8 @@ test("dashboard metric and quick action cards collapse the balance hub", () => {
   assert.match(balanceHub, /useEffect\(\(\) => \{\s+setExpanded\(false\)/);
   assert.match(dashboardPage, /const collapseBalanceHub = useCallback/);
   assert.match(dashboardPage, /collapseSignal=\{balanceCollapseSignal\}/);
-  assert.match(dashboardPage, /collapseBalanceHub\(\); openQuickForm\("Sale", "\/sales\?create=1&embed=1"\)/);
-  assert.match(dashboardPage, /collapseBalanceHub\(\); openQuickForm\("Payment", "\/payments\?create=payment&embed=1"\)/);
+  assert.match(dashboardPage, /collapseBalanceHub\(\); openQuickForm\("Sale", getQuickformSrc\("sales", "1"\)\)/);
+  assert.match(dashboardPage, /collapseBalanceHub\(\); openQuickForm\("Payment", getQuickformSrc\("payments", "payment"\)\)/);
   assert.match(dashboardPage, /collapseBalanceHub\(\); setRevealedMetric\("outstanding"\)/);
   assert.match(dashboardPage, /collapseBalanceHub\(\); setRevealedMetric\("cartons"\)/);
   assert.match(dashboardPage, /collapseBalanceHub\(\); setRevealedMetric\("haji"\)/);

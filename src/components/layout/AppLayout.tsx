@@ -90,6 +90,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const effectiveCollapsed = collapsed && !zoomedOut;
   const isEmbed = useQuickformEmbed() || (typeof window !== "undefined" && getEmbedFromLocation());
+  const shouldRedirectToLogin = !loading && !user && !isEmbed;
+
+  // Navigating during render re-fires on every re-render and restarts the
+  // WebView document load in the packaged app. Redirect from an effect instead.
+  // The packaged build is a static export with no middleware, so an
+  // unauthenticated visitor needs a real document load to reach the login
+  // shell — a client-only transition can leave reviewers on a blank frame.
+  useEffect(() => {
+    if (shouldRedirectToLogin) window.location.href = "/login/";
+  }, [shouldRedirectToLogin]);
 
   if (loading && !user) {
     return <BrandLoader fullscreen size="lg" label="Loading" />;
@@ -107,7 +117,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         />
       );
     }
-    if (typeof window !== "undefined") window.location.href = "/login";
     return null;
   }
 

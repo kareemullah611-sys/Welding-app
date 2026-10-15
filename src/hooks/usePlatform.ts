@@ -10,6 +10,7 @@ declare global {
       runtime: string;
       openRemoteInBrowser?: () => Promise<boolean>;
       retryRemoteLoad?: () => Promise<boolean>;
+      onBackgroundSyncTrigger?: (callback: (reason: string) => void) => () => void;
     };
     Capacitor?: { getPlatform: () => string };
   }

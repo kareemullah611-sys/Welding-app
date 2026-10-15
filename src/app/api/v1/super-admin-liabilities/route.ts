@@ -4,6 +4,10 @@ import prisma from "@/lib/prisma";
 import { withSuperAdmin, createAuditLog, getClientIP } from "@/lib/middleware";
 import { errorResponse, paginatedResponse, serverError, successResponse, validationError, getPaginationParams } from "@/lib/api-response";
 import { JWTPayload } from "@/lib/auth";
+import { getSyncRequestMeta } from "@/lib/sync-idempotency";
+
+const SUPER_ADMIN_LIABILITY_ACCOUNT_SYNC_MODULE = "super_admin_liability_accounts.create";
+const SUPERADMIN_SYNC_CITY_ID = 0;
 
 export const GET = withSuperAdmin(async (request: NextRequest) => {
   try {
@@ -49,6 +53,7 @@ export const GET = withSuperAdmin(async (request: NextRequest) => {
 });
 
 export const POST = withSuperAdmin(async (request: NextRequest, _context: unknown, user: JWTPayload) => {
+  const syncMeta = getSyncRequestMeta(request);
   try {
     const body = await request.json();
     const name = String(body.name || "").trim();
@@ -56,7 +61,24 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: unknow
     if (!name) return validationError("Name is required");
     if (!new Set(["lender", "creditor"]).has(partyType)) return validationError("Party type must be lender or creditor");
 
-    const created = await prisma.$transaction(async (tx) => {
+    if (syncMeta) {
+      const existingSync = await prisma.syncRequest.findUnique({
+        where: { unique_sync_request_per_city_module: { cityId: SUPERADMIN_SYNC_CITY_ID, module: SUPER_ADMIN_LIABILITY_ACCOUNT_SYNC_MODULE, requestId: syncMeta.requestId } },
+      });
+      if (existingSync?.entityId) return successResponse({ id: existingSync.entityId }, "Liability account already created");
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      if (syncMeta) {
+        await tx.$executeRawUnsafe(
+          "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
+          `sync:${SUPERADMIN_SYNC_CITY_ID}:${SUPER_ADMIN_LIABILITY_ACCOUNT_SYNC_MODULE}:${syncMeta.requestId}`,
+        );
+        const existingSync = await tx.syncRequest.findUnique({
+          where: { unique_sync_request_per_city_module: { cityId: SUPERADMIN_SYNC_CITY_ID, module: SUPER_ADMIN_LIABILITY_ACCOUNT_SYNC_MODULE, requestId: syncMeta.requestId } },
+        });
+        if (existingSync?.entityId) return { id: existingSync.entityId, duplicate: true };
+      }
       const controlAccount = await tx.account.create({
         data: {
           code: `2400-${partyType === "lender" ? "L" : "C"}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
@@ -77,9 +99,26 @@ export const POST = withSuperAdmin(async (request: NextRequest, _context: unknow
         },
       });
       await createAuditLog(user.userId, null, "super_admin_liability_accounts", account.id, "create", undefined, { name, partyType }, getClientIP(request), tx);
-      return account;
+      if (syncMeta) {
+        await tx.syncRequest.create({
+          data: {
+            cityId: SUPERADMIN_SYNC_CITY_ID,
+            module: SUPER_ADMIN_LIABILITY_ACCOUNT_SYNC_MODULE,
+            requestId: syncMeta.requestId,
+            deviceId: syncMeta.deviceId,
+            entityType: "super_admin_liability_accounts",
+            entityId: account.id,
+            createdBy: user.userId,
+          },
+        });
+      }
+      return { id: account.id, duplicate: false };
     });
-    return successResponse({ id: created.id }, partyType === "lender" ? "Lender created" : "Creditor created", 201);
+    return successResponse(
+      { id: result.id },
+      result.duplicate ? "Liability account already created" : partyType === "lender" ? "Lender created" : "Creditor created",
+      result.duplicate ? 200 : 201,
+    );
   } catch (error: any) {
     if (error?.code === "P2002") return errorResponse("DUPLICATE", "A liability account with this name already exists", 409);
     console.error("Create superadmin liability:", error);
