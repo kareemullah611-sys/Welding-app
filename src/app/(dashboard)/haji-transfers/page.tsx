@@ -3,6 +3,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
+import { fetchInHandPaymentCheques } from "@/lib/in-hand-payment-cheques";
 import { PageHeader, DataTable, Modal, formatNumber, formatDate, RowActionMenu, MobileDateInput, FormattedNumberInput, FilterMenu } from "@/components/ui";
 import { useLang } from "@/lib/lang";
 import { useSearchParams } from "next/navigation";
@@ -137,6 +138,7 @@ export default function HajiTransfersPage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [chequeLoadError, setChequeLoadError] = useState("");
   const [transferSavedNotice, setTransferSavedNotice] = useState<string | null>(null);
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
   const [resolvingQueueId, setResolvingQueueId] = useState<string | null>(null);
@@ -411,16 +413,9 @@ export default function HajiTransfersPage() {
       superAdminDestinationAccountId: 0,
     });
     if (!isAfghanistanCity && isOnline) {
-      const chR = await apiCall("/api/v1/payments", {
-        params: {
-          all: 1,
-          status: "active",
-          payment_method: "cheque",
-          destination: "our_account",
-          cheque_status: "in_hand",
-        },
-      });
-      if (chR.success) setInHandCheques(chR.data as any[]);
+      const chR = await fetchInHandPaymentCheques(apiCall);
+      setInHandCheques(chR.success ? chR.data as any[] : []);
+      setChequeLoadError(chR.success ? "" : "Unable to load the complete cheque list. Reopen the form to retry.");
     }
   }, [currencies, isAfghanistanCity, isOnline, shouldUseSuperAdminTarget]);
 
@@ -462,6 +457,7 @@ export default function HajiTransfersPage() {
       setCurrencies(cached.currencies);
       setBankAccounts(cached.bankAccounts);
       setInHandCheques(cached.inHandCheques);
+      setChequeLoadError("");
       setSuperAdminBankAccounts(cached.superAdminBankAccounts || []);
       setForm((f: any) => ({
         ...f,
@@ -496,15 +492,7 @@ export default function HajiTransfersPage() {
     if (!isAfghanistanCity) {
       requests.push(
         apiCall("/api/v1/bank-accounts"),
-        apiCall("/api/v1/payments", {
-          params: {
-            all: 1,
-            status: "active",
-            payment_method: "cheque",
-            destination: "our_account",
-            cheque_status: "in_hand",
-          },
-        }),
+        fetchInHandPaymentCheques(apiCall),
       );
     }
     const results = await Promise.all(requests);
@@ -532,7 +520,8 @@ export default function HajiTransfersPage() {
     }
     if (!isAfghanistanCity && chR?.success) setInHandCheques(chR.data as any[]);
     else setInHandCheques([]);
-    if (cachedCurrencies.length > 0) {
+    setChequeLoadError(!isAfghanistanCity && !chR?.success ? "Unable to load the complete cheque list. Reopen the form to retry." : "");
+    if (cachedCurrencies.length > 0 && (isAfghanistanCity || chR?.success)) {
       writeOfflineFormCache<HajiFormCache>(HAJI_FORM_CACHE_KEY, {
         lots: lR.success ? (lR.data as any[]) : [],
         currencies: cachedCurrencies,
@@ -1141,7 +1130,7 @@ export default function HajiTransfersPage() {
         {transferSavedNotice && (
           <div className="mb-3 rounded border border-green-200 bg-green-50 p-2 text-sm text-green-700">{transferSavedNotice}</div>
         )}
-        {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
+        {(error || chequeLoadError) && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error || chequeLoadError}</div>}
         <div className="space-y-3">
           {isAfghanistanCity ? (
             <>

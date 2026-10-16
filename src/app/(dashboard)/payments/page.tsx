@@ -3,6 +3,7 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuickformEmbed } from "@/hooks/useQuickformEmbed";
 import { apiCall } from "@/hooks/useApi";
+import { fetchInHandPaymentCheques } from "@/lib/in-hand-payment-cheques";
 import { useOffline } from "@/hooks/useOffline";
 import { PageHeader, DataTable, Modal, StatusBadge, ModalStatusNotice, formatDate, RowActionMenu, MobileDateInput, FormattedNumberInput, ModalFormSkeleton, FilterMenu } from "@/components/ui";
 import CustomerFieldWithNew from "@/components/CustomerFieldWithNew";
@@ -373,6 +374,7 @@ export default function PaymentsPage() {
   const [form, setForm] = useState<any>({ paymentMethod: "cash", destination: "our_account" });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [chequeLoadError, setChequeLoadError] = useState("");
   const [showOfflineSnapshot, setShowOfflineSnapshot] = useState(false);
 
   // Hard delete
@@ -583,6 +585,7 @@ export default function PaymentsPage() {
   }, [showLatestEntry]);
 
   const loadHelpers = async () => {
+    setChequeLoadError("");
     if (!isOnline) {
       const cached = readOfflineFormCache<PaymentsFormCache>(PAYMENTS_FORM_CACHE_KEY, [
         "lots",
@@ -609,26 +612,19 @@ export default function PaymentsPage() {
       apiCall("/api/v1/bank-accounts", { params: { scope: "super_admin" } }),
       isAfghanistanCity
         ? Promise.resolve({ success: true, data: [] })
-        : apiCall("/api/v1/payments", {
-            params: {
-              all: 1,
-              status: "active",
-              payment_method: "cheque",
-              destination: "our_account",
-              cheque_status: "in_hand",
-            },
-          }),
+        : fetchInHandPaymentCheques(apiCall),
     ]);
     if (lR.success) setLots(lR.data as any[]);
     if (cityBanksR.success) setCityBankAccounts(cityBanksR.data as any[]);
     if (superAdminBanksR.success) setSuperAdminBankAccounts(superAdminBanksR.data as any[]);
-    if (chequesR.success) setInHandCheques([...(chequesR.data as any[])].sort((a: any, b: any) => Number(b.id || 0) - Number(a.id || 0)));
+    setInHandCheques(chequesR.success ? [...(chequesR.data as any[])].sort((a: any, b: any) => Number(b.id || 0) - Number(a.id || 0)) : []);
+    if (!chequesR.success) setChequeLoadError("Unable to load the complete cheque list. Reopen the form to retry.");
     let loadedCurrencies: any[] = [];
     if (ciR.success && user?.cityId) {
       const city = (ciR.data as any[]).find((c: any) => c.id === user.cityId);
       if (city?.currencies?.length) { loadedCurrencies = city.currencies; setCurrencies(city.currencies); }
     }
-    if (loadedCurrencies.length > 0) {
+    if (loadedCurrencies.length > 0 && chequesR.success) {
       writeOfflineFormCache<PaymentsFormCache>(PAYMENTS_FORM_CACHE_KEY, {
         lots: lR.success ? (lR.data as any[]) : [],
         currencies: loadedCurrencies,
@@ -2258,7 +2254,7 @@ export default function PaymentsPage() {
             )}
           </div>
         )}
-        {error && <ModalStatusNotice type="error" message={error} />}
+        {(error || chequeLoadError) && <ModalStatusNotice type="error" message={error || chequeLoadError} />}
         {!createFormReady ? (
           <ModalFormSkeleton />
         ) : (
@@ -3097,7 +3093,7 @@ export default function PaymentsPage() {
 
       {/* ── EDIT MODAL ──────────────────────────────────────────────────────── */}
       <Modal open={showEdit} onClose={() => { setShowEdit(false); setCreateFormReady(false); }} title={t("edit")} size="md">
-        {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
+        {(error || chequeLoadError) && <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error || chequeLoadError}</div>}
         {!createFormReady ? (
           <ModalFormSkeleton />
         ) : (

@@ -110,7 +110,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
           creator: { select: { id: true, fullName: true } },
           attachments: { select: { id: true, fileName: true, filePath: true, fileType: true } },
         },
-        orderBy: { paymentDate: "desc" },
+        orderBy: [{ paymentDate: "desc" }, { id: "desc" }],
         skip,
         take: limit,
       } as any),
