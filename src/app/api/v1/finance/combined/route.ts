@@ -430,7 +430,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
 
     if (typeFilter === "all" && !isSuperAdminHajiView) {
       const openingCashRows = await prisma.openingCash.findMany({
-        where: cityWhere,
+        where: { ...cityWhere, ...dateWhere("openingDate") },
         include: {
           currency: { select: { id: true, code: true, symbol: true } },
           city: { select: { id: true, name: true } },
@@ -456,7 +456,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: JWTPayl
       })));
 
       const openingBankRows = await prisma.openingBankBalance.findMany({
-        where: cityId ? { bankAccount: { cityId } } : {},
+        where: cityId ? { bankAccount: { cityId }, ...dateWhere("openingDate") } : dateWhere("openingDate"),
         include: {
           currency: { select: { id: true, code: true, symbol: true } },
           bankAccount: { select: { id: true, bankName: true, accountNumber: true, city: { select: { id: true, name: true } } } },
