@@ -11,9 +11,9 @@ export type LotSoldMetrics = {
 };
 
 type SaleRow = {
-  lotId?: number;
+  lotId?: number | null;
   currency?: { code: string } | null;
-  items: Array<{ productId: number; lotId?: number; qty: unknown; amount: unknown }>;
+  items: Array<{ productId: number; lotId?: number | null; qty: unknown; amount: unknown }>;
 };
 
 function emptyMetrics(): LotSoldMetrics {

@@ -34,6 +34,9 @@ test("applies queued opening entries to opening summaries", () => {
   assert.equal(merged.openingCash.length, 1);
   assert.equal(merged.openingCustomerBalances.length, 1);
   assert.equal(merged.openingStocks.length, 1);
+  assert.equal(merged.openingStocks[0].lotId, undefined);
+  assert.equal(merged.openingStocks[0].productId, 4);
+  assert.equal(merged.openingStocks[0].godownId, 3);
   assert.equal(merged.openingLiabilities.length, 1);
   assert.equal(merged.openingHajiBalances!.length, 1);
   assert.equal(merged.openingCash[0]._pending, true);

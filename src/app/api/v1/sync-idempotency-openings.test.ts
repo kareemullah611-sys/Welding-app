@@ -183,3 +183,128 @@ test("opening cash save is idempotent for repeated sync request id", async () =>
     }
   }
 });
+
+test("opening stock save is exactly-once for concurrent sync replay", async () => {
+  const city = await prisma.city.findFirst({
+    where: { name: "Quetta", country: { code: "PK" } },
+  });
+  assert.ok(city, "Seed city Quetta (PK) is required for this test");
+
+  const user = await prisma.user.findUnique({ where: { username: "quetta_admin" } });
+  assert.ok(user, "Seed user quetta_admin is required for this test");
+  const godown = await prisma.godown.findFirst({ where: { cityId: city.id }, orderBy: { id: "asc" } });
+  assert.ok(godown, "A Quetta godown is required for this test");
+  const product = await prisma.product.findFirst({ where: { isActive: true }, orderBy: { id: "asc" } });
+  assert.ok(product, "An active product is required for this test");
+
+  const token = generateToken({
+    userId: user.id,
+    username: user.username,
+    role: "city_admin",
+    cityId: city.id,
+    countryId: city.countryId,
+  });
+  const syncRequestId = `req-opening-stock-${Date.now()}`;
+  const headers = {
+    authorization: `Bearer ${token}`,
+    "content-type": "application/json",
+    "x-sync-request-id": syncRequestId,
+    "x-sync-device-id": "device-test-stock-1",
+  };
+  const payload = {
+    kind: "stock",
+    cityId: city.id,
+    godownId: godown.id,
+    productId: product.id,
+    qty: 43210,
+    openingDate: "2026-04-27",
+    notes: "concurrent opening stock sync test",
+  };
+  const openingBefore = await prisma.openingStock.findUnique({
+    where: { unique_opening_stock_godown_product: { godownId: godown.id, productId: product.id } },
+  });
+  const cutoverEntryBefore = openingBefore
+    ? await prisma.openingCutoverEntry.findUnique({
+        where: { opening_cutover_entry_entity_key: { entityType: "opening_stock", entityId: openingBefore.id } },
+      })
+    : null;
+  const existingDraft = await prisma.openingCutover.findFirst({
+    where: { status: "draft" },
+    orderBy: { revision: "desc" },
+  });
+  const maxRevision = await prisma.openingCutover.aggregate({ _max: { revision: true } });
+  const testCutover = existingDraft ?? await prisma.openingCutover.create({
+    data: {
+      revision: (maxRevision._max.revision ?? 0) + 1,
+      cutoverDate: new Date("2026-04-27T00:00:00.000Z"),
+      fiscalYearStart: new Date("2026-01-01T00:00:00.000Z"),
+      fiscalYearEnd: new Date("2026-12-31T00:00:00.000Z"),
+      backupReference: `test-sync-opening-stock-${Date.now()}`,
+      createdBy: user.id,
+    },
+  });
+  const testStartedAt = new Date();
+  let rowId: number | null = null;
+
+  try {
+    const makeRequest = () => new NextRequest("http://localhost/api/v1/openings", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const [firstResponse, secondResponse] = await Promise.all([
+      saveOpening(makeRequest(), { params: {} }),
+      saveOpening(makeRequest(), { params: {} }),
+    ]);
+    const [firstJson, secondJson] = await Promise.all([firstResponse.json(), secondResponse.json()]) as any[];
+    assert.equal(firstJson.success, true);
+    assert.equal(secondJson.success, true);
+    rowId = Number(firstJson.data?.id);
+    assert.ok(rowId, "Opening stock row should be returned");
+    assert.equal(Number(secondJson.data?.id), rowId, "Concurrent replay should return the same stock row");
+
+    const rows = await prisma.openingStock.findMany({ where: { godownId: godown.id, productId: product.id } });
+    assert.equal(rows.length, 1, "Concurrent replay must leave one opening stock row");
+    assert.equal(Number(rows[0].qty), 43210);
+    assert.equal(await prisma.syncRequest.count({
+      where: { cityId: city.id, module: "openings", requestId: syncRequestId },
+    }), 1, "Concurrent replay must leave one sync receipt");
+    assert.equal(await prisma.journalEntry.count({
+      where: { entityType: "opening_stock", entityId: rowId },
+    }), 0, "Physical opening quantity must not invent accounting journals");
+  } finally {
+    await prisma.syncRequest.deleteMany({
+      where: { cityId: city.id, module: "openings", requestId: syncRequestId },
+    });
+    if (rowId) {
+      await prisma.auditLog.deleteMany({
+        where: { entityType: "opening_stocks", entityId: rowId, userId: user.id, createdAt: { gte: testStartedAt } },
+      });
+      if (!cutoverEntryBefore) {
+        await prisma.openingCutoverEntry.deleteMany({
+          where: { entityType: "opening_stock", entityId: rowId },
+        });
+      }
+      if (openingBefore) {
+        await prisma.openingStock.update({
+          where: { id: rowId },
+          data: {
+            cityId: openingBefore.cityId,
+            godownId: openingBefore.godownId,
+            productId: openingBefore.productId,
+            qty: openingBefore.qty,
+            openingDate: openingBefore.openingDate,
+            notes: openingBefore.notes,
+            createdBy: openingBefore.createdBy,
+          },
+        });
+      } else {
+        await prisma.openingStock.deleteMany({ where: { id: rowId } });
+      }
+    }
+    if (!existingDraft) {
+      await prisma.openingCityPackage.deleteMany({ where: { cutoverId: testCutover.id } });
+      await prisma.openingCutover.delete({ where: { id: testCutover.id } });
+    }
+  }
+});

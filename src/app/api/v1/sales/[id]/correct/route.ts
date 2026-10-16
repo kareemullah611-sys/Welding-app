@@ -66,6 +66,9 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     });
     if (!sale) return errorResponse("NOT_FOUND", "Sale not found", 404);
     if (sale.status !== "active") return errorResponse("VALIDATION_ERROR", "Can only correct active sales");
+    if (sale.items.some((item) => item.openingInventoryValuationId)) {
+      return errorResponse("VALIDATION_ERROR", "Opening inventory sale correction is not yet supported; cancel and re-enter the sale to preserve its carrying layer");
+    }
     if (body.currencyId !== undefined && Number(body.currencyId) !== sale.currencyId) {
       return errorResponse(
         "FOREIGN_CARRYING_LAYER_REQUIRED",
@@ -161,7 +164,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
     // Normalize corrected quantities across available lots in the selected godown.
     // Because this sale is already part of the sold total, add back its own old quantities
     // so the correction is checked as a replacement, not as an extra sale.
-    const stockKey = (lotId: number, productId: number) => `${lotId}:${productId}`;
+    const stockKey = (lotId: number | null, productId: number) => `${lotId}:${productId}`;
     const oldQtyByLotProduct = sale.items.reduce((acc: Record<string, number>, item) => {
       if (nextGodownId !== sale.godownId) return acc;
       const key = stockKey(item.lotId, item.productId);

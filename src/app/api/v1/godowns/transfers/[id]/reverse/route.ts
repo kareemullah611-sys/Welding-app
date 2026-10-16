@@ -30,16 +30,31 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
       ]);
       const rows: Array<{ available: unknown }> = await tx.$queryRaw`
         SELECT
-          COALESCE((SELECT SUM(lcga.qty) FROM lot_city_godown_allocations lcga
+          COALESCE((SELECT SUM(os.qty) FROM opening_stocks os
+            JOIN opening_inventory_valuations oiv ON oiv.city_id = os.city_id AND oiv.product_id = os.product_id
+            WHERE os.godown_id = ${original.toGodownId} AND os.product_id = ${original.productId}
+              AND oiv.id = ${original.openingInventoryValuationId}), 0)
+          + COALESCE((SELECT SUM(lcga.qty) FROM lot_city_godown_allocations lcga
             JOIN lot_city_distributions lcd ON lcd.id = lcga.lot_city_distribution_id
             WHERE lcga.godown_id = ${original.toGodownId} AND lcd.product_id = ${original.productId} AND lcd.lot_id = ${original.lotId}), 0)
+          + COALESCE((SELECT SUM(ct.qty) FROM city_transfers ct
+            WHERE ct.to_godown_id = ${original.toGodownId} AND ct.product_id = ${original.productId}
+              AND ct.status = 'approved'
+              AND (ct.lot_id = ${original.lotId} OR ct.opening_inventory_valuation_id = ${original.openingInventoryValuationId})), 0)
           - COALESCE((SELECT SUM(si.qty) FROM sale_items si JOIN sales s ON s.id = si.sale_id
             WHERE s.godown_id = ${original.toGodownId} AND si.product_id = ${original.productId}
-              AND si.lot_id = ${original.lotId} AND s.status IN ('active','marked_short')), 0)
+              AND (si.lot_id = ${original.lotId} OR si.opening_inventory_valuation_id = ${original.openingInventoryValuationId})
+              AND s.status IN ('active','marked_short')), 0)
           - COALESCE((SELECT SUM(gt.qty) FROM godown_transfers gt
-            WHERE gt.from_godown_id = ${original.toGodownId} AND gt.product_id = ${original.productId} AND gt.lot_id = ${original.lotId}), 0)
+            WHERE gt.from_godown_id = ${original.toGodownId} AND gt.product_id = ${original.productId}
+              AND (gt.lot_id = ${original.lotId} OR gt.opening_inventory_valuation_id = ${original.openingInventoryValuationId})), 0)
           + COALESCE((SELECT SUM(gt.qty) FROM godown_transfers gt
-            WHERE gt.to_godown_id = ${original.toGodownId} AND gt.product_id = ${original.productId} AND gt.lot_id = ${original.lotId}), 0)
+            WHERE gt.to_godown_id = ${original.toGodownId} AND gt.product_id = ${original.productId}
+              AND (gt.lot_id = ${original.lotId} OR gt.opening_inventory_valuation_id = ${original.openingInventoryValuationId})), 0)
+          - COALESCE((SELECT SUM(ct.qty) FROM city_transfers ct
+            WHERE ct.from_godown_id = ${original.toGodownId} AND ct.product_id = ${original.productId}
+              AND ct.status IN ('pending','approved')
+              AND (ct.lot_id = ${original.lotId} OR ct.opening_inventory_valuation_id = ${original.openingInventoryValuationId})), 0)
           AS available
       `;
       const available = Number(rows[0]?.available || 0);
@@ -53,6 +68,7 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
           toGodownId: original.fromGodownId,
           productId: original.productId,
           lotId: original.lotId,
+          openingInventoryValuationId: original.openingInventoryValuationId,
           qty: original.qty,
           transferDate: new Date(),
           notes: `Reversal of transfer #${original.id}: ${reason}`,

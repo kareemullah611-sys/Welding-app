@@ -9,7 +9,7 @@ const page = readFileSync("src/app/(dashboard)/openings/page.tsx", "utf8");
 test("opening workflow excludes historical sales end to end", () => {
   assert.doesNotMatch(route, /createHistoricalSale|historicalSales|historical_sale|historical_sales/);
   assert.doesNotMatch(page, /historical sales/i);
-  assert.match(page, /current on-hand quantity/i);
+  assert.match(page, /physical quantity for each product and godown/i);
 });
 
 test("customer openings use an explicit side and a positive magnitude", () => {

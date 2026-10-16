@@ -208,6 +208,9 @@ test("shouldQueueOfflineWriteNow requires packaged app, unreachable server, allo
     setPackagedServerReachable(false);
     assert.equal(shouldQueueOfflineWriteNow("/api/v1/payments", "POST"), true);
   assert.equal(shouldQueueOfflineWriteNow("/api/v1/openings", "POST"), true);
+  assert.equal(shouldQueueOfflineWriteNow("/api/v1/openings", "POST", { kind: "stock" }), true);
+  assert.equal(shouldQueueOfflineWriteNow("/api/v1/openings", "POST", { kind: "product_inventory" }), false);
+  assert.match(getOfflineMutationBlockReason("/api/v1/openings", "POST", { kind: "product_inventory" }) || "", /online/i);
   assert.equal(shouldQueueOfflineWriteNow("/api/v1/lots", "POST"), true);
   assert.equal(shouldQueueOfflineWriteOnNetworkFailure("/api/v1/payments", "POST"), true);
   assert.equal(shouldQueueOfflineWriteOnNetworkFailure("/api/v1/payments/10", "PATCH"), false);

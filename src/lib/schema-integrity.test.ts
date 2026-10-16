@@ -660,15 +660,16 @@ test("city sales support per-item lot selection and locked completed sale item l
   const saleCorrectRoute = readFileSync("src/app/api/v1/sales/[id]/correct/route.ts", "utf8");
   const migration = readFileSync("prisma/migrations_legacy_pre_baseline/20260721090000_add_sale_item_lots/migration.sql", "utf8");
 
-  assert.match(saleItem, /lotId\s+Int\s+@map\("lot_id"\)/);
-  assert.match(saleItem, /lot\s+Lot\s+@relation\(fields: \[lotId\], references: \[id\], onDelete: Restrict\)/);
+  assert.match(saleItem, /lotId\s+Int\?\s+@map\("lot_id"\)/);
+  assert.match(saleItem, /lot\s+Lot\?\s+@relation\(fields: \[lotId\], references: \[id\], onDelete: Restrict\)/);
+  assert.match(saleItem, /openingInventoryValuationId\s+Int\?/);
   assert.match(saleItem, /@@index\(\[lotId\]\)/);
   assert.match(lot, /saleItems\s+SaleItem\[\]/);
   assert.match(sale, /items\s+SaleItem\[\]/);
   assert.match(migration, /ADD COLUMN "lot_id" INTEGER/);
   assert.match(migration, /UPDATE "sale_items" si\s+SET "lot_id" = s\."lot_id"/);
   assert.match(validations, /lotId: z\.number\(\)\.int\(\)\.positive\(\)\.optional\(\)\.nullable\(\)/);
-  assert.match(salesRoute, /const itemLotIds: number\[\] = Array\.from\(new Set<number>\(normalizedItems\.map\(\(i\) => Number\(i\.lotId \|\| 0\)\)\)\)/);
+  assert.match(salesRoute, /const itemLotIds: number\[\] = Array\.from\(new Set<number>\(normalizedItems\.flatMap/);
   assert.match(salesRoute, /lotId: i\.lotId/);
   assert.match(salesRoute, /item\.lotId/);
   assert.match(saleDetailRoute, /lot: i\.lot/);
@@ -725,7 +726,7 @@ test("city sales auto lot selection expands sale items across FIFO lot availabil
   assert.match(salesPage, /expandAutoLotItems/);
   assert.match(salesRoute, /allocateSaleItemAcrossLots/);
   assert.match(salesRoute, /getAvailableLotsForProduct/);
-  assert.match(salesRoute, /Lot is required for each product/);
+  assert.match(salesRoute, /Each product must use exactly one lot or opening inventory source/);
   assert.match(salesRoute, /exceeds available stock/);
   assert.match(salesRoute, /db\.cityTransfer\.aggregate/);
   assert.match(salesRoute, /status: "pending", batchId: null/);
@@ -1484,7 +1485,7 @@ test("GLM critical audit fixes remain wired", () => {
   assert.match(cityTransferCreate, /INSUFFICIENT_STOCK/);
   assert.match(cityTransferCreate, /lockGodownProductStock/);
   assert.match(cityTransferCreate, /si\.lot_id = lcd\.lot_id/);
-  assert.match(cityTransferCreate, /ORDER BY l\.lot_date ASC, l\.id ASC/);
+  assert.match(cityTransferCreate, /ORDER BY source_date ASC, COALESCE\(lot_id, 0\) ASC/);
   assert.doesNotMatch(cityTransferCreate, /pg_advisory_xact_lock\(\$\{31001\},/);
   assert.match(cityTransferApprove, /lockGodownProductStock/);
   assert.match(cityTransferApprove, /allocatedQty: \{ increment: transferQty \}/);

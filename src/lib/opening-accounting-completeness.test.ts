@@ -55,7 +55,8 @@ test("opening UI exposes controlled cutover accounting without replacing physica
   assert.match(page, /Participant opening capital and retained profit/);
   assert.match(page, /Owed to Haji/);
   assert.match(page, /Due from Haji/);
-  assert.match(page, /Opening godown stock \(ongoing lots\)/);
+  assert.match(page, /Opening inventory quantities/);
+  assert.match(page, /City product valuation/);
 });
 
 test("superadmin running balances include their opening account balances", () => {

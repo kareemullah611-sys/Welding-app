@@ -105,6 +105,7 @@ export async function buildPeriodProfitReportData(
       items: {
         select: {
           lotId: true,
+          openingInventoryValuationId: true,
           amount: true,
           qty: true,
           product: { select: { unitOfMeasure: true, piecesPerCarton: true } },
@@ -129,6 +130,7 @@ export async function buildPeriodProfitReportData(
       recognizedRevenuePkr,
       items: sale.items.map((item) => ({
         lotId: item.lotId,
+        openingInventoryValuationId: item.openingInventoryValuationId,
         revenueWeight: num(item.amount),
         cartons: isRecognizedCurrentSale ? stockQtyToReportCartons(item.qty, item.product) : 0,
       })),
@@ -143,7 +145,11 @@ export async function buildPeriodProfitReportData(
     }));
   const cogsEntries = journalRows
     .filter((row) => accountById.get(row.accountId)?.accountType === "cogs" && String(row.currencyCode).toUpperCase() === REPORTING_CURRENCY)
-    .map((row) => ({ lotId: row.lotId, amountPkr: num(row.debit) - num(row.credit) }));
+    .map((row) => ({
+      lotId: row.lotId,
+      saleId: row.entityType === "sale" ? row.entityId : null,
+      amountPkr: num(row.debit) - num(row.credit),
+    }));
   const expenseEntries = journalRows
     .filter((row) => (
       accountById.get(row.accountId)?.accountType === "expense"
@@ -158,7 +164,7 @@ export async function buildPeriodProfitReportData(
     expenseEntries,
     authoritative: authoritativeReport.profitAndLoss,
   });
-  const lotIds = [...lotProfit.byLot.keys()];
+  const lotIds = [...lotProfit.byLot.keys()].filter((lotId) => lotId > 0);
   const lots = lotIds.length
     ? await prisma.lot.findMany({
       where: { id: { in: lotIds } },
@@ -168,8 +174,8 @@ export async function buildPeriodProfitReportData(
   const lotMeta = new Map(lots.map((lot) => [lot.id, lot]));
   const lotSummaries = [...lotProfit.byLot.values()].map((lot) => ({
     lotId: lot.lotId,
-    lotNumber: lotMeta.get(lot.lotId)?.lotNumber || `Lot #${lot.lotId}`,
-    country: lotMeta.get(lot.lotId)?.country.name || "—",
+    lotNumber: lot.lotId === 0 ? "Opening Inventory" : lotMeta.get(lot.lotId)?.lotNumber || `Lot #${lot.lotId}`,
+    country: lotMeta.get(lot.lotId)?.country.name || (lot.lotId === 0 ? "Opening" : "—"),
     landedCostPerCarton: lot.cartonsSold ? round2(lot.cogsPkr / lot.cartonsSold) : 0,
     landedCostPerCartonPkr: lot.cartonsSold ? round2(lot.cogsPkr / lot.cartonsSold) : 0,
     cartonsSold: lot.cartonsSold,

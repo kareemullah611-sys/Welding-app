@@ -143,7 +143,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
             fmtReportMoney(Number(item.ratePerCarton), s.currency.symbol, s.currency.code),
             fmtReportMoney(Number(item.amount), s.currency.symbol, s.currency.code),
             cleanText(s.godown.name),
-            cleanText(item.lot?.lotNumber || s.lot.lotNumber),
+            cleanText(item.lot?.lotNumber || s.lot?.lotNumber || "Opening Stock"),
             s.voucherNo,
             formatStatus(s.status),
           ]);

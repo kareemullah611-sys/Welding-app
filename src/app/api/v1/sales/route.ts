@@ -102,6 +102,32 @@ async function getGodownStock(
   return rcv - sld - out - legacyCityOut + inn;
 }
 
+async function getOpeningGodownStock(
+  godownId: number,
+  productId: number,
+  openingInventoryValuationId: number,
+  db: PrismaClient | Prisma.TransactionClient = prisma,
+): Promise<number> {
+  const [valuation, godown, opening, sold, godownOut, godownIn, cityOut, cityIn] = await Promise.all([
+    db.openingInventoryValuation.findUnique({ where: { id: openingInventoryValuationId }, select: { cityId: true, productId: true } }),
+    db.godown.findUnique({ where: { id: godownId }, select: { cityId: true } }),
+    db.openingStock.aggregate({ where: { godownId, productId }, _sum: { qty: true } }),
+    db.saleItem.aggregate({ where: { openingInventoryValuationId, productId, sale: { godownId, status: { in: ["active", "marked_short"] } } }, _sum: { qty: true } }),
+    db.godownTransfer.aggregate({ where: { openingInventoryValuationId, fromGodownId: godownId, productId }, _sum: { qty: true } }),
+    db.godownTransfer.aggregate({ where: { openingInventoryValuationId, toGodownId: godownId, productId }, _sum: { qty: true } }),
+    db.cityTransfer.aggregate({ where: { openingInventoryValuationId, fromGodownId: godownId, productId, status: { in: ["pending", "approved"] } }, _sum: { qty: true } }),
+    db.cityTransfer.aggregate({ where: { openingInventoryValuationId, toGodownId: godownId, productId, status: "approved" }, _sum: { qty: true } }),
+  ]);
+  if (!valuation || valuation.productId !== productId) return 0;
+  const base = valuation.cityId === godown?.cityId ? Number(opening._sum.qty || 0) : 0;
+  return base
+    - Number(sold._sum.qty || 0)
+    - Number(godownOut._sum.qty || 0)
+    + Number(godownIn._sum.qty || 0)
+    - Number(cityOut._sum.qty || 0)
+    + Number(cityIn._sum.qty || 0);
+}
+
 async function getAvailableLotsForProduct(
   cityId: number,
   countryId: number,
@@ -109,6 +135,24 @@ async function getAvailableLotsForProduct(
   productId: number,
   db: PrismaClient | Prisma.TransactionClient = prisma,
 ): Promise<AvailableSaleLot[]> {
+  const openingValuations = await db.openingInventoryValuation.findMany({
+    where: {
+      productId,
+      cityId: { not: null },
+      OR: [
+        { city: { godowns: { some: { id: godownId } } } },
+        { godownTransfers: { some: { toGodownId: godownId } } },
+        { cityTransfers: { some: { toGodownId: godownId, status: "approved" } } },
+      ],
+    },
+    orderBy: [{ openingDate: "asc" }, { id: "asc" }],
+    select: { id: true },
+  });
+  const rows: AvailableSaleLot[] = [];
+  for (const valuation of openingValuations) {
+    const available = await getOpeningGodownStock(godownId, productId, valuation.id, db);
+    if (available > 0) rows.push({ lotId: null, openingInventoryValuationId: valuation.id, lotNumber: "Opening Stock", available });
+  }
   const saleLots = await db.lot.findMany({
     where: {
       countryId,
@@ -118,7 +162,6 @@ async function getAvailableLotsForProduct(
     orderBy: [{ lotDate: "asc" }, { id: "asc" }],
     select: { id: true, lotNumber: true },
   });
-  const rows: AvailableSaleLot[] = [];
   for (const lot of saleLots) {
     const available = await getGodownStock(godownId, productId, lot.id, db);
     if (available > 0) rows.push({ lotId: lot.id, lotNumber: lot.lotNumber, available });
@@ -140,12 +183,13 @@ function formatSaleCreateResponse(
     status: sale.status,
     stockShortFlag: sale.stockShortFlag,
     customer: sale.customer,
-    lot: { id: sale.lot.id, lotNumber: sale.lot.lotNumber },
+    lot: sale.lot ? { id: sale.lot.id, lotNumber: sale.lot.lotNumber } : null,
     godown: { ...sale.godown, crossCity: isCrossCity, sourceCityName },
     currency: { id: sale.currency.id, code: sale.currency.code, symbol: sale.currency.symbol },
     items: sale.items.map((i: any) => ({
       productId: i.productId,
       lotId: i.lotId,
+      openingInventoryValuationId: i.openingInventoryValuationId,
       lot: i.lot,
       productName: i.product.name,
       unitOfMeasure: i.product.unitOfMeasure,
@@ -225,13 +269,14 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       cancellationReason: s.cancellationReason,
       hasAccountingHistory: (s as any).hasAccountingHistory === true,
       customer: s.customer,
-      lot: { id: s.lot.id, lotNumber: s.lot.lotNumber, status: s.lot.status },
+      lot: s.lot ? { id: s.lot.id, lotNumber: s.lot.lotNumber, status: s.lot.status } : null,
       godown: { ...s.godown, crossCity: s.godown.cityId !== s.cityId, sourceCityName: s.godown.city?.name },
       currency: { id: s.currency.id, code: s.currency.code, symbol: s.currency.symbol },
       items: s.items.map((i: any) => ({
         id: i.id,
         productId: i.productId,
         lotId: i.lotId,
+        openingInventoryValuationId: i.openingInventoryValuationId,
         lot: i.lot,
         productName: i.product.name,
         unitOfMeasure: i.product.unitOfMeasure,
@@ -439,6 +484,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     for (const item of items) {
       const product = productById.get(item.productId)!;
       const itemLotId = Number(item.lotId || lotId || 0) || null;
+      const openingInventoryValuationId = Number(item.openingInventoryValuationId || 0) || null;
       if (product.unitOfMeasure === "PCS") {
         if (!product.piecesPerCarton) return errorResponse("VALIDATION_ERROR", `${product.name}: PCS/CTN is required on product master`);
         const cartonQty = Number(item.cartonQty || item.qty || 0);
@@ -449,6 +495,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         requestedItems.push({
           productId: item.productId,
           lotId: itemLotId,
+          openingInventoryValuationId,
           stockQty,
           cartonQty,
           ratePerCarton: roundMoney(ratePerPieceLocal * product.piecesPerCarton),
@@ -463,6 +510,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       requestedItems.push({
         productId: item.productId,
         lotId: itemLotId,
+        openingInventoryValuationId,
         stockQty,
         cartonQty: null,
         ratePerCarton,
@@ -486,9 +534,11 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     }
     const normalizedItems = consolidateSaleLotAllocationItems(allocatedItems, roundMoney);
 
-    if (!normalizedItems.length) return errorResponse("VALIDATION_ERROR", "Lot is required for each product");
-    const itemLotIds: number[] = Array.from(new Set<number>(normalizedItems.map((i) => Number(i.lotId || 0))));
-    if (itemLotIds.some((id) => !Number.isInteger(id) || id <= 0)) return errorResponse("VALIDATION_ERROR", "Lot is required for each product");
+    if (!normalizedItems.length) return errorResponse("VALIDATION_ERROR", "Inventory source is required for each product");
+    if (normalizedItems.some((item) => Boolean(item.lotId) === Boolean(item.openingInventoryValuationId))) {
+      return errorResponse("VALIDATION_ERROR", "Each product must use exactly one lot or opening inventory source");
+    }
+    const itemLotIds: number[] = Array.from(new Set<number>(normalizedItems.flatMap((i) => i.lotId ? [i.lotId] : [])));
     const lots = await prisma.lot.findMany({
       where: {
         id: { in: itemLotIds },
@@ -498,8 +548,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       select: { id: true, lotNumber: true, status: true },
     });
     if (lots.length !== itemLotIds.length) return errorResponse("VALIDATION_ERROR", "One or more lots are completed, missing, or not distributed to your city");
-    lotId = normalizedItems[0].lotId!;
-    const lot = lots.find((row) => row.id === lotId) || lots[0];
+    lotId = normalizedItems.find((item) => item.lotId)?.lotId || null;
 
     // Calculate total using integer-rounded arithmetic to avoid floating-point errors
     const totalAmount = roundMoney(normalizedItems.reduce((sum, i) => sum + Number(i.amount || 0), 0));
@@ -531,11 +580,15 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       }
 
       for (const item of normalizedItems) {
-        const available = await getGodownStock(godownId, item.productId, item.lotId!, tx);
+        const available = item.openingInventoryValuationId
+          ? await getOpeningGodownStock(godownId, item.productId, item.openingInventoryValuationId, tx)
+          : await getGodownStock(godownId, item.productId, item.lotId!, tx);
         if (available < item.stockQty) {
           const productName = products.find((p) => p.id === item.productId)?.name || `Product #${item.productId}`;
-          const lotNumber = lots.find((row) => row.id === item.lotId)?.lotNumber || item.lotId;
-          throw new Error(`STOCK_SHORT:${productName} Lot ${lotNumber}: requested ${item.stockQty} exceeds available stock ${available}`);
+          const sourceLabel = item.openingInventoryValuationId
+            ? "Opening Stock"
+            : `Lot ${lots.find((row) => row.id === item.lotId)?.lotNumber || item.lotId}`;
+          throw new Error(`STOCK_SHORT:${productName} ${sourceLabel}: requested ${item.stockQty} exceeds available stock ${available}`);
         }
       }
 
@@ -544,7 +597,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
         data: {
           cityId,
           customerId,
-          lotId: lotId!,
+          lotId,
           godownId,
           voucherNo,
           saleDate: new Date(saleDate),
@@ -568,7 +621,8 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           items: {
             create: normalizedItems.map((i) => ({
               productId: i.productId,
-              lotId: i.lotId!,
+              lotId: i.lotId,
+              openingInventoryValuationId: i.openingInventoryValuationId || null,
               qty: i.stockQty,
               cartonQty: i.cartonQty,
               ratePerCarton: i.ratePerCarton,
@@ -688,13 +742,21 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
       }, tx);
 
       const qtyByLot = normalizedItems.reduce((acc: Record<number, number>, item) => {
-        acc[item.lotId!] = (acc[item.lotId!] || 0) + item.stockQty;
+        if (item.lotId) acc[item.lotId] = (acc[item.lotId] || 0) + item.stockQty;
+        return acc;
+      }, {});
+      const qtyByOpeningValuation = normalizedItems.reduce((acc: Record<number, number>, item) => {
+        if (item.openingInventoryValuationId) acc[item.openingInventoryValuationId] = (acc[item.openingInventoryValuationId] || 0) + item.stockQty;
         return acc;
       }, {});
       await journalSaleCOGSForLots({
         saleId: createdSale.id,
         allocations: (Object.entries(qtyByLot) as Array<[string, number]>).map(([itemLotId, totalQtySold]) => ({
           lotId: Number(itemLotId),
+          totalQtySold,
+        })),
+        openingAllocations: (Object.entries(qtyByOpeningValuation) as Array<[string, number]>).map(([valuationId, totalQtySold]) => ({
+          openingInventoryValuationId: Number(valuationId),
           totalQtySold,
         })),
         saleDate: createdSale.saleDate, cityId: createdSale.cityId, createdBy: user.userId,

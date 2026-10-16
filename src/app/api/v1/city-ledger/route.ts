@@ -104,9 +104,9 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         debit: isOpeningImport ? 0 : Number(s.totalAmount),
         credit: 0,
         hajiDebit: isLiabilityActivity(s.currencyId, s.saleDate) ? Number(s.totalAmount) : 0,
-        currency: s.currency.code, lot: s.lot.lotNumber,
+        currency: s.currency.code, lot: s.lot?.lotNumber || "Opening Stock",
         account: "Receivables", counterAccount: "Revenue",
-        lotStatus: s.lot.status,
+        lotStatus: s.lot?.status || "opening",
       });
     }
 

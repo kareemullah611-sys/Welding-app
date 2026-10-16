@@ -159,8 +159,6 @@ export function applyPendingOpeningsData(base: OpeningDataLike, queuedItems: Que
     if (kind === "stock") {
       const godownId = Number(parsed?.godownId || 0);
       const productId = Number(parsed?.productId || 0);
-      const lotId = Number(parsed?.lotId || 0);
-      const useLegacy = parsed?.useLegacy === true;
       const row = {
         id: `pending-${queued.id}`,
         godownId,
@@ -172,16 +170,7 @@ export function applyPendingOpeningsData(base: OpeningDataLike, queuedItems: Que
         notes: parsed?.notes || null,
         _pending: true,
       };
-      if (useLegacy) {
-        next.legacyStocks!.unshift({ ...row, legacyLotNumber: "OLD-STOCK" });
-      } else {
-        const lot = (base.ongoingLots || []).find((l) => l.id === lotId);
-        next.openingStocks.unshift({
-          ...row,
-          lotId,
-          lotNumber: lot?.lotNumber || "Pending Lot",
-        });
-      }
+      next.openingStocks.unshift(row);
       continue;
     }
 

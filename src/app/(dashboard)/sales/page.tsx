@@ -629,18 +629,28 @@ export default function SalesPage() {
     const oldLotId = oldItem && Number(oldItem.productId || oldItem.product?.id) === Number(item.productId)
       ? Number(oldItem.lotId || oldItem.lot?.id || 0)
       : 0;
-    const ids = [
-      selectedLotId,
-      selectedLotId ? remainingLotId : 0,
-      ...breakdown.map((lot: any) => Number(lot.lotId)),
-    ].filter((id, index, arr) => id > 0 && arr.indexOf(id) === index);
-    return ids.map((lotId) => {
-      const breakdownLot = breakdown.find((lot: any) => Number(lot.lotId) === Number(lotId));
+    const sources = [
+      ...[selectedLotId, selectedLotId ? remainingLotId : 0]
+        .filter((id) => id > 0)
+        .map((id) => ({ lotId: id, openingInventoryValuationId: null })),
+      ...breakdown.map((source: any) => ({
+        lotId: source.lotId ? Number(source.lotId) : null,
+        openingInventoryValuationId: source.openingInventoryValuationId ? Number(source.openingInventoryValuationId) : null,
+      })),
+    ].filter((source, index, rows) => {
+      const key = source.lotId ? `lot:${source.lotId}` : `opening:${source.openingInventoryValuationId}`;
+      return rows.findIndex((row) => (row.lotId ? `lot:${row.lotId}` : `opening:${row.openingInventoryValuationId}`) === key) === index;
+    });
+    return sources.map((source) => {
+      const breakdownLot = breakdown.find((row: any) => source.lotId
+        ? Number(row.lotId) === source.lotId
+        : Number(row.openingInventoryValuationId) === source.openingInventoryValuationId);
+      const lotId = source.lotId || 0;
       const masterLot = lots.find((lot: any) => Number(lot.id) === Number(lotId));
       return {
-        lotId,
-        lotNumber: breakdownLot?.lotNumber || masterLot?.lotNumber || String(lotId),
-        available: getLotAvailable(item.productId, lotId, includeOwnCorrectQty ? item : undefined),
+        ...source,
+        lotNumber: breakdownLot?.lotNumber || masterLot?.lotNumber || "Opening Stock",
+        available: Number(breakdownLot?.available || 0) + (source.lotId ? getLotAvailable(item.productId, lotId, includeOwnCorrectQty ? item : undefined) - Number(breakdownLot?.available || 0) : 0),
       };
     });
   };
@@ -672,7 +682,7 @@ export default function SalesPage() {
         if (remaining <= 0) break;
         const qty = Math.min(remaining, Number(lot.available || 0));
         if (qty <= 0) continue;
-        expanded.push({ ...item, lotId: Number(lot.lotId), qty });
+        expanded.push({ ...item, lotId: lot.lotId ? Number(lot.lotId) : null, openingInventoryValuationId: lot.openingInventoryValuationId || null, qty });
         remaining = Math.round((remaining - qty) * 100) / 100;
       }
       if (remaining > 0) return null;
@@ -706,10 +716,14 @@ export default function SalesPage() {
     const expandedItems = expandAutoLotItems(validItems);
     if (!expandedItems) { setFormError("Auto lot allocation exceeds available stock. Split the remaining quantity manually or add stock."); return; }
 
-    const shortItems = expandedItems.filter((item) => Number(item.lotId || 0) <= 0 || item.qty > getLotAvailable(item.productId, item.lotId));
+    const shortItems = expandedItems.filter((item) => item.qty > Number(getLotBreakdown(item.productId).find((source: any) => item.lotId
+      ? Number(source.lotId) === Number(item.lotId)
+      : Number(source.openingInventoryValuationId) === Number(item.openingInventoryValuationId))?.available || 0));
     if (shortItems.length > 0) {
       const names = shortItems.map((item) => {
-        const avail = getLotAvailable(item.productId, item.lotId);
+        const avail = Number(getLotBreakdown(item.productId).find((source: any) => item.lotId
+          ? Number(source.lotId) === Number(item.lotId)
+          : Number(source.openingInventoryValuationId) === Number(item.openingInventoryValuationId))?.available || 0);
         const pName = products.find((p: any) => p.id === item.productId)?.name || "Item";
         return avail <= 0 ? `${pName} (no stock)` : `${pName} (${avail} available)`;
       });

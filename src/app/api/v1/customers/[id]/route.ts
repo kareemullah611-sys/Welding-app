@@ -85,7 +85,7 @@ export const GET = withAuth(async (request: NextRequest, context: any, user: JWT
         status: s.status,
         currency: s.currency.code,
         currencySymbol: s.currency.symbol || s.currency.code,
-        lotNumber: item.lot?.lotNumber || s.lot.lotNumber,
+        lotNumber: item.lot?.lotNumber || s.lot?.lotNumber || "Opening Stock",
       }))),
       ...payments.map((p) => {
         const amount = p.status === "active" ? Number(p.amount) : 0;

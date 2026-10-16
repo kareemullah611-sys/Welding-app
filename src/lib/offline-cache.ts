@@ -295,9 +295,15 @@ export function shouldUseOfflineApiCache(): boolean {
   return isPackagedOfflineActive();
 }
 
-export function shouldAutoQueueOfflineWrite(url: string, method: string): boolean {
+function isOpeningValuationWrite(url: string, method: string, body?: unknown): boolean {
+  if (normalizeApiPath(url) !== "/api/v1/openings" || String(method || "").toUpperCase() !== "POST") return false;
+  return typeof body === "object" && body !== null && (body as { kind?: unknown }).kind === "product_inventory";
+}
+
+export function shouldAutoQueueOfflineWrite(url: string, method: string, body?: unknown): boolean {
   const normalizedMethod = String(method || "GET").toUpperCase();
   const path = normalizeApiPath(url);
+  if (isOpeningValuationWrite(path, normalizedMethod, body)) return false;
   if (!path.startsWith("/api/v1/")) return false;
   if (path.startsWith("/api/v1/auth/")) return false;
   if (path === "/api/v1/auth/logout") return false;
@@ -309,24 +315,27 @@ export function shouldAutoQueueOfflineWrite(url: string, method: string): boolea
 }
 
 /** Queue before attempting network when the server is unreachable (packaged apps only). */
-export function shouldQueueOfflineWriteNow(url: string, method: string): boolean {
+export function shouldQueueOfflineWriteNow(url: string, method: string, body?: unknown): boolean {
   if (!isPackagedOfflineActive()) return false;
   if (getPackagedServerReachable()) return false;
-  return shouldAutoQueueOfflineWrite(url, method);
+  return shouldAutoQueueOfflineWrite(url, method, body);
 }
 
 /** Queue after a failed request when packaged (Wi‑Fi may be on but server is not). */
-export function shouldQueueOfflineWriteOnNetworkFailure(url: string, method: string): boolean {
+export function shouldQueueOfflineWriteOnNetworkFailure(url: string, method: string, body?: unknown): boolean {
   if (!isPackagedOfflineActive()) return false;
-  return shouldAutoQueueOfflineWrite(url, method);
+  return shouldAutoQueueOfflineWrite(url, method, body);
 }
 
-export function getOfflineMutationBlockReason(url: string, method: string): string | null {
+export function getOfflineMutationBlockReason(url: string, method: string, body?: unknown): string | null {
   const normalizedMethod = String(method || "GET").toUpperCase();
   const path = normalizeApiPath(url);
   if (!isPackagedOfflineActive() || getPackagedServerReachable()) return null;
   if (!path.startsWith("/api/v1/") || path.startsWith("/api/v1/auth/")) return null;
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(normalizedMethod)) return null;
-  if (shouldAutoQueueOfflineWrite(path, normalizedMethod)) return null;
+  if (shouldAutoQueueOfflineWrite(path, normalizedMethod, body)) return null;
+  if (isOpeningValuationWrite(path, normalizedMethod, body)) {
+    return "Opening inventory valuation requires an online authoritative journal and cannot be queued offline.";
+  }
   return "This action requires an internet connection because offline retry safety has not been verified. Your data was not changed.";
 }

@@ -116,3 +116,29 @@ test("blocks reconciliation when posted COGS has no lot attribution", () => {
   assert.equal(result.reconciliation.cogsDifferencePkr, 800);
   assert.equal(result.reconciliation.status, "BLOCKED");
 });
+
+test("reconciles explicitly attributed opening inventory revenue and COGS", () => {
+  const result = buildLotProfitReconciliation({
+    sales: [{
+      saleId: 14,
+      recognizedRevenuePkr: 1_000,
+      items: [{ lotId: null, openingInventoryValuationId: 9, revenueWeight: 1_000, cartons: 10 }],
+    }],
+    revenueAdjustments: [],
+    cogsEntries: [{ lotId: null, saleId: 14, amountPkr: 800 }],
+    expenseEntries: [],
+    authoritative: {
+      totalRevenue: 1_000,
+      totalCOGS: 800,
+      grossProfit: 200,
+      totalExpenses: 0,
+      totalFxGains: 0,
+      totalFxLosses: 0,
+      netProfit: 200,
+    },
+  });
+
+  assert.equal(result.byLot.get(0)?.revenuePkr, 1_000);
+  assert.equal(result.byLot.get(0)?.cogsPkr, 800);
+  assert.equal(result.reconciliation.status, "RECONCILED");
+});

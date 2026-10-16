@@ -49,6 +49,16 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
         UNION ALL
 
+        -- 2. OPENING STOCK IN — physical quantity entered by City Admin
+        SELECT
+          os.opening_date                          AS date,
+          os.product_id,
+          os.godown_id,
+          os.city_id
+        FROM opening_stocks os
+
+        UNION ALL
+
         -- 3. SALE OUT
         SELECT
           s.sale_date                              AS date,
@@ -156,6 +166,27 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         JOIN products p ON p.id = lcd.product_id
         JOIN godowns g  ON g.id = lcga.godown_id
         JOIN cities c   ON c.id = g.city_id
+
+        UNION ALL
+
+        -- 2. OPENING STOCK IN — physical quantity entered by City Admin
+        SELECT
+          os.opening_date                          AS date,
+          'opening_stock'                          AS type,
+          CONCAT('OPEN-STOCK-', os.id)             AS reference,
+          os.product_id,
+          p.name                                   AS product_name,
+          os.godown_id,
+          g.name                                   AS godown_name,
+          os.city_id,
+          c.name                                   AS city_name,
+          os.qty                                   AS qty_in,
+          0                                        AS qty_out,
+          NULL::text                               AS customer_name
+        FROM opening_stocks os
+        JOIN products p ON p.id = os.product_id
+        JOIN godowns g ON g.id = os.godown_id
+        JOIN cities c ON c.id = os.city_id
 
         UNION ALL
 

@@ -156,6 +156,7 @@ async function buildCorrectionPlan(prisma: PrismaClient) {
   const rows = [];
   for (const sale of sales) {
     const qtyByLot = sale.items.reduce((result, item) => {
+      if (!item.lotId) return result;
       result.set(item.lotId, number(result.get(item.lotId)) + number(item.qty));
       return result;
     }, new Map<number, number>());

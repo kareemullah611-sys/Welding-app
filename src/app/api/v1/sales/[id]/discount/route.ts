@@ -25,8 +25,9 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
     }
 
     // Always apply discount to the current ongoing FIFO lot for that city/country.
+    const city = await prisma.city.findUnique({ where: { id: sale.cityId }, select: { countryId: true } });
     const fifoLot = await prisma.lot.findFirst({
-      where: { countryId: sale.lot.countryId, status: "ongoing", lotCityDistributions: { some: { cityId: sale.cityId } } },
+      where: { countryId: city?.countryId, status: "ongoing", lotCityDistributions: { some: { cityId: sale.cityId } } },
       orderBy: [{ lotDate: "asc" }, { id: "asc" }],
     });
     if (!fifoLot) return errorResponse("VALIDATION_ERROR", "No ongoing lot available to apply discount");
@@ -69,7 +70,7 @@ export const POST = withAuth(async (request: NextRequest, context: any, user: JW
 
     return successResponse({
       id: discount.id, saleId, discountAmount: Number(discount.discountAmount),
-      appliedToLotId, originalLotCompleted: sale.lot.status === "completed",
+      appliedToLotId, originalLotCompleted: sale.lot?.status === "completed",
     }, "Discount applied");
   } catch (error) {
     if (error instanceof Error && error.message === "DISCOUNT_EXCEEDS_REMAINING_SALE") {

@@ -668,6 +668,7 @@ model City {
   intermediaryDeposits             IntermediaryDeposit[]
   openingCashes                    OpeningCash[]
   openingStocks                    OpeningStock[]
+  openingInventoryValuations       OpeningInventoryValuation[]
   openingBankBalances              OpeningBankBalance[]
   openingCheques                   OpeningCheque[]
   openingHajiBalances              OpeningHajiBalance[]
@@ -914,7 +915,8 @@ model GodownTransfer {
   fromGodownId Int      @map("from_godown_id")
   toGodownId   Int      @map("to_godown_id")
   productId    Int      @map("product_id")
-  lotId        Int      @map("lot_id")
+  lotId        Int?     @map("lot_id")
+  openingInventoryValuationId Int? @map("opening_inventory_valuation_id")
   qty          Decimal  @db.Decimal(12, 2)
   transferDate DateTime @map("transfer_date") @db.Date
   notes        String?  @db.Text
@@ -924,7 +926,8 @@ model GodownTransfer {
   fromGodown Godown  @relation("TransferFrom", fields: [fromGodownId], references: [id])
   toGodown   Godown  @relation("TransferTo", fields: [toGodownId], references: [id])
   product    Product @relation(fields: [productId], references: [id])
-  lot        Lot     @relation(fields: [lotId], references: [id])
+  lot        Lot?    @relation(fields: [lotId], references: [id])
+  openingInventoryValuation OpeningInventoryValuation? @relation(fields: [openingInventoryValuationId], references: [id], onDelete: Restrict)
   creator    User    @relation(fields: [createdBy], references: [id])
 
   attachments Attachment[]
@@ -932,6 +935,7 @@ model GodownTransfer {
   @@index([fromGodownId])
   @@index([toGodownId])
   @@index([lotId])
+  @@index([openingInventoryValuationId])
   @@map("godown_transfers")
 }
 
@@ -1132,7 +1136,8 @@ model OpeningCheque {
 
 model OpeningInventoryValuation {
   id                 Int       @id @default(autoincrement())
-  lotId              Int       @map("lot_id")
+  cityId             Int?      @map("city_id")
+  lotId              Int?      @map("lot_id")
   productId          Int       @map("product_id")
   quantity           Decimal   @db.Decimal(15, 4)
   unitCostPkr        Decimal   @map("unit_cost_pkr") @db.Decimal(18, 6)
@@ -1150,12 +1155,19 @@ model OpeningInventoryValuation {
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  lot              Lot       @relation(fields: [lotId], references: [id], onDelete: Restrict)
+  city             City?      @relation(fields: [cityId], references: [id], onDelete: Restrict)
+  lot              Lot?      @relation(fields: [lotId], references: [id], onDelete: Restrict)
   product          Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
   originalCurrency Currency? @relation(fields: [originalCurrencyId], references: [id], onDelete: Restrict)
   creator          User      @relation(fields: [createdBy], references: [id], onDelete: Restrict)
 
+  saleItems        SaleItem[]
+  godownTransfers  GodownTransfer[]
+  cityTransfers    CityTransfer[]
+
   @@unique([lotId, productId], name: "unique_opening_inventory_lot_product")
+  @@unique([cityId, productId], name: "unique_opening_inventory_city_product")
+  @@index([cityId])
   @@index([openingDate])
   @@map("opening_inventory_valuations")
 }
@@ -1538,7 +1550,7 @@ model Sale {
   id                     Int        @id @default(autoincrement())
   cityId                 Int        @map("city_id")
   customerId             Int        @map("customer_id")
-  lotId                  Int        @map("lot_id")
+  lotId                  Int?       @map("lot_id")
   godownId               Int        @map("godown_id")
   voucherNo              String     @map("voucher_no") @db.VarChar(10)
   saleDate               DateTime   @map("sale_date") @db.Date
@@ -1566,7 +1578,7 @@ model Sale {
 
   city      City     @relation(fields: [cityId], references: [id])
   customer  Customer @relation(fields: [customerId], references: [id])
-  lot       Lot      @relation(fields: [lotId], references: [id])
+  lot       Lot?     @relation(fields: [lotId], references: [id])
   godown    Godown   @relation(fields: [godownId], references: [id])
   currency  Currency @relation(fields: [currencyId], references: [id])
   creator   User     @relation("SaleCreatedBy", fields: [createdBy], references: [id])
@@ -1593,7 +1605,8 @@ model Sale {
 model SaleItem {
   id                Int      @id @default(autoincrement())
   saleId            Int      @map("sale_id")
-  lotId             Int      @map("lot_id")
+  lotId             Int?     @map("lot_id")
+  openingInventoryValuationId Int? @map("opening_inventory_valuation_id")
   productId         Int      @map("product_id")
   qty               Decimal  @db.Decimal(12, 2)
   cartonQty         Decimal? @map("carton_qty") @db.Decimal(12, 2)
@@ -1604,11 +1617,13 @@ model SaleItem {
   amountUsd         Decimal? @map("amount_usd") @db.Decimal(15, 2)
 
   sale    Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  lot     Lot     @relation(fields: [lotId], references: [id], onDelete: Restrict)
+  lot     Lot?    @relation(fields: [lotId], references: [id], onDelete: Restrict)
+  openingInventoryValuation OpeningInventoryValuation? @relation(fields: [openingInventoryValuationId], references: [id], onDelete: Restrict)
   product Product @relation(fields: [productId], references: [id])
 
   @@index([saleId])
   @@index([lotId])
+  @@index([openingInventoryValuationId])
   @@index([productId])
   @@map("sale_items")
 }
@@ -2221,7 +2236,8 @@ model CityTransfer {
   fromGodownId  Int                @map("from_godown_id")
   toGodownId    Int?               @map("to_godown_id") // null until receiver approves
   productId     Int                @map("product_id")
-  lotId         Int                @map("lot_id")
+  lotId         Int?               @map("lot_id")
+  openingInventoryValuationId Int? @map("opening_inventory_valuation_id")
   qty           Decimal            @db.Decimal(12, 2)
   status        CityTransferStatus @default(pending) // pending, approved, rejected
   notes         String?            @db.Text
@@ -2238,7 +2254,8 @@ model CityTransfer {
   fromGodown Godown  @relation("TransferFromGodown", fields: [fromGodownId], references: [id])
   toGodown   Godown? @relation("TransferToGodown", fields: [toGodownId], references: [id])
   product    Product @relation(fields: [productId], references: [id])
-  lot        Lot     @relation(fields: [lotId], references: [id])
+  lot        Lot?    @relation(fields: [lotId], references: [id])
+  openingInventoryValuation OpeningInventoryValuation? @relation(fields: [openingInventoryValuationId], references: [id], onDelete: Restrict)
   sender     User    @relation("TransferSentBy", fields: [sentBy], references: [id])
   approver   User?   @relation("TransferApprovedBy", fields: [approvedBy], references: [id])
 
@@ -2246,6 +2263,7 @@ model CityTransfer {
   @@index([toCityId])
   @@index([status])
   @@index([batchId])
+  @@index([openingInventoryValuationId])
   @@map("city_transfers")
 }
 

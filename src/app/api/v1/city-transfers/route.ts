@@ -62,7 +62,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     const grouped = groupCityTransferRows(transfers.map(t => ({
       id: t.id, batchId: t.batchId, fromCity: t.fromCity, toCity: t.toCity, fromGodown: t.fromGodown, toGodown: t.toGodown,
-      product: t.product, lot: { id: t.lot.id, lotNumber: t.lot.lotNumber },
+      product: t.product, lot: t.lot ? { id: t.lot.id, lotNumber: t.lot.lotNumber } : { id: null, lotNumber: "Opening Stock" },
       qty: t.product.unitOfMeasure === "PCS" && Number(t.product.piecesPerCarton || 0) > 0
         ? Number(t.qty) / Number(t.product.piecesPerCarton)
         : Number(t.qty),
@@ -156,9 +156,50 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
           const requestedBaseQty = product.unitOfMeasure === "PCS" ? source.qty * piecesPerCarton : source.qty;
           const requestedLotId = source.lotId || null;
           const stockRows: any[] = await tx.$queryRaw`
+            SELECT * FROM (
             SELECT
+              'opening'::text AS source_type,
+              NULL::int AS distribution_id,
+              NULL::int AS lot_id,
+              oiv.id AS opening_inventory_valuation_id,
+              NULL::int AS allocation_id,
+              COALESCE((SELECT SUM(os.qty) FROM opening_stocks os
+                  WHERE os.godown_id = ${source.fromGodownId} AND os.product_id = ${item.productId} AND os.city_id = oiv.city_id), 0)
+                + COALESCE((SELECT SUM(ct_in.qty) FROM city_transfers ct_in
+                    WHERE ct_in.to_godown_id = ${source.fromGodownId} AND ct_in.product_id = ${item.productId}
+                      AND ct_in.opening_inventory_valuation_id = oiv.id AND ct_in.status = 'approved'), 0)
+                - COALESCE((SELECT SUM(si.qty) FROM sale_items si JOIN sales s ON s.id = si.sale_id AND s.status IN ('active','marked_short')
+                    WHERE s.godown_id = ${source.fromGodownId} AND si.product_id = ${item.productId} AND si.opening_inventory_valuation_id = oiv.id), 0)
+                - COALESCE((SELECT SUM(gt.qty) FROM godown_transfers gt
+                    WHERE gt.from_godown_id = ${source.fromGodownId} AND gt.product_id = ${item.productId} AND gt.opening_inventory_valuation_id = oiv.id), 0)
+                + COALESCE((SELECT SUM(gt.qty) FROM godown_transfers gt
+                    WHERE gt.to_godown_id = ${source.fromGodownId} AND gt.product_id = ${item.productId} AND gt.opening_inventory_valuation_id = oiv.id), 0)
+                - COALESCE((SELECT SUM(ct.qty) FROM city_transfers ct
+                    WHERE ct.from_godown_id = ${source.fromGodownId} AND ct.product_id = ${item.productId}
+                      AND ct.opening_inventory_valuation_id = oiv.id AND ct.status IN ('pending','approved')), 0)
+                + COALESCE((SELECT SUM(ct.qty) FROM city_transfers ct
+                    WHERE ct.to_godown_id = ${source.fromGodownId} AND ct.product_id = ${item.productId}
+                      AND ct.opening_inventory_valuation_id = oiv.id AND ct.status = 'approved'), 0) AS available,
+              oiv.opening_date AS source_date
+            FROM opening_inventory_valuations oiv
+            WHERE oiv.product_id = ${item.productId}
+              AND (
+                EXISTS (SELECT 1 FROM opening_stocks os
+                  WHERE os.godown_id = ${source.fromGodownId} AND os.product_id = ${item.productId} AND os.city_id = oiv.city_id)
+                OR EXISTS (SELECT 1 FROM city_transfers ct_in
+                  WHERE ct_in.to_godown_id = ${source.fromGodownId} AND ct_in.product_id = ${item.productId}
+                    AND ct_in.opening_inventory_valuation_id = oiv.id AND ct_in.status = 'approved')
+                OR EXISTS (SELECT 1 FROM godown_transfers gt_in
+                  WHERE gt_in.to_godown_id = ${source.fromGodownId} AND gt_in.product_id = ${item.productId}
+                    AND gt_in.opening_inventory_valuation_id = oiv.id)
+              )
+              AND ${requestedLotId}::int IS NULL
+            UNION ALL
+            SELECT
+              'lot'::text AS source_type,
               lcd.id AS distribution_id,
               lcd.lot_id,
+              NULL::int AS opening_inventory_valuation_id,
               lcga.id AS allocation_id,
               COALESCE(lcga.qty, 0)
                 - COALESCE((
@@ -173,7 +214,8 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
                 + COALESCE((
                     SELECT SUM(gt.qty) FROM godown_transfers gt
                     WHERE gt.to_godown_id = ${source.fromGodownId} AND gt.product_id = ${item.productId} AND gt.lot_id = lcd.lot_id
-                  ), 0) AS available
+                  ), 0) AS available,
+              l.lot_date AS source_date
             FROM lot_city_godown_allocations lcga
             JOIN lot_city_distributions lcd ON lcd.id = lcga.lot_city_distribution_id
             JOIN lots l ON l.id = lcd.lot_id
@@ -182,7 +224,8 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
               AND lcd.product_id = ${item.productId}
               AND l.status = 'ongoing'
               AND (${requestedLotId}::int IS NULL OR lcd.lot_id = ${requestedLotId}::int)
-            ORDER BY l.lot_date ASC, l.id ASC
+            ) sources
+            ORDER BY source_date ASC, COALESCE(lot_id, 0) ASC
           `;
           const available = stockRows.reduce((sum, row) => sum + Math.max(0, Number(row.available || 0)), 0);
           if (available < requestedBaseQty) {
@@ -195,14 +238,16 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
             if (remaining <= 0) break;
             const allocation = { qty: Math.min(remaining, Math.max(0, Number(row.available || 0))) };
             if (allocation.qty <= 0) continue;
-            await tx.lotCityGodownAllocation.update({
-              where: { id: Number(row.allocation_id) },
-              data: { qty: { decrement: allocation.qty } },
-            });
-            await tx.lotCityDistribution.update({
-              where: { id: Number(row.distribution_id) },
-              data: { allocatedQty: { decrement: allocation.qty } },
-            });
+            if (row.source_type === "lot") {
+              await tx.lotCityGodownAllocation.update({
+                where: { id: Number(row.allocation_id) },
+                data: { qty: { decrement: allocation.qty } },
+              });
+              await tx.lotCityDistribution.update({
+                where: { id: Number(row.distribution_id) },
+                data: { allocatedQty: { decrement: allocation.qty } },
+              });
+            }
             const transfer = await tx.cityTransfer.create({
               data: {
                 batchId,
@@ -210,7 +255,8 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
                 toCityId: requestData.toCityId,
                 fromGodownId: source.fromGodownId,
                 productId: item.productId,
-                lotId: Number(row.lot_id),
+                lotId: row.lot_id == null ? null : Number(row.lot_id),
+                openingInventoryValuationId: row.opening_inventory_valuation_id == null ? null : Number(row.opening_inventory_valuation_id),
                 qty: allocation.qty,
                 notes: requestData.notes,
                 transferDate: requestData.transferDate ? new Date(requestData.transferDate) : new Date(),
@@ -221,7 +267,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
             remaining = Math.round((remaining - allocation.qty) * 100) / 100;
             await createAuditLog(user.userId, user.cityId, "city_transfers", transfer.id, "create", undefined, {
               batchId, toCityId: requestData.toCityId, productId: item.productId,
-              fromGodownId: source.fromGodownId, lotId: Number(row.lot_id), qty: allocation.qty,
+              fromGodownId: source.fromGodownId, lotId: row.lot_id == null ? null : Number(row.lot_id), openingInventoryValuationId: row.opening_inventory_valuation_id == null ? null : Number(row.opening_inventory_valuation_id), qty: allocation.qty,
             }, getClientIP(request), tx);
           }
         }

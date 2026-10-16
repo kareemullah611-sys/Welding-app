@@ -35,7 +35,7 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
       });
       if (!godown) return errorResponse("NOT_FOUND", "Godown not found in receiving city");
 
-      const lotIds = Array.from(new Set(transfers.map((transfer) => transfer.lotId)));
+      const lotIds = Array.from(new Set(transfers.flatMap((transfer) => transfer.lotId ? [transfer.lotId] : [])));
       const openLotCount = await prisma.lot.count({ where: { id: { in: lotIds }, status: "ongoing" } });
       if (openLotCount !== lotIds.length) {
         return errorResponse("VALIDATION_ERROR", "Cannot approve because one or more source lots are completed. Ask super admin to reopen them first.");
@@ -60,6 +60,14 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
 
         for (const row of transfers) {
           const transferQty = Number(row.qty);
+          if (row.openingInventoryValuationId) {
+            await createAuditLog(user.userId, row.toCityId, "city_transfers", row.id, "update", { status: "pending" }, {
+              status: "approved", toGodownId: parsedToGodownId, batchId: row.batchId,
+              openingInventoryValuationId: row.openingInventoryValuationId,
+            }, getClientIP(request), tx);
+            continue;
+          }
+          if (!row.lotId) throw new Error("SOURCE_DISTRIBUTION_MISSING");
           if (!row.batchId) {
             const sourceDistribution = await tx.lotCityDistribution.findUnique({
               where: { lotId_cityId_productId: { lotId: row.lotId, cityId: row.fromCityId, productId: row.productId } },
@@ -151,12 +159,19 @@ export const PUT = withAuth(async (request: NextRequest, context: any, user: JWT
         if (updated.count !== transferIds.length) throw new Error("TRANSFER_NOT_PENDING");
 
         for (const row of transfers) {
+          if (row.openingInventoryValuationId) {
+            await createAuditLog(user.userId, row.toCityId, "city_transfers", row.id, "update", { status: "pending" }, {
+              status: "rejected", batchId: row.batchId, openingInventoryValuationId: row.openingInventoryValuationId,
+            }, getClientIP(request), tx);
+            continue;
+          }
           if (!row.batchId) {
             await createAuditLog(user.userId, row.toCityId, "city_transfers", row.id, "update", { status: "pending" }, {
               status: "rejected", batchId: null,
             }, getClientIP(request), tx);
             continue;
           }
+          if (!row.lotId) throw new Error("SOURCE_DISTRIBUTION_MISSING");
           const distribution = await tx.lotCityDistribution.findUnique({
             where: { lotId_cityId_productId: { lotId: row.lotId, cityId: row.fromCityId, productId: row.productId } },
           });

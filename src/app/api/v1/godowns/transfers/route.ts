@@ -32,7 +32,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
     return paginatedResponse(transfers.map((t) => ({
       id: t.id, transferDate: t.transferDate.toISOString().split("T")[0],
       fromGodown: t.fromGodown.name, toGodown: t.toGodown.name, city: t.fromGodown.city.name,
-      product: t.product.name, lotNumber: t.lot.lotNumber, qty: Number(t.qty),
+      product: t.product.name, lotNumber: t.lot?.lotNumber || "Opening Stock", qty: Number(t.qty),
       notes: t.notes, createdBy: t.creator.fullName, isReversed: reversedTransferIds.has(t.id),
     })), total, page, limit);
   } catch (error) { return serverError(); }
@@ -43,7 +43,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
   try {
     if (user.role !== "city_admin") return errorResponse("FORBIDDEN", "Only city admins can transfer stock", 403);
     const body = await request.json();
-    const { fromGodownId, toGodownId, productId, lotId, qty, transferDate, notes } = body;
+    const { fromGodownId, toGodownId, productId, lotId, openingInventoryValuationId, qty, transferDate, notes } = body;
 
     if (syncMeta) {
       const existingSync = await prisma.syncRequest.findUnique({
@@ -80,61 +80,98 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     ]);
     if (!fromGd || !toGd) return errorResponse("VALIDATION_ERROR", "Godowns must belong to your city");
 
-    // Get FIFO lot if not specified
-    let effectiveLotId = lotId;
-    if (!effectiveLotId) {
-      const fifoLot = await prisma.lot.findFirst({
-        where: { status: "ongoing", countryId: user.countryId!, lotCityDistributions: { some: { cityId: user.cityId! } } },
-        orderBy: [{ lotDate: "asc" }, { id: "asc" }],
-      });
-      if (!fifoLot) return errorResponse("VALIDATION_ERROR", "No ongoing lot found");
-      effectiveLotId = fifoLot.id;
-    }
-
-    const transfer = await prisma.$transaction(async (tx) => {
+    const transfers = await prisma.$transaction(async (tx) => {
       await lockGodownProductStock(tx, [
         { godownId: Number(fromGodownId), productId: Number(productId) },
         { godownId: Number(toGodownId), productId: Number(productId) },
       ]);
+      const requestedLotId = lotId ? Number(lotId) : null;
+      const requestedOpeningId = openingInventoryValuationId ? Number(openingInventoryValuationId) : null;
+      if (requestedLotId && requestedOpeningId) throw new Error("SOURCE_INVALID");
       const stockRows: any[] = await tx.$queryRaw`
-        SELECT
-          COALESCE(SUM(lcga.qty), 0) as received,
-          COALESCE((
-            SELECT SUM(si.qty) FROM sale_items si
-            JOIN sales s ON s.id = si.sale_id AND s.status IN ('active','marked_short')
-            WHERE s.godown_id = ${fromGodownId} AND si.product_id = ${productId}
-          ), 0) as sold,
-          COALESCE((
-            SELECT SUM(gt2.qty) FROM godown_transfers gt2
-            WHERE gt2.from_godown_id = ${fromGodownId} AND gt2.product_id = ${productId}
-          ), 0) as transferred_out,
-          COALESCE((
-            SELECT SUM(gt2.qty) FROM godown_transfers gt2
-            WHERE gt2.to_godown_id = ${fromGodownId} AND gt2.product_id = ${productId}
-          ), 0) as transferred_in,
-          COALESCE((
-            SELECT SUM(ct.qty) FROM city_transfers ct
-            WHERE ct.from_godown_id = ${fromGodownId}
-              AND ct.product_id = ${productId}
-              AND ct.status = 'pending'
-              AND ct.batch_id IS NULL
-          ), 0) as legacy_city_out
-        FROM lot_city_godown_allocations lcga
-        JOIN lot_city_distributions lcd ON lcd.id = lcga.lot_city_distribution_id
-        WHERE lcga.godown_id = ${fromGodownId} AND lcd.product_id = ${productId}
+        WITH opening_sources AS (
+          SELECT DISTINCT source.opening_inventory_valuation_id
+          FROM (
+            SELECT oiv.id AS opening_inventory_valuation_id
+            FROM opening_stocks os
+            JOIN opening_inventory_valuations oiv ON oiv.city_id = os.city_id AND oiv.product_id = os.product_id
+            WHERE os.godown_id = ${fromGodownId} AND os.product_id = ${productId}
+            UNION ALL
+            SELECT gt.opening_inventory_valuation_id
+            FROM godown_transfers gt
+            WHERE gt.to_godown_id = ${fromGodownId} AND gt.product_id = ${productId} AND gt.opening_inventory_valuation_id IS NOT NULL
+            UNION ALL
+            SELECT ct_in.opening_inventory_valuation_id
+            FROM city_transfers ct_in
+            WHERE ct_in.to_godown_id = ${fromGodownId} AND ct_in.product_id = ${productId}
+              AND ct_in.status = 'approved' AND ct_in.opening_inventory_valuation_id IS NOT NULL
+          ) source
+        ),
+        lot_sources AS (
+          SELECT DISTINCT source.lot_id
+          FROM (
+            SELECT lcd.lot_id
+            FROM lot_city_godown_allocations lcga
+            JOIN lot_city_distributions lcd ON lcd.id = lcga.lot_city_distribution_id
+            WHERE lcga.godown_id = ${fromGodownId} AND lcd.product_id = ${productId}
+            UNION ALL
+            SELECT gt.lot_id FROM godown_transfers gt
+            WHERE gt.to_godown_id = ${fromGodownId} AND gt.product_id = ${productId} AND gt.lot_id IS NOT NULL
+            UNION ALL
+            SELECT ct_in.lot_id FROM city_transfers ct_in
+            WHERE ct_in.to_godown_id = ${fromGodownId} AND ct_in.product_id = ${productId}
+              AND ct_in.status = 'approved' AND ct_in.lot_id IS NOT NULL
+          ) source
+        )
+        SELECT * FROM (
+          SELECT NULL::int AS lot_id, oiv.id AS opening_inventory_valuation_id, oiv.opening_date AS source_date,
+            COALESCE((SELECT SUM(os.qty) FROM opening_stocks os WHERE os.godown_id = ${fromGodownId} AND os.product_id = ${productId} AND os.city_id = oiv.city_id), 0)
+            + COALESCE((SELECT SUM(ct_in.qty) FROM city_transfers ct_in WHERE ct_in.to_godown_id = ${fromGodownId} AND ct_in.product_id = ${productId} AND ct_in.opening_inventory_valuation_id = oiv.id AND ct_in.status = 'approved'), 0)
+            + COALESCE((SELECT SUM(gt_in.qty) FROM godown_transfers gt_in WHERE gt_in.to_godown_id = ${fromGodownId} AND gt_in.product_id = ${productId} AND gt_in.opening_inventory_valuation_id = oiv.id), 0)
+            - COALESCE((SELECT SUM(si.qty) FROM sale_items si JOIN sales s ON s.id = si.sale_id WHERE s.godown_id = ${fromGodownId} AND s.status IN ('active','marked_short') AND si.product_id = ${productId} AND si.opening_inventory_valuation_id = oiv.id), 0)
+            - COALESCE((SELECT SUM(gt_out.qty) FROM godown_transfers gt_out WHERE gt_out.from_godown_id = ${fromGodownId} AND gt_out.product_id = ${productId} AND gt_out.opening_inventory_valuation_id = oiv.id), 0)
+            - COALESCE((SELECT SUM(ct_out.qty) FROM city_transfers ct_out WHERE ct_out.from_godown_id = ${fromGodownId} AND ct_out.product_id = ${productId} AND ct_out.opening_inventory_valuation_id = oiv.id AND ct_out.status IN ('pending','approved')), 0) AS available
+          FROM opening_sources src JOIN opening_inventory_valuations oiv ON oiv.id = src.opening_inventory_valuation_id
+          WHERE (${requestedLotId}::int IS NULL) AND (${requestedOpeningId}::int IS NULL OR oiv.id = ${requestedOpeningId}::int)
+          UNION ALL
+          SELECT l.id AS lot_id, NULL::int AS opening_inventory_valuation_id, l.lot_date AS source_date,
+            COALESCE((SELECT SUM(lcga.qty) FROM lot_city_godown_allocations lcga JOIN lot_city_distributions lcd ON lcd.id = lcga.lot_city_distribution_id WHERE lcga.godown_id = ${fromGodownId} AND lcd.product_id = ${productId} AND lcd.lot_id = l.id), 0)
+            + COALESCE((SELECT SUM(ct_in.qty) FROM city_transfers ct_in WHERE ct_in.to_godown_id = ${fromGodownId} AND ct_in.product_id = ${productId} AND ct_in.lot_id = l.id AND ct_in.status = 'approved'), 0)
+            + COALESCE((SELECT SUM(gt_in.qty) FROM godown_transfers gt_in WHERE gt_in.to_godown_id = ${fromGodownId} AND gt_in.product_id = ${productId} AND gt_in.lot_id = l.id), 0)
+            - COALESCE((SELECT SUM(si.qty) FROM sale_items si JOIN sales s ON s.id = si.sale_id WHERE s.godown_id = ${fromGodownId} AND s.status IN ('active','marked_short') AND si.product_id = ${productId} AND si.lot_id = l.id), 0)
+            - COALESCE((SELECT SUM(gt_out.qty) FROM godown_transfers gt_out WHERE gt_out.from_godown_id = ${fromGodownId} AND gt_out.product_id = ${productId} AND gt_out.lot_id = l.id), 0)
+            - COALESCE((SELECT SUM(ct_out.qty) FROM city_transfers ct_out WHERE ct_out.from_godown_id = ${fromGodownId} AND ct_out.product_id = ${productId} AND ct_out.lot_id = l.id AND ct_out.status IN ('pending','approved')), 0) AS available
+          FROM lot_sources src JOIN lots l ON l.id = src.lot_id
+          WHERE (${requestedOpeningId}::int IS NULL) AND (${requestedLotId}::int IS NULL OR l.id = ${requestedLotId}::int)
+        ) sources
+        WHERE available > 0
+        ORDER BY source_date ASC, COALESCE(lot_id, 0) ASC
       `;
-      const stock = stockRows[0];
-      const available = Number(stock?.received || 0) - Number(stock?.sold || 0)
-        - Number(stock?.transferred_out || 0) + Number(stock?.transferred_in || 0)
-        - Number(stock?.legacy_city_out || 0);
+      const available = stockRows.reduce((sum, row) => sum + Number(row.available || 0), 0);
       if (baseQty > available) throw new Error(`STOCK_SHORT:${Math.max(0, available)}`);
 
-      const created = await tx.godownTransfer.create({
-        data: { fromGodownId, toGodownId, productId, lotId: effectiveLotId, qty: baseQty, transferDate: transferDate ? new Date(transferDate) : new Date(), notes, createdBy: user.userId },
-        include: { fromGodown: true, toGodown: true, product: true },
-      });
-
-      await createAuditLog(user.userId, user.cityId!, "godown_transfers", created.id, "create", undefined, { fromGodownId, toGodownId, productId, qty: baseQty }, getClientIP(request), tx);
+      let remaining = baseQty;
+      const created = [];
+      for (const row of stockRows) {
+        if (remaining <= 0) break;
+        const allocatedQty = Math.min(remaining, Number(row.available || 0));
+        if (allocatedQty <= 0) continue;
+        const movement = await tx.godownTransfer.create({
+          data: {
+            fromGodownId, toGodownId, productId,
+            lotId: row.lot_id == null ? null : Number(row.lot_id),
+            openingInventoryValuationId: row.opening_inventory_valuation_id == null ? null : Number(row.opening_inventory_valuation_id),
+            qty: allocatedQty, transferDate: transferDate ? new Date(transferDate) : new Date(), notes, createdBy: user.userId,
+          },
+          include: { fromGodown: true, toGodown: true, product: true },
+        });
+        created.push(movement);
+        remaining = Math.round((remaining - allocatedQty) * 10000) / 10000;
+        await createAuditLog(user.userId, user.cityId!, "godown_transfers", movement.id, "create", undefined, {
+          fromGodownId, toGodownId, productId, lotId: movement.lotId,
+          openingInventoryValuationId: movement.openingInventoryValuationId, qty: allocatedQty,
+        }, getClientIP(request), tx);
+      }
       if (syncMeta) {
         await tx.syncRequest.create({
           data: {
@@ -143,7 +180,7 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
             requestId: syncMeta.requestId,
             deviceId: syncMeta.deviceId,
             entityType: "godown_transfers",
-            entityId: created.id,
+            entityId: created[0].id,
             createdBy: user.userId,
           },
         });
@@ -152,13 +189,15 @@ export const POST = withAuth(async (request: NextRequest, context, user: JWTPayl
     });
 
     return successResponse({
-      id: transfer.id, fromGodown: transfer.fromGodown.name, toGodown: transfer.toGodown.name,
-      product: transfer.product.name, qty: Number(transfer.qty),
+      id: transfers[0].id, transferIds: transfers.map((transfer) => transfer.id),
+      fromGodown: transfers[0].fromGodown.name, toGodown: transfers[0].toGodown.name,
+      product: transfers[0].product.name, qty: transfers.reduce((sum, transfer) => sum + Number(transfer.qty), 0),
     }, "Stock transferred", 201);
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("STOCK_SHORT:")) {
       return errorResponse("VALIDATION_ERROR", `Insufficient stock: only ${error.message.slice("STOCK_SHORT:".length)} available in this godown`);
     }
+    if (error instanceof Error && error.message === "SOURCE_INVALID") return validationError("Select either a lot or an opening inventory source, not both");
     if (syncMeta && user.cityId && isSyncRequestDuplicateError(error)) {
       const existingSync = await prisma.syncRequest.findUnique({
         where: {

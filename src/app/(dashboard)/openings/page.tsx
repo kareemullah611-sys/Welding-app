@@ -54,8 +54,6 @@ type OpeningData = {
   }[];
   openingStocks: {
     id: number | string;
-    lotId: number;
-    lotNumber: string;
     godownId: number;
     godownName: string;
     productId: number;
@@ -64,21 +62,6 @@ type OpeningData = {
     openingDate: string;
     _pending?: boolean;
   }[];
-  legacyStocks?: {
-    id: number | string;
-    godownId: number;
-    godownName: string;
-    productId: number;
-    productName: string;
-    qty: number;
-    legacyLotNumber?: string;
-    unitCostPkr?: number | null;
-    totalValuePkr?: number | null;
-    valuationDate?: string | null;
-    valuationNotes?: string | null;
-    _pending?: boolean;
-  }[];
-  ongoingLots?: { id: number; lotNumber: string; lotDate: string }[];
   openingBankBalances: {
     id: number | string;
     bankAccountId: number;
@@ -171,8 +154,8 @@ type OpeningData = {
     notes?: string | null;
     _pending?: boolean;
   }[];
-  inventoryValuationOptions: { lotId: number; lotNumber: string; lotDate: string; isLegacyStock: boolean; productId: number; productName: string; quantity: number }[];
-  openingInventoryValuations: { id: number; lotId: number; lotNumber: string; productId: number; productName: string; quantity: number; unitCostPkr: number; totalValuePkr: number; originalCurrencyId?: number | null; originalCurrencyCode: string; originalAmount?: number | null; fxRateToPkr?: number | null; fxRateDate?: string | null; fxRateSource?: string | null; openingDate: string; notes?: string | null }[];
+  inventoryValuationOptions: { cityId: number; productId: number; productName: string; quantity: number }[];
+  openingInventoryValuations: { id: number; cityId?: number | null; cityName?: string | null; lotId?: number | null; lotNumber?: string | null; productId: number; productName: string; quantity: number; unitCostPkr: number; totalValuePkr: number; originalCurrencyId?: number | null; originalCurrencyCode: string; originalAmount?: number | null; fxRateToPkr?: number | null; fxRateDate?: string | null; fxRateSource?: string | null; openingDate: string; notes?: string | null; _pending?: boolean }[];
   openingSuperAdminAccounts: { id: number; accountId: number; accountName: string; accountKind: "bank" | "cash"; currencyId: number; currencyCode: string; amount: number; carryingAmountPkr: number; fxRateToPkr?: number | null; fxRateDate?: string | null; fxRateSource?: string | null; openingDate: string; notes?: string | null }[];
   openingEquityAllocations: { id: number; equityType: "manager_capital" | "retained_earnings" | "other"; label: string; amountPkr: number; openingDate: string; notes?: string | null }[];
   openingEquityReconciliation: { clearingAccountCode: string; unallocatedPkr: number; reconciled: boolean };
@@ -378,8 +361,8 @@ export default function OpeningsPage() {
   });
   const [editingChequeId, setEditingChequeId] = useState<number | null>(null);
   const [hajiForm, setHajiForm] = useState({ currencyId: 0, amount: "", balanceSide: "payable" as "payable" | "receivable", openingDate: today, notes: "", ...emptyFx });
-  const [stockForm, setStockForm] = useState({ lotId: 0, godownId: 0, productId: 0, qty: "" });
-  const [legacyStockForm, setLegacyStockForm] = useState({ godownId: 0, productId: 0, quantity: "", unitCostPkr: "", openingDate: today, notes: "" });
+  const [stockForm, setStockForm] = useState({ godownId: 0, productId: 0, qty: "", openingDate: today, notes: "" });
+  const [legacyStockForm, setLegacyStockForm] = useState({ productId: 0, totalValuePkr: "", openingDate: today, notes: "" });
   const [liabilityForm, setLiabilityForm] = useState<{
     liabilityType: "supplier" | "shipping_line" | "agent" | "intermediary";
     partyId: number;
@@ -451,9 +434,6 @@ export default function OpeningsPage() {
       setBankForm((prev) => ({ ...prev, currencyId: resolveCityCurrencyId(cityCurrencies, prev.currencyId) }));
       setChequeForm((prev) => ({ ...prev, currencyId: resolveCityCurrencyId(cityCurrencies, prev.currencyId) }));
       setHajiForm((prev) => ({ ...prev, currencyId: resolveCityCurrencyId(cityCurrencies, prev.currencyId) }));
-      if (!stockForm.lotId && nextData.ongoingLots?.[0]) {
-        setStockForm((prev) => ({ ...prev, lotId: nextData.ongoingLots![0].id }));
-      }
       if (!liabilityForm.currencyId && nextData.liabilityOptions?.currencies?.[0]) {
         setLiabilityForm((prev) => ({ ...prev, currencyId: nextData.liabilityOptions.currencies[0].id }));
       }
@@ -744,20 +724,19 @@ export default function OpeningsPage() {
     e.preventDefault();
     if (!canEdit) return toast.error("Opening entries are locked");
     if (!cityReady) return toast.error("Select a city first");
-    if (!stockForm.lotId) return toast.error("Select an ongoing lot");
     const result = await apiCall("/api/v1/openings", {
       method: "POST",
       body: {
         kind: "stock",
-        cityId: isSuperAdmin ? selectedCityId : undefined,
-        lotId: stockForm.lotId,
         godownId: stockForm.godownId,
         productId: stockForm.productId,
         qty: Number(stockForm.qty || 0),
+        openingDate: stockForm.openingDate,
+        notes: stockForm.notes || null,
       },
     });
     if (!result.success) return toast.error(result.error || "Failed");
-    toast.success("Godown stock saved on ongoing lot");
+    toast.success("Opening inventory quantity saved");
     setStockForm((prev) => ({ ...prev, qty: "" }));
     load();
   };
@@ -770,18 +749,16 @@ export default function OpeningsPage() {
       method: "POST",
       body: {
         kind: "product_inventory",
-        cityId: isSuperAdmin ? selectedCityId : undefined,
-        godownId: legacyStockForm.godownId,
+        cityId: selectedCityId,
         productId: legacyStockForm.productId,
-        quantity: Number(legacyStockForm.quantity || 0),
-        unitCostPkr: Number(legacyStockForm.unitCostPkr || 0),
+        totalValuePkr: Number(legacyStockForm.totalValuePkr || 0),
         openingDate: legacyStockForm.openingDate,
         notes: legacyStockForm.notes || null,
       },
     });
     if (!result.success) return toast.error(result.error || "Failed");
     toast.success("Opening product inventory saved");
-    setLegacyStockForm((prev) => ({ ...prev, quantity: "", unitCostPkr: "", notes: "" }));
+    setLegacyStockForm((prev) => ({ ...prev, totalValuePkr: "", notes: "" }));
     load();
   };
 
@@ -1526,34 +1503,14 @@ export default function OpeningsPage() {
         />
       </form>
 
-      {/* Ongoing lot godown stock */}
-      <form ref={stockRef} onSubmit={submitStock} className="card space-y-3">
+      {user?.role === "city_admin" && <form ref={stockRef} onSubmit={submitStock} className="card space-y-3">
         <div>
-          <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-neutral-500">Opening godown stock (ongoing lots)</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-neutral-500">Opening inventory quantities</h2>
           <p className="text-xs text-neutral-500 mt-1">
-            Set the <span className="font-medium">current on-hand quantity</span> in the godown for an ongoing lot.
-            Saving replaces the current quantity for that lot + godown + product.
+            Enter the physical quantity for each product and godown. Superadmin records the audited city-product valuation separately.
           </p>
-          {isSuperAdmin && (data?.ongoingLots?.length || 0) === 0 && cityReady && (
-            <p className="text-xs mt-1">
-              No ongoing lots for this city yet — create and distribute lots in{" "}
-              <Link href="/lots" className="text-primary-600 hover:underline">Lots</Link> first.
-            </p>
-          )}
         </div>
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3">
-          <select
-            className="input"
-            value={stockForm.lotId}
-            onChange={(e) => setStockForm((prev) => ({ ...prev, lotId: Number(e.target.value) }))}
-            required
-            disabled={formsDisabled}
-          >
-            <option value={0}>Ongoing lot</option>
-            {(data?.ongoingLots || []).map((l) => (
-              <option key={l.id} value={l.id}>{l.lotNumber} ({l.lotDate})</option>
-            ))}
-          </select>
           <select
             className="input"
             value={stockForm.godownId}
@@ -1584,25 +1541,17 @@ export default function OpeningsPage() {
             required
             disabled={formsDisabled}
           />
+          <input className="input" type="date" value={stockForm.openingDate} onChange={(e) => setStockForm((prev) => ({ ...prev, openingDate: e.target.value }))} required disabled={formsDisabled} />
+          <input className="input" placeholder="Notes" value={stockForm.notes} onChange={(e) => setStockForm((prev) => ({ ...prev, notes: e.target.value }))} disabled={formsDisabled} />
         </div>
-        <button className="btn-primary" type="submit" disabled={formsDisabled || !(data?.ongoingLots?.length)}>Save godown stock</button>
+        <button className="btn-primary" type="submit" disabled={formsDisabled}>Save quantity</button>
 
         <SavedTable
-          title="Saved godown stock (ongoing lots)"
-          emptyLabel="No godown allocations on ongoing lots for this city yet."
-          headers={["Lot", "Godown", "Product", "Gross qty", "Lot date", ""]}
+          title="Saved opening quantities"
+          emptyLabel="No opening inventory quantities recorded yet."
+          headers={["Godown", "Product", "Quantity", "Opening date", ""]}
           rows={(data?.openingStocks || []).map((row) => (
             <tr key={String(row.id)} className={`border-b last:border-0 ${row._pending ? "bg-amber-50/60" : ""}`}>
-              <td className="py-2 px-3">
-                {isSuperAdmin ? (
-                  <Link href={`/lots?lotId=${row.lotId}`} className="text-primary-600 hover:underline">
-                    {row.lotNumber}
-                  </Link>
-                ) : (
-                  row.lotNumber
-                )}
-                {row._pending ? " (pending sync)" : ""}
-              </td>
               <td className="py-2 px-3">{row.godownName}</td>
               <td className="py-2 px-3">{row.productName}</td>
               <td className="py-2 px-3">{row.qty.toLocaleString("en-US")}</td>
@@ -1615,10 +1564,11 @@ export default function OpeningsPage() {
                       className="text-xs text-primary-600 hover:underline"
                       onClick={() => {
                         setStockForm({
-                          lotId: row.lotId,
                           godownId: row.godownId,
                           productId: row.productId,
                           qty: String(row.qty),
+                          openingDate: row.openingDate,
+                          notes: "",
                         });
                         scrollTo(stockRef);
                       }}
@@ -1638,27 +1588,16 @@ export default function OpeningsPage() {
             </tr>
           ))}
         />
-      </form>
+      </form>}
 
-      {/* Product-level opening inventory; the technical historical layer is intentionally hidden. */}
-      <form ref={legacyStockRef} onSubmit={submitLegacyStock} className="card space-y-3">
+      {user?.role === "super_admin" && <form ref={legacyStockRef} onSubmit={submitLegacyStock} className="card space-y-3">
         <div>
-          <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-neutral-500">Opening product inventory</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-neutral-500">City product valuation</h2>
           <p className="text-xs text-neutral-500 mt-1">
-            Enter the product&apos;s opening on-hand quantity and audited PKR valuation. Future purchases remain tracked by their actual lots.
+            Value the selected city&apos;s full product quantity in PKR. One unit cost applies across its godowns; no opening lot is created.
           </p>
         </div>
-        <div className="grid md:grid-cols-2 lg:grid-cols-6 gap-3">
-          <select
-            className="input"
-            value={legacyStockForm.godownId}
-            onChange={(e) => setLegacyStockForm((prev) => ({ ...prev, godownId: Number(e.target.value) }))}
-            required
-            disabled={formsDisabled}
-          >
-            <option value={0}>Godown</option>
-            {(data?.godowns || []).map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-          </select>
+        <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-3">
           <select
             className="input"
             value={legacyStockForm.productId}
@@ -1667,36 +1606,25 @@ export default function OpeningsPage() {
             disabled={formsDisabled}
           >
             <option value={0}>Product</option>
-            {(data?.products || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            {(data?.inventoryValuationOptions || []).map((p) => <option key={p.productId} value={p.productId}>{p.productName} · {p.quantity.toLocaleString("en-US")}</option>)}
           </select>
-          <input
-            className="input"
-            type="number"
-            step="0.01"
-            placeholder="On-hand qty (cartons)"
-            value={legacyStockForm.quantity}
-            onChange={(e) => setLegacyStockForm((prev) => ({ ...prev, quantity: e.target.value }))}
-            required
-            disabled={formsDisabled}
-          />
-          <input className="input" type="number" step="0.000001" placeholder="PKR unit cost" value={legacyStockForm.unitCostPkr} onChange={(e) => setLegacyStockForm((prev) => ({ ...prev, unitCostPkr: e.target.value }))} required disabled={formsDisabled} />
-          <input className="input bg-neutral-50" value={((Number(legacyStockForm.quantity) || 0) * (Number(legacyStockForm.unitCostPkr) || 0)).toLocaleString("en-US", { maximumFractionDigits: 2 })} readOnly aria-label="Total PKR value" />
+          <input className="input" type="number" step="0.01" placeholder="Total PKR value" value={legacyStockForm.totalValuePkr} onChange={(e) => setLegacyStockForm((prev) => ({ ...prev, totalValuePkr: e.target.value }))} required disabled={formsDisabled} />
           <input className="input" type="date" value={legacyStockForm.openingDate} onChange={(e) => setLegacyStockForm((prev) => ({ ...prev, openingDate: e.target.value }))} required disabled={formsDisabled} />
           <input className="input" placeholder="Notes / valuation evidence" value={legacyStockForm.notes} onChange={(e) => setLegacyStockForm((prev) => ({ ...prev, notes: e.target.value }))} disabled={formsDisabled} />
         </div>
         <button className="btn-primary" type="submit" disabled={formsDisabled}>Save opening inventory</button>
 
         <SavedTable
-          title="Saved opening product inventory"
-          emptyLabel="No opening product inventory recorded for this city yet."
-          headers={["Godown", "Product", "On-hand qty", "Unit PKR", "Total PKR", ""]}
-          rows={(data?.legacyStocks || []).map((row) => (
+          title="Saved city-product valuations"
+          emptyLabel="No city-product valuation recorded for this city yet."
+          headers={["City", "Product", "Quantity snapshot", "Unit PKR", "Total PKR", ""]}
+          rows={(data?.openingInventoryValuations || []).filter((row) => row.cityId === selectedCityId).map((row) => (
             <tr key={String(row.id)} className={`border-b last:border-0 ${row._pending ? "bg-amber-50/60" : ""}`}>
-              <td className="py-2 px-3">{row.godownName}</td>
+              <td className="py-2 px-3">{row.cityName}</td>
               <td className="py-2 px-3">{row.productName}</td>
-              <td className="py-2 px-3">{row.qty.toLocaleString("en-US")}</td>
-              <td className="py-2 px-3">{row.unitCostPkr?.toLocaleString("en-US") || "—"}</td>
-              <td className="py-2 px-3">{row.totalValuePkr?.toLocaleString("en-US") || "—"}</td>
+              <td className="py-2 px-3">{row.quantity.toLocaleString("en-US")}</td>
+              <td className="py-2 px-3">{row.unitCostPkr.toLocaleString("en-US", { maximumFractionDigits: 6 })}</td>
+              <td className="py-2 px-3">{row.totalValuePkr.toLocaleString("en-US")}</td>
               <td className="py-2 px-3">
                 {!row._pending && canEdit && (
                   <span className="inline-flex gap-2">
@@ -1705,12 +1633,10 @@ export default function OpeningsPage() {
                       className="text-xs text-primary-600 hover:underline"
                       onClick={() => {
                         setLegacyStockForm({
-                          godownId: row.godownId,
                           productId: row.productId,
-                          quantity: String(row.qty),
-                          unitCostPkr: row.unitCostPkr == null ? "" : String(row.unitCostPkr),
-                          openingDate: row.valuationDate || today,
-                          notes: row.valuationNotes || "",
+                          totalValuePkr: String(row.totalValuePkr),
+                          openingDate: row.openingDate,
+                          notes: row.notes || "",
                         });
                         scrollTo(legacyStockRef);
                       }}
@@ -1730,7 +1656,7 @@ export default function OpeningsPage() {
             </tr>
           ))}
         />
-      </form>
+      </form>}
 
       {/* Step 4: City Liabilities */}
       {!isSuperAdmin && (

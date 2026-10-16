@@ -498,7 +498,7 @@ export async function nextSaleJournalVersion(db: DbClient, saleId: number) {
   return current + 1;
 }
 
-export async function journalSaleCreated(sale: { id: number; customerId: number; cityId: number; lotId: number; totalAmount: number; currencyCode: string; saleDate: Date; createdBy: number; journalVersion?: number; }, db: DbClient = prisma) {
+export async function journalSaleCreated(sale: { id: number; customerId: number; cityId: number; lotId: number | null; totalAmount: number; currencyCode: string; saleDate: Date; createdBy: number; journalVersion?: number; }, db: DbClient = prisma) {
   const transactionId = saleJournalTransactionId(sale.id, sale.journalVersion);
   const [persistedSale, existing] = await Promise.all([
     db.sale.findUnique({ where: { id: sale.id }, select: { isOpeningImport: true } }),
@@ -1700,7 +1700,8 @@ export async function journalOpeningHajiBalance(
 
 export async function journalOpeningInventoryValuation(p: {
   id: number;
-  lotId: number;
+  cityId?: number | null;
+  lotId?: number | null;
   productId: number;
   totalValuePkr: number;
   openingDate: Date;
@@ -1709,13 +1710,15 @@ export async function journalOpeningInventoryValuation(p: {
 }, db: DbClient = prisma) {
   const amount = roundMoney(p.totalValuePkr);
   if (amount <= 0) throw new Error("Opening inventory value must be greater than zero.");
+  const source = p.lotId ? `lot ${p.lotId}` : `city ${p.cityId}`;
   await createJournalEntries(`OPENINV-${p.id}-V${p.journalVersion}`, [
-    { accountId: await getInventoryAccountId(db), debit: amount, credit: 0, description: `Opening inventory valuation · lot ${p.lotId} · product ${p.productId}` },
-    { accountId: await getOpeningBalanceAccountId(db), debit: 0, credit: amount, description: `Opening inventory valuation · lot ${p.lotId} · product ${p.productId}` },
+    { accountId: await getInventoryAccountId(db), debit: amount, credit: 0, description: `Opening inventory valuation · ${source} · product ${p.productId}` },
+    { accountId: await getOpeningBalanceAccountId(db), debit: 0, credit: amount, description: `Opening inventory valuation · ${source} · product ${p.productId}` },
   ], {
     currencyCode: "PKR",
     entityType: "opening_inventory_valuation",
     entityId: p.id,
+    cityId: p.cityId,
     lotId: p.lotId,
     entryDate: p.openingDate,
     createdBy: p.createdBy,
@@ -1937,6 +1940,7 @@ export async function journalSaleCOGS(params: {
 export async function journalSaleCOGSForLots(params: {
   saleId: number;
   allocations: Array<{ lotId: number; totalQtySold: number }>;
+  openingAllocations?: Array<{ openingInventoryValuationId: number; totalQtySold: number }>;
   saleDate: Date;
   cityId: number;
   createdBy: number;
@@ -1950,8 +1954,20 @@ export async function journalSaleCOGSForLots(params: {
     lotId,
     amount: await calculateSaleCogsPkr({ saleId, lotId, totalQtySold }, db),
   })));
+  const openingCosts = await Promise.all((params.openingAllocations || []).map(async ({ openingInventoryValuationId }) => {
+    const [valuation, items] = await Promise.all([
+      db.openingInventoryValuation.findUnique({ where: { id: openingInventoryValuationId }, select: { unitCostPkr: true } }),
+      db.saleItem.findMany({ where: { saleId, openingInventoryValuationId }, select: { qty: true } }),
+    ]);
+    if (!valuation) throw new Error(`Opening inventory valuation ${openingInventoryValuationId} is missing`);
+    return {
+      openingInventoryValuationId,
+      amount: roundMoney(items.reduce((sum, item) => sum + Number(item.qty) * Number(valuation.unitCostPkr), 0)),
+    };
+  }));
   const postable = costs.filter(({ amount }) => amount > 0);
-  if (!postable.length) return;
+  const postableOpening = openingCosts.filter(({ amount }) => amount > 0);
+  if (!postable.length && !postableOpening.length) return;
 
   const [cogsAccountId, inventoryAccountId] = await Promise.all([
     getCOGSAccountId(db),
@@ -1961,6 +1977,12 @@ export async function journalSaleCOGSForLots(params: {
     { accountId: cogsAccountId, debit: amount, credit: 0, description: `COGS — Sale #${saleId} · Lot #${lotId}`, lotId },
     { accountId: inventoryAccountId, debit: 0, credit: amount, description: `Inventory reduction — Sale #${saleId} · Lot #${lotId}`, lotId },
   ]);
+  for (const { openingInventoryValuationId, amount } of postableOpening) {
+    lines.push(
+      { accountId: cogsAccountId, debit: amount, credit: 0, description: `COGS — Sale #${saleId} · Opening inventory #${openingInventoryValuationId}` },
+      { accountId: inventoryAccountId, debit: 0, credit: amount, description: `Inventory reduction — Sale #${saleId} · Opening inventory #${openingInventoryValuationId}` },
+    );
+  }
 
   await createJournalEntries(saleCogsJournalTransactionId(saleId, params.journalVersion), lines, {
     currencyCode: "PKR",

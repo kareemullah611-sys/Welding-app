@@ -68,6 +68,7 @@ export async function loadOpeningCutoverReadiness(client: any = prisma, cutoverI
   const unlinkedSources = await Promise.all([
     client.openingCash.findMany({ where: { id: { notIn: ownedIds("opening_cash") } }, select: { id: true } }),
     client.openingCustomerBalance.findMany({ where: { id: { notIn: ownedIds("opening_customer_balance") } }, select: { id: true } }),
+    client.openingStock.findMany({ where: { id: { notIn: ownedIds("opening_stock") } }, select: { id: true } }),
     client.openingBankBalance.findMany({ where: { id: { notIn: ownedIds("opening_bank_balance") } }, select: { id: true } }),
     client.openingCheque.findMany({ where: { id: { notIn: ownedIds("opening_cheque") } }, select: { id: true } }),
     client.openingHajiBalance.findMany({ where: { id: { notIn: ownedIds("opening_haji_balance") } }, select: { id: true } }),
@@ -78,10 +79,10 @@ export async function loadOpeningCutoverReadiness(client: any = prisma, cutoverI
     client.openingEquityAllocation.findMany({ where: { id: { notIn: ownedIds("opening_equity_allocation") } }, select: { id: true } }),
     client.openingCityDueBalance.findMany({ where: { id: { notIn: ownedIds("opening_city_due_balance") } }, select: { id: true } }),
   ]);
-  const unlinkedLabels = ["cash", "customer balance", "bank balance", "cheque", "Haji balance", "liability", "city liability", "inventory valuation", "superadmin account", "equity", "city due balance"];
+  const unlinkedLabels = ["cash", "customer balance", "stock", "bank balance", "cheque", "Haji balance", "liability", "city liability", "inventory valuation", "superadmin account", "equity", "city due balance"];
   const unlinkedOpeningRecords = unlinkedSources.flatMap((rows: any[], index: number) => rows.map((row) => `${unlinkedLabels[index]} #${row.id}`));
 
-  const [participants, openingAccount, foreignSources, inventoryRows, openingDateSources, overlappingFinancialYear, activeCities, cityPackages] = await Promise.all([
+  const [participants, openingAccount, foreignSources, inventoryRows, openingQuantityRows, openingDateSources, overlappingFinancialYear, activeCities, cityPackages] = await Promise.all([
     client.investmentParticipant.findMany({ where: { isActive: true }, select: { id: true, type: true } }),
     client.account.findUnique({ where: { code: "3900" }, select: { id: true } }),
     Promise.all([
@@ -97,12 +98,16 @@ export async function loadOpeningCutoverReadiness(client: any = prisma, cutoverI
     ]),
     client.openingInventoryValuation.findMany({
       where: { id: { in: ids("opening_inventory_valuation") } },
-      select: { id: true, lotId: true, productId: true, quantity: true, lot: { select: { lotNumber: true } }, product: { select: { name: true } } },
+      select: { id: true, cityId: true, lotId: true, productId: true, quantity: true, city: { select: { name: true } }, lot: { select: { lotNumber: true } }, product: { select: { name: true } } },
+    }),
+    client.openingStock.groupBy({
+      by: ["cityId", "productId"],
+      _sum: { qty: true },
     }),
     Promise.all([
       client.openingCash.findMany({ where: { id: { in: ids("opening_cash") } }, select: { id: true, openingDate: true } }),
       client.openingCustomerBalance.findMany({ where: { id: { in: ids("opening_customer_balance") } }, select: { id: true, openingDate: true } }),
-      Promise.resolve([]),
+      client.openingStock.findMany({ where: { id: { in: ids("opening_stock") } }, select: { id: true, openingDate: true } }),
       client.openingBankBalance.findMany({ where: { id: { in: ids("opening_bank_balance") } }, select: { id: true, openingDate: true } }),
       client.openingCheque.findMany({ where: { id: { in: ids("opening_cheque") } }, select: { id: true, openingDate: true } }),
       client.openingHajiBalance.findMany({ where: { id: { in: ids("opening_haji_balance") } }, select: { id: true, openingDate: true } }),
@@ -159,10 +164,33 @@ export async function loadOpeningCutoverReadiness(client: any = prisma, cutoverI
   }));
 
   const inventoryMismatches: string[] = [];
+  const cityProductValuations = new Set(
+    inventoryRows
+      .filter((row: any) => row.cityId)
+      .map((row: any) => `${row.cityId}:${row.productId}`),
+  );
+  for (const row of openingQuantityRows) {
+    if (Number(row._sum.qty || 0) <= 0) continue;
+    if (!cityProductValuations.has(`${row.cityId}:${row.productId}`)) {
+      inventoryMismatches.push(`Missing valuation for city ${row.cityId} / product ${row.productId}`);
+    }
+  }
   for (const row of inventoryRows) {
-    const product = await client.lotProduct.findUnique({ where: { lotId_productId: { lotId: row.lotId, productId: row.productId } }, select: { totalQty: true } });
-    if (!product || Math.abs(Number(product.totalQty) - Number(row.quantity)) >= 0.0001) {
-      inventoryMismatches.push(`${row.lot.lotNumber} / ${row.product.name}`);
+    if (row.cityId) {
+      const quantity = await client.openingStock.aggregate({
+        where: { cityId: row.cityId, productId: row.productId },
+        _sum: { qty: true },
+      });
+      if (Math.abs(Number(quantity._sum.qty || 0) - Number(row.quantity)) >= 0.0001) {
+        inventoryMismatches.push(`${row.city?.name || `city ${row.cityId}`} / ${row.product.name}`);
+      }
+      continue;
+    }
+    if (row.lotId) {
+      const product = await client.lotProduct.findUnique({ where: { lotId_productId: { lotId: row.lotId, productId: row.productId } }, select: { totalQty: true } });
+      if (!product || Math.abs(Number(product.totalQty) - Number(row.quantity)) >= 0.0001) {
+        inventoryMismatches.push(`${row.lot?.lotNumber || `lot ${row.lotId}`} / ${row.product.name}`);
+      }
     }
   }
 

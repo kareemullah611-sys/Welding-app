@@ -1,11 +1,17 @@
 export type LotProfitSaleInput = {
   saleId: number;
   recognizedRevenuePkr: number;
-  items: Array<{ lotId: number; revenueWeight: number; cartons: number }>;
+  items: Array<{
+    lotId: number | null;
+    openingInventoryValuationId?: number | null;
+    revenueWeight: number;
+    cartons: number;
+  }>;
 };
 
 export type LotProfitAmountInput = {
   lotId: number | null;
+  saleId?: number | null;
   amountPkr: number;
   kind?: "discount" | "other";
 };
@@ -82,11 +88,15 @@ export function buildLotProfitReconciliation(input: {
   authoritative: AuthoritativeLotProfitTotals;
 }) {
   const byLot = new Map<number, LotProfitTotals>();
+  const openingSaleIds = new Set<number>();
 
   for (const sale of input.sales) {
     const allocations = allocateMoneyByWeights(sale.recognizedRevenuePkr, sale.items.map((item) => item.revenueWeight));
     sale.items.forEach((item, index) => {
-      const lot = ensureLot(byLot, item.lotId);
+      const sourceId = item.lotId || (item.openingInventoryValuationId ? 0 : null);
+      if (sourceId === null) return;
+      if (item.openingInventoryValuationId) openingSaleIds.add(sale.saleId);
+      const lot = ensureLot(byLot, sourceId);
       lot.grossRevenuePkr += allocations[index] || 0;
       lot.revenuePkr += allocations[index] || 0;
       lot.cartonsSold += finite(item.cartons);
@@ -102,8 +112,9 @@ export function buildLotProfitReconciliation(input: {
   }
 
   for (const entry of input.cogsEntries) {
-    if (!entry.lotId) continue;
-    ensureLot(byLot, entry.lotId).cogsPkr += finite(entry.amountPkr);
+    const sourceId = entry.lotId || (entry.saleId && openingSaleIds.has(entry.saleId) ? 0 : null);
+    if (sourceId === null) continue;
+    ensureLot(byLot, sourceId).cogsPkr += finite(entry.amountPkr);
   }
 
   for (const entry of input.expenseEntries) {

@@ -339,7 +339,7 @@ export function useApi<T = unknown>() {
         }
       }
 
-      if (typeof window !== "undefined" && shouldQueueOfflineWriteNow(url, method)) {
+      if (typeof window !== "undefined" && shouldQueueOfflineWriteNow(url, method, options.body)) {
         const queued = await queuePackagedOfflineWrite<T>(
           url,
           method,
@@ -351,7 +351,7 @@ export function useApi<T = unknown>() {
       }
 
       if (typeof window !== "undefined") {
-        const offlineBlockReason = getOfflineMutationBlockReason(url, method);
+        const offlineBlockReason = getOfflineMutationBlockReason(url, method, options.body);
         if (offlineBlockReason) {
           setState({ data: null, loading: false, error: offlineBlockReason });
           return { success: false, error: offlineBlockReason };
@@ -372,7 +372,7 @@ export function useApi<T = unknown>() {
         const error = data.error?.message || "Request failed";
         if (typeof window !== "undefined" && RETRYABLE_HTTP_STATUSES.has(res.status) && isPackagedOfflineActive()) {
           setPackagedServerReachable(false);
-          if (shouldQueueOfflineWriteOnNetworkFailure(url, method)) {
+          if (shouldQueueOfflineWriteOnNetworkFailure(url, method, options.body)) {
             const queued = await queuePackagedOfflineWrite<T>(
               url,
               method,
@@ -382,7 +382,7 @@ export function useApi<T = unknown>() {
             );
             return queued;
           }
-          const offlineBlockReason = getOfflineMutationBlockReason(url, method);
+          const offlineBlockReason = getOfflineMutationBlockReason(url, method, options.body);
           if (offlineBlockReason) {
             setState({ data: null, loading: false, error: offlineBlockReason });
             return { success: false, error: offlineBlockReason };
@@ -403,7 +403,7 @@ export function useApi<T = unknown>() {
       if (typeof window !== "undefined" && isPackagedOfflineActive()) {
         setPackagedServerReachable(false);
       }
-      if (typeof window !== "undefined" && shouldQueueOfflineWriteOnNetworkFailure(url, method)) {
+      if (typeof window !== "undefined" && shouldQueueOfflineWriteOnNetworkFailure(url, method, options.body)) {
         const queued = await queuePackagedOfflineWrite<T>(
           url,
           method,
@@ -414,7 +414,7 @@ export function useApi<T = unknown>() {
         return queued;
       }
       if (typeof window !== "undefined") {
-        const offlineBlockReason = getOfflineMutationBlockReason(url, method);
+        const offlineBlockReason = getOfflineMutationBlockReason(url, method, options.body);
         if (offlineBlockReason) {
           setState({ data: null, loading: false, error: offlineBlockReason });
           return { success: false, error: offlineBlockReason };
@@ -454,13 +454,13 @@ export async function apiCall<T = unknown>(
       fetchOptions.body = JSON.stringify(options.body);
     }
 
-    if (typeof window !== "undefined" && shouldQueueOfflineWriteNow(url, method)) {
+    if (typeof window !== "undefined" && shouldQueueOfflineWriteNow(url, method, options.body)) {
       const queued = await queuePackagedOfflineWrite<T>(url, method, options.body, options.params);
       return { ...queued, data: queued.data as unknown as T };
     }
 
     if (typeof window !== "undefined") {
-      const offlineBlockReason = getOfflineMutationBlockReason(url, method);
+      const offlineBlockReason = getOfflineMutationBlockReason(url, method, options.body);
       if (offlineBlockReason) return { success: false, error: offlineBlockReason };
     }
 
@@ -485,11 +485,11 @@ export async function apiCall<T = unknown>(
     }
     if (typeof window !== "undefined" && RETRYABLE_HTTP_STATUSES.has(res.status) && isPackagedOfflineActive()) {
       setPackagedServerReachable(false);
-      if (shouldQueueOfflineWriteOnNetworkFailure(url, method)) {
+      if (shouldQueueOfflineWriteOnNetworkFailure(url, method, options.body)) {
         const queued = await queuePackagedOfflineWrite<T>(url, method, options.body, options.params);
         return { ...queued, data: queued.data as unknown as T };
       }
-      const offlineBlockReason = getOfflineMutationBlockReason(url, method);
+      const offlineBlockReason = getOfflineMutationBlockReason(url, method, options.body);
       if (offlineBlockReason) return { success: false, error: offlineBlockReason };
     }
     if (method === "GET" && typeof window !== "undefined" && shouldUseOfflineApiCache()) {
@@ -504,12 +504,12 @@ export async function apiCall<T = unknown>(
     if (typeof window !== "undefined" && isPackagedOfflineActive()) {
       setPackagedServerReachable(false);
     }
-    if (typeof window !== "undefined" && shouldQueueOfflineWriteOnNetworkFailure(url, method)) {
+    if (typeof window !== "undefined" && shouldQueueOfflineWriteOnNetworkFailure(url, method, options.body)) {
       const queued = await queuePackagedOfflineWrite<T>(url, method, options.body, options.params);
       return { ...queued, data: queued.data as unknown as T };
     }
     if (typeof window !== "undefined") {
-      const offlineBlockReason = getOfflineMutationBlockReason(url, method);
+      const offlineBlockReason = getOfflineMutationBlockReason(url, method, options.body);
       if (offlineBlockReason) return { success: false, error: offlineBlockReason };
     }
     if (method === "GET" && typeof window !== "undefined" && shouldUseOfflineApiCache()) {

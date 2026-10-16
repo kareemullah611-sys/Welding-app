@@ -11,12 +11,25 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
 
     const inventory: any[] = await prisma.$queryRaw`
       WITH received AS (
-        SELECT lcga.godown_id, lcd.product_id, COALESCE(SUM(lcga.qty), 0) as qty
-        FROM lot_city_godown_allocations lcga
-        JOIN lot_city_distributions lcd ON lcd.id = lcga.lot_city_distribution_id
-        JOIN godowns g ON g.id = lcga.godown_id
-        WHERE (${cityId}::int IS NULL OR g.city_id = ${cityId})
-        GROUP BY lcga.godown_id, lcd.product_id
+        SELECT source.godown_id, source.product_id, SUM(source.qty) as qty
+        FROM (
+          SELECT lcga.godown_id, lcd.product_id, lcga.qty
+          FROM lot_city_godown_allocations lcga
+          JOIN lot_city_distributions lcd ON lcd.id = lcga.lot_city_distribution_id
+          JOIN godowns g ON g.id = lcga.godown_id
+          WHERE (${cityId}::int IS NULL OR g.city_id = ${cityId})
+          UNION ALL
+          SELECT os.godown_id, os.product_id, os.qty
+          FROM opening_stocks os
+          WHERE (${cityId}::int IS NULL OR os.city_id = ${cityId})
+          UNION ALL
+          SELECT ct.to_godown_id, ct.product_id, ct.qty
+          FROM city_transfers ct
+          JOIN godowns g ON g.id = ct.to_godown_id
+          WHERE ct.status = 'approved' AND ct.opening_inventory_valuation_id IS NOT NULL
+            AND (${cityId}::int IS NULL OR g.city_id = ${cityId})
+        ) source
+        GROUP BY source.godown_id, source.product_id
       ),
       assigned AS (
         SELECT lcga.lot_city_distribution_id, COALESCE(SUM(lcga.qty), 0) as qty
@@ -43,13 +56,22 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
         JOIN godowns g ON g.id = gt.to_godown_id
         WHERE (${cityId}::int IS NULL OR g.city_id = ${cityId})
         GROUP BY gt.to_godown_id, gt.product_id
+      ),
+      opening_city_transferred_out AS (
+        SELECT ct.from_godown_id as godown_id, ct.product_id, COALESCE(SUM(ct.qty), 0) as qty
+        FROM city_transfers ct
+        JOIN godowns g ON g.id = ct.from_godown_id
+        WHERE ct.opening_inventory_valuation_id IS NOT NULL
+          AND ct.status IN ('pending', 'approved')
+          AND (${cityId}::int IS NULL OR g.city_id = ${cityId})
+        GROUP BY ct.from_godown_id, ct.product_id
       )
       SELECT
         g.id as godown_id, g.name as godown_name, c.id as city_id, c.name as city_name,
         co.id as country_id, co.name as country_name,
         p.id as product_id, p.name as product_name,
         p.unit_of_measure, p.pieces_per_carton,
-        (COALESCE(r.qty, 0) - COALESCE(s.qty, 0) - COALESCE(tout.qty, 0) + COALESCE(tin.qty, 0)) as qty
+        (COALESCE(r.qty, 0) - COALESCE(s.qty, 0) - COALESCE(tout.qty, 0) + COALESCE(tin.qty, 0) - COALESCE(octout.qty, 0)) as qty
       FROM godowns g
       JOIN cities c ON c.id = g.city_id
       JOIN countries co ON co.id = c.country_id
@@ -58,6 +80,7 @@ export const GET = withAuth(async (request: NextRequest, context, user: JWTPaylo
       LEFT JOIN sold s ON s.godown_id = g.id AND s.product_id = p.id
       LEFT JOIN transferred_out tout ON tout.godown_id = g.id AND tout.product_id = p.id
       LEFT JOIN transferred_in tin ON tin.godown_id = g.id AND tin.product_id = p.id
+      LEFT JOIN opening_city_transferred_out octout ON octout.godown_id = g.id AND octout.product_id = p.id
       WHERE g.is_active = true AND p.is_active = true
         AND (${cityId}::int IS NULL OR g.city_id = ${cityId})
       UNION ALL

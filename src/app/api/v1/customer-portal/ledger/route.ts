@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
           status: s.status,
           currency: s.currency.code,
           currencySymbol: s.currency.symbol || s.currency.code,
-          lotNumber: item.lot?.lotNumber || s.lot.lotNumber,
+          lotNumber: item.lot?.lotNumber || s.lot?.lotNumber || "Opening Stock",
         })),
         ...(s.discounts || []).map((d) => ({
           type: "discount" as const,
@@ -96,7 +96,7 @@ export async function GET(request: NextRequest) {
           status: s.status,
           currency: s.currency.code,
           currencySymbol: s.currency.symbol || s.currency.code,
-          lotNumber: d.appliedToLot?.lotNumber || s.lot.lotNumber,
+          lotNumber: d.appliedToLot?.lotNumber || s.lot?.lotNumber || "Opening Stock",
         })),
       ]),
       ...payments.map((p) => {

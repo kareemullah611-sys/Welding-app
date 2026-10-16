@@ -1,6 +1,7 @@
 export type SaleLotAllocationItem = {
   productId: number;
   lotId: number | null;
+  openingInventoryValuationId?: number | null;
   stockQty: number;
   cartonQty: number | null;
   ratePerCarton: number;
@@ -11,7 +12,8 @@ export type SaleLotAllocationItem = {
 };
 
 export type AvailableSaleLot = {
-  lotId: number;
+  lotId: number | null;
+  openingInventoryValuationId?: number | null;
   lotNumber: string;
   available: number;
 };
@@ -24,7 +26,12 @@ export function allocateSaleItemAcrossLots(input: {
   const { item, availableLots, roundMoney } = input;
   let remaining = item.stockQty;
   const allocated: SaleLotAllocationItem[] = [];
-  const orderedLots = item.lotId
+  const orderedLots = item.openingInventoryValuationId
+    ? [
+        ...availableLots.filter((lot) => Number(lot.openingInventoryValuationId) === Number(item.openingInventoryValuationId)),
+        ...availableLots.filter((lot) => Number(lot.openingInventoryValuationId) !== Number(item.openingInventoryValuationId)),
+      ]
+    : item.lotId
     ? [
         ...availableLots.filter((lot) => Number(lot.lotId) === Number(item.lotId)),
         ...availableLots.filter((lot) => Number(lot.lotId) !== Number(item.lotId)),
@@ -40,7 +47,7 @@ export function allocateSaleItemAcrossLots(input: {
       ? roundMoney(stockQty * item.ratePerPieceLocal)
       : roundMoney(stockQty * item.ratePerCarton);
     const amountUsd = item.ratePerPieceUsd !== null ? roundMoney(stockQty * item.ratePerPieceUsd) : null;
-    allocated.push({ ...item, lotId: lot.lotId, stockQty, cartonQty, amount, amountUsd });
+    allocated.push({ ...item, lotId: lot.lotId, openingInventoryValuationId: lot.openingInventoryValuationId || null, stockQty, cartonQty, amount, amountUsd });
     remaining = roundMoney(remaining - stockQty);
   }
 
@@ -61,6 +68,7 @@ export function consolidateSaleLotAllocationItems(
     const key = [
       item.productId,
       item.lotId,
+      item.openingInventoryValuationId ?? "",
       item.ratePerCarton,
       item.ratePerPieceLocal ?? "",
       item.ratePerPieceUsd ?? "",
